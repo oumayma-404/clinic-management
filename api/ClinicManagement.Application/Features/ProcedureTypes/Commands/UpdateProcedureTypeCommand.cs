@@ -18,6 +18,11 @@ public class UpdateProcedureTypeCommand : IRequest<Result<ProcedureTypeDto>>
     public decimal? DefaultCost { get; set; }
     public string? ColorHex { get; set; }
     public string? Description { get; set; }
+    /// <summary>
+    /// Clinical discipline. <b>Tri-state, like every other field here</b>: omit to leave it alone, <c>""</c> to
+    /// unfile the act, a label to file it. Canonicalised by the entity, so an unknown label is a new category.
+    /// </summary>
+    public string? Category { get; set; }
     /// <summary>When provided, sets the resulting odontogram state ("" clears it).</summary>
     public string? ResultingCondition { get; set; }
 }
@@ -145,6 +150,13 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 procedureType.UpdateDescription(request.Description);
             }
 
+            // Update the discipline if provided ("" unfiles the act) — the same null-means-unchanged /
+            // empty-means-clear tri-state every other field of this command uses.
+            if (request.Category != null)
+            {
+                procedureType.UpdateCategory(request.Category);
+            }
+
             // Update resulting odontogram state if provided ("" clears it).
             if (request.ResultingCondition != null)
             {
@@ -173,9 +185,12 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 {
                     foreach (var appointment in appointmentList)
                     {
-                        appointment.SetProcedureType(
+                        // Re-snapshot, never re-set: SetProcedureType now means "this visit has exactly this one
+                        // act", so calling it here would delete the other acts of every multi-act séance that
+                        // happens to use the renamed procedure.
+                        appointment.RefreshProcedureSnapshot(
                             procedureType.Id,
-                            appointment.ProcedureDurationMinutes,
+                            procedureType.Name,
                             procedureType.Color.Value);
                         await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
                     }
@@ -196,21 +211,7 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
 
             _logger.LogInformation("Updated procedure type {ProcedureTypeId}", procedureType.Id);
 
-            var dto = new ProcedureTypeDto
-            {
-                Id = procedureType.Id,
-                Name = procedureType.Name,
-                DefaultDurationMinutes = procedureType.DefaultDurationMinutes,
-                DefaultCost = procedureType.DefaultCost,
-                ColorHex = procedureType.Color.Value,
-                Description = procedureType.Description,
-                ResultingCondition = procedureType.ResultingCondition?.ToString(),
-                IsActive = procedureType.IsActive,
-                CreatedAt = procedureType.CreatedAt,
-                UpdatedAt = procedureType.UpdatedAt
-            };
-
-            return Result<ProcedureTypeDto>.Success(dto);
+            return Result<ProcedureTypeDto>.Success(procedureType.ToDto());
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

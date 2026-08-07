@@ -15,6 +15,10 @@ namespace ClinicManagement.Domain.Entities;
 public class ToothState : Entity<Guid>
 {
     public Guid PatientId { get; private set; }
+
+    /// <summary>The owning clinic, denormalised from the patient. See <see cref="PatientMedicalHistory.ClinicId"/>.</summary>
+    public Guid ClinicId { get; private set; }
+
     public int ToothNumber { get; private set; }
     public ToothCondition Condition { get; private set; }
     /// <summary>Whether this entry is a charted diagnosis or a completed treatment (from a dental record).</summary>
@@ -33,6 +37,7 @@ public class ToothState : Entity<Guid>
     public ToothState(
         Guid id,
         Guid patientId,
+        Guid clinicId,
         int toothNumber,
         ToothCondition condition,
         DateTime treatmentDate,
@@ -48,6 +53,7 @@ public class ToothState : Entity<Guid>
 
         Id = id;
         PatientId = patientId;
+        ClinicId = clinicId;
         ToothNumber = toothNumber;
         Condition = condition;
         Source = source;

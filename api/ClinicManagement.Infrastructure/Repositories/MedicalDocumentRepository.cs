@@ -21,6 +21,20 @@ public class MedicalDocumentRepository : IMedicalDocumentRepository
             .FirstOrDefaultAsync(d => d.Id == id, cancellationToken);
     }
 
+    /// <summary>
+    /// The one deliberately scope-independent read here: <c>IgnoreQueryFilters()</c> because the caller
+    /// (<c>PdfGenerationJob</c>) is asking this question precisely in order to *set* the scope. A projection of a
+    /// single Guid, so nothing of another tenant's document is materialised.
+    /// </summary>
+    public async Task<Guid?> GetOwningClinicIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return await _context.MedicalDocuments
+            .IgnoreQueryFilters()
+            .Where(d => d.Id == id)
+            .Select(d => (Guid?)d.Patient.ClinicId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<IEnumerable<MedicalDocument>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default)
     {
         return await _context.MedicalDocuments

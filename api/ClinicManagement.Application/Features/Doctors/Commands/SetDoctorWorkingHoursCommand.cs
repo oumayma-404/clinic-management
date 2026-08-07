@@ -1,5 +1,6 @@
 using System.Text.Json;
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -24,17 +25,20 @@ public class SetDoctorWorkingHoursCommandHandler : IRequestHandler<SetDoctorWork
     private readonly IClinicContext _clinicContext;
     private readonly IUserRepository _userRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<SetDoctorWorkingHoursCommandHandler> _logger;
 
     public SetDoctorWorkingHoursCommandHandler(
         IDoctorRepository doctorRepository,
         IClinicContext clinicContext,
         IUserRepository userRepository,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<SetDoctorWorkingHoursCommandHandler> logger)
     {
         _doctorRepository = doctorRepository;
         _clinicContext = clinicContext;
         _userRepository = userRepository;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<List<WorkingDayDto>>> Handle(SetDoctorWorkingHoursCommand request, CancellationToken cancellationToken)
@@ -62,10 +66,25 @@ public class SetDoctorWorkingHoursCommandHandler : IRequestHandler<SetDoctorWork
             if (!user.IsAdmin() && !isOwnRecord)
                 return Result<List<WorkingDayDto>>.Failure("Vous ne pouvez modifier que votre propre profil.");
 
-            // Validate/canonicalize the incoming payload the same way the clinic-wide hours are stored.
-            var json = request.WorkingHours is { Count: > 0 }
-                ? WorkingHoursSerializer.Normalize(JsonSerializer.Serialize(request.WorkingHours))
-                : null;
+            // AC-P1.23 + AC-P1.26. Two things were wrong here:
+            //  1. The payload was round-tripped through Normalize, whose only failure mode was a JsonException
+            //     — and the input had just been produced by JsonSerializer.Serialize of a typed list, so it
+            //     could never fail. The "validation" was pure ceremony; garbage times persisted.
+            //  2. The result was never null-checked (unlike UpdateClinicCommand), so a payload that *did* fail
+            //     silently CLEARED the practitioner's override instead of reporting an error.
+            // An empty/absent list still means "clear the override" — that is the documented contract (AC-P1.26)
+            // — but it is now the only way to clear it.
+            string? json = null;
+            if (request.WorkingHours is { Count: > 0 })
+            {
+                var validated = WorkingHoursSerializer.Validate(request.WorkingHours);
+                if (validated.IsFailure)
+                {
+                    return Result<List<WorkingDayDto>>.Failure(validated.Error ?? "Horaires de travail invalides.");
+                }
+
+                json = JsonSerializer.Serialize(validated.Value);
+            }
 
             doctor.SetWorkingHours(json);
             _doctorRepository.Update(doctor);
@@ -76,7 +95,9 @@ public class SetDoctorWorkingHoursCommandHandler : IRequestHandler<SetDoctorWork
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<List<WorkingDayDto>>.Failure($"Erreur lors de l'enregistrement des horaires du praticien : {ex.Message}");
+            // A-10: the raw exception was interpolated into a clinic-facing message.
+            _logger.LogError(ex, "Unhandled failure saving working hours for doctor {DoctorId}", request.DoctorId);
+            return Result<List<WorkingDayDto>>.Failure("Erreur lors de l'enregistrement des horaires du praticien. Veuillez réessayer.");
         }
     }
 }

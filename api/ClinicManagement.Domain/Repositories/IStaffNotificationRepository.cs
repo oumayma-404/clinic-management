@@ -53,6 +53,20 @@ public interface IStaffNotificationRepository
     Task<StaffNotification?> GetPostVisitReviewByAppointmentAsync(Guid appointmentId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The (single) live approaching-expiry alert for a stock item, if one exists (AC-P4.6). Looked up by
+    /// item rather than by clinic so the daily scan can keep exactly one row per item in step with its
+    /// earliest expiring batch instead of writing a fresh row on every run.
+    /// </summary>
+    Task<StaffNotification?> GetStockExpiringSoonByItemAsync(Guid stockItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The clinic's live backup-staleness alert, if it has one (L4d). Keyed on the <b>clinic</b> and not on any
+    /// id, because there is exactly one such fact per clinic — which is what makes the ensure/clear pair
+    /// idempotent without a target row to hang off.
+    /// </summary>
+    Task<StaffNotification?> GetBackupStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The viewer's due, unread post-visit review notifications (same unread predicate as
     /// <see cref="CountUnreadAsync"/>, restricted to the <c>PostVisitReview</c> category). Drives the popup.
     /// </summary>

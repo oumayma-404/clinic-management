@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -12,6 +11,13 @@ namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 /// <summary>
 /// Accept a draft plan (devis): assign the per-clinic-per-year number (<c>AAAA-NNNN</c>, separate from
 /// invoices) and freeze it. Numbering is gapless and concurrency-safe (unique index + recompute-and-retry).
+/// <para>
+/// <b>Kept for the drafts that already exist.</b> New plans are accepted by
+/// <c>CreateTreatmentPlanCommand</c>, so nothing reaches this path any more — but deleting it would strand every
+/// pre-existing <c>Draft</c> row in a state with no way out, since <c>SetItems</c>/<c>Accept</c> are the only
+/// Draft-legal operations and the workspace's « Accepter le devis » is what calls this. The numbering itself now
+/// lives in the shared <see cref="DevisNumbering"/>.
+/// </para>
 /// </summary>
 public class AcceptTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
 {
@@ -20,8 +26,6 @@ public class AcceptTreatmentPlanCommand : IRequest<Result<TreatmentPlanDto>>
 
 public class AcceptTreatmentPlanCommandHandler : IRequestHandler<AcceptTreatmentPlanCommand, Result<TreatmentPlanDto>>
 {
-    private const int MaxNumberingAttempts = 5;
-
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
@@ -59,38 +63,18 @@ public class AcceptTreatmentPlanCommandHandler : IRequestHandler<AcceptTreatment
                 return Result<TreatmentPlanDto>.Failure("Plan de traitement introuvable.");
             }
 
-            var year = DateTime.UtcNow.Year;
-
-            for (var attempt = 1; attempt <= MaxNumberingAttempts; attempt++)
+            var accepted = await DevisNumbering.AcceptAndSaveAsync(
+                plan, clinicId, _planRepository, _unitOfWork,
+                ct => _planRepository.UpdateAsync(plan, ct),
+                _logger, cancellationToken);
+            if (accepted.IsFailure)
             {
-                var nextSequence = await _planRepository.GetMaxSequenceForYearAsync(clinicId, year, cancellationToken) + 1;
-                var number = $"{year}-{nextSequence:D4}";
-
-                if (attempt == 1)
-                {
-                    plan.Accept(number);
-                }
-                else
-                {
-                    plan.SetAcceptedNumber(number);
-                }
-
-                await _planRepository.UpdateAsync(plan, cancellationToken);
-
-                try
-                {
-                    await _unitOfWork.SaveChangesAsync(cancellationToken);
-                    _logger.LogInformation("Accepted treatment plan {PlanId} as {Number}", plan.Id, plan.Number);
-                    var patient = await _patientRepository.GetByIdAsync(plan.PatientId, cancellationToken);
-                    return Result<TreatmentPlanDto>.Success(plan.ToDto(patient?.GetFullName()));
-                }
-                catch (DbUpdateException) when (attempt < MaxNumberingAttempts)
-                {
-                    _logger.LogWarning("Devis number {Number} collided on accept attempt {Attempt}; recomputing", number, attempt);
-                }
+                return Result<TreatmentPlanDto>.Failure(accepted.Error!);
             }
 
-            return Result<TreatmentPlanDto>.Failure("Impossible d'attribuer un numéro de devis unique. Veuillez réessayer.");
+            _logger.LogInformation("Accepted treatment plan {PlanId} as {Number}", plan.Id, plan.Number);
+            var patient = await _patientRepository.GetByIdAsync(plan.PatientId, cancellationToken);
+            return Result<TreatmentPlanDto>.Success(plan.ToDto(patient?.GetFullName()));
         }
         catch (InvalidOperationException ex)
         {

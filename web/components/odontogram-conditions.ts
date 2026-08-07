@@ -14,6 +14,10 @@ export interface ConditionStyle {
 export const CONDITIONS: Record<string, ConditionStyle> = {
   Sain: { label: "Sain", box: "bg-background text-foreground border-border", swatch: "bg-background border-border", color: "#e5e7eb" },
   Carie: { label: "Carie", box: "bg-red-500 text-white border-red-600", swatch: "bg-red-500", color: "#ef4444" },
+  // ⚠️ Stays literal blue, and must NOT be routed to `--primary`. This is a **categorical clinical palette** — the
+  // hues identify tooth conditions by long-standing charting convention, not by the app's accent — and it is
+  // mirrored by the `color` hex the SVG chart paints with, so a class and a hex that disagree would render the
+  // legend one colour and the tooth another. It also has to stay clear of `Bridge`, which is the teal one.
   Obturation: { label: "Obturation", box: "bg-blue-500 text-white border-blue-600", swatch: "bg-blue-500", color: "#3b82f6" },
   Couronne: { label: "Couronne", box: "bg-amber-500 text-white border-amber-600", swatch: "bg-amber-500", color: "#f59e0b" },
   TraitementDeCanal: { label: "Traitement de canal", box: "bg-purple-500 text-white border-purple-600", swatch: "bg-purple-500", color: "#a855f7" },
@@ -35,6 +39,23 @@ export const CONDITION_ORDER = [
   "ExtraitAbsent",
   "ATraiter",
 ]
+
+/**
+ * The conditions that describe **work still to do**, as opposed to work already done or a tooth that is gone.
+ *
+ * A charted diagnosis records what the dentist *observed*, and most of the observations are restorations:
+ * « Obturation », « Couronne », « Traitement de canal », « Bridge », « Implant » all say the tooth has already been
+ * treated, and « Extrait / Absent » says there is no tooth. Only « Carie » and « À traiter » call for an act.
+ *
+ * Kept here rather than inline in the record modal because it is a statement about the condition set itself, and
+ * the same question ("does this tooth need something?") belongs to the odontogram too.
+ */
+export const NEEDS_TREATMENT_CONDITIONS = ["Carie", "ATraiter"] as const
+
+/** True when a charted condition calls for treatment. Unknown values read as "no" — never invent work. */
+export function needsTreatment(condition: string | null | undefined): boolean {
+  return !!condition && (NEEDS_TREATMENT_CONDITIONS as readonly string[]).includes(condition)
+}
 
 export const SURFACE_ORDER = ["M", "O", "D", "V", "L"]
 

@@ -41,14 +41,18 @@ public class UpdateClinicLogoAtomicityTests
 
     private void NewLogoUploadReturns(string key) =>
         _fileStorage
-            .Setup(f => f.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(f => f.UploadAsync(
+                It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(key);
 
+    // Real PNG bytes with a .png name: the logo now goes through the shared upload profile, which keys on the
+    // extension and refuses bytes that disagree with it. Three arbitrary bytes were fine when it validated nothing.
     private static UpdateClinicCommand WithLogo() => new()
     {
         Name = "Cabinet Dentaire",
-        LogoFile = new MemoryStream(new byte[] { 9, 9, 9 }),
-        LogoContentType = "image/png",
+        LogoFile = new MemoryStream(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }),
+        LogoFileName = "logo.png",
+        LogoLength = 8,
     };
 
     private static UpdateClinicCommand WithoutLogo() => new() { Name = "Renamed Cabinet" };

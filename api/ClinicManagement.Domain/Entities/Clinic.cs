@@ -21,12 +21,33 @@ public class Clinic : AggregateRoot<Guid>
     public bool StampDutyEnabled { get; private set; }
     public decimal StampDutyAmount { get; private set; }
 
-    // TTN « El Fatoora » electronic-invoicing settings (FR-8). Non-secret only: the on/off toggle + target
-    // environment. Credentials/endpoint + the qualified certificate live in the per-install .local/ store,
-    // never in the DB.
+    // TTN « El Fatoora » electronic-invoicing settings (FR-8): the on/off toggle + target environment.
     public bool TtnEInvoicingEnabled { get; private set; }
     /// <summary>Target TTN environment: "Sandbox" (default, safe) or "Production".</summary>
     public string TtnEnvironment { get; private set; } = TtnEnvironmentSandbox;
+
+    /*
+     * The clinic's OWN El Fatoora identity (multi-tenant-cloud US-4). All four nullable: a clinic that has not
+     * been issued a qualified certificate has none, which is different from « e-invoicing is off ».
+     *
+     * ⚠️ Why these moved into the DB at all. The identity used to be per *install* — one .local/teif-signing.pfx
+     * and one Ttn:Username — which XadesEInvoiceSigner's own docstring already named as a defect: in a
+     * multi-clinic install every clinic's invoices are signed with the same qualified identity, and a TEIF
+     * signature attests WHO ISSUED the invoice. One hosted backend serving many practices makes that a legal
+     * misattribution, not a configuration inconvenience.
+     *
+     * The per-install values survive as a fall-back only where the install serves one clinic
+     * (DeploymentProfile.SharesInstallWideTtnIdentity); elsewhere a clinic with no identity of its own is
+     * refused rather than signed by somebody else's key.
+     */
+    /// <summary>OAuth2 client id / username for this clinic's TTN account (non-secret identifier).</summary>
+    public string? TtnUsername { get; private set; }
+    /// <summary>OAuth2 client secret, as Data-Protection ciphertext (see <c>ITtnSecretProtector</c>).</summary>
+    public string? TtnApiSecretEncrypted { get; private set; }
+    /// <summary>File-storage key of this clinic's qualified signing certificate (PFX). Not the bytes.</summary>
+    public string? TtnCertificateKey { get; private set; }
+    /// <summary>That PFX's password, as Data-Protection ciphertext. Null is legal — a PFX may have none.</summary>
+    public string? TtnCertificatePasswordEncrypted { get; private set; }
 
     // Working hours as a JSON array of per-day {day, enabled, from, to} (reliability-and-polish AC-7). Null =
     // no saved hours yet; the UI then falls back to the shared default. Opaque JSON here — the shape is owned
@@ -45,6 +66,58 @@ public class Clinic : AggregateRoot<Guid>
     // Patient-recall interval in months (clinical-workflow-depth): how long after a patient's last visit they
     // are considered "à relancer". Defaults to 6 months.
     public int RecallIntervalMonths { get; private set; }
+
+    /// <summary>
+    /// How many days ahead a stock lot counts as « expire bientôt » (AC-P4.6). Per-clinic and configurable,
+    /// following <see cref="RecallIntervalMonths"/> — the established shape for a clinic-tunable threshold —
+    /// rather than a per-install config key, because the Application layer has no configuration dependency and
+    /// two clinics on one install legitimately order on different cycles.
+    ///
+    /// Defaults to 30: dental consumables are ordered on a monthly-ish cycle, so a month is the shortest notice
+    /// that still lets a clinic use up a lot or reorder before it is wasted.
+    /// </summary>
+    public int StockExpiryLeadDays { get; private set; }
+
+    /*
+     * ── Unattended backup (L4a/L4d) ──────────────────────────────────────────────────────────────────────────
+     *
+     * Four settings, on the clinic and not in config, for the reason RecallIntervalMonths and
+     * StockExpiryLeadDays are: the Application layer has no configuration dependency, and this is a thing the
+     * *practice* decides (« sauvegarde à 2 h, garder une semaine »), not a thing the installer decides.
+     *
+     * ⚠️ Every one of them ships with a caller in the same change — `BackupJob` reads all four, and
+     * `SetBackupSettings` is called by `UpdateClinicCommand`. `SetStockExpiryLeadDays` shipped with **zero**
+     * production callers and its window has been permanently 30 days ever since; the spec names that failure
+     * explicitly as the one not to repeat.
+     */
+
+    /// <summary>Whether the daily unattended backup runs for this clinic. On by default: the whole point of L4 is
+    /// that protection must not depend on someone remembering to press a button.</summary>
+    public bool BackupEnabled { get; private set; }
+
+    /// <summary>
+    /// The <b>clinic-local</b> hour the daily backup runs (0–23). Local and not UTC because 02:00 means « the
+    /// middle of the night at the practice », which is 01:00 UTC — and a Tunisian clinic reading « 2 » on a
+    /// settings screen must get 2 o'clock its own time.
+    /// </summary>
+    public int BackupHourLocal { get; private set; }
+
+    /// <summary>
+    /// How many timestamped backup folders to keep. The pruner drops the oldest beyond this count and
+    /// <b>never the last surviving one</b>, whatever the setting says.
+    /// </summary>
+    public int BackupRetentionCount { get; private set; }
+
+    /// <summary>
+    /// After how many hours without a successful backup the admins are told. Distinct from the schedule so a
+    /// clinic backing up daily is not warned by a one-off failure it already saw, but is warned by two.
+    /// </summary>
+    public int BackupStaleAfterHours { get; private set; }
+
+    /// <summary>Defaults, also used by the migration's backfill so the column and the entity cannot disagree.</summary>
+    public const int DefaultBackupHourLocal = 2;
+    public const int DefaultBackupRetentionCount = 7;
+    public const int DefaultBackupStaleAfterHours = 48;
 
     public const string TtnEnvironmentSandbox = "Sandbox";
     public const string TtnEnvironmentProduction = "Production";
@@ -80,14 +153,42 @@ public class Clinic : AggregateRoot<Guid>
         Phone = phone;
         Email = email;
         Code = code;
-        // Billing defaults for a Tunisian clinic: VAT off by default (7 % when enabled), stamp duty on at 1,000 DT.
-        VatApplicable = false;
+        /*
+         * Billing defaults for a Tunisian clinic (J11).
+         *
+         * ⚠️ `VatApplicable` defaults to **true**, and it used to be false — the wrong way round. Dental acts are
+         * NOT TVA-exempt in Tunisia: Code de la TVA, Tableau « B » nouveau, § II « Les activités et les
+         * services », n° 1 lists services performed by « les médecins, les médecins spécialistes, **les
+         * dentistes**, les sages-femmes et les vétérinaires » among those **subject to VAT at the reduced rate**,
+         * and Tableau « A » (the exonérations) contains no hit for médecin / dentiste / soins / santé / clinique.
+         * There is no exemption to invoke. LF 2018 re-based the reduced rate to **7 %**.
+         *
+         * So a clinic that never opened this screen was issuing notes d'honoraires that charged no TVA and
+         * carried no rate — while Code TVA art. 18 § II requires the invoice to state « les taux et les montants
+         * de la taxe sur la valeur ajoutée ». The default is what almost every clinic ships with, which makes it
+         * the setting that matters most.
+         *
+         * Both stay **editable**: a cabinet under the forfait régime is genuinely non-assujetti, and a rate can
+         * move by finance law. And this is a default on a *new* clinic only — existing rows are deliberately not
+         * migrated, because flipping `VatApplicable` retroactively would change what already-issued notes assert.
+         * Those admins get a notice in clinic settings citing Tableau B and decide for themselves.
+         *
+         * `StampDutyAmount = 1.000` is correct and stays: Code des droits d'enregistrement et de timbre
+         * art. 117 § I n° 6° — « Les factures … 1,000 par facture ». LF 2026's 1,5 / 2 DT tiers apply to grandes
+         * surfaces (built area > 3 000 m²) only, never to a cabinet.
+         */
+        VatApplicable = true;
         VatRate = 7m;
         StampDutyEnabled = true;
         StampDutyAmount = 1.000m;
         TtnEInvoicingEnabled = false;
         TtnEnvironment = TtnEnvironmentSandbox;
         RecallIntervalMonths = 6;
+        StockExpiryLeadDays = DefaultStockExpiryLeadDays;
+        BackupEnabled = true;
+        BackupHourLocal = DefaultBackupHourLocal;
+        BackupRetentionCount = DefaultBackupRetentionCount;
+        BackupStaleAfterHours = DefaultBackupStaleAfterHours;
         CreatedAt = DateTime.UtcNow;
     }
 
@@ -136,6 +237,47 @@ public class Clinic : AggregateRoot<Guid>
         TtnEnvironment = normalized;
         UpdatedAt = DateTime.UtcNow;
     }
+
+    /// <summary>
+    /// Set (or clear) this clinic's own El Fatoora identity — its TTN account and its qualified signing
+    /// certificate (multi-tenant-cloud US-4). Both secrets arrive already encrypted: this layer never sees a
+    /// plaintext credential, and <c>ITtnSecretProtector</c> is the only thing that does.
+    ///
+    /// <para>Blank is stored as null throughout, so « the operator cleared the field » and « the operator never
+    /// filled it in » are the same state — the resolver treats both as « this clinic has no identity », which is
+    /// the only reading that lets a mistyped value be undone.</para>
+    ///
+    /// <para>⚠️ Refuses <b>half</b> an identity, because the halves are useless apart and the failure would
+    /// otherwise surface hours later as a queued invoice: a secret with no username cannot authenticate, and a
+    /// certificate password with no certificate is ciphertext nothing can open. A password with no secret, or a
+    /// certificate with no TTN account, is legal — the signing half and the submitting half are provisioned
+    /// separately and a clinic mid-provisioning must be storable.</para>
+    /// </summary>
+    public void SetTtnIdentity(
+        string? username,
+        string? apiSecretEncrypted,
+        string? certificateKey,
+        string? certificatePasswordEncrypted)
+    {
+        var resolvedUsername = Blank(username);
+        var resolvedApiSecret = Blank(apiSecretEncrypted);
+        var resolvedCertificateKey = Blank(certificateKey);
+        var resolvedCertificatePassword = Blank(certificatePasswordEncrypted);
+
+        if (resolvedApiSecret != null && resolvedUsername == null)
+            throw new ArgumentException("Un secret TTN sans identifiant est inutilisable.", nameof(username));
+
+        if (resolvedCertificatePassword != null && resolvedCertificateKey == null)
+            throw new ArgumentException("Un mot de passe de certificat sans certificat est inutilisable.", nameof(certificateKey));
+
+        TtnUsername = resolvedUsername;
+        TtnApiSecretEncrypted = resolvedApiSecret;
+        TtnCertificateKey = resolvedCertificateKey;
+        TtnCertificatePasswordEncrypted = resolvedCertificatePassword;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     public void SetCode(string code)
     {
@@ -186,6 +328,58 @@ public class Clinic : AggregateRoot<Guid>
         }
 
         RecallIntervalMonths = months;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>The default approaching-expiry window, also used by the migration's backfill.</summary>
+    public const int DefaultStockExpiryLeadDays = 30;
+
+    /// <summary>
+    /// Sets the approaching-expiry window in days (1–365). Drives which stock items are flagged as expiring
+    /// soon and which generate the approaching-expiry notification (AC-P4.6).
+    /// </summary>
+    public void SetStockExpiryLeadDays(int days)
+    {
+        if (days < 1 || days > 365)
+        {
+            throw new ArgumentException("Le délai d'alerte de péremption doit être compris entre 1 et 365 jours.", nameof(days));
+        }
+
+        StockExpiryLeadDays = days;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Sets the unattended-backup schedule (L4a). One mutator for the four fields rather than four, because they
+    /// are one decision — « sauvegarder tous les jours à 2 h, garder 7 copies, m'avertir après 48 h » — and a
+    /// per-field setter invites a settings screen that saves half of it.
+    /// </summary>
+    /// <param name="hourLocal">Clinic-local hour, 0–23.</param>
+    /// <param name="retentionCount">Folders to keep, 1–365. One is legal: it means « garder la dernière ».</param>
+    /// <param name="staleAfterHours">Hours without a success before the admins are told, 1–720.</param>
+    public void SetBackupSettings(bool enabled, int hourLocal, int retentionCount, int staleAfterHours)
+    {
+        if (hourLocal < 0 || hourLocal > 23)
+        {
+            throw new ArgumentException("L'heure de sauvegarde doit être comprise entre 0 et 23.", nameof(hourLocal));
+        }
+
+        if (retentionCount < 1 || retentionCount > 365)
+        {
+            throw new ArgumentException(
+                "Le nombre de sauvegardes à conserver doit être compris entre 1 et 365.", nameof(retentionCount));
+        }
+
+        if (staleAfterHours < 1 || staleAfterHours > 720)
+        {
+            throw new ArgumentException(
+                "Le délai d'alerte de sauvegarde doit être compris entre 1 et 720 heures.", nameof(staleAfterHours));
+        }
+
+        BackupEnabled = enabled;
+        BackupHourLocal = hourLocal;
+        BackupRetentionCount = retentionCount;
+        BackupStaleAfterHours = staleAfterHours;
         UpdatedAt = DateTime.UtcNow;
     }
 }

@@ -23,7 +23,7 @@ public class CreditNoteConfiguration : IEntityTypeConfiguration<CreditNote>
         builder.HasIndex(c => new { c.ClinicId, c.Number }).IsUnique();
 
         builder.Property(c => c.IssueDate).IsRequired();
-        builder.Property(c => c.Amount).HasColumnType("decimal(18,3)");
+        builder.Property(c => c.Amount);
         builder.Property(c => c.Reason).IsRequired().HasMaxLength(1000);
         builder.Property(c => c.Method).HasConversion<int>();
         builder.Property(c => c.RefundedOn).IsRequired();

@@ -6,6 +6,8 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Recall.Commands;
 using ClinicManagement.Application.Features.Recall.Queries;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 /// <summary>
@@ -14,7 +16,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/patients/recalls")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class RecallController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -26,9 +28,20 @@ public class RecallController : ApiControllerBase
 
     /// <summary>The clinic's due/overdue patients (« à relancer »), most overdue first.</summary>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<RecallDto>>> GetRecalls()
+    /// <param name="page">1-based page number. Omit both paging parameters to get every patient due.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">Free-text filter over the patient's name and phone, applied before the page is cut.</param>
+    public async Task<ActionResult<PagedResult<RecallDto>>> GetRecalls(
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null)
     {
-        var result = await _mediator.Send(new GetPatientsToRecallQuery());
+        var result = await _mediator.Send(new GetPatientsToRecallQuery
+        {
+            Page = page,
+            PageSize = pageSize,
+            SearchTerm = search
+        });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

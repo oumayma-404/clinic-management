@@ -1,4 +1,5 @@
 using ClinicManagement.API.Maintenance;
+using ClinicManagement.Infrastructure.Deployment;
 using Xunit;
 
 namespace ClinicManagement.UnitTests.Api.Maintenance;
@@ -48,7 +49,10 @@ public sealed class ProvisionCertCommandTests
             var exitCode = ProvisionCertCommand.Run(new[] { ProvisionCertCommand.CommandName });
 
             Assert.Equal(1, exitCode);
-            Assert.Contains("Local", capturedError.ToString());
+            // Part A replaced « Local mode » with the resolved profile, so the refusal now names the profile it
+            // resolved — which is the more useful message and the one to hold. `nameof` so a rename cannot leave
+            // this asserting a string that no longer exists.
+            Assert.Contains(nameof(DeploymentKind.CloudBrowser), capturedError.ToString());
         }
         finally
         {

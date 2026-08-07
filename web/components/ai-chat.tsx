@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Card } from "@/components/ui/card"
 // Using div with overflow instead of ScrollArea
-import { Send, Bot, User, Loader2, X, Trash2, Mic, MicOff } from "lucide-react"
+import { Send, Bot, User, Loader2, X, Trash2, Mic, MicOff, Volume2, VolumeX, Square, WifiOff } from "lucide-react"
 import { aiChatApi, type ChatMessage } from "@/lib/api/ai-chat"
 import { patientsApi } from "@/lib/api/patients"
 import type { PatientDto } from "@/lib/api/types"
@@ -14,6 +14,7 @@ import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { useSession } from "@/lib/auth/session"
+import { isChromeLessPath } from "@/lib/nav"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
@@ -24,11 +25,15 @@ const AUTO_OPEN_MS = 5000
 const AUTO_OPEN_ONCE_KEY = "clinic:ai-chat-greeted"
 
 /**
- * Auth / onboarding routes the assistant must stay off. A path check is needed on top of the
- * session check: on /setup and /join a Cloud user IS authenticated (Auth0 session, no clinic yet),
- * and /change-password is a forced interstitial.
+ * Whether the assistant reads its replies aloud. `localStorage`, not `sessionStorage`, because AC-P3.25
+ * requires the preference to survive a reload; **off** unless the value is exactly "1", so a corrupt or
+ * absent value lands on the quiet default (AC-P3.24 — reading every reply aloud in a shared consultation
+ * room, over a patient, was the § 7.4 complaint).
  */
-const HIDDEN_PATHS = ["/login", "/setup", "/join", "/change-password"]
+const SPEECH_ENABLED_KEY = "clinic:ai-chat-speech"
+
+// The chrome-less route list moved to `lib/nav.ts` — the assistant and P2's bottom bar must agree on which
+// routes render no chrome, and two copies of that list is how they stop agreeing.
 
 interface AIChatProps {
   className?: string
@@ -49,6 +54,8 @@ export function AIChat({ className }: AIChatProps) {
   const [isListening, setIsListening] = useState(false)
   const [isSpeechSupported, setIsSpeechSupported] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
+  // Off by default (AC-P3.24). Read from storage after mount so the server and client render the same thing.
+  const [isSpeechEnabled, setIsSpeechEnabled] = useState(false)
   const [patients, setPatients] = useState<PatientDto[]>([])
   const { currentUserDoctor } = useDoctors()
   // AI chat calls HuggingFace via the server, so it needs internet. In Local mode when the server has
@@ -65,10 +72,7 @@ export function AIChat({ className }: AIChatProps) {
 
   // The assistant has no business on screen before there is a session, or on the auth/onboarding
   // routes. Everything below keys off this so no work (and no doomed API call) happens while hidden.
-  const isHidden =
-    isSessionLoading ||
-    !user ||
-    HIDDEN_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+  const isHidden = isSessionLoading || !user || isChromeLessPath(pathname)
 
   /** Drop the pending auto-collapse so the greeting timer never fights a deliberate open/close. */
   const cancelAutoCollapse = useCallback(() => {
@@ -94,6 +98,33 @@ export function AIChat({ className }: AIChatProps) {
       scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight
     }
   }, [messages])
+
+  // AC-P3.25 — restore the saved preference. Storage being unavailable (private mode) simply keeps the
+  // quiet default rather than throwing on mount.
+  useEffect(() => {
+    try {
+      setIsSpeechEnabled(window.localStorage.getItem(SPEECH_ENABLED_KEY) === "1")
+    } catch {
+      // Keep the default.
+    }
+  }, [])
+
+  const toggleSpeech = useCallback(() => {
+    setIsSpeechEnabled((prev) => {
+      const next = !prev
+      try {
+        window.localStorage.setItem(SPEECH_ENABLED_KEY, next ? "1" : "0")
+      } catch {
+        // The toggle still applies for this session; only persistence is lost.
+      }
+      // Turning it off mid-sentence must silence the reply that is already playing, not just the next one.
+      if (!next && synthRef.current) {
+        synthRef.current.cancel()
+        setIsSpeaking(false)
+      }
+      return next
+    })
+  }, [])
 
   // Load patients list for autocorrect. Gated on visibility: hooks still run when the component
   // renders null, so without this the widget fired a guaranteed-401 patients call on every /login load.
@@ -296,9 +327,10 @@ export function AIChat({ className }: AIChatProps) {
 
       const assistantMessage = { role: "assistant" as const, content: response.message }
       setMessages([...newMessages, assistantMessage])
-      
-      // Speak the response if speech synthesis is available
-      if (synthRef.current) {
+
+      // AC-P3.24 — read aloud only when the user has asked for it. This used to fire on every reply for
+      // anyone whose browser has speech synthesis, i.e. everyone.
+      if (isSpeechEnabled && synthRef.current) {
         speakText(response.message)
       }
     } catch (error) {
@@ -659,7 +691,10 @@ export function AIChat({ className }: AIChatProps) {
 
   if (isMinimized) {
     return (
-      <div className={cn("fixed bottom-4 right-4 z-50", className)}>
+      // Clears the bottom bar (AC-8). `--bottom-inset` is the bar plus the home indicator; above `md:` there
+      // is no bar and the original `bottom-4` stands.
+      // `print:hidden` (AC-9): being `fixed`, on paper it prints OVER the document rather than beside it.
+      <div className={cn("fixed bottom-[calc(1rem+var(--bottom-inset))] right-4 z-50 md:bottom-4 print:hidden", className)}>
         <Button
           onClick={handleExpand}
           className="rounded-full h-14 w-14 shadow-lg bg-primary hover:bg-primary/90"
@@ -673,7 +708,24 @@ export function AIChat({ className }: AIChatProps) {
   }
 
   return (
-    <Card className={cn("fixed bottom-4 right-4 w-96 h-[600px] flex flex-col shadow-2xl z-50", className)}>
+    // AC-P3.16 — viewport-relative below `md:`. A fixed `w-96 h-[600px]` panel is wider than a 375px phone
+    // and taller than its viewport, so on a phone the assistant covered the page and its input sat off-screen.
+    // At `md:` and above the original geometry is unchanged.
+    //
+    // ⚠️ AC-P3.16's bottom offset is deliberately re-opened by AC-8: `bottom-4` now sat on top of the bottom
+    // nav bar. It becomes `1rem + --bottom-inset` below `md:` — the same 1rem gap it always had, measured from
+    // above the bar instead of from the viewport floor — and the available height drops by the same amount so
+    // the panel still ends 1rem below the header rather than growing past it.
+    <Card
+      className={cn(
+        "fixed bottom-[calc(1rem+var(--bottom-inset))] left-4 right-4 flex h-[70dvh] max-h-[calc(100dvh-2rem-var(--bottom-inset))] flex-col shadow-2xl z-50",
+        "md:bottom-4 md:left-auto md:h-[600px] md:max-h-none md:w-96",
+        // The expanded panel too, not just the launcher (AC-9) — printing with the assistant open is the likelier
+        // case, since that is when someone is reading something they then want on paper.
+        "print:hidden",
+        className
+      )}
+    >
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b bg-primary text-primary-foreground rounded-t-lg">
         <div className="flex items-center gap-2">
@@ -681,6 +733,7 @@ export function AIChat({ className }: AIChatProps) {
           <h3 className="font-semibold">Assistant IA</h3>
         </div>
         <div className="flex items-center gap-1">
+          {/* AC-P3.26 — while a reply is playing, stopping it stays one click away. */}
           {isSpeaking && (
             <Button
               variant="ghost"
@@ -688,10 +741,24 @@ export function AIChat({ className }: AIChatProps) {
               className="h-8 w-8 p-0 text-primary-foreground hover:bg-primary-foreground/20"
               onClick={stopSpeaking}
               title="Arrêter la lecture"
+              aria-label="Arrêter la lecture"
             >
-              <MicOff className="h-4 w-4" />
+              <Square className="h-4 w-4" />
             </Button>
           )}
+          {/* AC-P3.25 — the persistent, discoverable control. `aria-pressed` states which way it is set,
+              since the icon alone cannot say so to a screen reader. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0 text-primary-foreground hover:bg-primary-foreground/20"
+            onClick={toggleSpeech}
+            aria-pressed={isSpeechEnabled}
+            title={isSpeechEnabled ? "Désactiver la lecture à voix haute" : "Activer la lecture à voix haute"}
+            aria-label={isSpeechEnabled ? "Désactiver la lecture à voix haute" : "Activer la lecture à voix haute"}
+          >
+            {isSpeechEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -762,10 +829,19 @@ export function AIChat({ className }: AIChatProps) {
 
       {/* Input */}
       <div className="p-4 border-t">
+        {/* `bg-warning-wash` + `text-warning-ink`, not `amber-50/700` with a hand-maintained `dark:` twin: the
+            tokens already carry their dark values, so the twin is deleted rather than translated — a second,
+            hand-kept dark mode is precisely what drifts. `text-warning-ink` and not `text-warning`, because
+            `--warning` on its own wash lands near 3.5:1 and this is 12px text. */}
         {!internetReachable && (
-          <div className="mb-2 flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-            <MicOff className="h-3.5 w-3.5" />
-            Connexion internet requise — l'assistant IA est temporairement indisponible.
+          <div
+            role="status"
+            className="mb-2 flex items-center gap-2 rounded-md bg-warning-wash px-2 py-1.5 text-xs text-warning-ink"
+          >
+            {/* WifiOff, not MicOff — this banner is about connectivity, and the mic icon read as a
+                microphone problem right next to the real mic button. */}
+            <WifiOff className="h-3.5 w-3.5" />
+            Connexion internet requise — l&apos;assistant IA est temporairement indisponible.
           </div>
         )}
         <div className="flex gap-2">
@@ -775,9 +851,11 @@ export function AIChat({ className }: AIChatProps) {
               disabled={isLoading || !internetReachable}
               size="icon"
               variant={isListening ? "destructive" : "outline"}
-              className={cn(
-                isListening && "animate-pulse bg-red-500 hover:bg-red-600 text-white"
-              )}
+              /* Only the pulse. `variant="destructive"` already paints `bg-destructive text-white
+                 hover:bg-destructive/90`, so `bg-red-500 hover:bg-red-600 text-white` was a hardcoded
+                 re-implementation of the variant it sits on — one that ignores the theme and would survive a
+                 change to `--destructive` as a divergent red next to every other refusal in the app. */
+              className={cn(isListening && "animate-pulse")}
               title={isListening ? "Cliquez pour arrêter l'enregistrement" : "Cliquez pour la saisie vocale"}
             >
               {isListening ? (
@@ -807,6 +885,7 @@ export function AIChat({ className }: AIChatProps) {
             disabled={!input.trim() || isLoading || isListening || !internetReachable}
             size="icon"
             className="bg-primary hover:bg-primary/90"
+            aria-label="Envoyer le message"
           >
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -817,7 +896,9 @@ export function AIChat({ className }: AIChatProps) {
         </div>
         {isListening && (
           <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2">
-            <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse" />
+            {/* `bg-destructive`, not `bg-red-500` — the recording dot and the mic button beside it are the same
+                signal and must be the same red, which only holds if both read the token. */}
+            <div className="size-2 animate-pulse rounded-full bg-destructive" />
             Enregistrement… Cliquez à nouveau sur le micro pour arrêter
           </div>
         )}

@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -64,10 +65,13 @@ public class GetPatientBillingSummaryQueryHandler
                 throw new NotFoundException("Patient introuvable.");
             }
 
-            var now = DateTime.UtcNow;
+            // The clinic's calendar day, not the UTC one (AC-P6.4). This read takes no date arguments, so a
+            // caller cannot compensate: between 00:00 and 01:00 Tunis, `DateTime.UtcNow.Date` is still
+            // yesterday, and an échéance due today would be reported « en retard ».
+            var clinicToday = ClinicClock.ClinicToday();
 
             // Invoices — only issued, non-cancelled ones carry a balance.
-            var invoices = (await _invoiceRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken))
+            var invoices = (await _invoiceRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken)).Items
                 .Where(i => i.Status != InvoiceStatus.Draft && i.Status != InvoiceStatus.Cancelled)
                 .ToList();
 
@@ -78,20 +82,32 @@ public class GetPatientBillingSummaryQueryHandler
             // Treatment plans — count only committed plans (a Draft devis is an unaccepted quote, not debt),
             // and skip any already billed to an invoice above. Both rules live in PlanBillingRules, shared
             // with « Créances », la caisse and the dashboard so the four reads report the same figure.
-            var plans = (await _planRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken))
+            var plans = (await _planRepository.GetFilteredAsync(clinicId, patientId: request.PatientId, cancellationToken: cancellationToken)).Items
                 .Where(p => PlanBillingRules.CarriesDebt(p.Status) && !billedPlanIds.Contains(p.Id))
                 .ToList();
 
             var invoiceOutstanding = InvoiceCalculator.RoundMoney(invoices.Sum(i => i.Outstanding));
             var installmentOutstanding = InvoiceCalculator.RoundMoney(plans.Sum(p => p.Outstanding));
 
-            DateTime? oldestOverdue = plans
+            var overdueInstallmentDates = plans
                 .SelectMany(p => p.Installments)
                 // Compared by CALENDAR DAY, not instant. Due dates are stored at midnight, so `DueDate < now`
                 // made an échéance overdue from 00:00 on its own due date — a full day early. It is late only
                 // once its day has passed. Matches GetPatientsToRecallQuery, which already truncates.
-                .Where(i => !i.IsPaid && i.DueDate.Date < now.Date)
-                .Select(i => (DateTime?)i.DueDate)
+                .Where(i => !i.IsPaid && i.DueDate.Date < clinicToday)
+                .Select(i => i.DueDate);
+
+            // The invoice track dates the debt too (J7). « Solde patient » carried the same plan-only blind spot
+            // « Créances » did: a patient whose only debt is an unpaid note d'honoraires showed a balance with no
+            // « depuis quand » beside it. A note is payable on issue, so its issue date is when the debt started
+            // — and unlike the receivables list this read already holds the invoices, so no extra query is needed.
+            var unpaidInvoiceDates = invoices
+                .Where(i => i.Outstanding > 0m && i.IssueDate.HasValue)
+                .Select(i => i.IssueDate!.Value);
+
+            DateTime? oldestOverdue = overdueInstallmentDates
+                .Concat(unpaidInvoiceDates)
+                .Select(d => (DateTime?)d)
                 .DefaultIfEmpty(null)
                 .Min();
 

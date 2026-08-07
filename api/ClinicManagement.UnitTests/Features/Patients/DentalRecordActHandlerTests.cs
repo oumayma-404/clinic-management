@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients.Commands;
@@ -7,6 +7,7 @@ using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
 using Microsoft.Extensions.Logging.Abstractions;
+using MediatR;
 using Moq;
 using Xunit;
 
@@ -84,13 +85,41 @@ public class DentalRecordActHandlerTests
                 .Returns(Task.CompletedTask);
         }
 
-        public CreateDentalRecordCommandHandler CreateHandler() => new(
-            Patients.Object, Records.Object, ToothStates.Object, Plans.Object, Appointments.Object,
-            Resolver.Object, Uow.Object, Generator.Object, Realtime.Object,
-            NullLogger<CreateDentalRecordCommandHandler>.Instance);
+        /// <summary>
+        /// Stock consumption is a post-commit best-effort side effect (AC-P4.13); a bare mock is enough for
+        /// these act/odontogram tests, and `StockConsumptionTests` covers the behaviour itself.
+        /// </summary>
+        public Mock<IStockConsumptionService> StockConsumption { get; } = new();
+
+        /// <summary>
+        /// Auto-billing is a post-commit best-effort side effect like stock consumption, so a bare sender is
+        /// enough here — `DentalRecordAutoBillingTests` covers the behaviour itself. A bare `Mock&lt;ISender&gt;`
+        /// returns a null `Result`, which the seam treats as a failure and reports rather than throwing; these
+        /// act/odontogram tests only care that the record itself still saves.
+        /// </summary>
+        public Mock<ISender> Sender { get; } = new();
+
+        // L9 — arranged to reproduce this harness's ORIGINAL behaviour: an empty roster and no caller doctor means
+        // `PractitionerAttribution.Resolve` finds no candidate, so the fiche stays unattributed exactly as before.
+        public Mock<IDoctorRepository> Doctors { get; } = new();
+        public Mock<IClinicContext> Context { get; } = new();
+
+        public CreateDentalRecordCommandHandler CreateHandler()
+        {
+            Doctors.Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Array.Empty<Doctor>());
+            Context.Setup(c => c.GetUserId()).Returns((string?)null);
+            return CreateHandlerCore();
+        }
+
+        private CreateDentalRecordCommandHandler CreateHandlerCore() => new(
+            Patients.Object, Records.Object, ToothStates.Object, Plans.Object, Doctors.Object, Context.Object,
+            Appointments.Object, Resolver.Object, Uow.Object, Generator.Object, StockConsumption.Object,
+            Realtime.Object, Sender.Object, NullLogger<CreateDentalRecordCommandHandler>.Instance);
 
         public UpdateDentalRecordCommandHandler UpdateHandler() => new(
-            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Resolver.Object, Uow.Object);
+            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Resolver.Object, Uow.Object,
+            StockConsumption.Object, Sender.Object, NullLogger<UpdateDentalRecordCommandHandler>.Instance);
 
         public CreateDentalRecordCommand CreateCommand(params DentalActInput[] acts) => new()
         {
@@ -209,10 +238,10 @@ public class DentalRecordActHandlerTests
     {
         var patientId = Guid.NewGuid();
         var treatedDiagnosis = new ToothState(
-            Guid.NewGuid(), patientId, 16, ToothCondition.Carie, Intervention,
+            Guid.NewGuid(), patientId, ClinicId, 16, ToothCondition.Carie, Intervention,
             source: ToothStateSource.Diagnosis);
         var untouchedDiagnosis = new ToothState(
-            Guid.NewGuid(), patientId, 27, ToothCondition.Carie, Intervention,
+            Guid.NewGuid(), patientId, ClinicId, 27, ToothCondition.Carie, Intervention,
             source: ToothStateSource.Diagnosis);
         var h = new Harness(existingForPatient: new[] { treatedDiagnosis, untouchedDiagnosis });
 
@@ -281,8 +310,8 @@ public class DentalRecordActHandlerTests
     public async Task Update_Replaces_Only_This_Records_Tooth_States()
     {
         var h = new Harness();
-        var record = new DentalRecord(Guid.NewGuid(), h.Patient.Id, Intervention, 0m, true);
-        var stale = new ToothState(Guid.NewGuid(), h.Patient.Id, 16, ToothCondition.Obturation, Intervention,
+        var record = new DentalRecord(Guid.NewGuid(), h.Patient.Id, h.Patient.ClinicId, Intervention, 0m, true);
+        var stale = new ToothState(Guid.NewGuid(), h.Patient.Id, h.Patient.ClinicId, 16, ToothCondition.Obturation, Intervention,
             dentalRecordId: record.Id);
         h.Records.Setup(r => r.GetByIdAsync(record.Id, It.IsAny<CancellationToken>())).ReturnsAsync(record);
         h.ToothStates.Setup(r => r.GetByDentalRecordIdAsync(record.Id, It.IsAny<CancellationToken>()))
@@ -304,7 +333,7 @@ public class DentalRecordActHandlerTests
     public async Task Update_Accepts_A_Mixed_Dentition_Session()
     {
         var h = new Harness();
-        var record = new DentalRecord(Guid.NewGuid(), h.Patient.Id, Intervention, 0m, true);
+        var record = new DentalRecord(Guid.NewGuid(), h.Patient.Id, h.Patient.ClinicId, Intervention, 0m, true);
         h.Records.Setup(r => r.GetByIdAsync(record.Id, It.IsAny<CancellationToken>())).ReturnsAsync(record);
         h.ToothStates.Setup(r => r.GetByDentalRecordIdAsync(record.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<ToothState>());
@@ -324,7 +353,7 @@ public class DentalRecordActHandlerTests
     public async Task Update_Preserves_Act_Costs_On_A_No_Op_Save()
     {
         var h = new Harness();
-        var record = new DentalRecord(Guid.NewGuid(), h.Patient.Id, Intervention, 0m, true);
+        var record = new DentalRecord(Guid.NewGuid(), h.Patient.Id, h.Patient.ClinicId, Intervention, 0m, true);
         h.Records.Setup(r => r.GetByIdAsync(record.Id, It.IsAny<CancellationToken>())).ReturnsAsync(record);
         h.ToothStates.Setup(r => r.GetByDentalRecordIdAsync(record.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<ToothState>());

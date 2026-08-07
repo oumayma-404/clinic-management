@@ -86,6 +86,59 @@ public class TreatmentPlanItem : Entity<Guid>
     }
 
     /// <summary>
+    /// Correct **what this act is and what it costs**, in place, keeping its id.
+    /// <para>
+    /// Deliberately does not touch <see cref="Status"/>, <see cref="DoneDate"/>,
+    /// <see cref="LinkedDentalRecordId"/> or <see cref="SequenceNumber"/>: a wrong price or a mistyped
+    /// designation is a clerical correction, not a statement that the act un-happened or moved in the clinical
+    /// order. Correcting whether it happened is <see cref="Unmark"/>; reordering is
+    /// <c>TreatmentPlan.SetItemOrder</c>.
+    /// </para>
+    /// <para>
+    /// Revising a <c>Done</c> act is allowed on purpose — that is the case this method mostly exists for. A
+    /// price is very often noticed to be wrong only once the work is finished, and the fiche de soins that
+    /// recorded the visit snapshots its own acts and costs, so the devis line and the clinical record cannot
+    /// drift by editing this. What must *not* drift is the money, and that is guarded a level up: changing a
+    /// cost changes <c>TotalPlanned</c>, which forces the échéancier to be resent and re-checked against
+    /// <c>AmountPaid</c>.
+    /// </para>
+    /// </summary>
+    public void Revise(
+        string designationFr,
+        decimal plannedCost,
+        Guid? dentalActCodeId,
+        string? codeActe,
+        Guid? procedureTypeId,
+        IEnumerable<int>? toothNumbers)
+    {
+        if (string.IsNullOrWhiteSpace(designationFr))
+            throw new ArgumentException("La désignation de l'acte est requise.", nameof(designationFr));
+        if (plannedCost < 0)
+            throw new ArgumentException("Le coût prévu ne peut pas être négatif.", nameof(plannedCost));
+
+        // Validate the whole tooth list before mutating anything — a half-applied revision would leave the act
+        // with the new teeth and the old designation.
+        var teeth = new List<int>();
+        if (toothNumbers != null)
+        {
+            foreach (var tooth in toothNumbers.Distinct())
+            {
+                if (!FdiTooth.IsValid(tooth))
+                    throw new ArgumentException($"Numéro de dent invalide : {tooth}.", nameof(toothNumbers));
+                teeth.Add(tooth);
+            }
+        }
+
+        DesignationFr = designationFr.Trim();
+        PlannedCost = InvoiceCalculator.RoundMoney(plannedCost);
+        DentalActCodeId = dentalActCodeId;
+        CodeActe = string.IsNullOrWhiteSpace(codeActe) ? null : codeActe.Trim();
+        ProcedureTypeId = procedureTypeId;
+        _toothNumbers.Clear();
+        _toothNumbers.AddRange(teeth);
+    }
+
+    /// <summary>
     /// Record that this act was carried out, linking the dental record that evidences it.
     /// <para>
     /// Re-marking is guarded. Editing the same record must stay idempotent (a fiche can be saved twice), so
@@ -111,6 +164,32 @@ public class TreatmentPlanItem : Entity<Guid>
         Status = TreatmentPlanItemStatus.Done;
         DoneDate = doneOn;
         LinkedDentalRecordId = linkedDentalRecordId;
+    }
+
+    /// <summary>
+    /// Undo <see cref="MarkDone"/>: the act returns to « prévu » and its evidence link is cleared.
+    /// <para>
+    /// This is the "détachez-le de cette fiche" that <see cref="MarkDone"/> has always told the user to do and
+    /// that had no implementation anywhere in the domain, application, API or UI. Without it, one act ticked
+    /// against the wrong fiche was permanent — and because marking the last act done auto-completes the plan,
+    /// it closed the whole devis with it.
+    /// </para>
+    /// <para>
+    /// Returns <c>false</c> when the act was already « prévu », so the caller can distinguish "nothing to undo"
+    /// from a real correction rather than silently re-opening a plan that never closed.
+    /// </para>
+    /// </summary>
+    public bool Unmark()
+    {
+        if (Status != TreatmentPlanItemStatus.Done)
+        {
+            return false;
+        }
+
+        Status = TreatmentPlanItemStatus.Planned;
+        DoneDate = null;
+        LinkedDentalRecordId = null;
+        return true;
     }
 
     /// <summary>Place this act at a given position in the plan's clinical order.</summary>

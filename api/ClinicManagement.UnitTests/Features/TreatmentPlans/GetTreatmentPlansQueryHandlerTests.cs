@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.TreatmentPlans.Queries;
@@ -53,14 +55,19 @@ public class GetTreatmentPlansQueryHandlerTests
         Authenticated();
         _plans.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[]
+                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new[]
             {
                 PlanFixture(PatientAId), PlanFixture(PatientAId),
                 PlanFixture(PatientBId), PlanFixture(PatientBId),
-            });
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { PatientFixture(PatientAId, "Jean"), PatientFixture(PatientBId, "Marie") });
+            }).AsPage());
+        // Mirrors PatientRepository.GetByIdsAsync: the requested ids, narrowed to the clinic's patients. The
+        // handler batches the page's distinct patient ids through this — it used to read the whole clinic.
+        var clinicPatients = new[] { PatientFixture(PatientAId, "Jean"), PatientFixture(PatientBId, "Marie") };
+        _patients.Setup(r => r.GetByIdsAsync(ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid _, IReadOnlyCollection<Guid> ids, CancellationToken _) =>
+                clinicPatients.Where(p => ids.Contains(p.Id)).ToDictionary(p => p.Id));
         _appointments.Setup(r => r.GetByTreatmentPlanItemIdsAsync(
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Appointment>());
@@ -77,14 +84,14 @@ public class GetTreatmentPlansQueryHandlerTests
         var result = await CreateHandler().Handle(new GetTreatmentPlansQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(4, result.Value!.Count);
+        Assert.Equal(4, result.Value!.TotalCount);
         _appointments.Verify(r => r.GetByTreatmentPlanItemIdsAsync(
             ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()), Times.Once);
         _invoices.Verify(r => r.GetTreatmentPlanLinksAsync(
             ClinicId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // [AC-6] Patient names come from one clinic-wide read; the pre-existing per-patient lookup is gone.
+    // [AC-6] Patient names come from one batched read of the page's ids; the per-patient lookup is gone.
     [Fact]
     public async Task Handle_Resolves_Patient_Names_Without_A_Per_Patient_Lookup()
     {
@@ -93,9 +100,10 @@ public class GetTreatmentPlansQueryHandlerTests
         var result = await CreateHandler().Handle(new GetTreatmentPlansQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Contains(result.Value!, d => d.PatientName == "Jean Dupont");
-        Assert.Contains(result.Value!, d => d.PatientName == "Marie Dupont");
-        _patients.Verify(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Contains(result.Value!.Items, d => d.PatientName == "Jean Dupont");
+        Assert.Contains(result.Value!.Items, d => d.PatientName == "Marie Dupont");
+        _patients.Verify(r => r.GetByIdsAsync(
+            ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()), Times.Once);
         _patients.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -109,7 +117,8 @@ public class GetTreatmentPlansQueryHandlerTests
 
         _plans.Verify(r => r.GetFilteredAsync(
             ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // [AC-5] The derived progress counts are always populated, even with no appointment or invoice in play.
@@ -120,7 +129,7 @@ public class GetTreatmentPlansQueryHandlerTests
 
         var result = await CreateHandler().Handle(new GetTreatmentPlansQuery(), CancellationToken.None);
 
-        Assert.All(result.Value!, dto =>
+        Assert.All(result.Value!.Items, dto =>
         {
             Assert.Equal(1, dto.ItemsTotal);
             Assert.Equal(0, dto.ItemsDone);
@@ -141,6 +150,7 @@ public class GetTreatmentPlansQueryHandlerTests
         Assert.True(result.IsFailure);
         _plans.Verify(r => r.GetFilteredAsync(
             It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()), Times.Never);
     }
 }

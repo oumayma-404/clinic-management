@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Two statements, and the second is what makes the offline-LAN deployment reachable at all.
+
+  `cleartextTrafficPermitted="false"` — the shell talks HTTPS or it does not talk. It pairs with
+  `mixedContentMode = NEVER_ALLOW` on the WebView: one closes the top-level navigation, the other the subresources.
+
+  `<certificates src="user" />` — a `SelfHostedLan` install serves a **self-signed** certificate that the API mints
+  into `.local/` on first boot, so the system trust store cannot validate it and every load would fail. Trusting
+  user-installed CAs lets an operator install the clinic's CA on the phone (which is exactly what the LAN
+  device-trust page exists for) and the shell then validates it normally. It is not a weakening of TLS: a user CA
+  requires a deliberate, per-device action with an OS warning, and `onReceivedSslError` is **not** overridden
+  anywhere in this app — an untrusted certificate still fails, loudly, into the « Impossible de joindre » state.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <!-- `AcceptsUserCertificates` is exactly what this deployment needs; see the note above. -->
+            <certificates src="user" tools:ignore="AcceptsUserCertificates" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

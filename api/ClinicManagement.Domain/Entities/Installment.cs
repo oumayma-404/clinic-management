@@ -1,6 +1,7 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -74,7 +75,15 @@ public class Installment : Entity<Guid>
     }
 
     /// <summary>Record a payment as its own ledger row, then re-derive the stored totals from the ledger.</summary>
-    public InstallmentPayment RecordPayment(decimal amount, PaymentMethod method, DateTime paidOn)
+    /// <param name="cheque">
+    /// The cheque's number, bank and due date (L8). An échéance is settled by post-dated cheque at least as often
+    /// as an invoice is, which is why both ledgers carry the fields rather than only the invoice side.
+    /// </param>
+    public InstallmentPayment RecordPayment(
+        decimal amount,
+        PaymentMethod method,
+        DateTime paidOn,
+        ChequeDetails? cheque = null)
     {
         // Round first: a sub-millime amount would otherwise be stored as 0,000 by the decimal(18,3) column.
         var rounded = InvoiceCalculator.RoundMoney(amount);
@@ -84,7 +93,7 @@ public class Installment : Entity<Guid>
         if (InvoiceCalculator.RoundMoney(AmountPaid + rounded) > Amount)
             throw new InvalidOperationException("Le paiement dépasse le montant restant dû de l'échéance.");
 
-        var payment = new InstallmentPayment(Guid.NewGuid(), Id, rounded, method, paidOn);
+        var payment = new InstallmentPayment(Guid.NewGuid(), Id, rounded, method, paidOn, cheque);
         _payments.Add(payment);
         RecomputeFromLedger();
         return payment;

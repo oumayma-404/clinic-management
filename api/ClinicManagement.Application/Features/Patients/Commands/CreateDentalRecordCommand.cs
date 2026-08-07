@@ -1,11 +1,13 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Patients.Commands;
@@ -27,6 +29,12 @@ public class CreateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     /// <summary>Optional appointment this record documents — completing it and dismissing its post-visit review
     /// prompt (finding #10), so recording the dental work (not only a medical document) closes the loop.</summary>
     public Guid? AppointmentId { get; set; }
+
+    /// <summary>
+    /// Which practitioner performed the séance (L9). Optional — omit it and the documented appointment's
+    /// practitioner is used, else the caller's own <c>Doctor</c> record.
+    /// </summary>
+    public Guid? DoctorId { get; set; }
 }
 
 public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalRecordCommand, Result<DentalRecordDto>>
@@ -35,11 +43,15 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
     private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly IToothStateRepository _toothStateRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
+    private readonly IDoctorRepository _doctorRepository;
+    private readonly IClinicContext _clinicContext;
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationGenerator _notificationGenerator;
+    private readonly IStockConsumptionService _stockConsumption;
     private readonly IRealtimeNotifier _realtimeNotifier;
+    private readonly ISender _sender;
     private readonly ILogger<CreateDentalRecordCommandHandler> _logger;
 
     public CreateDentalRecordCommandHandler(
@@ -47,22 +59,30 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         IDentalRecordRepository dentalRecordRepository,
         IToothStateRepository toothStateRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
+        IDoctorRepository doctorRepository,
+        IClinicContext clinicContext,
         IAppointmentRepository appointmentRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         INotificationGenerator notificationGenerator,
+        IStockConsumptionService stockConsumption,
         IRealtimeNotifier realtimeNotifier,
+        ISender sender,
         ILogger<CreateDentalRecordCommandHandler> logger)
     {
         _patientRepository = patientRepository;
         _dentalRecordRepository = dentalRecordRepository;
         _toothStateRepository = toothStateRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
+        _doctorRepository = doctorRepository;
+        _clinicContext = clinicContext;
         _appointmentRepository = appointmentRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _notificationGenerator = notificationGenerator;
+        _stockConsumption = stockConsumption;
         _realtimeNotifier = realtimeNotifier;
+        _sender = sender;
         _logger = logger;
     }
 
@@ -93,21 +113,35 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 return Result<DentalRecordDto>.Failure(parsed.Error!);
             }
 
+            // The appointment id is now STORED on the record, not only used for the post-commit side effect below.
+            // It reached this handler from the first version and was thrown away, which is why no screen could tell
+            // which past visits still have no fiche — the question this link exists to answer.
             var record = new DentalRecord(
                 Guid.NewGuid(),
                 request.PatientId,
+                patient.ClinicId,
                 request.InterventionDate,
                 request.AmountPaid,
                 request.IsAdultTeeth,
                 request.Notes,
-                request.ImportantNotes);
+                request.ImportantNotes,
+                request.AppointmentId);
 
             record.SetActs(parsed.Value!);
+
+            // L9 — who performed the séance. Derived from the documented appointment when there is one (that is the
+            // most reliable source: the visit was booked with a practitioner), else the caller's own Doctor record.
+            // A fiche with no attribution is a real outcome and is left null rather than guessed at.
+            var recordAppointmentDoctorId = request.AppointmentId.HasValue
+                ? (await _appointmentRepository.GetByIdAsync(request.AppointmentId.Value, cancellationToken))?.DoctorId
+                : null;
+            record.SetDoctor(await ResolveAttributedDoctorAsync(
+                request.DoctorId, recordAppointmentDoctorId, clinicResult.Value, cancellationToken));
 
             await _dentalRecordRepository.AddAsync(record, cancellationToken);
 
             var toothStates = DentalRecordActParser
-                .BuildToothStates(parsed.Value!, request.PatientId, request.InterventionDate, record.Id)
+                .BuildToothStates(parsed.Value!, request.PatientId, patient.ClinicId, request.InterventionDate, record.Id)
                 .ToList();
 
             // Treating a tooth closes any open diagnosis charted on it (AC-5).
@@ -140,7 +174,23 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 await CompleteReviewedAppointmentAsync(request.AppointmentId.Value, clinicResult.Value, cancellationToken);
             }
 
-            return Result<DentalRecordDto>.Success(record.ToDto());
+            // AC-P4.10 — draw each recorded act's material list out of stock. Post-commit and best-effort, so a
+            // stock failure can never lose the clinical record (AC-P4.13). One entry per act performance, not
+            // per distinct procedure: two composites really do use two capsules.
+            await _stockConsumption.ConsumeForDentalRecordAsync(
+                clinicResult.Value,
+                record.Id,
+                record.Acts.Where(a => a.ProcedureTypeId.HasValue).Select(a => a.ProcedureTypeId!.Value).ToList(),
+                cancellationToken);
+
+            // « Montant payé » becomes real money: raise the note d'honoraires and record the payment. Post-commit
+            // and last, after the two side effects above have finished with the DbContext — the billing opens its
+            // own transaction. Best-effort for the record, never silent about the cash (see DentalRecordAutoBilling).
+            var dto = record.ToDto();
+            dto.Billing = await DentalRecordAutoBilling.BillIfPaidAsync(
+                _sender, record, request.AmountPaid, _logger, cancellationToken);
+
+            return Result<DentalRecordDto>.Success(dto);
         }
         catch (ArgumentException ex)
         {
@@ -152,7 +202,8 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<DentalRecordDto>.Failure($"Error creating dental record: {ex.Message}");
+            _logger.LogError(ex, "Unhandled failure creating a dental record");
+            return Result<DentalRecordDto>.Failure("Erreur lors de l'enregistrement de la fiche de soins. Veuillez réessayer.");
         }
     }
 
@@ -170,11 +221,29 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 return; // cross-clinic or unknown id → leave everything unchanged
             }
 
-            appointment.MarkVisitCompleted(); // idempotent no-op if already terminal
-            // The appointment is change-tracked from GetByIdAsync, so SaveChanges persists MarkVisitCompleted().
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            // AC-P1.12: three outcomes, not two. `Contradicted` means the fiche documents a visit the schedule
+            // says was cancelled or missed — logged as a Warning so it is discoverable, and the appointment is
+            // deliberately NOT reopened (silently un-cancelling a visit is the invisible state change this part
+            // exists to remove).
+            var outcome = appointment.MarkVisitCompleted();
+            if (outcome == VisitCompletionOutcome.Contradicted)
+            {
+                _logger.LogWarning(
+                    "Fiche de soins recorded against appointment {AppointmentId}, which is {Status}. The "
+                    + "appointment was left unchanged; its post-visit review is cleared regardless.",
+                    appointmentId, appointment.Status);
+            }
 
-            // The review is fulfilled — remove it so the popup/panel stops prompting.
+            // Only Completed actually changed the row; the other two outcomes have nothing to persist, so the
+            // save is skipped rather than issuing an UPDATE that sets nothing.
+            if (outcome == VisitCompletionOutcome.Completed)
+            {
+                // Change-tracked from GetByIdAsync, so SaveChanges persists MarkVisitCompleted().
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+
+            // The review is fulfilled either way — including on AlreadyCompleted (idempotent) and on
+            // Contradicted, where leaving the prompt up would nag about a visit that is not going to happen.
             await _notificationGenerator.CancelPostVisitReviewAsync(appointment.ClinicId, appointmentId, cancellationToken);
 
             // This command broadcasts "patients"; also tell "appointments" consumers so the calendar reflects
@@ -186,4 +255,32 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             _logger.LogError(ex, "Post-visit completion side-effect failed for appointment {AppointmentId}", appointmentId);
         }
     }
+
+    /// <summary>
+    /// The practitioner to attribute this to, through the one shared precedence rule
+    /// (<see cref="PractitionerAttribution"/>): an explicitly named one, else the visit's, else the caller's own
+    /// <c>Doctor</c> record.
+    /// <para>
+    /// The caller is the <b>last</b> resort, not the first: a secretary recording a dentist's work must not credit
+    /// themselves. In the common Tunisian single-dentist practice the owner *is* the caller, which is exactly where
+    /// the fall-back is correct.
+    /// </para>
+    /// </summary>
+    private async Task<Guid?> ResolveAttributedDoctorAsync(
+        Guid? explicitDoctorId, Guid? appointmentDoctorId, Guid clinicId, CancellationToken cancellationToken)
+    {
+        var clinicDoctorIds = await PractitionerAttribution.LoadClinicDoctorIdsAsync(
+            _doctorRepository, clinicId, cancellationToken);
+
+        Guid? callerDoctorId = null;
+        var userId = _clinicContext.GetUserId();
+        if (!string.IsNullOrEmpty(userId))
+        {
+            callerDoctorId = (await _doctorRepository.GetByUserIdAsync(userId, cancellationToken))?.Id;
+        }
+
+        return PractitionerAttribution.Resolve(
+            explicitDoctorId, appointmentDoctorId, callerDoctorId, clinicDoctorIds);
+    }
+
 }

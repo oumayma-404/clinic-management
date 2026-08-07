@@ -46,7 +46,9 @@ public class ConfirmMedicationDataCommandHandler : IRequestHandler<ConfirmMedica
                 return Result.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             }
 
-            var medications = await _repository.GetAllAsync(includeInactive: true, cancellationToken);
+            // Unpaged: this confirms the whole catalog, so it must see every entry.
+            var medications = (await _repository.GetAllAsync(
+                includeInactive: true, cancellationToken: cancellationToken)).Items;
             foreach (var medication in medications.Where(m => m.IsProvisional && m.ClinicId == clinicResult.Value))
             {
                 medication.Confirm();

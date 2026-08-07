@@ -64,41 +64,15 @@ public class GetClinicReminderStatusQueryHandler
             var take = Math.Clamp(request.Take, 1, GetClinicReminderStatusQuery.MaxTake);
             var rows = await _notificationRepository.GetRecentByClinicIdAsync(user.ClinicId, take, cancellationToken);
 
-            var dtos = rows.Select(ToDto).ToList();
+            var dtos = rows.Select(ReminderStatusMapper.ToDto).ToList();
             return Result<IReadOnlyList<ReminderStatusDto>>.Success(dtos);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IReadOnlyList<ReminderStatusDto>>.Failure($"Error retrieving reminder status: {ex.Message}");
+            // French, and without the raw exception text — same A-8 class the P1/P2 sweep closed elsewhere.
+            return Result<IReadOnlyList<ReminderStatusDto>>.Failure(
+                "Erreur lors de la récupération de l'état d'envoi des rappels.");
         }
     }
 
-    private static ReminderStatusDto ToDto(Notification n) => new()
-    {
-        Id = n.Id,
-        Channel = n.Type.ToString(),
-        RecipientMasked = MaskRecipient(n.Patient?.PhoneNumber?.Value),
-        Status = n.Status switch
-        {
-            NotificationStatus.Sent => ReminderDeliveryStatus.Sent,
-            NotificationStatus.Failed => ReminderDeliveryStatus.Failed,
-            _ => ReminderDeliveryStatus.Pending,
-        },
-        FailureReason = string.IsNullOrWhiteSpace(n.ErrorMessage) ? null : n.ErrorMessage,
-        ScheduledAt = n.ScheduledFor,
-        SentAt = n.SentAt,
-    };
-
-    // Display-only PII mask (distinct from ReminderPhone.Mask, which lives in Infrastructure): show only the
-    // last 2 digits, e.g. "•••• 56". Returns a French placeholder when the patient has no number.
-    private static string MaskRecipient(string? phone)
-    {
-        if (string.IsNullOrWhiteSpace(phone))
-        {
-            return "(aucun numéro)";
-        }
-
-        var trimmed = phone.Trim();
-        return trimmed.Length <= 2 ? "••" : "••••" + trimmed[^2..];
-    }
 }

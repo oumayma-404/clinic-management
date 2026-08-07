@@ -3,6 +3,8 @@ using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
 
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Infrastructure.Repositories;
 
 /// <summary>
@@ -27,7 +29,12 @@ public class CnamCatalogRepository : ICnamCatalogRepository
             .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
     }
 
-    public async Task<IEnumerable<CnamNomenclatureEntry>> GetAllAsync(bool includeInactive = false, CancellationToken cancellationToken = default)
+    public async Task<PagedResult<CnamNomenclatureEntry>> GetAllAsync(
+        bool includeInactive = false,
+        string? category = null,
+        string? searchTerm = null,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _context.CnamNomenclatureEntries.AsQueryable();
         if (!includeInactive)
@@ -35,10 +42,29 @@ public class CnamCatalogRepository : ICnamCatalogRepository
             query = query.Where(e => e.IsActive);
         }
 
+        // Category and the free-text term used to be applied in the handler, over the DTOs, after the whole
+        // catalog had been read. Both are here now: a page cut in SQL and then filtered in memory is not the
+        // page anyone asked for, and the search would only ever have seen the rows already on it.
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            var trimmed = category.Trim();
+            query = query.Where(e => e.Category.ToLower() == trimmed.ToLower());
+        }
+
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(e =>
+                EF.Functions.ILike(SqlSearch.Unaccent(e.CodeActe)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(e.DesignationFr)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(e.LettreCle)!, pattern, SqlSearch.EscapeString));
+        }
+
         return await query
             .OrderBy(e => e.Category)
             .ThenBy(e => e.CodeActe)
-            .ToListAsync(cancellationToken);
+            .ThenBy(e => e.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
     }
 
     public async Task<bool> CodeActeExistsAsync(string codeActe, Guid? excludeId = null, CancellationToken cancellationToken = default)

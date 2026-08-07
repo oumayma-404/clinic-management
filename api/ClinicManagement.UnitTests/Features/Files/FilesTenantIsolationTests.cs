@@ -1,7 +1,8 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Files.Commands;
 using ClinicManagement.Application.Features.Files.Queries;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -36,12 +37,12 @@ public class FilesTenantIsolationTests
         return r;
     }
 
-    private static PatientFile File(Guid patientId, Guid? folderId = null) =>
-        new(Guid.NewGuid(), patientId, "scan.pdf", "files/scan.pdf", "application/pdf", 1024,
+    private static PatientFile File(Guid patientId, Guid clinicId, Guid? folderId = null) =>
+        new(Guid.NewGuid(), patientId, clinicId, "scan.pdf", "files/scan.pdf", "application/pdf", 1024,
             FileType.MedicalRecord, folderId);
 
-    private static PatientFolder Folder(Guid patientId) =>
-        new(Guid.NewGuid(), patientId, "documents");
+    private static PatientFolder Folder(Guid patientId, Guid clinicId) =>
+        new(Guid.NewGuid(), patientId, clinicId, "documents");
 
     // ---- GetPatientFilesQuery (AC-1/AC-2) -----------------------------------
 
@@ -58,8 +59,8 @@ public class FilesTenantIsolationTests
         var result = await handler.Handle(new GetPatientFilesQuery { PatientId = foreign.Id }, CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        files.Verify(r => r.GetRootFilesByPatientIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
-        files.Verify(r => r.GetByFolderIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        files.Verify(r => r.GetPageAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -69,7 +70,7 @@ public class FilesTenantIsolationTests
         var patients = new Mock<IPatientRepository>();
         patients.Setup(r => r.GetByIdAsync(patient.Id, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
         var folders = new Mock<IPatientFolderRepository>();
-        var foreignFolder = Folder(Guid.NewGuid()); // belongs to a different patient
+        var foreignFolder = Folder(Guid.NewGuid(), ClinicId); // belongs to a different patient
         folders.Setup(r => r.GetByIdAsync(foreignFolder.Id, It.IsAny<CancellationToken>())).ReturnsAsync(foreignFolder);
         var files = new Mock<IPatientFileRepository>();
 
@@ -78,7 +79,8 @@ public class FilesTenantIsolationTests
             new GetPatientFilesQuery { PatientId = patient.Id, FolderId = foreignFolder.Id }, CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        files.Verify(r => r.GetByFolderIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        files.Verify(r => r.GetPageAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -88,15 +90,15 @@ public class FilesTenantIsolationTests
         var patients = new Mock<IPatientRepository>();
         patients.Setup(r => r.GetByIdAsync(patient.Id, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
         var files = new Mock<IPatientFileRepository>();
-        files.Setup(r => r.GetRootFilesByPatientIdAsync(patient.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { File(patient.Id) });
+        files.Setup(r => r.GetPageAsync(patient.Id, null, It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PagedResult<PatientFile>.Unpaged(new[] { File(patient.Id, patient.ClinicId) }));
         var folders = new Mock<IPatientFolderRepository>();
 
         var handler = new GetPatientFilesQueryHandler(files.Object, folders.Object, patients.Object, Resolver(ClinicId).Object);
         var result = await handler.Handle(new GetPatientFilesQuery { PatientId = patient.Id }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Single(result.Value!);
+        Assert.Single(result.Value!.Items);
     }
 
     // ---- GetPatientFoldersQuery (AC-1/AC-2) ---------------------------------
@@ -122,7 +124,7 @@ public class FilesTenantIsolationTests
     public async Task Download_Should_Fail_For_Other_Clinic_And_Not_Stream_Bytes()
     {
         var foreign = Patient(OtherClinicId);
-        var file = File(foreign.Id);
+        var file = File(foreign.Id, foreign.ClinicId);
         var files = new Mock<IPatientFileRepository>();
         files.Setup(r => r.GetByIdAsync(file.Id, It.IsAny<CancellationToken>())).ReturnsAsync(file);
         var patients = new Mock<IPatientRepository>();
@@ -143,7 +145,7 @@ public class FilesTenantIsolationTests
     public async Task DeleteFile_Should_Fail_For_Other_Clinic_And_Not_Delete()
     {
         var foreign = Patient(OtherClinicId);
-        var file = File(foreign.Id);
+        var file = File(foreign.Id, foreign.ClinicId);
         var files = new Mock<IPatientFileRepository>();
         files.Setup(r => r.GetByIdAsync(file.Id, It.IsAny<CancellationToken>())).ReturnsAsync(file);
         var patients = new Mock<IPatientRepository>();
@@ -168,7 +170,7 @@ public class FilesTenantIsolationTests
     public async Task DeleteFolder_Should_Fail_For_Other_Clinic_And_Not_Delete()
     {
         var foreign = Patient(OtherClinicId);
-        var folder = Folder(foreign.Id);
+        var folder = Folder(foreign.Id, foreign.ClinicId);
         var folders = new Mock<IPatientFolderRepository>();
         folders.Setup(r => r.GetByIdAsync(folder.Id, It.IsAny<CancellationToken>())).ReturnsAsync(folder);
         var files = new Mock<IPatientFileRepository>();
@@ -198,9 +200,9 @@ public class FilesTenantIsolationTests
     public async Task DeleteFolder_Commits_Db_Then_Deletes_Blobs_And_Survives_Blob_Failure()
     {
         var patient = Patient(ClinicId);
-        var folder = Folder(patient.Id);
-        var file1 = File(patient.Id, folder.Id);
-        var file2 = File(patient.Id, folder.Id);
+        var folder = Folder(patient.Id, patient.ClinicId);
+        var file1 = File(patient.Id, patient.ClinicId, folder.Id);
+        var file2 = File(patient.Id, patient.ClinicId, folder.Id);
 
         var folders = new Mock<IPatientFolderRepository>();
         folders.Setup(r => r.GetByIdAsync(folder.Id, It.IsAny<CancellationToken>())).ReturnsAsync(folder);

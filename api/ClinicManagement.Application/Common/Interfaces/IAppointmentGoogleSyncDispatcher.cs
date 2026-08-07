@@ -8,5 +8,11 @@ namespace ClinicManagement.Application.Common.Interfaces;
 /// </summary>
 public interface IAppointmentGoogleSyncDispatcher
 {
-    void Dispatch(Guid appointmentId);
+    /// <summary>
+    /// <paramref name="clinicId"/> is the appointment's own clinic, and the caller supplies it because the child
+    /// scope cannot look it up: <c>Appointment</c> is clinic-filtered, so an unscoped read of it comes back empty
+    /// and the sync would give up with « appointment not found » on every push (US-2). Every caller has already
+    /// resolved it.
+    /// </summary>
+    void Dispatch(Guid appointmentId, Guid clinicId);
 }

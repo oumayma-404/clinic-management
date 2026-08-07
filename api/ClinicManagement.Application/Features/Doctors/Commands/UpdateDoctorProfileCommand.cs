@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -21,15 +22,15 @@ public class UpdateDoctorProfileCommand : IRequest<Result<DoctorProfileDto>>
     public Guid? DoctorId { get; set; }
     public string? OrdreNumberCnomdt { get; set; }
     public Stream? CachetStream { get; set; }
-    public string? CachetContentType { get; set; }
+
+    /// <summary>The uploaded file's own name — the format is keyed on its extension, not on the sent header.</summary>
+    public string? CachetFileName { get; set; }
+    public long CachetLength { get; set; }
     public bool RemoveCachet { get; set; }
 }
 
 public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorProfileCommand, Result<DoctorProfileDto>>
 {
-    // The cachet is embedded into every generated PDF and read fully into memory each render — keep it small.
-    private const int MaxCachetBytes = 2 * 1024 * 1024; // 2 MB
-
     private readonly IDoctorRepository _doctorRepository;
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
@@ -99,6 +100,9 @@ public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorPro
 
             doctor.SetOrdreNumber(request.OrdreNumberCnomdt);
 
+            // Key of a cachet blob the replacement leaves behind; dropped only after the update commits.
+            string? supersededCachetKey = null;
+
             if (request.RemoveCachet)
             {
                 var previousKey = doctor.CachetStorageKey;
@@ -116,52 +120,50 @@ public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorPro
             }
             else if (request.CachetStream != null)
             {
-                if (string.IsNullOrWhiteSpace(request.CachetContentType))
+                // The cachet is served back inline at the app origin and read fully into memory on every
+                // document render (PdfGenerationService.LoadCachetImageAsync), so it is raster-only and small —
+                // which is exactly what FileUploadProfile.ProfileImage says, in one place, for the logo too.
+                var validation = await FileUploadValidator.ValidateAsync(
+                    FileUploadProfile.ProfileImage,
+                    request.CachetFileName,
+                    request.CachetLength,
+                    request.CachetStream,
+                    cancellationToken);
+
+                if (validation.IsFailure)
                 {
-                    return Result<DoctorProfileDto>.Failure("Le type du fichier cachet est requis.");
+                    return Result<DoctorProfileDto>.Failure(validation.Error!);
                 }
 
-                // FR-3.1 security: the cachet is served back inline at the app origin, so accept only raster
-                // image types — reject image/svg+xml, text/html, etc. (which could execute script).
-                var declaredType = request.CachetContentType.Trim().ToLowerInvariant();
-                if (declaredType != "image/png" && declaredType != "image/jpeg" && declaredType != "image/jpg")
-                {
-                    return Result<DoctorProfileDto>.Failure("Le cachet doit être une image PNG ou JPEG.");
-                }
-
-                // Buffer under a hard size cap: the blob is read fully into memory on every document render
-                // (PdfGenerationService.LoadCachetImageAsync), so an oversized "image" must be rejected up front.
-                using var buffer = new MemoryStream();
-                await request.CachetStream.CopyToAsync(buffer, cancellationToken);
-                if (buffer.Length == 0)
-                {
-                    return Result<DoctorProfileDto>.Failure("Le fichier cachet est vide.");
-                }
-                if (buffer.Length > MaxCachetBytes)
-                {
-                    return Result<DoctorProfileDto>.Failure("Le cachet est trop volumineux (2 Mo maximum).");
-                }
-
-                // Content-type headers are trivially spoofable — verify the bytes actually start with a
-                // PNG/JPEG magic signature before trusting (and persisting) the declared type.
-                var bytes = buffer.ToArray();
-                if (!IsPng(bytes) && !IsJpeg(bytes))
-                {
-                    return Result<DoctorProfileDto>.Failure("Le fichier cachet n'est pas une image PNG ou JPEG valide.");
-                }
-
-                var contentType = declaredType == "image/jpg" ? "image/jpeg" : declaredType;
+                var cachet = validation.Value!;
 
                 // Deterministic per-doctor key → re-upload overwrites in place. Persist the validated content
-                // type (unlike the clinic-logo path, which hardcodes image/png).
-                buffer.Position = 0;
-                var key = $"{doctor.ClinicId}/doctors/{doctor.Id}/cachet";
-                var storageKey = await _fileStorage.UploadAsync(buffer, contentType, key, cancellationToken);
-                doctor.SetCachet(storageKey, contentType);
+                // type (unlike the clinic-logo path, which hardcodes image/png). US-5: the clinic segment is
+                // the storage's own, so the path here is relative to it.
+                supersededCachetKey = doctor.CachetStorageKey;
+                var storageKey = await _fileStorage.UploadAsync(
+                    cachet.Content, cachet.ContentType, doctor.ClinicId, $"doctors/{doctor.Id}/cachet", cancellationToken);
+                doctor.SetCachet(storageKey, cachet.ContentType);
+
+                // Overwriting in place used to make this unnecessary. US-5 changed the key format, so a cachet
+                // stored under the old one is a real blob nothing points at any more — delete it, once.
+                if (supersededCachetKey == storageKey)
+                {
+                    supersededCachetKey = null;
+                }
             }
 
             _doctorRepository.Update(doctor);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (supersededCachetKey != null)
+            {
+                try { await _fileStorage.DeleteAsync(supersededCachetKey, cancellationToken); }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Best-effort superseded cachet blob delete failed for {Key}", supersededCachetKey);
+                }
+            }
 
             return Result<DoctorProfileDto>.Success(new DoctorProfileDto
             {
@@ -179,12 +181,4 @@ public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorPro
             return Result<DoctorProfileDto>.Failure("Erreur lors de la mise à jour du profil praticien.");
         }
     }
-
-    // Leading magic bytes — the authoritative signal for the image type (content-type headers are spoofable).
-    private static bool IsPng(byte[] b) =>
-        b.Length >= 8 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47
-        && b[4] == 0x0D && b[5] == 0x0A && b[6] == 0x1A && b[7] == 0x0A;
-
-    private static bool IsJpeg(byte[] b) =>
-        b.Length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF;
 }

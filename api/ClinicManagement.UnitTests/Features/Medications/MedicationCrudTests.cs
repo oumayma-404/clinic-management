@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Features.Medications.Commands;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -211,7 +213,8 @@ public class MedicationCrudTests
     {
         var med = Med(); // provisional by default
         Assert.True(med.IsProvisional);
-        _repo.Setup(r => r.GetAllAsync(true, It.IsAny<CancellationToken>())).ReturnsAsync(new[] { med });
+        _repo.Setup(r => r.GetAllAsync(true, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>())).ReturnsAsync((new[] { med }).AsPage());
 
         var handler = new ConfirmMedicationDataCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<ConfirmMedicationDataCommandHandler>.Instance);
         var result = await handler.Handle(new ConfirmMedicationDataCommand(), CancellationToken.None);

@@ -1,4 +1,5 @@
 using ClinicManagement.Infrastructure;
+using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Security;
 using Microsoft.Extensions.Configuration;
 using Xunit;
@@ -71,5 +72,59 @@ public class LocalDataProtectionTests
     public void The_application_name_is_stable() // changing it silently invalidates every existing ciphertext
     {
         Assert.Equal("ClinicManagement", LocalDataProtection.ApplicationName);
+    }
+
+    // ---- The hosted profile requires the key ring, and fails startup without it (US-6 step 17) ----
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void The_hosted_profile_refuses_to_start_without_a_key_ring_path(string? configured)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => LocalDataProtection.ResolveKeyRingPath(
+            Configuration(
+                (DeploymentProfile.ProfileKey, nameof(DeploymentKind.HostedMultiTenant)),
+                (LocalDataProtection.KeyRingPathKey, configured))));
+
+        // The framework fallback is per-instance and ephemeral. It WORKS — and then the first redeploy replaces the
+        // ring, so every clinic's stored reminder and TTN credentials become undecryptable and each channel reports
+        // « non configuré » with nothing in any log tying that to a deployment. Failing loud at startup is the only
+        // moment this is visible at all.
+        Assert.Contains(LocalDataProtection.KeyRingPathKey, ex.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(DeploymentKind.HostedMultiTenant), ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_hosted_profile_accepts_a_configured_key_ring_path()
+    {
+        var configured = Path.Combine(Path.GetTempPath(), "hosted-key-ring");
+
+        var path = LocalDataProtection.ResolveKeyRingPath(Configuration(
+            (DeploymentProfile.ProfileKey, nameof(DeploymentKind.HostedMultiTenant)),
+            (LocalDataProtection.KeyRingPathKey, configured)));
+
+        Assert.Equal(configured, path);
+    }
+
+    [Theory]
+    [InlineData(nameof(DeploymentKind.SelfHostedLan))]
+    [InlineData(nameof(DeploymentKind.CloudBrowser))]
+    public void The_two_shipped_profiles_are_unchanged_by_the_new_requirement(string profile)
+    {
+        // R-2: SelfHostedLan resolves its own install-relative path and never reads the key; CloudBrowser keeps the
+        // framework fallback, which is survivable there because that profile is not what US-6 is hardening.
+        var path = LocalDataProtection.ResolveKeyRingPath(Configuration((DeploymentProfile.ProfileKey, profile)));
+
+        if (profile == nameof(DeploymentKind.SelfHostedLan))
+        {
+            Assert.Equal(
+                Path.Combine(LocalInstallPaths.LocalDir, LocalDataProtection.LocalKeyRingFolderName),
+                path);
+        }
+        else
+        {
+            Assert.Null(path);
+        }
     }
 }

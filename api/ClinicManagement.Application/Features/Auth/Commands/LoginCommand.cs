@@ -90,9 +90,17 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             }
 
             // Disclosed only to a caller who supplied the correct password (the account owner).
+            //
+            // The two inactive states read differently to the person in front of the screen, and telling them
+            // apart is the whole point of I5's pending state: someone who registered ten seconds ago has done
+            // nothing wrong and needs to know an approval is coming, while « désactivé » on a freshly-created
+            // account reads as a bug in the registration they just completed. Both messages point at the same
+            // person; only one of them is an accusation.
             if (!user.IsActive)
             {
-                return Result<LoginResultDto>.Failure("Ce compte a été désactivé. Veuillez contacter l'administrateur de votre clinique.");
+                return Result<LoginResultDto>.Failure(user.IsPendingActivation
+                    ? "Votre compte a bien été créé mais doit encore être activé par un administrateur de la clinique. Vous pourrez vous connecter dès qu'il l'aura fait."
+                    : "Ce compte a été désactivé. Veuillez contacter l'administrateur de votre clinique.");
             }
 
             // The stored hash used an outdated format — upgrade it now that we have the plaintext.
@@ -118,6 +126,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 AccessToken = token.AccessToken,
                 RefreshToken = refreshToken.AccessToken,
                 ExpiresAt = token.ExpiresAtUtc,
+                RefreshExpiresAt = refreshToken.ExpiresAtUtc,
                 MustChangePassword = user.MustChangePassword,
                 User = new UserDto
                 {

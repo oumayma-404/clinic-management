@@ -30,21 +30,144 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, e-invoic
 
 ## Release-gate / guard tests (fail loud when someone regresses a hardening decision)
 
-- **`Api/ControllerAuthorizationCoverageTests.cs`** — reflection scan of every controller/action; the set of `[AllowAnonymous]` endpoints must *exactly* match a hard-coded allow-list (currently `Auth.GetMode/Login/Setup/Register`, `Connectivity.Get`, `GoogleCalendar.Callback`). Adding any new anonymous endpoint fails the build until reviewed — this is the Local-mode fail-closed guarantee (FR-E3).
+- **`Api/ControllerAuthorizationCoverageTests.cs`** — reflection scan of every controller/action; the set of `[AllowAnonymous]` endpoints must *exactly* match the reviewed `ExpectedAnonymous` allow-list (the auth bootstrap, `Connectivity.Get`, `GoogleCalendar.Callback`, the four LAN trust routes, and `Meta.ClientRequirements`). Adding any new anonymous endpoint fails the build until reviewed — this is the Local-mode fail-closed guarantee (FR-E3).
 - **`Common/Authorization/AuthorizationPoliciesTests.cs`** — the `FallbackPolicy` is installed only in Local mode.
-- **`Common/Behaviors/RealtimeBroadcastBehavior*` + `Common/Behaviors/RealtimeResourceResolverTests.cs`** — the MediatR pipeline behavior that auto-broadcasts SignalR resource-changed events.
+- **`Common/Behaviors/RealtimeBroadcastBehavior*`** — the MediatR pipeline behavior that auto-broadcasts SignalR resource-changed events.
+- **`Common/Behaviors/RealtimeResourceResolverTests.cs`** — the backend↔frontend realtime key contract, and a worked example of a guard that derives both sides instead of listing them (AC-P4.23–4.25). It reflects over every `IBaseRequest` in the Application assembly for the emitted set, **parses `web/lib/realtime/clinic-hub.ts`** for the declared set, and asserts they are **equal in both directions**; two allow-lists (emit-only / listen-only) exist for intentional asymmetry and are asserted **empty**. It replaced a 16-row `[InlineData]` table that stayed green throughout the entire period five keys were broadcast with nothing listening (audit § 9.1) — a table can only fail on rows someone remembered to write, never on the new area. It finds the frontend file via **`[CallerFilePath]`**, not `AppContext.BaseDirectory`, because the suite is routinely built to a scratch OutDir outside the repo (the SAC workaround); and it **throws** rather than skipping when the file is absent.
+- **`Common/TenantScopeFilterTests.cs`** + **`Common/SystemWideCallerCoverageTests.cs`** (`multi-tenant-cloud` US-2)
+  — the pair that holds the query filter's inversion from fail-open to refusing. The filter test asserts **SQL**,
+  not rows (no database, no in-memory provider — `ToQueryString()`, same technique and same reason as
+  `RecallQueryTranslationTests`), and it iterates **every filtered root read off `db.Model`**, so a 22nd
+  clinic-owned aggregate is covered the day it is configured. It also pins the two cases that look alike and are
+  not: an **`Unset` scope** (a scope exists and said nothing ⇒ compares against `Guid.Empty` ⇒ no rows) versus **no
+  provider at all** (the design-time factory and hand-built contexts ⇒ everything, or `dotnet ef` and half this
+  project stop working). Its one hand-written list is the four clinic-owned tables deliberately left unfiltered
+  (`User`, `Clinic`, `AuditEntry`, `Notification`), asserted **equal** to the model in both directions.
+  The coverage test derives its candidates from the *criterion* — « reads a filtered entity with no HTTP context »
+  — by reflecting over the API assembly for background jobs, `IHostedService`s and `Maintenance/*Command`s plus a
+  source scan for `CreateScope()`; reading it off « is it a job? » produced a wrong list in both directions during
+  planning. It carries its own red-proof (`The_Guard_Rejects_A_Job_Whose_Declaration_Is_Removed`) rather than
+  asking a reviewer to delete a call by hand. ⚠️ Exclude compiler-generated **nested** types when reflecting over a
+  namespace: in a Debug build an async state machine is a *class*, so `<FlagExpiringStock>d__3` arrives as a
+  candidate whose source file does not exist.
+- **`Api/MigrationLockTests.cs`** (`multi-tenant-cloud` US-6) — the startup advisory lock, and a worked example of asserting the two things a mistake would actually look like when the mechanism itself is out of reach (nothing here touches a database). Both statements must name the **same fixed** key — two instances naming different numbers serialise nothing, and the failure is invisible until two containers migrate at once — and the lock must be **session-level**, because `pg_advisory_xact_lock` releases at the first commit *inside* the migration, leaving the rest of it unprotected while looking correct. The third property is asserted against **`Program.cs`'s own source**: a lock the startup path forgot to wrap is exactly as broken as no lock, and nothing else in the build can see it.
+- **`Api/AuthAttemptAccountTests.cs`** + the US-6 half of **`Api/RateLimitingTests.cs`** — the login limiter's re-key onto the submitted account. Most of the file is about the cases that must produce **nothing**: a non-JSON body, a truncated one, an oversized one, `auth/refresh` (no email at all). Any of those throwing would take the login endpoint off the air, which is strictly worse than the lockout the re-key exists to prevent. The two partition cases that matter are the ones a naive fix gets wrong: **the same account shares one bucket regardless of address** (a compound `account+address` key would hand one attacker a fresh budget per address) and **an account key can never collide with an address key** (an email is caller-supplied text).
+- **`Api/HealthCheckTests.cs`** — the grading, which is the whole substance: storage down is **`Degraded`** (still 200) and the database is `Unhealthy` (503). Also that storage which cannot even be **resolved** degrades rather than 500s — where MinIO is unconfigured `AddInfrastructure` deliberately registers a factory that throws, so a constructor-injected `IFileStorage` would throw while the framework was *building* the check.
+- **`Api/SecurityHeadersMiddlewareTests.cs`** — `Security:EnforceCsp` flips only the header **name**, report-only is the default in **every** profile, and a policy an upstream component already set is never overwritten (two CSP headers make the browser enforce their intersection). ⚠️ It installs a fake `IHttpResponseFeature` that keeps the `OnStarting` callbacks: `DefaultHttpContext.Response.StartAsync()` never invokes them — that is Kestrel's job — so without it the middleware looks like it writes no headers at all.
+- **`Api/Maintenance/MaintenanceDatabaseTests.cs`** — the console verbs' gate is « is a connection string configured? » and **answers the same in all three profiles** (amendment M3). Its sibling cases in `{VerifySchema,ReconcileMoney}CommandTests` were rewritten here for the same reason and are worth reading as a pair: they used to assert the refusal named `CloudBrowser`, which was the defect rather than the contract.
+- **`Features/Notifications/PushFanOutTests.cs`** + **`Api/PushDispatchJobTests.cs`** +
+  **`Features/PushDevices/DeviceRegistrationTenantIsolationTests.cs`** (`mobile-native-shells` P6). The
+  load-bearing case is `PushFanOutTests.The_Push_Label_Is_The_Feed_Rows_Own_Title`: the **real**
+  `NotificationGenerator` runs inside the **real** decorator over mocked repositories, so the `StaffNotification`
+  and the `PushDelivery` produced by one call are compared *with each other* — AC-47's « a fixed French label » and
+  AC-45's « the audience equals the feed's » are asserted against the feed rather than a retyped table, because a
+  constant in the test would be a second authority and the drift it allowed would be a lock screen saying something
+  the app does not. ⚠️ `A_Reminder_Falling_In_Quiet_Hours_Is_Deferred_While_The_Feed_Row_Is_Not` exists because the
+  obvious assertion hid a real distinction: the feed has **no** quiet-hours floor (an in-app row at 02:00 wakes
+  nobody) while the push does. Its fixtures pin the hour (13:00 / 01:00 UTC) — a `UtcNow.AddDays(5)` fixture passes
+  or fails depending on when the suite runs, which is how the first version failed. `PushDispatchJobTests` is mostly
+  about the checks that run **at send time**, since a push has no request behind it: a rebound token, a deactivated
+  account and a cancelled appointment are all things no request-time guard can still catch. The isolation class
+  states the deliberate **asymmetry** — registration crosses clinics (the token is globally unique, so a scoped
+  lookup makes a rebind a 500) while deregistration must not.
+- **`Hubs/ClinicHubTenantScopeTests.cs`** — asserts on the hub's **constructor**, because the defect it guards
+  against cannot be caught behaviourally: HTTP middleware does not run per hub invocation, so a hub method reading
+  a clinic-filtered entity returns an **empty result and reports success**.
+- **`Features/Patients/ClinicalRecordTenantIsolationTests.cs`** — the four PHI tables with no `ClinicId` column
+  (`DentalRecord`, `PatientMedicalHistory`, `PatientFamilyHistory`, `ToothState`) that had no by-id isolation test.
+  No filter is possible for them, so the per-handler DB check is their only layer and this is the only place it can
+  be held; `features/fix-patient-file-tenant-isolation` exists because this class already leaked once.
+- **`Infrastructure/Persistence/RecallQueryTranslationTests.cs`** — proves the bounded relance read is genuinely **in SQL** (AC-P4.41) by calling `ToQueryString()` on `PatientRepository.RecallCandidateQuery` and asserting `EXISTS`, `MAX(`, `IsArchived`, `RecallSnoozedUntil` and `PhoneNumber` all appear. Needed because every other test mocks the repository and so cannot distinguish "pushed to SQL" from "filtered in memory", and because an untranslatable LINQ expression fails at **runtime on the request**, not at build. It opens no connection (Npgsql is configured only because SQL generation is provider-specific) — so it does not break the no-database rule below. The production method is shared rather than copied, so the test cannot drift into a parallel implementation.
 - **`Api/TreatmentPlansControllerAuthorizationTests.cs`** — pins `CancelPlan` to `AdminOrDoctor` (altering a numbered financial document) and every other action to *no* method-level policy. Carries a **drift guard** (`Every_Action_Is_Classified_By_This_Test`) that fails when a new action is added without deciding its policy — deliberate, so slice B's `amend`/`revise-installments`/`items/order` cannot land unclassified.
 - **`Features/Common/ConcurrencyConflictTests.cs`** — the optimistic-concurrency contract. Reflection-based where it can be, so a new entity or DTO is covered without editing the test: every `Entity<>` carries the token, the six round-tripped DTOs and their update commands expose it, a `ConflictException` **escapes** the handler catch-alls rather than being flattened, and the handler actually calls `SetExpectedVersion` (without which the whole feature is inert while looking present).
+- **`Features/Dashboard/DashboardPeriodTests.cs`** — the highest-value class in `dashboard-insights`, because every comparable figure is measured against the window this type derives: a boundary bug there silently corrupts eight KPIs at once while the rest of the suite stays green. It pins the end-of-month `AddMonths` clamp (on 31 March the previous period is all of March→February, not a one-day sliver), the leap February, the year boundary, the Monday-based week for every weekday including Sunday, that every bound is explicitly `Utc`, that the bounds are *clinic-local* days (a UTC+1 month starts at 23:00 the previous day), and — the load-bearing one — that the current and previous windows are **exactly one tick apart**: adjacent with no overlap and no gap, which is what stops a midnight payment being counted twice.
 - **`Features/Invoices/CreditNoteReadTests.cs`** — avoirs are readable, and « Total encaissé » nets them in **both** branches of the revenue read (the no-period branch is the one `/factures` actually loads).
 - **`Features/Patients/PatientContactOptionalTests.cs`** — contact is optional, the tri-state clears, no sentinel is written, and one phone-less patient no longer 500s the patient list.
-- **`Features/Billing/MoneyReadConsistencyTests.cs`** — « Solde patient », « Créances » and the dashboard KPI must report the same outstanding figure for one shared fixture. Its repository mocks intentionally reimplement `TreatmentPlanRepository`/`InvoiceRepository`'s SQL filters, so the test targets the *handlers* feeding `Domain/Services/PlanBillingRules` the same rule. Paired with `Domain/PlanBillingRulesTests.cs` (the rule itself).
-- **`Infrastructure/Persistence/*SeedTests.cs`** — CNAM + medication catalog seed integrity.
+- **`Features/Billing/MoneyReadConsistencyTests.cs`** — « Solde patient », « Créances » and the dashboard must report the same outstanding figure for one shared fixture. Its repository mocks intentionally reimplement `TreatmentPlanRepository`/`InvoiceRepository`'s SQL filters, so the test targets the *handlers* feeding `Domain/Services/PlanBillingRules` the same rule. Paired with `Domain/PlanBillingRulesTests.cs` (the rule itself). **`dashboard-insights` extended it to a fourth read**: the dashboard's « Encaissé / Dépenses / Net » must equal la caisse's `cashIn`/`cashOut`/`net` over the same window from the same fixture (with a non-zero avoir in play, since the refund is the term the old dashboard KPI omitted); the dashboard's own three figures must add up; and the *previous* window must be read with its own bounds — without that last one every money delta would compare a figure against itself, inert while looking present. The dashboard side now goes through `DashboardMoneyReader` rather than the deleted `GetDashboardStatsQueryHandler`, and the old `[AC-12a]` billed-plan assertion was carried across, not dropped.
+- **`Common/ClinicClockTests.cs`** — the clinic wall clock, and the class that can actually fail on §§ 4.1/4.2. **Every case uses a fixed instant**, which is the whole point: § 4.2 is « the invoice number takes its year from `UtcNow.Year` », and a test asserting against a freshly-read `DateTime.UtcNow.Year` evaluates the same expression the bug does — it agrees with the defect by construction and additionally flakes for one hour every New Year (§ 1 flagged exactly that in `IssueInvoiceCommandHandlerTests`; AC-P6.9). At 23:30 UTC on 31 December the clinic is already in the next year, and nothing about when the suite runs changes that. Also pins that a local day starts an hour *before* UTC midnight, and that `LastTickOfLocalDayUtc` is one tick inside the day rather than the next midnight (finding #20).
+- **`Features/Invoices/IssueInvoiceCommandHandlerTests.cs`** — owns the **sequence** and the collision retry, not the year: it captures the year the handler asked the repository for (`_yearAskedFor`) instead of recomputing it. Read it together with `ClinicClockTests`, which owns the year.
+- **`Features/Invoices/InvoiceAppointmentLinkTests.cs`** — the invoice↔visit link (§ 6.8). Covers both directions because the finding was a *write-only* column: `Invoice.AppointmentId` was accepted by the command, returned by the DTO and mapped by EF while nothing ever set it — and a column nobody writes is a column nobody validates, so the create path is tested for clinic **and** patient agreement alongside the read. On the read side: a cancelled invoice does not bill the visit, an issued one beats a stray draft, an empty page reads nothing, and the list resolves all rows in **one** batched call.
+- **`Features/CnamNomenclature/ReimbursementEstimatesQueryTests.cs`** — the batch estimate (§ 5.10). The load-bearing case is `The_Batch_Agrees_With_The_Single_Act_Query`: two endpoints over one calculator, and if they ever disagree the editor's live figure and the BS1's computed one are two numbers for the same act — the § 5.10 defect relocated. Also pins index alignment when a middle row is not estimable, `null` rather than `0` for an unknown lettre clé (« — » and « 0,000 DT » are different claims), and that a per-item care date beats the bulletin's (a bulletin's acts can straddle a birthday, so it genuinely has two rates).
+- **`Features/Billing/CaisseLedgerTests.cs`** — the « extrait de caisse ». Its load-bearing case is
+  `The_Movements_Sum_To_The_Caisse_Totals`: over one fixture with all four movement kinds, a voided row in each
+  payment ledger and non-round figures, `Σ In − Σ refunds − Σ expenses` must equal the summary's `CashIn`/`Refunds`/
+  `CashOut`/`Net`, and the **last running balance must equal Net**. That assertion is only writable because the
+  statement is a *read* over the rows the totals sum — a `CashMovement` table would have made it unfalsifiable,
+  which is the whole argument for the design. Also pins oldest-first order, stability across two reads of one window
+  (a statement whose rows shuffle looks like the data changed), that a voided row is listed with motif + actor and
+  leaves the balance untouched, and that the billed-plan de-dup reaches the installment read.
+- **`Features/Invoices/InvoiceFromDentalRecordTests.cs`** — billing a fiche de soins. Most of the file is about
+  *when* a refusal happens rather than whether: issuing consumes a gapless number, so a bad amount, an unknown
+  method, a future date or an over-payment must all be caught **before** the transaction opens —
+  `AssertNothingWasIssued()` checks no invoice was added, no sequence was read and no transaction was begun. Also
+  pins the one-transaction chain, rollback on a failed save, that the payment date defaults to the **session's**
+  date and not today, and (as pure tests over `DentalRecordInvoiceLines`) the per-tooth pricing rule that used to
+  live in the browser. `SessionTtc = 331m` is spelled out because a new `Clinic` enables the 1,000 DT timbre fiscal
+  by default — a fixture quietly assuming 330 would have read as a pricing bug.
+- **`Common/Csv/CsvTableTests.cs`** (`adoption-qa-l` L5) — the CSV writer, and the clearest example in the suite of a
+  test earning its place immediately: it caught that **`CsvTable` emitted no BOM**. `new UTF8Encoding(true)` only
+  changes what `GetPreamble()` returns — `GetBytes` never emits it — so every export was a BOM-less UTF-8 file that
+  Excel on Windows reads in the system codepage, turning « Béchir » into « BÃ©chir ». The file is valid UTF-8 and
+  opens correctly in everything that is *not* Excel, which is exactly why nothing else would have found it. Also
+  pins the `;` delimiter (Excel's list separator in fr-TN), the RFC 4180 quoting including **leading/trailing
+  whitespace** (a spreadsheet silently trims it, so a phone number would round-trip differently), money as three
+  decimals with a comma and **no thousands separator** (a space makes a spreadsheet treat the cell as text and
+  refuse to sum the column — the whole reason an accountant asked for the file), and that an *instant* is exported
+  in the clinic's day while a *calendar day* is not converted at all.
+- **`Infrastructure/Persistence/*SeedTests.cs`** — CNAM + medication + **DCH dental-act** catalog seed integrity.
+  `DentalActCatalogSeedTests` (`adoption-qa-k`) carries the one that matters most: **`The_Two_Catalogues_Are_Disjoint`**
+  pins *why* K1 existed — `CnamCatalogSeed`'s `CodeActe` values are 26 internal mnemonics (`DETART`, `OBT-2F`…)
+  while the real nomenclature is the 100 `DCH…` codes here, and the BS1 picker was reading the former, so every
+  bulletin was refused at the caisse on the code column. It asserts the sets do not intersect *and* that no
+  mnemonic looks like a DCH code, so "unifying" the two catalogues has to be a deliberate edit of this test rather
+  than something that quietly makes the two reads interchangeable again. It also pins K11 (no Prothèse act requires
+  an accord préalable) and that the families the research **could not verify** are deliberately left flagged —
+  inventing that list is the failure mode the spec names. `CnamCatalogSeedTests` gained the K10 convention values
+  (`Cd 30,000` / `Cds 45,000` / `D 3,000`, derived from `Domain/Services/CnamConventionTariffs` rather than retyped)
+  and `SupersededLetterValue`, the third term of the startup correction's predicate.
+- **`Features/Documents/BulletinMandatoryFieldsTests.cs`** (`adoption-qa-k` K2/K7) — the bulletin write gate. Its
+  load-bearing case is `Every_Regime_And_Lien_Value_Is_Accepted` plus the two near-miss theories: the régime and
+  lien are French strings the renderer matches with `==`, so « Convention bilaterale » without its accent printed
+  an **empty** régime box while every layer reported success. Nothing else in the suite can fail on that — it is a
+  silent no-op, not an exception.
+- **`Features/Documents/CnamClosedSetContractTests.cs`** (`adoption-qa-k` K2) — the browser's copy of those closed
+  sets. Parses `web/lib/cnam.ts` via `[CallerFilePath]` (same reason as `RealtimeResourceResolverTests`: the suite
+  is routinely built to a scratch `OutDir` outside the repo) and asserts its arrays **equal** `CnamInfo`'s, ordered,
+  plus that the digit-cell count is one number and not two. ⚠️ Its shape guard strips `//` and `/* */` comments
+  before scanning for stray literals — without that it matches the module's own prose (which quotes words like
+  "normalise") and a guard that fires on its own documentation gets deleted rather than fixed.
+- **`Api/MedicalDocumentPdfErrorTests.cs`** (`adoption-qa-k` K9) — the PDF-download failure path. The canonical
+  `{ error }` shape is `ApiControllerBaseTests`' business; this covers only *which* exception is surfaced verbatim
+  (`InvalidOperationException`, the type the three fail-fast French operator messages use) and — the case that
+  matters as much — that any other exception's message **does not leak** a path or a connection string.
 - **`Infrastructure/Services/`** e-invoicing depth: `TeifXmlGeneratorTests` (TTN TEIF XML), `XadesEInvoiceSignerTests` (XAdES signature), `QrCodeGeneratorTests`, `SandboxTtnClientTests`; reminders: `ReminderChannelSenderTests`/`ReminderScheduler`/`ReminderSettingsProvider`/`ReminderPhone`/`ReminderSchedule`; plus `CertificateProvisionerTests`, `PgDumpBackupServiceTests`, `InternetProbeTests`, `CnamBs1BulletinRendererTests`, document renderers (`Certificat`/`Liaison`/`Generic`/`PractitionerRenderSnapshot`).
 
 ## Gotchas
 
 - **`Features/Patients/DentalRecordPostVisitCompletionTests.cs.deferred`** — the `.deferred` extension deliberately excludes it from compilation (parked, not deleted). Don't rename it back without checking why it was parked.
-- **Running the suite on this machine.** `dotnet test` fails at assembly-load with `0x800711C7` because Windows **Smart App Control** is ON and blocks freshly-built DLLs — environmental, not a test defect. See the user's `smart-app-control-blocks-tests` memory. Workaround: `dotnet build <UnitTests.csproj> -p:OutDir=<scratch>/` then `dotnet vstest <scratch>/ClinicManagement.UnitTests.dll`.
+- **Running the suite on this machine — build the output INSIDE the repository.** Windows **Smart App Control** is ON and blocks freshly-built DLLs with `0x800711C7`, but its verdict turns out to depend on **where** they are: an output directory under `%TEMP%`/the scratchpad is refused, and the same assembly built into the repo tree loads fine. So:
+  ```bash
+  dotnet build api/ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -p:OutDir=<repo>/api/.testrun/
+  dotnet vstest api/.testrun/ClinicManagement.UnitTests.dll            # add --TestCaseFilter:"FullyQualifiedName~X"
+  ```
+  ⚠️ `dotnet test` **in place** is a separate, unrelated failure: when the user's `ClinicManagement.API` is running it holds `api/ClinicManagement.API/bin/Debug`, so the build dies on `MSB3021 — the file is locked by ClinicManagement.API (PID …)`. That is not SAC; read the error. A scratch `OutDir`/`BaseOutputPath` sidesteps the lock, which is why the two problems used to look like one. `multi-tenant-cloud` Part F spent a round on a throwaway reflection-based test runner before finding the location rule — do not repeat that; try the in-repo `OutDir` first.
+- **Nothing here touches a database — so migrations are outside this suite's reach entirely.** An index can be missing, an exclusion constraint can be non-partial, a data backfill can cover zero rows, and a model change can have no applied migration at all, while every test in this project passes. That class of change is gated by the **`verify-schema` console verb** instead (`Application/Common/Maintenance/SchemaVerificationService` + `Infrastructure/Persistence/SchemaVerificationReader`), run before and after a migration batch and diffed. `SchemaVerificationServiceTests` covers the assertions against a **mocked reader** — which is why the reader seam exists at all. Do **not** add a database-touching test here to cover a migration; extend `verify-schema` and its service tests.
+- **A handler test failing on `Assert.True(result.IsSuccess)` is almost always a fixture that has not kept up with
+  the handler's dependencies — not a behaviour change.** When a handler grows a read that returns a **collection**
+  (`GetByIdsAsync`, `GetDistinctCategoriesAsync`, `GetTreatmentPlanLinksAsync`, …), Moq's default for an unstubbed
+  one is **null**; the handler dereferences it, and this codebase's `catch → Result.Failure` convention converts the
+  `NullReferenceException` into a French business error. So the test fails on the *success* assertion and the
+  message points nowhere near the missing stub. Check what the handler calls before theorising about behaviour —
+  six of the 24 failures cleared in `multi-tenant-cloud` Part B's session were exactly this, and all six had been
+  mis-diagnosed as filter drift on first read.
+- **When a filter moves from a handler into SQL, its handler tests become vacuous rather than wrong — rewrite them,
+  don't delete them.** A mocked repository applies no predicate, so « hand it the whole catalogue and assert the
+  handler narrows it » silently tests a capability the handler has correctly lost. What is still worth holding is
+  that **every argument reaches the repository verbatim** (including *untrimmed* — normalisation belongs to
+  `SearchTerm` inside the repository): a silently dropped `category` or a term the handler "helpfully" trims is a
+  real defect nothing else in this project can see. See `GetCnamNomenclatureQueryHandlerTests` /
+  `GetMedicationsQueryHandlerTests` for the shape, and say out loud in the class docstring that the matching itself
+  is SQL and therefore out of this suite's reach.
 - **A failing test here has three times been a stale fixture, not a defect.** `data-and-money-integrity` inherited
   an "8-failure baseline" that turned out to be exactly that, in all three cases with the production code correct
   and the test drifted behind it: `ReminderSchedulerTests` stubbed `ResolveEnabledChannelsAsync` while the

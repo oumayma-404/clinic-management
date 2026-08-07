@@ -1,5 +1,6 @@
 using ClinicManagement.Domain.Entities;
 
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Domain.Repositories;
 
 /// <summary>
@@ -11,7 +12,18 @@ public interface ICnamCatalogRepository
 {
     // ── Nomenclature entries ────────────────────────────────────────────────────────────────────
     Task<CnamNomenclatureEntry?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<IEnumerable<CnamNomenclatureEntry>> GetAllAsync(bool includeInactive = false, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// The nomenclature list. <paramref name="category"/> and <paramref name="searchTerm"/> (code, désignation,
+    /// lettre clé) are both matched in SQL — they used to be applied in the handler over the mapped DTOs, which
+    /// with a page would have filtered rows out of an already-cut window.
+    /// <paramref name="paging"/> of null returns every match, which the BS1 editor's act picker needs.
+    /// </summary>
+    Task<PagedResult<CnamNomenclatureEntry>> GetAllAsync(
+        bool includeInactive = false,
+        string? category = null,
+        string? searchTerm = null,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default);
     Task<bool> CodeActeExistsAsync(string codeActe, Guid? excludeId = null, CancellationToken cancellationToken = default);
     Task<CnamNomenclatureEntry> AddAsync(CnamNomenclatureEntry entry, CancellationToken cancellationToken = default);
     Task UpdateAsync(CnamNomenclatureEntry entry, CancellationToken cancellationToken = default);

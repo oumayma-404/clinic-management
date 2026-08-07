@@ -45,19 +45,22 @@ public class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
         builder.Property(i => i.VatApplicable)
             .IsRequired();
 
+        // AC-P4.38 — a RATE, not money: deliberately kept at (5,2) against the model-wide
+        // HavePrecision(18,3) convention. A convention that silently widened a VAT rate would be worse than
+        // the drift it fixes, so the explicit annotation is retained on purpose. verify-schema asserts this
+        // column is NOT (18,3) — widening it is reported as drift in the other direction.
         builder.Property(i => i.VatRate)
             .HasColumnType("decimal(5,2)");
 
-        builder.Property(i => i.StampDutyAmount)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(i => i.StampDutyAmount);
 
         builder.Property(i => i.CancellationReason)
             .HasMaxLength(1000);
 
-        builder.Property(i => i.TotalHt).HasColumnType("decimal(18,3)");
-        builder.Property(i => i.TotalVat).HasColumnType("decimal(18,3)");
-        builder.Property(i => i.TotalTtc).HasColumnType("decimal(18,3)");
-        builder.Property(i => i.AmountCollected).HasColumnType("decimal(18,3)");
+        builder.Property(i => i.TotalHt);
+        builder.Property(i => i.TotalVat);
+        builder.Property(i => i.TotalTtc);
+        builder.Property(i => i.AmountCollected);
 
         builder.Property(i => i.CreatedAt).IsRequired();
         builder.Property(i => i.UpdatedAt);
@@ -99,5 +102,24 @@ public class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
 
         builder.HasIndex(i => new { i.ClinicId, i.IssueDate });
         builder.HasIndex(i => i.PatientId);
+
+        // L9 attribution — who earned this. A real FK to `Doctors`, not a bare Guid column: before L9 the only FK
+        // to that table in the entire model was `Appointment.DoctorId`, and `WaitingListEntry.PreferredDoctorId`
+        // demonstrates the cost of the bare form — nothing stopped it holding an id from another clinic, or one
+        // that no longer exists.
+        //
+        // ⚠️ `SetNull`, matching `Appointment.DoctorId`: deleting a practitioner must leave the money and the
+        // clinical record intact and merely unattributed. `Cascade` here would delete invoices when a dentist
+        // leaves the practice, and `Restrict` would make removing them impossible.
+        builder.HasOne(x => x.Doctor)
+            .WithMany()
+            .HasForeignKey(x => x.DoctorId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // Indexed for the practitioner filter on /factures and on the dashboard's Argent section — the only two
+        // readers, and both filter on it.
+        builder.HasIndex(x => x.DoctorId);
+
     }
 }

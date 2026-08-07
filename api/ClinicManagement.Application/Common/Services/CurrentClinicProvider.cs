@@ -3,29 +3,28 @@ using ClinicManagement.Application.Common.Interfaces;
 namespace ClinicManagement.Application.Common.Services;
 
 /// <summary>
-/// Reads the current clinic id from the JWT claim (via <see cref="IClinicContext"/>) for the EF Core
-/// global query filter. See <see cref="ICurrentClinicProvider"/> for why this is a backstop only.
+/// Projects the scope's <see cref="ITenantScope"/> into the two synchronous values the EF Core global query
+/// filter reads. Nothing more — the decision lives in the scope, and this exists only because a query filter
+/// lambda cannot call an async resolver.
 ///
-/// <para><b>Invariant (must hold for the backstop to be correct):</b> the JWT <c>clinic_id</c> claim
-/// this reads must always equal the authoritative DB-resolved <c>User.ClinicId</c> that handlers use
-/// via <see cref="ICurrentClinicResolver"/>. Auth issuance (Local <c>LoginCommand</c> / Cloud Auth0
-/// <c>app_metadata</c>) is responsible for keeping the claim in sync with the DB; a token minted before
-/// a user's clinic changes can diverge until it is refreshed.</para>
-///
-/// <para><b>Fail-open is deliberate (spec §1):</b> when no clinic is in scope the filter is inactive
-/// (returns all rows) — required so background jobs, the <c>reset-admin-password</c> CLI, and anonymous
-/// auth/setup keep working (AC-3). It is therefore <b>not</b> a substitute for the per-handler
-/// DB-resolved <see cref="ICurrentClinicResolver"/> check, which is the authoritative tenant guard on
-/// every request-scoped read/write. Do not lean on this filter for isolation.</para>
+/// <para><b>It no longer reads the JWT claim, and that is the point (amendment C3′).</b> The claim was
+/// tolerable while the filter was fail-open: a missing or stale <c>clinic_id</c> simply switched the backstop
+/// off and the per-handler DB check returned the right rows anyway. With the filter refusing, the same
+/// divergence becomes <b>zero rows and no error</b> — and in Cloud the claim is the namespaced
+/// <c>https://clinic-management.com/clinic_id</c>, emitted only by an Auth0 tenant Action that does not live in
+/// this repository. The scope is therefore set from the DB-resolved <c>User.ClinicId</c> instead, so the filter
+/// and the handlers answer to the same source.</para>
 /// </summary>
 public class CurrentClinicProvider : ICurrentClinicProvider
 {
-    private readonly IClinicContext _clinicContext;
+    private readonly ITenantScope _scope;
 
-    public CurrentClinicProvider(IClinicContext clinicContext)
+    public CurrentClinicProvider(ITenantScope scope)
     {
-        _clinicContext = clinicContext;
+        _scope = scope;
     }
 
-    public Guid? ClinicId => _clinicContext.GetClinicId();
+    public bool IsSystemWide => _scope.Kind == TenantScopeKind.SystemWide;
+
+    public Guid? ClinicId => _scope.ClinicId;
 }

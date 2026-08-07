@@ -1,26 +1,49 @@
-using System.Globalization;
-using System.Text;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
-using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Patients.Queries;
 
-public class GetPatientsQuery : IRequest<Result<IEnumerable<PatientDto>>>
+public class GetPatientsQuery : IRequest<Result<PagedResult<PatientDto>>>
 {
     /// <summary>Optional free-text filter matched (case- and accent-insensitive) against first name, last
-    /// name, the "first last" combination, and the phone number. When null/blank, all patients are returned.</summary>
+    /// name, the "first last" combination, and the phone number. When null/blank, all patients are returned.
+    /// <para>Matched <b>in SQL</b> since paging was introduced — see <see cref="IPatientRepository"/>. It searches
+    /// the whole clinic, never just the requested page: a search that only saw the page would answer a different
+    /// question from the one the user typed.</para></summary>
     public string? SearchTerm { get; set; }
 
     /// <summary>Optional cap on the number of results returned (applied after filtering). Ignored when null or ≤ 0.</summary>
     public int? Limit { get; set; }
+
+    /// <summary>
+    /// 1-based page and page size. Both null = every matching row, which is what the header search, the patient
+    /// pickers and the AI dispatcher rely on.
+    /// </summary>
+    public int? Page { get; set; }
+    public int? PageSize { get; set; }
+
+    /// <summary>
+    /// Only patients carrying an active flag. Applied in SQL — it was a client-side filter over the full list,
+    /// which a page turns into "the flagged ones on this page".
+    /// </summary>
+    public bool FlaggedOnly { get; set; }
+
+    /// <summary>
+    /// Optional inclusive bounds on the registration date, pushed into SQL. Added for the dashboard's « Nouveaux
+    /// patients » drill-through: the KPI counts patients created in the period, so clicking it has to open the list
+    /// filtered by the same window — otherwise the card shows 12 and the page shows every patient the clinic has.
+    /// Archived patients stay excluded, matching the count.
+    /// </summary>
+    public DateTime? CreatedFrom { get; set; }
+    public DateTime? CreatedTo { get; set; }
 }
 
-public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<IEnumerable<PatientDto>>>
+public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<PagedResult<PatientDto>>>
 {
     private readonly IPatientRepository _patientRepository;
     private readonly IUserRepository _userRepository;
@@ -36,7 +59,7 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
         _clinicContext = clinicContext;
     }
 
-    public async Task<Result<IEnumerable<PatientDto>>> Handle(GetPatientsQuery request, CancellationToken cancellationToken)
+    public async Task<Result<PagedResult<PatientDto>>> Handle(GetPatientsQuery request, CancellationToken cancellationToken)
     {
         try
         {
@@ -44,72 +67,43 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<IEnumerable<PatientDto>>.Failure("Session invalide, veuillez vous reconnecter.");
+                return Result<PagedResult<PatientDto>>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             // Get user from database to get clinic ID
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result<IEnumerable<PatientDto>>.Failure("Utilisateur introuvable.");
+                return Result<PagedResult<PatientDto>>.Failure("Utilisateur introuvable.");
             }
 
             var clinicId = user.ClinicId;
 
+            // `Limit` predates paging and is what the header lookup asks for: "the first N matches, no pager".
+            // It is folded into a page request rather than kept as a separate in-memory `Take`, so that read is
+            // bounded in SQL too — a capped list that still materialised every patient of the clinic was the
+            // same unbounded read wearing a cap.
+            var paging = PageRequest.From(request.Page, request.PageSize)
+                ?? (request.Limit is > 0 ? PageRequest.Of(1, request.Limit.Value) : null);
+
             // Archived patients are excluded: this backs both the patients page and the header search.
-            IEnumerable<Patient> patients = await _patientRepository.GetByClinicIdAsync(
-                clinicId, cancellationToken: cancellationToken);
+            // Filtering, searching, ordering and paging are all in SQL now. The accent-insensitive match that
+            // used to force the search into memory is `unaccent()` on the database side (see SqlSearch) —
+            // keeping it here would have meant searching only the page the user is already looking at.
+            var page = await _patientRepository.GetByClinicIdAsync(
+                clinicId,
+                createdFrom: request.CreatedFrom,
+                createdTo: request.CreatedTo,
+                searchTerm: request.SearchTerm,
+                flaggedOnly: request.FlaggedOnly,
+                paging: paging,
+                cancellationToken: cancellationToken);
 
-            // Server-side filter: match first/last/full name and phone, case- and accent-insensitive.
-            var normalizedTerm = NormalizeForSearch(request.SearchTerm);
-            if (!string.IsNullOrEmpty(normalizedTerm))
-            {
-                patients = patients.Where(p =>
-                    NormalizeForSearch(p.FirstName).Contains(normalizedTerm) ||
-                    NormalizeForSearch(p.LastName).Contains(normalizedTerm) ||
-                    NormalizeForSearch($"{p.FirstName} {p.LastName}").Contains(normalizedTerm) ||
-                    // Null-safe: this runs in memory over every patient in the clinic, so a single
-                    // contact-less patient used to take out the whole list AND the header search with a 500.
-                    NormalizeForSearch(p.PhoneNumber?.Value).Contains(normalizedTerm));
-            }
-
-            // Stable order so a capped result is deterministic.
-            patients = patients.OrderBy(p => p.LastName).ThenBy(p => p.FirstName);
-
-            if (request.Limit is > 0)
-            {
-                patients = patients.Take(request.Limit.Value);
-            }
-
-            var dtos = patients.Select(p => p.ToDto()).ToList();
-
-            return Result<IEnumerable<PatientDto>>.Success(dtos);
+            return Result<PagedResult<PatientDto>>.Success(page.Map(p => p.ToDto()));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IEnumerable<PatientDto>>.Failure($"Error retrieving patients: {ex.Message}");
+            return Result<PagedResult<PatientDto>>.Failure($"Error retrieving patients: {ex.Message}");
         }
-    }
-
-    // Lowercases and strips diacritics so "amine" matches "Amïne" (accent-insensitive) without a Postgres
-    // unaccent extension. Runs in memory over the clinic's already-loaded patient list.
-    private static string NormalizeForSearch(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        var decomposed = value.Trim().Normalize(NormalizationForm.FormD);
-        var builder = new StringBuilder(decomposed.Length);
-        foreach (var ch in decomposed)
-        {
-            if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark)
-            {
-                builder.Append(ch);
-            }
-        }
-
-        return builder.ToString().Normalize(NormalizationForm.FormC).ToLowerInvariant();
     }
 }

@@ -5,6 +5,8 @@ using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;
 using ClinicManagement.Infrastructure.Persistence;
 
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Infrastructure.Repositories;
 
 public class TreatmentPlanRepository : ITreatmentPlanRepository
@@ -25,12 +27,27 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
     }
 
-    public async Task<IEnumerable<TreatmentPlan>> GetFilteredAsync(
+    public async Task<IReadOnlyList<TreatmentPlan>> GetByLinkedDentalRecordAsync(
+        Guid clinicId, Guid dentalRecordId, CancellationToken cancellationToken = default)
+    {
+        // Items are included because the caller un-marks the matching act through the aggregate root; the
+        // échéancier is not, since detaching an act never touches money.
+        return await _context.TreatmentPlans
+            .Include(p => p.Items)
+            .Where(p => p.ClinicId == clinicId && p.Items.Any(i => i.LinkedDentalRecordId == dentalRecordId))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<PagedResult<TreatmentPlan>> GetFilteredAsync(
         Guid clinicId,
         Guid? patientId = null,
         TreatmentPlanStatus? status = null,
         DateTime? from = null,
         DateTime? to = null,
+        DateTime? acceptedFrom = null,
+        DateTime? acceptedTo = null,
+        string? searchTerm = null,
+        PageRequest? paging = null,
         CancellationToken cancellationToken = default)
     {
         var query = _context.TreatmentPlans
@@ -59,9 +76,103 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             query = query.Where(p => p.CreatedAt <= to.Value);
         }
 
+        // AcceptedDate, not CreatedAt — the dashboard's « Devis acceptés » counts when the patient said yes, and
+        // drilling into that figure with the created-date range would list a different set of devis than the card
+        // counted. A plan with no AcceptedDate has not been accepted, so it cannot fall in an accepted-date window.
+        if (acceptedFrom.HasValue)
+        {
+            query = query.Where(p => p.AcceptedDate != null && p.AcceptedDate >= acceptedFrom.Value);
+        }
+
+        if (acceptedTo.HasValue)
+        {
+            query = query.Where(p => p.AcceptedDate != null && p.AcceptedDate <= acceptedTo.Value);
+        }
+
+        // Devis number, title, notes, or the patient's name. The patient half is an EXISTS for the same reason
+        // as on the invoice side: names are resolved by a batched lookup after the page is cut.
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(p =>
+                EF.Functions.ILike(SqlSearch.Unaccent(p.Number)!, pattern, SqlSearch.EscapeString)
+                || EF.Functions.ILike(SqlSearch.Unaccent(p.Title)!, pattern, SqlSearch.EscapeString)
+                || EF.Functions.ILike(SqlSearch.Unaccent(p.Notes)!, pattern, SqlSearch.EscapeString)
+                || _context.Patients.Any(pa => pa.Id == p.PatientId
+                    && EF.Functions.ILike(
+                        SqlSearch.Unaccent(pa.FirstName + " " + pa.LastName)!, pattern, SqlSearch.EscapeString)));
+        }
+
         return await query
             .OrderByDescending(p => p.CreatedAt)
+            .ThenBy(p => p.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<RecallPlanFact>> GetRecallPlanFactsAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // Item counts are computed in SQL (two correlated COUNTs), so no TreatmentPlanItem row is materialised.
+        // Cancelled is void and Completed has nothing left to do, so neither can put a patient on the worklist.
+        var rows = await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId
+                        && p.Status != TreatmentPlanStatus.Cancelled
+                        && p.Status != TreatmentPlanStatus.Completed)
+            .Select(p => new
+            {
+                p.PatientId,
+                PlanId = p.Id,
+                p.Number,
+                p.Status,
+                p.CreatedAt,
+                p.AcceptedDate,
+                TotalItems = p.Items.Count,
+                DoneItems = p.Items.Count(i => i.Status == TreatmentPlanItemStatus.Done)
+            })
             .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => new RecallPlanFact(
+                r.PatientId, r.PlanId, r.Number, r.Status, r.CreatedAt, r.AcceptedDate, r.TotalItems, r.DoneItems))
+            .ToList();
+    }
+
+    public async Task<int> CountByStatusAsync(
+        Guid clinicId,
+        TreatmentPlanStatus status,
+        DateTime? from = null,
+        DateTime? toInclusive = null,
+        bool byAcceptedDate = false,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.TreatmentPlans.Where(p => p.ClinicId == clinicId && p.Status == status);
+
+        if (byAcceptedDate)
+        {
+            if (from.HasValue)
+            {
+                query = query.Where(p => p.AcceptedDate != null && p.AcceptedDate >= from.Value);
+            }
+
+            if (toInclusive.HasValue)
+            {
+                query = query.Where(p => p.AcceptedDate != null && p.AcceptedDate <= toInclusive.Value);
+            }
+        }
+        else
+        {
+            if (from.HasValue)
+            {
+                query = query.Where(p => p.CreatedAt >= from.Value);
+            }
+
+            if (toInclusive.HasValue)
+            {
+                query = query.Where(p => p.CreatedAt <= toInclusive.Value);
+            }
+        }
+
+        return await query.CountAsync(cancellationToken);
     }
 
     public async Task<int> GetMaxSequenceForYearAsync(Guid clinicId, int year, CancellationToken cancellationToken = default)
@@ -124,6 +235,133 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .SelectMany(i => i.Payments)
             .Where(p => !p.IsVoided && p.PaidOn >= from && p.PaidOn <= to)
             .SumAsync(p => (decimal?)p.Amount, cancellationToken) ?? 0m;
+    }
+
+    public async Task<IReadOnlyList<CaisseInstallmentPaymentRow>> GetInstallmentPaymentsBetweenAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime toInclusive,
+        IReadOnlyCollection<Guid> excludedPlanIds,
+        CancellationToken cancellationToken = default)
+    {
+        // Predicate-for-predicate the same as GetInstallmentCollectedBetweenAsync, for the same reason its
+        // invoice-side twin mirrors GetCollectedBetweenAsync: the statement must sum to the figure that method
+        // returns. Committed plans only, bridged plans excluded (their collections live on the invoice track),
+        // same inclusive bounds. The one deliberate difference: voided rows are returned, not filtered.
+        //
+        // Rooted at the clinic-filtered TreatmentPlans set and reached by SelectMany — that traversal IS the
+        // tenant scoping for a great-grandchild with no ClinicId and no DbSet of its own.
+        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
+
+        var rows = await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId
+                        && debtStatuses.Contains(p.Status)
+                        && !excluded.Contains(p.Id))
+            .SelectMany(plan => plan.Installments
+                .SelectMany(i => i.Payments
+                    .Where(pay => pay.PaidOn >= from && pay.PaidOn <= toInclusive)
+                    .Select(pay => new
+                    {
+                        PaymentId = pay.Id,
+                        TreatmentPlanId = plan.Id,
+                        PlanNumber = plan.Number,
+                        plan.PatientId,
+                        pay.Amount,
+                        pay.Method,
+                        pay.PaidOn,
+                        pay.IsVoided,
+                        pay.VoidReason,
+                        pay.VoidedByName,
+                        pay.ChequeNumber,
+                        pay.ChequeBankName,
+                        pay.ChequeDueDate
+                    })))
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => new CaisseInstallmentPaymentRow(
+                r.PaymentId, r.TreatmentPlanId, r.PlanNumber, r.PatientId,
+                r.Amount, r.Method, r.PaidOn, r.IsVoided, r.VoidReason, r.VoidedByName,
+                r.ChequeNumber, r.ChequeBankName, r.ChequeDueDate))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<PaymentMethodTotal>> GetInstallmentCollectedByMethodBetweenAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime toInclusive,
+        IReadOnlyCollection<Guid> excludedPlanIds,
+        CancellationToken cancellationToken = default)
+    {
+        // GetInstallmentCollectedBetweenAsync with a GROUP BY — identical committed-plan filter, identical
+        // bridged-plan exclusion, identical `!IsVoided` and bounds. The breakdown is shown under the total, so
+        // the two must be the same question asked at two granularities and not two questions that happen to agree.
+        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
+
+        var totals = await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId
+                        && debtStatuses.Contains(p.Status)
+                        && !excluded.Contains(p.Id))
+            .SelectMany(p => p.Installments)
+            .SelectMany(i => i.Payments)
+            .Where(pay => !pay.IsVoided && pay.PaidOn >= from && pay.PaidOn <= toInclusive)
+            .GroupBy(pay => pay.Method)
+            .Select(g => new { Method = g.Key, Amount = g.Sum(pay => pay.Amount) })
+            .ToListAsync(cancellationToken);
+
+        return totals.Select(t => new PaymentMethodTotal(t.Method, t.Amount)).ToList();
+    }
+
+    public async Task<IReadOnlyList<CaisseInstallmentPaymentRow>> GetInstallmentChequePaymentsAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> excludedPlanIds,
+        DateTime? dueFrom = null,
+        DateTime? dueTo = null,
+        CancellationToken cancellationToken = default)
+    {
+        // The devis half of « chèques à encaisser ». Same projection as the statement's rows, different question:
+        // which cheques still have to be presented, whenever they were taken.
+        //
+        // The bridged-plan exclusion is not cosmetic here. IssueInvoiceCommand carries a bridged plan's cheque
+        // across onto the invoice payment, so without it one physical cheque would be listed twice — and the two
+        // rows would look exactly like two genuine cheques of the same amount from the same bank.
+        var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
+        var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
+
+        var rows = await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId
+                        && debtStatuses.Contains(p.Status)
+                        && !excluded.Contains(p.Id))
+            .SelectMany(plan => plan.Installments
+                .SelectMany(i => i.Payments
+                    .Where(pay => !pay.IsVoided
+                                  && pay.Method == PaymentMethod.Cheque
+                                  && (pay.ChequeDueDate == null
+                                      || ((dueFrom == null || pay.ChequeDueDate >= dueFrom)
+                                          && (dueTo == null || pay.ChequeDueDate <= dueTo))))
+                    .Select(pay => new
+                    {
+                        PaymentId = pay.Id,
+                        TreatmentPlanId = plan.Id,
+                        PlanNumber = plan.Number,
+                        plan.PatientId,
+                        pay.Amount,
+                        pay.Method,
+                        pay.PaidOn,
+                        pay.ChequeNumber,
+                        pay.ChequeBankName,
+                        pay.ChequeDueDate
+                    })))
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => new CaisseInstallmentPaymentRow(
+                r.PaymentId, r.TreatmentPlanId, r.PlanNumber, r.PatientId,
+                r.Amount, r.Method, r.PaidOn, IsVoided: false, VoidReason: null, VoidedByName: null,
+                r.ChequeNumber, r.ChequeBankName, r.ChequeDueDate))
+            .ToList();
     }
 
     public async Task<IReadOnlyList<(Guid PatientId, decimal Outstanding, DateTime? OldestOverdueDueDate)>> GetInstallmentOutstandingByPatientAsync(

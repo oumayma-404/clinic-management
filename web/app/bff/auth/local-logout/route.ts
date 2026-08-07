@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
-import { SESSION_COOKIE, MUST_CHANGE_COOKIE } from '@/lib/auth/local-auth';
+import { clearSessionCookies } from '@/lib/auth/session-cookie';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// Clears the local session cookie. The configured server address is untouched (AC-3.6).
+// Clears the local session cookies. The configured server address is untouched (AC-3.6).
 export async function POST() {
   const response = NextResponse.json({ ok: true });
-  response.cookies.set(SESSION_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 });
-  response.cookies.set(MUST_CHANGE_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 });
+  clearSessionCookies(response);
   return response;
 }

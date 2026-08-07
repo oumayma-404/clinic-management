@@ -12,6 +12,14 @@ public class ClinicUserDto
     public string? Email { get; set; }
     public string? FullName { get; set; }
     public bool IsActive { get; set; }
+
+    /// <summary>
+    /// This account has never been able to log in and is waiting for an admin's approval (I5) — as opposed to
+    /// having been switched off after use. Both are <c>!IsActive</c>; only this one is somebody's first day.
+    /// The row's badge reads « En attente d'activation » rather than « Désactivé » on the strength of it.
+    /// </summary>
+    public bool IsPendingActivation { get; set; }
+
     public bool MustChangePassword { get; set; }
     public DateTime? LastLoginAt { get; set; }
     public DateTime CreatedAt { get; set; }

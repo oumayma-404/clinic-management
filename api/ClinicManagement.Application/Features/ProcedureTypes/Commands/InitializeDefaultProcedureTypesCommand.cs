@@ -44,7 +44,8 @@ public class InitializeDefaultProcedureTypesCommandHandler : IRequestHandler<Ini
                 return Result<int>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             }
 
-            var existing = await _procedureTypeRepository.GetAllAsync(cancellationToken);
+            var existing = (await _procedureTypeRepository.GetFilteredAsync(
+                clinicResult.Value, includeInactive: true, cancellationToken: cancellationToken)).Items;
             var existingNames = new HashSet<string>(existing.Select(p => p.Name.Trim()), StringComparer.OrdinalIgnoreCase);
 
             var added = 0;

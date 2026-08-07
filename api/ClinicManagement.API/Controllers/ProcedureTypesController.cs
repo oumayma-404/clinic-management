@@ -6,11 +6,13 @@ using ClinicManagement.Application.Features.ProcedureTypes.Commands;
 using ClinicManagement.Application.Features.ProcedureTypes.Queries;
 using ClinicManagement.Domain.ValueObjects;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/procedure-types")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class ProcedureTypesController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -25,10 +27,33 @@ public class ProcedureTypesController : ApiControllerBase
     /// <summary>
     /// Get all procedure types
     /// </summary>
+    /// <param name="page">1-based page number. Omit both paging parameters to get every match.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">
+    /// Free-text filter. Applied in SQL <b>before</b> the page is cut, so it searches the whole clinic — a
+    /// search that only saw the current page would answer a different question from the one that was typed.
+    /// </param>
+    /// <param name="category">
+    /// Narrow to one clinical discipline. Applied in SQL alongside <paramref name="search"/>, for the same reason:
+    /// narrowing an already-cut page would shrink pages unpredictably. An unrecognised value matches nothing
+    /// rather than failing, so a stale bookmark shows an empty list, not an error.
+    /// </param>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Application.DTOs.ProcedureTypeDto>>> GetProcedureTypes([FromQuery] bool includeInactive = false)
+    public async Task<ActionResult<PagedResult<Application.DTOs.ProcedureTypeDto>>> GetProcedureTypes(
+        [FromQuery] bool includeInactive = false,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null,
+        [FromQuery] string? category = null)
     {
-        var query = new GetProcedureTypesQuery { IncludeInactive = includeInactive };
+        var query = new GetProcedureTypesQuery
+        {
+            IncludeInactive = includeInactive,
+            Page = page,
+            PageSize = pageSize,
+            SearchTerm = search,
+            Category = category
+        };
         var result = await _mediator.Send(query);
 
         if (result.IsFailure)
@@ -95,6 +120,27 @@ public class ProcedureTypesController : ApiControllerBase
     }
 
     /// <summary>
+    /// Replace an act's material list — the stock performing it consumes (AC-P4.14). A separate endpoint from
+    /// the PUT above because the list has replace semantics (an empty list clears it, which is the opt-out)
+    /// while every field of the update command is null-means-unchanged.
+    /// </summary>
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [HttpPut("{id}/materials")]
+    public async Task<ActionResult<Application.DTOs.ProcedureTypeDto>> SetMaterials(
+        Guid id, [FromBody] SetProcedureTypeMaterialsCommand command)
+    {
+        command.Id = id;
+        var result = await _mediator.Send(command);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
     /// Delete (soft delete) a procedure type
     /// </summary>
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
@@ -137,6 +183,28 @@ public class ProcedureTypesController : ApiControllerBase
     {
         var colors = ColorHex.GetAvailableColors().ToList();
         return Ok(colors);
+    }
+
+    /// <summary>
+    /// The categories to offer when filing or filtering an act: the suggested clinical disciplines plus every
+    /// category this clinic has invented for itself.
+    /// </summary>
+    /// <remarks>
+    /// Served rather than shipped as a browser constant because half the list is data — only the server knows
+    /// which categories the clinic has actually used, and a suggestion list missing them is what makes an admin
+    /// retype one and shard the group. Sibling of <c>GET colors</c>, which serves the palette for the same reason.
+    /// </remarks>
+    [HttpGet("categories")]
+    public async Task<ActionResult<List<string>>> GetCategories()
+    {
+        var result = await _mediator.Send(new GetProcedureTypeCategoriesQuery());
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
     }
 }
 

@@ -7,23 +7,26 @@ using ClinicManagement.Application.Features.Clinics.Queries;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.API.Models;
-using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.Infrastructure.Deployment;
 using System.Text.Json;
 
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.Authenticated)]
 public class ClinicsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
     private readonly IConfiguration _configuration;
 
-    public ClinicsController(IMediator mediator, IConfiguration configuration)
+    private readonly DeploymentProfile _deployment;
+
+    public ClinicsController(IMediator mediator, IConfiguration configuration, DeploymentProfile deployment)
     {
         _mediator = mediator;
         _configuration = configuration;
+        _deployment = deployment;
     }
 
     /// <summary>
@@ -51,7 +54,8 @@ public class ClinicsController : ApiControllerBase
     {
         DoctorPersonalInfoDto? doctorInfo = null;
         Stream? logoFile = null;
-        string? logoContentType = null;
+        string? logoFileName = null;
+        long logoLength = 0;
         string name;
         string? address;
         string? city;
@@ -82,7 +86,8 @@ public class ClinicsController : ApiControllerBase
             if (logo != null && logo.Length > 0)
             {
                 logoFile = logo.OpenReadStream();
-                logoContentType = logo.ContentType;
+                logoFileName = logo.FileName;
+                logoLength = logo.Length;
             }
             
             // Parse DoctorInfo from JSON string
@@ -134,7 +139,8 @@ public class ClinicsController : ApiControllerBase
             Role = role,
             DoctorInfo = doctorInfo,
             LogoFile = logoFile,
-            LogoContentType = logoContentType,
+            LogoFileName = logoFileName,
+            LogoLength = logoLength,
             WorkingHoursJson = workingHoursJson
         };
         
@@ -199,6 +205,9 @@ public class ClinicsController : ApiControllerBase
     /// Update clinic information for the current user's clinic
     /// </summary>
     [HttpPut]
+    // Clinic configuration, and specifically the billing settings — matricule fiscal, TVA, timbre, El Fatoora.
+    // Every write on the tabs beside it was already admin-gated; this one was reachable by any authenticated user.
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> UpdateClinic([FromForm] UpdateClinicRequest request)
     {
         var command = new UpdateClinicCommand
@@ -209,7 +218,8 @@ public class ClinicsController : ApiControllerBase
             Phone = request.Phone,
             Email = request.Email,
             LogoFile = request.Logo?.OpenReadStream(),
-            LogoContentType = request.Logo?.ContentType,
+            LogoFileName = request.Logo?.FileName,
+            LogoLength = request.Logo?.Length ?? 0,
             MatriculeFiscal = request.MatriculeFiscal,
             VatApplicable = request.VatApplicable,
             VatRate = request.VatRate,
@@ -307,6 +317,48 @@ public class ClinicsController : ApiControllerBase
     }
 
     /// <summary>
+    /// The « Rappels » page: one filtered, paged view of the reminder outbox plus the clinic's three counters.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Deliberately not <c>AdminOnly</c></b>, unlike <c>reminder-status</c> above. Reading the log is what
+    /// a secretary fielding « je n'ai reçu aucun message » needs to do, and a row carries a patient name and a
+    /// phone masked to its last two digits — no credentials, no template bodies, nothing the admin gate was
+    /// protecting. Every <b>write</b> to the channel settings stays admin-gated.</para>
+    /// <para>All four filters are optional and <b>tolerant</b>: an unknown status or channel is ignored rather than
+    /// refused, so a stale bookmark shows the full log instead of a French error about a query parameter.</para>
+    /// </remarks>
+    [HttpGet("reminder-log")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<IActionResult> GetReminderLog(
+        [FromQuery] string? status = null,
+        [FromQuery] string? channel = null,
+        [FromQuery] string? from = null,
+        [FromQuery] string? to = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new GetClinicReminderLogQuery
+            {
+                Status = status,
+                Channel = channel,
+                From = from,
+                To = to,
+                Page = page,
+                PageSize = pageSize,
+            },
+            cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Connect the current clinic's WhatsApp via Meta Embedded Signup (admin-only, Cloud-only). Exchanges the
     /// one-time code, subscribes the app, registers the phone number, and stores the encrypted credentials —
     /// atomically. Returns the secret-masked settings (status Connected). 404 in Local mode.
@@ -316,7 +368,7 @@ public class ClinicsController : ApiControllerBase
     public async Task<IActionResult> ConnectWhatsApp(
         [FromBody] ConnectWhatsAppRequest request, CancellationToken cancellationToken = default)
     {
-        if (LocalAuthConfig.IsLocalMode(_configuration))
+        if (!_deployment.ExposesMetaOnboarding)
         {
             return NotFound();
         }
@@ -340,7 +392,7 @@ public class ClinicsController : ApiControllerBase
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> DisconnectWhatsApp(CancellationToken cancellationToken = default)
     {
-        if (LocalAuthConfig.IsLocalMode(_configuration))
+        if (!_deployment.ExposesMetaOnboarding)
         {
             return NotFound();
         }
@@ -359,6 +411,8 @@ public class ClinicsController : ApiControllerBase
     /// Download clinic logo
     /// </summary>
     [HttpGet("logo")]
+    // Every screen with a header renders it, for every role.
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
     public async Task<IActionResult> GetLogo(CancellationToken cancellationToken = default)
     {
         var query = new GetClinicLogoQuery();

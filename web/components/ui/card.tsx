@@ -7,7 +7,19 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card"
       className={cn(
-        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm",
+        /*
+         * A transition on the two properties a card's state can actually change.
+         *
+         * `Card` shipped with none, so every clickable card in the app had to hand-roll its own hover — and only
+         * one call site ever did, which is why an interactive card and a static one were indistinguishable
+         * until you clicked. Declaring it here means a call site adding `hover:border-primary/40` or the
+         * `lift` utility gets a smooth response for free, and a static card pays nothing (a transition on a
+         * property that never changes never runs).
+         *
+         * Explicit properties rather than `transition-all`: `all` would animate layout properties too, so a
+         * card whose padding changes at a breakpoint would animate a reflow.
+         */
+        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm transition-[box-shadow,border-color] duration-200 ease-snap",
         className
       )}
       {...props}

@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -115,7 +116,11 @@ public class CreateCreditNoteCommandHandler : IRequestHandler<CreateCreditNoteCo
             {
                 return Result<CreditNoteDto>.Failure(dateError);
             }
-            var year = DateTime.UtcNow.Year;
+            // The clinic's fiscal year, not the UTC one. § 4.2 names the invoice and devis sequences; the avoir
+            // sequence is the same construct in the same numbering family, added by § 1 after the audit was
+            // written. Fixing two of three would have left the credit note as the one document that still
+            // numbers into the closed year.
+            var year = ClinicClock.ClinicYear();
             CreditNote? creditNote = null;
 
             for (var attempt = 1; attempt <= MaxNumberingAttempts; attempt++)

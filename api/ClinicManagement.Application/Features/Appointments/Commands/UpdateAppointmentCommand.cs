@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Appointments;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Enums;
@@ -46,6 +47,31 @@ public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
     public int? DurationMinutes { get; set; }
     public string? Status { get; set; }
 
+    /// <summary>
+    /// Why the appointment was cancelled. Only read when <see cref="Status"/> moves to <c>Cancelled</c>.
+    /// <para>
+    /// The cancel path called <c>appointment.Cancel()</c> with no argument, so <c>CancellationReason</c> was
+    /// **always null** on every cancellation made through the UI — even though the column exists, the entity
+    /// accepts a reason, and `CancelRecurringSeriesCommand` records one. Now that cancelling a *completed*
+    /// visit is possible (AC-P1.5), knowing why matters more, not less.
+    /// </para>
+    /// </summary>
+    public string? CancellationReason { get; set; }
+
+    /// <summary>
+    /// Confirmed override for moving an appointment outside the practitioner's working hours (AC-P1.31).
+    /// Recorded on the appointment rather than silently allowed.
+    /// </summary>
+    public bool AllowOutsideWorkingHours { get; set; }
+
+    /// <summary>
+    /// Confirmed override for a booking that overlaps another for the same practitioner. The sibling of
+    /// <see cref="AllowOutsideWorkingHours"/>, and deliberately the same shape: a double-booking is sometimes real
+    /// work (a second chair, an emergency squeezed in), so the collision is advisory and the acceptance is
+    /// <b>recorded</b> on the appointment via <c>MarkBookedWithOverlap()</c> rather than silently allowed.
+    /// </summary>
+    public bool AllowOverlap { get; set; }
+
     /// <summary>The plan the linked act belongs to — required whenever <see cref="TreatmentPlanItemId"/> is set.</summary>
     public Guid? TreatmentPlanId { get; set; }
 
@@ -54,6 +80,28 @@ public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
     private Guid? _procedureTypeId;
     private Guid? _doctorId;
     private Guid? _treatmentPlanItemId;
+    private List<AppointmentProcedureRequest>? _procedures;
+
+    /// <summary>
+    /// The acts of this séance, replaced wholesale. Tri-state like everything else here: **omit** the key to leave
+    /// the séance's acts untouched, send `[]` to clear them all.
+    /// <para>
+    /// That distinction is load-bearing, and for exactly the reason documented on <see cref="ProcedureTypeId"/>:
+    /// cancelling an appointment posts <c>{ status }</c> alone, so a list read as "an empty list was sent" would
+    /// delete every act of the visit on every cancellation. An empty array is a real instruction (« ce rendez-vous
+    /// n'a plus d'acte »), which is why it cannot be conflated with an absent one.
+    /// </para>
+    /// <para>
+    /// Replace, not patch: the client sends the list the user is looking at. A row-level diff would need the client
+    /// to track each act's id, and <c>AppointmentProcedure</c> holds nothing worth preserving across a save — a
+    /// performed act is recorded on the fiche de soins, not here.
+    /// </para>
+    /// </summary>
+    public List<AppointmentProcedureRequest>? Procedures
+    {
+        get => _procedures;
+        set { _procedures = value; ProceduresSpecified = true; }
+    }
 
     /// <summary>Free-text practitioner label. Explicit <c>null</c> clears it; omitting leaves it.</summary>
     public string? DoctorName
@@ -100,6 +148,7 @@ public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
     [JsonIgnore] public bool ProcedureTypeIdSpecified { get; private set; }
     [JsonIgnore] public bool DoctorIdSpecified { get; private set; }
     [JsonIgnore] public bool TreatmentPlanItemIdSpecified { get; private set; }
+    [JsonIgnore] public bool ProceduresSpecified { get; private set; }
 }
 
 public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointmentCommand, Result<AppointmentDto>>
@@ -107,6 +156,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly IDoctorRepository _doctorRepository;
+    private readonly IClinicRepository _clinicRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IClinicContext _clinicContext;
@@ -120,6 +170,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
         IAppointmentRepository appointmentRepository,
         IProcedureTypeRepository procedureTypeRepository,
         IDoctorRepository doctorRepository,
+        IClinicRepository clinicRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
         ICurrentClinicResolver clinicResolver,
         IClinicContext clinicContext,
@@ -132,6 +183,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
         _appointmentRepository = appointmentRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _doctorRepository = doctorRepository;
+        _clinicRepository = clinicRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
         _clinicResolver = clinicResolver;
         _clinicContext = clinicContext;
@@ -253,10 +305,36 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 appointment.UpdateNotes(request.Notes);
             }
 
+            // The séance's acts, replaced wholesale. Takes precedence over the single-act field below: it is the
+            // newer and strictly more expressive of the two, and applying both would let the one-act path
+            // immediately collapse the list it just set.
+            if (request.ProceduresSpecified)
+            {
+                var requestedProcedures = request.Procedures ?? new List<AppointmentProcedureRequest>();
+
+                var linkResult = await AppointmentPlanLink.ValidateManyAsync(
+                    _treatmentPlanRepository, request.TreatmentPlanId,
+                    AppointmentProcedureSelection.PlanItemIds(requestedProcedures),
+                    clinicResult.Value, appointment.PatientId, cancellationToken);
+                if (linkResult.IsFailure)
+                {
+                    return Result<AppointmentDto>.Failure(linkResult.Error!);
+                }
+
+                var proceduresResult = await AppointmentProcedureSelection.ResolveAsync(
+                    _procedureTypeRepository, clinicResult.Value, requestedProcedures,
+                    linkResult.Value!, cancellationToken);
+                if (proceduresResult.IsFailure)
+                {
+                    return Result<AppointmentDto>.Failure(proceduresResult.Error!);
+                }
+
+                appointment.SetProcedures(proceduresResult.Value!);
+            }
             // Tri-state — THE data-loss fix. Without the Specified guard an omitted key bound to null, compared
             // as "different from the current act", and wiped the procedure type plus its snapshot duration and
             // colour. Cancelling an appointment posts { status } alone, so every cancellation destroyed the act.
-            if (request.ProcedureTypeIdSpecified && request.ProcedureTypeId != appointment.ProcedureTypeId)
+            else if (request.ProcedureTypeIdSpecified && request.ProcedureTypeId != appointment.ProcedureTypeId)
             {
                 if (request.ProcedureTypeId.HasValue)
                 {
@@ -274,7 +352,8 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                     appointment.SetProcedureType(
                         procedureType.Id,
                         procedureType.DefaultDurationMinutes,
-                        procedureType.Color.Value);
+                        procedureType.Color.Value,
+                        procedureType.Name);
                 }
                 else
                 {
@@ -292,57 +371,76 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                     return Result<AppointmentDto>.Failure($"Statut de rendez-vous invalide : « {request.Status} ».");
                 }
 
+                /*
+                 * ⚠️ Compared against **oldStatus** — the status the caller was looking at — not against
+                 * `appointment.Status`, which the date block above may already have moved.
+                 *
+                 * This is the order-independence half of L2a, and it closes a blocker. Rescheduling a no-show
+                 * posted `status: "noshow"` (the hydrated value) with a new date. The date is applied first,
+                 * `Reschedule()` correctly drops the absence to `Scheduled` — and then this block compared the
+                 * posted `NoShow` against the *just-changed* `Scheduled`, found `Scheduled → NoShow` legal, and
+                 * marked the patient absent again for a visit that had only been moved. Three knock-ons rode on
+                 * it, all of which disappear with the status: the outbound reminder took the
+                 * `VoidForAppointmentAsync` branch instead of being re-enqueued for the new day, the hard
+                 * collision guard below skips `NoShow` and so **let someone else be booked on top**, and so did
+                 * the working-hours check.
+                 *
+                 * `newStatus == oldStatus` means "the caller is not asking for a transition", whatever this
+                 * handler has done to the appointment since. That is a statement about the request, so it cannot
+                 * be re-broken by reordering the blocks above — which the client-side fix (stop posting an
+                 * unchanged status) cannot promise for the other callers.
+                 */
+                if (newStatus != oldStatus && appointment.Status != newStatus)
                 {
-                    // Only update if status is different
-                    if (appointment.Status != newStatus)
+                    // AC-P1.2 / AC-P1.3: ask the domain's declared transition set instead of the fall-through
+                    // `switch` that used to live here. Every arm of that switch was a silent no-op guard, so
+                    // an illegal transition — « Terminé » on a Scheduled appointment, « En cours » on a
+                    // cancelled one — returned **HTTP 200 having changed nothing**. The user saw a success
+                    // toast and a status that had not moved.
+                    if (!Appointment.CanTransition(appointment.Status, newStatus))
                     {
-                        switch (newStatus)
-                        {
-                            case AppointmentStatus.Scheduled:
-                                // If currently cancelled, reactivate it (Reschedule forbids a cancelled appt).
-                                if (appointment.Status == AppointmentStatus.Cancelled)
-                                {
-                                    appointment.Reactivate(appointment.AppointmentDateTime);
-                                }
-                                // If status is already scheduled, no change needed
-                                break;
-                            case AppointmentStatus.Confirmed:
-                                if (appointment.Status != AppointmentStatus.Confirmed)
-                                {
-                                    appointment.Confirm();
-                                }
-                                break;
-                            case AppointmentStatus.Completed:
-                                if (appointment.Status == AppointmentStatus.InProgress)
-                                {
-                                    appointment.Complete();
-                                }
-                                // Note: Can't directly set to Completed from other states
-                                break;
-                            case AppointmentStatus.Cancelled:
-                                if (appointment.Status != AppointmentStatus.Cancelled && 
-                                    appointment.Status != AppointmentStatus.Completed)
-                                {
-                                    _logger.LogInformation("Cancelling appointment {AppointmentId}. Current GoogleCalendarEventId: {GoogleEventId}", 
-                                        appointment.Id, appointment.GoogleCalendarEventId ?? "(none)");
-                                    appointment.Cancel();
-                                }
-                                break;
-                            case AppointmentStatus.InProgress:
-                                if (appointment.Status == AppointmentStatus.Confirmed || 
-                                    appointment.Status == AppointmentStatus.Scheduled)
-                                {
-                                    appointment.Start();
-                                }
-                                break;
-                            case AppointmentStatus.NoShow:
-                                if (appointment.Status != AppointmentStatus.Completed && 
-                                    appointment.Status != AppointmentStatus.Cancelled)
-                                {
-                                    appointment.MarkAsNoShow();
-                                }
-                                break;
-                        }
+                        return Result<AppointmentDto>.Failure(
+                            $"Transition impossible : un rendez-vous « {Appointment.FrenchLabel(appointment.Status)} » "
+                            + $"ne peut pas passer à « {Appointment.FrenchLabel(newStatus)} ».");
+                    }
+
+                    // The transition is legal — route it to the mutator that owns the extra state each one
+                    // carries (a cancellation reason, clearing one on reactivation). The domain re-checks the
+                    // same table, so these calls cannot disagree with the guard above.
+                    switch (newStatus)
+                    {
+                        case AppointmentStatus.Scheduled:
+                            // Two legal sources, per the table: Cancelled (reactivation) and NoShow (rebooking).
+                            // Reschedule() refuses a cancelled appointment by design, so un-cancelling routes
+                            // through Reactivate() — which also clears the reason and the cancelled-at stamp.
+                            // From NoShow, Reschedule() is what drops the absence (AC-P1.9).
+                            if (appointment.Status == AppointmentStatus.Cancelled)
+                            {
+                                appointment.Reactivate(appointment.AppointmentDateTime);
+                            }
+                            else
+                            {
+                                appointment.Reschedule(appointment.AppointmentDateTime);
+                            }
+                            break;
+                        case AppointmentStatus.Confirmed:
+                            appointment.Confirm();
+                            break;
+                        case AppointmentStatus.InProgress:
+                            appointment.Start();
+                            break;
+                        case AppointmentStatus.Completed:
+                            appointment.Complete();
+                            break;
+                        case AppointmentStatus.Cancelled:
+                            _logger.LogInformation(
+                                "Cancelling appointment {AppointmentId} (from {FromStatus}). Current GoogleCalendarEventId: {GoogleEventId}",
+                                appointment.Id, appointment.Status, appointment.GoogleCalendarEventId ?? "(none)");
+                            appointment.Cancel(request.CancellationReason);
+                            break;
+                        case AppointmentStatus.NoShow:
+                            appointment.MarkAsNoShow();
+                            break;
                     }
                 }
             }
@@ -377,24 +475,55 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             var scheduleChanged = appointment.AppointmentDateTime != oldDateTime
                                   || appointment.Duration != oldDuration
                                   || appointment.DoctorId != oldDoctorId;
+            // ⚠️ `&& appointment.DoctorId.HasValue` used to stand here as well — a **second copy** of the gate that
+            // lived inside `FindCollisionAsync`, so removing it from the helper alone would have left this path
+            // exempt and the two would have disagreed about the same rule. The helper is the only authority now:
+            // it decides what competes with what (`CompetesFor`), including the unassigned « créneau occupé » rows
+            // that a named practitioner must also respect.
             if (scheduleChanged
-                && appointment.DoctorId.HasValue
                 && appointment.Status != AppointmentStatus.Cancelled
                 && appointment.Status != AppointmentStatus.Completed
                 && appointment.Status != AppointmentStatus.NoShow)
             {
-                var windowStart = appointment.AppointmentDateTime.AddDays(-1);
-                var windowEnd = appointment.AppointmentDateTime + appointment.Duration;
-                var others = await _appointmentRepository.GetByClinicIdAsync(
-                    clinicResult.Value, windowStart, windowEnd, appointment.DoctorId, cancellationToken);
-                var collides = others.Any(e =>
-                    e.Id != appointment.Id &&
-                    e.Status != AppointmentStatus.Cancelled &&
-                    e.Status != AppointmentStatus.NoShow &&
-                    Overlaps(e.AppointmentDateTime, e.Duration, appointment.AppointmentDateTime, appointment.Duration));
-                if (collides)
+                // AC-P1.20/1.39: the same shared guard the create path uses, with the widened scan window (A-3).
+                var collision = await AppointmentScheduling.FindCollisionAsync(
+                    _appointmentRepository, clinicResult.Value, appointment.DoctorId,
+                    appointment.AppointmentDateTime, appointment.Duration,
+                    excludeAppointmentId: appointment.Id, cancellationToken);
+                if (collision != null && !request.AllowOverlap)
                 {
-                    return Result<AppointmentDto>.Failure("Ce créneau est déjà réservé pour ce praticien.");
+                    return Result<AppointmentDto>.Failure(
+                        AppointmentScheduling.SlotTakenMessage(collision), AppointmentScheduling.SlotTakenCode);
+                }
+
+                // Keep the acknowledgement in step with reality: a move INTO a clash records it, a move OUT of one
+                // clears it, so a row rescheduled into a free slot does not keep its constraint exemption forever.
+                if (collision != null && request.AllowOverlap)
+                {
+                    appointment.MarkBookedWithOverlap();
+                }
+                else if (collision == null)
+                {
+                    appointment.ClearOverlapAcknowledgement();
+                }
+
+                // AC-P1.20/1.28: moving an appointment is subject to the same working-hours rule as booking it.
+                if (!request.AllowOutsideWorkingHours)
+                {
+                    var hoursCheck = await AppointmentScheduling.CheckWorkingHoursAsync(
+                        _doctorRepository, _clinicRepository, clinicResult.Value, appointment.DoctorId,
+                        appointment.AppointmentDateTime, appointment.Duration, cancellationToken);
+                    if (hoursCheck.IsFailure)
+                    {
+                        // FailureFrom, not Failure(Error): the working-hours refusal carries OutsideWorkingHoursCode,
+                    // and that code is the whole point — it is what lets the dialog offer « Continuer quand
+                    // même » instead of presenting a dead end.
+                    return Result<AppointmentDto>.FailureFrom(hoursCheck);
+                    }
+                }
+                else
+                {
+                    appointment.MarkBookedOutsideWorkingHours();
                 }
             }
 
@@ -507,14 +636,16 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 DoctorName = appointment.DoctorName,
                 Notes = appointment.Notes,
                 Status = appointment.Status.ToString(),
+                AllowedNextStatuses = Appointment.NextStatusesFrom(appointment.Status).Select(s => s.ToString()).ToList(),
                 CreatedAt = appointment.CreatedAt.Kind == DateTimeKind.Utc
                     ? appointment.CreatedAt
                     : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc),
                 Version = appointment.Version,
                 ProcedureTypeId = appointment.ProcedureTypeId,
-                ProcedureTypeName = appointment.ProcedureType?.Name,
+                ProcedureTypeName = appointment.LeadProcedureName(),
                 // Use current procedure type color if available, otherwise use stored color
                 ProcedureColorHex = appointment.ProcedureType?.Color.Value ?? appointment.ProcedureColorHex,
+                Procedures = appointment.ToProcedureDtos(),
                 TreatmentPlanItemId = appointment.TreatmentPlanItemId,
                 // Reflects committed state; the async Google sync below may set the id afterwards, and
                 // the frontend refetches (bumps refreshKey) to clear the "non synchronisé" badge.
@@ -524,7 +655,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             // Push to Google Calendar post-commit (fire-and-forget, connectivity-gated). Best-effort — a
             // Google failure never affects the update; cancelled/completed appointments are removed from
             // Google by the sync service.
-            _googleSyncDispatcher.Dispatch(appointment.Id);
+            _googleSyncDispatcher.Dispatch(appointment.Id, appointment.ClinicId);
 
             return Result<AppointmentDto>.Success(dto);
         }

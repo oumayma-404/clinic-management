@@ -84,6 +84,14 @@ public class UpdateClinicReminderSettingsCommandHandler
                 input.LeadTimeHours,
                 input.MessageTemplateBody);
 
+            settings.ApplySmtpSettings(
+                input.SmtpHost,
+                input.SmtpPort,
+                input.SmtpUseTls,
+                input.SmtpUsername,
+                input.SmtpFromAddress,
+                input.SmtpFromName);
+
             // Secrets are write-only: only re-encrypt & replace when a non-blank value is supplied.
             if (!string.IsNullOrWhiteSpace(input.SmsApiKey))
             {
@@ -93,6 +101,11 @@ public class UpdateClinicReminderSettingsCommandHandler
             if (!string.IsNullOrWhiteSpace(input.WhatsAppAccessToken))
             {
                 settings.SetWhatsAppAccessTokenEncrypted(_secretProtector.Protect(input.WhatsAppAccessToken.Trim()));
+            }
+
+            if (!string.IsNullOrWhiteSpace(input.SmtpPassword))
+            {
+                settings.SetSmtpPasswordEncrypted(_secretProtector.Protect(input.SmtpPassword.Trim()));
             }
 
             if (isNew)
@@ -115,6 +128,9 @@ public class UpdateClinicReminderSettingsCommandHandler
                     ? ReminderEffectiveStatus.Configured
                     : ReminderEffectiveStatus.NotConfigured,
                 WhatsAppEffectiveStatus = resolved.WhatsAppConfigured
+                    ? ReminderEffectiveStatus.Configured
+                    : ReminderEffectiveStatus.NotConfigured,
+                EmailEffectiveStatus = resolved.EmailConfigured
                     ? ReminderEffectiveStatus.Configured
                     : ReminderEffectiveStatus.NotConfigured,
             };

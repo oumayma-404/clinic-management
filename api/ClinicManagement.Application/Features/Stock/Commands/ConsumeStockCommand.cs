@@ -15,6 +15,9 @@ public class ConsumeStockCommand : IRequest<Result<StockItemDto>>
 {
     public Guid Id { get; set; }
     public int Quantity { get; set; }
+
+    /// <summary>Why the stock left. Recorded on the movement (AC-P4.17); all three write sites passed null.</summary>
+    public string? Reason { get; set; }
 }
 
 public class ConsumeStockCommandHandler : IRequestHandler<ConsumeStockCommand, Result<StockItemDto>>
@@ -62,7 +65,9 @@ public class ConsumeStockCommandHandler : IRequestHandler<ConsumeStockCommand, R
 
             // Audit the movement (finding #14) in the same transaction — ResultingStock is the post-mutation on-hand.
             await _stockMovementRepository.AddAsync(
-                new StockMovement(Guid.NewGuid(), clinic.Value, item.Id, StockMovementType.Consume, request.Quantity, item.CurrentStock),
+                new StockMovement(
+                    Guid.NewGuid(), clinic.Value, item.Id, StockMovementType.Consume, request.Quantity,
+                    item.CurrentStock, request.Reason ?? "Sortie de stock manuelle"),
                 cancellationToken);
 
             await _stockItemRepository.UpdateAsync(item, cancellationToken);

@@ -4,6 +4,8 @@ import type React from "react"
 import { Auth0Provider, useUser } from "@auth0/nextjs-auth0/client"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { clinicsApi } from "@/lib/api/clinics"
+import { clearCachedAccessToken, onMustChangePassword } from "@/lib/api/client"
+import { canConfirmIdentityInShell, SessionLockGate } from "@/components/session-lock-gate"
 
 export type AuthMode = "cloud" | "local"
 
@@ -109,13 +111,26 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
   const [user, setUser] = useState<SessionUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  const logout = useCallback(() => {
+  const logout = useCallback((options?: { returnTo?: string }) => {
     // AC-3.6: logout returns to the login screen; the configured server address
     // (NEXT_PUBLIC_API_URL / shell config) is untouched.
+    // Drop the in-memory access token too: the full navigation below would discard it anyway, but the
+    // cache must not outlive the session on any path that stops short of reloading the page.
+    clearCachedAccessToken()
+    /*
+     * AC-42 — an INACTIVITY logout remembers where the user was, a deliberate one does not.
+     *
+     * Coming back to a phone after lunch and being dropped on the dashboard, having lost the fiche that was
+     * open, is the part of a timeout that actually costs work. A user who *chose* « Se déconnecter » is
+     * finished with the screen, so passing no `returnTo` is the right default.
+     */
+    const target = options?.returnTo
+      ? `/login?returnTo=${encodeURIComponent(options.returnTo)}`
+      : "/login"
     fetch("/bff/auth/local-logout", { method: "POST" })
       .catch(() => {})
       .finally(() => {
-        window.location.href = "/login"
+        window.location.href = target
       })
   }, [])
 
@@ -145,26 +160,131 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
     }
   }, [])
 
-  // Inactivity auto-logout — only armed while logged in.
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /*
+   * A forced password change is a destination, not an error message (AC-76).
+   *
+   * The login path is already covered: `/bff/auth/local-login` writes `local_must_change_password` and
+   * `middleware.ts` holds the user on `/change-password` until it is gone. What that cookie cannot cover is an
+   * admin resetting the password of somebody **already signed in** — no login happens, so no cookie is written,
+   * and every call from then on 403s. Routing here rather than in `client.ts` keeps navigation out of the data
+   * layer, the same split `<ClientVersionGate>` uses for the 426.
+   *
+   * ⚠️ A full navigation, not `router.push`: the same middleware gate must run, and the in-memory access token
+   * must not survive into the new state. And it is guarded on the current path — the change-password screen
+   * itself makes calls, and a redirect to the page you are on is a reload loop.
+   */
   useEffect(() => {
-    if (!user) return
+    return onMustChangePassword(() => {
+      if (window.location.pathname.startsWith("/change-password")) return
+      window.location.href = "/change-password"
+    })
+  }, [])
 
-    const reset = () => {
+  /*
+   * Inactivity auto-logout — only armed while logged in (AC-42).
+   *
+   * ⚠️ **This used to be a security hole, not an inconvenience.** The old version stored nothing but the
+   * `setTimeout` handle, so the limit was only ever enforced by a timer *running*. A backgrounded or frozen
+   * tab — a phone locked in a pocket, exactly the case a clinic cares about — has its timers throttled or
+   * suspended, so the callback simply never fired and the session stayed **open past the limit**. And because
+   * `reset()` re-armed the *full* 30 minutes on every event, the first mousemove after coming back silently
+   * extended the session rather than ending it.
+   *
+   * The fix is to make **wall-clock time the authority** and the timer only a wake-up call:
+   * `lastActivityAtMs` is the fact, `arm()` derives the delay from it, and every path — a real event, the tab
+   * becoming visible, the timer firing early because the browser felt like it — re-derives instead of
+   * assuming. A timer that fires late or not at all can then only *delay* the logout to the next wake-up,
+   * never skip it.
+   *
+   * ⚠️ Local-only, deliberately: Cloud has **no** inactivity timer at all (Auth0 owns session lifetime
+   * there), so this provider is the only place the rule exists.
+   */
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastActivityAtMs = useRef(Date.now())
+
+  /*
+   * In a native shell the limit **pauses** the session instead of ending it (AC-57): `<SessionLockGate>` covers
+   * the app, asks the OS to confirm the device owner, and on success re-arms the timer with the cookie, the page
+   * and the user's place all untouched. Three unsuccessful attempts — or a device that cannot ask — fall through
+   * to the ordinary logout below.
+   *
+   * ⚠️ `locked` is a **dependency of the effect**, not a flag read inside it. Tearing the listeners down is the
+   * point: while the gate is up, a tap on it must not count as activity (that would extend the very session the
+   * limit just paused) and the timer must not fire a second expiry behind it.
+   *
+   * ⚠️ Absent bridge ⇒ this is never entered and the path below is byte-identical to what it was (AC-58).
+   */
+  const [locked, setLocked] = useState(false)
+
+  const resumeFromLock = useCallback(() => {
+    lastActivityAtMs.current = Date.now()
+    setLocked(false)
+  }, [])
+
+  // Deliberately does **not** clear `locked`: `logout` clears the cookie and then navigates, and uncovering the
+  // app for those few frames would put the record back on screen at the one moment nobody has confirmed anything.
+  const abandonLock = useCallback(() => {
+    logout({ returnTo: window.location.pathname + window.location.search })
+  }, [logout])
+
+  useEffect(() => {
+    if (!user || locked) return
+
+    const expireNow = () => {
+      if (canConfirmIdentityInShell()) {
+        setLocked(true)
+        return
+      }
+      // The screen the user was on, so the timeout does not also cost them their place (AC-42).
+      logout({ returnTo: window.location.pathname + window.location.search })
+    }
+
+    const arm = () => {
       if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => logout(), INACTIVITY_LIMIT_MS)
+      const remaining = INACTIVITY_LIMIT_MS - (Date.now() - lastActivityAtMs.current)
+      if (remaining <= 0) {
+        expireNow()
+        return
+      }
+      // On fire, `arm` runs again rather than logging out directly: if the browser delivered the callback
+      // early (or the clock moved), the next line re-checks the real elapsed time instead of trusting it.
+      timerRef.current = setTimeout(arm, remaining)
+    }
+
+    const noteActivity = () => {
+      lastActivityAtMs.current = Date.now()
+      arm()
     }
 
     const events: (keyof WindowEventMap)[] = ["mousemove", "keydown", "click", "scroll", "touchstart"]
-    events.forEach((e) => window.addEventListener(e, reset, { passive: true }))
-    reset()
+    events.forEach((e) => window.addEventListener(e, noteActivity, { passive: true }))
+
+    /*
+     * ⚠️ `visibilitychange` is on `document`, not `window`, so it cannot join the array above — and it is
+     * **not** activity: coming back to the tab must re-check the clock, never restart it. This is the event
+     * that actually closes the hole, because it is the first thing to run when a locked phone is unlocked.
+     */
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") arm()
+    }
+    document.addEventListener("visibilitychange", onVisibility)
+
+    noteActivity()
 
     return () => {
-      events.forEach((e) => window.removeEventListener(e, reset))
+      events.forEach((e) => window.removeEventListener(e, noteActivity))
+      document.removeEventListener("visibilitychange", onVisibility)
       if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }, [user, logout])
+  }, [user, locked, logout])
 
   const value: SessionState = { user, isLoading, mode: "local", logout }
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+  return (
+    <SessionContext.Provider value={value}>
+      {children}
+      {/* Rendered over the still-mounted app, never instead of it — resuming to the fiche that was open is the
+          whole point, and unmounting `children` would reload the page the resume exists to preserve. */}
+      {locked && <SessionLockGate onConfirmed={resumeFromLock} onFallBackToPassword={abandonLock} />}
+    </SessionContext.Provider>
+  )
 }

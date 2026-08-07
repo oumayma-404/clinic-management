@@ -80,16 +80,27 @@ public class CnamBs1BulletinRendererTests
 
     // ===================== Honoraires formatting (AC-3) =====================
 
-    [Theory] // [AC-3] TND with 3 decimals (millimes), no currency symbol.
-    [InlineData("12.5", "12.500")]
-    [InlineData("0", "0.000")]
-    [InlineData("150", "150.000")]
-    [InlineData("12.345", "12.345")]
+    // [AC-3] TND with 3 decimals (millimes), no currency symbol — and since `adoption-qa-k` K8 a **decimal
+    // comma**, the fr-TN convention every other number in the product already uses. The expectations below used
+    // to be periods, which is what pinned the defect: the renderer printed `30.000` on a CNAM document while the
+    // editor's own on-screen figure, two panes away, showed `30,000 DT` via `formatDT`.
+    //
+    // ⚠️ Note the input side is unchanged and still accepts BOTH separators: a comma is what a Tunisian types and
+    // a period is what the « pré-remplir » path seeds, so `FormatHonoraires` normalises on the way in and applies
+    // the form's convention on the way out. The two cultures are deliberately different — see the method.
+    [Theory]
+    [InlineData("12.5", "12,500")]
+    [InlineData("0", "0,000")]
+    [InlineData("150", "150,000")]
+    [InlineData("12.345", "12,345")]
     // fix-document-cnam-accuracy #3: ',' is the Tunisian DECIMAL separator, not a thousands separator.
     // Before the fix these parsed ~1000× too large (e.g. "12,000" → "12000.000").
-    [InlineData("12,000", "12.000")]
-    [InlineData("35,500", "35.500")]
-    [InlineData("12,5", "12.500")]
+    [InlineData("12,000", "12,000")]
+    [InlineData("35,500", "35,500")]
+    [InlineData("12,5", "12,500")]
+    // K8: a four-digit amount must not acquire a group separator — the honoraires column is calibrated for a
+    // comma-for-period swap and nothing wider (fr-TN's own group separator is a non-breaking space).
+    [InlineData("1234.5", "1234,500")]
     public void Honoraires_Formatted_To_Three_Decimals(string raw, string expected)
     {
         var model = BuildModel(new Dictionary<string, string>
@@ -154,7 +165,67 @@ public class CnamBs1BulletinRendererTests
         Assert.Equal(string.Empty, ActProp(act, "CodeActe"));
         Assert.Equal(string.Empty, ActProp(act, "Cotation"));
         Assert.Equal("20/07/2026", ActProp(act, "Date"));
-        Assert.Equal("30.000", ActProp(act, "Honoraires"));
+        Assert.Equal("30,000", ActProp(act, "Honoraires"));
+    }
+
+    // ===================== Legacy act codes survive the K1 catalogue swap =====================
+
+    [Theory] // [K1] Re-pointing the *picker* at the DCH catalogue must not rewrite history.
+    [InlineData("DETART")]      // a CnamCatalogSeed mnemonic — what every pre-K1 bulletin holds
+    [InlineData("OBT-2F")]
+    [InlineData("EXT-SIMPLE")]
+    [InlineData("DCH020030")]   // and a real DCH code, which is what the picker supplies now
+    public void Stored_Act_Code_Is_Stamped_Verbatim_Whatever_Catalogue_It_Came_From(string codeActe)
+    {
+        var model = BuildModel(new Dictionary<string, string>
+        {
+            ["acts"] = $"[{{\"date\":\"2026-07-20\",\"codeActe\":\"{codeActe}\",\"honoraires\":\"30\"}}]",
+        });
+
+        // The stored rows are a snapshot: the renderer stamps whatever the row holds, with no catalogue lookup and
+        // no validation. That is what keeps a document saved with a mnemonic openable and printable after K1 —
+        // the whole point of changing the picker's *read* rather than migrating the stored acts.
+        Assert.Equal(codeActe, ActProp(Acts(model).Single(), "CodeActe"));
+    }
+
+    [Fact] // [K1] A whole legacy mnemonic-coded bulletin still renders end-to-end.
+    public void Render_Succeeds_For_A_Legacy_Mnemonic_Coded_Bulletin()
+    {
+        var data = SampleData(
+            "[{\"date\":\"2026-07-20\",\"teeth\":\"11\",\"codeActe\":\"DETART\",\"cotation\":\"D 10\",\"honoraires\":\"30\"}]");
+
+        var bytes = Render(data);
+
+        Assert.True(bytes.Length > 0);
+        using var doc = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
+        Assert.Equal(2, doc.PageCount);
+    }
+
+    // ===================== Identifiant unique: the comb has a fixed number of cells (K7) =====================
+
+    [Fact] // [K7] An over-length identifiant renders rather than throwing — the refusal belongs at the write.
+    public void Render_Succeeds_With_An_Over_Length_Identifiant_Unique()
+    {
+        // 14 digits against 10 printed cells. `BulletinCnamValidation` refuses this at the write, so it is only
+        // reachable for a legacy document — and the renderer's job is then to produce the form and log a Warning,
+        // NOT to throw: a drawing routine that throws turns a bad field into a failed PDF. The silent part was
+        // the defect, not the truncation.
+        var data = SampleData(ActsJson(1));
+        data.Content["identifiantUnique"] = "12345678901234";
+
+        var bytes = Render(data);
+
+        Assert.True(bytes.Length > 0);
+        using var doc = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
+        Assert.Equal(2, doc.PageCount);
+    }
+
+    [Fact] // [K7] The model keeps the full identifiant; only the drawing loop is bounded by the cell count.
+    public void Over_Length_Identifiant_Is_Not_Truncated_In_The_Model()
+    {
+        var model = BuildModel(new Dictionary<string, string> { ["identifiantUnique"] = "12345678901234" });
+
+        Assert.Equal("12345678901234", Prop(model, "IdentifiantUnique"));
     }
 
     // ===================== Empty identity (AC-5) =====================

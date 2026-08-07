@@ -168,4 +168,119 @@ public class InvoiceEInvoiceTests
         Assert.Equal(EInvoiceStatus.Queued, invoice.EInvoiceStatus);
         Assert.Equal(0, invoice.EInvoiceAttemptCount);
     }
+
+    // ------------------------------------------------------------------ [J4] cancelling dequeues
+
+    /*
+     * [J4] A cancelled note is never declared. The first of the spec's three guards, and the one that fixes it
+     * at the source.
+     *
+     * The guard above `Cancel()` refuses only the three states TTN has already seen (Valid/Submitted/Validating).
+     * `Queued` and `Signed` passed it, `CancelInvoiceCommand` never dequeued, and `EInvoiceService.ProcessAsync`
+     * never consulted `Invoice.Status` — so a cancelled note was still picked up by the next minutely outbox tick,
+     * declared to El Fatoora, and came back « validée ». A note validated at TTN can **never** be cancelled there,
+     * so the clinic's books and the national registry stayed permanently out of step in the one direction that
+     * cannot be undone.
+     *
+     * Dequeuing rather than refusing is deliberate (and asserted below): a mis-keyed note that happens to be
+     * queued must remain cancellable. Refusing would make it *uncancellable* until the retry budget ran out,
+     * during which the only escape would be to let it be declared first.
+     */
+
+    // [J4] A Queued invoice is dequeued on cancellation, not left in the outbox.
+    [Fact]
+    public void Cancelling_A_Queued_Invoice_Dequeues_It()
+    {
+        var invoice = IssuedInvoice();
+        invoice.QueueForElFatoora();
+        Assert.Equal(EInvoiceStatus.Queued, invoice.EInvoiceStatus);
+        Assert.NotNull(invoice.EInvoiceNextAttemptAt);
+
+        invoice.Cancel("Montant saisi par erreur");
+
+        Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
+        // `NotSubmitted` is the honest resting state: nothing ever reached TTN.
+        Assert.Equal(EInvoiceStatus.NotSubmitted, invoice.EInvoiceStatus);
+        // The due date is what the outbox query selects on — leaving it set is what kept declaring the note.
+        Assert.Null(invoice.EInvoiceNextAttemptAt);
+    }
+
+    // [J4] Same for Signed: the artifact was built but never submitted, so cancelling is still legitimate.
+    [Fact]
+    public void Cancelling_A_Signed_Invoice_Dequeues_It()
+    {
+        var invoice = IssuedInvoice();
+        invoice.QueueForElFatoora();
+        invoice.MarkEInvoiceSigned("artifacts/2026-0001.xml");
+        Assert.Equal(EInvoiceStatus.Signed, invoice.EInvoiceStatus);
+
+        invoice.Cancel("Erreur de patient");
+
+        Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
+        Assert.Equal(EInvoiceStatus.NotSubmitted, invoice.EInvoiceStatus);
+        Assert.Null(invoice.EInvoiceNextAttemptAt);
+        // The signed artifact keeps its key: it is a record of what was built, and deleting it would lose the
+        // trail this whole state machine exists to keep.
+        Assert.Equal("artifacts/2026-0001.xml", invoice.SignedXmlStorageKey);
+    }
+
+    // [J4] Dequeue, NOT refuse — the point of the design decision. A queued note stays cancellable.
+    [Fact]
+    public void A_Queued_Invoice_Is_Still_Cancellable()
+    {
+        var invoice = IssuedInvoice();
+        invoice.QueueForElFatoora();
+
+        // No throw: the whole reason the fix dequeues instead of refusing.
+        invoice.Cancel("Mauvais patient");
+
+        Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
+    }
+
+    /*
+     * [J4] The pre-existing guard is NOT loosened: a note TTN has already seen still refuses cancellation, so the
+     * fix cannot be read as "cancelling now always works". That is the half that protects the registry.
+     *
+     * ⚠️ Only `Submitted` and `Valid` are exercised, because they are the only two of the guard's three states a
+     * **public mutator can reach**: there is no `MarkEInvoiceValidating()` on the entity (`Validating` is read by
+     * `CanSubmitToElFatoora` and by this guard, and set nowhere). `Validating` sits in the same `or` expression, so
+     * it is covered by the same clause — but pinning it would mean reflecting onto a private setter to manufacture
+     * a state the domain cannot produce, which would test the reflection rather than the rule.
+     */
+    [Theory]
+    [InlineData(EInvoiceStatus.Submitted)]
+    [InlineData(EInvoiceStatus.Valid)]
+    public void A_Declared_Invoice_Still_Refuses_Cancellation(EInvoiceStatus declared)
+    {
+        var invoice = IssuedInvoice();
+        invoice.QueueForElFatoora();
+        invoice.MarkEInvoiceSigned("artifacts/x.xml");
+        if (declared == EInvoiceStatus.Submitted)
+        {
+            invoice.MarkEInvoiceSubmitted("TTN-1", null);
+        }
+        else
+        {
+            invoice.MarkEInvoiceValidated("TTN-1", "qr-payload", "artifacts/receipt.xml");
+        }
+
+        Assert.Equal(declared, invoice.EInvoiceStatus);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => invoice.Cancel("Trop tard"));
+        Assert.Contains("El Fatoora", ex.Message);
+        Assert.NotEqual(InvoiceStatus.Cancelled, invoice.Status);
+    }
+
+    // [J4] An invoice that never entered the outbox is unaffected — the dequeue must not invent state.
+    [Fact]
+    public void Cancelling_A_Never_Queued_Invoice_Leaves_EInvoice_State_Alone()
+    {
+        var invoice = IssuedInvoice();
+        Assert.Equal(EInvoiceStatus.NotSubmitted, invoice.EInvoiceStatus);
+
+        invoice.Cancel("Doublon");
+
+        Assert.Equal(EInvoiceStatus.NotSubmitted, invoice.EInvoiceStatus);
+        Assert.Null(invoice.EInvoiceNextAttemptAt);
+    }
 }

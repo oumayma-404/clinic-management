@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agenda — vue téléphone (maquette)</title>
+<style>
+/* Real tokens copied from web/app/globals.css so this reads as the app, not an approximation. */
+:root{
+  --background: oklch(0.975 0.008 215);
+  --foreground: oklch(0.20 0.015 235);
+  --card: oklch(1 0 0);
+  --primary: oklch(0.49 0.105 188);
+  --muted: oklch(0.965 0.008 215);
+  --muted-foreground: oklch(0.50 0.018 225);
+  --accent: oklch(0.955 0.028 190);
+  --destructive: oklch(0.55 0.19 25);
+  --border: oklch(0.915 0.008 215);
+  --radius: 0.75rem;
+  --hour: 48px; /* HOUR_HEIGHT — load-bearing, unchanged */
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --background: oklch(0.135 0.008 230); --foreground: oklch(0.965 0.006 225);
+    --card: oklch(0.185 0.012 232); --primary: oklch(0.52 0.105 188);
+    --muted: oklch(0.235 0.012 228); --muted-foreground: oklch(0.655 0.015 228);
+    --accent: oklch(0.26 0.035 190); --border: oklch(0.265 0.012 228);
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--background);color:var(--foreground);
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;padding:24px 12px 64px}
+h1{font-size:15px;font-weight:600;margin-bottom:4px}
+.lede{font-size:12px;color:var(--muted-foreground);margin-bottom:20px;max-width:60ch;line-height:1.5}
+.rack{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+figure{margin:0}
+figcaption{font-size:11px;color:var(--muted-foreground);margin:8px 0 0;text-align:center;max-width:390px;line-height:1.4}
+/* 390px = iPhone 14 logical width, the spec's stated smallest target */
+.phone{width:390px;height:760px;background:var(--card);border:1px solid var(--border);
+  border-radius:26px;overflow:hidden;display:flex;flex-direction:column;
+  box-shadow:0 10px 30px oklch(0 0 0/.10)}
+.hdr{padding:10px 12px;border-bottom:1px solid var(--border);background:var(--card);
+  position:sticky;top:0;z-index:5}
+.hdr-row{display:flex;align-items:center;gap:8px}
+.month-btn{display:flex;align-items:center;gap:5px;font-size:16px;font-weight:600;
+  background:none;border:0;color:inherit;padding:6px 6px;border-radius:8px;min-height:44px}
+.chev{font-size:10px;color:var(--muted-foreground)}
+.spacer{flex:1}
+.icon{width:44px;height:44px;border-radius:50%;border:0;background:none;color:var(--muted-foreground);
+  font-size:17px;display:grid;place-items:center}
+.today-pill{font-size:12px;font-weight:600;color:var(--primary);border:1px solid var(--primary);
+  background:none;border-radius:999px;padding:0 12px;height:32px}
+/* 7-day strip — tap a day; dot = has appointments, ring = selected */
+.strip{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:8px}
+.day{border:0;background:none;color:inherit;padding:5px 0 6px;border-radius:10px;
+  display:flex;flex-direction:column;align-items:center;gap:3px;min-height:52px}
+.dow{font-size:10px;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.03em}
+.dnum{font-size:15px;font-weight:600;width:30px;height:30px;border-radius:50%;
+  display:grid;place-items:center}
+.day.sel .dnum{background:var(--primary);color:#fff}
+.dots{display:flex;gap:2px;height:4px}
+.dot{width:4px;height:4px;border-radius:50%;background:var(--primary);opacity:.75}
+.day.sel .dot{background:var(--primary)}
+/* « Prochains RDV » — a SUMMARY of what's next, not a copy of the grid. Collapses on scroll. */
+.next{margin:8px 12px 0;border:1px solid var(--border);border-radius:var(--radius);background:var(--muted);
+  overflow:hidden}
+.next-hd{display:flex;align-items:center;gap:8px;padding:9px 11px;width:100%;border:0;background:none;
+  color:inherit;font-size:12px;font-weight:600;min-height:44px;text-align:left}
+.count{font-size:10px;font-weight:600;color:var(--primary);background:var(--accent);
+  border-radius:999px;padding:2px 7px}
+.next-body{padding:0 11px 9px;display:flex;flex-direction:column;gap:7px}
+.nrow{display:flex;align-items:center;gap:9px;font-size:12px}
+.nt{font-variant-numeric:tabular-nums;font-weight:600;min-width:38px}
+.nn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nbadge{font-size:10px;color:var(--muted-foreground)}
+/* Day grid — rows stay exactly HOUR_HEIGHT or absolutely-positioned blocks drift */
+.grid-wrap{flex:1;overflow-y:auto;position:relative}
+.grid{position:relative}
+.hr{display:grid;grid-template-columns:56px 1fr;height:var(--hour);border-bottom:1px solid var(--border)}
+.hr-t{font-size:10px;color:var(--muted-foreground);padding:2px 7px 0 0;text-align:right;
+  font-variant-numeric:tabular-nums;border-right:1px solid var(--border)}
+.hr-c{position:relative}
+.blocks{position:absolute;inset:0 8px 0 56px;pointer-events:none}
+.blk{position:absolute;left:0;right:0;border-radius:9px;padding:5px 8px;color:#fff;
+  font-size:11px;line-height:1.25;overflow:hidden;pointer-events:auto;
+  box-shadow:0 1px 2px oklch(0 0 0/.14)}
+.blk b{display:block;font-weight:600;font-size:11.5px}
+.blk span{opacity:.92;font-size:10px}
+/* Current-time line — Google Calendar's red "now" marker */
+.now{position:absolute;left:44px;right:0;height:0;border-top:2px solid var(--destructive);z-index:3}
+.now::before{content:"";position:absolute;left:-5px;top:-4px;width:9px;height:9px;border-radius:50%;
+  background:var(--destructive)}
+.now-lbl{position:absolute;left:-42px;top:-7px;font-size:9px;font-weight:700;color:var(--destructive);
+  background:var(--card);padding:0 3px;font-variant-numeric:tabular-nums}
+/* FAB — « Nouveau rendez-vous » keeps a stable home at every width (AC-31) */
+.fab{position:absolute;right:16px;bottom:76px;width:56px;height:56px;border-radius:18px;border:0;
+  background:var(--primary);color:#fff;font-size:26px;display:grid;place-items:center;
+  box-shadow:0 6px 18px oklch(0.49 0.105 188/.42);z-index:6}
+.tabbar{height:60px;border-top:1px solid var(--border);background:var(--card);
+  display:grid;grid-template-columns:repeat(4,1fr);align-items:center;justify-items:center;font-size:10px;
+  color:var(--muted-foreground)}
+.tab{display:flex;flex-direction:column;align-items:center;gap:3px;min-height:44px;justify-content:center}
+.tab.on{color:var(--primary);font-weight:600}
+.tab i{font-style:normal;font-size:16px}
+/* Mini-month sheet */
+.sheet{position:absolute;left:0;right:0;top:0;background:var(--card);border-bottom:1px solid var(--border);
+  padding:10px 12px 14px;z-index:8;box-shadow:0 10px 22px oklch(0 0 0/.13)}
+.mgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;margin-top:6px}
+.mh{font-size:9.5px;color:var(--muted-foreground);text-align:center;padding-bottom:3px}
+.mc{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  font-size:12px;border-radius:8px}
+.mc.out{color:var(--muted-foreground);opacity:.42}
+.mc.sel{background:var(--primary);color:#fff;font-weight:600}
+.mc .md{width:3px;height:3px;border-radius:50%;background:var(--primary)}
+.mc.sel .md{background:#fff}
+.swipe{position:absolute;left:50%;transform:translateX(-50%);bottom:150px;font-size:10px;
+  color:var(--muted-foreground);background:var(--muted);border:1px solid var(--border);
+  border-radius:999px;padding:4px 12px;z-index:4}
+.empty{padding:36px 22px;text-align:center;color:var(--muted-foreground);font-size:12.5px;line-height:1.55}
+.empty .big{font-size:30px;display:block;margin-bottom:8px;opacity:.5}
+.empty button{margin-top:14px;background:var(--primary);color:#fff;border:0;border-radius:10px;
+  padding:0 16px;height:44px;font-size:13px;font-weight:600}
+.note{font-size:10.5px;color:var(--muted-foreground);border-left:2px solid var(--primary);
+  padding-left:8px;margin-top:8px;max-width:390px;line-height:1.45}
+</style>
+</head>
+<body>
+
+<h1>Agenda — vue téléphone · 390 px</h1>
+<p class="lede">Jour reste la vue par défaut (AC-28), avec « Prochains RDV » comme <strong>résumé</strong> replié
+au défilement — pas une copie de la grille. Navigation : bandeau 7 jours, mini-mois dépliable, et balayage
+horizontal <strong>en vue Jour uniquement</strong>, pour ne pas entrer en conflit avec le défilement horizontal
+de la vue Semaine (AC-30).</p>
+
+<div class="rack">
+
+  <!-- ============ A · état par défaut ============ -->
+  <figure>
+  <div class="phone">
+    <div class="hdr">
+      <div class="hdr-row">
+        <button class="month-btn">juillet 2026 <span class="chev">▾</span></button>
+        <span class="spacer"></span>
+        <button class="today-pill">Aujourd'hui</button>
+        <button class="icon" aria-label="Rechercher">⌕</button>
+      </div>
+      <div class="strip">
+        <button class="day"><span class="dow">lun</span><span class="dnum">27</span><span class="dots"><i class="dot"></i></span></button>
+        <button class="day"><span class="dow">mar</span><span class="dnum">28</span><span class="dots"><i class="dot"></i><i class="dot"></i></span></button>
+        <button class="day"><span class="dow">mer</span><span class="dnum">29</span><span class="dots"></span></button>
+        <button class="day"><span class="dow">jeu</span><span class="dnum">30</span><span class="dots"><i class="dot"></i></span></button>
+        <button class="day sel" aria-current="date"><span class="dow">ven</span><span class="dnum">31</span><span class="dots"><i class="dot"></i><i class="dot"></i><i class="dot"></i></span></button>
+        <button class="day"><span class="dow">sam</span><span class="dnum">1</span><span class="dots"><i class="dot"></i></span></button>
+        <button class="day"><span class="dow">dim</span><span class="dnum">2</span><span class="dots"></span></button>
+      </div>
+    </div>
+
+    <div class="next">
+      <button class="next-hd">Prochains RDV <span class="count">3</span> <span class="spacer"></span><span class="chev">▾</span></button>
+      <div class="next-body">
+        <div class="nrow"><span class="nt">09:00</span><span class="nn">Sonia Trabelsi · Détartrage</span><span class="nbadge">30 min</span></div>
+        <div class="nrow"><span class="nt">10:00</span><span class="nn">Karim Ben Ali · 2 actes</span><span class="nbadge">1 h</span></div>
+        <div class="nrow"><span class="nt">14:30</span><span class="nn">Leila Mansour · Contrôle</span><span class="nbadge">45 min</span></div>
+      </div>
+    </div>
+
+    <div class="grid-wrap">
+      <div class="grid">
+        <div class="hr"><div class="hr-t">08:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">09:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">10:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">11:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">12:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">13:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">14:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">15:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">16:00</div><div class="hr-c"></div></div>
+
+        <!-- blocks positioned from the same HOUR_HEIGHT the code uses: 09:00 = 1×48 -->
+        <div class="blocks">
+          <div class="blk" style="top:48px;height:24px;background:oklch(0.55 0.11 188)">
+            <b>Sonia Trabelsi</b><span>09:00 · Détartrage</span></div>
+          <div class="blk" style="top:96px;height:48px;background:oklch(0.52 0.13 262)">
+            <b>Karim Ben Ali</b><span>10:00 · Obturation · 2 actes</span></div>
+          <div class="blk" style="top:312px;height:36px;background:oklch(0.58 0.12 152)">
+            <b>Leila Mansour</b><span>14:30 · Contrôle</span></div>
+        </div>
+        <div class="now" style="top:264px"><span class="now-lbl">13:20</span></div>
+      </div>
+    </div>
+
+    <button class="fab" aria-label="Nouveau rendez-vous">+</button>
+    <div class="tabbar">
+      <span class="tab on"><i>▦</i>Jour</span>
+      <span class="tab"><i>▤</i>Semaine</span>
+      <span class="tab"><i>▩</i>Mois</span>
+      <span class="tab"><i>☰</i>Plus</span>
+    </div>
+  </div>
+  <figcaption><strong>A · Défaut.</strong> Résumé replié + grille, ligne rouge « maintenant », FAB.</figcaption>
+  </figure>
+
+  <!-- ============ B · mini-mois déplié ============ -->
+  <figure>
+  <div class="phone" style="position:relative">
+    <div class="sheet">
+      <div class="hdr-row">
+        <button class="month-btn">juillet 2026 <span class="chev">▴</span></button>
+        <span class="spacer"></span>
+        <button class="icon" aria-label="Mois précédent">‹</button>
+        <button class="icon" aria-label="Mois suivant">›</button>
+      </div>
+      <div class="mgrid">
+        <div class="mh">L</div><div class="mh">M</div><div class="mh">M</div><div class="mh">J</div>
+        <div class="mh">V</div><div class="mh">S</div><div class="mh">D</div>
+        <div class="mc out">30</div><div class="mc">1<i class="md"></i></div><div class="mc">2</div>
+        <div class="mc">3<i class="md"></i></div><div class="mc">4<i class="md"></i></div><div class="mc">5</div><div class="mc">6</div>
+        <div class="mc">7<i class="md"></i></div><div class="mc">8</div><div class="mc">9<i class="md"></i></div>
+        <div class="mc">10<i class="md"></i></div><div class="mc">11</div><div class="mc">12</div><div class="mc">13</div>
+        <div class="mc">14<i class="md"></i></div><div class="mc">15<i class="md"></i></div><div class="mc">16</div>
+        <div class="mc">17</div><div class="mc">18<i class="md"></i></div><div class="mc">19</div><div class="mc">20</div>
+        <div class="mc">21<i class="md"></i></div><div class="mc">22</div><div class="mc">23<i class="md"></i></div>
+        <div class="mc">24<i class="md"></i></div><div class="mc">25</div><div class="mc">26</div><div class="mc">27<i class="md"></i></div>
+        <div class="mc">28<i class="md"></i></div><div class="mc">29</div><div class="mc">30<i class="md"></i></div>
+        <div class="mc sel">31<i class="md"></i></div><div class="mc out">1</div><div class="mc out">2</div><div class="mc out">3</div>
+      </div>
+    </div>
+    <div class="grid-wrap" style="opacity:.32;padding-top:300px">
+      <div class="grid">
+        <div class="hr"><div class="hr-t">14:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">15:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">16:00</div><div class="hr-c"></div></div>
+      </div>
+    </div>
+    <button class="fab" aria-label="Nouveau rendez-vous">+</button>
+    <div class="tabbar">
+      <span class="tab on"><i>▦</i>Jour</span><span class="tab"><i>▤</i>Semaine</span>
+      <span class="tab"><i>▩</i>Mois</span><span class="tab"><i>☰</i>Plus</span>
+    </div>
+  </div>
+  <figcaption><strong>B · Mini-mois.</strong> Points de densité ; on tape un jour pour y aller.</figcaption>
+  </figure>
+
+  <!-- ============ C · défilé (résumé replié) + balayage ============ -->
+  <figure>
+  <div class="phone" style="position:relative">
+    <div class="hdr">
+      <div class="hdr-row">
+        <button class="month-btn">ven. 31 juillet <span class="chev">▾</span></button>
+        <span class="spacer"></span>
+        <button class="today-pill">Aujourd'hui</button>
+        <button class="icon" aria-label="Rechercher">⌕</button>
+      </div>
+      <div class="strip">
+        <button class="day"><span class="dow">lun</span><span class="dnum">27</span><span class="dots"><i class="dot"></i></span></button>
+        <button class="day"><span class="dow">mar</span><span class="dnum">28</span><span class="dots"><i class="dot"></i><i class="dot"></i></span></button>
+        <button class="day"><span class="dow">mer</span><span class="dnum">29</span><span class="dots"></span></button>
+        <button class="day"><span class="dow">jeu</span><span class="dnum">30</span><span class="dots"><i class="dot"></i></span></button>
+        <button class="day sel"><span class="dow">ven</span><span class="dnum">31</span><span class="dots"><i class="dot"></i><i class="dot"></i><i class="dot"></i></span></button>
+        <button class="day"><span class="dow">sam</span><span class="dnum">1</span><span class="dots"><i class="dot"></i></span></button>
+        <button class="day"><span class="dow">dim</span><span class="dnum">2</span><span class="dots"></span></button>
+      </div>
+    </div>
+    <!-- collapsed: the summary yields its space once the user is reading the grid -->
+    <div class="next" style="background:none">
+      <button class="next-hd">Prochains RDV <span class="count">3</span><span class="spacer"></span><span class="chev">▸</span></button>
+    </div>
+    <div class="grid-wrap">
+      <div class="grid">
+        <div class="hr"><div class="hr-t">10:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">11:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">12:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">13:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">14:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">15:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">16:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">17:00</div><div class="hr-c"></div></div>
+        <div class="blocks">
+          <div class="blk" style="top:0;height:48px;background:oklch(0.52 0.13 262)">
+            <b>Karim Ben Ali</b><span>10:00 · Obturation · 2 actes</span></div>
+          <div class="blk" style="top:216px;height:36px;background:oklch(0.58 0.12 152)">
+            <b>Leila Mansour</b><span>14:30 · Contrôle</span></div>
+          <div class="blk" style="top:288px;height:24px;background:oklch(0.62 0.02 230);opacity:.62">
+            <b style="text-decoration:line-through">Amine Sassi</b><span>16:00 · annulé</span></div>
+        </div>
+        <div class="now" style="top:168px"><span class="now-lbl">13:20</span></div>
+      </div>
+    </div>
+    <div class="swipe">‹ balayer pour changer de jour ›</div>
+    <button class="fab" aria-label="Nouveau rendez-vous">+</button>
+    <div class="tabbar">
+      <span class="tab on"><i>▦</i>Jour</span><span class="tab"><i>▤</i>Semaine</span>
+      <span class="tab"><i>▩</i>Mois</span><span class="tab"><i>☰</i>Plus</span>
+    </div>
+  </div>
+  <figcaption><strong>C · Défilement.</strong> Résumé replié, en-tête compacté au jour, RDV annulé barré.</figcaption>
+  </figure>
+
+  <!-- ============ D · vide ============ -->
+  <figure>
+  <div class="phone" style="position:relative">
+    <div class="hdr">
+      <div class="hdr-row">
+        <button class="month-btn">mer. 29 juillet <span class="chev">▾</span></button>
+        <span class="spacer"></span>
+        <button class="today-pill">Aujourd'hui</button>
+        <button class="icon" aria-label="Rechercher">⌕</button>
+      </div>
+      <div class="strip">
+        <button class="day"><span class="dow">lun</span><span class="dnum">27</span><span class="dots"><i class="dot"></i></span></button>
+        <button class="day"><span class="dow">mar</span><span class="dnum">28</span><span class="dots"><i class="dot"></i><i class="dot"></i></span></button>
+        <button class="day sel"><span class="dow">mer</span><span class="dnum">29</span><span class="dots"></span></button>
+        <button class="day"><span class="dow">jeu</span><span class="dnum">30</span><span class="dots"><i class="dot"></i></span></button>
+        <button class="day"><span class="dow">ven</span><span class="dnum">31</span><span class="dots"><i class="dot"></i><i class="dot"></i><i class="dot"></i></span></button>
+        <button class="day"><span class="dow">sam</span><span class="dnum">1</span><span class="dots"><i class="dot"></i></span></button>
+        <button class="day"><span class="dow">dim</span><span class="dnum">2</span><span class="dots"></span></button>
+      </div>
+    </div>
+    <div class="empty">
+      <span class="big">🗓</span>
+      Aucun rendez-vous ce jour.<br>
+      Touchez une heure dans la grille pour en créer un.
+      <br><button>Nouveau rendez-vous</button>
+    </div>
+    <div class="grid-wrap" style="flex:0 0 200px;opacity:.55">
+      <div class="grid">
+        <div class="hr"><div class="hr-t">08:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">09:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">10:00</div><div class="hr-c"></div></div>
+        <div class="hr"><div class="hr-t">11:00</div><div class="hr-c"></div></div>
+      </div>
+    </div>
+    <button class="fab" aria-label="Nouveau rendez-vous">+</button>
+    <div class="tabbar">
+      <span class="tab on"><i>▦</i>Jour</span><span class="tab"><i>▤</i>Semaine</span>
+      <span class="tab"><i>▩</i>Mois</span><span class="tab"><i>☰</i>Plus</span>
+    </div>
+  </div>
+  <figcaption><strong>D · Vide.</strong> Le résumé disparaît (il n'a rien à résumer) ; la grille reste tappable.</figcaption>
+  </figure>
+
+</div>
+
+<p class="note">Contraintes respectées : lignes d'heure exactement 48 px (<code>HOUR_HEIGHT</code>) — les blocs
+sont positionnés en absolu depuis cette valeur et dérivent sinon ; cibles tactiles ≥ 44 px ; balayage limité à
+la vue Jour ; « Nouveau rendez-vous » présent à toute largeur (AC-31).</p>
+
+</body>
+</html>

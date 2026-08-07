@@ -8,6 +8,17 @@ public class PatientDto
     public string LastName { get; set; } = string.Empty;
     public DateTime DateOfBirth { get; set; }
     public string Gender { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Which teeth this patient is charted on — <c>"Child"</c> or <c>"Adult"</c>.
+    ///
+    /// <para>
+    /// A **string**, not the raw enum: this API registers no <c>JsonStringEnumConverter</c>, so an enum property
+    /// would go over the wire as <c>0</c>/<c>1</c> and the client would be switching on integers. Same fix as the
+    /// caisse ledger's movement kinds. The client maps the English key to a French label at display time.
+    /// </para>
+    /// </summary>
+    public string Dentition { get; set; } = nameof(Domain.Enums.DentitionType.Adult);
     /// <summary>Null when the patient gave none — not an empty string, and never a placeholder address.</summary>
     public string? Email { get; set; }
 
@@ -20,6 +31,21 @@ public class PatientDto
     public string? Allergies { get; set; }
     public string? EmergencyContactName { get; set; }
     public string? EmergencyContactPhone { get; set; }
+
+    /// <summary>
+    /// Who referred the patient — « adressé par ». Null when they came on their own; free text, since the referrer
+    /// is normally a practitioner outside this clinic.
+    /// </summary>
+    public string? ReferredBy { get; set; }
+
+    /// <summary>
+    /// Patient-level notes — what to be reminded of on every visit, as opposed to a dental record's notes, which
+    /// describe one séance. <see cref="ImportantNotes"/> is rendered highlighted at the top of the patient's file.
+    /// </summary>
+    public string? Notes { get; set; }
+
+    /// <inheritdoc cref="Notes"/>
+    public string? ImportantNotes { get; set; }
     public AddressDto? Address { get; set; }
     public InsuranceInfoDto? InsuranceInfo { get; set; }
     public CnamInfoDto? CnamInfo { get; set; }

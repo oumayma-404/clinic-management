@@ -39,8 +39,7 @@ public class CnamNomenclatureEntryConfiguration : IEntityTypeConfiguration<CnamN
             .IsRequired()
             .HasMaxLength(10);
 
-        builder.Property(e => e.Coefficient)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(e => e.Coefficient);
 
         builder.Property(e => e.Category)
             .IsRequired()

@@ -124,6 +124,28 @@ public class StaffNotificationRepository : IStaffNotificationRepository
                 cancellationToken);
     }
 
+    public async Task<StaffNotification?> GetStockExpiringSoonByItemAsync(Guid stockItemId, CancellationToken cancellationToken = default)
+    {
+        return await _context.StaffNotifications
+            .FirstOrDefaultAsync(
+                n => n.StockItemId == stockItemId && n.Category == NotificationCategory.StockExpiringSoon,
+                cancellationToken);
+    }
+
+    public async Task<StaffNotification?> GetBackupStaleAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // ⚠️ IgnoreQueryFilters: the daily BackupJob runs with no clinic in scope, so the filter is inactive
+        // there and this reads fine — but the *manual* backup path runs inside an admin's request, where the
+        // filter is active and scoped to that same clinic. Explicit is better than relying on which caller it is:
+        // the clinicId parameter is the authoritative check either way, exactly as everywhere else here.
+        return await _context.StaffNotifications
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
+                n => n.ClinicId == clinicId && n.Category == NotificationCategory.BackupStale,
+                cancellationToken);
+    }
+
     public async Task<IReadOnlyList<StaffNotification>> GetPendingReviewsForUserAsync(
         Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default)
     {

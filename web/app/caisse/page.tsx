@@ -8,11 +8,16 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { AccessDeniedCard } from "@/components/ui/access-denied-card"
+import { useSession } from "@/lib/auth/session"
+import { hidesClinicWideMoney } from "@/lib/nav"
+import { PageHeader } from "@/components/ui/page-header"
+import { ExportButton } from "@/components/ui/export-button"
+import { KpiGrid } from "@/components/dashboard/kpi-grid"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -37,11 +42,27 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { ArrowDownCircle, ArrowUpCircle, Loader2, Pencil, Plus, Trash2, Wallet } from "lucide-react"
+import Link from "next/link"
+import { ArrowLeftRight, Loader2, Pencil, Plus, Search, SearchX, Trash2, Wallet, MoreHorizontal, X } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { EmptyState } from "@/components/ui/empty-state"
+import { ZONES, zoneChipClass } from "@/lib/zones"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { expensesApi, type ExpensePayload } from "@/lib/api/expenses"
+import { CaisseLedgerTable } from "@/components/caisse/caisse-ledger-table"
+import { CashInByMethod } from "@/components/caisse/cash-in-by-method"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
 import { ApiError } from "@/lib/api/client"
-import { formatDT } from "@/lib/format"
-import type { CaisseSummaryDto, ExpenseDto } from "@/lib/api/types"
+import { formatAmount, formatDT, parseAmountInput } from "@/lib/format"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
+import type { CaisseLedgerDto, CaisseSummaryDto, ExpenseDto } from "@/lib/api/types"
 
 // --- Domain constants -----------------------------------------------------------------------------
 
@@ -69,22 +90,99 @@ const EXPENSE_CATEGORIES = [
 
 // --- Helpers --------------------------------------------------------------------------------------
 
+/** La caisse is the « Finances » zone, so an empty state here wears the hue the rail and the eyebrow already do. */
+const MONEY_CHIP = zoneChipClass(ZONES.money)
+
+/**
+ * The same hue, as a card header's icon chip.
+ *
+ * <p>`app/documents/page.tsx`'s template-tile idiom sized down: the glyph goes inside a tinted `rounded-lg`
+ * square instead of sitting loose in the heading's own ink, where it is not an icon but more text. The two cards
+ * below — l'extrait and les dépenses — are the named sections of this page, and they take the <b>zone</b> hue
+ * rather than `primary` because « où suis-je ? » is what a mark at the top of a section answers, and the rail
+ * and the page eyebrow already answer it in amber.</p>
+ */
+const MONEY_HEADER_CHIP = `flex size-8 shrink-0 items-center justify-center rounded-lg ${MONEY_CHIP}`
+
 const methodLabel = (value: string): string => PAYMENT_METHODS.find((m) => m.value === value)?.label ?? value
 
-/** Local calendar day → UTC ISO boundaries [dayStart, nextDay) for a `from`/`to` query. */
-const dayBounds = (day: string): { from: string; to: string } => {
-  const start = new Date(`${day}T00:00:00`)
-  const next = new Date(start)
+/**
+ * Local calendar day(s) → UTC ISO boundaries `[startOfFirstDay, nextDayAfterLast)` for a `from`/`to` query.
+ *
+ * The upper bound is the midnight AFTER the last day, matching what this page has always sent: the caisse handler's
+ * own default is `from.AddDays(1).AddTicks(-1)`, and both forms include the whole final day.
+ *
+ * `endDay` defaults to `startDay`, so the single-day case is unchanged — la caisse gained a range mode for the
+ * dashboard's « Dépenses » / « Net » drill-through (a monthly KPI had nowhere truthful to land on a day-only screen),
+ * and the daily till remains what it opens on.
+ */
+const rangeBounds = (startDay: string, endDay: string = startDay): { from: string; to: string } => {
+  const start = new Date(`${startDay}T00:00:00`)
+  const next = new Date(`${endDay}T00:00:00`)
   next.setDate(next.getDate() + 1)
   return { from: start.toISOString(), to: next.toISOString() }
 }
 
 // --- Page -----------------------------------------------------------------------------------------
 
+/**
+ * I3 — the role gate, as a **wrapper around** the page rather than a branch inside it.
+ *
+ * <p>The split is not stylistic. Everything below opens its own `useState`/`useEffect` and fetches on mount, so a
+ * branch inside the component would still fire every request for a secretary — three 403s and their French error
+ * toasts, on top of the refusal card. Not mounting the body at all is what makes the refusal the only thing that
+ * happens.</p>
+ *
+ * <p>The server is the gate: `GET /api/billing/caisse` and `/caisse/ledger` are both `AdminOrDoctor`, so every figure and every line on this page is refused. This is the polish on top of it.</p>
+ */
 export default function CaissePage() {
+  const { user, isLoading } = useSession()
+
+  if (isLoading) {
+    return (
+      <ClinicGuard>
+        <AppShell width="none" gutter={false}>
+          <p className="p-8 text-center text-muted-foreground">Chargement…</p>
+        </AppShell>
+      </ClinicGuard>
+    )
+  }
+
+  if (hidesClinicWideMoney(user?.role)) {
+    return (
+      <ClinicGuard>
+        <AppShell width="none" gutter={false}>
+          <AccessDeniedCard description="La caisse et son extrait sont réservés au praticien et à l'administrateur. Vous pouvez encaisser un paiement depuis la fiche du patient." />
+        </AppShell>
+      </ClinicGuard>
+    )
+  }
+
+  return <CaisseContent />
+}
+
+function CaisseContent() {
   const [selectedDay, setSelectedDay] = useState<string>(() => format(new Date(), "yyyy-MM-dd"))
+  // The range's end. Empty means "one day" — the daily till, which is what this screen is for.
+  const [endDay, setEndDay] = useState<string>("")
   const [summary, setSummary] = useState<CaisseSummaryDto | null>(null)
-  const [expenses, setExpenses] = useState<ExpenseDto[]>([])
+  // The « extrait »: every movement behind the three totals above it. Fetched alongside them from the same
+  // window, so the lines and the figures can never describe different periods.
+  const [ledger, setLedger] = useState<CaisseLedgerDto | null>(null)
+  const [expensePage, setExpensePage] = useState<PagedResponse<ExpenseDto>>(() => emptyPage<ExpenseDto>())
+  const expenses = expensePage.items
+
+  // One search box drives BOTH tables below, because they describe the same money from two angles and searching
+  // « loyer » should not mean one thing in the statement and another in the dépenses list. The term is sent to the
+  // server for each, so it matches across the whole period rather than the rows currently rendered.
+  const [search, setSearch] = useState("")
+  // L8 slice B — « ne montre que les chèques ». It narrows the EXTRAIT only, never the four figures above it:
+  // those are the totals for the period, and a filtered « Encaissements » would contradict the header it sits
+  // under. The breakdown row is what states the per-method figure, and it is also this filter's control.
+  const [methodFilter, setMethodFilter] = useState<string | null>(null)
+  const [ledgerPageNumber, setLedgerPageNumber] = useState(1)
+  const [expensePageNumber, setExpensePageNumber] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -95,18 +193,39 @@ export default function CaissePage() {
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseDto | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  const { from, to } = useMemo(() => dayBounds(selectedDay), [selectedDay])
+  const isRange = Boolean(endDay) && endDay !== selectedDay
+  const { from, to } = useMemo(
+    () => rangeBounds(selectedDay, isRange ? endDay : selectedDay),
+    [selectedDay, endDay, isRange],
+  )
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
-      const [summaryData, expensesData] = await Promise.all([
+      // The summary stays unpaged and unsearched on purpose: the four figures above are the totals for the whole
+      // period, and narrowing them to a page (or to a search) would make them contradict the header they sit under.
+      const [summaryData, ledgerData, expensesData] = await Promise.all([
         expensesApi.caisseSummary(from, to),
-        expensesApi.list(from, to),
+        expensesApi.caisseLedger({
+          from,
+          to,
+          page: ledgerPageNumber,
+          pageSize,
+          search: search.trim() || undefined,
+          method: methodFilter ?? undefined,
+        }),
+        expensesApi.listPaged({
+          from,
+          to,
+          page: expensePageNumber,
+          pageSize,
+          search: search.trim() || undefined,
+        }),
       ])
       setSummary(summaryData)
-      setExpenses(expensesData)
+      setLedger(ledgerData)
+      setExpensePage(expensesData)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Échec du chargement de la caisse"
       setError(message)
@@ -114,11 +233,34 @@ export default function CaissePage() {
     } finally {
       setLoading(false)
     }
-  }, [from, to])
+  }, [from, to, ledgerPageNumber, expensePageNumber, pageSize, search, methodFilter])
 
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // A new search must not leave either table on a page its result set no longer has. The method filter narrows
+  // only the extrait, so it resets only that pager — resetting the dépenses one too would move a table the
+  // filter does not touch.
+  useEffect(() => {
+    setLedgerPageNumber(1)
+    setExpensePageNumber(1)
+  }, [search, from, to])
+
+  useEffect(() => {
+    setLedgerPageNumber(1)
+  }, [methodFilter])
+
+  // Dashboard drill-through (« Dépenses » / « Net »): ?from=&to= opens the range the KPI was computed over, so la
+  // caisse and the dashboard show the same three figures. window.location in an effect rather than useSearchParams —
+  // the repo's idiom. A malformed date is ignored, leaving today's till.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const urlFrom = params.get("from")
+    const urlTo = params.get("to")
+    if (urlFrom && !Number.isNaN(Date.parse(urlFrom))) setSelectedDay(urlFrom)
+    if (urlTo && !Number.isNaN(Date.parse(urlTo))) setEndDay(urlTo)
+  }, [])
 
   // La caisse had no realtime subscription at all — the one screen whose whole job is "what is in the
   // drawer right now" sat stale while a colleague recorded payments next door. Every money source it sums
@@ -128,14 +270,24 @@ export default function CaissePage() {
     loadData,
   )
 
-  const dayLabel = useMemo(
-    () => format(new Date(`${selectedDay}T00:00:00`), "EEEE d MMMM yyyy", { locale: fr }),
-    [selectedDay],
-  )
+  const dayLabel = useMemo(() => {
+    const start = format(new Date(`${selectedDay}T00:00:00`), "EEEE d MMMM yyyy", { locale: fr })
+    if (!isRange) return start
+    const end = format(new Date(`${endDay}T00:00:00`), "EEEE d MMMM yyyy", { locale: fr })
+    return `du ${start} au ${end}`
+  }, [selectedDay, endDay, isRange])
 
   const cashIn = summary?.cashIn ?? 0
+  const refunds = summary?.refunds ?? 0
   const cashOut = summary?.cashOut ?? 0
   const net = summary?.net ?? 0
+  // Only used to decide whether to offer the « chèques à encaisser » link — a cheque taken in this window is not
+  // necessarily a cheque that can be banked, and the two questions belong on two screens.
+  const chequeTotal = summary?.cashInByMethod?.find((m) => m.method === "Cheque")?.amount ?? 0
+  // Through the page's existing `methodLabel` rather than the summary's `label` field: the chip must be able to
+  // name the active filter before the summary has loaded (and after a failed load), and this page already owns one
+  // French label per method for the expense form. Two lookups for one word is how they drift.
+  const activeMethodLabel = methodFilter ? methodLabel(methodFilter) : null
 
   const handleAddNew = () => {
     setEditingExpense(null)
@@ -151,6 +303,43 @@ export default function CaissePage() {
     setExpenseToDelete(expense)
     setDeleteDialogOpen(true)
   }
+
+  /*
+   * One empty state, rendered by both halves of the responsive pair (the `CardList` below `md:` and the table
+   * above it) so the two can never say different things.
+   *
+   * ⚠️ The filtered case never offers « Nouvelle dépense ». The row very likely exists and the term was simply
+   * mistyped, and an « Ajouter » button on a no-match screen is an invitation to create the duplicate.
+   */
+  const searchTerm = search.trim()
+  const expensesEmpty = searchTerm ? (
+    <EmptyState
+      size="compact"
+      icon={SearchX}
+      chipClassName={MONEY_CHIP}
+      title={`Aucune dépense ne correspond à « ${searchTerm} »`}
+      description="La recherche porte sur la catégorie et la description, sur toute la période affichée."
+      secondaryAction={
+        <Button size="sm" variant="outline" onClick={() => setSearch("")}>
+          Effacer les filtres
+        </Button>
+      }
+    />
+  ) : (
+    <EmptyState
+      size="compact"
+      icon={Wallet}
+      chipClassName={MONEY_CHIP}
+      title={isRange ? "Aucune dépense sur cette période" : "Aucune dépense pour ce jour"}
+      description="Loyer, fournitures, laboratoire, maintenance… tout ce qui sort de la caisse se saisit ici."
+      action={
+        <Button size="sm" onClick={handleAddNew} className="gap-2">
+          <Plus className="h-4 w-4" />
+          Nouvelle dépense
+        </Button>
+      }
+    />
+  )
 
   const confirmDelete = async () => {
     if (!expenseToDelete) return
@@ -170,168 +359,344 @@ export default function CaissePage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
+      <AppShell contentClassName="space-y-6">
+        {/* Page Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <PageHeader
+            title="Caisse"
+            subtitle={<span className="capitalize">{dayLabel}</span>}
+            // L5 — the « extrait de caisse », over the window on screen. ⚠️ The free-text `search` is
+            // deliberately NOT sent: « Solde de la période » is computed over the whole window before filtering,
+            // so a text-filtered file would carry a running-balance column that sums to nothing. The file is the
+            // statement for the period, which is what an accountant reconciles against a bank statement.
+            actions={
+              <ExportButton
+                path="/billing/caisse/ledger/export"
+                label="mouvements"
+                params={{ from, to }}
+              />
+            }
+          />
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-
-          <main className="flex-1 overflow-y-auto p-6">
-            <div className="mx-auto max-w-7xl space-y-6">
-              {/* Page Header */}
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h1 className="text-3xl font-semibold text-foreground">Caisse</h1>
-                  <p className="mt-1 text-sm capitalize text-muted-foreground">{dayLabel}</p>
-                </div>
-
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="caisse-day" className="text-sm text-muted-foreground">
-                      Jour
-                    </Label>
-                    <Input
-                      id="caisse-day"
-                      type="date"
-                      value={selectedDay}
-                      onChange={(e) => setSelectedDay(e.target.value)}
-                      className="w-auto"
-                    />
-                  </div>
-                  <Button onClick={handleAddNew} className="gap-2">
-                    <Plus className="h-4 w-4" />
-                    Nouvelle dépense
-                  </Button>
-                </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="flex items-end gap-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="caisse-day" className="text-sm text-muted-foreground">
+                  {isRange ? "Du" : "Jour"}
+                </Label>
+                <Input
+                  id="caisse-day"
+                  type="date"
+                  value={selectedDay}
+                  onChange={(e) => setSelectedDay(e.target.value)}
+                  className="w-auto"
+                />
               </div>
-
-              {/* Caisse summary */}
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Encaissements</CardTitle>
-                    <ArrowUpCircle className="h-4 w-4 text-emerald-600" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-semibold text-emerald-600">{formatDT(cashIn)}</div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Dépenses</CardTitle>
-                    <ArrowDownCircle className="h-4 w-4 text-destructive" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-semibold text-destructive">{formatDT(cashOut)}</div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Net</CardTitle>
-                    <Wallet className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div
-                      className={
-                        net < 0 ? "text-2xl font-semibold text-destructive" : "text-2xl font-semibold text-foreground"
-                      }
-                    >
-                      {formatDT(net)}
-                    </div>
-                  </CardContent>
-                </Card>
+              <div className="space-y-1.5">
+                <Label htmlFor="caisse-day-end" className="text-sm text-muted-foreground">
+                  Au (optionnel)
+                </Label>
+                <Input
+                  id="caisse-day-end"
+                  type="date"
+                  value={endDay}
+                  min={selectedDay}
+                  onChange={(e) => setEndDay(e.target.value)}
+                  className="w-auto"
+                />
               </div>
-
-              {/* Expenses table */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Wallet className="h-5 w-5" />
-                    Dépenses du jour
-                    <Badge variant="secondary" className="ml-2">
-                      {expenses.length}
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {loading ? (
-                    <div className="flex items-center justify-center py-12 text-muted-foreground">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                    </div>
-                  ) : error ? (
-                    <p className="py-12 text-center text-sm text-destructive">{error}</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Date</TableHead>
-                            <TableHead>Catégorie</TableHead>
-                            <TableHead className="text-right">Montant</TableHead>
-                            <TableHead>Mode</TableHead>
-                            <TableHead>Description</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {expenses.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={6} className="h-24 text-center">
-                                <p className="text-muted-foreground">Aucune dépense pour ce jour</p>
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            expenses.map((expense) => (
-                              <TableRow key={expense.id}>
-                                <TableCell className="text-muted-foreground">
-                                  {format(parseISO(expense.expenseDate), "dd/MM/yyyy", { locale: fr })}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant="outline">{expense.category}</Badge>
-                                </TableCell>
-                                <TableCell className="text-right font-medium text-foreground">
-                                  {formatDT(expense.amount)}
-                                </TableCell>
-                                <TableCell className="text-muted-foreground">{methodLabel(expense.method)}</TableCell>
-                                <TableCell className="max-w-xs truncate text-muted-foreground">
-                                  {expense.description?.trim() ? expense.description : "—"}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex justify-end gap-2">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleEdit(expense)}
-                                      className="h-8 gap-1"
-                                    >
-                                      <Pencil className="h-3 w-3" />
-                                      Modifier
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleDelete(expense)}
-                                      className="h-8 gap-1 text-destructive hover:text-destructive"
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                      Supprimer
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              {isRange && (
+                <Button variant="outline" onClick={() => setEndDay("")}>
+                  Journée
+                </Button>
+              )}
             </div>
-          </main>
+            <Button onClick={handleAddNew} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Nouvelle dépense
+            </Button>
+          </div>
         </div>
+
+        {/* Caisse summary. Four figures, not three: « Encaissements » is now GROSS and avoirs have their own
+            card. They used to be silently subtracted inside it, which stopped working the moment the
+            statement below listed a refund as money leaving — the lines would not have summed to the total
+            printed above them. Net = Encaissements − Avoirs − Dépenses. */}
+        {/*
+          The four figures share ONE surface (`KpiGrid`), the same treatment the dashboard uses for the same
+          numbers — four separate `Card`s meant four borders, four shadows and four figures of equal weight,
+          and the two screens reporting identical money looked like two different products.
+
+          « Net » takes the accent: it is the *result* of the three beside it, which four identical cards had
+          no way of saying. The other three keep their semantic colour (encaissé positive, avoirs warning,
+          dépenses destructive) through the theme tokens rather than raw `emerald-600` / `amber-600`.
+        */}
+        <KpiGrid columns={4}>
+          <CaisseFigure label="Encaissements" hint="brut, hors avoirs" value={formatDT(cashIn)} tone="text-success" />
+          <CaisseFigure label="Avoirs remboursés" hint="rendus aux patients" value={formatDT(refunds)} tone="text-warning-ink" />
+          <CaisseFigure label="Dépenses" hint="sorties de caisse" value={formatDT(cashOut)} tone="text-destructive" />
+          <CaisseFigure
+            label="Net"
+            hint="encaissé − avoirs − dépenses"
+            value={formatDT(net)}
+            tone={net < 0 ? "text-destructive" : "text-primary"}
+          />
+        </KpiGrid>
+
+        {/* « dont espèces / chèque / carte / virement » (L8 slice B). It sits under the grid rather than inside it
+            because it is a decomposition of ONE of the four figures, not a fifth figure — and because each chip
+            is also the control that narrows the extrait to the movements behind it. */}
+        <CashInByMethod
+          totals={summary?.cashInByMethod ?? []}
+          selected={methodFilter}
+          onSelect={setMethodFilter}
+        />
+
+        {/* « Chèques à encaisser » lives on its own screen, but this is where somebody notices the figure. The
+            link is only offered when there IS cheque money in the window — an invitation to a screen that will be
+            empty is worse than no invitation. */}
+        {chequeTotal > 0 && (
+          <p className="text-sm text-muted-foreground">
+            Un chèque encaissé dans la période n'est pas forcément encaissable&nbsp;:{" "}
+            <Link href="/cheques" className="font-medium text-primary underline-offset-4 hover:underline">
+              voir les chèques à encaisser
+            </Link>
+            .
+          </p>
+        )}
+
+        {/* The « extrait » — the statement behind the four figures above. It sits above the expenses table
+            because the expenses are a subset of it; that table stays for its edit/delete actions, which
+            belong to the expense aggregate and not to a read-only movement line. */}
+        <Card>
+          <CardHeader>
+            {/* See MONEY_HEADER_CHIP. `flex-wrap` because the chip narrows the title column by ~40px and this
+                one carries a count badge behind a five-word heading. */}
+            <CardTitle className="flex min-w-0 flex-wrap items-center gap-2.5 leading-snug">
+              <span aria-hidden="true" className={MONEY_HEADER_CHIP}>
+                <ArrowLeftRight className="size-4" strokeWidth={1.75} />
+              </span>
+              Extrait de caisse
+              <Badge variant="secondary">{ledger?.totalCount ?? 0}</Badge>
+            </CardTitle>
+            <CardDescription>
+              Tous les mouvements de la période, du plus ancien au plus récent — paiements de factures,
+              échéances de devis, avoirs remboursés et dépenses. Un mouvement annulé reste visible, barré,
+              et ne compte pas dans le solde.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4 space-y-2">
+              <Label htmlFor="caisse-search" className="sr-only">
+                Rechercher un mouvement
+              </Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="caisse-search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Rechercher un mouvement ou une dépense (libellé, patient, référence)…"
+                  className="pl-9"
+                />
+              </div>
+              {/* § 13 — an active filter is a REMOVABLE chip at every width. The breakdown chip above is already
+                  pressed, but it is a screen away from the table it narrows once the page scrolls, and « il manque
+                  des mouvements » is what an unlabelled filtered list reads as. */}
+              {methodFilter && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary" className="gap-1.5 py-1 ps-2.5 pe-1.5">
+                    Mode&nbsp;: {activeMethodLabel}
+                    <button
+                      type="button"
+                      onClick={() => setMethodFilter(null)}
+                      aria-label={`Retirer le filtre ${activeMethodLabel}`}
+                      className="rounded-full p-0.5 hover:bg-background/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring coarse:p-1.5"
+                    >
+                      <X className="size-3" aria-hidden="true" />
+                    </button>
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    Les totaux ci-dessus couvrent toute la période, tous modes confondus.
+                  </span>
+                </div>
+              )}
+            </div>
+            {error && !loading ? (
+              <p className="py-8 text-center text-sm text-destructive">{error}</p>
+            ) : (
+              <>
+                <CaisseLedgerTable
+                  movements={ledger?.movements ?? []}
+                  loading={loading}
+                  // The method filter counts as « filtered » too, or a period with no cheques would render the
+                  // first-run « aucun mouvement » invite about a till that in fact took money all day.
+                  isFiltered={Boolean(searchTerm) || Boolean(methodFilter)}
+                  onClearSearch={() => {
+                    setSearch("")
+                    setMethodFilter(null)
+                  }}
+                />
+                {ledger && (
+                  <DataTablePagination
+                    page={ledger}
+                    onPageChange={setLedgerPageNumber}
+                    onPageSizeChange={setPageSize}
+                    loading={loading}
+                    label={["mouvement", "mouvements"]}
+                  />
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Expenses table */}
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <CardTitle className="flex min-w-0 flex-wrap items-center gap-2.5 leading-snug">
+                <span aria-hidden="true" className={MONEY_HEADER_CHIP}>
+                  <Wallet className="size-4" strokeWidth={1.75} />
+                </span>
+                Dépenses du jour
+                <Badge variant="secondary">{expensePage.totalCount}</Badge>
+              </CardTitle>
+              {/*
+                L5 — a SECOND export on this page, and deliberately not a duplicate of the header's. That one is
+                the « extrait de caisse » (every movement, both directions, with the running balance); this one is
+                the dépenses list, which is what a clinic hands its accountant at the end of a month.
+
+                ⚠️ Unlike the extrait, this one DOES send the search term: the expenses list is loaded narrowed by
+                it (`expensesApi.listPaged`), so the file must be too. The extrait cannot, because its
+                « Solde de la période » is computed over the whole window before filtering.
+              */}
+              <ExportButton
+                path="/expenses/export"
+                label="dépenses"
+                compact
+                params={{ from, to, search: searchTerm || undefined }}
+              />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+              </div>
+            ) : error ? (
+              <p className="py-12 text-center text-sm text-destructive">{error}</p>
+            ) : (
+              <div className="overflow-x-auto">
+                {/* Title is the catégorie, not the description: the description is nullable and truncated, so
+                    it makes a poor identity, while every expense has a category. The amount leads the fields —
+                    it is what the row is about. */}
+                <CardList
+                  className={CARDS_ONLY}
+                  ariaLabel="Dépenses"
+                  items={expenses}
+                  getKey={(e) => e.id}
+                  title={(e) => e.category}
+                  subtitle={(e) => e.description?.trim()}
+                  fields={(e) => [
+                    { label: "Montant", value: <span className="font-medium">{formatDT(e.amount)}</span> },
+                    { label: "Date", value: format(parseISO(e.expenseDate), "dd/MM/yyyy", { locale: fr }) },
+                    { label: "Mode", value: methodLabel(e.method) },
+                  ]}
+                  actions={(e) => (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" aria-label={`Actions pour la dépense ${e.category}`}>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => handleEdit(e)}>Modifier</DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onSelect={() => handleDelete(e)}
+                        >
+                          Supprimer
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                  empty={expensesEmpty}
+                />
+                <Table containerClassName={TABLE_ONLY}>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Catégorie</TableHead>
+                      <TableHead className="text-right">Montant</TableHead>
+                      <TableHead>Mode</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {expenses.length === 0 ? (
+                      <TableRow>
+                        {/* `p-0` so the empty state owns its own vertical rhythm — the cell's usual padding
+                            plus the primitive's would push the action a screen down. */}
+                        <TableCell colSpan={6} className="p-0">
+                          {expensesEmpty}
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      expenses.map((expense) => (
+                        <TableRow key={expense.id}>
+                          <TableCell className="text-muted-foreground">
+                            {format(parseISO(expense.expenseDate), "dd/MM/yyyy", { locale: fr })}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{expense.category}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-medium text-foreground">
+                            {formatDT(expense.amount)}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{methodLabel(expense.method)}</TableCell>
+                          <TableCell className="max-w-xs truncate text-muted-foreground">
+                            {expense.description?.trim() ? expense.description : "—"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEdit(expense)}
+                                className="h-8 gap-1"
+                              >
+                                <Pencil className="h-3 w-3" />
+                                Modifier
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDelete(expense)}
+                                className="h-8 gap-1 text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Supprimer
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+                <DataTablePagination
+                  page={expensePage}
+                  onPageChange={setExpensePageNumber}
+                  onPageSizeChange={setPageSize}
+                  loading={loading}
+                  label={["dépense", "dépenses"]}
+                />
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <ExpenseFormModal
           open={modalOpen}
@@ -340,39 +705,38 @@ export default function CaissePage() {
           defaultDay={selectedDay}
           onSaved={loadData}
         />
-
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
-              <AlertDialogDescription>
-                Cette dépense
-                {expenseToDelete ? (
-                  <>
-                    {" "}
-                    (<span className="font-semibold">{expenseToDelete.category}</span> —{" "}
-                    {formatDT(expenseToDelete.amount)})
-                  </>
-                ) : null}{" "}
-                sera définitivement supprimée. Cette action est irréversible.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={(e) => {
-                  e.preventDefault()
-                  confirmDelete()
-                }}
-                disabled={deleting}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                {deleting ? "Suppression..." : "Supprimer"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette dépense
+              {expenseToDelete ? (
+                <>
+                  {" "}
+                  (<span className="font-semibold">{expenseToDelete.category}</span> —{" "}
+                  {formatDT(expenseToDelete.amount)})
+                </>
+              ) : null}{" "}
+              sera définitivement supprimée. Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                confirmDelete()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Suppression..." : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
         </AlertDialog>
-      </div>
+      </AppShell>
     </ClinicGuard>
   )
 }
@@ -397,11 +761,17 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
 
+  // A typed dépense is not discarded by a stray tap (J9). Below `md:` this is a bottom sheet, so the strip above
+  // it is a live dismiss target sitting over the form.
+  const guard = useDirtyGuard(open, onOpenChange)
+
   useEffect(() => {
     if (editingExpense) {
       setExpenseDate(format(parseISO(editingExpense.expenseDate), "yyyy-MM-dd"))
       setCategory(editingExpense.category)
-      setAmount(String(editingExpense.amount))
+      // `formatAmount`, never `String(...)`: the raw number reopens an edited dépense as « 45.5 » in a product
+      // that prints « 45,500 ». The grouping space is stripped again on parse.
+      setAmount(formatAmount(editingExpense.amount))
       setMethod(editingExpense.method as PaymentMethod)
       setDescription(editingExpense.description ?? "")
     } else {
@@ -418,7 +788,7 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
     const next: Record<string, string> = {}
     if (!expenseDate) next.expenseDate = "La date est requise"
     if (!category) next.category = "La catégorie est requise"
-    const parsed = parseFloat(amount)
+    const parsed = parseAmountInput(amount)
     if (amount === "" || Number.isNaN(parsed) || parsed <= 0) next.amount = "Saisissez un montant supérieur à 0"
     if (!method) next.method = "Le mode de paiement est requis"
     setErrors(next)
@@ -432,7 +802,7 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
     const payload: ExpensePayload = {
       expenseDate: new Date(`${expenseDate}T00:00:00`).toISOString(),
       category,
-      amount: parseFloat(amount),
+      amount: parseAmountInput(amount),
       method,
       description: description.trim() || null,
     }
@@ -456,8 +826,10 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+    <>
+    {/* Only the ROOT and « Annuler » route through the guard — the save path calls the raw prop (§ 5). */}
+    <Dialog open={open} onOpenChange={guard.onOpenChange}>
+      <DialogContent className="md:max-w-md">
         <DialogHeader>
           <DialogTitle>{editingExpense ? "Modifier la dépense" : "Nouvelle dépense"}</DialogTitle>
           <DialogDescription>
@@ -500,17 +872,19 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
             {errors.category && <p className="text-xs text-destructive">{errors.category}</p>}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="amount">
                 Montant (DT) <span className="text-destructive">*</span>
               </Label>
+              {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a number input refuses the comma
+                  this product prints with, and a rejected keystroke returns an EMPTY value — so the amount looked
+                  typed and the submit sent nothing. The placeholder now shows the separator the field accepts. */}
               <Input
                 id="amount"
-                type="number"
-                min="0"
-                step="0.001"
-                placeholder="0.000"
+                type="text"
+                inputMode="decimal"
+                placeholder="0,000"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
               />
@@ -549,7 +923,7 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
           </div>
 
           <DialogFooter className="gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            <Button type="button" variant="outline" onClick={() => guard.onOpenChange(false)} disabled={saving}>
               Annuler
             </Button>
             <Button type="submit" disabled={saving}>
@@ -559,5 +933,38 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
         </form>
       </DialogContent>
     </Dialog>
+    <DiscardChangesDialog guard={guard} />
+    </>
+  )
+}
+
+/**
+ * One figure inside la caisse's shared surface.
+ *
+ * <p>`bg-card` is load-bearing — `KpiGrid` is a `bg-border` container showing through `gap-px`, so a cell that does
+ * not paint its own background renders as a solid border block. Deliberately **not** a `KpiCard`: these figures are
+ * not links (there is nothing to drill into from la caisse — the statement below already *is* the detail) and they
+ * carry no period comparison, so reusing that component would mean passing an `href` of `#` and lying about it.</p>
+ */
+function CaisseFigure({
+  label,
+  hint,
+  value,
+  tone,
+}: {
+  label: string
+  hint: string
+  value: string
+  tone: string
+}) {
+  return (
+    <div className="bg-card p-4">
+      <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary/70" />
+        {label}
+      </p>
+      <p className={`mt-1 text-2xl font-semibold tabular-nums tracking-tight ${tone}`}>{value}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
+    </div>
   )
 }

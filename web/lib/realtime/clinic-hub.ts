@@ -1,5 +1,5 @@
 import { HubConnection, HubConnectionBuilder, LogLevel } from "@microsoft/signalr"
-import { getAccessToken } from "@/lib/api/client"
+import { CLIENT_VERSION_HEADER, getAccessToken } from "@/lib/api/client"
 
 /**
  * Server → client event name (mirrors ClinicHub.EntityChanged on the API). Carries one argument: the
@@ -30,6 +30,23 @@ export const RealtimeResource = {
   // The server has always broadcast this key — RealtimeResourceResolver derives it from the
   // Features.Expenses namespace — and no client listened. La caisse is the screen that needs it.
   Expenses: "expenses",
+  // AC-P4.20 — the last four orphans of audit § 9.1. Each was already emitted by its
+  // Features/<Area>/Commands folder with nothing on this side able to name it, so the screens below
+  // never live-refreshed. RealtimeResourceResolverTests now asserts this map and the backend's emitted
+  // set are EQUAL in both directions, so neither side can grow alone again.
+  Doctors: "doctors",         // « Mon profil » / Paramètres → Médecins (profile, cachet, working hours)
+  LabOrders: "laborders",     // /lab-orders — bons de prothèse, a two-user status lifecycle
+  // Recall commands (snooze / « contacté » / send) still exist server-side, so they still BROADCAST this key —
+  // which is why it must stay declared here even though /recalls was removed and nothing subscribes to it right
+  // now. `RealtimeResourceResolverTests` compares the emitted and declared sets in both directions; dropping this
+  // line while `Features/Recall/Commands` exists would fail the build. It gets a subscriber again when the recall
+  // worklist gets a new home.
+  Recall: "recall",
+  WaitingList: "waitinglist", // /waiting-list — the canonical two-user screen (salle d'attente)
+  // Derived from Features/DocumentEmails/Commands. Declared because the queue command broadcasts it, and the
+  // send history is genuinely two-user: one person queues « Envoyer par email », the row's status then changes
+  // under them when the dispatcher picks it up a minute later.
+  DocumentEmails: "documentemails",
 } as const
 
 export type RealtimeResourceKey = (typeof RealtimeResource)[keyof typeof RealtimeResource]
@@ -66,6 +83,58 @@ async function fetchAccessToken(): Promise<string> {
 }
 
 /**
+ * SignalR's own console logging level.
+ *
+ * <p><b>Silent by default, deliberately.</b> A failed connect is an <i>expected, handled</i> event here: the hub is
+ * additive, `useClinicRealtime` catches the rejection and retries every 5s until it succeeds, and the page works
+ * throughout via manual refresh. But SignalR's `ConsoleLogger` still writes
+ * `Error: Failed to start the connection: ...` on every attempt — so restarting the API, or running the frontend
+ * before the API is up, produced a `console.error` every 5 seconds <i>per mounted connection</i>. That contradicts
+ * this module's documented contract that connection failures are "never surfaced", and in dev it is worse than
+ * noise: Next's dev overlay badges console errors, so the count climbs and the overlay sits over the UI being
+ * tested.</p>
+ *
+ * <p>Set <c>NEXT_PUBLIC_SIGNALR_LOG_LEVEL</c> to a SignalR level name (`Trace`, `Debug`, `Information`,
+ * `Warning`, `Error`, `Critical`, `None`) when you actually need to debug the hub — silencing it by default must
+ * not mean there is no way to see it.</p>
+ */
+function resolveLogLevel(): LogLevel {
+  const configured = process.env.NEXT_PUBLIC_SIGNALR_LOG_LEVEL?.trim()
+  if (!configured) return LogLevel.None
+
+  const byName: Record<string, LogLevel> = {
+    trace: LogLevel.Trace,
+    debug: LogLevel.Debug,
+    information: LogLevel.Information,
+    info: LogLevel.Information,
+    warning: LogLevel.Warning,
+    warn: LogLevel.Warning,
+    error: LogLevel.Error,
+    critical: LogLevel.Critical,
+    none: LogLevel.None,
+  }
+
+  // An unrecognised value falls back to silent rather than throwing: a typo in an env var must not be able to
+  // break the app, and the hub is the one subsystem whose failure is supposed to be invisible.
+  return byName[configured.toLowerCase()] ?? LogLevel.None
+}
+
+/**
+ * The shell's version on the hub's own HTTP legs (AC-31), read as a feature detection like every other bridge
+ * access — absent bridge ⇒ an empty object ⇒ byte-identical to before.
+ *
+ * ⚠️ **Honest about its reach.** A browser cannot set headers on the WebSocket upgrade, so this rides the
+ * negotiate request and the fallback transports and nothing else. That is enough because it is not a gate:
+ * `ClientVersionMiddleware` guards `/api`, and the hub is deliberately outside it — realtime is additive
+ * (`useClinicRealtime` treats every failure as invisible), so refusing it would cost a stale shell its live
+ * refresh without ever telling anyone why.
+ */
+function shellVersionHeader(): Record<string, string> {
+  const version = typeof window !== "undefined" ? window.__clinicShell?.version : undefined
+  return version ? { [CLIENT_VERSION_HEADER]: version } : {}
+}
+
+/**
  * Builds a clinic hub connection with automatic reconnection. Returns null off the browser.
  * `withAutomaticReconnect` resumes after a dropped connection (AC-4); the initial connect is retried
  * by the caller (see `useClinicRealtime`).
@@ -75,8 +144,8 @@ export function createClinicHubConnection(): HubConnection | null {
   if (!url) return null
 
   return new HubConnectionBuilder()
-    .withUrl(url, { accessTokenFactory: fetchAccessToken })
+    .withUrl(url, { accessTokenFactory: fetchAccessToken, headers: shellVersionHeader() })
     .withAutomaticReconnect()
-    .configureLogging(LogLevel.Warning)
+    .configureLogging(resolveLogLevel())
     .build()
 }

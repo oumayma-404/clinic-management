@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Billing.Queries;
@@ -67,12 +69,14 @@ public class InstallmentOverdueBoundaryTests
         _patients.Setup(p => p.GetByIdAsync(PatientId, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
         _invoices.Setup(i => i.GetFilteredAsync(
                 ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
-                It.IsAny<InvoiceStatus?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<Invoice>());
+                It.IsAny<InvoiceStatus?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new List<Invoice>()).AsPage());
         _plans.Setup(p => p.GetFilteredAsync(
                 ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(), It.IsAny<DateTime?>(),
-                It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<TreatmentPlan> { PlanDueOn(dueDate) });
+                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new List<TreatmentPlan> { PlanDueOn(dueDate) }).AsPage());
         _cnam.Setup(c => c.ComputeAsync(
                 It.IsAny<IReadOnlyCollection<CnamBillingLine>>(), It.IsAny<decimal>(),
                 It.IsAny<DateTime?>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))

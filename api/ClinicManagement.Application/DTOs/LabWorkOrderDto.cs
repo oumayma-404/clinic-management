@@ -16,6 +16,12 @@ public class LabWorkOrderDto
     public DateTime? ReceivedDate { get; set; }
     public decimal? Cost { get; set; }
     public string Status { get; set; } = string.Empty;
+    /// <summary>
+    /// The stages this order may legally move to from its current one (AC-P2.40), so the UI's status control can
+    /// offer only those instead of all four and then bouncing a refusal. Derived from the domain's transition
+    /// table — the client never re-implements it.
+    /// </summary>
+    public List<string> AllowedNextStatuses { get; set; } = new();
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
@@ -37,6 +43,7 @@ public static class LabWorkOrderMappingExtensions
         ReceivedDate = order.ReceivedDate,
         Cost = order.Cost,
         Status = order.Status.ToString(),
+        AllowedNextStatuses = LabWorkOrder.NextStatusesFrom(order.Status).Select(s => s.ToString()).ToList(),
         Notes = order.Notes,
         CreatedAt = order.CreatedAt,
         UpdatedAt = order.UpdatedAt

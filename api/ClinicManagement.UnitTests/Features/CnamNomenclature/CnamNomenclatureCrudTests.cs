@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Features.CnamNomenclature.Commands;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -173,7 +175,8 @@ public class CnamNomenclatureCrudTests
         var vlc = new CnamLetterValue(Guid.NewGuid(), ClinicId, "D", 1.2m); // provisional by default
         Assert.True(entry.IsProvisional);
         Assert.True(vlc.IsProvisional);
-        _repo.Setup(r => r.GetAllAsync(true, It.IsAny<CancellationToken>())).ReturnsAsync(new[] { entry });
+        _repo.Setup(r => r.GetAllAsync(true, It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>())).ReturnsAsync((new[] { entry }).AsPage());
         _repo.Setup(r => r.GetAllLetterValuesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { vlc });
 
         var handler = new ConfirmCnamDataCommandHandler(_repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<ConfirmCnamDataCommandHandler>.Instance);

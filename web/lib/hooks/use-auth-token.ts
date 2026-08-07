@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useSession } from '@/lib/auth/session'
-import { getAccessToken } from '@/lib/api/client'
+import { getAccessToken, lastAccessTokenFailureStatus } from '@/lib/api/client'
 
 /**
  * Exposes an API token for components that need to pass one explicitly.
@@ -19,6 +19,11 @@ export function useAuthToken() {
   const { user, isLoading } = useSession()
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [tokenLoading, setTokenLoading] = useState(true)
+  // Why there is no token, when there isn't one. "ended" = the API refused the credential itself (401; the
+  // BFF has already cleared the cookie) so signing in again is the answer. "unavailable" = the server could
+  // not answer right now (offline, rate-limited, 5xx) and the session may well be fine, so callers must NOT
+  // treat it as signed out. Conflating the two made every backend hiccup look like an endless login bounce.
+  const [tokenError, setTokenError] = useState<'ended' | 'unavailable' | null>(null)
 
   useEffect(() => {
     if (isLoading) {
@@ -29,6 +34,7 @@ export function useAuthToken() {
     if (!user) {
       // No user, set loading to false
       setAccessToken(null)
+      setTokenError(null)
       setTokenLoading(false)
       return
     }
@@ -39,12 +45,14 @@ export function useAuthToken() {
       .then(token => {
         if (!active) return
         setAccessToken(token)
+        setTokenError(token ? null : lastAccessTokenFailureStatus() === 401 ? 'ended' : 'unavailable')
         setTokenLoading(false)
       })
       .catch((err) => {
         if (!active) return
         console.error('Error fetching access token:', err)
         setAccessToken(null)
+        setTokenError('unavailable')
         setTokenLoading(false)
       })
     return () => {
@@ -52,7 +60,7 @@ export function useAuthToken() {
     }
   }, [user, isLoading])
 
-  return { accessToken, isLoading: tokenLoading || isLoading, user }
+  return { accessToken, isLoading: tokenLoading || isLoading, user, tokenError }
 }
 
 

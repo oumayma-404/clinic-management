@@ -1,5 +1,6 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -20,6 +21,14 @@ public class UpdateMedicalDocumentCommand : IRequest<Result<MedicalDocumentDto>>
     public string ContentJson { get; set; } = string.Empty;
     public Guid? FileId { get; set; }
     public byte[]? PdfFile { get; set; } // PDF file as byte array (optional, for updating the file)
+
+    /// <summary>
+    /// The practitioner the document is issued in the name of — see
+    /// <see cref="CreateMedicalDocumentCommand.IssuingDoctorId"/>. Omitted (which is what the background
+    /// <c>PdfGenerationJob</c> does), the stored document's existing snapshot is preserved, so an edit never
+    /// silently re-attributes a document to whoever opened it.
+    /// </summary>
+    public Guid? IssuingDoctorId { get; set; }
 }
 
 public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedicalDocumentCommand, Result<MedicalDocumentDto>>
@@ -101,6 +110,35 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                     "Le nom du confrère destinataire est obligatoire pour une lettre de liaison.");
             }
 
+            // Mirror the create-path bulletin gate — but only for a genuine user edit. ⚠️ `user == null` is the
+            // background PdfGenerationJob feeding a stored document's own ContentJson back through here to
+            // re-render it. A bulletin saved before this gate existed may legitimately be missing a régime or a
+            // code conventionnel, and refusing it here would make an existing document permanently
+            // unre-renderable — the validation would have turned « incomplete » into « unprintable », which is
+            // the opposite of the point. The user who opens such a bulletin gets the refusal on their next save.
+            if (user != null
+                && document.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.BulletinCnam)
+            {
+                var bulletinProblem = BulletinCnamValidation.Validate(request.ContentJson);
+                if (bulletinProblem != null)
+                {
+                    return Result<MedicalDocumentDto>.Failure(bulletinProblem);
+                }
+            }
+
+            // Same gate, same `user != null` condition and for the identical reason: the background
+            // PdfGenerationJob re-renders a stored document with no caller, and refusing there would make an
+            // already-saved arrêt permanently unprintable.
+            if (user != null
+                && document.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.ArretTravail)
+            {
+                var arretProblem = ArretTravailValidation.Validate(request.ContentJson);
+                if (arretProblem != null)
+                {
+                    return Result<MedicalDocumentDto>.Failure(arretProblem);
+                }
+            }
+
             // FR-2.2 / FR-3.3: re-apply the practitioner/clinic snapshot on a genuine user edit, exactly as
             // the create path does — otherwise the structured editor (which rebuilds ContentJson from its
             // own form fields) would drop the cachet key + cabinet city + ordre on every save. Only when a
@@ -111,14 +149,16 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
             if (user != null)
             {
                 // Re-apply the practitioner/clinic snapshot (the structured editor rebuilds ContentJson from
-                // its own fields and drops the reserved keys). Resolve from the caller's own doctor record —
-                // but a caller without one (a secretary/admin managing paperwork) would otherwise blank the
-                // cachet + CNOMDT ordre. Fall back per-field to the values already snapshotted on the stored
-                // document so an edit never strips the issuing practitioner's identity; client-supplied
-                // reserved keys are still stripped by ApplyTo (only these trusted server values are written).
-                var callerSnapshot = await PractitionerRenderSnapshot.ResolveAsync(
-                    userId, user.ClinicId, _doctorRepository, _clinicRepository, cancellationToken);
-                var effectiveSnapshot = callerSnapshot.OrElse(PractitionerRenderSnapshot.ReadFrom(document.ContentJson));
+                // its own fields and drops the reserved keys). Resolution order is the named practitioner, then
+                // the caller's own doctor record — so an edit by someone with no record of their own (reception,
+                // or an admin who is not a dentist) no longer blanks the cachet + CNOMDT ordre. Then fall back
+                // per-field to the values already snapshotted on the stored document, so an edit that names
+                // nobody still never strips the issuing practitioner's identity. Client-supplied reserved keys
+                // are stripped by ApplyTo regardless (only these trusted server values are written).
+                var resolvedSnapshot = await PractitionerRenderSnapshot.ResolveAsync(
+                    request.IssuingDoctorId, userId, user.ClinicId,
+                    _doctorRepository, _clinicRepository, cancellationToken);
+                var effectiveSnapshot = resolvedSnapshot.OrElse(PractitionerRenderSnapshot.ReadFrom(document.ContentJson));
                 contentJson = effectiveSnapshot.ApplyTo(request.ContentJson);
             }
 
@@ -131,6 +171,21 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
             // If PDF file is provided, save it to patient files
             if (request.PdfFile != null && request.PdfFile.Length > 0)
             {
+                // US-5: the blob's key is prefixed with its owning clinic, which is the document's patient's —
+                // NOT the caller's, because PdfGenerationJob re-renders a stored document with no user at all.
+                //
+                // ⚠️ Resolved FIRST, before anything is written (review finding 21). It used to sit below the folder
+                // block, which runs a SaveChangesAsync of its own — so this refusal left a committed « documents »
+                // folder behind it. Its message was wrong on both counts too: the document *was* found (we are 190
+                // lines into updating it), and what actually failed is that the clinic-filtered Patient navigation
+                // did not materialise under the current tenant scope.
+                var owningClinicId = document.Patient?.ClinicId;
+                if (owningClinicId is null)
+                {
+                    return Result<MedicalDocumentDto>.Failure(
+                        "Le patient de ce document est introuvable dans votre cabinet.");
+                }
+
                 // ALWAYS save PDF files to "documents" folder (not "brouillons")
                 // This ensures all PDFs are in the documents folder regardless of draft status
                 const string folderName = "documents";
@@ -143,6 +198,7 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                     folder = new PatientFolder(
                         Guid.NewGuid(),
                         document.PatientId,
+                        owningClinicId.Value,
                         folderName);
                     await _folderRepository.AddAsync(folder, cancellationToken);
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -154,10 +210,22 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                 var baseFileName = $"{documentTypeName}-{sanitizedPatientName}";
                 var fileName = await GenerateUniqueFileName(_fileRepository, folder.Id, baseFileName, "pdf", cancellationToken);
 
+                // Same door onto PatientFile as the create path, so the same validator judges it.
+                using var pdfStream = new MemoryStream(request.PdfFile);
+                var pdfValidation = await FileUploadValidator.ValidateAsync(
+                    FileUploadProfile.MedicalDocumentPdf, fileName, request.PdfFile.Length, pdfStream, cancellationToken);
+
+                if (pdfValidation.IsFailure)
+                {
+                    return Result<MedicalDocumentDto>.Failure(pdfValidation.Error!);
+                }
+
+                var pdf = pdfValidation.Value!;
+
                 // Store the PDF blob first, then persist the record. If the DB save fails we must
                 // remove the just-stored blob so no orphan remains (FR-C3).
-                using var pdfStream = new MemoryStream(request.PdfFile);
-                var storageKey = await _fileStorage.UploadAsync(pdfStream, "application/pdf", cancellationToken);
+                var storageKey = await _fileStorage.UploadAsync(
+                    pdf.Content, pdf.ContentType, owningClinicId.Value, cancellationToken);
 
                 try
                 {
@@ -178,11 +246,12 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                     var patientFile = new PatientFile(
                         Guid.NewGuid(),
                         document.PatientId,
-                        fileName,
+                        owningClinicId.Value,
+                        pdf.FileName,
                         storageKey,
-                        "application/pdf",
-                        request.PdfFile.Length,
-                        FileType.MedicalRecord,
+                        pdf.ContentType,
+                        pdf.ByteLength,
+                        pdf.Entry.Category,
                         folder.Id,
                         $"Document médical: {documentTypeName}");
 

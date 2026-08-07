@@ -26,6 +26,7 @@ public class EInvoiceService : IEInvoiceService
     private readonly IPatientRepository _patientRepository;
     private readonly ITeifXmlGenerator _teifXmlGenerator;
     private readonly IEInvoiceSigner _signer;
+    private readonly ITtnIdentityProvider _ttnIdentityProvider;
     private readonly IReadOnlyDictionary<string, ITtnClient> _ttnClients;
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
@@ -38,6 +39,7 @@ public class EInvoiceService : IEInvoiceService
         IPatientRepository patientRepository,
         ITeifXmlGenerator teifXmlGenerator,
         IEInvoiceSigner signer,
+        ITtnIdentityProvider ttnIdentityProvider,
         IEnumerable<ITtnClient> ttnClients,
         IFileStorage fileStorage,
         IUnitOfWork unitOfWork,
@@ -49,6 +51,7 @@ public class EInvoiceService : IEInvoiceService
         _patientRepository = patientRepository;
         _teifXmlGenerator = teifXmlGenerator;
         _signer = signer;
+        _ttnIdentityProvider = ttnIdentityProvider;
         _ttnClients = ttnClients.ToDictionary(c => c.Environment, StringComparer.OrdinalIgnoreCase);
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
@@ -78,6 +81,18 @@ public class EInvoiceService : IEInvoiceService
                 return;
             }
 
+            // The second of J4's three guards: a **cancelled** note is never declared. `Invoice.Cancel` now
+            // dequeues, and the repository's due-query excludes cancelled rows, so reaching here with a
+            // cancelled invoice should be impossible — which is exactly why the check is cheap and worth having.
+            // TTN validation is irreversible on their side, so the cost of the three guards disagreeing once is a
+            // note that is annulée in the clinic's books and « validée » in the national registry, for ever.
+            if (invoice.Status == InvoiceStatus.Cancelled)
+            {
+                _logger.LogWarning(
+                    "Skipping El Fatoora dispatch of invoice {InvoiceId}: the note is cancelled.", invoiceId);
+                return;
+            }
+
             var clinic = await _clinicRepository.GetByIdAsync(invoice.ClinicId, cancellationToken);
             var patient = await _patientRepository.GetByIdAsync(invoice.PatientId, cancellationToken);
 
@@ -89,6 +104,16 @@ public class EInvoiceService : IEInvoiceService
             {
                 await DispatchAsync(invoice, clinic, patient, maxAttempts, cancellationToken);
             }
+        }
+        catch (TtnIdentityUnavailableException ex)
+        {
+            // PARKED, not retried: a missing certificate is a configuration state lasting days, so spending one of
+            // five attempts on it empties the budget in ~10 minutes and the note then leaves the outbox for good,
+            // needing a manual re-queue nobody is told to perform (review finding 6). The row keeps its reason and
+            // stays Queued, so uploading the PFX is all it takes to resume.
+            _logger.LogWarning(
+                ex, "El Fatoora dispatch of invoice {InvoiceId} is parked: {Message}", invoiceId, ex.Message);
+            invoice?.ParkEInvoiceUntilConfigured(ex.Message, ParkedRetryAt());
         }
         catch (InvalidOperationException ex)
         {
@@ -176,15 +201,21 @@ public class EInvoiceService : IEInvoiceService
 
     private async Task DispatchAsync(Invoice invoice, Clinic clinic, Patient? patient, int maxAttempts, CancellationToken cancellationToken)
     {
+        // Resolved ONCE and handed to both halves (US-4): signing with one clinic's certificate and submitting
+        // under another's account is the failure per-clinic identity exists to prevent, and TTN validation
+        // cannot be undone. A clinic with no usable identity throws InvalidOperationException here, which
+        // ProcessAsync's catch already turns into a queued retry with the operator's reason on the row.
+        var identity = await _ttnIdentityProvider.ResolveAsync(clinic.Id, cancellationToken);
+
         var input = BuildInput(invoice, clinic, patient);
         var teifXml = _teifXmlGenerator.Generate(input);
-        var signed = _signer.Sign(teifXml);
+        var signed = _signer.Sign(teifXml, identity);
 
         var signedKey = await StoreArtifactAsync(clinic.Id, invoice, "signed.xml", signed.SignedXml, cancellationToken);
         invoice.MarkEInvoiceSigned(signedKey);
 
         var client = ResolveClient(clinic.TtnEnvironment);
-        var result = await client.SubmitAsync(signed.SignedXml, input.InvoiceNumber, cancellationToken);
+        var result = await client.SubmitAsync(signed.SignedXml, input.InvoiceNumber, identity, cancellationToken);
 
         switch (result.Outcome)
         {
@@ -219,6 +250,14 @@ public class EInvoiceService : IEInvoiceService
         return _ttnClients[Clinic.TtnEnvironmentSandbox];
     }
 
+    /// <summary>
+    /// When a parked row is looked at again. A flat interval rather than the attempt-scaled backoff below, because a
+    /// parked row consumes no attempt — the scaling factor would never move, and the point is only that the retry is
+    /// cheap and the row stays visible in <c>GET /api/outbox</c>.
+    /// </summary>
+    private DateTime ParkedRetryAt() =>
+        DateTime.UtcNow.AddSeconds(TtnConfig.BackoffBaseSeconds(_configuration));
+
     private void RecordTransientFailure(Invoice invoice, string error, int maxAttempts)
     {
         var backoffBase = TtnConfig.BackoffBaseSeconds(_configuration);
@@ -228,9 +267,10 @@ public class EInvoiceService : IEInvoiceService
 
     private async Task<string> StoreArtifactAsync(Guid clinicId, Invoice invoice, string suffix, string content, CancellationToken cancellationToken)
     {
-        var path = $"{clinicId}/e-invoices/{invoice.Id}-{suffix}";
+        // US-5: the clinic segment is the storage's own, so the path here is relative to it.
+        var path = $"e-invoices/{invoice.Id}-{suffix}";
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
-        return await _fileStorage.UploadAsync(stream, "application/xml", path, cancellationToken);
+        return await _fileStorage.UploadAsync(stream, "application/xml", clinicId, path, cancellationToken);
     }
 
     private async Task<string?> StoreReceiptAsync(Guid clinicId, Invoice invoice, string? receiptContent, CancellationToken cancellationToken)

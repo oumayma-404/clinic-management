@@ -8,6 +8,19 @@ public class InvoiceDto
     public Guid? DentalRecordId { get; set; }
     public Guid? AppointmentId { get; set; }
 
+    /// <summary>
+    /// Which practitioner earned this note (L9). <b>Null is a real answer</b> — a historical row, or one raised with
+    /// no practitioner in scope — and a client must render it as « non attribué » rather than as the clinic.
+    /// </summary>
+    public Guid? DoctorId { get; set; }
+
+    /// <summary>
+    /// The practitioner's name, resolved by the read. Carried beside the id for the same reason
+    /// <c>PatientName</c> is: <c>Invoice</c> has no navigation the list read materialises, so the alternative is a
+    /// lookup per row on the screen a clinic opens to chase money.
+    /// </summary>
+    public string? DoctorName { get; set; }
+
     /// <summary>The devis this note was bridged from (devis→facture), or null for a standalone note. Lets
     /// « Factures » mark a devis-born invoice and navigate back to the plan it represents.</summary>
     public Guid? TreatmentPlanId { get; set; }

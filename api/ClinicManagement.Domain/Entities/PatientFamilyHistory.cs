@@ -5,6 +5,10 @@ namespace ClinicManagement.Domain.Entities;
 public class PatientFamilyHistory : Entity<Guid>
 {
     public Guid PatientId { get; private set; }
+
+    /// <summary>The owning clinic, denormalised from <see cref="Patient"/>. See <see cref="PatientMedicalHistory.ClinicId"/>.</summary>
+    public Guid ClinicId { get; private set; }
+
     public string Relationship { get; private set; } // e.g., "Father", "Mother", "Grandfather"
     public string Condition { get; private set; } // e.g., "Heart Disease", "Diabetes"
     public string? Notes { get; private set; }
@@ -19,6 +23,7 @@ public class PatientFamilyHistory : Entity<Guid>
     public PatientFamilyHistory(
         Guid id,
         Guid patientId,
+        Guid clinicId,
         string relationship,
         string condition,
         string? notes = null)
@@ -31,6 +36,7 @@ public class PatientFamilyHistory : Entity<Guid>
 
         Id = id;
         PatientId = patientId;
+        ClinicId = clinicId;
         Relationship = relationship.Trim();
         Condition = condition.Trim();
         Notes = notes?.Trim();

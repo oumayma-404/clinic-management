@@ -12,9 +12,18 @@ import { invoicesApi } from "@/lib/api/invoices"
 import { billingApi } from "@/lib/api/billing"
 import { ApiError } from "@/lib/api/client"
 import type { InvoiceDto } from "@/lib/api/types"
-import { formatDT } from "@/lib/format"
+import { formatAmount, formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { PAYMENT_METHODS, paymentMethodLabel } from "./invoice-labels"
+import {
+  CHEQUE_METHOD,
+  ChequeFields,
+  EMPTY_CHEQUE_FIELDS,
+  chequePaymentFields,
+  type ChequeFieldsValue,
+} from "./cheque-fields"
 
 interface PaymentModalProps {
   open: boolean
@@ -27,14 +36,22 @@ export function PaymentModal({ open, onOpenChange, invoice, onSuccess }: Payment
   const [amount, setAmount] = useState("")
   const [method, setMethod] = useState<string>("Cash")
   const [paidOn, setPaidOn] = useState("")
+  const [cheque, setCheque] = useState<ChequeFieldsValue>(EMPTY_CHEQUE_FIELDS)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Money being entered is not discarded by a stray tap on the overlay (J9).
+  const guard = useDirtyGuard(open, onOpenChange)
+
   useEffect(() => {
     if (!open || !invoice) return
-    setAmount(invoice.outstanding > 0 ? String(invoice.outstanding) : "")
+    // Pre-filled through `formatAmount`, never `String(...)`: the raw number renders « 45.5 » in a product that
+    // prints « 45,500 » everywhere else, so the dentist saw a figure in a format the app itself never uses and
+    // a decimal mark this field used to refuse. The grouping space it emits is stripped again on parse.
+    setAmount(invoice.outstanding > 0 ? formatAmount(invoice.outstanding) : "")
     setMethod("Cash")
-    setPaidOn(new Date().toISOString().slice(0, 10))
+    setPaidOn(todayLocalIso())
+    setCheque(EMPTY_CHEQUE_FIELDS)
     setError(null)
   }, [open, invoice])
 
@@ -43,7 +60,7 @@ export function PaymentModal({ open, onOpenChange, invoice, onSuccess }: Payment
     if (!invoice) return
     setError(null)
 
-    const parsedAmount = Number(amount)
+    const parsedAmount = parseAmountInput(amount)
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       setError("Le montant doit être supérieur à 0.")
       return
@@ -60,6 +77,7 @@ export function PaymentModal({ open, onOpenChange, invoice, onSuccess }: Payment
         amount: parsedAmount,
         method,
         paidOn: new Date(paidOn).toISOString(),
+        ...chequePaymentFields(method, cheque),
       })
       const newPayment =
         updated.payments.find((p) => !priorPaymentIds.has(p.id)) ??
@@ -86,8 +104,10 @@ export function PaymentModal({ open, onOpenChange, invoice, onSuccess }: Payment
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+    <>
+    {/* Only the ROOT and « Annuler » route through the guard — the save path calls the raw prop (§ 5). */}
+    <Dialog open={open} onOpenChange={guard.onOpenChange}>
+      <DialogContent className="md:max-w-md">
         <DialogHeader>
           <DialogTitle>Enregistrer un paiement</DialogTitle>
           <DialogDescription>
@@ -103,11 +123,13 @@ export function PaymentModal({ open, onOpenChange, invoice, onSuccess }: Payment
             <Label htmlFor="amount">
               Montant (DT) <span className="text-destructive">*</span>
             </Label>
+            {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a number input refuses the comma this
+                product prints with, and when the browser rejects the keystroke `e.target.value` comes back
+                empty — so the amount looked typed and the submit sent nothing. The keypad still appears. */}
             <Input
               id="amount"
-              type="number"
-              min="0"
-              step="0.001"
+              type="text"
+              inputMode="decimal"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               disabled={loading}
@@ -118,7 +140,9 @@ export function PaymentModal({ open, onOpenChange, invoice, onSuccess }: Payment
           <div className="space-y-1.5">
             <Label htmlFor="method">Mode de paiement</Label>
             <Select value={method} onValueChange={setMethod} disabled={loading}>
-              <SelectTrigger id="method">
+              {/* `w-full`: `ui/select.tsx` ships `w-fit`, so the trigger otherwise renders narrower than the
+                  amount field stacked directly above it — the form reads as a mis-aligned column. */}
+              <SelectTrigger id="method" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -130,6 +154,17 @@ export function PaymentModal({ open, onOpenChange, invoice, onSuccess }: Payment
               </SelectContent>
             </Select>
           </div>
+
+          {/* L8 — only for a cheque, and the payload builder clears them anyway if the method changes back, so a
+              stale typed value can never be submitted. */}
+          {method === CHEQUE_METHOD && (
+            <ChequeFields
+              idPrefix="invoice-payment"
+              value={cheque}
+              onChange={setCheque}
+              disabled={loading}
+            />
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="paidOn">Date</Label>
@@ -143,7 +178,7 @@ export function PaymentModal({ open, onOpenChange, invoice, onSuccess }: Payment
           </div>
 
           <DialogFooter className="gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+            <Button type="button" variant="outline" onClick={() => guard.onOpenChange(false)} disabled={loading}>
               Annuler
             </Button>
             <Button type="submit" disabled={loading}>
@@ -153,5 +188,7 @@ export function PaymentModal({ open, onOpenChange, invoice, onSuccess }: Payment
         </form>
       </DialogContent>
     </Dialog>
+    <DiscardChangesDialog guard={guard} />
+    </>
   )
 }

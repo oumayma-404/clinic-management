@@ -42,6 +42,13 @@
     <Content Include="Assets\BS1.pdf">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- Official CNAM P 061 form (« certificat médical d'arrêt de travail »), stamped by the L11 overlay renderer.
+         A NORMALISED copy of features/cnam-arret-travail-overlay/assets/P61_2024.pdf: the bundled scan is an A4
+         portrait page whose form content runs sideways, and this one has the rotation baked into the content stream
+         as A4 landscape — so every coordinate in the renderer matches what a ruler on the printout measures. -->
+    <Content Include="Assets\P61.pdf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>

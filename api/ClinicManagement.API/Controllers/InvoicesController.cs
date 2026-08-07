@@ -1,10 +1,13 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Features.Invoices.Commands;
 using ClinicManagement.Application.Features.Invoices.Queries;
+
+using ClinicManagement.Domain.Common;
+using ClinicManagement.Application.Common.Csv;
 
 namespace ClinicManagement.API.Controllers;
 
@@ -14,7 +17,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/invoices")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class InvoicesController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -25,15 +28,77 @@ public class InvoicesController : ApiControllerBase
     }
 
     /// <summary>List invoices (Recettes), filtered by period / patient / status.</summary>
+    /// <param name="page">1-based page number. Omit both paging parameters to get every match.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">
+    /// Free-text filter, applied in SQL <b>before</b> the page is cut so it spans the whole clinic.
+    /// </param>
+
+    /// <summary>
+    /// « Exporter » (L5) — the same list, as a CSV.
+    ///
+    /// <para>⚠️ It re-sends the <b>identical query with no paging</b>, which the paging primitive models as a
+    /// first-class case rather than as a huge page. That is what makes « honours the current filters, exports the
+    /// whole filtered set, never the current page » true by construction instead of by discipline — the export
+    /// cannot see a page to accidentally export.</para>
+    /// </summary>
+    /// <remarks>
+    /// <b>AdminOrDoctor</b>, like <c>invoices/revenue</c>: a CSV of every note d'honoraires is the clinic-wide
+    /// money read in a file, and leaving it on the class policy would reopen spec I's hole from a different door.
+    /// </remarks>
+    [HttpGet("export")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult> ExportInvoices(
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] Guid? patientId = null,
+        [FromQuery] string? status = null,
+        [FromQuery] string? search = null,
+        [FromQuery] Guid? doctorId = null)
+    {
+        var result = await _mediator.Send(new GetInvoicesQuery
+        {
+            From = from,
+            To = to,
+            PatientId = patientId,
+            Status = status,
+            SearchTerm = search,
+            DoctorId = doctorId,
+        });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Csv(ExportTables.Invoices(result.Value!.Items), "factures");
+    }
+
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<InvoiceDto>>> GetInvoices(
+    public async Task<ActionResult<PagedResult<InvoiceDto>>> GetInvoices(
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
         [FromQuery] Guid? patientId,
         [FromQuery] string? status,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null,
+        // L9 — the practitioner filter. Omit for the whole clinic; an unattributed note is excluded when it is
+        // supplied, which is what keeps two practitioners' filtered totals from exceeding the clinic's.
+        [FromQuery] Guid? doctorId = null,
         CancellationToken cancellationToken = default)
     {
-        var query = new GetInvoicesQuery { From = from, To = to, PatientId = patientId, Status = status };
+        var query = new GetInvoicesQuery
+        {
+            From = from,
+            To = to,
+            PatientId = patientId,
+            Status = status,
+            Page = page,
+            PageSize = pageSize,
+            SearchTerm = search,
+            DoctorId = doctorId
+        };
         var result = await _mediator.Send(query, cancellationToken);
 
         if (result.IsFailure)
@@ -46,6 +111,9 @@ public class InvoicesController : ApiControllerBase
 
     /// <summary>Aggregate revenue over a period: invoiced / collected / outstanding.</summary>
     [HttpGet("revenue")]
+    // Le chiffre d'affaires. Every other action on this controller is per-invoice — reception raises the note
+    // and takes the payment — and this is the only one that is a clinic-wide aggregate.
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult<InvoiceRevenueDto>> GetRevenue(
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
@@ -109,6 +177,33 @@ public class InvoicesController : ApiControllerBase
     public async Task<ActionResult<InvoiceDto>> CreateInvoiceFromPlan(Guid planId, CancellationToken cancellationToken = default)
     {
         var result = await _mediator.Send(new CreateInvoiceFromTreatmentPlanCommand { TreatmentPlanId = planId }, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return CreatedAtAction(nameof(GetInvoice), new { id = result.Value!.Id }, result.Value);
+    }
+
+    /// <summary>
+    /// Bill a fiche de soins: raise the note d'honoraires from the session's acts, <b>issue</b> it, and — when
+    /// <c>paidNow</c> is supplied — record that payment, atomically.
+    /// <para>
+    /// ⚠️ Unlike <c>from-plan</c> this does <b>not</b> produce a draft: a payment can only exist on an issued
+    /// invoice, so a gapless per-clinic number is consumed. Correcting a mis-keyed amount afterwards means an
+    /// <b>avoir</b>, not an edit — the client must confirm before calling.
+    /// </para>
+    /// </summary>
+    [HttpPost("from-dental-record/{dentalRecordId:guid}")]
+    public async Task<ActionResult<InvoiceDto>> CreateInvoiceFromDentalRecord(
+        Guid dentalRecordId,
+        [FromBody] DentalRecordPaymentRequest? paidNow = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new CreateInvoiceFromDentalRecordCommand { DentalRecordId = dentalRecordId, PaidNow = paidNow },
+            cancellationToken);
 
         if (result.IsFailure)
         {
@@ -305,6 +400,9 @@ public class InvoicesController : ApiControllerBase
 
     /// <summary>Delete a draft invoice (an issued invoice cannot be deleted).</summary>
     [HttpDelete("{id}")]
+    // Only a draft can be deleted (no number consumed, no money attached), but it is still the removal of a
+    // money document — the same bracket as cancelling a note or issuing an avoir.
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<IActionResult> DeleteInvoice(Guid id, CancellationToken cancellationToken = default)
     {
         var result = await _mediator.Send(new DeleteInvoiceCommand { Id = id }, cancellationToken);

@@ -9,9 +9,15 @@ namespace ClinicManagement.Infrastructure.Services;
 /// </summary>
 public static class CertificatTextBuilder
 {
-    /// FR-2.3 — the mandatory deontological mention rendered above the signature block.
+    /// <summary>
+    /// The mandatory deontological mention rendered above the signature block. It carries both halves the CNOM
+    /// requires: the <b>remise en main propre</b> (a certificate is handed to the patient, never to a third
+    /// party) <b>and</b> the <b>finality</b> — « pour faire valoir ce que de droit » is what states the
+    /// certificate is issued for whatever use the patient lawfully needs, rather than for a purpose the
+    /// practitioner has vouched for.
+    /// </summary>
     public const string MandatoryMention =
-        "Certificat établi à la demande de l'intéressé(e) et remis en main propre.";
+        "Certificat établi à la demande de l'intéressé(e) et remis en main propre pour faire valoir ce que de droit.";
 
     /// FR-2.4 — the ordre label (replaces the old, incorrect "Ordre des Médecins").
     public const string OrdreLabel = "Ordre National des Médecins Dentistes (CNOMDT)";
@@ -24,8 +30,6 @@ public static class CertificatTextBuilder
     public static CertificatText Build(
         string doctorName,
         string? doctorSpecialty,
-        string? ordreNumber,
-        string? clinicAddress,
         string patientName,
         string? patientDobFormatted,
         string? objetMotif,
@@ -33,14 +37,21 @@ public static class CertificatTextBuilder
         string? startDateFormatted)
     {
         var specialty = string.IsNullOrWhiteSpace(doctorSpecialty) ? "médecin dentiste" : doctorSpecialty!.Trim();
-        var ordre = string.IsNullOrWhiteSpace(ordreNumber) ? "[Numéro]" : ordreNumber!.Trim();
-        var address = string.IsNullOrWhiteSpace(clinicAddress) ? "[Adresse]" : clinicAddress!.Trim();
         var dob = string.IsNullOrWhiteSpace(patientDobFormatted) ? "[JJ/MM/AAAA]" : patientDobFormatted!.Trim();
 
+        // The attestation formula, which is what makes this a certificate: it names the registering body (the
+        // legal form) and states that the practitioner personally examined the patient — the « faits médicaux
+        // personnellement constatés » rule.
+        //
+        // ⚠️ It deliberately no longer repeats the ordre NUMBER or the cabinet address: both now render in the
+        // shared identity block (DocumentIdentity), which every document type carries. They lived here because
+        // the header had nowhere to put them — which is also why an ordonnance carried no ordre number at all.
+        // Naming the body while printing the number once is what keeps the formula legally intact without
+        // stating the same fact twice on one page.
         var paragraphs = new List<string>
         {
-            $"Je soussigné(e), Docteur {doctorName}, {specialty}, inscrit(e) à l'{OrdreLabel} sous le n° {ordre}, " +
-            $"exerçant à {address}, certifie avoir examiné ce jour {patientName}, né(e) le {dob}."
+            $"Je soussigné(e), Docteur {doctorName}, {specialty}, inscrit(e) à l'{OrdreLabel}, " +
+            $"certifie avoir examiné ce jour {patientName}, né(e) le {dob}."
         };
 
         // FR-2.1: the free objet/motif body (présence, soins en cours, aptitude…). Rendered only when filled.

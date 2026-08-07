@@ -5,30 +5,24 @@ import type React from "react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Building2, Plus, Trash2, Upload, X, ChevronRight, ChevronLeft, CheckCircle2, ArrowRight } from "lucide-react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { clinicsApi, type CreateClinicRequest } from "@/lib/api/clinics"
+import { authApi } from "@/lib/api/auth"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { TUNISIAN_GOVERNORATES } from "@/lib/tunisia"
+import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
 import { getErrorMessage } from "@/lib/errors"
 
 const tunisianGovernorates = TUNISIAN_GOVERNORATES
-
-const specialties = [
-  "Dentist",
-  "Orthodontist",
-  "Prosthodontist",
-  "Endodontist",
-  "Periodontist",
-  "Oral Surgeon",
-  "Pediatric Dentist",
-]
 
 const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
@@ -55,11 +49,31 @@ interface WorkingHours {
   [key: string]: { from: string; to: string; enabled: boolean }
 }
 
+/**
+ * Which door this wizard is serving. The **steps, the fields and the resulting clinic are identical** — both
+ * end at the backend's one `LocalClinicProvisioning.ProvisionAsync` — and the only differences are the two a
+ * public door forces:
+ *
+ * - `setup` — first-run bootstrap on an install that has no users yet, reached from the server's own machine.
+ *   Provisions immediately, because being at the machine on a clinic-less install *is* the proof.
+ * - `signup` — anyone, over the internet. There is no such proof, so the answers are held as a pending
+ *   `ClinicSignup` and an emailed single-use token provisions them. It also drops the logo step: blobs are
+ *   keyed `clinics/{clinicId}/…` and there is no clinic to own one yet.
+ *
+ * One component rather than two, deliberately: a second copy is how « what a new clinic is asked » grows two
+ * answers, and the offline install is the copy nobody would remember to update.
+ */
+export type SetupWizardFlow = "setup" | "signup"
+
 interface SetupWizardProps {
   onComplete: () => void
+  flow?: SetupWizardFlow
 }
 
-export default function SetupWizard({ onComplete }: SetupWizardProps) {
+export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardProps) {
+  const isSignup = flow === "signup"
+  // The server's own neutral sentence, shown verbatim once a signup is accepted. Non-null IS the success state.
+  const [signupAcknowledgement, setSignupAcknowledgement] = useState<string | null>(null)
   const router = useRouter()
   const [currentStep, setCurrentStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
@@ -196,22 +210,49 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         })),
       )
 
+      // The admin-is-also-the-practitioner block, shared by the signup and first-run branches below: both
+      // collect it in step 2 and both hand it to the same `LocalClinicRequest.DoctorInfo`.
+      const adminDoctorInfo = (() => {
+        if (!adminIsPractitioner || !adminSpecialty) return undefined
+        const parts = adminFullName.trim().split(/\s+/)
+        const first = parts[0] || adminFullName.trim()
+        return {
+          firstName: first,
+          lastName: parts.slice(1).join(" ") || first,
+          specialty: adminSpecialty,
+          phone: phone || undefined,
+        }
+      })()
+
+      // Public signup: nothing is created here. The answers become one pending row and the emailed link
+      // provisions them — so this branch ends on the server's sentence, never on a redirect into an app the
+      // visitor cannot enter yet.
+      if (isSignup) {
+        const result = await authApi.signUp({
+          clinicName,
+          fullName: adminFullName.trim(),
+          email: adminEmail.trim(),
+          password: adminPassword,
+          phone: phone || undefined,
+          address: fullAddress || undefined,
+          city: governorate || undefined,
+          // ⚠️ Name + specialty only, no `phone`. The wizard's one phone field is the **clinic's**, and sending
+          // it here would persist it on `Doctor` as the practitioner's own contact — a number the visitor never
+          // typed as theirs. `ClinicSignUpRequest.doctorInfo` omits the field for exactly this reason.
+          doctorInfo: adminDoctorInfo && {
+            firstName: adminDoctorInfo.firstName,
+            lastName: adminDoctorInfo.lastName,
+            specialty: adminDoctorInfo.specialty,
+          },
+          workingHoursJson,
+        })
+        setSignupAcknowledgement(result.message)
+        setIsLoading(false)
+        return
+      }
+
       // Local (offline) first-run: create clinic + admin, then go to the login screen.
       if (isLocalMode) {
-        // When the admin is also the practitioner, derive first/last name from the full name (robustly, so
-        // both are non-empty) and send the specialty so the backend creates + links a Doctor record.
-        let doctorInfo: { firstName: string; lastName: string; specialty: string; phone?: string } | undefined
-        if (adminIsPractitioner && adminSpecialty) {
-          const parts = adminFullName.trim().split(/\s+/)
-          const firstName = parts[0] || adminFullName.trim()
-          const lastName = parts.slice(1).join(" ") || firstName
-          doctorInfo = {
-            firstName,
-            lastName,
-            specialty: adminSpecialty,
-            phone: phone || undefined,
-          }
-        }
         await clinicsApi.setup({
           clinicName: clinicName,
           email: adminEmail.trim(),
@@ -220,7 +261,9 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
           phone: phone || undefined,
           address: fullAddress || undefined,
           city: governorate || undefined,
-          doctorInfo,
+          // The same block signup sends — derived once above, so the two doors cannot disagree about when a
+          // Doctor record is created for the admin.
+          doctorInfo: adminDoctorInfo,
           workingHoursJson,
         })
         window.location.href = "/login"
@@ -265,33 +308,65 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
+    /*
+     * `bg-background`, not a two-stop gradient with a hand-written `dark:` pair. This is the very first screen
+     * a clinic ever sees; the gradient it carried was the app's own theme being ignored on the one page that
+     * sets the impression for everything after it.
+     */
+    signupAcknowledgement ? (
+      /*
+        The end of the public flow. It renders the server's sentence **verbatim** — that sentence is identical
+        whether the address was free, already an account, or already had a pending signup, and rewording it here
+        is how a page grows the « adresse déjà utilisée » distinction the API took care never to send.
+        `role="status"` because it replaces the form the user just submitted.
+      */
+      <div className="min-h-dvh bg-background flex items-center justify-center p-6">
+        <Card className="w-full max-w-lg border-primary/20">
+          <CardContent className="p-8 text-center space-y-4">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10">
+              <CheckCircle2 className="w-8 h-8 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold text-accent-foreground">Vérifiez votre boîte mail</h1>
+            <p className="text-muted-foreground" role="status">{signupAcknowledgement}</p>
+            <p className="text-sm text-muted-foreground">
+              Votre cabinet sera créé une fois le lien ouvert. Pensez à regarder vos courriers indésirables.
+            </p>
+            <Button variant="outline" onClick={() => router.push("/login")} className="coarse:h-11">
+              Aller à la connexion
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    ) : (
+    <div className="min-h-dvh bg-background flex items-center justify-center p-6">
       <div className="w-full max-w-4xl">
         {/* Header */}
         <div className="text-center space-y-3 mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/20 mb-2">
-            <Building2 className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-accent/20 mb-2">
+            <Building2 className="w-8 h-8 text-primary" />
           </div>
-          <h1 className="text-3xl font-bold text-blue-900 dark:text-blue-100">Bienvenue dans la gestion de votre clinique</h1>
+          <h1 className="text-3xl font-bold text-accent-foreground">
+            {isSignup ? "Créez le cabinet de votre clinique" : "Bienvenue dans la gestion de votre clinique"}
+          </h1>
           <p className="text-muted-foreground">Configurons votre clinique en 3 étapes simples</p>
           <div className="pt-2">
+            {/*
+              On the public door the way back is « I already have an account », not « join with a clinic code »:
+              `AllowsPublicClinicSignup` and `AllowsSelfRegistration` are opposite questions and the hosted
+              profile answers no to the second, so /join there renders « non disponible ».
+            */}
             <Button
               variant="ghost"
-              onClick={() => router.push("/join")}
-              className="text-muted-foreground hover:text-blue-600"
+              onClick={() => router.push(isSignup ? "/login" : "/join")}
+              className="text-muted-foreground hover:text-primary"
             >
-              Vous avez déjà un code clinique ? Rejoindre une clinique
+              {isSignup
+                ? "Vous avez déjà un compte ? Se connecter"
+                : "Vous avez déjà un code clinique ? Rejoindre une clinique"}
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </div>
         </div>
-
-        {/* Error Message */}
-        {error && (
-          <div className="mb-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
-            {error}
-          </div>
-        )}
 
         {/* Progress Steps */}
         <div className="flex items-center justify-center gap-4 mb-8">
@@ -300,18 +375,18 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
               <div className="flex flex-col items-center">
                 <div
                   className={`w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all ${
-                    currentStep > step.number
-                      ? "bg-blue-600 border-blue-600 text-white"
+ currentStep > step.number
+                      ? "bg-primary border-primary text-primary-foreground"
                       : currentStep === step.number
-                        ? "bg-blue-100 border-blue-600 text-blue-600 ring-4 ring-blue-100"
-                        : "bg-white border-gray-300 text-gray-400"
+                        ? "bg-accent border-primary text-primary ring-4 ring-primary/20"
+                        : "bg-card border-border text-muted-foreground"
                   }`}
                 >
                   {currentStep > step.number ? <CheckCircle2 className="w-6 h-6" /> : step.number}
                 </div>
                 <div className="mt-2 text-center">
                   <p
-                    className={`text-sm font-medium ${currentStep >= step.number ? "text-blue-900 dark:text-blue-100" : "text-gray-400"}`}
+                    className={`text-sm font-medium ${currentStep >= step.number ? "text-accent-foreground" : "text-muted-foreground"}`}
                   >
                     {step.title}
                   </p>
@@ -319,20 +394,20 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 </div>
               </div>
               {index < steps.length - 1 && (
-                <div className={`w-16 h-0.5 mb-12 mx-2 ${currentStep > step.number ? "bg-blue-600" : "bg-gray-300"}`} />
+                <div className={`w-16 h-0.5 mb-12 mx-2 ${currentStep > step.number ? "bg-primary" : "bg-border"}`} />
               )}
             </div>
           ))}
         </div>
 
         {/* Step Content */}
-        <Card className="border-blue-100 shadow-lg">
+        <Card className="border-primary/20 shadow-lg">
           <CardContent className="p-8">
             {/* Step 1: Clinic Information */}
             {currentStep === 1 && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">Informations de la clinique</h2>
+                  <h2 className="text-2xl font-semibold text-accent-foreground mb-2">Informations de la clinique</h2>
                   <p className="text-muted-foreground">Parlez-nous de votre clinique</p>
                 </div>
 
@@ -416,36 +491,54 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                   )}
                 </div>
 
+                {/*
+                  No logo on the public door. Blobs are keyed `clinics/{clinicId}/…` and the clinic does not
+                  exist until the emailed link is opened — often on a different device from the one that filled
+                  this form, which is where a browser-held file would silently be lost. It is added in
+                  « Paramètres » after the first login, where the upload already works. (§ 0: the capability is
+                  not removed, it is moved to where it can succeed.)
+                */}
+                {!isSignup && (
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Logo de la clinique (optionnel)</Label>
                   <div className="flex items-center gap-4">
                     {logoPreview ? (
-                      <div className="relative w-24 h-24 rounded-lg border-2 border-blue-200 overflow-hidden">
+                      <div className="relative w-24 h-24 rounded-lg border-2 border-primary/25 overflow-hidden">
                         <Image
                           src={logoPreview || "/placeholder.svg"}
                           alt="Aperçu du logo"
                           fill
                           className="object-cover"
                         />
+                        {/*
+                          `type="button"` because this sits in a form-shaped step and an untyped button
+                          submits; `touch-target` because the painted control is 20×20 and it is the ONLY way
+                          to undo a mis-picked logo; `aria-label` because the icon is its whole content.
+                          `clinic-settings.tsx`'s equivalent already does all three — this one is the copy
+                          that never got them.
+                        */}
                         <button
+                          type="button"
                           onClick={() => {
                             setLogoPreview(null)
                             setLogoFile(null)
                           }}
-                          className="absolute top-1 right-1 p-1 bg-destructive rounded-full text-white hover:bg-destructive/90"
+                          aria-label="Supprimer le logo"
+                          className="touch-target absolute top-1 right-1 p-1 bg-destructive rounded-full text-destructive-foreground hover:bg-destructive/90"
                         >
                           <X className="w-3 h-3" />
                         </button>
                       </div>
                     ) : (
-                      <label className="w-24 h-24 flex flex-col items-center justify-center border-2 border-dashed border-blue-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors">
-                        <Upload className="w-6 h-6 text-blue-600 mb-1" />
+                      <label className="w-24 h-24 flex flex-col items-center justify-center border-2 border-dashed border-primary/40 rounded-lg cursor-pointer hover:border-primary hover:bg-accent/20 transition-colors">
+                        <Upload className="w-6 h-6 text-primary mb-1" />
                         <span className="text-xs text-muted-foreground">Téléverser</span>
                         <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
                       </label>
                     )}
                   </div>
                 </div>
+                )}
               </div>
             )}
 
@@ -453,7 +546,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             {currentStep === 2 && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">{isLocalMode ? "Compte administrateur" : "Votre rôle et vos informations"}</h2>
+                  <h2 className="text-2xl font-semibold text-accent-foreground mb-2">{isLocalMode ? "Compte administrateur" : "Votre rôle et vos informations"}</h2>
                   <p className="text-muted-foreground">{isLocalMode ? "Créez le compte administrateur de la clinique" : "Parlez-nous de vous"}</p>
                 </div>
 
@@ -521,18 +614,24 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
                     {/* Single-dentist cabinet: the admin is usually the practitioner too. When enabled, a
                         linked Doctor record is created so their cachet / CNOMDT ordre + "Mon profil" work. */}
+                    {/*
+                      `ui/checkbox.tsx`, not a raw `<input type="checkbox">`. The coarse-pointer floor in
+                      `globals.css` deliberately EXCLUDES `[type=checkbox]` because the primitive is supposed
+                      to carry `touch-target` itself — so hand-rolling one gets neither, leaving a 16×16 tap
+                      target. A `<Label htmlFor>` replaces the wrapping `<label>` for the same reason the rest
+                      of this wizard uses one.
+                    */}
                     <div className="pt-4 border-t space-y-4">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          id="admin-is-practitioner"
                           checked={adminIsPractitioner}
-                          onChange={(e) => setAdminIsPractitioner(e.target.checked)}
-                          className="w-4 h-4 rounded border-gray-300"
+                          onCheckedChange={(checked) => setAdminIsPractitioner(checked === true)}
                         />
-                        <span className="text-sm font-medium">
+                        <Label htmlFor="admin-is-practitioner" className="text-sm font-medium cursor-pointer">
                           Je suis aussi le praticien (dentiste) de ce cabinet
-                        </span>
-                      </label>
+                        </Label>
+                      </div>
 
                       {adminIsPractitioner && (
                         <div className="space-y-2">
@@ -544,9 +643,10 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                               <SelectValue placeholder="Sélectionnez votre spécialité" />
                             </SelectTrigger>
                             <SelectContent>
-                              {specialties.map((spec) => (
+                              {/* Value = the English storage key, label = French (AC-P2.42/2.43). */}
+                              {DOCTOR_SPECIALTIES.map((spec) => (
                                 <SelectItem key={spec} value={spec}>
-                                  {spec}
+                                  {specialtyLabel(spec)}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -616,9 +716,10 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                             <SelectValue placeholder="Sélectionnez votre spécialité" />
                           </SelectTrigger>
                           <SelectContent>
-                            {specialties.map((spec) => (
+                            {/* Value = the English storage key, label = French (AC-P2.42/2.43). */}
+                            {DOCTOR_SPECIALTIES.map((spec) => (
                               <SelectItem key={spec} value={spec}>
-                                {spec}
+                                {specialtyLabel(spec)}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -641,8 +742,8 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                   )}
 
                   {role === "secretary" && (
-                    <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                      <p className="text-sm text-blue-700 dark:text-blue-300">
+                    <div className="p-4 bg-accent/20 rounded-lg border border-primary/25">
+                      <p className="text-sm text-primary">
                         En tant que secrétaire/assistant(e), vous n&apos;avez pas besoin de fournir d&apos;informations
                         personnelles supplémentaires. L&apos;email de votre compte sera utilisé.
                       </p>
@@ -657,39 +758,53 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             {currentStep === 3 && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">Définir les horaires</h2>
+                  <h2 className="text-2xl font-semibold text-accent-foreground mb-2">Définir les horaires</h2>
                   <p className="text-muted-foreground">Configurez les horaires d&apos;ouverture de votre clinique (optionnel)</p>
                 </div>
 
                 <div className="space-y-3">
+                  {/*
+                    `flex-wrap` + no fixed width on the time pair. The row is a `w-32` day column plus two
+                    `w-36` fields with no wrap: on a 390px phone the content box is ~246px, so both fields
+                    were squeezed to ~33px — of which `px-3` takes 24 — and the opening and closing hours
+                    became unreadable on the LAST step of first-run setup, seven rows over. Wrapping lets the
+                    pair drop onto its own full-width line instead of shrinking.
+
+                    `bg-muted/40`: the class here was `bg-accent/30/10`, a double opacity modifier that
+                    Tailwind does not parse — so the row has in fact been painting nothing at all.
+                  */}
                   {weekdays.map((day) => (
-                    <div key={day} className="flex items-center gap-4 p-4 rounded-lg bg-blue-50/30 dark:bg-blue-950/10">
+                    <div key={day} className="flex flex-wrap items-center gap-4 p-4 rounded-lg bg-muted/40">
                       <div className="flex items-center gap-3 w-32">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           id={`day-${day}`}
                           checked={workingHours[day].enabled}
-                          onChange={() => toggleWorkingDay(day)}
-                          className="w-4 h-4 rounded border-gray-300"
+                          onCheckedChange={() => toggleWorkingDay(day)}
                         />
                         <Label htmlFor={`day-${day}`} className="text-sm font-medium cursor-pointer">
                           {weekdayLabelsFr[day] ?? day}
                         </Label>
                       </div>
                       {workingHours[day].enabled && (
-                        <div className="flex items-center gap-3 flex-1">
+                        <div className="flex w-full items-center gap-3 sm:w-auto sm:flex-1">
+                          <Label htmlFor={`day-${day}-from`} className="sr-only">
+                            {`Heure d'ouverture — ${weekdayLabelsFr[day] ?? day}`}
+                          </Label>
                           <Input
+                            id={`day-${day}-from`}
                             type="time"
                             value={workingHours[day].from}
                             onChange={(e) => updateWorkingHours(day, "from", e.target.value)}
-                            className="w-36"
                           />
                           <span className="text-muted-foreground text-sm">à</span>
+                          <Label htmlFor={`day-${day}-to`} className="sr-only">
+                            {`Heure de fermeture — ${weekdayLabelsFr[day] ?? day}`}
+                          </Label>
                           <Input
+                            id={`day-${day}-to`}
                             type="time"
                             value={workingHours[day].to}
                             onChange={(e) => updateWorkingHours(day, "to", e.target.value)}
-                            className="w-36"
                           />
                         </div>
                       )}
@@ -700,42 +815,57 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             )}
 
             {/* Navigation Buttons */}
-            <div className="flex items-center justify-between mt-8 pt-6 border-t">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentStep(currentStep - 1)}
-                disabled={currentStep === 1 || isLoading}
-                className="border-blue-200"
-              >
-                <ChevronLeft className="w-4 h-4 mr-2" />
-                Précédent
-              </Button>
-
-              {currentStep < 3 ? (
+            <div className="mt-8 pt-6 border-t">
+              {/*
+                The refusal belongs here, beside the button that produced it — it used to render at the top of
+                the page, above the progress rail, where step 3's seven weekday rows push it off screen and a
+                rejected « Terminer » reads as a dead button.
+              */}
+              <FormErrorBanner message={error} className="mb-4" />
+              <div className="flex items-center justify-between">
                 <Button
-                  onClick={() => setCurrentStep(currentStep + 1)}
-                  disabled={
-                    currentStep === 1 ? !isStep1Valid()
-                    : currentStep === 2 ? !isStep2Valid()
-                    : false
-                  }
-                  className="bg-blue-600 hover:bg-blue-700"
+                  variant="outline"
+                  onClick={() => setCurrentStep(currentStep - 1)}
+                  disabled={currentStep === 1 || isLoading}
+                  className="border-primary/25"
                 >
-                  Suivant
-                  <ChevronRight className="w-4 h-4 ml-2" />
+                  <ChevronLeft className="w-4 h-4 mr-2" />
+                  Précédent
                 </Button>
-              ) : (
-                <Button onClick={handleComplete} disabled={isLoading} className="bg-green-600 hover:bg-green-700">
-                  {isLoading ? (
-                    "Création…"
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4 mr-2" />
-                      Terminer la configuration
-                    </>
-                  )}
-                </Button>
-              )}
+
+                {currentStep < 3 ? (
+                  <Button
+                    onClick={() => setCurrentStep(currentStep + 1)}
+                    disabled={
+                      currentStep === 1 ? !isStep1Valid()
+                      : currentStep === 2 ? !isStep2Valid()
+                      : false
+                    }
+                    className="bg-primary hover:bg-primary/90"
+                  >
+                    Suivant
+                    <ChevronRight className="w-4 h-4 ml-2" />
+                  </Button>
+                ) : (
+                  /*
+                    The default (primary) fill, not `bg-green-600`. There is deliberately no solid-success
+                    token: `--success` is an INK meant for `--success-wash`, and at its dark-mode step
+                    (L 0.70) white type on it measures ~2.6:1 — so "convert the green button to `bg-success`"
+                    would have shipped an unreadable CTA. The completion signal is carried by the check icon
+                    and « Terminer la configuration », which is where it belongs.
+                  */
+                  <Button onClick={handleComplete} disabled={isLoading}>
+                    {isLoading ? (
+                      isSignup ? "Envoi…" : "Création…"
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        {isSignup ? "Créer mon cabinet" : "Terminer la configuration"}
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -743,13 +873,14 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         {/* Skip Option */}
         {currentStep === 3 && (
           <div className="text-center mt-4">
-            <Button variant="ghost" onClick={handleComplete} disabled={isLoading} className="text-muted-foreground hover:text-blue-600">
+            <Button variant="ghost" onClick={handleComplete} disabled={isLoading} className="text-muted-foreground hover:text-primary">
               Passer pour l&apos;instant
             </Button>
           </div>
         )}
       </div>
     </div>
+    )
   )
 }
 

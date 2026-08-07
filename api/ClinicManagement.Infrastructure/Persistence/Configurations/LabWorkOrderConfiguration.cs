@@ -49,8 +49,7 @@ public class LabWorkOrderConfiguration : IEntityTypeConfiguration<LabWorkOrder>
         builder.Property(o => o.ExpectedDate);
         builder.Property(o => o.ReceivedDate);
 
-        builder.Property(o => o.Cost)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(o => o.Cost);
 
         builder.Property(o => o.Status)
             .IsRequired()

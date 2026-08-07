@@ -16,6 +16,13 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     public string LastName { get; set; } = string.Empty;
     public DateTime DateOfBirth { get; set; }
     public string Gender { get; set; } = string.Empty;
+    /// <summary>
+    /// <c>"Child"</c> or <c>"Adult"</c>. Required by the form, but **optional on the wire**: omitted or unrecognised
+    /// falls back to <see cref="DentitionRules.FromDateOfBirth"/>. The fallback is what keeps the server-internal
+    /// creators working — the AI dispatcher and the Google→App sync's placeholder patient know nothing about teeth,
+    /// and hard-rejecting them would break appointment sync to make a form field mandatory.
+    /// </summary>
+    public string? Dentition { get; set; }
     public string Email { get; set; } = string.Empty;
     public string PhoneNumber { get; set; } = string.Empty;
     public string? MedicalHistory { get; set; }
@@ -25,12 +32,30 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     public CnamInfoDto? CnamInfo { get; set; }
     public string? EmergencyContactName { get; set; }
     public string? EmergencyContactPhone { get; set; }
+    /// <summary>Optional « adressé par » — the referring practitioner, free text.</summary>
+    public string? ReferredBy { get; set; }
+    /// <summary>Optional patient-level notes; <see cref="ImportantNotes"/> is shown highlighted on the file.</summary>
+    public string? Notes { get; set; }
+    /// <inheritdoc cref="Notes"/>
+    public string? ImportantNotes { get; set; }
     public List<MedicalHistoryEntryDto>? MedicalHistoryEntries { get; set; }
     public List<FamilyHistoryEntryDto>? FamilyHistoryEntries { get; set; }
 
     // "Signaler ce patient" toggle + note at creation (feeds the "Urgents" KPI / flagged filter).
     public bool? IsFlagged { get; set; }
     public string? FlagNotes { get; set; }
+
+    /// <summary>
+    /// « Créer quand même » — the caller has been shown that this person appears to be on file already and has
+    /// confirmed they are a different patient.
+    ///
+    /// <para><b>Absent means "check first"</b>, which is why this is an opt-<i>in</i> override and not an
+    /// opt-out guard: every existing caller keeps the safe behaviour without being edited, and a new one has to
+    /// say out loud that it means to create a second record. See <see cref="PatientDuplicateIndex"/> for why the
+    /// answer cannot simply be to refuse — two patients really can share a name, and this product's own
+    /// « Nouveau patient » form is where an emergency walk-in is registered with nothing but a name.</para>
+    /// </summary>
+    public bool? AllowDuplicate { get; set; }
 }
 
 public class MedicalHistoryEntryDto
@@ -49,9 +74,6 @@ public class FamilyHistoryEntryDto
 
 public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand, Result<PatientDto>>
 {
-    // Description stamped on the flag created by the "Signaler ce patient" toggle.
-    private const string SignaledFlagDescription = "Patient signalé";
-
     private readonly IPatientRepository _patientRepository;
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
@@ -89,99 +111,57 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
 
             var clinicId = user.ClinicId;
 
-            // AC-5: a provided phone must be a deliverable Tunisian number (the same rule the reminder engine
-            // uses), else reject at entry so it never silently fails at dispatch. An empty phone is allowed —
-            // the patient simply can't receive reminders, and the form says so.
-            if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !PhoneNumber.IsDeliverable(request.PhoneNumber))
+            /*
+             * « Ce patient existe déjà » — the duplicate guard, run before anything is built or written.
+             *
+             * Until this existed, the CSV import was the *only* door that checked: the hand-typed form and the
+             * appointment dialog's « Nouveau patient » switch both created a second file for a patient already on
+             * record without a word, and a duplicate is the one mistake this product cannot undo (no merge, no soft
+             * delete — and `DeletePatientCommand` refuses as soon as anything is attached). The concrete report was
+             * a receptionist booking an appointment with the inline new-patient form and finding the person listed
+             * twice on /patients afterwards.
+             *
+             * ⚠️ Advisory, not a prohibition. Two different people can share a name, and this form is also how a
+             * walk-in with nothing but a name gets registered — so a match is refused with
+             * `PatientDuplicateIndex.RefusalCode`, and the client offers « Créer quand même », which comes back as
+             * `AllowDuplicate`. Same contract as the appointment collision.
+             *
+             * ⚠️ It reads the clinic's whole identity projection (five columns) rather than issuing a targeted
+             * query. That is deliberate: matching folds names through `SearchTerm.Normalize` and phones through
+             * `PhoneNumber.ToE164`, so a SQL predicate would be a *second* definition of "the same person" and would
+             * be the one that drifts. Creating a patient is an occasional action, not a per-keystroke one.
+             */
+            if (request.AllowDuplicate != true)
             {
-                return Result<PatientDto>.Failure(
-                    "Numéro de téléphone invalide. Utilisez un numéro tunisien à 8 chiffres (ou +216…).");
+                var identities = await _patientRepository.GetIdentitiesAsync(clinicId, cancellationToken);
+                var match = PatientDuplicateIndex.Build(identities).Match(
+                    request.LastName,
+                    request.FirstName,
+                    // The RAW date of birth: `default` means "not supplied", and PatientFromRequest below is about to
+                    // replace it with « 30 years ago ». Passing the substituted value would match every patient whose
+                    // stored date happens to be that day.
+                    request.DateOfBirth,
+                    request.PhoneNumber);
+
+                if (match.Found)
+                {
+                    return Result<PatientDto>.Failure(
+                        PatientDuplicateIndex.Refusal(match),
+                        PatientDuplicateIndex.RefusalCode);
+                }
             }
 
-            // Blank means blank. This used to manufacture noemail@example.com and a ten-zero phone so the
-            // NOT NULL columns would accept the row — which made "we have no way to reach this patient"
-            // indistinguishable from "we have their details", and put an address on file that would silently
-            // absorb any mail sent to it.
-            var email = string.IsNullOrWhiteSpace(request.Email) ? null : new Email(request.Email);
-            var phoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber)
-                ? null
-                : new PhoneNumber(request.PhoneNumber);
-
-            // Convert AddressDto to Address value object if provided and valid
-            Address? address = null;
-            if (request.Address != null && 
-                !string.IsNullOrWhiteSpace(request.Address.Street) &&
-                !string.IsNullOrWhiteSpace(request.Address.City) &&
-                !string.IsNullOrWhiteSpace(request.Address.State) &&
-                !string.IsNullOrWhiteSpace(request.Address.ZipCode))
+            // Every validation and every field of a new patient — the phone rule, the blank-means-blank contact
+            // handling, the all-four-parts address, the dentition fallback, the flag. It lives in
+            // `PatientFromRequest` rather than here so the CSV import (L5) runs the identical rules without going
+            // through MediatR per row; see that file for why sending the command 3 000 times was not an option.
+            var built = PatientFromRequest.Build(request, clinicId);
+            if (built.IsFailure)
             {
-                address = new Address(
-                    request.Address.Street,
-                    request.Address.City,
-                    request.Address.State,
-                    request.Address.ZipCode,
-                    request.Address.Country);
+                return Result<PatientDto>.FailureFrom(built);
             }
 
-            // Convert InsuranceInfoDto to InsuranceInfo value object if provided and valid
-            InsuranceInfo? insuranceInfo = null;
-            if (request.InsuranceInfo != null &&
-                !string.IsNullOrWhiteSpace(request.InsuranceInfo.Provider) &&
-                !string.IsNullOrWhiteSpace(request.InsuranceInfo.PolicyNumber))
-            {
-                insuranceInfo = new InsuranceInfo(
-                    request.InsuranceInfo.Provider,
-                    request.InsuranceInfo.PolicyNumber,
-                    request.InsuranceInfo.GroupNumber,
-                    request.InsuranceInfo.ExpiryDate);
-            }
-
-            // Provide defaults for required fields if not provided
-            var dateOfBirth = request.DateOfBirth == default(DateTime) 
-                ? DateTime.UtcNow.AddYears(-30) // Default to 30 years ago if not provided
-                : request.DateOfBirth;
-            var gender = string.IsNullOrWhiteSpace(request.Gender) 
-                ? "Unknown" 
-                : request.Gender;
-
-            var patient = new Patient(
-                Guid.NewGuid(),
-                clinicId,
-                request.FirstName,
-                request.LastName,
-                dateOfBirth,
-                gender,
-                email,
-                phoneNumber,
-                address,
-                insuranceInfo);
-
-            // Set medical history and allergies after creation
-            if (!string.IsNullOrWhiteSpace(request.MedicalHistory) || !string.IsNullOrWhiteSpace(request.Allergies))
-            {
-                patient.UpdateMedicalHistory(request.MedicalHistory, request.Allergies);
-            }
-
-            // Optional CNAM identity (ToDomain returns null for an omitted/empty block).
-            patient.UpdateCnamInfo(request.CnamInfo.ToDomain());
-
-            // Optional emergency contact (finding #11): name + a Tunisian phone. An empty block clears both.
-            if (!string.IsNullOrWhiteSpace(request.EmergencyContactName) || !string.IsNullOrWhiteSpace(request.EmergencyContactPhone))
-            {
-                var emergencyPhone = string.IsNullOrWhiteSpace(request.EmergencyContactPhone)
-                    ? null
-                    : new PhoneNumber(request.EmergencyContactPhone);
-                patient.UpdateEmergencyContact(
-                    string.IsNullOrWhiteSpace(request.EmergencyContactName) ? null : request.EmergencyContactName.Trim(),
-                    emergencyPhone);
-            }
-
-            // Optional "Signaler ce patient" flag at creation.
-            if (request.IsFlagged == true)
-            {
-                patient.AddFlag(new PatientFlag(
-                    Guid.NewGuid(), patient.Id, PatientFlagType.HighPriority, SignaledFlagDescription, request.FlagNotes));
-            }
+            var patient = built.Value!;
 
             await _patientRepository.AddAsync(patient, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -196,6 +176,7 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                         var entry = new PatientMedicalHistory(
                             Guid.NewGuid(),
                             patient.Id,
+                            patient.ClinicId,
                             entryDto.Description,
                             entryDto.Date,
                             entryDto.Notes);
@@ -216,6 +197,7 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                         var entry = new PatientFamilyHistory(
                             Guid.NewGuid(),
                             patient.Id,
+                            patient.ClinicId,
                             entryDto.Relationship,
                             entryDto.Condition,
                             entryDto.Notes);
@@ -238,12 +220,16 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                 LastName = patient.LastName,
                 DateOfBirth = patient.DateOfBirth,
                 Gender = patient.Gender,
+                Dentition = patient.Dentition.ToString(),
                 Email = patient.Email?.Value,
                 PhoneNumber = patient.PhoneNumber?.Value,
                 MedicalHistory = patient.MedicalHistory,
                 Allergies = patient.Allergies,
                 EmergencyContactName = patient.EmergencyContactName,
                 EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
+                ReferredBy = patient.ReferredBy,
+                Notes = patient.Notes,
+                ImportantNotes = patient.ImportantNotes,
                 CreatedAt = patient.CreatedAt,
                 Version = patient.Version,
             };

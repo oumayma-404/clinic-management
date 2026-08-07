@@ -22,6 +22,16 @@ public class InvoiceLine : Entity<Guid>
     public Guid? DentalRecordId { get; private set; }
 
     /// <summary>
+    /// Forget the fiche de soins this line was raised from, because that fiche has been deleted.
+    /// <para>
+    /// The link is deliberately FK-less, so nothing at the database level clears it and the line would otherwise
+    /// keep pointing at a row that no longer exists. The line's money — designation, quantity, unit price, total —
+    /// is untouched: the work was billed and the invoice is a legal document. Only the provenance link goes.
+    /// </para>
+    /// </summary>
+    internal void ClearDentalRecordLink() => DentalRecordId = null;
+
+    /// <summary>
     /// Optional link to the catalog CNAM/DCH act this line bills (mirrors <see cref="TreatmentPlanItem"/>).
     /// Drives the indicative CNAM-reimbursable vs. patient-out-of-pocket split on the invoice; a line with
     /// no act (free-text honoraires) is counted fully out-of-pocket.

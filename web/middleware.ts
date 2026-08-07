@@ -3,7 +3,9 @@ import { NextResponse } from 'next/server';
 import { auth0 } from './lib/auth0';
 import { SESSION_COOKIE, MUST_CHANGE_COOKIE, resolveAuthMode } from './lib/auth/local-auth';
 
-const PUBLIC_ROUTES = ['/login', '/setup', '/join'];
+// ⚠️ Matched by EXACT path (`includes`), so a route with a child needs both entries — `/signup/verifier` is
+// where the emailed link lands and is reached with no session by definition, which is the whole point of it.
+const PUBLIC_ROUTES = ['/login', '/setup', '/join', '/signup', '/signup/verifier'];
 const CHANGE_PASSWORD_ROUTE = '/change-password';
 
 // Redirect to the same-origin FRONT DOOR. Behind the reverse proxy the Next server's own request host is

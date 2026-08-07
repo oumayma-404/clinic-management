@@ -3,15 +3,18 @@
 import { useState, useEffect, useMemo } from "react"
 import { RecordToothChart, type ToothPaint } from "./record-tooth-chart"
 import { isAdultTooth } from "@/components/tooth-multiselect"
+import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+// The dental-records table is gone entirely (Exception 3) — this modal renders a card list at every width.
+import { CardList } from "@/components/ui/card-list"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { PatientDto, DentalRecordDto } from "@/lib/api/types"
 import { formatDT, formatDate } from "@/lib/format"
 import { User, Phone, Mail, Calendar, MapPin, CreditCard, FileText, ChevronDown, ChevronUp } from "lucide-react"
+import { genderLabel } from "@/components/appointment-labels"
 
 interface PatientSummaryModalProps {
   open: boolean
@@ -25,6 +28,10 @@ const WORKED_TOOTH_COLOR = "#60a5fa"
 
 export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords }: PatientSummaryModalProps) {
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
+  // Collapsed by default on every device: the chips answer the question, and the schema is the detail behind
+  // it. Not gated on viewport width — a desktop reader also opens this modal to glance, and a control whose
+  // presence depends on the breakpoint is one more thing to reason about.
+  const [schemaOpen, setSchemaOpen] = useState(false)
 
   // Read-only paint maps for the record tooth chart: each worked tooth is highlighted with a fixed "worked"
   // fill + the number of records it appears in (the per-procedure detail lives in the table below).
@@ -51,6 +58,24 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
     return { adultToothPaint: adult, childToothPaint: child }
   }, [dentalRecords])
 
+  /**
+   * The flat, tooth-ordered list the summary actually leads with.
+   *
+   * Derived from the same `counts` source as the two paint maps rather than by merging them back together —
+   * one traversal of the records, one ordering rule. Sorted numerically so a reader scans quadrant by
+   * quadrant the way FDI numbering already groups them.
+   */
+  const treatedTeeth = useMemo(() => {
+    const merged = [...adultToothPaint.entries(), ...childToothPaint.entries()]
+    return merged
+      .map(([tooth, paint]) => ({
+        tooth,
+        count: paint.count ?? 1,
+        isDeciduous: !isAdultTooth(tooth),
+      }))
+      .sort((a, b) => a.tooth - b.tooth)
+  }, [adultToothPaint, childToothPaint])
+
   if (!patient) return null
 
   const patientName = `${patient.firstName} ${patient.lastName}`.trim()
@@ -73,12 +98,27 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] w-full max-h-[90vh] overflow-y-auto overflow-x-hidden p-0 gap-0">
+      <DialogContent
+        mobile="sheet"
+        className="gap-0 overflow-x-hidden p-0 md:max-h-[90dvh] md:w-full md:max-w-[95vw]"
+      >
         <DialogHeader className="p-6 pb-4 border-b">
           <DialogTitle className="text-2xl">Résumé du patient</DialogTitle>
         </DialogHeader>
 
-        <div className="p-6 space-y-6 overflow-x-hidden">
+        <DialogBody className="p-6 space-y-6 overflow-x-hidden">
+          {/*
+            ALERTS FIRST — above the identity, not below the insurance.
+
+            ⚠️ This modal showed **no** allergies, no flags and no antécédents at all; grepping it for `allerg`
+            returned nothing. It is the one-click quick look from the patients table and from the phone's ⋯ menu,
+            i.e. the fastest way to see a patient without opening their file — and it was the only clinical surface
+            in the app that could not answer « est-il allergique ? », while the full page and the fiche modal both
+            could. Placed before the identity card because the ordering is the point: an alert below the fold is a
+            note, not an alert.
+          */}
+          <PatientAlertPanel patient={patient} />
+
           {/* Patient Basic Info */}
           <Card>
             <CardHeader>
@@ -103,7 +143,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
 
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Sexe</p>
-                  <p className="text-base">{patient.gender || "Non renseigné"}</p>
+                  <p className="text-base">{genderLabel(patient.gender)}</p>
                 </div>
 
                 <div>
@@ -174,33 +214,98 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
             </CardContent>
           </Card>
 
-          {/* Dental Chart */}
+          {/*
+            Dents traitées — the ANSWER first, the schema on demand.
+
+            ⚠️ This card used to render up to **two** full `RecordToothChart`s, adult then child. Since P6 each
+            chart shows a single arch below `md:` with a Haut/Bas switch, so on a phone reading « which teeth
+            have been worked on? » cost up to four taps — on a screen whose entire purpose is to be glanced at.
+            The chips answer it in one look, and the schema is one tap behind them for anyone who wants the
+            spatial view.
+
+            Two charts were never needed to separate the dentitions in the first place: an FDI number states
+            which it is (5x–8x are deciduous), which is exactly what `isAdultTooth` reads. So the chips are one
+            list, ordered by tooth number, and the deciduous ones are marked rather than segregated.
+          */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
-                Schéma dentaire — dents traitées
+                Dents traitées
+                {treatedTeeth.length > 0 && (
+                  <Badge variant="secondary" className="ms-auto">{treatedTeeth.length}</Badge>
+                )}
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Adult Teeth Chart */}
-              {adultToothPaint.size > 0 && (
-                <div>
-                  <h3 className="text-sm font-medium mb-3">Dents adultes</h3>
-                  <RecordToothChart isAdult={true} paint={adultToothPaint} onToggleTooth={() => {}} disabled />
-                </div>
-              )}
+            <CardContent className="space-y-4">
+              {treatedTeeth.length === 0 ? (
+                <p className="py-6 text-center text-muted-foreground">Aucune dent traitée pour le moment</p>
+              ) : (
+                <>
+                  <ul className="flex flex-wrap gap-2" aria-label="Dents traitées">
+                    {treatedTeeth.map(({ tooth, count, isDeciduous }) => (
+                      <li key={tooth}>
+                        {/*
+                          A 44px target even though nothing here is tappable: these sit in a dialog next to
+                          controls that ARE, and a row of 24px pills reads as "broken buttons" rather than as
+                          data. `tabular-nums` keeps the two-digit numbers on one optical grid.
+                        */}
+                        {/*
+                          ⚠️ Token ink, not `WORKED_TOOTH_COLOR`. The hex stays where it belongs — as the SVG
+                          FILL on the schema below, where it is a large coloured area — but it was also being
+                          used as this chip's `color`, and the chip's entire content is the tooth number. A
+                          `#60a5fa` numeral on a white card measures ~2.5:1, i.e. the datum was the least legible
+                          thing in the modal. `text-foreground` inside a `border-primary/60` box keeps the chip
+                          reading as "charted" without spending contrast on the number itself.
+                        */}
+                        <span className="flex size-11 flex-col items-center justify-center rounded-lg border-2 border-primary/60 text-sm font-semibold tabular-nums text-foreground">
+                          {tooth}
+                          {count > 1 && (
+                            <span className="text-2xs font-normal leading-none opacity-80">×{count}</span>
+                          )}
+                        </span>
+                        <span className="sr-only">
+                          {isDeciduous ? "dent de lait" : "dent définitive"}
+                          {count > 1 ? `, ${count} interventions` : ", 1 intervention"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
 
-              {/* Child Teeth Chart */}
-              {childToothPaint.size > 0 && (
-                <div>
-                  <h3 className="text-sm font-medium mb-3">Dents de lait</h3>
-                  <RecordToothChart isAdult={false} paint={childToothPaint} onToggleTooth={() => {}} disabled />
-                </div>
-              )}
+                  {childToothPaint.size > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Dont {childToothPaint.size} dent{childToothPaint.size > 1 ? "s" : ""} de lait
+                      {" "}(numéros 51 à 85).
+                    </p>
+                  )}
 
-              {adultToothPaint.size === 0 && childToothPaint.size === 0 && (
-                <p className="text-center text-muted-foreground py-8">Aucune dent traitée pour le moment</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setSchemaOpen((open) => !open)}
+                    aria-expanded={schemaOpen}
+                  >
+                    {schemaOpen ? "Masquer le schéma dentaire" : "Voir le schéma dentaire"}
+                  </Button>
+
+                  {schemaOpen && (
+                    <div className="space-y-6 border-t pt-4">
+                      {adultToothPaint.size > 0 && (
+                        <div>
+                          <h3 className="mb-3 text-sm font-medium">Dents définitives</h3>
+                          <RecordToothChart view="adult" paint={adultToothPaint} onToggleTooth={() => {}} disabled />
+                        </div>
+                      )}
+                      {childToothPaint.size > 0 && (
+                        <div>
+                          <h3 className="mb-3 text-sm font-medium">Dents de lait</h3>
+                          <RecordToothChart view="child" paint={childToothPaint} onToggleTooth={() => {}} disabled />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -218,154 +323,118 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                 <p className="text-center text-muted-foreground py-8">Aucun dossier dentaire</p>
               ) : (
                 <div className="w-full">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="min-w-[100px]">Date</TableHead>
-                        <TableHead className="min-w-[120px]">Type d'acte</TableHead>
-                        <TableHead className="min-w-[90px]">Type de dents</TableHead>
-                        <TableHead className="min-w-[120px]">Dents</TableHead>
-                        <TableHead className="min-w-[80px]">Coût</TableHead>
-                        <TableHead className="min-w-[100px]">Montant payé</TableHead>
-                        <TableHead className="min-w-[90px]">Reste</TableHead>
-                        <TableHead className="min-w-[150px] max-w-[200px]">Notes</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {dentalRecords.map((record) => (
-                        <TableRow key={record.id}>
-                          <TableCell className="font-medium whitespace-nowrap">
-                            {formatDate(record.interventionDate)}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap">{record.procedureType}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="whitespace-nowrap">
-                              {record.isAdultTeeth ? "Adulte" : "Enfant"}
+                  {/*
+                    ⚠️ Exception 3 — this surface adopts the card list at EVERY width, so the table is gone
+                    rather than hidden below `md:`.
+
+                    Its seven columns each carried an explicit `min-w-*` summing ~760px, inside a
+                    `DialogContent` capped at 95vw with `overflow-x-hidden` — so the last columns were
+                    CLIPPED, not scrollable. There was no width at which the table worked, which makes
+                    keeping a desktop copy of it a copy of the defect.
+                  */}
+                  <CardList
+                    ariaLabel="Dossiers dentaires du patient"
+                    items={dentalRecords}
+                    getKey={(r) => r.id}
+                    title={(r) => r.procedureType}
+                    subtitle={(r) => formatDate(r.interventionDate)}
+                    status={(r) =>
+                      r.toothNumbers.length > 0 ? (
+                        <>
+                          {r.toothNumbers.map((toothNum) => (
+                            <Badge key={toothNum} variant="secondary" className="text-xs">
+                              {toothNum}
                             </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {record.toothNumbers.length > 0 ? (
-                              <div className="flex flex-wrap gap-1 max-w-[120px]">
-                                {record.toothNumbers.map((toothNum) => (
-                                  <Badge key={toothNum} variant="secondary" className="text-xs">
-                                    {toothNum}
-                                  </Badge>
-                                ))}
-                              </div>
+                          ))}
+                        </>
+                      ) : null
+                    }
+                    fields={(r) => {
+                      const reste = Math.max(0, r.balance ?? r.cost - r.amountPaid)
+                      const hasNotes =
+                        (r.notes && r.notes.length > 0) || (r.importantNotes && r.importantNotes.length > 0)
+                      const isExpanded = expandedNotes.has(r.id)
+                      const totalNotesCount = (r.importantNotes?.length || 0) + (r.notes?.length || 0)
+                      return [
+                        { label: "Coût", value: formatDT(r.cost) },
+                        { label: "Payé", value: formatDT(r.amountPaid) },
+                        {
+                          label: "Reste",
+                          value:
+                            reste > 0 ? (
+                              // `--warning-ink`: `text-amber-600` carried no `dark:` pair and measured ~3.2:1 on
+                              // the card, on the figure that says money is still owed.
+                              <span className="font-semibold text-warning-ink">{formatDT(reste)}</span>
                             ) : (
-                              <span className="text-muted-foreground text-sm">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap">{formatDT(record.cost)}</TableCell>
-                          <TableCell className="whitespace-nowrap">{formatDT(record.amountPaid)}</TableCell>
-                          <TableCell className="whitespace-nowrap">
-                            {(() => {
-                              const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
-                              return reste > 0
-                                ? <span className="font-semibold text-amber-600">{formatDT(reste)}</span>
-                                : <span className="text-muted-foreground">{formatDT(0)}</span>
-                            })()}
-                          </TableCell>
-                          <TableCell className="max-w-[200px]">
-                            {(() => {
-                              const hasNotes = (record.notes && record.notes.length > 0) || (record.importantNotes && record.importantNotes.length > 0)
-                              const isExpanded = expandedNotes.has(record.id)
-                              const totalNotesCount = (record.importantNotes?.length || 0) + (record.notes?.length || 0)
-
-                              if (!hasNotes) {
-                                return <span className="text-muted-foreground text-sm">-</span>
-                              }
-
-                              return (
-                                <div className="space-y-1">
-                                  {isExpanded ? (
-                                    <div className="space-y-2">
-                                      {record.importantNotes && record.importantNotes.length > 0 && (
-                                        <div className="space-y-1">
-                                          <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">
-                                            Notes importantes :
-                                          </p>
-                                          <ul className="list-disc list-inside space-y-1 ml-2">
-                                            {record.importantNotes.map((note, idx) => (
-                                              <li key={idx} className="text-xs font-medium text-amber-900 dark:text-amber-100 bg-amber-50 dark:bg-amber-950/40 px-2 py-1 rounded border border-amber-200 dark:border-amber-800">
-                                                ⚠ {note}
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        </div>
-                                      )}
-                                      {record.notes && record.notes.length > 0 && (
-                                        <div className="space-y-1">
-                                          {record.importantNotes && record.importantNotes.length > 0 && (
-                                            <p className="text-xs font-semibold text-muted-foreground mb-1">
-                                              Notes :
-                                            </p>
-                                          )}
-                                          <ul className="list-disc list-inside space-y-1 ml-2">
-                                            {record.notes.map((note, idx) => (
-                                              <li key={idx} className="text-sm text-foreground bg-muted/50 px-2 py-1 rounded">
-                                                {note}
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        </div>
-                                      )}
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 text-xs text-muted-foreground hover:text-foreground"
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          setExpandedNotes(prev => {
-                                            const next = new Set(prev)
-                                            next.delete(record.id)
-                                            return next
-                                          })
-                                        }}
-                                      >
-                                        <ChevronUp className="h-3 w-3 mr-1" />
-                                        Réduire
-                                      </Button>
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-sm text-muted-foreground">
-                                          {totalNotesCount} {totalNotesCount === 1 ? 'note' : 'notes'}
-                                        </span>
-                                        {record.importantNotes && record.importantNotes.length > 0 && (
-                                          <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
-                                            {record.importantNotes.length} importantes
-                                          </Badge>
-                                        )}
-                                      </div>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 text-xs text-muted-foreground hover:text-foreground"
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          setExpandedNotes(prev => new Set(prev).add(record.id))
-                                        }}
-                                      >
-                                        <ChevronDown className="h-3 w-3 mr-1" />
-                                        Voir les notes
-                                      </Button>
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            })()}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                              <span className="text-muted-foreground">{formatDT(0)}</span>
+                            ),
+                        },
+                        // The expand/collapse survives the conversion — the notes are the reason this summary
+                        // is opened, and flattening them to a count would remove the only thing it adds.
+                        hasNotes && {
+                          label: "Notes",
+                          value: isExpanded ? (
+                            <div className="space-y-2 text-start">
+                              {r.importantNotes && r.importantNotes.length > 0 && (
+                                <ul className="list-inside list-disc space-y-1">
+                                  {r.importantNotes.map((note, idx) => (
+                                    <li
+                                      key={idx}
+                                      className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+                                    >
+                                      ⚠ {note}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                              {r.notes && r.notes.length > 0 && (
+                                <ul className="list-inside list-disc space-y-1">
+                                  {r.notes.map((note, idx) => (
+                                    <li key={idx} className="text-xs text-muted-foreground">
+                                      {note}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs text-muted-foreground hover:text-foreground"
+                                onClick={() =>
+                                  setExpandedNotes((prev) => {
+                                    const next = new Set(prev)
+                                    next.delete(r.id)
+                                    return next
+                                  })
+                                }
+                              >
+                                <ChevronUp className="mr-1 h-3 w-3" />
+                                Réduire
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-xs text-muted-foreground hover:text-foreground"
+                              onClick={() => setExpandedNotes((prev) => new Set(prev).add(r.id))}
+                            >
+                              <ChevronDown className="mr-1 h-3 w-3" />
+                              {totalNotesCount} {totalNotesCount === 1 ? "note" : "notes"}
+                              {r.importantNotes && r.importantNotes.length > 0
+                                ? ` · ${r.importantNotes.length} importantes`
+                                : ""}
+                            </Button>
+                          ),
+                        },
+                      ]
+                    }}
+                  />
                 </div>
               )}
             </CardContent>
           </Card>
-        </div>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )

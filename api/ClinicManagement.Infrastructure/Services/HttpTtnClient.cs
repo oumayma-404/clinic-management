@@ -35,7 +35,11 @@ public class HttpTtnClient : ITtnClient
 
     public string Environment => Clinic.TtnEnvironmentProduction;
 
-    public async Task<TtnSubmissionResult> SubmitAsync(string signedTeifXml, string invoiceNumber, CancellationToken cancellationToken = default)
+    public async Task<TtnSubmissionResult> SubmitAsync(
+        string signedTeifXml,
+        string invoiceNumber,
+        ResolvedTtnIdentity identity,
+        CancellationToken cancellationToken = default)
     {
         var baseUrl = TtnConfig.BaseUrl(_configuration, Environment);
         if (string.IsNullOrWhiteSpace(baseUrl))
@@ -53,7 +57,7 @@ public class HttpTtnClient : ITtnClient
 
         try
         {
-            var token = await AcquireTokenAsync(cancellationToken);
+            var token = await AcquireTokenAsync(identity, cancellationToken);
             if (token == null)
             {
                 return TtnSubmissionResult.Transient("Authentification TTN indisponible.");
@@ -95,15 +99,21 @@ public class HttpTtnClient : ITtnClient
         }
     }
 
-    private async Task<string?> AcquireTokenAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Exchanges <b>this clinic's</b> client credentials for a bearer token (US-4). The endpoint is still a
+    /// per-install setting — TTN is one national platform, so every clinic posts to the same URL — but the
+    /// account is the clinic's own, which is what makes the declaration land under the right matricule fiscal.
+    /// </summary>
+    private async Task<string?> AcquireTokenAsync(ResolvedTtnIdentity identity, CancellationToken cancellationToken)
     {
         var tokenUrl = TtnConfig.TokenUrl(_configuration, Environment);
-        var username = TtnConfig.Username(_configuration);
-        var secret = TtnConfig.ApiSecret(_configuration);
+        var username = identity.Username;
+        var secret = identity.ApiSecret;
 
         if (string.IsNullOrWhiteSpace(tokenUrl) || string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(secret))
         {
-            _logger.LogWarning("TTN Production credentials not fully configured.");
+            _logger.LogWarning(
+                "TTN Production credentials not fully configured for the {Source} identity.", identity.Source);
             return null;
         }
 

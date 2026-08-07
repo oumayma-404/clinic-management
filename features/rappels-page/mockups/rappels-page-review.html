@@ -1,0 +1,520 @@
+<title>Page « Rappels » — revue de conception</title>
+
+<style>
+  /* ──────────────────────────────────────────────────────────────────────────
+     SPECIMEN tokens (--s-*) are copied from web/app/globals.css. They are the
+     product; nothing here may "improve" them or the specimen stops being one.
+     FRAME tokens are this review page's own — clay accent, never the app blue,
+     so an annotation can't be mistaken for a piece of app UI in a plate.
+     ────────────────────────────────────────────────────────────────────────── */
+  :root {
+    color-scheme: light;
+    --ink: #14171c; --ink-soft: #5b6472; --paper: #f6f7f9; --plate: #fff;
+    --rule: #dee2e9; --rule-soft: #eaedf2; --annot: #a65b2a; --annot-wash: #f6ece4;
+
+    --s-bg: oklch(0.99 0 0); --s-fg: oklch(0.18 0 0); --s-card: oklch(1 0 0);
+    --s-primary: oklch(0.52 0.14 245); --s-primary-fg: oklch(0.99 0 0);
+    --s-muted: oklch(0.97 0.005 250); --s-muted-fg: oklch(0.48 0.01 250);
+    --s-accent: oklch(0.965 0.01 245); --s-border: oklch(0.93 0.005 250);
+    --s-destructive: oklch(0.58 0.2 25);
+
+    --s-green-bg: #dcfce7; --s-green-fg: #166534; --s-green-line: #16a34a;
+    --s-amber-bg: #fef3c7; --s-amber-fg: #92400e; --s-amber-line: #f59e0b;
+    --s-red-bg: #fee2e2;   --s-red-fg: #991b1b;   --s-red-line: #dc2626;
+
+    --ease: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --ink: #e7eaef; --ink-soft: #98a2b1; --paper: #0e1116; --plate: #161a20;
+      --rule: #262c35; --rule-soft: #1d222a; --annot: #d59366; --annot-wash: #2a1d14;
+      --s-bg: oklch(0.12 0.005 250); --s-fg: oklch(0.97 0.005 250); --s-card: oklch(0.16 0.008 250);
+      --s-primary: oklch(0.6 0.16 245); --s-muted: oklch(0.22 0.01 250);
+      --s-muted-fg: oklch(0.58 0.01 250); --s-accent: oklch(0.22 0.015 245);
+      --s-border: oklch(0.24 0.01 250); --s-destructive: oklch(0.52 0.2 25);
+      --s-green-bg: #052e16; --s-green-fg: #bbf7d0; --s-amber-bg: #451a03; --s-amber-fg: #fde68a;
+      --s-red-bg: #450a0a; --s-red-fg: #fecaca;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ink: #e7eaef; --ink-soft: #98a2b1; --paper: #0e1116; --plate: #161a20;
+    --rule: #262c35; --rule-soft: #1d222a; --annot: #d59366; --annot-wash: #2a1d14;
+    --s-bg: oklch(0.12 0.005 250); --s-fg: oklch(0.97 0.005 250); --s-card: oklch(0.16 0.008 250);
+    --s-primary: oklch(0.6 0.16 245); --s-muted: oklch(0.22 0.01 250);
+    --s-muted-fg: oklch(0.58 0.01 250); --s-accent: oklch(0.22 0.015 245);
+    --s-border: oklch(0.24 0.01 250); --s-destructive: oklch(0.52 0.2 25);
+    --s-green-bg: #052e16; --s-green-fg: #bbf7d0; --s-amber-bg: #451a03; --s-amber-fg: #fde68a;
+    --s-red-bg: #450a0a; --s-red-fg: #fecaca;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --ink: #14171c; --ink-soft: #5b6472; --paper: #f6f7f9; --plate: #fff;
+    --rule: #dee2e9; --rule-soft: #eaedf2; --annot: #a65b2a; --annot-wash: #f6ece4;
+    --s-bg: oklch(0.99 0 0); --s-fg: oklch(0.18 0 0); --s-card: oklch(1 0 0);
+    --s-primary: oklch(0.52 0.14 245); --s-muted: oklch(0.97 0.005 250);
+    --s-muted-fg: oklch(0.48 0.01 250); --s-accent: oklch(0.965 0.01 245);
+    --s-border: oklch(0.93 0.005 250); --s-destructive: oklch(0.58 0.2 25);
+    --s-green-bg: #dcfce7; --s-green-fg: #166534; --s-amber-bg: #fef3c7; --s-amber-fg: #92400e;
+    --s-red-bg: #fee2e2; --s-red-fg: #991b1b;
+  }
+
+  /* frame */
+  .sheet { background: var(--paper); color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 15px; line-height: 1.6; padding: clamp(20px,5vw,56px) clamp(16px,4vw,40px) 96px; }
+  .wrap { max-width: 78rem; margin-inline: auto; display: flex; flex-direction: column; gap: 52px; }
+  .mono { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-soft); }
+  .masthead { display: flex; flex-direction: column; gap: 14px; }
+  .masthead h1 { margin: 0; font-size: clamp(1.6rem,3.4vw,2.3rem); line-height: 1.15;
+    letter-spacing: -.02em; font-weight: 620; text-wrap: balance; }
+  .lede { margin: 0; max-width: 64ch; color: var(--ink-soft); }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px 28px; padding-top: 6px; border-top: 1px solid var(--rule); }
+  .fact { display: flex; flex-direction: column; gap: 1px; }
+  .fact b { font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none;
+    color: var(--ink); font-family: inherit; }
+  .band { display: flex; flex-direction: column; gap: 18px; }
+  .band > h2 { margin: 0; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px; letter-spacing: .11em; text-transform: uppercase; font-weight: 640;
+    color: var(--ink-soft); padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
+  .plate { background: var(--s-bg); border: 1px solid var(--rule); border-radius: 10px;
+    padding: 18px; overflow-x: auto; }
+  .note { margin: 0; display: flex; gap: 9px; color: var(--ink-soft); font-size: 13.5px; }
+  .note::before { content: ""; flex: 0 0 auto; width: 2px; margin: 4px 0; border-radius: 2px; background: var(--annot); }
+  .warn { background: var(--annot-wash); border: 1px solid color-mix(in oklab, var(--annot) 32%, transparent);
+    border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+  .warn h3 { margin: 0; font-size: 14px; font-weight: 660; color: var(--annot); }
+  .warn ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13.5px; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .88em;
+    background: var(--rule-soft); padding: 1px 4px; border-radius: 3px; }
+  .grid2 { display: grid; gap: 20px; }
+  @media (min-width: 900px) { .grid2 { grid-template-columns: 1fr 1fr; } }
+  .card { background: var(--plate); border: 1px solid var(--rule); border-radius: 10px;
+    padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+  .card h3 { margin: 0; font-size: 14px; font-weight: 640; }
+  .card ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13.5px; color: var(--ink-soft); }
+  .card ul b { color: var(--ink); font-weight: 600; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--s-primary); outline-offset: 2px; border-radius: 4px; }
+
+  /* ── specimen ───────────────────────────────────────────────────────────── */
+  .sp { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--s-fg); display: flex; flex-direction: column; gap: 16px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .grow { margin-left: auto; }
+  .h1 { font-size: 22px; font-weight: 620; letter-spacing: -.015em; margin: 0; }
+  .sub { font-size: 13px; color: var(--s-muted-fg); margin: 2px 0 0; }
+  .eyebrow { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px;
+    font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--s-muted-fg); }
+  .quiet { color: var(--s-muted-fg); }
+  .nums { font-variant-numeric: tabular-nums; }
+
+  .btn { border: 0; border-radius: 6px; padding: 7px 13px; font: inherit; font-size: 14px;
+    font-weight: 560; cursor: pointer; background: var(--s-primary); color: var(--s-primary-fg);
+    transition: transform 160ms var(--ease); }
+  .btn:active { transform: scale(.97); }
+  .btn-2 { background: transparent; color: var(--s-fg); border: 1px solid var(--s-border); }
+  .btn-2:hover { background: var(--s-accent); }
+  .btn-sm { padding: 4px 9px; font-size: 12.5px; }
+
+  /* Counter strip — three figures over one hairline surface, not three cards. Mirrors KpiGrid. */
+  .counters { display: grid; gap: 1px; background: var(--s-border); border: 1px solid var(--s-border);
+    border-radius: 10px; overflow: hidden; grid-template-columns: repeat(3, 1fr); }
+  .counter { background: var(--s-card); padding: 13px 16px; display: flex; flex-direction: column; gap: 2px; }
+  .counter .k { font-size: 12px; color: var(--s-muted-fg); display: flex; align-items: center; gap: 7px; }
+  .counter .v { font-size: 22px; font-weight: 620; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .counter.alert .v { color: var(--s-destructive); }
+  .dot { width: 6px; height: 6px; border-radius: 999px; flex: 0 0 auto; }
+
+  /* Filter bar */
+  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding-bottom: 12px; border-bottom: 1px solid var(--s-border); }
+  .seg { display: inline-flex; border: 1px solid var(--s-border); border-radius: 7px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; font: inherit; font-size: 13px; padding: 5px 11px;
+    cursor: pointer; color: var(--s-muted-fg); transition: background-color 160ms var(--ease); }
+  .seg button + button { border-left: 1px solid var(--s-border); }
+  .seg button[aria-pressed="true"] { background: var(--s-accent); color: var(--s-fg); font-weight: 560; }
+  .field { border: 1px solid var(--s-border); border-radius: 7px; background: transparent;
+    padding: 5px 9px; font: inherit; font-size: 13px; color: var(--s-fg); }
+
+  /* Log table. Status is a left stripe + badge: a tinted ROW at this density reads as a rendering
+     fault, and a stripe survives the row being hovered, selected or expanded. */
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; padding: 8px 12px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; font-weight: 600;
+    color: var(--s-muted-fg); border-bottom: 1px solid var(--s-border); white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--s-border); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: 0; }
+  .log { border: 1px solid var(--s-border); border-radius: 10px; overflow: hidden; background: var(--s-card); }
+  .stripe { position: relative; }
+  .stripe::before { content: ""; position: absolute; inset-block: 0; left: 0; width: 2px; }
+  .st-sent::before { background: var(--s-green-line); }
+  .st-pending::before { background: var(--s-amber-line); }
+  .st-failed::before { background: var(--s-red-line); }
+
+  .badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; padding: 2px 7px;
+    font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .bg-green { background: var(--s-green-bg); color: var(--s-green-fg); }
+  .bg-amber { background: var(--s-amber-bg); color: var(--s-amber-fg); }
+  .bg-red { background: var(--s-red-bg); color: var(--s-red-fg); }
+  .bg-muted { background: var(--s-muted); color: var(--s-muted-fg); }
+
+  /* Channel is a mono label, NOT a colour: WhatsApp's brand green would collide head-on with
+     "envoyé" green, and the reader would be decoding two meanings from one hue. */
+  .chan { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px;
+    letter-spacing: .04em; color: var(--s-muted-fg); }
+  .name { font-weight: 560; }
+  .masked { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--s-muted-fg); }
+  .reason { margin: 4px 0 0; font-size: 12.5px; color: var(--s-destructive); }
+
+  .empty { padding: 44px 20px; text-align: center; display: flex; flex-direction: column;
+    gap: 8px; align-items: center; }
+  .empty .t { font-size: 15px; font-weight: 600; }
+  .empty .d { font-size: 13px; color: var(--s-muted-fg); max-width: 46ch; }
+  .skel { height: 13px; border-radius: 4px; background: var(--s-muted); animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .5 } }
+
+  /* Config sheet (right-side panel) */
+  .sheet-panel { border: 1px solid var(--s-border); border-radius: 10px; background: var(--s-card);
+    width: 420px; max-width: 100%; display: flex; flex-direction: column; }
+  .sheet-head { padding: 16px 18px; border-bottom: 1px solid var(--s-border); }
+  .sheet-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 16px; }
+  .sheet-foot { padding: 13px 18px; border-top: 1px solid var(--s-border); display: flex; justify-content: flex-end; gap: 8px; }
+  .chan-block { border: 1px solid var(--s-border); border-radius: 9px; padding: 13px; display: flex; flex-direction: column; gap: 10px; }
+  .lbl { font-size: 12px; font-weight: 560; color: var(--s-fg); }
+  .hint { font-size: 11.5px; color: var(--s-muted-fg); margin: 0; }
+  .inp { width: 100%; box-sizing: border-box; border: 1px solid var(--s-border); border-radius: 6px;
+    background: transparent; padding: 6px 9px; font: inherit; font-size: 13px; color: var(--s-fg); }
+  .switch { width: 34px; height: 19px; border-radius: 999px; background: var(--s-border); position: relative; flex: 0 0 auto; }
+  .switch.on { background: var(--s-primary); }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px;
+    border-radius: 999px; background: #fff; }
+  .switch.on::after { left: auto; right: 2px; }
+  .table-scroll { overflow-x: auto; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important } }
+</style>
+
+<div class="sheet">
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="mono">Revue de conception · nouvelle page</p>
+    <h1>Rappels — journal des envois</h1>
+    <p class="lede">
+      Sort la configuration des rappels de « Paramètres » et lui donne une page dont le sujet principal est le
+      <strong>journal</strong> : qui a reçu quoi, quand, et pourquoi un envoi a échoué.
+    </p>
+    <div class="facts">
+      <span class="fact mono">Route<b>/rappels</b></span>
+      <span class="fact mono">Remplace<b>ReminderSettings dans /settings</b></span>
+      <span class="fact mono">Nav<b>Opérations, à la place de « Relances »</b></span>
+      <span class="fact mono">Backend<b>filtres + pagination requis</b></span>
+    </div>
+  </header>
+
+  <!-- ══ the demolition, stated before the design ═══════════════════════════ -->
+  <section class="warn">
+    <h3>⚠ Cette conception suppose la suppression de la fonction « relances »</h3>
+    <p style="margin:0;font-size:13.5px">
+      Décision prise : supprimer entièrement la relance patient, pas seulement sa page. Ce n'est pas un détail de
+      mise en page — c'est le retrait d'une fonction opérationnelle. Ce qui disparaît, et ce qui doit disparaître
+      <em>avec</em> elle pour ne rien laisser d'inaccessible :
+    </p>
+    <ul>
+      <li><b>Écran</b> — <code>app/recalls/page.tsx</code>, l'entrée « Relances » de la barre latérale.</li>
+      <li><b>Client</b> — les 7 méthodes de <code>recallsApi</code>, <code>RecallDto</code>/<code>RecallSettingsDto</code>.</li>
+      <li><b>API</b> — <code>RecallController</code> (liste due, réglages, contacté, snooze, envoyer), <code>GetPatientsToRecallQuery</code>, <code>SendRecallCommand</code>, <code>SnoozeRecallCommand</code>, <code>MarkRecallContactedCommand</code>, <code>SetRecallSettingsCommand</code>, <code>RecallDueRule</code>, <code>IPatientRepository.GetRecallCandidatesAsync</code>.</li>
+      <li><b>Tableau de bord</b> — le KPI « Patients à rappeler » : <code>DashboardAlertsDto.patientsToRecall</code>, son lecteur, son entrée dans <code>dashboard-links.ts</code> et <code>dashboard-blocks.ts</code> (tous deux exhaustifs — les laisser casse <code>tsc</code>).</li>
+      <li><b>Notifications</b> — <code>NotificationTargetKind.Recall</code> et le renvoi vers <code>/recalls</code> dans l'en-tête.</li>
+      <li><b>Temps réel</b> — la clé <code>recall</code> dans <code>clinic-hub.ts</code>. À supprimer <em>des deux côtés</em> : <code>RealtimeResourceResolverTests</code> compare les ensembles dans les deux sens, donc retirer un seul côté fait échouer la construction.</li>
+      <li><b>Tâche de fond</b> — <code>NotificationJob.TryReturnPatientToRecallListAsync</code> et <code>IReminderScheduler.ScheduleRecallAsync</code>.</li>
+      <li><b>Domaine</b> — <code>Patient.RecallSnoozedUntil</code>/<code>RecallReason</code>/<code>LastRecallContactedAt</code>, <code>Clinic.RecallIntervalMonths</code> deviennent morts. <b>Question ouverte : migration ou colonnes conservées ?</b> Les garder est plus sûr et laisse les données historiques lisibles.</li>
+      <li><b>Tests</b> — <code>RecallQueryTranslationTests</code> et les cas de relance de <code>NotificationJob</code>.</li>
+    </ul>
+    <p style="margin:0;font-size:13.5px">
+      Le journal continue d'afficher les <b>relances déjà envoyées</b> : <code>ReminderStatusDto.isRecall</code>
+      existe sur les lignes historiques, et les effacer réécrirait le passé. Elles portent une étiquette
+      « relance » et il n'en apparaît plus de nouvelles.
+    </p>
+  </section>
+
+  <!-- ══ the page ═══════════════════════════════════════════════════════════ -->
+  <section class="band">
+    <h2>La page · état courant</h2>
+    <div class="plate">
+      <div class="sp">
+
+        <!-- Header: title + the one admin action. Config is a button, not a section: you set
+             credentials about once, and you read this log every day. -->
+        <div class="row">
+          <div>
+            <p class="eyebrow">Opérations</p>
+            <h2 class="h1">Rappels</h2>
+            <p class="sub">Messages envoyés aux patients — SMS et WhatsApp.</p>
+          </div>
+          <button class="btn btn-2 grow" type="button">Configurer les canaux</button>
+        </div>
+
+        <!-- Counters: today, because "did today's reminders go out?" is the question that brings
+             someone here. Échecs is the only one that can turn red — it is the only actionable one. -->
+        <div class="counters">
+          <div class="counter">
+            <span class="k"><i class="dot" style="background:var(--s-green-line)"></i> Envoyés aujourd'hui</span>
+            <span class="v">34</span>
+          </div>
+          <div class="counter">
+            <span class="k"><i class="dot" style="background:var(--s-amber-line)"></i> En attente</span>
+            <span class="v">6</span>
+          </div>
+          <div class="counter alert">
+            <span class="k"><i class="dot" style="background:var(--s-red-line)"></i> Échecs</span>
+            <span class="v">2</span>
+          </div>
+        </div>
+
+        <div class="filters">
+          <div class="seg" role="group" aria-label="Filtrer par statut">
+            <button type="button" aria-pressed="true">Tous</button>
+            <button type="button" aria-pressed="false">Envoyés</button>
+            <button type="button" aria-pressed="false">En attente</button>
+            <button type="button" aria-pressed="false">Échecs</button>
+          </div>
+          <select class="field" aria-label="Canal"><option>Tous les canaux</option><option>SMS</option><option>WhatsApp</option></select>
+          <input class="field" type="date" value="2026-07-24" aria-label="Du">
+          <input class="field" type="date" value="2026-07-30" aria-label="Au">
+          <input class="field grow" type="search" placeholder="Rechercher un patient…" style="max-width:220px">
+        </div>
+
+        <div class="log">
+          <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Patient</th>
+                <th scope="col">Canal</th>
+                <th scope="col">Destinataire</th>
+                <th scope="col">Rendez-vous</th>
+                <th scope="col">Prévu</th>
+                <th scope="col">Statut</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="stripe st-failed">
+                <td><span class="name">Mohamed Ben Salah</span></td>
+                <td><span class="chan">SMS</span></td>
+                <td><span class="masked">•••• 56</span></td>
+                <td class="nums">31 juil. 09:00</td>
+                <td class="nums quiet">30 juil. 09:00</td>
+                <td>
+                  <span class="badge bg-red">Échec</span>
+                  <!-- The reason is IN the row, not a tooltip: it is the only thing that makes the
+                       failure actionable, and a tooltip is unreachable on a tablet. -->
+                  <p class="reason">Numéro invalide — passerelle SMS a refusé le format.</p>
+                </td>
+              </tr>
+              <tr class="stripe st-failed">
+                <td><span class="name">Leïla Trabelsi</span></td>
+                <td><span class="chan">WhatsApp</span></td>
+                <td><span class="masked">•••• 12</span></td>
+                <td class="nums">31 juil. 14:30</td>
+                <td class="nums quiet">30 juil. 14:30</td>
+                <td>
+                  <span class="badge bg-red">Échec</span>
+                  <p class="reason">Modèle non approuvé par Meta (<code>rappel_rdv</code>).</p>
+                </td>
+              </tr>
+              <tr class="stripe st-pending">
+                <td><span class="name">Amine Gharbi</span></td>
+                <td><span class="chan">SMS</span></td>
+                <td><span class="masked">•••• 03</span></td>
+                <td class="nums">1 août 10:15</td>
+                <td class="nums quiet">31 juil. 10:15</td>
+                <td><span class="badge bg-amber">En attente</span></td>
+              </tr>
+              <tr class="stripe st-sent">
+                <td><span class="name">Salma Jelassi</span></td>
+                <td><span class="chan">WhatsApp</span></td>
+                <td><span class="masked">•••• 88</span></td>
+                <td class="nums">30 juil. 16:00</td>
+                <td class="nums quiet">29 juil. 16:00</td>
+                <td><span class="badge bg-green">Envoyé</span> <span class="quiet nums" style="font-size:12px">29 juil. 16:02</span></td>
+              </tr>
+              <tr class="stripe st-sent">
+                <td>
+                  <span class="name">Karim Belhadj</span>
+                  <!-- Historical relance rows stay visible. Deleting the feature must not rewrite the past. -->
+                  <span class="badge bg-muted" style="margin-left:6px">relance · archivé</span>
+                </td>
+                <td><span class="chan">SMS</span></td>
+                <td><span class="masked">•••• 41</span></td>
+                <td class="quiet">—</td>
+                <td class="nums quiet">12 juin 09:00</td>
+                <td><span class="badge bg-green">Envoyé</span> <span class="quiet nums" style="font-size:12px">12 juin 09:01</span></td>
+              </tr>
+            </tbody>
+          </table>
+          </div>
+        </div>
+
+        <div class="row">
+          <span class="quiet nums" style="font-size:13px">142 messages · page 1 / 6</span>
+          <span class="row grow" style="gap:6px">
+            <button class="btn btn-2 btn-sm" type="button" disabled style="opacity:.5">Précédent</button>
+            <button class="btn btn-2 btn-sm" type="button">Suivant</button>
+          </span>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      Le statut est porté par un <b>liseré de 2 px à gauche</b> plus une étiquette, jamais par une ligne teintée :
+      à cette densité un fond coloré sur une ligne se lit comme un défaut d'affichage, et le liseré survit au
+      survol, à la sélection et au tri. Le <b>canal</b> est une étiquette monospace et non une couleur — le vert
+      de WhatsApp entrerait en collision frontale avec le vert « envoyé ».
+    </p>
+  </section>
+
+  <!-- ══ states ═════════════════════════════════════════════════════════════ -->
+  <section class="band">
+    <h2>États</h2>
+    <div class="grid2">
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <p class="note">Aucun canal configuré — l'état de départ de toute clinique. Le vide explique la cause et porte l'action.</p>
+        <div class="plate">
+          <div class="sp"><div class="log"><div class="empty">
+            <span class="badge bg-amber">Aucun canal actif</span>
+            <span class="t">Les rappels ne sont pas encore activés</span>
+            <span class="d">Ni SMS ni WhatsApp n'est configuré, donc aucun message ne part. Renseignez un canal pour commencer à envoyer des rappels de rendez-vous.</span>
+            <button class="btn" type="button" style="margin-top:4px">Configurer les canaux</button>
+          </div></div></div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <p class="note">Canaux actifs mais rien encore envoyé — un message différent, parce que la cause est différente.</p>
+        <div class="plate">
+          <div class="sp"><div class="log"><div class="empty">
+            <span class="t">Aucun message pour le moment</span>
+            <span class="d">Les rappels partent automatiquement avant chaque rendez-vous, selon les délais configurés (24 h et 6 h).</span>
+          </div></div></div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <p class="note">Filtre sans résultat — ne jamais confondre avec « rien envoyé ». L'issue est de relâcher le filtre.</p>
+        <div class="plate">
+          <div class="sp"><div class="log"><div class="empty">
+            <span class="t">Aucun message ne correspond</span>
+            <span class="d">Aucun échec SMS entre le 24 et le 30 juillet. 142 messages au total sur la période complète.</span>
+            <button class="btn btn-2 btn-sm" type="button" style="margin-top:4px">Réinitialiser les filtres</button>
+          </div></div></div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <p class="note">Premier chargement — squelette à la forme du tableau, pour que rien ne saute quand les lignes arrivent.</p>
+        <div class="plate">
+          <div class="sp"><div class="log" style="padding:12px;display:flex;flex-direction:column;gap:11px" role="status" aria-label="Chargement">
+            <div class="skel" style="width:38%"></div>
+            <div class="skel" style="width:82%"></div>
+            <div class="skel" style="width:74%"></div>
+            <div class="skel" style="width:79%"></div>
+            <div class="skel" style="width:60%"></div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ config panel ═══════════════════════════════════════════════════════ -->
+  <section class="band">
+    <h2>Configuration · panneau latéral, admin uniquement</h2>
+    <p class="note">
+      Le contenu est celui de la carte actuelle de « Paramètres », inchangé quant au fond : deux canaux, les
+      délais, le corps du message. Ce qui change est qu'il n'occupe plus la page — un secrétaire consulte le
+      journal, un admin ouvre ceci de temps en temps.
+    </p>
+    <div class="plate" style="display:flex;justify-content:center">
+      <div class="sheet-panel">
+        <div class="sheet-head">
+          <p class="eyebrow">Admin</p>
+          <p style="margin:2px 0 0;font-size:15px;font-weight:620">Canaux de rappel</p>
+          <p class="hint" style="margin-top:4px">Les champs vides héritent de la configuration de l'installation. Les clés secrètes ne sont jamais réaffichées.</p>
+        </div>
+        <div class="sheet-body">
+
+          <div class="chan-block">
+            <div class="row">
+              <span class="lbl" style="font-size:13px">SMS</span>
+              <span class="badge bg-green">Prêt à envoyer</span>
+              <span class="grow"><span class="switch on" role="switch" aria-checked="true" aria-label="Activer le SMS"></span></span>
+            </div>
+            <div><span class="lbl">Identifiant d'expéditeur</span><input class="inp" value="CabinetDentaire" style="margin-top:4px"></div>
+            <div><span class="lbl">Clé API</span><input class="inp" type="password" placeholder="Inchangée" style="margin-top:4px">
+              <p class="hint" style="margin-top:4px">Laisser vide conserve la clé enregistrée.</p></div>
+          </div>
+
+          <div class="chan-block">
+            <div class="row">
+              <span class="lbl" style="font-size:13px">WhatsApp</span>
+              <!-- The tri-state the current card already gets right: connected ≠ sendable. -->
+              <span class="badge bg-amber">Connecté, non configuré</span>
+              <span class="grow"><span class="switch on" role="switch" aria-checked="true" aria-label="Activer WhatsApp"></span></span>
+            </div>
+            <p class="hint">Le compte est lié mais le modèle de message n'est pas renseigné — aucun message ne peut partir.</p>
+            <div><span class="lbl">Nom du modèle</span><input class="inp" placeholder="rappel_rdv" style="margin-top:4px"></div>
+          </div>
+
+          <div>
+            <span class="lbl">Délais d'envoi (heures avant le rendez-vous)</span>
+            <input class="inp" value="24, 6" style="margin-top:4px">
+            <p class="hint" style="margin-top:4px">Un rappel part à chaque palier. « 24, 6 » envoie deux messages.</p>
+          </div>
+
+          <div>
+            <span class="lbl">Corps du message</span>
+            <textarea class="inp" rows="3" style="margin-top:4px;resize:vertical">Bonjour {patient}, rappel de votre rendez-vous du {date} au {clinic}.</textarea>
+            <p class="hint" style="margin-top:4px">Variables : {patient}, {date}, {clinic}.</p>
+          </div>
+        </div>
+        <div class="sheet-foot">
+          <button class="btn btn-2" type="button">Annuler</button>
+          <button class="btn" type="button">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ decisions ══════════════════════════════════════════════════════════ -->
+  <section class="band">
+    <h2>Décisions</h2>
+    <div class="grid2">
+      <div class="card">
+        <h3>Ce qui mène la page</h3>
+        <ul>
+          <li><b>Le journal.</b> On configure des identifiants une fois ; on vérifie qu'un patient a bien reçu son message tous les jours. La configuration passe derrière un bouton.</li>
+          <li><b>Trois compteurs du jour</b> au-dessus, dont un seul peut rougir — « Échecs » est le seul actionnable.</li>
+          <li><b>Le motif d'échec est dans la ligne</b>, pas dans une infobulle : c'est ce qui rend l'échec exploitable, et une infobulle est hors d'atteinte sur tablette.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Ce que cela demande au backend</h3>
+        <ul>
+          <li><code>reminder-status</code> accepte aujourd'hui <b>uniquement</b> <code>take</code> (20 par défaut) : ni statut, ni canal, ni intervalle de dates, ni pagination.</li>
+          <li>À ajouter : ces quatre filtres + <code>PagedResult</code>, en réutilisant <code>PageRequest</code> et <code>usePagedList</code> comme les autres listes.</li>
+          <li><b>Filtrer côté client est exclu</b> : c'est exactement l'erreur que le travail de pagination vient de retirer partout ailleurs — un filtre sur une fenêtre déjà découpée répond à une autre question.</li>
+          <li>Les compteurs sont <b>à l'échelle de la clinique</b> et ignorent les filtres ; les dériver des lignes affichées donnerait « les échecs parmi ces 25 ».</li>
+          <li>Le verrou <code>AdminOnly</code> de <code>reminder-status</code> doit être relâché : les lignes ne portent qu'un nom et un numéro masqué, aucun secret. La configuration reste admin.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer class="mono" style="border-top:1px solid var(--rule);padding-top:14px">
+    Spécimens rendus avec les jetons réels de <b>globals.css</b>, en thème clair et sombre. Police : pile système —
+    Geist ne peut pas être chargée ici, et un repli silencieux donnerait une fausse idée du rendu.
+  </footer>
+
+</div>
+</div>

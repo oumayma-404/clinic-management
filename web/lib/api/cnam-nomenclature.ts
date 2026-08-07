@@ -1,11 +1,22 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { CnamNomenclatureEntryDto, CnamLetterValueDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export const cnamNomenclatureApi = {
   // DB-backed CNAM dental nomenclature. `q`/`category` optional (empty → full list). `includeInactive`
   // is used by the admin screen to also show deactivated rows.
   list: async (q?: string, category?: string, includeInactive?: boolean): Promise<CnamNomenclatureEntryDto[]> => {
-    return apiGet<CnamNomenclatureEntryDto[]>('/cnam-nomenclature', { q, category, includeInactive });
+    return unwrapPaged(
+      await apiGet<PagedResponse<CnamNomenclatureEntryDto>>('/cnam-nomenclature', { q, category, includeInactive }),
+    );
+  },
+
+  /** One page of the nomenclature. `search` maps to `q` and matches code / désignation / lettre clé server-side. */
+  listPaged: async (
+    params: PageParams & { category?: string; includeInactive?: boolean },
+  ): Promise<PagedResponse<CnamNomenclatureEntryDto>> => {
+    const { search, ...rest } = params;
+    return apiGet<PagedResponse<CnamNomenclatureEntryDto>>('/cnam-nomenclature', { ...rest, q: search });
   },
 
   // Valeurs de la lettre clé (VLC). Readable by any authenticated user.
@@ -49,64 +60,63 @@ export const cnamNomenclatureApi = {
 };
 
 // ── Indicative reimbursement estimate (editor-only) ────────────────────────────────────────────────
-// The estimate is purely a UI aid: it is NEVER persisted and NEVER printed on the BS1 PDF (spec R-9).
-// It mirrors the authoritative, tested backend calculator (GET /cnam-nomenclature/reimbursement-estimate,
-// CnamReimbursementCalculator): estimate = coefficient × VLC × rate, where the VLC values are the
-// admin-managed DB set and the rate is age-based (70% ages 4–18 inclusive, 60% otherwise; unknown DOB →
-// 60%). Computed client-side from the fetched VLC map so the acts table stays live per keystroke.
+// The estimate is purely a UI aid: it is NEVER persisted and NEVER printed on the BS1 PDF (spec R-9,
+// AC-P6.16).
+//
+// The arithmetic is the BACKEND's (AC-P6.15). This module used to carry its own `CHILD_RATE`/`ADULT_RATE`,
+// its own age-at-care-date computation and its own `coefficient × VLC × rate` — a second authority over a
+// reimbursement figure, which would have drifted the first time CNAM moved a rate or the band edges. One call
+// per bulletin now goes to `POST /cnam-nomenclature/reimbursement-estimates`, whose handler shares
+// `CnamReimbursementCalculator` with the BS1 claim side.
+//
+// What stays here is *parsing the cotation cell*, which is input handling rather than calculation: the
+// endpoint takes a lettre clé and a coefficient, and the editor's single free-text field holds both.
 
-const CHILD_RATE = 0.7;
-const ADULT_RATE = 0.6;
-
-// Age in full years at the care date (not today), matching the backend calculator.
-function ageAt(dateOfBirth: string, careDate: Date): number {
-  const dob = new Date(dateOfBirth);
-  let age = careDate.getFullYear() - dob.getFullYear();
-  const m = careDate.getMonth() - dob.getMonth();
-  if (m < 0 || (m === 0 && careDate.getDate() < dob.getDate())) {
-    age--;
-  }
-  return age;
+/** Parsed act ready to be estimated. `careDate` is per-act — the rate depends on the age at the care date. */
+export interface ReimbursementEstimateItem {
+  lettreCle: string;
+  coefficient: number;
+  careDate?: string | null;
 }
 
-export function reimbursementRate(dateOfBirth: string | null | undefined, careDate: Date): number {
-  if (!dateOfBirth) return ADULT_RATE;
-  const age = ageAt(dateOfBirth, careDate);
-  return age >= 4 && age <= 18 ? CHILD_RATE : ADULT_RATE;
+/** One estimate, aligned by index to the request's items. `estimate: null` renders as "—", never as zero. */
+export interface ReimbursementEstimateDto {
+  estimate: number | null;
+  rateApplied: number;
 }
 
-// Parse a cotation string ("<lettreCle> <coefficient>", e.g. "D 15") into its parts.
-// Returns null when the format does not match (free-text act → no estimate).
-function parseCotation(cotation: string): { lettreCle: string; coefficient: number } | null {
+/**
+ * Parse a cotation string ("<lettreCle> <coefficient>", e.g. "D 15") into its parts.
+ * Returns null when the format does not match (free-text act → no estimate).
+ */
+export function parseCotation(cotation: string): { lettreCle: string; coefficient: number } | null {
   const match = cotation.trim().match(/^([A-Za-z]+)\s+([0-9]+(?:[.,][0-9]+)?)$/);
   if (!match) {
     return null;
   }
   const coefficient = parseFloat(match[2].replace(',', '.'));
-  if (!Number.isFinite(coefficient)) {
+  if (!Number.isFinite(coefficient) || coefficient <= 0) {
     return null;
   }
   return { lettreCle: match[1].toUpperCase(), coefficient };
 }
 
 /**
- * Indicative reimbursement estimate for a single act, from its cotation cell.
- * Estimate = coefficient × VLC(lettreCle) × age-rate. Returns null (→ "—") for free-text acts, a lettre
- * clé with no VLC value, or a missing/zero coefficient.
+ * Indicative estimates for every act of one bulletin, in one round trip. Results are aligned to `items`
+ * by index. Throws `ApiError` on failure — the caller must surface that rather than showing nothing
+ * (AC-P6.17): a silent empty column is indistinguishable from « aucun acte remboursable ».
  */
-export function estimateReimbursement(
-  cotation: string,
-  vlcMap: Record<string, number>,
-  dateOfBirth: string | null | undefined,
-  careDate: Date,
-): number | null {
-  const parsed = parseCotation(cotation);
-  if (!parsed) {
-    return null;
+export async function estimateReimbursements(
+  items: ReimbursementEstimateItem[],
+  patientDateOfBirth: string | null | undefined,
+  careDate?: string | null,
+): Promise<ReimbursementEstimateDto[]> {
+  if (items.length === 0) {
+    return [];
   }
-  const vlc = vlcMap[parsed.lettreCle];
-  if (vlc === undefined || parsed.coefficient <= 0) {
-    return null;
-  }
-  return parsed.coefficient * vlc * reimbursementRate(dateOfBirth, careDate);
+  return apiPost<ReimbursementEstimateDto[]>('/cnam-nomenclature/reimbursement-estimates', {
+    items,
+    patientDateOfBirth: patientDateOfBirth ?? null,
+    careDate: careDate ?? null,
+  });
 }

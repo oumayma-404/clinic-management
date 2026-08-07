@@ -18,6 +18,14 @@ public class DentalRecordConfiguration : IEntityTypeConfiguration<DentalRecord>
         builder.Property(dr => dr.PatientId)
             .IsRequired();
 
+        // Denormalised from the patient so this clinical child carries a global query filter of its
+        // own — see ApplicationDbContext.OnModelCreating. The two must agree; verify-schema's
+        // clinical-child-clinic-matches-patient is what holds that.
+        builder.Property(dr => dr.ClinicId)
+            .IsRequired();
+
+        builder.HasIndex(dr => dr.ClinicId);
+
         builder.Property(dr => dr.InterventionDate)
             .IsRequired();
 
@@ -28,12 +36,10 @@ public class DentalRecordConfiguration : IEntityTypeConfiguration<DentalRecord>
         // Millimes (3 decimals), matching DentalRecordAct.Cost and every other money column — a 2-decimal
         // column silently rounded the derived total away from the sum of its acts.
         builder.Property(dr => dr.Cost)
-            .IsRequired()
-            .HasColumnType("decimal(18,3)");
+            .IsRequired();
 
         builder.Property(dr => dr.AmountPaid)
-            .IsRequired()
-            .HasColumnType("decimal(18,3)");
+            .IsRequired();
 
         builder.Property(dr => dr.Notes)
             .HasConversion(
@@ -62,6 +68,18 @@ public class DentalRecordConfiguration : IEntityTypeConfiguration<DentalRecord>
         builder.Property(dr => dr.IsAdultTeeth)
             .IsRequired();
 
+        // The appointment this fiche documents. Column + index have existed since AddDentalRecordAppointmentId
+        // (2026-07-17); only the model never declared them, so nothing populated the column and the next
+        // `migrations add` would have emitted DropColumn for it.
+        //
+        // Mapped as a bare property with a bare index and deliberately NO `HasOne`/`HasForeignKey`: PostgreSQL has no
+        // FK constraint here (verified against pg_constraint), and declaring a relationship would make the model
+        // claim one the catalog does not have — drift in the opposite direction, which `verify-schema` would flag.
+        // A soft link is also the right semantics: deleting an appointment must not cascade into clinical records.
+        builder.Property(dr => dr.AppointmentId);
+
+        builder.HasIndex(dr => dr.AppointmentId);
+
         builder.Property(dr => dr.CreatedAt)
             .IsRequired();
 
@@ -87,6 +105,25 @@ public class DentalRecordConfiguration : IEntityTypeConfiguration<DentalRecord>
 
         builder.Navigation(dr => dr.Teeth).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.Navigation(dr => dr.Acts).UsePropertyAccessMode(PropertyAccessMode.Field);
+
+        // L9 attribution — who earned this. A real FK to `Doctors`, not a bare Guid column: before L9 the only FK
+        // to that table in the entire model was `Appointment.DoctorId`, and `WaitingListEntry.PreferredDoctorId`
+        // demonstrates the cost of the bare form — nothing stopped it holding an id from another clinic, or one
+        // that no longer exists.
+        //
+        // ⚠️ `SetNull`, matching `Appointment.DoctorId`: deleting a practitioner must leave the money and the
+        // clinical record intact and merely unattributed. `Cascade` here would delete invoices when a dentist
+        // leaves the practice, and `Restrict` would make removing them impossible.
+        builder.HasOne(x => x.Doctor)
+            .WithMany()
+            .HasForeignKey(x => x.DoctorId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // Indexed for the practitioner filter on /factures and on the dashboard's Argent section — the only two
+        // readers, and both filter on it.
+        builder.HasIndex(x => x.DoctorId);
+
     }
 }
 

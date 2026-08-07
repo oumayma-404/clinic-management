@@ -446,4 +446,294 @@ public class AmendTreatmentPlanCommandHandlerTests
         Assert.Equal(0, plan.RevisionNumber);
         NothingCommitted();
     }
+
+    // ---- In-place act edits ------------------------------------------------------------------------------
+    //
+    // The gap these close: the endpoint took additions and removals only, so "this act's price is wrong" had to
+    // be expressed as remove-then-add — which re-issues the act's id (orphaning the appointment and fiche links,
+    // neither of which has an FK) and is refused outright once the act is Done or booked. Those are exactly the
+    // acts whose price is usually noticed to be wrong, so the correction the dentist needs most was unreachable.
+
+    /// <summary>One in-place edit of an existing act, carrying whatever the caller wants changed.</summary>
+    private static List<TreatmentPlanItemRequest> Edit(
+        Guid itemId, string designation, decimal cost, params int[] teeth) =>
+        new()
+        {
+            new()
+            {
+                Id = itemId,
+                DesignationFr = designation,
+                PlannedCost = cost,
+                ToothNumbers = teeth.ToList(),
+            },
+        };
+
+    // Editing an act in place keeps its id — the whole reason this exists rather than remove-then-add — and the
+    // new fee lands in the total.
+    [Fact]
+    public async Task Editing_An_Act_Keeps_Its_Id_And_Moves_The_Total()
+    {
+        var plan = AcceptedPlan();
+        var itemId = plan.Items.First().Id;
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            UpdateItems = Edit(itemId, "Couronne céramique", 750m, 11, 21),
+            Installments = Schedule(1150m), // 750 + 400
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var edited = plan.Items.Single(i => i.Id == itemId);
+        Assert.Equal("Couronne céramique", edited.DesignationFr);
+        Assert.Equal(750m, edited.PlannedCost);
+        Assert.Equal(new[] { 11, 21 }, edited.ToothNumbers);
+        Assert.Equal(1150m, plan.TotalPlanned);
+        Assert.Equal(2, plan.Items.Count);
+        Assert.Equal(1, plan.RevisionNumber);
+    }
+
+    // THE case this feature exists for: a wrong price on work already carried out. Removal is refused for a
+    // réalisé act (Removing_A_Done_Act_Is_Rejected), so before this there was no way to correct it at all. The
+    // act stays Done and keeps its fiche link — a price correction is not a claim that the act un-happened.
+    [Fact]
+    public async Task Editing_A_Done_Acts_Price_Is_Allowed_And_Leaves_It_Done()
+    {
+        var plan = AcceptedPlan();
+        var doneId = plan.Items.First().Id;
+        var recordId = Guid.NewGuid();
+        plan.MarkItemDone(doneId, Due, recordId);
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            UpdateItems = Edit(doneId, "Couronne", 500m, 11),
+            Installments = Schedule(900m), // 500 + 400
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var edited = plan.Items.Single(i => i.Id == doneId);
+        Assert.Equal(500m, edited.PlannedCost);
+        Assert.Equal(TreatmentPlanItemStatus.Done, edited.Status);
+        Assert.Equal(recordId, edited.LinkedDentalRecordId);
+        Assert.Equal(Due, edited.DoneDate);
+    }
+
+    // The mirror case: an act the patient is still booked for also refuses removal, so editing in place is the
+    // only route. Nothing about the appointment changes — it points at the same act id.
+    [Fact]
+    public async Task Editing_A_Booked_Acts_Price_Is_Allowed()
+    {
+        var plan = AcceptedPlan();
+        var bookedId = plan.Items.First().Id;
+        BookedFor(bookedId, DateTime.UtcNow.AddDays(9));
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            UpdateItems = Edit(bookedId, "Couronne", 800m, 11),
+            Installments = Schedule(1200m),
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(800m, plan.Items.Single(i => i.Id == bookedId).PlannedCost);
+    }
+
+    // An edit naming an act that is not on this plan is refused rather than silently added — a caller asking to
+    // revise a specific act and getting a new one instead would double the line and the total.
+    [Fact]
+    public async Task Editing_An_Act_That_Is_Not_On_The_Plan_Is_Rejected()
+    {
+        var plan = AcceptedPlan();
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            UpdateItems = Edit(Guid.NewGuid(), "Implant", 500m),
+            Installments = Schedule(1000m),
+        }, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(2, plan.Items.Count);
+        Assert.Equal(1000m, plan.TotalPlanned);
+        Assert.Equal(0, plan.RevisionNumber);
+        NothingCommitted();
+    }
+
+    // A batch is all-or-nothing: the second edit is unknown, so the first must not have been applied either —
+    // a half-applied batch leaves a total matching neither the old devis nor the new one.
+    [Fact]
+    public async Task A_Batch_Of_Edits_Is_All_Or_Nothing()
+    {
+        var plan = AcceptedPlan();
+        var goodId = plan.Items.First().Id;
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            UpdateItems = new List<TreatmentPlanItemRequest>
+            {
+                new() { Id = goodId, DesignationFr = "Couronne céramique", PlannedCost = 750m },
+                new() { Id = Guid.NewGuid(), DesignationFr = "Fantôme", PlannedCost = 100m },
+            },
+            Installments = Schedule(1250m),
+        }, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Couronne", plan.Items.Single(i => i.Id == goodId).DesignationFr);
+        Assert.Equal(600m, plan.Items.Single(i => i.Id == goodId).PlannedCost);
+        NothingCommitted();
+    }
+
+    // The changed-total rule applies to an edit exactly as it does to an add or a remove: a new fee with no
+    // re-spread échéancier would break Σ installment.Amount == TotalPlanned.
+    [Fact]
+    public async Task An_Edit_That_Changes_The_Total_Without_A_Schedule_Is_Rejected()
+    {
+        var plan = AcceptedPlan();
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            UpdateItems = Edit(plan.Items.First().Id, "Couronne", 750m, 11),
+        }, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Contains("échéancier", result.Error!);
+        NothingCommitted();
+    }
+
+    // A rename that leaves the fee alone changes no total, so it needs no schedule.
+    [Fact]
+    public async Task A_Rename_That_Leaves_The_Total_Alone_Needs_No_Schedule()
+    {
+        var plan = AcceptedPlan();
+        var itemId = plan.Items.First().Id;
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            UpdateItems = Edit(itemId, "Couronne céramo-métallique", 600m, 11),
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Couronne céramo-métallique", plan.Items.Single(i => i.Id == itemId).DesignationFr);
+        Assert.Equal(1000m, plan.TotalPlanned);
+    }
+
+    // The billed-plan guard covers the new path too — it is the correctness guard for every amendment, not just
+    // for additions.
+    [Fact]
+    public async Task Editing_An_Act_On_A_Billed_Plan_Is_Rejected()
+    {
+        var plan = AcceptedPlan();
+        BridgedTo(plan.Id, InvoiceStatus.Issued);
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            UpdateItems = Edit(plan.Items.First().Id, "Couronne", 750m, 11),
+            Installments = Schedule(1150m),
+        }, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Contains("déjà facturé", result.Error!);
+        Assert.Equal(600m, plan.Items.First().PlannedCost);
+        NothingCommitted();
+    }
+
+    // ---- Title / notes ----------------------------------------------------------------------------------
+
+    // The title is what the patient reads on their devis; a typo used to freeze at acceptance, fixable only by
+    // cancelling the devis and losing its number.
+    [Fact]
+    public async Task Retitling_An_Accepted_Devis_Is_Allowed_And_Bumps_The_Revision()
+    {
+        var plan = AcceptedPlan();
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            Title = "Réhabilitation complète",
+            Notes = "Accord du patient le 12/03.",
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Réhabilitation complète", plan.Title);
+        Assert.Equal("Accord du patient le 12/03.", plan.Notes);
+        Assert.Equal("2026-0014", plan.Number);
+        Assert.Equal(1, plan.RevisionNumber);
+    }
+
+    // Notes are tri-state: an explicit null clears them.
+    [Fact]
+    public async Task Sending_Null_Notes_Clears_Them()
+    {
+        var plan = AcceptedPlan();
+        plan.UpdateDetails(plan.Title, "À revoir");
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            Notes = null,
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(plan.Notes);
+    }
+
+    // The amend dialog always sends both fields, so re-submitting them unchanged must not read as an
+    // amendment — « révision N » only means something if it counts edits the patient could hold a printout of.
+    [Fact]
+    public async Task Resubmitting_The_Same_Title_And_Notes_Is_Not_An_Amendment()
+    {
+        var plan = AcceptedPlan();
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            Title = "Réhabilitation",
+            Notes = null, // the plan has none
+        }, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Aucune modification demandée.", result.Error);
+        Assert.Equal(0, plan.RevisionNumber);
+        NothingCommitted();
+    }
+
+    // A blank title is "leave it alone", not "clear it" — the aggregate requires one.
+    [Fact]
+    public async Task A_Blank_Title_Leaves_The_Existing_One()
+    {
+        var plan = AcceptedPlan();
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            Title = "   ",
+            UpdateItems = Edit(plan.Items.First().Id, "Couronne céramique", 600m, 11),
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Réhabilitation", plan.Title);
+    }
+
+    // The version the user was editing is what the save is validated against — an amendment now rewrites fees
+    // in place, so a lost update is a money defect rather than a merge annoyance.
+    [Fact]
+    public async Task The_Clients_Version_Is_Passed_To_The_Concurrency_Check()
+    {
+        var plan = AcceptedPlan();
+
+        var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
+        {
+            Id = plan.Id,
+            Version = 42,
+            UpdateItems = Edit(plan.Items.First().Id, "Couronne céramique", 600m, 11),
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        _uow.Verify(u => u.SetExpectedVersion(plan, 42u), Times.Once);
+    }
 }

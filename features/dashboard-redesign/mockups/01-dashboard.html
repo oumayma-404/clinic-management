@@ -1,0 +1,790 @@
+<title>Tableau de bord — refonte visuelle</title>
+
+<style>
+  /* ══════════════════════════════════════════════════════════════════════════
+     THREE ACCENT DIRECTIONS, switched by data-variant on :root.
+     Semantic colours (bon / attention / mauvais) are deliberately NOT part of a
+     variant: state must not change meaning when the brand hue does.
+     ══════════════════════════════════════════════════════════════════════════ */
+  :root {
+    /* — « Menthe clinique » (default) — */
+    --accent: oklch(0.60 0.115 185);
+    --accent-deep: oklch(0.455 0.095 190);
+    --accent-deep-2: oklch(0.38 0.085 195);
+    --accent-ink: oklch(0.38 0.09 190);
+    --accent-wash: oklch(0.955 0.028 190);
+    --ground: oklch(0.975 0.008 210);
+    --card: oklch(1 0 0);
+    --ink: oklch(0.20 0.015 230);
+    --ink-soft: oklch(0.50 0.02 230);
+    --line: oklch(0.915 0.008 220);
+    --line-soft: oklch(0.945 0.006 220);
+
+    /* semantic — constant across variants */
+    --good: oklch(0.55 0.13 155);
+    --good-wash: oklch(0.955 0.035 155);
+    --bad: oklch(0.55 0.19 25);
+    --bad-wash: oklch(0.962 0.03 25);
+    --warn: oklch(0.68 0.15 72);
+    --warn-wash: oklch(0.965 0.045 80);
+
+    --r-lg: 16px;
+    --r-md: 10px;
+    --r-sm: 7px;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+    --lift: 0 1px 2px oklch(0.2 0.02 230 / 0.05), 0 10px 28px -18px oklch(0.2 0.02 230 / 0.22);
+    --lift-accent: 0 1px 2px oklch(0.3 0.08 190 / 0.14), 0 16px 34px -18px oklch(0.35 0.09 190 / 0.42);
+  }
+
+  :root[data-variant="bleu"] {
+    --accent: oklch(0.545 0.155 250);
+    --accent-deep: oklch(0.435 0.145 253);
+    --accent-deep-2: oklch(0.34 0.12 256);
+    --accent-ink: oklch(0.40 0.14 250);
+    --accent-wash: oklch(0.958 0.028 250);
+    --ground: oklch(0.975 0.008 250);
+    --ink: oklch(0.20 0.015 255);
+    --ink-soft: oklch(0.50 0.02 255);
+    --line: oklch(0.915 0.008 250);
+    --line-soft: oklch(0.945 0.006 250);
+    --lift-accent: 0 1px 2px oklch(0.3 0.12 250 / 0.16), 0 16px 34px -18px oklch(0.35 0.14 250 / 0.44);
+  }
+
+  :root[data-variant="ambre"] {
+    --accent: oklch(0.665 0.135 62);
+    --accent-deep: oklch(0.50 0.115 55);
+    --accent-deep-2: oklch(0.40 0.095 50);
+    --accent-ink: oklch(0.44 0.11 55);
+    --accent-wash: oklch(0.965 0.04 75);
+    --ground: oklch(0.978 0.012 82);
+    --ink: oklch(0.21 0.015 60);
+    --ink-soft: oklch(0.50 0.022 60);
+    --line: oklch(0.918 0.012 75);
+    --line-soft: oklch(0.948 0.009 78);
+    --lift-accent: 0 1px 2px oklch(0.35 0.10 55 / 0.16), 0 16px 34px -18px oklch(0.40 0.11 55 / 0.42);
+  }
+
+  /* ── dark: token-level, so nothing below needs to know ─────────────────── */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent: oklch(0.70 0.115 185);
+      --accent-deep: oklch(0.40 0.075 190);
+      --accent-deep-2: oklch(0.30 0.06 195);
+      --accent-ink: oklch(0.78 0.10 188);
+      --accent-wash: oklch(0.26 0.035 190);
+      --ground: oklch(0.135 0.008 230);
+      --card: oklch(0.185 0.012 235);
+      --ink: oklch(0.965 0.006 230);
+      --ink-soft: oklch(0.66 0.015 230);
+      --line: oklch(0.265 0.012 230);
+      --line-soft: oklch(0.225 0.01 230);
+      --good: oklch(0.72 0.14 155);
+      --good-wash: oklch(0.27 0.045 155);
+      --bad: oklch(0.68 0.17 25);
+      --bad-wash: oklch(0.28 0.05 25);
+      --warn: oklch(0.78 0.14 78);
+      --warn-wash: oklch(0.30 0.05 78);
+      --lift: 0 1px 2px oklch(0 0 0 / 0.4), 0 12px 30px -18px oklch(0 0 0 / 0.7);
+      --lift-accent: 0 1px 2px oklch(0 0 0 / 0.45), 0 18px 36px -18px oklch(0 0 0 / 0.75);
+    }
+    :root[data-variant="bleu"] {
+      --accent: oklch(0.66 0.16 252);
+      --accent-deep: oklch(0.38 0.13 254);
+      --accent-deep-2: oklch(0.28 0.10 256);
+      --accent-ink: oklch(0.76 0.13 250);
+      --accent-wash: oklch(0.26 0.05 250);
+      --ground: oklch(0.135 0.008 250);
+      --card: oklch(0.185 0.012 250);
+    }
+    :root[data-variant="ambre"] {
+      --accent: oklch(0.76 0.13 68);
+      --accent-deep: oklch(0.44 0.10 58);
+      --accent-deep-2: oklch(0.33 0.08 54);
+      --accent-ink: oklch(0.82 0.11 70);
+      --accent-wash: oklch(0.28 0.05 70);
+      --ground: oklch(0.14 0.01 70);
+      --card: oklch(0.19 0.014 68);
+    }
+  }
+
+  /* The viewer's toggle must win over the media query, in both directions. */
+  :root[data-theme="dark"] {
+    --card: oklch(0.185 0.012 235);
+    --ground: oklch(0.135 0.008 230);
+    --ink: oklch(0.965 0.006 230);
+    --ink-soft: oklch(0.66 0.015 230);
+    --line: oklch(0.265 0.012 230);
+    --line-soft: oklch(0.225 0.01 230);
+    --accent: oklch(0.70 0.115 185);
+    --accent-deep: oklch(0.40 0.075 190);
+    --accent-deep-2: oklch(0.30 0.06 195);
+    --accent-ink: oklch(0.78 0.10 188);
+    --accent-wash: oklch(0.26 0.035 190);
+    --good: oklch(0.72 0.14 155);
+    --good-wash: oklch(0.27 0.045 155);
+    --bad: oklch(0.68 0.17 25);
+    --bad-wash: oklch(0.28 0.05 25);
+    --warn: oklch(0.78 0.14 78);
+    --warn-wash: oklch(0.30 0.05 78);
+    --lift: 0 1px 2px oklch(0 0 0 / 0.4), 0 12px 30px -18px oklch(0 0 0 / 0.7);
+    --lift-accent: 0 1px 2px oklch(0 0 0 / 0.45), 0 18px 36px -18px oklch(0 0 0 / 0.75);
+  }
+  :root[data-theme="dark"][data-variant="bleu"] {
+    --accent: oklch(0.66 0.16 252); --accent-deep: oklch(0.38 0.13 254);
+    --accent-deep-2: oklch(0.28 0.10 256); --accent-ink: oklch(0.76 0.13 250);
+    --accent-wash: oklch(0.26 0.05 250); --ground: oklch(0.135 0.008 250); --card: oklch(0.185 0.012 250);
+  }
+  :root[data-theme="dark"][data-variant="ambre"] {
+    --accent: oklch(0.76 0.13 68); --accent-deep: oklch(0.44 0.10 58);
+    --accent-deep-2: oklch(0.33 0.08 54); --accent-ink: oklch(0.82 0.11 70);
+    --accent-wash: oklch(0.28 0.05 70); --ground: oklch(0.14 0.01 70); --card: oklch(0.19 0.014 68);
+  }
+  :root[data-theme="light"] {
+    --card: oklch(1 0 0);
+    --ground: oklch(0.975 0.008 210);
+    --ink: oklch(0.20 0.015 230);
+    --ink-soft: oklch(0.50 0.02 230);
+    --line: oklch(0.915 0.008 220);
+    --line-soft: oklch(0.945 0.006 220);
+    --accent: oklch(0.60 0.115 185);
+    --accent-deep: oklch(0.455 0.095 190);
+    --accent-deep-2: oklch(0.38 0.085 195);
+    --accent-ink: oklch(0.38 0.09 190);
+    --accent-wash: oklch(0.955 0.028 190);
+    --good: oklch(0.55 0.13 155); --good-wash: oklch(0.955 0.035 155);
+    --bad: oklch(0.55 0.19 25); --bad-wash: oklch(0.962 0.03 25);
+    --warn: oklch(0.68 0.15 72); --warn-wash: oklch(0.965 0.045 80);
+    --lift: 0 1px 2px oklch(0.2 0.02 230 / 0.05), 0 10px 28px -18px oklch(0.2 0.02 230 / 0.22);
+    --lift-accent: 0 1px 2px oklch(0.3 0.08 190 / 0.14), 0 16px 34px -18px oklch(0.35 0.09 190 / 0.42);
+  }
+  :root[data-theme="light"][data-variant="bleu"] {
+    --accent: oklch(0.545 0.155 250); --accent-deep: oklch(0.435 0.145 253);
+    --accent-deep-2: oklch(0.34 0.12 256); --accent-ink: oklch(0.40 0.14 250);
+    --accent-wash: oklch(0.958 0.028 250); --ground: oklch(0.975 0.008 250);
+  }
+  :root[data-theme="light"][data-variant="ambre"] {
+    --accent: oklch(0.665 0.135 62); --accent-deep: oklch(0.50 0.115 55);
+    --accent-deep-2: oklch(0.40 0.095 50); --accent-ink: oklch(0.44 0.11 55);
+    --accent-wash: oklch(0.965 0.04 75); --ground: oklch(0.978 0.012 82);
+  }
+
+  /* ══ page chrome ════════════════════════════════════════════════════════ */
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 260ms ease;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 44px 24px 90px; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-soft); margin: 0;
+  }
+  h1 {
+    font-size: clamp(27px, 3.4vw, 38px); line-height: 1.1; letter-spacing: -0.025em;
+    font-weight: 660; text-wrap: balance; margin: 10px 0 0;
+  }
+  .lede { max-width: 64ch; color: var(--ink-soft); margin: 14px 0 0; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  .diag { margin: 22px 0 0; border-collapse: collapse; font-size: 13.5px; width: 100%; max-width: 720px; }
+  .diag th, .diag td { text-align: left; padding: 7px 12px 7px 0; border-bottom: 1px solid var(--line-soft); }
+  .diag th { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-soft); font-weight: 500; }
+  .diag td:last-child { font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft); }
+
+  h2.sect {
+    font-size: 21px; font-weight: 640; letter-spacing: -0.015em; margin: 0 0 4px;
+  }
+  .sect-note { color: var(--ink-soft); font-size: 14px; margin: 0 0 18px; max-width: 62ch; }
+  hr.rule { border: 0; border-top: 1px solid var(--line); margin: 44px 0; }
+
+  /* variant switcher */
+  .switcher {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    position: sticky; top: 0; z-index: 20;
+    padding: 12px 0; margin-bottom: 18px;
+    background: color-mix(in oklab, var(--ground) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .switcher .lbl {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--ink-soft); margin-right: 4px;
+  }
+  .vbtn {
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    border-radius: 999px; padding: 6px 13px 6px 9px; font: inherit; font-size: 13px;
+    transition: border-color 160ms ease, background-color 160ms ease;
+  }
+  .vbtn:hover { border-color: var(--accent); }
+  .vbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .vbtn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-wash); color: var(--accent-ink); font-weight: 600; }
+  .vbtn .sw { width: 13px; height: 13px; border-radius: 50%; }
+  .sw-menthe { background: oklch(0.60 0.115 185); }
+  .sw-bleu   { background: oklch(0.545 0.155 250); }
+  .sw-ambre  { background: oklch(0.665 0.135 62); }
+
+  /* ══ AVANT — the current look, hardcoded to today's tokens ══════════════ */
+  .before {
+    --b-bg: #fcfcfc; --b-card: #ffffff; --b-ink: #2e2e2e; --b-mut: #74798a;
+    --b-line: #eceef1; --b-blue: #2f6cb0;
+    background: var(--b-bg); color: var(--b-ink);
+    border: 1px solid var(--line); border-radius: var(--r-lg);
+    padding: 22px; overflow-x: auto;
+  }
+  @media (prefers-color-scheme: dark) {
+    .before { --b-bg: #1b1c1f; --b-card: #232529; --b-ink: #f4f5f6; --b-mut: #8e93a1; --b-line: #33363c; --b-blue: #5b8fd6; }
+  }
+  :root[data-theme="dark"] .before { --b-bg: #1b1c1f; --b-card: #232529; --b-ink: #f4f5f6; --b-mut: #8e93a1; --b-line: #33363c; --b-blue: #5b8fd6; }
+  :root[data-theme="light"] .before { --b-bg: #fcfcfc; --b-card: #ffffff; --b-ink: #2e2e2e; --b-mut: #74798a; --b-line: #eceef1; --b-blue: #2f6cb0; }
+
+  .before-inner { min-width: 620px; }
+  .before h3 { font-size: 24px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .before .sub { font-size: 13px; color: var(--b-mut); margin: 3px 0 0; }
+  .before .pill-row { display: flex; gap: 8px; margin-top: 14px; }
+  .before .pill { font-size: 13px; padding: 5px 11px; border-radius: 6px; border: 1px solid var(--b-line); background: var(--b-card); color: var(--b-mut); }
+  .before .pill.on { background: var(--b-blue); border-color: var(--b-blue); color: #fff; }
+  .before .shead { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--b-line); padding-bottom: 7px; margin: 22px 0 11px; }
+  .before .shead b { font-size: 15px; font-weight: 600; }
+  .before .shead span { font-size: 11.5px; color: var(--b-mut); }
+  .before .bgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--b-line); border: 1px solid var(--b-line); border-radius: 8px; overflow: hidden; }
+  .before .cell { background: var(--b-card); padding: 16px; }
+  .before .cell .l { font-size: 13px; color: var(--b-mut); font-weight: 500; }
+  .before .cell .v { font-size: 22px; font-weight: 600; margin-top: 3px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .before .cell.hero { grid-column: span 2; }
+  .before .cell.hero .v { font-size: 34px; letter-spacing: -0.025em; }
+  .before .cell .d { font-size: 11.5px; color: var(--b-mut); margin-top: 3px; }
+  .before .cell .delta { font-size: 11.5px; margin-top: 9px; font-weight: 500; }
+  .before .cell .delta.up { color: #15803d; }
+  .before .cell .delta.dn { color: #b91c1c; }
+
+  /* ══ APRÈS — the redesign ═══════════════════════════════════════════════ */
+  .dash {
+    background: var(--ground); border: 1px solid var(--line);
+    border-radius: 20px; padding: 24px; overflow-x: auto;
+    transition: background-color 260ms ease;
+  }
+  .dash-inner { min-width: 660px; }
+
+  .dash-top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+  .dash-top h3 { font-size: 27px; font-weight: 660; letter-spacing: -0.025em; margin: 0; }
+  .dash-top .when { font-size: 13.5px; color: var(--ink-soft); margin: 4px 0 0; }
+  .dash-top .when b { color: var(--ink); font-weight: 600; }
+
+  /* Period control: one segmented track, not three separate buttons. */
+  .seg { display: inline-flex; padding: 3px; gap: 2px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--lift); }
+  .seg button {
+    border: 0; background: none; cursor: pointer; font: inherit; font-size: 13px;
+    color: var(--ink-soft); padding: 6px 14px; border-radius: 999px;
+    transition: background-color 170ms ease, color 170ms ease;
+  }
+  .seg button:hover { color: var(--ink); }
+  .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; font-weight: 600; }
+  :root[data-variant="ambre"] .seg button[aria-pressed="true"] { color: oklch(0.22 0.03 55); }
+
+  .sblock { margin-top: 26px; }
+  .sblock-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 11px; }
+  .sblock-head .t { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); font-weight: 500; }
+  .sblock-head .h { font-size: 11.5px; color: var(--ink-soft); font-family: var(--mono); }
+
+  /* The money row: hero panel + a card grid beside it. */
+  .money { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 2fr); gap: 12px; align-items: stretch; }
+  @media (max-width: 860px) { .money { grid-template-columns: minmax(0, 1fr); } }
+
+  /* THE one bold move: a single filled accent surface. Everything else stays quiet. */
+  .hero {
+    position: relative; overflow: hidden; border-radius: var(--r-lg);
+    padding: 20px 20px 18px;
+    background:
+      radial-gradient(120% 90% at 100% 0%, color-mix(in oklab, var(--accent) 55%, transparent) 0%, transparent 62%),
+      linear-gradient(158deg, var(--accent-deep) 0%, var(--accent-deep-2) 100%);
+    color: #fff; box-shadow: var(--lift-accent);
+    display: flex; flex-direction: column; justify-content: space-between; gap: 14px;
+    text-decoration: none;
+  }
+  :root[data-variant="ambre"] .hero { color: oklch(0.985 0.01 80); }
+  .hero .hl { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .hero .hlabel { font-size: 12.5px; font-weight: 600; letter-spacing: 0.02em; opacity: 0.86; }
+  .hero .hval { font-size: clamp(30px, 4.6vw, 42px); font-weight: 680; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; line-height: 1; margin: 6px 0 0; }
+  .hero .hsub { font-size: 12px; opacity: 0.74; margin: 7px 0 0; }
+  .hero .hpill {
+    display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
+    background: color-mix(in oklab, #fff 22%, transparent);
+    border: 1px solid color-mix(in oklab, #fff 26%, transparent);
+    border-radius: 999px; padding: 3px 9px; font-size: 12px; font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .hero .spark { display: block; width: 100%; height: 46px; opacity: 0.95; }
+  .hero .glyph { position: absolute; right: -18px; bottom: -22px; opacity: 0.10; }
+
+  /* Sibling money figures: one shared surface, hairlines from gap-over-border. */
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--lift); }
+  .cards.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 720px) { .cards, .cards.c3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+  .kpi {
+    background: var(--card); padding: 15px 16px 14px; text-decoration: none; color: inherit;
+    display: block; position: relative;
+    transition: background-color 170ms ease;
+  }
+  .kpi:hover { background: var(--accent-wash); }
+  .kpi:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .kpi .top { display: flex; align-items: center; gap: 7px; }
+  .kpi .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; opacity: 0.75; }
+  .kpi .l { font-size: 12.5px; font-weight: 550; color: var(--ink-soft); }
+  .kpi .v { font-size: 23px; font-weight: 640; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin: 5px 0 0; }
+  .kpi .d { font-size: 11.5px; color: var(--ink-soft); margin: 2px 0 0; }
+
+  /* Delta as a tinted pill — the single biggest "modern" cue, replacing bare coloured text. */
+  .delta {
+    display: inline-flex; align-items: center; gap: 4px; margin-top: 10px;
+    border-radius: 999px; padding: 2.5px 8px; font-size: 11.5px; font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .delta.up { background: var(--good-wash); color: var(--good); }
+  .delta.dn { background: var(--bad-wash); color: var(--bad); }
+  .delta.flat { background: var(--line-soft); color: var(--ink-soft); }
+  .delta .base { font-weight: 450; opacity: 0.8; }
+
+  /* À traiter: compact, and a count of zero must look calm. */
+  .alerts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--lift); }
+  @media (max-width: 720px) { .alerts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .al { background: var(--card); padding: 13px 15px; display: flex; align-items: center; gap: 11px; text-decoration: none; color: inherit; transition: background-color 170ms ease; }
+  .al:hover { background: var(--accent-wash); }
+  .al:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .al .n {
+    font-size: 19px; font-weight: 660; font-variant-numeric: tabular-nums;
+    min-width: 26px; letter-spacing: -0.02em;
+  }
+  .al .txt { font-size: 12.5px; color: var(--ink-soft); font-weight: 500; line-height: 1.3; }
+  .al.zero .n { color: var(--ink-soft); opacity: 0.5; font-weight: 500; }
+  /* A live count is tinted; a badge, not a rail — the tint is on the number, not a stripe down the card. */
+  .al.hot .n { color: var(--bad); }
+  .al.hot .chip, .al.live .chip {
+    display: inline-block; margin-left: 6px; border-radius: 999px; padding: 1px 6px;
+    font-size: 10px; font-family: var(--mono); letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .al.hot .chip { background: var(--bad-wash); color: var(--bad); }
+  .al.live .chip { background: var(--accent-wash); color: var(--accent-ink); }
+
+  /* Trend */
+  .trend { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 18px 18px 12px; box-shadow: var(--lift); }
+  .trend-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+  .trend-head .big { font-size: 20px; font-weight: 640; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .trend-head .cap { font-size: 11.5px; color: var(--ink-soft); font-family: var(--mono); }
+  .chart { display: block; width: 100%; height: auto; }
+  .chart .grid-l { stroke: var(--line); stroke-width: 1; }
+  .chart .axis-t { fill: var(--ink-soft); font-family: var(--mono); font-size: 10px; }
+
+  /* RDV du jour */
+  .agenda { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--lift); }
+  .ag-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 15px 17px 12px; border-bottom: 1px solid var(--line-soft); }
+  .ag-head .t { font-size: 15px; font-weight: 620; letter-spacing: -0.01em; }
+  .ag-head .c { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); }
+  .ag-row { display: flex; align-items: center; gap: 13px; padding: 11px 17px; border-bottom: 1px solid var(--line-soft); }
+  .ag-row:last-child { border-bottom: 0; }
+  .ag-row .h { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ink-soft); flex: none; width: 42px; }
+  .ag-row .av {
+    width: 30px; height: 30px; border-radius: 50%; flex: none;
+    background: var(--accent-wash); color: var(--accent-ink);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11.5px; font-weight: 650;
+  }
+  .ag-row .who { min-width: 0; flex: 1; }
+  .ag-row .who .nm { font-size: 14px; font-weight: 550; }
+  .ag-row .acts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+  .ag-row .act { font-size: 11px; border-radius: 5px; padding: 1px 6px; background: var(--line-soft); color: var(--ink-soft); }
+  .ag-row .st { flex: none; font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 2.5px 9px; }
+  .st.conf { background: var(--good-wash); color: var(--good); }
+  .st.plan { background: var(--accent-wash); color: var(--accent-ink); }
+  .st.cours { background: var(--warn-wash); color: color-mix(in oklab, var(--warn) 75%, var(--ink)); }
+
+  /* changes list */
+  .changes { display: grid; grid-template-columns: repeat(auto-fit, minmax(258px, 1fr)); gap: 18px 26px; margin-top: 4px; }
+  .ch h4 { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); font-weight: 500; margin: 0 0 5px; }
+  .ch p { margin: 0; font-size: 13.5px; }
+
+  .closing { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 24px 26px; box-shadow: var(--lift); }
+  .closing h2 { margin: 0 0 10px; font-size: 19px; font-weight: 640; letter-spacing: -0.012em; }
+  .closing p { margin: 0 0 12px; max-width: 68ch; }
+  .closing p:last-child { margin-bottom: 0; }
+  .closing code { font-family: var(--mono); font-size: 12.5px; background: var(--line-soft); padding: 1px 5px; border-radius: 4px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Tableau de bord · refonte visuelle</p>
+    <h1>Le problème n'est pas le goût, c'est le contraste</h1>
+    <p class="lede">
+      L'écran est délavé <strong>par construction</strong>, et c'est mesurable dans les tokens. Le fond et les cartes
+      sont à 1&nbsp;% d'écart, donc rien ne se détache&nbsp;; toutes les surfaces sont à une chroma de 0,005–0,01,
+      c'est-à-dire gris&nbsp;; et l'accent bleu existe mais <strong>n'habille aucune surface</strong> — il ne vit que
+      sur un petit bouton actif et la ligne du graphique.
+    </p>
+
+    <table class="diag">
+      <tr><th>Cause</th><th>Valeur actuelle</th></tr>
+      <tr><td>Fond vs carte</td><td>oklch(0.99 0 0) vs oklch(1 0 0) — 1 %</td></tr>
+      <tr><td>Chroma des surfaces</td><td>0.005 → 0.01</td></tr>
+      <tr><td>Surfaces en accent</td><td>aucune</td></tr>
+      <tr><td>Rayon</td><td>0.5rem partout</td></tr>
+      <tr><td>Deltas</td><td>texte coloré nu</td></tr>
+    </table>
+
+    <p class="lede">
+      La structure, elle, est bonne — Argent d'abord, « Net » en héros, À traiter en compact, chaque chiffre cliquable.
+      <strong>Elle est conservée telle quelle.</strong> Ce qui change est le traitement.
+    </p>
+  </header>
+
+  <hr class="rule" />
+
+  <div class="switcher" role="group" aria-label="Direction chromatique">
+    <span class="lbl">Pop de couleur</span>
+    <button class="vbtn" type="button" aria-pressed="true" onclick="setVariant('menthe', this)">
+      <span class="sw sw-menthe"></span> Menthe clinique
+    </button>
+    <button class="vbtn" type="button" aria-pressed="false" onclick="setVariant('bleu', this)">
+      <span class="sw sw-bleu"></span> Bleu profond
+    </button>
+    <button class="vbtn" type="button" aria-pressed="false" onclick="setVariant('ambre', this)">
+      <span class="sw sw-ambre"></span> Ambre chaud
+    </button>
+  </div>
+
+  <!-- ─────────────── AVANT ─────────────── -->
+  <h2 class="sect">Avant</h2>
+  <p class="sect-note">
+    L'écran actuel, rendu fidèlement à ses tokens. Regardez le bord de la page&nbsp;: on ne le trouve pas.
+  </p>
+
+  <div class="before">
+    <div class="before-inner">
+      <h3>Tableau de bord</h3>
+      <p class="sub">Ce mois — chaque chiffre ouvre le détail correspondant.</p>
+      <div class="pill-row">
+        <span class="pill">Aujourd'hui</span><span class="pill">Cette semaine</span><span class="pill on">Ce mois</span>
+      </div>
+      <div class="shead"><b>Argent</b><span>Comparé à le mois dernier</span></div>
+      <div class="bgrid">
+        <div class="cell hero">
+          <div class="l">Net</div><div class="v">14 320,500 DT</div>
+          <div class="d">Encaissé moins avoirs et dépenses</div>
+          <div class="delta up">↑ +18,4 % vs. le mois dernier</div>
+        </div>
+        <div class="cell"><div class="l">Encaissé</div><div class="v">21 480,000 DT</div><div class="d">Paiements reçus (brut)</div><div class="delta up">↑ +12,1 %</div></div>
+        <div class="cell"><div class="l">Dépenses</div><div class="v">6 210,500 DT</div><div class="d">Sorties de caisse</div><div class="delta dn">↑ +4,3 %</div></div>
+        <div class="cell"><div class="l">Créances</div><div class="v">8 940,750 DT</div><div class="d">Restant dû par les patients</div></div>
+        <div class="cell"><div class="l">Facturé</div><div class="v">23 100,000 DT</div><div class="d">Notes d'honoraires émises</div><div class="delta up">↑ +9,8 %</div></div>
+        <div class="cell"><div class="l">Avoirs remboursés</div><div class="v">949,000 DT</div><div class="d">Remboursés aux patients</div><div class="delta up">↓ −22,0 %</div></div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="rule" />
+
+  <!-- ─────────────── APRÈS ─────────────── -->
+  <h2 class="sect">Après</h2>
+  <p class="sect-note">
+    Même architecture, même données, même hiérarchie. Un fond teinté pour que les surfaces se soulèvent, une
+    <strong>seule</strong> surface pleine en accent — « Net » — et des deltas en pastilles. Changez la direction
+    chromatique en haut de page.
+  </p>
+
+  <div class="dash">
+    <div class="dash-inner">
+
+      <div class="dash-top">
+        <div>
+          <h3>Tableau de bord</h3>
+          <p class="when">Cabinet Dentaire El Manar · <b>Ce mois</b> — chaque chiffre ouvre le détail correspondant.</p>
+        </div>
+        <div class="seg" role="group" aria-label="Période">
+          <button type="button" aria-pressed="false">Aujourd'hui</button>
+          <button type="button" aria-pressed="false">Cette semaine</button>
+          <button type="button" aria-pressed="true">Ce mois</button>
+        </div>
+      </div>
+
+      <!-- ARGENT -->
+      <section class="sblock" aria-label="Argent">
+        <div class="sblock-head">
+          <span class="t">Argent</span>
+          <span class="h">comparé à le mois dernier</span>
+        </div>
+
+        <div class="money">
+          <!-- The pop: one filled panel, with the trend living inside it rather than only 400px lower. -->
+          <a class="hero" href="#">
+            <div>
+              <div class="hl">
+                <span class="hlabel">Net</span>
+                <span class="hpill">↑ +18,4 %</span>
+              </div>
+              <p class="hval">14 320,500 <span style="font-size:0.5em;font-weight:600;opacity:.75">DT</span></p>
+              <p class="hsub">Encaissé moins avoirs et dépenses · vs. le mois dernier</p>
+            </div>
+            <svg class="spark" viewBox="0 0 180 46" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#fff" stop-opacity="0.38" />
+                  <stop offset="100%" stop-color="#fff" stop-opacity="0" />
+                </linearGradient>
+              </defs>
+              <path d="M0,40 36,26.9 72,33.6 108,19.8 144,14.5 180,6 L180,46 L0,46 Z" fill="url(#sg)" />
+              <polyline points="0,40 36,26.9 72,33.6 108,19.8 144,14.5 180,6"
+                fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              <circle cx="180" cy="6" r="3.2" fill="#fff" />
+            </svg>
+            <svg class="glyph" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.4" aria-hidden="true">
+              <path d="M16 11V7a4 4 0 0 0-8 0v4M5 9h14l1 12H4L5 9z" />
+            </svg>
+          </a>
+
+          <div class="cards c3">
+            <a class="kpi" href="#">
+              <div class="top"><span class="dot"></span><span class="l">Encaissé</span></div>
+              <p class="v">21 480,000</p><p class="d">Paiements reçus (brut)</p>
+              <span class="delta up">↑ +12,1 % <span class="base">vs. mois dernier</span></span>
+            </a>
+            <a class="kpi" href="#">
+              <div class="top"><span class="dot"></span><span class="l">Facturé</span></div>
+              <p class="v">23 100,000</p><p class="d">Notes d'honoraires émises</p>
+              <span class="delta up">↑ +9,8 % <span class="base">vs. mois dernier</span></span>
+            </a>
+            <a class="kpi" href="#">
+              <div class="top"><span class="dot"></span><span class="l">Dépenses</span></div>
+              <p class="v">6 210,500</p><p class="d">Sorties de caisse</p>
+              <span class="delta dn">↑ +4,3 % <span class="base">vs. mois dernier</span></span>
+            </a>
+            <a class="kpi" href="#">
+              <div class="top"><span class="dot"></span><span class="l">Avoirs remboursés</span></div>
+              <p class="v">949,000</p><p class="d">Remboursés aux patients</p>
+              <span class="delta up">↓ −22,0 % <span class="base">vs. mois dernier</span></span>
+            </a>
+            <a class="kpi" href="#">
+              <div class="top"><span class="dot"></span><span class="l">Créances</span></div>
+              <p class="v">8 940,750</p><p class="d">Restant dû par les patients</p>
+              <!-- No delta, and that absence is the signal: a live balance has no « mois dernier ». -->
+              <span class="delta flat">— solde à l'instant</span>
+            </a>
+            <a class="kpi" href="#">
+              <div class="top"><span class="dot"></span><span class="l">Devis acceptés</span></div>
+              <p class="v">11</p><p class="d">Devis validés par le patient</p>
+              <span class="delta up">↑ +37,5 % <span class="base">vs. mois dernier</span></span>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <!-- ACTIVITÉ -->
+      <section class="sblock" aria-label="Activité">
+        <div class="sblock-head">
+          <span class="t">Activité</span>
+          <span class="h">comparé à le mois dernier</span>
+        </div>
+        <div class="cards c3">
+          <a class="kpi" href="#">
+            <div class="top"><span class="dot"></span><span class="l">Rendez-vous honorés</span></div>
+            <p class="v">142</p><p class="d">Séances réalisées</p>
+            <span class="delta up">↑ +6,8 % <span class="base">vs. mois dernier</span></span>
+          </a>
+          <a class="kpi" href="#">
+            <div class="top"><span class="dot"></span><span class="l">Nouveaux patients</span></div>
+            <p class="v">23</p><p class="d">Dossiers créés</p>
+            <span class="delta up">↑ +27,8 % <span class="base">vs. mois dernier</span></span>
+          </a>
+          <a class="kpi" href="#">
+            <div class="top"><span class="dot"></span><span class="l">Taux d'absence</span></div>
+            <p class="v">7,4 %</p><p class="d">Absences et annulations</p>
+            <!-- Down is GOOD here, so the pill is green on a falling figure. Direction alone can't pick the colour. -->
+            <span class="delta up">↓ −1,9 % <span class="base">vs. mois dernier</span></span>
+          </a>
+        </div>
+      </section>
+
+      <!-- À TRAITER -->
+      <section class="sblock" aria-label="À traiter">
+        <div class="sblock-head">
+          <span class="t">À traiter</span>
+          <span class="h">état actuel — hors période</span>
+        </div>
+        <div class="alerts">
+          <a class="al live" href="#"><span class="n">14</span><span class="txt">Patients à rappeler</span></a>
+          <a class="al live" href="#"><span class="n">6</span><span class="txt">Devis en attente de réponse</span></a>
+          <a class="al hot" href="#"><span class="n">2</span><span class="txt">Prothèses en retard<span class="chip">retard</span></span></a>
+          <a class="al hot" href="#"><span class="n">3</span><span class="txt">Stock bas<span class="chip">seuil</span></span></a>
+          <a class="al hot" href="#"><span class="n">1</span><span class="txt">Périment bientôt<span class="chip">lot</span></span></a>
+          <a class="al zero" href="#"><span class="n">0</span><span class="txt">Salle d'attente</span></a>
+        </div>
+      </section>
+
+      <!-- TENDANCE -->
+      <section class="sblock" aria-label="Tendance">
+        <div class="sblock-head">
+          <span class="t">Tendance</span>
+          <span class="h">encaissé · 6 derniers mois</span>
+        </div>
+        <div class="trend">
+          <div class="trend-head">
+            <span class="big">21 480,000 DT</span>
+            <span class="cap">juillet · plus haut de la période</span>
+          </div>
+          <svg class="chart" viewBox="0 0 660 200" role="img"
+            aria-label="Encaissé mensuel : février 12 400, mars 15 900, avril 14 100, mai 17 800, juin 19 200, juillet 21 480 dinars.">
+            <defs>
+              <linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.30" />
+                <stop offset="100%" stop-color="var(--accent)" stop-opacity="0.02" />
+              </linearGradient>
+            </defs>
+            <!-- Hairline grid only: solid, faint, three lines. Enough to read a value, not a cage. -->
+            <line class="grid-l" x1="30" y1="20" x2="640" y2="20" />
+            <line class="grid-l" x1="30" y1="95" x2="640" y2="95" />
+            <line class="grid-l" x1="30" y1="170" x2="640" y2="170" />
+            <path d="M40,150 156,99.9 272,125.7 388,72.7 504,52.6 620,20 L620,170 L40,170 Z" fill="url(#tg)" />
+            <polyline points="40,150 156,99.9 272,125.7 388,72.7 504,52.6 620,20"
+              fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+            <!-- Only the endpoint is emphasised and direct-labelled: the last month is the one being asked about. -->
+            <circle cx="620" cy="20" r="6" fill="var(--accent)" stroke="var(--card)" stroke-width="2.5" />
+            <text class="axis-t" x="40"  y="190" text-anchor="middle">févr.</text>
+            <text class="axis-t" x="156" y="190" text-anchor="middle">mars</text>
+            <text class="axis-t" x="272" y="190" text-anchor="middle">avr.</text>
+            <text class="axis-t" x="388" y="190" text-anchor="middle">mai</text>
+            <text class="axis-t" x="504" y="190" text-anchor="middle">juin</text>
+            <text class="axis-t" x="620" y="190" text-anchor="middle" style="fill:var(--accent-ink);font-weight:700">juil.</text>
+          </svg>
+        </div>
+      </section>
+
+      <!-- RDV DU JOUR -->
+      <section class="sblock" aria-label="Rendez-vous du jour">
+        <div class="agenda">
+          <div class="ag-head">
+            <span class="t">Rendez-vous du jour</span>
+            <span class="c">4 · jeu. 30 juillet</span>
+          </div>
+          <div class="ag-row">
+            <span class="h">09:00</span>
+            <span class="av">MB</span>
+            <span class="who">
+              <span class="nm">Mohamed Ben Salah</span>
+              <span class="acts"><span class="act">Détartrage</span><span class="act">Obturation</span></span>
+            </span>
+            <span class="st conf">Confirmé</span>
+          </div>
+          <div class="ag-row">
+            <span class="h">10:30</span>
+            <span class="av">AT</span>
+            <span class="who">
+              <span class="nm">Amira Trabelsi</span>
+              <span class="acts"><span class="act">Traitement de canal</span></span>
+            </span>
+            <span class="st cours">En cours</span>
+          </div>
+          <div class="ag-row">
+            <span class="h">14:00</span>
+            <span class="av">SG</span>
+            <span class="who">
+              <span class="nm">Sami Gharbi</span>
+              <span class="acts"><span class="act">Pose de couronne</span><span class="act">Contrôle</span></span>
+            </span>
+            <span class="st plan">Planifié</span>
+          </div>
+          <div class="ag-row">
+            <span class="h">16:15</span>
+            <span class="av">LK</span>
+            <span class="who">
+              <span class="nm">Leïla Karoui</span>
+              <span class="acts"><span class="act">Extraction simple</span></span>
+            </span>
+            <span class="st plan">Planifié</span>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <hr class="rule" />
+
+  <h2 class="sect">Ce qui change, et pourquoi</h2>
+  <p class="sect-note">Sept décisions. Aucune ne touche à l'architecture de l'information.</p>
+
+  <div class="changes">
+    <div class="ch">
+      <h4>Le fond est teinté</h4>
+      <p>0,975 avec une chroma de 0,008, pas 0,99 neutre. Un écart visible entre le fond et les cartes est ce qui
+        fait exister les surfaces&nbsp;; à 1&nbsp;% la page est une seule feuille.</p>
+    </div>
+    <div class="ch">
+      <h4>Une seule surface pleine</h4>
+      <p>« Net » devient un panneau en accent avec le sparkline dedans. Le pop vient d'<em>une</em> surface, pas de
+        six accents qui se disputent la page.</p>
+    </div>
+    <div class="ch">
+      <h4>Les deltas sont des pastilles</h4>
+      <p>Fond teinté + texte coloré, au lieu d'un texte coloré nu. C'est le signal « moderne » le moins cher et le
+        plus lisible ; le sens du delta reste porté par la flèche <em>et</em> le signe, jamais par la couleur seule.</p>
+    </div>
+    <div class="ch">
+      <h4>Rayons 16 px, une ombre douce</h4>
+      <p>Le « smooth » demandé. Une ombre par surface, pas par cellule&nbsp;: seize ombres, c'est du bruit.</p>
+    </div>
+    <div class="ch">
+      <h4>Les sections se distinguent par le type</h4>
+      <p>Une étiquette monospace en capitales, pas un liseré coloré par section. Un accent par bloc ferait un
+        carnaval&nbsp;; l'accent reste réservé à ce qui compte.</p>
+    </div>
+    <div class="ch">
+      <h4>Un zéro doit être calme</h4>
+      <p>« Salle d'attente 0 » s'efface&nbsp;; « Prothèses en retard 2 » se teinte en rouge avec une puce. Le compte
+        vivant se voit, le compte vide se tait.</p>
+    </div>
+    <div class="ch">
+      <h4>La couleur d'état n'est pas l'accent</h4>
+      <p>Vert / ambre / rouge ne changent pas quand la direction chromatique change. Un état qui prend la teinte de
+        la marque n'est plus un état.</p>
+    </div>
+  </div>
+
+  <hr class="rule" />
+
+  <section class="closing">
+    <h2>Ma recommandation : Menthe clinique</h2>
+    <p>
+      Le teal se lit <em>clinique</em> — bain de bouche, blouse, hygiène — sans être le bleu institutionnel que
+      porte déjà la moitié des logiciels médicaux, et il tient le contraste en blanc sur la surface pleine dans les
+      deux thèmes. <strong>Bleu profond</strong> est le choix prudent&nbsp;: c'est l'accent que l'application a
+      déjà (<code>oklch(0.52 0.14 245)</code>), simplement monté en chroma et enfin posé sur une surface.
+      <strong>Ambre chaud</strong> est le plus accueillant des trois et le plus tunisien, mais il partage sa teinte
+      avec le bandeau d'alerte des fiches patient — à ce moment-là « chaud » et « attention » se ressemblent, ce qui
+      est le seul vrai risque du lot.
+    </p>
+    <p>
+      Rien ici ne demande de changer un composant de données. <code>KpiGrid</code>, <code>KpiCard</code>,
+      <code>DashboardSection</code> et <code>CollectedTrendChart</code> gardent leur API&nbsp;; ce sont les tokens de
+      <code>globals.css</code>, un variant <code>hero</code> qui peint sa surface, et la pastille de delta qui
+      changent. Le sélecteur de période, le customiseur, les liens de drill-down et les états
+      chargement / indisponible restent identiques.
+    </p>
+  </section>
+
+</div>
+
+<script>
+  function setVariant(name, btn) {
+    document.documentElement.setAttribute("data-variant", name);
+    document.querySelectorAll(".vbtn").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b === btn));
+    });
+  }
+  document.documentElement.setAttribute("data-variant", "menthe");
+</script>

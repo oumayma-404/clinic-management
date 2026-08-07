@@ -8,11 +8,13 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.CnamNomenclature.Commands;
 using ClinicManagement.Application.Features.CnamNomenclature.Queries;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/cnam-nomenclature")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class CnamNomenclatureController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -27,10 +29,21 @@ public class CnamNomenclatureController : ApiControllerBase
     /// Global reference data (not clinic-scoped); requires an authenticated user. Active-only by default.
     /// </summary>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<CnamNomenclatureEntryDto>>> GetNomenclature(
-        [FromQuery] string? q = null, [FromQuery] string? category = null, [FromQuery] bool includeInactive = false)
+    public async Task<ActionResult<PagedResult<CnamNomenclatureEntryDto>>> GetNomenclature(
+        [FromQuery] string? q = null,
+        [FromQuery] string? category = null,
+        [FromQuery] bool includeInactive = false,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
     {
-        var query = new GetCnamNomenclatureQuery { Q = q, Category = category, IncludeInactive = includeInactive };
+        var query = new GetCnamNomenclatureQuery
+        {
+            Q = q,
+            Category = category,
+            IncludeInactive = includeInactive,
+            Page = page,
+            PageSize = pageSize
+        };
         var result = await _mediator.Send(query);
 
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
@@ -62,6 +75,23 @@ public class CnamNomenclatureController : ApiControllerBase
             PatientDateOfBirth = patientDateOfBirth,
             CareDate = careDate,
         };
+        var result = await _mediator.Send(query);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Indicative reimbursement estimates for <b>all acts of one bulletin</b>, in one round trip (AC-P6.15).
+    /// Any authenticated user (editor aid). Never persisted / never printed.
+    /// <para>
+    /// A <c>POST</c> for a read, deliberately: the acts are a list, and a GET would have to encode N cotations
+    /// plus N care dates into the query string. It mutates nothing — the sibling single-act GET above is what a
+    /// cacheable one-act lookup uses.
+    /// </para>
+    /// </summary>
+    [HttpPost("reimbursement-estimates")]
+    public async Task<ActionResult<IEnumerable<ReimbursementEstimateDto>>> GetReimbursementEstimates(
+        [FromBody] GetReimbursementEstimatesQuery query)
+    {
         var result = await _mediator.Send(query);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }

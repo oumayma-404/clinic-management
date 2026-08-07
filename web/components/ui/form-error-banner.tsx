@@ -31,9 +31,17 @@ export function FormErrorBanner({ message, action, className }: FormErrorBannerP
     <div
       role="alert"
       aria-live="polite"
+      /*
+       * On the theme's own destructive family, not on `red-*` literals.
+       *
+       * `--destructive-wash` was added for exactly this pairing and had three consumers in the whole app, while
+       * this primitive — the one every dialog is supposed to route through — hand-wrote `bg-red-50` plus a
+       * `dark:` twin. Two consequences, both of which shipped: the banner did not follow the palette (it was the
+       * only red in the product that was not `--destructive`), and it maintained dark mode by hand, so every one
+       * of the ~18 places that copied this block instead of importing it copied the hand-maintenance too.
+       */
       className={cn(
-        "space-y-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800",
-        "dark:border-red-900 dark:bg-red-950 dark:text-red-200",
+        "space-y-2 rounded-lg border border-destructive/25 bg-destructive-wash p-3 text-sm text-destructive",
         className,
       )}
     >

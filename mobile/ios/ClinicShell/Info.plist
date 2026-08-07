@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>fr</string>
+    <key>CFBundleDisplayName</key>
+    <string>Gestion Clinique</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+
+    <!-- French only. There is no English resource set, deliberately: an untranslated string on a Tunisian
+         dentist's phone is the defect, not the missing translation. -->
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>fr</string>
+    </array>
+
+    <!-- Shown above the system prompt `BiometricGate` raises. Required, or the prompt crashes the app. -->
+    <key>NSFaceIDUsageDescription</key>
+    <string>Confirmez votre identité pour reprendre votre session sans ressaisir votre mot de passe.</string>
+
+    <!-- ⚠️ **Required, and its absence is silent.** Since iOS 14 an app may not talk to a device on the local
+         network until the user grants it, and the grant prompt cannot be shown without this string — so a shell
+         built without it simply never connects to a clinic PC on the LAN, with no error, no prompt and no log:
+         « Connexion… » and then a timeout. That is the single most likely shape of a first-run failure for this
+         app, because `SelfHostedLan` is *by definition* a local-network address.
+         The Android shell needs no counterpart: Android has no equivalent permission. -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>L'application se connecte au serveur de votre clinique sur votre réseau pour afficher vos dossiers.</string>
+
+    <!-- The web view's own `input type="file"` uses both. Without these strings the picker crashes on selection. -->
+    <key>NSCameraUsageDescription</key>
+    <string>Prenez une photo à joindre au dossier d'un patient.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Choisissez une image à joindre au dossier d'un patient.</string>
+
+    <!-- ⚠️ **ATS ignores user-installed root certificates, and that made the whole `SelfHostedLan` topology
+         unreachable.** Measured on an iPhone: with the clinic's CA installed AND fully trusted, Safari loaded
+         `https://192.168.1.18:5001` cleanly while the app refused it with « le certificat de ce serveur n'est
+         pas valide ». Safari honours the user's trust decision; ATS requires the chain to terminate in a root
+         in the *system* store and does not.
+
+         `NSAllowsLocalNetworking` is the narrow, Apple-sanctioned exemption for exactly this case: it relaxes
+         ATS **only** for local-network destinations. Connections to the internet keep every ATS guarantee.
+
+         ⚠️ It is NOT `NSAllowsArbitraryLoads`, which would accept any certificate anywhere — the silently
+         accepted MITM this shell exists to refuse. And it does not mean "trust anything on the LAN" either:
+         `ServerTrust` in `ShellViewController` still evaluates the chain through the OS, so a certificate the
+         user has not trusted is still rejected. What changes is who is asked, not whether anyone is. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+
+    <key>UILaunchScreen</key>
+    <dict>
+        <key>UIColorName</key>
+        <string></string>
+    </dict>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>armv7</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+</dict>
+</plist>

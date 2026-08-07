@@ -3,17 +3,25 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Expenses.Queries;
 
-public class GetExpensesQuery : IRequest<Result<IEnumerable<ExpenseDto>>>
+public class GetExpensesQuery : IRequest<Result<PagedResult<ExpenseDto>>>
 {
     public DateTime? From { get; set; }
     public DateTime? To { get; set; }
+
+    /// <summary>1-based page and page size. Both null = every matching row.</summary>
+    public int? Page { get; set; }
+    public int? PageSize { get; set; }
+
+    /// <summary>Free-text filter, matched in SQL across the whole clinic — never only the requested page.</summary>
+    public string? SearchTerm { get; set; }
 }
 
-public class GetExpensesQueryHandler : IRequestHandler<GetExpensesQuery, Result<IEnumerable<ExpenseDto>>>
+public class GetExpensesQueryHandler : IRequestHandler<GetExpensesQuery, Result<PagedResult<ExpenseDto>>>
 {
     private readonly IExpenseRepository _expenseRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
@@ -26,20 +34,27 @@ public class GetExpensesQueryHandler : IRequestHandler<GetExpensesQuery, Result<
         _clinicResolver = clinicResolver;
     }
 
-    public async Task<Result<IEnumerable<ExpenseDto>>> Handle(GetExpensesQuery request, CancellationToken cancellationToken)
+    public async Task<Result<PagedResult<ExpenseDto>>> Handle(GetExpensesQuery request, CancellationToken cancellationToken)
     {
         try
         {
             var clinic = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinic.IsFailure)
-                return Result<IEnumerable<ExpenseDto>>.Failure(clinic.Error ?? "Cabinet introuvable.");
+                return Result<PagedResult<ExpenseDto>>.Failure(clinic.Error ?? "Cabinet introuvable.");
 
-            var expenses = await _expenseRepository.GetByClinicIdAsync(clinic.Value, request.From, request.To, cancellationToken);
-            return Result<IEnumerable<ExpenseDto>>.Success(expenses.Select(e => e.ToDto()));
+            var page = await _expenseRepository.GetByClinicIdAsync(
+                clinic.Value,
+                request.From,
+                request.To,
+                request.SearchTerm,
+                PageRequest.From(request.Page, request.PageSize),
+                cancellationToken);
+
+            return Result<PagedResult<ExpenseDto>>.Success(page.Map(e => e.ToDto()));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IEnumerable<ExpenseDto>>.Failure($"Erreur lors de la récupération des dépenses : {ex.Message}");
+            return Result<PagedResult<ExpenseDto>>.Failure($"Erreur lors de la récupération des dépenses : {ex.Message}");
         }
     }
 }

@@ -31,10 +31,21 @@ public sealed record ReminderSettingsDto
     public IReadOnlyList<int>? LeadTimeHours { get; init; }
     public string? MessageTemplateBody { get; init; }
 
+    // Outbound email (SMTP) — the channel that delivers generated documents. Same shape as the two message
+    // channels: non-secret values returned, the password only as a configured flag.
+    public string? SmtpHost { get; init; }
+    public int? SmtpPort { get; init; }
+    public bool? SmtpUseTls { get; init; }
+    public string? SmtpUsername { get; init; }
+    public bool SmtpPasswordConfigured { get; init; }
+    public string? SmtpFromAddress { get; init; }
+    public string? SmtpFromName { get; init; }
+
     // Per-channel effective status (AC-2): whether the resolved settings + credentials make the channel
     // actually sendable. Values are ReminderEffectiveStatus.Configured / NotConfigured.
     public string SmsEffectiveStatus { get; init; } = ReminderEffectiveStatus.NotConfigured;
     public string WhatsAppEffectiveStatus { get; init; } = ReminderEffectiveStatus.NotConfigured;
+    public string EmailEffectiveStatus { get; init; } = ReminderEffectiveStatus.NotConfigured;
 
     // WhatsApp Embedded-Signup connection metadata (read-only; token is never returned). Status is the
     // enum name ("NotConnected" | "Connected" | "Error") so the frontend badge reads a stable string.
@@ -66,6 +77,16 @@ public sealed record UpdateReminderSettingsRequest
     public string? WhatsAppApiUrl { get; init; }
     public IReadOnlyList<int>? LeadTimeHours { get; init; }
     public string? MessageTemplateBody { get; init; }
+
+    // Outbound email (SMTP). Non-secret fields replace/clear as above; SmtpPassword is write-only like the two
+    // other secrets — omitted/blank leaves the stored one untouched.
+    public string? SmtpHost { get; init; }
+    public int? SmtpPort { get; init; }
+    public bool? SmtpUseTls { get; init; }
+    public string? SmtpUsername { get; init; }
+    public string? SmtpPassword { get; init; }
+    public string? SmtpFromAddress { get; init; }
+    public string? SmtpFromName { get; init; }
 }
 
 /// <summary>

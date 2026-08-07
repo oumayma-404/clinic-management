@@ -18,12 +18,14 @@ public class NotificationGenerator : INotificationGenerator
 {
     private const string RealtimeResourceKey = "notifications";
 
-    // A reminder fires ~24h before the appointment; nothing is scheduled inside this window.
-    private static readonly TimeSpan ReminderLeadTime = TimeSpan.FromHours(24);
+    // The lead time and the doctor→user resolution moved to StaffNotificationRules when the OS-push fan-out
+    // (Part 6) became a second writer needing the same answers. A private copy here would mean a banner arriving
+    // at a different hour from the feed row it announces.
+    private static readonly TimeSpan ReminderLeadTime = StaffNotificationRules.ReminderLeadTime;
 
     // The app is Tunisia-targeted; appointment date/times are stored UTC but read best in local time.
+    // The conversion itself lives in ClinicClock (AC-P6.1) — this class used to carry its own private copy.
     private static readonly CultureInfo FrCulture = CultureInfo.GetCultureInfo("fr-FR");
-    private static readonly TimeZoneInfo TunisiaTimeZone = ResolveTunisiaTimeZone();
 
     private readonly IStaffNotificationRepository _notifications;
     private readonly IDoctorRepository _doctors;
@@ -179,6 +181,117 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task EnsureStockExpiringSoonAsync(
+        Guid clinicId, Guid stockItemId, string itemName, DateTime earliestExpiryUtc,
+        CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var title = StockExpiringSoonTitle;
+            var message = StockExpiringSoonMessage(itemName, earliestExpiryUtc, DateTime.UtcNow);
+
+            var existing = await _notifications.GetStockExpiringSoonByItemAsync(stockItemId, cancellationToken);
+            if (existing != null)
+            {
+                // Already flagged. Restate only when the batch it is about actually changed — matched on the
+                // item+date prefix, not the whole message, so the daily countdown alone is not a change.
+                if (existing.Message.StartsWith(StockExpiringSoonKey(itemName, earliestExpiryUtc), StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                existing.Restate(title, message);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.StockExpiringSoon,
+                title, message,
+                DateTime.UtcNow,
+                NotificationTargetKind.StockItem,
+                actorUserId: null, // nobody "did" an expiry → visible to all staff, like low stock
+                stockItemId: stockItemId);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // immediately visible to all staff
+        }, cancellationToken);
+    }
+
+    public async Task ClearStockExpiringSoonAsync(
+        Guid clinicId, Guid stockItemId, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var existing = await _notifications.GetStockExpiringSoonByItemAsync(stockItemId, cancellationToken);
+            if (existing == null)
+            {
+                return false; // nothing flagged — the overwhelmingly common case on a daily scan
+            }
+
+            await _notifications.RemoveAsync(existing, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // the row left the feed → clients refetch
+        }, cancellationToken);
+    }
+
+    public async Task EnsureBackupStaleAsync(
+        Guid clinicId, DateTime? lastSuccessUtc, int staleAfterHours,
+        CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var title = BackupStaleTitle;
+            var message = BackupStaleMessage(lastSuccessUtc, staleAfterHours);
+
+            var existing = await _notifications.GetBackupStaleAsync(clinicId, cancellationToken);
+            if (existing != null)
+            {
+                // Already flagged. Restate only when the *fact* changed — matched on the stable prefix, not the
+                // whole message, exactly as the expiry alert does: the message carries an elapsed count that
+                // ticks up every day, and comparing the whole thing would turn this ensure into a daily
+                // broadcast (the churn the pair exists to avoid).
+                if (existing.Message.StartsWith(BackupStaleKey(lastSuccessUtc), StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                existing.Restate(title, message);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.BackupStale,
+                title, message,
+                DateTime.UtcNow,
+                NotificationTargetKind.BackupSettings,
+                actorUserId: null, // nobody "did" a staleness → visible to all staff, like low stock and expiry
+                stockItemId: null);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
+    public async Task ClearBackupStaleAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var existing = await _notifications.GetBackupStaleAsync(clinicId, cancellationToken);
+            if (existing == null)
+            {
+                return false; // nothing flagged — the common case on a clinic that backs up every night
+            }
+
+            await _notifications.RemoveAsync(existing, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // the row left the feed → clients refetch
+        }, cancellationToken);
+    }
+
     public async Task EnsurePostVisitReviewAsync(
         Guid clinicId, Guid appointmentId, Guid? doctorId, string patientName, DateTime appointmentEndUtc,
         CancellationToken cancellationToken = default)
@@ -233,26 +346,38 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
-    // Resolves the post-visit target: the appointment's DoctorId (a Doctor id when set) → its linked User.
-    // Any miss (no doctor id, unparsable, unknown doctor, or doctor with no linked user) → null = all staff.
-    // The doctor must belong to the appointment's own clinic: the feed/pending queries filter on this clinic
-    // AND the target user, so a foreign-clinic doctor's user would make the review invisible to everyone —
-    // degrade a cross-clinic (or missing) resolution to the all-staff fallback instead.
-    private async Task<string?> ResolveTargetUserIdAsync(Guid clinicId, Guid? doctorId, CancellationToken cancellationToken)
+    public async Task ReminderDeliveryFailedAsync(
+        Guid clinicId, Guid? appointmentId, string patientName, string channel, string? reason,
+        bool patientRequiresRecontact, CancellationToken cancellationToken = default)
     {
-        if (doctorId is null)
+        await SafelyAsync(clinicId, async () =>
         {
-            return null;
-        }
+            var isRecall = appointmentId is null;
+            var what = isRecall ? "La relance" : "Le rappel de rendez-vous";
+            var why = string.IsNullOrWhiteSpace(reason) ? null : $" ({reason.Trim()})";
+            var recontact = patientRequiresRecontact
+                ? " Ce patient doit être recontacté."
+                : string.Empty;
 
-        var doctor = await _doctors.GetByIdAsync(doctorId.Value, cancellationToken);
-        if (doctor == null || doctor.ClinicId != clinicId)
-        {
-            return null;
-        }
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.ReminderFailed,
+                isRecall ? "Relance non envoyée" : "Rappel non envoyé",
+                $"{what} de {patientName} par {channel} n'a pas pu être envoyé{why}.{recontact}",
+                DateTime.UtcNow,
+                isRecall ? NotificationTargetKind.Recall : NotificationTargetKind.Appointment,
+                actorUserId: null, // no actor to exclude — whoever is at the desk must see it (AC-P3.8)
+                appointmentId: appointmentId);
 
-        return doctor.UserId;
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // immediately visible → refetch is worthwhile
+        }, cancellationToken);
     }
+
+    // Resolves the post-visit target: the appointment's DoctorId → its linked User; any miss → null = all staff.
+    // The rule itself lives in StaffNotificationRules, because the push fan-out must target the same person.
+    private Task<string?> ResolveTargetUserIdAsync(Guid clinicId, Guid? doctorId, CancellationToken cancellationToken) =>
+        StaffNotificationRules.ResolveDoctorUserIdAsync(_doctors, clinicId, doctorId, cancellationToken);
 
     // Runs the write and broadcasts the realtime key only when the write reports that something became
     // visible in the feed (returns true) — a future-dated reminder or a no-op schedule returns false, so
@@ -278,6 +403,58 @@ public class NotificationGenerator : INotificationGenerator
     private static string PostVisitReviewMessage(string patientName) =>
         $"La visite de {patientName} est terminée. Ajoutez son dossier médical.";
 
+    private const string StockExpiringSoonTitle = "Péremption proche";
+
+    // States the date AND the days remaining: the date is what the operator checks on the shelf, the count is
+    // what tells them whether to act today. The count is derived here rather than passed in, so it can never
+    // disagree with the date. Deliberately NOT part of the idempotency comparison — see below.
+    private static string StockExpiringSoonMessage(string itemName, DateTime earliestExpiryUtc, DateTime nowUtc)
+    {
+        var days = (earliestExpiryUtc.Date - nowUtc.Date).Days;
+        var remaining = days <= 0
+            ? "aujourd'hui"
+            : $"dans {days} jour{(days == 1 ? "" : "s")}";
+        return $"Péremption proche : {itemName} — un lot expire le {FormatFrDate(earliestExpiryUtc)} ({remaining}).";
+    }
+
+    // The stable part of the message — item name + expiry date, everything except the countdown. Two messages
+    // sharing this prefix are about the same batch, so the daily re-scan restates nothing and makes nobody
+    // refetch. Comparing the WHOLE message would differ every single day (the countdown ticks down), which
+    // would turn the "ensure" into a daily broadcast — the exact churn this alert is meant not to cause.
+    private static string StockExpiringSoonKey(string itemName, DateTime earliestExpiryUtc) =>
+        $"Péremption proche : {itemName} — un lot expire le {FormatFrDate(earliestExpiryUtc)} (";
+
+    private const string BackupStaleTitle = "Sauvegarde à vérifier";
+
+    /// <summary>
+    /// Two wordings, because « jamais sauvegardé » and « la dernière remonte à trois jours » demand different
+    /// things of the reader — and firing the alarming one on a clinic created this morning is how an alert gets
+    /// dismissed permanently on day one.
+    /// </summary>
+    private static string BackupStaleMessage(DateTime? lastSuccessUtc, int staleAfterHours)
+    {
+        if (lastSuccessUtc is not DateTime last)
+        {
+            return "Aucune sauvegarde n'a encore été effectuée. Ouvrez « Paramètres » puis « Sauvegarde » "
+                   + "pour en lancer une et vérifier le dossier de destination.";
+        }
+
+        // Whole hours, and derived here rather than passed in, so the count can never disagree with the date.
+        var hours = Math.Max(0, (int)(DateTime.UtcNow - last).TotalHours);
+        return $"{BackupStaleKey(last)} (il y a {hours} h, seuil : {staleAfterHours} h). "
+               + "Vérifiez le dossier de destination dans « Paramètres ».";
+    }
+
+    /// <summary>
+    /// The stable part of the message — everything up to the elapsed count. Two messages sharing this prefix are
+    /// about the same last-successful-backup, so the daily re-evaluation restates nothing and makes nobody
+    /// refetch.
+    /// </summary>
+    private static string BackupStaleKey(DateTime? lastSuccessUtc) =>
+        lastSuccessUtc is DateTime last
+            ? $"Dernière sauvegarde réussie le {FormatFr(last)}"
+            : "Aucune sauvegarde n'a encore été effectuée.";
+
     private const string ReminderTitle = "Rappel de rendez-vous";
 
     private static string ReminderMessage(string patientName, DateTime appointmentDateTimeUtc) =>
@@ -294,30 +471,12 @@ public class NotificationGenerator : INotificationGenerator
             actorUserId: null,
             appointmentId: appointmentId);
 
-    private static string FormatFr(DateTime utc)
-    {
-        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TunisiaTimeZone);
-        return local.ToString("dd/MM/yyyy 'à' HH:mm", FrCulture);
-    }
+    // An expiry is a calendar date, not a moment — no time-of-day, but still read in clinic-local time so a
+    // batch expiring just after midnight UTC is not shown as the previous day.
+    private static string FormatFrDate(DateTime utc) =>
+        ClinicClock.ToClinicLocal(utc).ToString("dd/MM/yyyy", FrCulture);
 
-    private static TimeZoneInfo ResolveTunisiaTimeZone()
-    {
-        // IANA id works cross-platform on .NET 8 (ICU); the Windows id is the fallback. If neither
-        // resolves, use a fixed UTC+1 (Tunisia has no DST) so formatting still works.
-        foreach (var id in new[] { "Africa/Tunis", "W. Central Africa Standard Time" })
-        {
-            try
-            {
-                return TimeZoneInfo.FindSystemTimeZoneById(id);
-            }
-            catch (TimeZoneNotFoundException)
-            {
-            }
-            catch (InvalidTimeZoneException)
-            {
-            }
-        }
+    private static string FormatFr(DateTime utc) =>
+        ClinicClock.ToClinicLocal(utc).ToString("dd/MM/yyyy 'à' HH:mm", FrCulture);
 
-        return TimeZoneInfo.CreateCustomTimeZone("Tunisia", TimeSpan.FromHours(1), "Tunisia", "Tunisia");
-    }
 }

@@ -1,8 +1,10 @@
 using System.Security.Cryptography;
+using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -15,7 +17,7 @@ namespace ClinicManagement.API.Controllers;
 // by a top-level navigation from Google and cannot present a bearer token). Per-clinic connection binding
 // (feature cloud-security-and-tenant-isolation, #4) replaces the former single global token/calendar.
 [ApiController]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AdminOnly)]
 [Route("api/[controller]")]
 public class GoogleCalendarController : ApiControllerBase
 {
@@ -34,6 +36,7 @@ public class GoogleCalendarController : ApiControllerBase
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMemoryCache _cache;
+    private readonly IMediator _mediator;
     private readonly ILogger<GoogleCalendarController> _logger;
 
     public GoogleCalendarController(
@@ -43,6 +46,7 @@ public class GoogleCalendarController : ApiControllerBase
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         IMemoryCache cache,
+        IMediator mediator,
         ILogger<GoogleCalendarController> logger)
     {
         _syncService = syncService;
@@ -51,7 +55,26 @@ public class GoogleCalendarController : ApiControllerBase
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _cache = cache;
+        _mediator = mediator;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Disconnect the caller's clinic from Google Calendar (AC-P2.33/2.34). `AdminOnly`, matching every other
+    /// mutating action here.
+    /// <para>
+    /// Unlike the rest of this controller — whose OAuth plumbing legitimately works the repositories directly —
+    /// this is an ordinary clinic mutation with an admin guard, so it goes through MediatR like every other one:
+    /// that is what makes it unit-testable (the test project references Application, not this controller's
+    /// internals) and what gets the realtime broadcast for free.
+    /// </para>
+    /// </summary>
+    [HttpPost("disconnect")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> Disconnect(CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new DisconnectGoogleCalendarCommand(), cancellationToken);
+        return result.IsFailure ? HandleFailure(result) : Ok(new { disconnected = true });
     }
 
     /// <summary>
@@ -107,6 +130,11 @@ public class GoogleCalendarController : ApiControllerBase
     /// Get sync status for the caller's clinic (is Google Calendar connected + is its token valid).
     /// </summary>
     [HttpGet("status")]
+    // The one action here that is not integration *administration*. Every role's agenda reads it on mount to
+    // decide whether to render the « non synchronisé » badge, so gating it with its admin-only siblings would
+    // put a 403 on every reception page load and silently switch the badge off for the people who watch it.
+    // It returns whether the secrets are *present*, never their values.
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
     public async Task<IActionResult> GetSyncStatus(CancellationToken cancellationToken)
     {
         var clientId = _configuration["GoogleCalendar:ClientId"];

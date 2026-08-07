@@ -14,7 +14,66 @@ public class DentalRecord : Entity<Guid>
     private const int ProcedureSummaryMaxLength = 200;
 
     public Guid PatientId { get; private set; }
+
+    /// <summary>The owning clinic, denormalised from <see cref="Patient"/>. See <see cref="PatientMedicalHistory.ClinicId"/>.</summary>
+    public Guid ClinicId { get; private set; }
     public DateTime InterventionDate { get; private set; }
+
+    /// <summary>
+    /// The appointment this session documents, when it was recorded from one. Null for a fiche entered without going
+    /// through the agenda.
+    ///
+    /// <para>
+    /// ⚠️ The <c>DentalRecords.AppointmentId</c> column and its index have existed since
+    /// <c>AddDentalRecordAppointmentId</c> (2026-07-17) — but the property did not, so the EF model never declared it,
+    /// nothing populated it, and every row held NULL. The id *was* already reaching the write side: the create command
+    /// takes it, uses it post-commit to mark the visit completed and cancel its post-visit prompt, then discards it.
+    /// Storing it is what finally makes « quelles séances n'ont pas encore de fiche ? » answerable — the same defect,
+    /// and the same repair, as <c>Invoice.AppointmentId</c>.
+    /// </para>
+    ///
+    /// <para>
+    /// It is deliberately NOT a required link and NOT unique: a visit may legitimately produce more than one fiche,
+    /// and a fiche may exist with no appointment behind it.
+    /// </para>
+    /// </summary>
+    public Guid? AppointmentId { get; private set; }
+    /// <summary>
+    /// Which practitioner earned this — nullable, and nullable means nullable (L9 attribution).
+    ///
+    /// <para><b>What was missing.</b> <c>DoctorId</c> existed on exactly three entities in the whole model
+    /// (<c>Appointment</c> — the only real FK to <c>Doctors</c> — <c>RecurringAppointment</c>, and
+    /// <c>WaitingListEntry.PreferredDoctorId</c>, which was not even an FK), and on nothing that carries money or
+    /// clinical work. So « combien a produit ce praticien ce mois ? » had no answer, and
+    /// <c>Features/Dashboard/</c> contained <b>zero</b> occurrences of <c>Doctor</c> across all four readers.</para>
+    ///
+    /// <para>⚠️ <b>Historical rows legitimately have none</b> — the column did not exist when they were written,
+    /// and the migration only backfills where a linked appointment names a practitioner. Every read must therefore
+    /// tolerate null rather than treating it as « the clinic », which would silently attribute one dentist's work
+    /// to whoever the filter happens to select.</para>
+    ///
+    /// <para>This is <b>attribution, not authorization</b>: it answers who earned a figure. Per-practitioner data
+    /// scoping (« this dentist sees only their own patients ») is a separate decision with its own blast radius and
+    /// is deliberately out of scope.</para>
+    /// </summary>
+    public Guid? DoctorId { get; private set; }
+
+    /// <summary>The practitioner navigation, for the read-side name resolution. Null when unattributed.</summary>
+    public Doctor? Doctor { get; private set; }
+
+    /// <summary>
+    /// Attribute (or un-attribute) this record to a practitioner. Deliberately its own mutator rather than a ctor
+    /// parameter on every construction path: the answer is often only known *after* the aggregate exists (it comes
+    /// from the appointment the record was written against), and a required ctor argument would have forced every
+    /// caller to guess.
+    /// </summary>
+    public void SetDoctor(Guid? doctorId)
+    {
+        DoctorId = doctorId == Guid.Empty ? null : doctorId;
+        // This entity has no `Touch()` helper — its two other mutators assign `UpdatedAt` inline.
+        UpdatedAt = DateTime.UtcNow;
+    }
+
 
     /// <summary>Derived summary of the acts' procedure names (recomputed in <see cref="SetActs"/>).</summary>
     public string ProcedureType { get; private set; } = string.Empty;
@@ -43,20 +102,24 @@ public class DentalRecord : Entity<Guid>
     public DentalRecord(
         Guid id,
         Guid patientId,
+        Guid clinicId,
         DateTime interventionDate,
         decimal amountPaid,
         bool isAdultTeeth,
         List<string>? notes = null,
-        List<string>? importantNotes = null)
+        List<string>? importantNotes = null,
+        Guid? appointmentId = null)
     {
         if (amountPaid < 0)
             throw new ArgumentException("Amount paid cannot be negative", nameof(amountPaid));
 
         Id = id;
         PatientId = patientId;
+        ClinicId = clinicId;
         InterventionDate = interventionDate;
         AmountPaid = amountPaid;
         IsAdultTeeth = isAdultTeeth;
+        AppointmentId = appointmentId;
 
         if (notes != null)
             _notes.AddRange(notes.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()));

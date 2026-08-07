@@ -24,6 +24,24 @@ public static class TreatmentPlanWorkflowProjection
     /// Appointment statuses that still represent a standing booking for an act. <c>Cancelled</c> and
     /// <c>NoShow</c> are deliberately absent: counting them would pin the act to « Planifié » forever *and*
     /// keep "Planifier" hidden, leaving it permanently unbookable.
+    /// <para>
+    /// <b>AC-P1.10 — the stated effect of the new <c>Completed → Cancelled</c> transition.</b> Cancelling a
+    /// completed appointment drops it out of this set, so the act it spoke for returns to « À planifier » and
+    /// becomes bookable again. That is the intended answer, not an accident: the appointment is the *only*
+    /// evidence the projection has that a séance was arranged, and voiding it means there is no longer a visit
+    /// to point at.
+    /// </para>
+    /// <para>
+    /// It does <b>not</b> touch <c>TreatmentPlanItem.Status</c>. If a fiche de soins was filed, the act stays
+    /// « Réalisé » on the strength of that fiche, and the correct way to undo *that* is « Détacher » (P2's
+    /// un-mark), which is refused while a live invoice bills the work. So cancelling an appointment can never
+    /// silently un-do clinical or financial facts — it only withdraws the booking.
+    /// </para>
+    /// <para>
+    /// The workspace reflects this without a reload: `UpdateAppointmentCommand` lives in
+    /// <c>…Features.Appointments.Commands</c>, so <c>RealtimeBroadcastBehavior</c> emits the
+    /// <c>appointments</c> key, and <c>/treatment-plans/[id]</c> subscribes to it.
+    /// </para>
     /// </summary>
     private static readonly HashSet<AppointmentStatus> LiveStatuses = new()
     {
@@ -48,10 +66,15 @@ public static class TreatmentPlanWorkflowProjection
             clinicId, itemIds, cancellationToken);
         var invoiceLinks = await invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken);
 
+        // Flattened over **every** act the appointment carries out, not just the one its parent scalar names
+        // (`LinkedTreatmentPlanItemIds`). A séance deliberately groups several devis acts — « ces deux-là ensemble »
+        // — and keying on the scalar would leave the other acts of that same visit reporting « À planifier »,
+        // offering to book a visit the patient is already coming to.
         var scheduledByItemId = appointments
-            .Where(a => a.TreatmentPlanItemId.HasValue && LiveStatuses.Contains(a.Status))
-            .GroupBy(a => a.TreatmentPlanItemId!.Value)
-            .ToDictionary(g => g.Key, g => PickRepresentative(g, asOfUtc));
+            .Where(a => LiveStatuses.Contains(a.Status))
+            .SelectMany(a => a.LinkedTreatmentPlanItemIds.Select(itemId => (ItemId: itemId, Appointment: a)))
+            .GroupBy(x => x.ItemId)
+            .ToDictionary(g => g.Key, g => PickRepresentative(g.Select(x => x.Appointment), asOfUtc));
 
         // A cancelled bridge no longer represents the plan — the plan re-enters the balance and becomes
         // billable (and amendable) again, mirroring how the money reads exclude cancelled invoices.

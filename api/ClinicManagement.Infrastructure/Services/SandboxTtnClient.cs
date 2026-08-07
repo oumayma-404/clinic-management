@@ -24,7 +24,13 @@ public class SandboxTtnClient : ITtnClient
 
     public string Environment => Clinic.TtnEnvironmentSandbox;
 
-    public Task<TtnSubmissionResult> SubmitAsync(string signedTeifXml, string invoiceNumber, CancellationToken cancellationToken = default)
+    // The identity is accepted and ignored: the sandbox authenticates nobody, and the invoice was already
+    // signed with that clinic's certificate — which is the half the sandbox does check, below.
+    public Task<TtnSubmissionResult> SubmitAsync(
+        string signedTeifXml,
+        string invoiceNumber,
+        ResolvedTtnIdentity identity,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(signedTeifXml) || !signedTeifXml.Contains("<Signature", StringComparison.Ordinal))
         {

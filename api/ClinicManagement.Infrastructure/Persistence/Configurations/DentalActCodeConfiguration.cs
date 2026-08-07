@@ -39,15 +39,13 @@ public class DentalActCodeConfiguration : IEntityTypeConfiguration<DentalActCode
             .IsRequired()
             .HasMaxLength(10);
 
-        builder.Property(e => e.Coefficient)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(e => e.Coefficient);
 
         builder.Property(e => e.Category)
             .IsRequired()
             .HasMaxLength(100);
 
-        builder.Property(e => e.DefaultFee)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(e => e.DefaultFee);
 
         builder.Property(e => e.RequiresAccordPrealable)
             .IsRequired();

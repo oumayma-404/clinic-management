@@ -7,11 +7,13 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.DentalActs.Commands;
 using ClinicManagement.Application.Features.DentalActs.Queries;
 
+using ClinicManagement.Domain.Common;
+
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/dental-acts")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class DentalActsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -23,10 +25,21 @@ public class DentalActsController : ApiControllerBase
 
     /// <summary>List the global dental act catalog (chapitre DCH). Any authenticated user; active-only by default.</summary>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<DentalActDto>>> GetDentalActs(
-        [FromQuery] string? q = null, [FromQuery] string? category = null, [FromQuery] bool includeInactive = false)
+    public async Task<ActionResult<PagedResult<DentalActDto>>> GetDentalActs(
+        [FromQuery] string? q = null,
+        [FromQuery] string? category = null,
+        [FromQuery] bool includeInactive = false,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
     {
-        var result = await _mediator.Send(new GetDentalActsQuery { Q = q, Category = category, IncludeInactive = includeInactive });
+        var result = await _mediator.Send(new GetDentalActsQuery
+        {
+            Q = q,
+            Category = category,
+            IncludeInactive = includeInactive,
+            Page = page,
+            PageSize = pageSize
+        });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

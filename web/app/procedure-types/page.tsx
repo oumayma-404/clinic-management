@@ -1,9 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
 import { ProcedureTypesTable } from "@/components/procedure-types-table"
 import { ProcedureTypeFormModal } from "@/components/procedure-type-form-modal"
 import type { ProcedureTypeDto } from "@/lib/api/types"
@@ -34,22 +34,16 @@ export default function ProcedureTypesPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
-        
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
-          
-          <main className="flex-1 overflow-auto p-4">
-            <div className="mx-auto max-w-7xl">
-              <ProcedureTypesTable 
-                key={refreshKey}
-                onEdit={handleEdit} 
-                onAdd={handleAdd}
-              />
-            </div>
-          </main>
-        </div>
+      <AppShell contentClassName="space-y-6">
+        {/* The page had NO title: it rendered straight into the table, whose 16px `CardTitle` was then the
+            largest text on the screen, and the route's zone eyebrow and icon never appeared. No `zone` prop —
+            `PageHeader` derives it from the route. */}
+        <PageHeader
+          title="Types de procédures"
+          subtitle="Le catalogue d'actes qui alimente l'agenda, les devis et les fiches de soins."
+        />
+
+        <ProcedureTypesTable key={refreshKey} onEdit={handleEdit} onAdd={handleAdd} />
 
         <ProcedureTypeFormModal
           open={modalOpen}
@@ -57,7 +51,7 @@ export default function ProcedureTypesPage() {
           editingProcedure={editingProcedure}
           onSuccess={handleSuccess}
         />
-      </div>
+      </AppShell>
     </ClinicGuard>
   )
 }

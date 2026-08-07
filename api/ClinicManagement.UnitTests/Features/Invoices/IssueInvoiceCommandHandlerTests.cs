@@ -38,6 +38,16 @@ public class IssueInvoiceCommandHandlerTests
         _invoices.Object, _clinics.Object, _patients.Object, _plans.Object, _clinicResolver.Object, _uow.Object,
         NullLogger<IssueInvoiceCommandHandler>.Instance);
 
+    /// <summary>
+    /// The year the handler asked the repository for. Captured rather than recomputed (AC-P6.9): asserting
+    /// <c>$"{DateTime.UtcNow.Year}-0001"</c> re-evaluated the <b>same expression the handler used</b>, so the
+    /// test could never fail on a wrong-year defect — it agreed with the handler by construction — and it flaked
+    /// across New Year when the two readings landed either side of midnight. The wrong-year rule itself is pinned
+    /// deterministically, at fixed instants, by <c>ClinicClockTests</c>; what these tests own is the
+    /// <b>sequence</b> and the retry.
+    /// </summary>
+    private int _yearAskedFor;
+
     private void Arrange(Invoice invoice)
     {
         _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
@@ -55,13 +65,14 @@ public class IssueInvoiceCommandHandlerTests
         var invoice = DraftInvoice();
         Arrange(invoice);
         _invoices.Setup(r => r.GetMaxSequenceForYearAsync(ClinicId, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Callback((Guid _, int year, CancellationToken _) => _yearAskedFor = year)
             .ReturnsAsync(0);
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
         var result = await CreateHandler().Handle(new IssueInvoiceCommand { Id = invoice.Id }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal($"{DateTime.UtcNow.Year}-0001", result.Value!.Number);
+        Assert.Equal($"{_yearAskedFor}-0001", result.Value!.Number);
     }
 
     // [AC-2] The next number is max sequence + 1 (gapless).
@@ -71,13 +82,14 @@ public class IssueInvoiceCommandHandlerTests
         var invoice = DraftInvoice();
         Arrange(invoice);
         _invoices.Setup(r => r.GetMaxSequenceForYearAsync(ClinicId, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Callback((Guid _, int year, CancellationToken _) => _yearAskedFor = year)
             .ReturnsAsync(41);
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
         var result = await CreateHandler().Handle(new IssueInvoiceCommand { Id = invoice.Id }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal($"{DateTime.UtcNow.Year}-0042", result.Value!.Number);
+        Assert.Equal($"{_yearAskedFor}-0042", result.Value!.Number);
     }
 
     // [AC-2] A concurrent numbering collision (unique-index violation) is retried with a recomputed number.
@@ -89,6 +101,7 @@ public class IssueInvoiceCommandHandlerTests
 
         var sequence = 4;
         _invoices.Setup(r => r.GetMaxSequenceForYearAsync(ClinicId, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Callback((Guid _, int year, CancellationToken _) => _yearAskedFor = year)
             .ReturnsAsync(() => sequence);
 
         var attempts = 0;
@@ -108,7 +121,7 @@ public class IssueInvoiceCommandHandlerTests
         var result = await CreateHandler().Handle(new IssueInvoiceCommand { Id = invoice.Id }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal($"{DateTime.UtcNow.Year}-0006", result.Value!.Number);
+        Assert.Equal($"{_yearAskedFor}-0006", result.Value!.Number);
         Assert.Equal(2, attempts);
     }
 

@@ -1,9 +1,10 @@
-using System.Text;
+﻿using System.Text;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Maintenance;
 using ClinicManagement.Infrastructure;
-using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Persistence;
+using ClinicManagement.API.Startup;
 
 namespace ClinicManagement.API.Maintenance;
 
@@ -45,31 +46,29 @@ public static class ReconcileMoneyCommand
         {
             // Resolve appsettings from the install directory (R-6), not the CWD, so the packaged
             // `ClinicManagement.API.exe reconcile-money` works from any working directory.
-            var configuration = new ConfigurationBuilder()
-                .SetBasePath(AppContext.BaseDirectory)
-                .AddJsonFile("appsettings.json", optional: false)
-                .AddJsonFile(
-                    $"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json",
-                    optional: true)
-                .AddEnvironmentVariables()
-                .Build();
+            var configuration = InstallConfiguration.BuildForConsoleVerb();
 
-            if (!LocalAuthConfig.IsLocalMode(configuration))
+            // Gated on having a database, not on the deployment profile (M3) — it is verify-schema's sibling and
+            // the two are meant to be run before and after a migration batch and diffed, wherever the data is.
+            if (!MaintenanceDatabase.HasConnectionString(configuration, "This reconciliation utility"))
             {
-                Console.Error.WriteLine(
-                    "This reconciliation utility only runs in Local (offline) mode (Auth:Mode=Local). " +
-                    "Cloud deployments apply migrations at startup and are verified through their own tooling.");
                 return 1;
             }
 
             var services = new ServiceCollection();
             services.AddLogging();
-            // AddInfrastructure ONLY — never AddApplication. Without it no ICurrentClinicProvider is registered,
-            // so the DbContext's global clinic query filters stay inactive and this reads across every clinic.
+            // AddInfrastructure ONLY — never AddApplication. It registers the tenant scope and a floor
+            // ICurrentClinicProvider, which is what lets the declaration below actually mean something.
             services.AddInfrastructure(configuration);
 
             await using var provider = services.BuildServiceProvider();
             using var scope = provider.CreateScope();
+
+            // US-2: a per-clinic reconciliation over every clinic's two payment ledgers. The clinic query filters
+            // refuse an unset scope, so an undeclared run would reconcile an empty database and report it clean —
+            // the worst possible answer from a verb whose only job is to find drift.
+            scope.ServiceProvider.GetRequiredService<ITenantScope>()
+                .UseSystemWide($"{CommandName} reconciles every clinic's money ledgers");
 
             var reader = new MoneyReconciliationReader(
                 scope.ServiceProvider.GetRequiredService<ApplicationDbContext>());

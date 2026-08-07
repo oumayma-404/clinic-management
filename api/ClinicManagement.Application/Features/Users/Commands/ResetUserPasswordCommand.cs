@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Exceptions;
@@ -22,17 +23,20 @@ public class ResetUserPasswordCommandHandler : IRequestHandler<ResetUserPassword
     private readonly IClinicContext _clinicContext;
     private readonly ILocalAuthService _localAuthService;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<ResetUserPasswordCommandHandler> _logger;
 
     public ResetUserPasswordCommandHandler(
         IUserRepository userRepository,
         IClinicContext clinicContext,
         ILocalAuthService localAuthService,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<ResetUserPasswordCommandHandler> logger)
     {
         _userRepository = userRepository;
         _clinicContext = clinicContext;
         _localAuthService = localAuthService;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<ResetPasswordResultDto>> Handle(ResetUserPasswordCommand request, CancellationToken cancellationToken)
@@ -90,7 +94,10 @@ public class ResetUserPasswordCommandHandler : IRequestHandler<ResetUserPassword
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<ResetPasswordResultDto>.Failure($"Error resetting password: {ex.Message}");
+            // A-8 defect class (see SetUserActiveCommand): English + the raw exception. A password-reset failure
+            // is also the last place to echo server internals back to a caller.
+            _logger.LogError(ex, "Unhandled failure resetting the password of user {TargetUserId}", request.TargetUserId);
+            return Result<ResetPasswordResultDto>.Failure("Erreur lors de la réinitialisation du mot de passe. Veuillez réessayer.");
         }
     }
 }

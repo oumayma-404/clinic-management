@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Persistence;
 using ClinicManagement.Infrastructure.Repositories;
 using ClinicManagement.Infrastructure.Security;
@@ -18,10 +21,71 @@ public static class Extensions
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        // ⚠️ **The console verbs have no host builder, so nothing else registers this.** Five Infrastructure
+        // types take `IConfiguration` in their constructor (`LocalAuthService`, `LocalAuthConfig`,
+        // `ConnectivityConfig`, `EInvoiceService`, `Auth0ManagementService`), and a verb that builds a bare
+        // `new ServiceCollection()` + `AddInfrastructure(configuration)` could not activate any of them:
+        // `provision-clinic` died on « Unable to resolve service for type
+        // 'Microsoft.Extensions.Configuration.IConfiguration' while attempting to activate 'LocalAuthService' ».
+        //
+        // That broke the **only** two doors a hosted deployment has — `provision-clinic` is how a clinic is
+        // created where self-registration is closed and `/setup` is loopback-gated, and `reset-admin-password`
+        // is the documented recovery for a locked-out admin. Registering it here rather than in each verb is
+        // deliberate: four verbs building their own container is exactly where a per-call-site fix rots.
+        //
+        // `TryAdd`, so the API host's own registration keeps winning and this is a no-op there.
+        services.TryAddSingleton(configuration);
+
+        // Resolved once: every branch below asks a named capability of it rather than re-reading Auth:Mode.
+        var profile = DeploymentProfile.Resolve(configuration);
+
+        // Registered so a service can ask a capability at request time. It is immutable and derived from
+        // configuration read at startup, so a singleton is the honest lifetime — and the alternative (each
+        // consumer calling Resolve again) would re-parse the key and could throw from inside a request.
+        services.AddSingleton(profile);
+
+        // Which peers' X-Forwarded-For may be believed. Same lifetime reasoning as the profile, and a singleton so
+        // the login-lockout tracker gets the deployment's real answer rather than the loopback-only default.
+        services.AddSingleton(TrustedProxies.FromConfiguration(configuration));
+
         // Database
         var connectionString = configuration.GetConnectionString("DefaultConnection");
-        services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseNpgsql(connectionString));
+
+        // The audit ledger's writer (I6). Scoped, because its actor and its collected rows belong to one request.
+        //
+        // ⚠️ It is resolved from the provider inside `AddDbContext` rather than registered with
+        // `AddInterceptors(...)` at configuration time: the overload that takes instances would need a singleton,
+        // and this interceptor holds per-request state (the actor, and the rows collected between the two save
+        // phases). The `IServiceProvider` overload of `AddDbContext` gives it the *scope's* provider, so each
+        // request's context observes that request's interceptor.
+        //
+        // The actor seam gets a **floor** here, not a registration: `AddApplication` runs first in `Program.cs` and
+        // registers the real claims-reading `AuditActorProvider`, so `TryAdd` is a no-op in the API. It matters for
+        // the console verbs, which build their container from this method alone — see `ProcessAuditActorProvider`.
+        services.TryAddScoped<IAuditActorProvider, ProcessAuditActorProvider>();
+
+        // Whose rows this scope may read (multi-tenant-cloud US-2). Registered here rather than in
+        // `AddApplication` for one reason: the console verbs build their container from *this* method alone, and
+        // the filters now refuse an unset scope — so without these two a verb would read nothing at all instead
+        // of declaring itself cross-clinic. `ICurrentClinicProvider` gets the same **floor** treatment as the
+        // audit actor above (`AddApplication` runs first in `Program.cs`, so TryAdd is a no-op in the API).
+        services.AddScoped<ITenantScope, TenantScope>();
+        services.TryAddScoped<ICurrentClinicProvider, CurrentClinicProvider>();
+
+        // Built through an explicit factory rather than `AddScoped<T>()` so its dependencies are resolved
+        // explicitly. The clinic provider used to be resolved with `GetService` because a console verb had none;
+        // the floor above means every container that can produce a DbContext can produce one, so a missing
+        // registration is now a loud startup failure rather than a silent null on a non-nullable parameter.
+        services.AddScoped(provider => new AuditSaveChangesInterceptor(
+            provider.GetRequiredService<IAuditActorProvider>(),
+            provider.GetRequiredService<ICurrentClinicProvider>(),
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            provider.GetRequiredService<ILogger<AuditSaveChangesInterceptor>>()));
+
+        services.AddDbContext<ApplicationDbContext>((provider, options) =>
+            options
+                .UseNpgsql(connectionString)
+                .AddInterceptors(provider.GetRequiredService<AuditSaveChangesInterceptor>()));
 
         // Unit of Work
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -44,6 +108,8 @@ public static class Extensions
         services.AddScoped<IInvoiceRepository, InvoiceRepository>();
         services.AddScoped<ICreditNoteRepository, CreditNoteRepository>();
         services.AddScoped<IClinicReminderSettingsRepository, ClinicReminderSettingsRepository>();
+        services.AddScoped<IDocumentEmailRepository, DocumentEmailRepository>();
+        services.AddScoped<IUserDashboardPreferenceRepository, UserDashboardPreferenceRepository>();
         services.AddScoped<ICnamCatalogRepository, CnamCatalogRepository>();
         services.AddScoped<IMedicationCatalogRepository, MedicationCatalogRepository>();
         services.AddScoped<IDentalActCodeRepository, DentalActCodeRepository>();
@@ -51,9 +117,19 @@ public static class Extensions
         services.AddScoped<ITreatmentPlanRepository, TreatmentPlanRepository>();
         // Clinical-workflow-depth repositories (caisse expenses, waiting list, dental-lab work orders).
         services.AddScoped<IExpenseRepository, ExpenseRepository>();
+        services.AddScoped<IAuditEntryRepository, AuditEntryRepository>();
+        // L4d — the backup ledger. Registered beside the other repositories rather than only for the job,
+        // because « Paramètres » reads it too (« Dernière sauvegarde réussie ») and so does the history endpoint.
+        services.AddScoped<IBackupRunRepository, BackupRunRepository>();
         services.AddScoped<IWaitingListRepository, WaitingListRepository>();
         services.AddScoped<ILabWorkOrderRepository, LabWorkOrderRepository>();
         services.AddScoped<IRecurringAppointmentRepository, RecurringAppointmentRepository>();
+        // Part 6 — the OS-push registry and its outbox.
+        services.AddScoped<IDeviceRegistrationRepository, DeviceRegistrationRepository>();
+        services.AddScoped<IPushDeliveryRepository, PushDeliveryRepository>();
+        // clinic-self-signup — pending signups. Registered unconditionally like every other repository; the
+        // capability gate lives on the endpoints, not on whether the table can be read.
+        services.AddScoped<IClinicSignupRepository, ClinicSignupRepository>();
 
         // HttpClient for Auth0 Management API
         services.AddHttpClient();
@@ -75,8 +151,8 @@ public static class Extensions
         // shared IMemoryCache registered above, so lockout state is transient by design — see the class.
         services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
 
-        // Auth0 Management Service — real in Cloud mode, no-op in Local mode (no Auth0 tenant).
-        if (LocalAuthConfig.IsLocalMode(configuration))
+        // Auth0 Management Service — real where Auth0 owns identity, no-op where the product does (no Auth0 tenant).
+        if (profile.UsesLocalAccounts)
         {
             services.AddScoped<IAuth0ManagementService, NoOpAuth0ManagementService>();
         }
@@ -85,9 +161,9 @@ public static class Extensions
             services.AddScoped<IAuth0ManagementService, Auth0ManagementService>();
         }
 
-        // File storage backend, selected by auth mode:
-        //   Local (offline) → local disk (no MinIO); Cloud → MinIO (unchanged).
-        if (LocalAuthConfig.IsLocalMode(configuration))
+        // File storage backend: the clinic's own disk (no MinIO) where the deployment stores blobs locally,
+        // MinIO everywhere else (unchanged).
+        if (profile.UsesDiskStorage)
         {
             services.AddScoped<IFileStorage>(sp =>
             {
@@ -182,6 +258,48 @@ public static class Extensions
         services.AddScoped<IReminderChannelSender, HttpSmsSender>();
         services.AddScoped<IReminderChannelSender, WhatsAppSender>();
 
+        // OS push (mobile-native-shells Part 6).
+        //   - IOsPushAvailability is the single « can this installation push to this platform? » — the AND of the
+        //     profile's Kind-derived PermitsOsPush and the per-install credentials. Asked by the registration
+        //     endpoint, the fan-out, the dispatcher and the settings surface, so all four agree.
+        //   - The senders are a set, routed by platform, exactly as the reminder channels are by channel.
+        //   - The fan-out DECORATES INotificationGenerator, which AddApplication registered before this method
+        //     ran: one hook reaches every notification category rather than twelve edited call sites. The inner
+        //     instance is built explicitly because there is no decoration helper in this solution (no Scrutor),
+        //     and an explicit factory is clearer here than adding a package for one registration.
+        services.AddSingleton<IOsPushAvailability, OsPushAvailability>();
+        services.AddScoped<IPushSender, FcmPushSender>();
+        services.AddScoped<IPushSender, ApnsPushSender>();
+        services.AddScoped<INotificationGenerator>(provider => new PushNotificationGeneratorDecorator(
+            new NotificationGenerator(
+                provider.GetRequiredService<IStaffNotificationRepository>(),
+                provider.GetRequiredService<IDoctorRepository>(),
+                provider.GetRequiredService<IUnitOfWork>(),
+                provider.GetRequiredService<IRealtimeNotifier>(),
+                provider.GetRequiredService<ILogger<NotificationGenerator>>()),
+            provider.GetRequiredService<IUserRepository>(),
+            provider.GetRequiredService<IDoctorRepository>(),
+            provider.GetRequiredService<IDeviceRegistrationRepository>(),
+            provider.GetRequiredService<IPushDeliveryRepository>(),
+            provider.GetRequiredService<IUnitOfWork>(),
+            provider.GetRequiredService<IOsPushAvailability>(),
+            configuration,
+            provider.GetRequiredService<ILogger<PushNotificationGeneratorDecorator>>()));
+
+        // Outbound document emails — the SMTP sender for the document-email outbox (DocumentEmailJob). It reads
+        // its host/credentials/from-identity from the same IReminderSettingsProvider the two message channels
+        // use, so a clinic configures every outbound channel in one place.
+        services.AddScoped<IDocumentEmailSender, SmtpDocumentEmailSender>();
+
+        // clinic-self-signup — the first email path in the product bound to NO clinic. It reads the per-install
+        // `Notification:Smtp:*` section directly, and must keep doing so: its one caller runs before any clinic
+        // exists, so there is nothing for IReminderSettingsProvider to resolve against.
+        services.AddScoped<ITransactionalEmailSender, SmtpTransactionalEmailSender>();
+
+        // Where a link in that email has to point. Reads FrontendUrl, the key the Google OAuth redirect already
+        // uses, so an emailed link and a redirected browser cannot arrive at different hosts.
+        services.AddSingleton<IPublicAppUrlProvider, PublicAppUrlProvider>();
+
         // WhatsApp Embedded-Signup onboarding (Cloud) — provisions a clinic's own WABA/phone via the Graph API.
         services.AddScoped<IWhatsAppOnboardingService, WhatsAppOnboardingService>();
 
@@ -215,13 +333,18 @@ public static class Extensions
         services.AddScoped<IPdfGenerationService, PdfGenerationService>();
 
         // TTN « El Fatoora » electronic invoicing (feature facturation-einvoicing-ttn):
-        //   - TEIF XML generation + XAdES/XMLDSig signing (cert from .local/) + QR cachet rendering.
+        //   - TEIF XML generation + XAdES/XMLDSig signing + QR cachet rendering.
         //   - ITtnClient registered as a set (sandbox + production); EInvoiceService picks the one matching
         //     the clinic's configured environment (mirrors the reminder-sender pattern).
         //   - EInvoiceService orchestrates the whole dispatch; the outbox job + submit command call it.
+        //   - ITtnIdentityProvider (US-4) answers WHOSE certificate and TTN account a clinic's invoices use —
+        //     the clinic's own, or the per-install pair where the topology permits it. The signer no longer
+        //     reads configuration at all, so this is the only place that question is answered.
         services.AddScoped<ITeifXmlGenerator, TeifXmlGenerator>();
         services.AddScoped<IEInvoiceSigner, XadesEInvoiceSigner>();
         services.AddSingleton<IQrCodeGenerator, QrCodeGenerator>();
+        services.AddSingleton<ITtnSecretProtector, TtnSecretProtector>();
+        services.AddScoped<ITtnIdentityProvider, TtnIdentityProvider>();
         services.AddScoped<ITtnClient, SandboxTtnClient>();
         services.AddScoped<ITtnClient, HttpTtnClient>();
         services.AddScoped<IEInvoiceService, EInvoiceService>();

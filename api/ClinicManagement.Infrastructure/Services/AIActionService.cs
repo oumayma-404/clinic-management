@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.AI.Commands;
 using ClinicManagement.Application.Features.Appointments.Commands;
@@ -15,6 +16,24 @@ public class AIActionService : IAIActionService
 {
     // French clinic locale for user-facing dates in AI action responses.
     private static readonly CultureInfo FrCulture = new("fr-FR");
+
+    /// <summary>
+    /// Every appointment moment this assistant states out loud, in the clinic's own zone and French order
+    /// (L3d).
+    ///
+    /// <para>The four sites this replaces printed <c>AppointmentDateTime.ToString("yyyy-MM-dd HH:mm")</c> — the
+    /// <b>raw UTC instant</b>, in ISO order — for <c>list_appointments</c>, the disambiguation list shown
+    /// <i>before a cancel</i>, the cancel confirmation and the create confirmation. Tunisia is UTC+1, so every
+    /// hour was wrong by one, and « Plusieurs rendez-vous trouvés » offered a choice between times that did not
+    /// match the agenda: the dentist could confirm cancelling the wrong slot. The reminder scheduler and the
+    /// notification generator already converted through <see cref="ClinicClock"/>; this is the same rule, in the
+    /// one place where the assistant speaks.</para>
+    /// </summary>
+    private static string FormatClinicMoment(DateTime utc) =>
+        ClinicClock.ToClinicLocal(utc).ToString("dd/MM/yyyy 'à' HH:mm", FrCulture);
+
+    /// <summary>A bare calendar day (a filter echo, a date of birth) — never an instant, so no conversion.</summary>
+    private static string FormatClinicDay(DateTime date) => date.ToString("dd/MM/yyyy", FrCulture);
 
     private readonly IHuggingFaceAIService _huggingFaceAIService;
     private readonly IMediator _mediator;
@@ -349,7 +368,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             {
                 var requestedPatientName = patientNameObj.ToString() ?? "";
                 // Archived patients are excluded — the assistant must not find what the UI's own search hides.
-                var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);
+                var patients = (await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken)).Items;
                 var patient = patients.FirstOrDefault(p =>
                     $"{p.FirstName} {p.LastName}".Equals(requestedPatientName, StringComparison.OrdinalIgnoreCase) ||
                     p.FirstName.Equals(requestedPatientName, StringComparison.OrdinalIgnoreCase) ||
@@ -382,7 +401,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             }
             else
             {
-                appointmentDate = DateTime.Today.AddDays(1); // Default to tomorrow
+                appointmentDate = ClinicClock.ClinicToday().AddDays(1); // Default to tomorrow (clinic-local)
             }
 
             // Parse time
@@ -400,24 +419,25 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 }
             }
 
-            // Create DateTime in local time (user's timezone)
-            // This ensures "10am" means 10am in the user's local time, not UTC
-            var appointmentDateTime = new DateTime(
+            // « 10h » means 10:00 on the CLINIC's wall clock, converted to the UTC instant the appointment is
+            // stored as (AC-P6.6). This used to be built as `DateTimeKind.Local` — the *server machine's* zone —
+            // so the same sentence produced a different appointment depending on the clinic PC's OS setting, and
+            // an hour's drift on any host left at UTC.
+            var appointmentDateTime = ClinicClock.ToUtc(new DateTime(
                 appointmentDate.Year,
                 appointmentDate.Month,
                 appointmentDate.Day,
                 hour,
                 minute,
-                0,
-                DateTimeKind.Local
-            );
+                0));
 
             // Find procedure type if specified
             Guid? procedureTypeId = null;
             if (parameters.TryGetValue("procedure", out var procedureObj))
             {
                 var procedureName = procedureObj.ToString() ?? "";
-                var procedureTypes = await _procedureTypeRepository.GetActiveAsync(cancellationToken);
+                var procedureTypes = (await _procedureTypeRepository.GetFilteredAsync(
+                    clinicId, cancellationToken: cancellationToken)).Items;
                 var procedureType = procedureTypes.FirstOrDefault(pt =>
                     pt.Name.Equals(procedureName, StringComparison.OrdinalIgnoreCase) ||
                     pt.Name.Contains(procedureName, StringComparison.OrdinalIgnoreCase));
@@ -453,7 +473,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
             var appointment = result.Value!; // non-null: guarded by the IsFailure check above
             var appointmentPatientName = appointment.PatientName ?? "Inconnu";
-            var dateTime = appointment.AppointmentDateTime.ToString("dd MMMM yyyy 'à' HH:mm", FrCulture);
+            var dateTime = FormatClinicMoment(appointment.AppointmentDateTime);
             var procedureInfo = !string.IsNullOrEmpty(appointment.ProcedureTypeName)
                 ? $"\nActe : {appointment.ProcedureTypeName}"
                 : "";
@@ -480,9 +500,16 @@ If the user is just asking a question or chatting, set should_execute_action to 
         }
     }
 
+    /// <summary>
+    /// Resolves « aujourd'hui » / « demain » / a day name against the <b>clinic's</b> calendar day (AC-P6.6).
+    /// Every anchor here used to be <c>DateTime.Today</c> — the server machine's local day, a third time
+    /// convention alongside UTC and clinic-local, so « demain » silently depended on the clinic PC's OS setting
+    /// and on a UTC container resolved to the wrong day for the first hour of every Tunisian day.
+    /// </summary>
     private bool TryParseDate(string dateStr, out DateTime date)
     {
-        date = DateTime.Today;
+        var clinicToday = ClinicClock.ClinicToday();
+        date = clinicToday;
 
         // Try common date formats
         if (DateTime.TryParse(dateStr, out date))
@@ -494,12 +521,12 @@ If the user is just asking a question or chatting, set should_execute_action to 
         var lower = dateStr.ToLower();
         if (lower == "today")
         {
-            date = DateTime.Today;
+            date = clinicToday;
             return true;
         }
         if (lower == "tomorrow")
         {
-            date = DateTime.Today.AddDays(1);
+            date = clinicToday.AddDays(1);
             return true;
         }
 
@@ -518,10 +545,9 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
         if (dayOfWeek.HasValue)
         {
-            var today = DateTime.Today;
-            var daysUntil = ((int)dayOfWeek.Value - (int)today.DayOfWeek + 7) % 7;
+            var daysUntil = ((int)dayOfWeek.Value - (int)clinicToday.DayOfWeek + 7) % 7;
             if (daysUntil == 0) daysUntil = 7; // Next week if today is that day
-            date = today.AddDays(daysUntil);
+            date = clinicToday.AddDays(daysUntil);
             return true;
         }
 
@@ -634,7 +660,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
             var clinicId = user.ClinicId;
             // Archived patients are excluded — the assistant must not find what the UI's own search hides.
-                var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);
+                var patients = (await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken)).Items;
             var matchingPatients = patients.Where(p =>
                 $"{p.FirstName} {p.LastName}".Contains(patientName, StringComparison.OrdinalIgnoreCase) ||
                 p.FirstName.Contains(patientName, StringComparison.OrdinalIgnoreCase) ||
@@ -720,7 +746,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
             var clinicId = user.ClinicId;
             // Archived patients are excluded — the assistant must not find what the UI's own search hides.
-                var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);
+                var patients = (await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken)).Items;
             var patient = patients.FirstOrDefault(p =>
                 $"{p.FirstName} {p.LastName}".Equals(patientName, StringComparison.OrdinalIgnoreCase) ||
                 p.FirstName.Equals(patientName, StringComparison.OrdinalIgnoreCase) ||
@@ -817,7 +843,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             {
                 var patientName = patientNameObj.ToString() ?? "";
                 // Archived patients are excluded — the assistant must not find what the UI's own search hides.
-                var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);
+                var patients = (await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken)).Items;
                 var patient = patients.FirstOrDefault(p =>
                     $"{p.FirstName} {p.LastName}".Equals(patientName, StringComparison.OrdinalIgnoreCase) ||
                     p.FirstName.Equals(patientName, StringComparison.OrdinalIgnoreCase) ||
@@ -840,7 +866,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
             if (appointmentList.Count == 0)
             {
-                var dateInfo = startDate.HasValue ? $" pour le {startDate.Value:yyyy-MM-dd}" : "";
+                var dateInfo = startDate.HasValue ? $" pour le {FormatClinicDay(startDate.Value)}" : "";
                 var patientInfo = patientId.HasValue ? " pour le patient indiqué" : "";
                 return new AIActionResult
                 {
@@ -854,7 +880,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             foreach (var appointment in appointmentList)
             {
                 var patientName = appointment.Patient?.GetFullName() ?? "Occupé";
-                var dateTime = appointment.AppointmentDateTime.ToString("yyyy-MM-dd HH:mm");
+                var dateTime = FormatClinicMoment(appointment.AppointmentDateTime);
                 var procedure = !string.IsNullOrEmpty(appointment.ProcedureType?.Name) ? $" ({appointment.ProcedureType.Name})" : "";
                 response += $"• {patientName} - {dateTime}{procedure}\n";
             }
@@ -917,7 +943,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
             // Find patient
             // Archived patients are excluded — the assistant must not find what the UI's own search hides.
-                var patients = await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);
+                var patients = (await _patientRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken)).Items;
             var patient = patients.FirstOrDefault(p =>
                 $"{p.FirstName} {p.LastName}".Equals(patientName, StringComparison.OrdinalIgnoreCase) ||
                 p.FirstName.Equals(patientName, StringComparison.OrdinalIgnoreCase) ||
@@ -975,7 +1001,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
             if (matchingAppointments.Count > 1)
             {
                 var appointmentList = string.Join("\n", matchingAppointments.Select(a =>
-                    $"- {a.AppointmentDateTime:yyyy-MM-dd HH:mm}"));
+                    $"- {FormatClinicMoment(a.AppointmentDateTime)}"));
                 return new AIActionResult
                 {
                     ShouldExecuteAction = false,
@@ -1007,7 +1033,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                 ActionType = "cancel_appointment",
                 ResponseMessage = $"✅ Rendez-vous annulé avec succès !\n\n" +
                                 $"Patient : {patientName}\n" +
-                                $"Date et heure : {appointment.AppointmentDateTime:yyyy-MM-dd HH:mm}"
+                                $"Date et heure : {FormatClinicMoment(appointment.AppointmentDateTime)}"
             };
         }
         catch (Exception ex)

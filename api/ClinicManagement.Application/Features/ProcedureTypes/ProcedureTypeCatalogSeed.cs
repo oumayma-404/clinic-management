@@ -73,15 +73,28 @@ public static class ProcedureTypeCatalogSeed
         new("Soin dentaire enfant (dent de lait)", 30, 60m, "Pédodontie"),
     };
 
-    /// <summary>Build fresh <see cref="ProcedureType"/> entities for a clinic from the starter rows.</summary>
+    /// <summary>
+    /// Build fresh <see cref="ProcedureType"/> entities for a clinic from the starter rows.
+    /// <para>
+    /// ⚠️ Every argument is <b>named</b>, and that is not tidying. This call used to pass <c>r.Category</c>
+    /// positionally into the constructor's <c>description</c> slot — there was no category column to put it in —
+    /// so nineteen acts per clinic carried their discipline in a field the act form labels « Description
+    /// (optionnel) », and the catalogue picker had to group on it while documenting that it was not allowed to
+    /// trust it. Now that both parameters exist and are adjacent nullable strings, positional arguments are one
+    /// transposition away from re-creating exactly that bug silently.
+    /// </para>
+    /// </summary>
     public static IEnumerable<ProcedureType> CreateFor(Guid clinicId) =>
         Rows.Select(r => new ProcedureType(
-            Guid.NewGuid(),
-            clinicId,
-            r.Name,
-            r.DurationMinutes,
-            ColorHex.FromString(CategoryColors.TryGetValue(r.Category, out var color) ? color : FallbackColor),
-            r.Category,
-            r.DefaultCost,
-            CategoryResultingConditions.TryGetValue(r.Category, out var condition) ? condition : null));
+            id: Guid.NewGuid(),
+            clinicId: clinicId,
+            name: r.Name,
+            defaultDurationMinutes: r.DurationMinutes,
+            color: ColorHex.FromString(CategoryColors.TryGetValue(r.Category, out var color) ? color : FallbackColor),
+            // A seeded act has no description — the starter row carries a name, a price and a discipline, and
+            // inventing prose for it would be putting words in the clinic's mouth.
+            description: null,
+            defaultCost: r.DefaultCost,
+            resultingCondition: CategoryResultingConditions.TryGetValue(r.Category, out var condition) ? condition : null,
+            category: r.Category));
 }

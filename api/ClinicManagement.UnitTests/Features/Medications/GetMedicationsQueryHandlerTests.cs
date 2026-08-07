@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Features.Medications.Queries;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -8,9 +10,15 @@ using Xunit;
 namespace ClinicManagement.UnitTests.Features.Medications;
 
 /// <summary>
-/// Medication catalog read query. GLOBAL reference data (not clinic-scoped); the handler filters the
-/// mocked repository's rows by free text over brand / form / strength / DCI (case-insensitive, blank = no
-/// filter) and forwards IncludeInactive for the admin screen.
+/// Medication catalog read query. Since `list-pagination` the handler is a **pass-through**: the free-text term,
+/// the page and <c>IncludeInactive</c> go to <c>IMedicationCatalogRepository</c> and the returned page is mapped.
+/// So that is what these cases hold — that each argument arrives verbatim, and that the mapping is right.
+///
+/// <para>⚠️ **The matching itself is SQL and is therefore outside this project's reach entirely** (no database
+/// here). Case-insensitivity, accent folding and the molecule search — an <c>EXISTS</c> over the ingredient child
+/// rows — live in the repository. Six cases used to assert them by handing the mock the whole catalogue and
+/// checking the handler narrowed it, which stopped meaning anything the moment the filter moved: a mocked
+/// repository applies no predicate, so they were testing a capability the handler had correctly lost.</para>
 /// </summary>
 public class GetMedicationsQueryHandlerTests
 {
@@ -26,15 +34,16 @@ public class GetMedicationsQueryHandlerTests
 
     private GetMedicationsQueryHandler Handler()
     {
-        _repository.Setup(r => r.GetAllAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(Sample());
+        _repository.Setup(r => r.GetAllAsync(It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>())).ReturnsAsync((Sample()).AsPage());
         return new GetMedicationsQueryHandler(_repository.Object, NullLogger<GetMedicationsQueryHandler>.Instance);
     }
 
     private static List<Application.DTOs.MedicationDto> ToList(
-        ClinicManagement.Application.Common.Models.Result<IEnumerable<Application.DTOs.MedicationDto>> result)
+        ClinicManagement.Application.Common.Models.Result<PagedResult<Application.DTOs.MedicationDto>> result)
     {
         Assert.True(result.IsSuccess);
-        return result.Value!.ToList();
+        return result.Value!.Items.ToList();
     }
 
     [Fact]
@@ -53,61 +62,47 @@ public class GetMedicationsQueryHandlerTests
         Assert.Equal(4, ToList(result).Count);
     }
 
-    [Fact]
-    public async Task Handle_Filters_By_Brand_Case_Insensitively() // [AC-2]
+    // [AC-2] The search term reaches the repository **verbatim** — brand, molecule, form and strength are one
+    // argument, matched in SQL. Six cases here used to hand the mock the whole catalogue and assert the handler
+    // narrowed it; that filtering is `MedicationCatalogRepository`'s now, so those cases were asserting a
+    // capability the handler had correctly stopped having.
+    [Theory]
+    [InlineData("augmentin")]
+    [InlineData("salbutamol")]
+    [InlineData("gélule")]
+    [InlineData("5 mg")]
+    [InlineData("  augmentin  ")]
+    [InlineData("zzznotadrug")]
+    public async Task Handle_Forwards_The_Search_Term_To_The_Repository(string term)
     {
-        var result = await Handler().Handle(new GetMedicationsQuery { Q = "augmentin" }, CancellationToken.None);
-        var meds = ToList(result);
-        Assert.Single(meds);
-        Assert.Equal("Augmentin", meds[0].BrandName);
+        var handler = Handler();
+
+        await handler.Handle(new GetMedicationsQuery { Q = term }, CancellationToken.None);
+
+        // Verbatim, including the untrimmed form: normalisation belongs to SearchTerm inside the repository, so a
+        // handler that "helpfully" trimmed here would be a second place deciding what the user typed.
+        _repository.Verify(r => r.GetAllAsync(It.IsAny<bool>(), term, It.IsAny<PageRequest?>(),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task Handle_Filters_By_Dci() // [AC-2] molecule search
+    public async Task Handle_Forwards_The_Requested_Page() // [AC-2]
     {
-        var result = await Handler().Handle(new GetMedicationsQuery { Q = "salbutamol" }, CancellationToken.None);
-        var meds = ToList(result);
-        Assert.Single(meds);
-        Assert.Equal("Ventoline", meds[0].BrandName);
-    }
+        var handler = Handler();
 
-    [Fact]
-    public async Task Handle_Filters_By_Form() // [AC-2]
-    {
-        var result = await Handler().Handle(new GetMedicationsQuery { Q = "gélule" }, CancellationToken.None);
-        var meds = ToList(result);
-        Assert.Single(meds);
-        Assert.Equal("Amlor", meds[0].BrandName);
-    }
+        await handler.Handle(new GetMedicationsQuery { Page = 3, PageSize = 25 }, CancellationToken.None);
 
-    [Fact]
-    public async Task Handle_Filters_By_Strength() // [AC-2]
-    {
-        var result = await Handler().Handle(new GetMedicationsQuery { Q = "5 mg" }, CancellationToken.None);
-        var meds = ToList(result);
-        Assert.Single(meds);
-        Assert.Equal("Amlor", meds[0].BrandName);
-    }
-
-    [Fact]
-    public async Task Handle_Unknown_Query_Returns_Empty_Not_Error() // [AC-2]
-    {
-        var result = await Handler().Handle(new GetMedicationsQuery { Q = "zzznotadrug" }, CancellationToken.None);
-        Assert.Empty(ToList(result));
-    }
-
-    [Fact]
-    public async Task Handle_Trims_Query_Before_Matching() // [AC-2]
-    {
-        var result = await Handler().Handle(new GetMedicationsQuery { Q = "  augmentin  " }, CancellationToken.None);
-        Assert.Single(ToList(result));
+        _repository.Verify(r => r.GetAllAsync(It.IsAny<bool>(), It.IsAny<string?>(),
+            It.Is<PageRequest?>(p => p != null && p.Value.Page == 3 && p.Value.PageSize == 25),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task Handle_Maps_All_Dcis_Onto_The_Dto() // [AC-2] combination drug carries both molecules
     {
-        var result = await Handler().Handle(new GetMedicationsQuery { Q = "augmentin" }, CancellationToken.None);
-        var augmentin = Assert.Single(ToList(result));
+        var result = await Handler().Handle(new GetMedicationsQuery(), CancellationToken.None);
+
+        var augmentin = Assert.Single(ToList(result), m => m.BrandName == "Augmentin");
         Assert.Equal(2, augmentin.Dcis.Count);
         Assert.Contains("Amoxicilline", augmentin.Dcis);
         Assert.Contains("Acide clavulanique", augmentin.Dcis);
@@ -118,6 +113,7 @@ public class GetMedicationsQueryHandlerTests
     {
         var handler = Handler();
         await handler.Handle(new GetMedicationsQuery { IncludeInactive = true }, CancellationToken.None);
-        _repository.Verify(r => r.GetAllAsync(true, It.IsAny<CancellationToken>()), Times.Once);
+        _repository.Verify(r => r.GetAllAsync(true, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()), Times.Once);
     }
 }

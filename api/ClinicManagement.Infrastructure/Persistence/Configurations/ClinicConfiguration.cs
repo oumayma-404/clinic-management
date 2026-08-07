@@ -42,6 +42,10 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
             .IsRequired()
             .HasDefaultValue(false);
 
+        // AC-P4.38 — a RATE, not money: deliberately kept at (5,2) against the model-wide
+        // HavePrecision(18,3) convention. A convention that silently widened a VAT rate would be worse than
+        // the drift it fixes, so the explicit annotation is retained on purpose. verify-schema asserts this
+        // column is NOT (18,3) — widening it is reported as drift in the other direction.
         builder.Property(c => c.VatRate)
             .HasColumnType("decimal(5,2)")
             .HasDefaultValue(7m);
@@ -51,7 +55,6 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
             .HasDefaultValue(true);
 
         builder.Property(c => c.StampDutyAmount)
-            .HasColumnType("decimal(18,3)")
             .HasDefaultValue(1.000m);
 
         // TTN « El Fatoora » e-invoicing settings (non-secret).
@@ -63,6 +66,22 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
             .IsRequired()
             .HasMaxLength(20)
             .HasDefaultValue(Clinic.TtnEnvironmentSandbox);
+
+        // The clinic's own El Fatoora identity (multi-tenant-cloud US-4). All nullable, no default: « this
+        // clinic has not been issued a certificate » is a real state, not a value to invent.
+        builder.Property(c => c.TtnUsername)
+            .HasMaxLength(200);
+
+        // A storage key, never the PFX itself — the bytes live in file storage like every other blob.
+        builder.Property(c => c.TtnCertificateKey)
+            .HasMaxLength(500);
+
+        // Data-Protection ciphertext — opaque, variable length (matches the three reminder secret columns).
+        builder.Property(c => c.TtnApiSecretEncrypted)
+            .HasColumnType("text");
+
+        builder.Property(c => c.TtnCertificatePasswordEncrypted)
+            .HasColumnType("text");
 
         // Working hours JSON array (reliability-and-polish AC-7) — opaque, variable length.
         builder.Property(c => c.WorkingHoursJson)

@@ -1,10 +1,23 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { ProcedureTypeDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export const procedureTypesApi = {
   list: async (includeInactive: boolean = false): Promise<ProcedureTypeDto[]> => {
-    return apiGet<ProcedureTypeDto[]>('/procedure-types', { includeInactive });
+    return unwrapPaged(
+      await apiGet<PagedResponse<ProcedureTypeDto>>('/procedure-types', { includeInactive }),
+    );
   },
+
+  /**
+   * One page of acts, ordered by catégorie then nom. `search` matches nom / catégorie / description server-side
+   * over the whole catalog; `category` narrows to one discipline — also server-side, because narrowing an
+   * already-cut page shrinks pages unpredictably. An unrecognised `category` matches nothing rather than failing.
+   */
+  listPaged: async (
+    params: PageParams & { includeInactive?: boolean; category?: string },
+  ): Promise<PagedResponse<ProcedureTypeDto>> =>
+    apiGet<PagedResponse<ProcedureTypeDto>>('/procedure-types', params),
 
   get: async (id: string): Promise<ProcedureTypeDto> => {
     return apiGet<ProcedureTypeDto>(`/procedure-types/${id}`);
@@ -16,6 +29,7 @@ export const procedureTypesApi = {
     defaultCost?: number | null;
     colorHex: string;
     description?: string;
+    category?: string;
     resultingCondition?: string | null;
   }): Promise<ProcedureTypeDto> => {
     return apiPost<ProcedureTypeDto>('/procedure-types', {
@@ -24,6 +38,7 @@ export const procedureTypesApi = {
       defaultCost: data.defaultCost,
       colorHex: data.colorHex,
       description: data.description,
+      category: data.category,
       resultingCondition: data.resultingCondition,
     });
   },
@@ -34,9 +49,48 @@ export const procedureTypesApi = {
     defaultCost?: number | null;
     colorHex?: string;
     description?: string;
+    /** Tri-state, like every field here: omit = unchanged, `""` = unfile the act, a label = file it. */
+    category?: string;
     resultingCondition?: string | null;
   }): Promise<ProcedureTypeDto> => {
     return apiPut<ProcedureTypeDto>(`/procedure-types/${id}`, data);
+  },
+
+  /**
+   * AC-P4.14 — replaces the act's material list wholesale. An empty array is a real value meaning « this act
+   * consumes nothing » (the opt-out, AC-P4.11), which is why this is a separate call from `update`, whose
+   * every field means "unchanged" when omitted. Admin-only server-side.
+   */
+  setMaterials: async (
+    id: string,
+    materials: { stockItemId: string; quantityPerAct: number }[],
+  ): Promise<ProcedureTypeDto> => {
+    return apiPut<ProcedureTypeDto>(`/procedure-types/${id}/materials`, { materials });
+  },
+
+  /**
+   * AC-P2.36: the palette the backend `ColorHex` value object actually accepts. Returns **bare hex strings with
+   * no names** (A-14), which is why the French labels stay client-side — the endpoint is the authority on
+   * *which* colours are valid, not on how they are called.
+   *
+   * It had zero callers, so the frontend carried its own hardcoded copy under a "must match backend" comment:
+   * the two could drift, and a colour added or retired server-side either vanished from the picker or was
+   * offered and then rejected with `ArgumentException`.
+   */
+  getColors: async (): Promise<string[]> => {
+    return apiGet<string[]>('/procedure-types/colors');
+  },
+
+  /**
+   * The categories to offer when filing or filtering an act: the suggested clinical disciplines in clinical order,
+   * followed by any category this clinic invented for itself.
+   *
+   * Fetched rather than hardcoded for the same reason `getColors` is — but with a stronger one: half the list is
+   * *data*. Only the server knows which categories the clinic has used, and a suggestion list missing them is what
+   * makes the next admin retype « endodontie » and split a discipline in two.
+   */
+  getCategories: async (): Promise<string[]> => {
+    return apiGet<string[]>('/procedure-types/categories');
   },
 
   delete: async (id: string): Promise<void> => {

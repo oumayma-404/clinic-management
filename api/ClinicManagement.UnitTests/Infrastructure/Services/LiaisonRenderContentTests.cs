@@ -31,7 +31,7 @@ public class LiaisonRenderContentTests
         var sections = LiaisonContent.Build(content);
 
         Assert.Equal(2, sections.Count);
-        Assert.Equal("Motif", sections[0].Heading);
+        Assert.Equal("Motif de la liaison", sections[0].Heading);
         Assert.Equal("avis spécialisé", sections[0].Body);
         Assert.Equal("Prescriptions", sections[1].Heading);
         Assert.DoesNotContain(sections, s => s.Heading == "Examen clinique" || s.Heading == "Examen radiologique");
@@ -50,7 +50,7 @@ public class LiaisonRenderContentTests
 
         var headings = LiaisonContent.Build(content).Select(s => s.Heading).ToList();
 
-        Assert.Equal(new[] { "Motif", "Actes réalisés", "Prescriptions" }, headings);
+        Assert.Equal(new[] { "Motif de la liaison", "Actes réalisés", "Prescriptions" }, headings);
     }
 
     // [LIA-5] a legacy letter carries only a free-text `content` body → one unlabelled section.
@@ -66,20 +66,28 @@ public class LiaisonRenderContentTests
         Assert.Equal("Cher confrère, je vous adresse ce patient.", section.Body);
     }
 
-    // [LIA-5 / precedence] when guided fields exist, the legacy free-text body is not duplicated.
+    // [LIA-5] Free-text prose and the guided sections COEXIST, prose second in the reading order.
+    //
+    // ⚠️ This asserted the opposite until now ("guided fields take precedence, the legacy body is dropped"), which
+    // was Part E's rule: `content` was a pre-Part-E fallback rendered only when no guided field was filled. A
+    // later change promoted it to a first-class unlabelled section on BOTH sides — the frontend's
+    // `liaisonSections()` says so in as many words, in the same order and with the same headings — so the old
+    // assertion described behaviour the product had deliberately left behind.
     [Fact]
-    public void Guided_Fields_Take_Precedence_Over_Legacy_Free_Text()
+    public void Free_Text_Prose_Coexists_With_Guided_Sections()
     {
         var content = new Dictionary<string, string>
         {
-            ["content"] = "legacy body",
+            ["content"] = "prose body",
             ["motif"] = "avis",
         };
 
         var sections = LiaisonContent.Build(content);
 
-        Assert.Single(sections);
-        Assert.Equal("Motif", sections[0].Heading);
+        Assert.Equal(2, sections.Count);
+        Assert.Equal("Motif de la liaison", sections[0].Heading);
+        Assert.Null(sections[1].Heading);
+        Assert.Equal("prose body", sections[1].Body);
     }
 
     // [LIA-5] a legacy internal-recipient liaison (recipient in the snapshot columns + free-text body, no

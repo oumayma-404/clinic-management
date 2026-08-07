@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -206,7 +208,7 @@ public class TreatmentPlanTenantIsolationTests
         var installmentId = foreign.Installments.First().Id;
 
         var handler = new RecordInstallmentPaymentCommandHandler(
-            _plans.Object, _patients.Object, _clinicResolver.Object, _uow.Object,
+            _plans.Object, _invoices.Object, _patients.Object, _clinicResolver.Object, _uow.Object,
             NullLogger<RecordInstallmentPaymentCommandHandler>.Instance);
 
         var result = await handler.Handle(
@@ -216,7 +218,10 @@ public class TreatmentPlanTenantIsolationTests
                 InstallmentId = installmentId,
                 Amount = 100m,
                 Method = "Cash",
-                PaidOn = new DateTime(2026, 8, 5, 0, 0, 0, DateTimeKind.Utc),
+                // Deliberately in the PAST. The handler now validates the payment date (J2) *before* it resolves
+                // the clinic, so a future date would make this test pass on « date dans le futur » and stop
+                // exercising the tenant guard it exists for — green for the wrong reason.
+                PaidOn = new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc),
             },
             CancellationToken.None);
 
@@ -304,10 +309,11 @@ public class TreatmentPlanTenantIsolationTests
         Authenticated();
         _plans.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<TreatmentPlan>());
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<Patient>());
+                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Array.Empty<TreatmentPlan>()).AsPage());
+        _patients.Setup(r => r.GetByIdsAsync(ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, Patient>());
         _appointments.Setup(r => r.GetByTreatmentPlanItemIdsAsync(
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Appointment>());
@@ -321,9 +327,10 @@ public class TreatmentPlanTenantIsolationTests
         var result = await handler.Handle(new GetTreatmentPlansQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Empty(result.Value!);
+        Assert.Empty(result.Value!.Items);
         _plans.Verify(r => r.GetFilteredAsync(
             ClinicId, It.IsAny<Guid?>(), It.IsAny<TreatmentPlanStatus?>(),
-            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()), Times.Once);
     }
 }

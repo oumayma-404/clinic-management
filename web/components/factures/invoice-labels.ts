@@ -1,4 +1,5 @@
 // French labels for invoice status + payment method (backend enum names → UI copy).
+import { statusToneClass, type StatusTone } from "@/components/ui/status-tone";
 
 export const INVOICE_STATUS_LABELS: Record<string, string> = {
   Draft: "Brouillon",
@@ -29,16 +30,28 @@ export const EINVOICE_STATUS_LABELS: Record<string, string> = {
   Failed: "Échec",
 };
 
-// Tailwind badge classes per e-invoicing status (light + dark), mirroring the fiscal-status palette.
-export const EINVOICE_STATUS_BADGE_CLASS: Record<string, string> = {
-  NotSubmitted: "bg-muted text-muted-foreground",
-  Queued: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
-  Signed: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200",
-  Submitted: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200",
-  Validating: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200",
-  Valid: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200",
-  Rejected: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
-  Failed: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
+/**
+ * Fiscal status → tone. `PartiallyPaid` is `active` rather than `positive`: money is still owed, and a green pill on
+ * a half-paid note is the kind of reassurance that gets a débiteur forgotten.
+ */
+export const INVOICE_STATUS_TONE: Record<string, StatusTone> = {
+  Draft: "neutral",
+  Issued: "pending",
+  PartiallyPaid: "active",
+  Paid: "positive",
+  Cancelled: "negative",
+};
+
+/** El Fatoora status → tone. Everything mid-flight is `pending`/`active`; only TTN's `Valid` is an outcome. */
+export const EINVOICE_STATUS_TONE: Record<string, StatusTone> = {
+  NotSubmitted: "neutral",
+  Queued: "active",
+  Signed: "pending",
+  Submitted: "pending",
+  Validating: "active",
+  Valid: "positive",
+  Rejected: "negative",
+  Failed: "negative",
 };
 
 export function invoiceStatusLabel(status: string): string {
@@ -49,8 +62,21 @@ export function eInvoiceStatusLabel(status: string): string {
   return EINVOICE_STATUS_LABELS[status] ?? status;
 }
 
+export function invoiceStatusBadgeClass(status: string): string {
+  return statusToneClass(INVOICE_STATUS_TONE[status]);
+}
+
+/**
+ * The « Annulé » badge on a voided payment — `negative`, like a cancelled note: it is money that was taken back.
+ *
+ * <p>It lives here rather than inline in the detail modal for the same reason the status map does: the modal used
+ * to render it as a bare `<Badge variant="outline">` while everything else fiscal went through a tone, so the one
+ * badge that reports money leaving was the only one drawn in neutral grey.</p>
+ */
+export const VOIDED_PAYMENT_BADGE_CLASS = statusToneClass("negative");
+
 export function eInvoiceStatusBadgeClass(status: string): string {
-  return EINVOICE_STATUS_BADGE_CLASS[status] ?? "bg-muted text-muted-foreground";
+  return statusToneClass(EINVOICE_STATUS_TONE[status]);
 }
 
 export function paymentMethodLabel(method: string): string {

@@ -20,9 +20,12 @@ namespace ClinicManagement.Infrastructure;
 /// <c>KnownProxies</c>) silently turns them spoofable. Resolving the client address <i>separately</i> keeps
 /// the loopback guarantee a property of the actual TCP peer — structural, not configuration-dependent.</para>
 ///
-/// <para><b>Trust rule.</b> <c>X-Forwarded-For</c> is honoured <b>only</b> when the immediate peer is loopback
-/// — i.e. our own front door or BFF. A LAN client's own header is therefore never trusted, so it cannot
-/// impersonate another device to escape its rate-limit bucket, nor claim to be loopback.</para>
+/// <para><b>Trust rule.</b> <c>X-Forwarded-For</c> is honoured only from a peer in <see cref="TrustedProxies"/> —
+/// loopback always, plus whatever CIDR ranges the deployment configured. A LAN client's own header is therefore
+/// never trusted, so it cannot impersonate another device to escape its rate-limit bucket, nor claim to be loopback.
+/// ⚠️ The parameterless <see cref="Resolve(HttpContext)"/> is loopback-only, which is right on a clinic's own PC and
+/// <b>wrong behind a reverse proxy</b>: there every request's peer is the proxy container, so every address-keyed
+/// partition collapses into one. A caller on the hosted path must pass the configured set.</para>
 /// </summary>
 public static class ClientIp
 {
@@ -37,16 +40,23 @@ public static class ClientIp
     public const string Unknown = "unknown";
 
     /// <summary>
-    /// The address to attribute this request to. Returns the left-most <c>X-Forwarded-For</c> entry when the
-    /// peer is loopback (our own hop), otherwise the real TCP peer.
+    /// The address to attribute this request to, believing <c>X-Forwarded-For</c> only from a loopback peer.
+    /// Prefer the overload below wherever the deployment may sit behind a proxy.
     /// </summary>
-    public static string Resolve(HttpContext context)
+    public static string Resolve(HttpContext context) => Resolve(context, TrustedProxies.LoopbackOnly);
+
+    /// <summary>
+    /// The address to attribute this request to. Returns the left-most <c>X-Forwarded-For</c> entry when the
+    /// peer is one of <paramref name="trustedProxies"/> (our own hop), otherwise the real TCP peer.
+    /// </summary>
+    public static string Resolve(HttpContext context, TrustedProxies trustedProxies)
     {
         ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(trustedProxies);
 
         var peer = context.Connection.RemoteIpAddress;
 
-        if (peer is not null && IPAddress.IsLoopback(peer))
+        if (trustedProxies.IsTrusted(peer))
         {
             var forwarded = FirstForwardedEntry(context.Request.Headers[ForwardedForHeader].ToString());
             if (forwarded is not null)

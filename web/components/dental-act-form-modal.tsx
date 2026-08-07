@@ -13,11 +13,13 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { dentalActsApi, type DentalActInput } from "@/lib/api/dental-acts"
 import type { DentalActDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { parseAmountInput } from "@/lib/format"
 
 export const DENTAL_ACT_CATEGORIES = [
   "Soins conservateurs",
@@ -77,13 +79,13 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
 
     let coef: number | null = null
     if (coefficient.trim() !== "") {
-      coef = Number.parseFloat(coefficient.replace(",", "."))
+      coef = parseAmountInput(coefficient)
       if (!Number.isFinite(coef) || coef <= 0) return setError("Le coefficient doit être strictement positif.")
     }
 
     let fee: number | null = null
     if (defaultFee.trim() !== "") {
-      fee = Number.parseFloat(defaultFee.replace(",", "."))
+      fee = parseAmountInput(defaultFee)
       if (!Number.isFinite(fee) || fee < 0) return setError("Le tarif par défaut doit être positif.")
     }
 
@@ -115,7 +117,10 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      {/* No `max-h-[90dvh] overflow-y-auto` here: `ui/dialog.tsx`'s base already declares both (and the `md:`
+          counterparts). Repeating them unprefixed meant this call site would silently override the primitive
+          the day it changes. */}
+      <DialogContent className="md:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editingAct ? "Modifier l'acte" : "Ajouter un acte"}</DialogTitle>
           <DialogDescription>
@@ -124,13 +129,11 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-              {error}
-            </div>
-          )}
+          {/* The shared refusal banner, on `--destructive-wash` / `--destructive`. It replaces a hand-written
+              `border-red-200 bg-red-50 … dark:` copy — one of ~18 that each maintained dark mode themselves. */}
+          <FormErrorBanner message={error} />
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="codeActe" className="text-sm">
                 Code acte <span className="text-destructive">*</span>
@@ -170,16 +173,19 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="coefficient" className="text-sm">
                 Coefficient
               </Label>
+              {/* `text` + `inputMode="decimal"`, never `type="number"` (J8). The `.replace(",", ".")` this
+                    field's handler already carried was **dead code**: a number input never yields a comma, it
+                    returns an EMPTY value for the rejected keystroke. Parsing now goes through the shared
+                    `parseAmountInput`. */}
               <Input
                 id="coefficient"
-                type="number"
-                min="0"
-                step="0.001"
+                type="text"
+                inputMode="decimal"
                 placeholder="Optionnel"
                 value={coefficient}
                 onChange={(e) => setCoefficient(e.target.value)}
@@ -191,7 +197,9 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
                 Catégorie <span className="text-destructive">*</span>
               </Label>
               <Select value={category} onValueChange={setCategory} disabled={loading}>
-                <SelectTrigger id="category">
+                {/* `w-full`: `ui/select.tsx`'s trigger ships `w-fit`, so with no width the control rendered
+                    narrower than the « Coefficient » input beside it in the same grid row. */}
+                <SelectTrigger id="category" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -209,11 +217,11 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
             <Label htmlFor="defaultFee" className="text-sm">
               Tarif par défaut (DT)
             </Label>
+            {/* Same conversion (J8) — and this one is money: a tarif par défaut in millimes. */}
             <Input
               id="defaultFee"
-              type="number"
-              min="0"
-              step="0.001"
+              type="text"
+              inputMode="decimal"
               placeholder="Optionnel"
               value={defaultFee}
               onChange={(e) => setDefaultFee(e.target.value)}

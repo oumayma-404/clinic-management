@@ -19,7 +19,7 @@ public class AppointmentGoogleSyncDispatcher : IAppointmentGoogleSyncDispatcher
         _scopeFactory = scopeFactory;
     }
 
-    public void Dispatch(Guid appointmentId)
+    public void Dispatch(Guid appointmentId, Guid clinicId)
     {
         _ = Task.Run(async () =>
         {
@@ -27,6 +27,11 @@ public class AppointmentGoogleSyncDispatcher : IAppointmentGoogleSyncDispatcher
             var logger = scope.ServiceProvider.GetRequiredService<ILogger<AppointmentGoogleSyncDispatcher>>();
             try
             {
+                // A fresh scope carries no tenant scope, and the sync service's first act is to load the
+                // clinic-filtered appointment — so without this it reads nothing and logs « not found » for every
+                // push. UseClinic rather than UseSystemWide: this pushes exactly one appointment (US-2).
+                scope.ServiceProvider.GetRequiredService<ITenantScope>().UseClinic(clinicId);
+
                 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
 
                 // The LAN clients have no internet of their own — the server makes the outbound call, so gate

@@ -1,10 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useCallback, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { usePagedList } from "@/lib/hooks/use-paged-list"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,7 +19,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { ClipboardList, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2 } from "lucide-react"
+import { ClipboardList, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2, MoreHorizontal } from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { EmptyState } from "@/components/ui/empty-state"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cnamNomenclatureApi } from "@/lib/api/cnam-nomenclature"
 import type { CnamNomenclatureEntryDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
@@ -31,35 +44,30 @@ interface CnamNomenclatureTableProps {
 }
 
 export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }: CnamNomenclatureTableProps) {
-  const [entries, setEntries] = useState<CnamNomenclatureEntryDto[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
   const [entryToDelete, setEntryToDelete] = useState<CnamNomenclatureEntryDto | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [confirming, setConfirming] = useState(false)
 
-  // Refetch in place on mount and whenever the parent bumps reloadToken. The `active` guard prevents a
-  // setState after unmount if the component is torn down mid-request.
-  useEffect(() => {
-    let active = true
-    const run = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        // Admin screen: include deactivated rows too.
-        const data = await cnamNomenclatureApi.list(undefined, undefined, true)
-        if (active) setEntries(data)
-      } catch (err) {
-        if (active) setError(err instanceof ApiError ? err.message : "Échec du chargement de la nomenclature.")
-      } finally {
-        if (active) setLoading(false)
-      }
-    }
-    run()
-    return () => {
-      active = false
-    }
-  }, [reloadToken])
+  // Admin screen: include deactivated rows too. Paging, ordering and the free-text search all run
+  // server-side — the catalog is the one list that really does grow without bound, and a search that
+  // only saw the current page would miss the act being looked for most of the time.
+  const fetchPage = useCallback(
+    ({ page, pageSize, search }: { page: number; pageSize: number; search?: string }) =>
+      cnamNomenclatureApi.listPaged({ page, pageSize, search, includeInactive: true }),
+    [],
+  )
+
+  const {
+    items: entries,
+    page: pageInfo,
+    loading,
+    refreshing,
+    error,
+    setPage,
+    setPageSize,
+    isSearching,
+  } = usePagedList<CnamNomenclatureEntryDto>({ fetchPage, search, refreshKey: reloadToken })
 
   const confirmDelete = async () => {
     if (!entryToDelete) return
@@ -91,6 +99,35 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
 
   const hasProvisional = entries.some((e) => e.isProvisional)
 
+  /**
+   * The two empty facts kept apart (finding #4). This table carries a live search box and had a single
+   * « Aucun acte dans la nomenclature » — so one mistyped code told the admin their entire CNAM catalogue was
+   * gone. The filtered branch offers a way back and deliberately no « Ajouter un acte »: the act almost
+   * certainly exists, and a create button there produces a duplicate `codeActe`.
+   */
+  const renderEmpty = (size: "default" | "compact") =>
+    isSearching ? (
+      <div className="flex flex-col items-center gap-2 py-2">
+        <p className="text-sm text-muted-foreground">Aucun acte ne correspond à votre recherche</p>
+        <Button variant="outline" size="sm" onClick={() => setSearch("")}>
+          Effacer la recherche
+        </Button>
+      </div>
+    ) : (
+      <EmptyState
+        icon={ClipboardList}
+        size={size}
+        title="Aucun acte dans la nomenclature"
+        description="La nomenclature CNAM associe un code d'acte à sa lettre clé et à son coefficient : c'est ce qui permet d'estimer le remboursement sur un bulletin BS1."
+        action={
+          <Button onClick={onAdd} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Ajouter un acte
+          </Button>
+        }
+      />
+    )
+
   if (loading) {
     return (
       <Card>
@@ -104,7 +141,9 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
   return (
     <>
       {hasProvisional && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        /* On the theme's warning family (`--warning-wash` / `--warning-ink`), not `amber-*` literals with a
+           hand-maintained `dark:` twin. */
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning-wash p-3 text-sm text-warning-ink">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span>
@@ -121,28 +160,93 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
+          {/* flex-wrap + a full-width button below sm:. Title and « Ajouter » together exceed a 288px
+              card, and without wrapping the button ran outside the view. */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="flex min-w-0 items-center gap-2">
               <ClipboardList className="h-5 w-5" />
               Nomenclature CNAM
               <Badge variant="secondary" className="ml-2">
-                {entries.length} {entries.length === 1 ? "acte" : "actes"}
+                {pageInfo.totalCount} {pageInfo.totalCount === 1 ? "acte" : "actes"}
               </Badge>
             </CardTitle>
-            <Button onClick={onAdd} size="sm" className="gap-2">
+            <Button onClick={onAdd} size="sm" className="w-full gap-2 sm:w-auto">
               <Plus className="h-4 w-4" />
               Ajouter un acte
             </Button>
           </div>
         </CardHeader>
         <CardContent>
-          {error && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-              {error}
-            </div>
-          )}
-          <div className="overflow-x-auto">
-            <Table>
+          {/* The shared primitive on the theme's own destructive family, plus a retry: this file carried a
+              hand-written `border-red-200 bg-red-50 … dark:` copy, so it maintained dark mode itself and the
+              only escape from a failed read was a browser reload. */}
+          <FormErrorBanner
+            className="mb-4"
+            message={error}
+            action={{ label: "Réessayer", onClick: onChanged }}
+          />
+          <div className="mb-4">
+            <Label htmlFor="cnam-search" className="sr-only">
+              Rechercher un acte (code, désignation, lettre clé)…
+            </Label>
+            <Input
+              id="cnam-search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher un acte (code, désignation, lettre clé)…"
+            />
+          </div>
+          {/* No `overflow-x-auto` here: `ui/table.tsx` already wraps its own table in one, so this was a second
+              horizontal scroller nested around the first — the wrapper now carries only the refetch dimming. */}
+          <div className={refreshing ? "opacity-60 transition-opacity" : undefined}>
+            {/* Title is the désignation, not the code: `codeActe` is the key you look an act UP by, but the
+                name is how you recognise it in a list. The code rides as a mono eyebrow. */}
+            <CardList
+              className={CARDS_ONLY}
+              ariaLabel="Nomenclature CNAM"
+              items={entries}
+              getKey={(e) => e.id}
+              title={(e) => e.designationFr}
+              subtitle={(e) => <span className="font-mono">{e.codeActe}</span>}
+              muted={(e) => !e.isActive}
+              status={(e) => (
+                <>
+                  {!e.isActive && <Badge variant="secondary">Inactif</Badge>}
+                  {e.isProvisional && (
+                    <Badge variant="outline" className="border-warning/50 text-warning-ink">
+                      À vérifier
+                    </Badge>
+                  )}
+                </>
+              )}
+              fields={(e) => [
+                { label: "Lettre clé", value: <Badge variant="outline">{e.lettreCle}</Badge> },
+                { label: "Coefficient", value: e.coefficient },
+                { label: "Catégorie", value: e.category },
+              ]}
+              actions={(e) => (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" aria-label={`Actions pour ${e.designationFr}`}>
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => onEdit(e)}>Modifier</DropdownMenuItem>
+                    {e.isActive && (
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={() => setEntryToDelete(e)}
+                      >
+                        Désactiver
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              empty={renderEmpty("compact")}
+            />
+            <Table containerClassName={TABLE_ONLY}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Code acte</TableHead>
@@ -157,9 +261,7 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
               <TableBody>
                 {entries.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center">
-                      <p className="text-muted-foreground">Aucun acte dans la nomenclature</p>
-                    </TableCell>
+                    <TableCell colSpan={7}>{renderEmpty("default")}</TableCell>
                   </TableRow>
                 ) : (
                   entries.map((entry) => (
@@ -175,7 +277,7 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
                         <div className="flex flex-wrap gap-1">
                           {!entry.isActive && <Badge variant="secondary">Inactif</Badge>}
                           {entry.isProvisional && (
-                            <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">
+                            <Badge variant="outline" className="border-warning/50 text-warning-ink">
                               À vérifier
                             </Badge>
                           )}
@@ -205,6 +307,13 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
                 )}
               </TableBody>
             </Table>
+            <DataTablePagination
+              page={pageInfo}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              loading={refreshing}
+              label={["acte", "actes"]}
+            />
           </div>
         </CardContent>
       </Card>

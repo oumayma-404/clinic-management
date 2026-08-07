@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using ClinicManagement.Application.Common.Authorization;
 using MediatR;
 using ClinicManagement.Application.Features.AI.Commands;
 
@@ -7,7 +8,7 @@ namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class AIController : ApiControllerBase
 {
     private readonly IMediator _mediator;

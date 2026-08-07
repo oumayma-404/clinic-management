@@ -2,36 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Search } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { formatDT } from "@/lib/format"
 import { conditionStyle } from "@/components/odontogram-conditions"
+import { groupProceduresByCategory } from "@/components/procedure-categories"
 import type { ProcedureTypeDto } from "@/lib/api/types"
-
-/**
- * Category display order, mirroring `ProcedureTypeCatalogSeed.Rows` — the order of a session (consultation →
- * radiologie → soins → … → pédodontie), not the alphabet.
- *
- * `ProcedureType` has NO Category column: the seed passes its category into the ctor's `description` slot, and
- * the procedure form labels that field « Description (optionnel) ». So this is a *display hint only* — a
- * clinic-authored procedure may put anything in there and lands in « Autres ». Never treat it as a rule, and
- * never as the per-tooth / forfait signal (that comes from `resultingCondition`).
- */
-const CATEGORY_ORDER = [
-  "Consultation",
-  "Radiologie",
-  "Soins conservateurs",
-  "Endodontie",
-  "Parodontologie",
-  "Chirurgie/Extraction",
-  "Prothèse fixe",
-  "Prothèse amovible",
-  "Implantologie",
-  "Orthodontie",
-  "Esthétique",
-  "Pédodontie",
-]
-
-const OTHER_GROUP = "Autres"
 
 /**
  * `normalize("NFD")` splits « è » into « e » plus a combining accent; U+0300–U+036F is that combining block.
@@ -91,25 +67,23 @@ export function ActCatalogPicker({
     if (!searching) return procedureTypes
     const needle = fold(trimmed)
     return procedureTypes.filter(
-      (pt) => fold(pt.name).includes(needle) || fold(pt.description ?? "").includes(needle),
+      (pt) =>
+        fold(pt.name).includes(needle) ||
+        // The discipline is searchable, because it is how staff name a group of acts out loud: « endo » must
+        // reach « Traitement de canal », whose own name contains none of those letters.
+        fold(pt.category ?? "").includes(needle) ||
+        fold(pt.description ?? "").includes(needle),
     )
   }, [procedureTypes, searching, trimmed])
 
-  // Browsing only: the same list, bucketed for headings. Unknown descriptions fall into « Autres », last.
-  const groups = useMemo(() => {
-    if (searching) return []
-    const buckets = new Map<string, ProcedureTypeDto[]>()
-    for (const pt of procedureTypes) {
-      const raw = pt.description?.trim()
-      const label = raw && CATEGORY_ORDER.includes(raw) ? raw : OTHER_GROUP
-      const bucket = buckets.get(label) ?? []
-      bucket.push(pt)
-      buckets.set(label, bucket)
-    }
-    return [...CATEGORY_ORDER, OTHER_GROUP]
-      .filter((label) => buckets.has(label))
-      .map((label) => ({ label, items: buckets.get(label) ?? [] }))
-  }, [procedureTypes, searching])
+  // Browsing only: the same list, bucketed for headings — canonical disciplines in clinical order, the clinic's
+  // own after them, unfiled acts last. Grouping moved to a shared helper so this picker and the agenda's cannot
+  // disagree about where an act lives, and it now reads the real `category` field: it used to bucket on
+  // `description`, which was where the catalog seed had been smuggling the category for want of a column.
+  const groups = useMemo(
+    () => (searching ? [] : groupProceduresByCategory(procedureTypes)),
+    [procedureTypes, searching],
+  )
 
   const clampedCursor = Math.min(cursor, Math.max(0, matches.length - 1))
   const exactMatch = matches.some((pt) => fold(pt.name) === fold(trimmed))
@@ -152,8 +126,18 @@ export function ActCatalogPicker({
         disabled={disabled}
         onClick={() => onPick(pt)}
         onMouseEnter={() => setCursor(index)}
+        /*
+         * ⚠️ `min-h-11` is what does the work; `touch-target` is here for consistency with the rest of the app
+         * and is a no-op once the paint already clears 44px.
+         *
+         * These rows were 33px, stacked with no gap. `touch-target` ALONE would have been actively harmful:
+         * a 44px overlay centred on a 33px row reaches 5.5px into the rows above and below, and the later
+         * sibling wins — so the bottom of every act selected the act underneath it. This is the fiche's primary
+         * control and it prices the visit, so picking the neighbouring act is a billing error, not a nuisance.
+         * Painting the floor keeps the hit area and the row the same rectangle.
+         */
         className={cn(
-          "flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors",
+          "touch-target flex min-h-11 w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors",
           index === clampedCursor ? "bg-accent" : "hover:bg-muted",
         )}
       >
@@ -169,7 +153,19 @@ export function ActCatalogPicker({
         >
           {pt.name}
         </span>
-        {style && <span className="shrink-0 text-[10px] text-muted-foreground">{style.label}</span>}
+        {/*
+          The discipline, on the row, but ONLY while searching.
+          Searching flattens the list and drops the group headings, so without this the one piece of context that
+          says « this is the endodontic one » disappears at exactly the moment two similarly-named acts from
+          different disciplines end up next to each other. While browsing it would be pure repetition — the
+          heading two rows up already says it.
+        */}
+        {searching && pt.category && (
+          <span className="max-w-[7.5rem] shrink-0 truncate rounded bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground">
+            {pt.category}
+          </span>
+        )}
+        {style && <span className="shrink-0 text-2xs text-muted-foreground">{style.label}</span>}
         <span className="w-[86px] shrink-0 text-right text-xs tabular-nums text-muted-foreground">
           {pt.defaultCost != null && pt.defaultCost > 0 ? formatDT(pt.defaultCost) : "—"}
         </span>
@@ -195,7 +191,7 @@ export function ActCatalogPicker({
           autoComplete="off"
           className="h-7 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
         />
-        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+        <span className="shrink-0 text-2xs tabular-nums text-muted-foreground">
           {matches.length}/{procedureTypes.length}
         </span>
       </div>
@@ -210,7 +206,7 @@ export function ActCatalogPicker({
         ) : (
           groups.map(({ label, items }) => (
             <div key={label}>
-              <p className="px-3 pb-0.5 pt-2 text-[9.5px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              <p className="px-3 pb-0.5 pt-2 text-2xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {label}
               </p>
               {items.map((pt) => renderRow(pt, matches.indexOf(pt)))}
@@ -224,41 +220,48 @@ export function ActCatalogPicker({
           type="button"
           disabled={disabled}
           onClick={() => onFreeText(trimmed)}
-          className="flex w-full items-center gap-2 border-t border-dashed px-3 py-2 text-left text-xs hover:bg-muted"
+          // Same 44px floor as the catalogue rows above: this is the escape hatch for an act the catalogue does
+          // not carry, and it must not be the hardest row in the list to hit.
+          className="touch-target flex min-h-11 w-full items-center gap-2 border-t border-dashed px-3 py-2 text-left text-xs hover:bg-muted"
         >
           <span className="shrink-0 text-muted-foreground">+</span>
           <span className="min-w-0 flex-1 truncate">
             Enregistrer «&nbsp;<span className="font-medium">{trimmed}</span>&nbsp;» comme acte libre
           </span>
-          <span className="shrink-0 text-[10px] text-muted-foreground">sans tarif catalogue</span>
+          <span className="shrink-0 text-2xs text-muted-foreground">sans tarif catalogue</span>
         </button>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-card px-3 py-1.5 text-[11px] text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-card px-3 py-1.5 text-2xs text-muted-foreground">
         <span className="flex items-center gap-1">
-          <kbd className="rounded border border-b-2 px-1 text-[9px]">↑</kbd>
-          <kbd className="rounded border border-b-2 px-1 text-[9px]">↓</kbd>
+          <kbd className="rounded border border-b-2 px-1 text-2xs">↑</kbd>
+          <kbd className="rounded border border-b-2 px-1 text-2xs">↓</kbd>
           parcourir
           <span className="mx-0.5 opacity-50">·</span>
-          <kbd className="rounded border border-b-2 px-1 text-[9px]">↵</kbd>
+          <kbd className="rounded border border-b-2 px-1 text-2xs">↵</kbd>
           choisir
           {onCancel && (
             <>
               <span className="mx-0.5 opacity-50">·</span>
-              <kbd className="rounded border border-b-2 px-1 text-[9px]">esc</kbd>
+              <kbd className="rounded border border-b-2 px-1 text-2xs">esc</kbd>
               annuler
             </>
           )}
         </span>
+        {/* The only way back to a proposed act once the catalogue is open, and it was a bare `<button>` with no
+            padding — a ~16px target on the footer of the fiche's primary control. A real `Button` carries the
+            44px floor from `buttonVariants` and looks like something you can press. */}
         {onCancel && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={onCancel}
             disabled={disabled}
-            className="underline underline-offset-2 hover:text-foreground"
+            className="-my-1 text-2xs"
           >
             Garder l&apos;acte actuel
-          </button>
+          </Button>
         )}
       </div>
     </div>

@@ -34,8 +34,7 @@ public class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
             .HasMaxLength(100);
 
         builder.Property(e => e.Amount)
-            .IsRequired()
-            .HasColumnType("decimal(18,3)");
+            .IsRequired();
 
         builder.Property(e => e.Method)
             .IsRequired()

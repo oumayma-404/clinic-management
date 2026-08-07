@@ -33,6 +33,48 @@ public class UnitOfWork : IUnitOfWork
             // caller's values over the winner's is exactly the last-write-wins behaviour being removed.
             throw new ConflictException(ErrorMessages.Conflict, ex);
         }
+        // MUST stay below the DbUpdateConcurrencyException arm — that type derives from DbUpdateException, so
+        // ordering this first would swallow every concurrency conflict into the wrong message.
+        catch (DbUpdateException ex) when (IsExclusionViolation(ex))
+        {
+            // AC-P1.18: PostgreSQL 23P01 — the appointment exclusion constraint refused an overlapping booking.
+            // § 1 translated only DbUpdateConcurrencyException, so the loser of a genuine double-booking race
+            // received a raw 500. Translated here, at the same seam, so no handler has to know the SQLSTATE:
+            // it surfaces as a 409 with a French message instead.
+            //
+            // The application guard in AppointmentScheduling still runs first and produces a message naming the
+            // clashing slot — this is the backstop for the narrow window between that check and the insert,
+            // which is the whole reason the constraint exists (a check-then-insert cannot be made safe by
+            // widening the check).
+            throw new ConflictException(ErrorMessages.SlotAlreadyBooked, ex);
+        }
+    }
+
+    /// <summary>
+    /// True when the failure is PostgreSQL's exclusion-constraint violation (SQLSTATE <c>23P01</c>).
+    /// <para>
+    /// Matched on the <b>type name</b> rather than by casting to <c>PostgresException</c>, following the
+    /// precedent in <c>StartupDiagnostics</c>: it keeps this seam from taking a hard compile-time dependency on
+    /// an Npgsql type, so the translation is provider-shaped without being provider-bound.
+    /// </para>
+    /// </summary>
+    private static bool IsExclusionViolation(DbUpdateException ex)
+    {
+        for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
+        {
+            if (inner.GetType().FullName != "Npgsql.PostgresException")
+            {
+                continue;
+            }
+
+            var sqlState = inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
+            if (sqlState == "23P01")
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <inheritdoc />
@@ -52,6 +94,18 @@ public class UnitOfWork : IUnitOfWork
         // OriginalValue — not CurrentValue — is what EF puts in the UPDATE's WHERE clause. Setting the
         // current value here would change what we write, not what we check, and detect nothing.
         entry.Property(nameof(ClinicManagement.Domain.Common.Entity<int>.Version)).OriginalValue = expectedVersion;
+    }
+
+    public void StopTracking(object entity)
+    {
+        var entry = _context.Entry(entity);
+        if (entry.State != EntityState.Detached)
+        {
+            // `Detached` on the entry, not `ChangeTracker.Clear()`: the import's loop must release the row it has
+            // just committed without releasing anything else the request is holding — the caller's own `User`
+            // lookup, for one, which the next row still needs.
+            entry.State = EntityState.Detached;
+        }
     }
 
     public async Task BeginTransactionAsync(CancellationToken cancellationToken = default)

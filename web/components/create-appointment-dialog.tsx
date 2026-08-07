@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import {
   Dialog,
   DialogContent,
@@ -21,7 +21,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Input } from "@/components/ui/input"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
@@ -30,23 +33,56 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { TimeField } from "@/components/ui/time-field"
 import { format } from "date-fns"
-import { CalendarIcon, Clock, User, Stethoscope, FileText, Check, ChevronsUpDown, Plus } from "lucide-react"
+import { CalendarIcon, Clock, User, Stethoscope, FileText, Check, ChevronsUpDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { AppointmentActsPicker, totalActsDuration, type SelectedAct } from "@/components/appointment-acts-picker"
+import { getErrorMessage } from "@/lib/errors"
 import type { PatientDto, ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
+import { ApiErrorCode } from "@/lib/api/client"
 import { isDeliverablePhone, PHONE_ERROR_FR } from "@/lib/phone"
+import { specialtyLabel } from "@/lib/specialties"
 
-// Sentinel value for the "custom procedure" option inside the procedure-type Select.
-const CUSTOM_PROCEDURE_VALUE = "__custom__"
-// Default colors for on-the-fly custom procedures — MUST be values the backend ColorHex value object
-// accepts (same curated palette as the procedure-type form). Rotated by catalog size for variety.
-const CUSTOM_PROCEDURE_COLORS = ["#4F83CC", "#2A9D8F", "#6BAA75", "#9B8EDC", "#E9A23B", "#E76F51"]
+/**
+ * A treatment-plan act offered for booking, as the plan workspace hands it over.
+ *
+ * <p>An array rather than the old single `presetPlanItemId`, because grouping is the point: « ces deux actes dans
+ * la même séance » is one dialog opening with two entries, and « séparément » is two openings with one each. The
+ * caller decides which — this dialog just books what it is given.</p>
+ */
+export interface PresetPlanAct {
+  planItemId: string
+  /** The catalog act it stands for, when the workspace could resolve one. */
+  procedureTypeId?: string
+  /** Désignation, for the « devis » chip and the header summary. */
+  label: string
+}
+
+/**
+ * The three refusals this dialog can talk the user through, and whether they have already said yes to each.
+ *
+ * <p>One object rather than three positional booleans on `performCreate`, because they compose: a booking can be
+ * double-booked *and* out of hours *and* for a patient who looks like somebody already on file, and each
+ * confirmation re-submits. Merging a partial grant into what was already given is what keeps the sequence from
+ * looping back to a question the user has answered.</p>
+ */
+type CreateOverrides = {
+  /** `allowOutsideWorkingHours` — the practitioner is closed then, and the user accepts the exception. */
+  hours: boolean
+  /** `allowOverlap` — the slot already holds a booking (a second chair, an emergency squeezed in). */
+  overlap: boolean
+  /** `allowDuplicate` on the patient create — a genuine namesake, not the patient already on file. */
+  duplicatePatient: boolean
+}
+
+const NO_OVERRIDES: CreateOverrides = { hours: false, overlap: false, duplicatePatient: false }
 
 interface CreateAppointmentDialogProps {
   open: boolean
@@ -62,15 +98,11 @@ interface CreateAppointmentDialogProps {
   presetPatientId?: string
   presetPatientName?: string
   presetPlanId?: string
-  presetPlanItemId?: string
-  presetProcedureName?: string
   /**
-   * The procedure the plan act stands for, when it could be resolved. Preselects the « Type de procédure »
-   * dropdown so the appointment carries a real `procedureTypeId` — which gives it the procedure's colour and
-   * default duration, and lets the dental-record modal propose the act when the visit is recorded. Without it
-   * a plan-scheduled appointment only got the act name in its notes.
+   * The plan acts this séance carries out — one entry books a single step, several book them **together in one
+   * visit**, each keeping its own devis link so the plan reports all of them as planned.
    */
-  presetProcedureTypeId?: string
+  presetPlanActs?: PresetPlanAct[]
 }
 
 export function CreateAppointmentDialog({
@@ -84,12 +116,11 @@ export function CreateAppointmentDialog({
   presetPatientId,
   presetPatientName,
   presetPlanId,
-  presetPlanItemId,
-  presetProcedureName,
-  presetProcedureTypeId,
+  presetPlanActs,
 }: CreateAppointmentDialogProps) {
-  // True when this dialog was opened to schedule a specific treatment-plan step.
-  const isPlanScheduling = Boolean(presetPlanItemId)
+  // True when this dialog was opened to schedule treatment-plan steps.
+  const planActs = presetPlanActs ?? []
+  const isPlanScheduling = planActs.length > 0
   // Patient state
   const [isBusySlot, setIsBusySlot] = useState(false)
   const [isNewPatient, setIsNewPatient] = useState(false)
@@ -102,23 +133,24 @@ export function CreateAppointmentDialog({
 
   // Procedure type state
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
-  const [selectedProcedureTypeId, setSelectedProcedureTypeId] = useState<string | undefined>(undefined)
+  /** The acts of this séance — several are the normal case, not the exception. */
+  const [selectedActs, setSelectedActs] = useState<SelectedAct[]>([])
   const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
-
-  // Inline "custom procedure" creation: pick the custom option in the dropdown, enter a name (+ optional
-  // typical duration/amount); it's saved to the procedure catalog and selected. If no typical duration is
-  // given, the appointment's current duration is used; if given, the appointment duration follows it.
-  const [customProcedureMode, setCustomProcedureMode] = useState(false)
-  const [customProcedureName, setCustomProcedureName] = useState("")
-  const [customProcedureDuration, setCustomProcedureDuration] = useState("")
-  const [customProcedureCost, setCustomProcedureCost] = useState("")
-  const [creatingCustomProcedure, setCreatingCustomProcedure] = useState(false)
-  const [customProcedureError, setCustomProcedureError] = useState<string | null>(null)
+  // AC-P3.31 — why the acte list is empty, so an unreachable server is not mistaken for an empty catalogue.
+  const [procedureTypesError, setProcedureTypesError] = useState<string | null>(null)
+  /**
+   * Has the user set the duration themselves? Until they do, it follows the **sum** of the chosen acts. After they
+   * do it is left alone: auto-summing over a hand-typed 45 min would silently undo an explicit decision, and the
+   * summed default is a convenience, not a rule.
+   */
+  const [durationTouched, setDurationTouched] = useState(false)
 
   // Appointment details
   const [date, setDate] = useState<Date | undefined>(defaultDate || new Date())
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("")
-  const [appointmentType, setAppointmentType] = useState("")
+  // `appointmentType` removed with the `Type: ` prefix (AC-P1.51). It had no input control of its own — it was
+  // only ever set from `presetProcedureName` when scheduling a plan act, purely to build that prefix. The act
+  // reaches the appointment through `procedureTypeId`, which `presetProcedureTypeId` already preselects.
   
   // Load doctors list
   const { doctors, currentUserDoctor, isLoading: loadingDoctors } = useDoctors()
@@ -161,6 +193,52 @@ export function CreateAppointmentDialog({
   const [error, setError] = useState<string | null>(null)
   const [patientPickerOpen, setPatientPickerOpen] = useState(false)
   const [showPastTimeConfirm, setShowPastTimeConfirm] = useState(false)
+  // The server's out-of-hours reason (« Dr X : Le cabinet est fermé le samedi. ») while the confirm is open,
+  // or null. Holds the message rather than a boolean so the prompt can name the closed period the server
+  // actually objected to, instead of a vague « en dehors des horaires ».
+  const [outsideHoursPrompt, setOutsideHoursPrompt] = useState<string | null>(null)
+  // Double-booking prompt — the collision is advisory, exactly like the out-of-hours one below.
+  const [slotTakenPrompt, setSlotTakenPrompt] = useState<string | null>(null)
+  /**
+   * « Ce patient existe déjà : … » — the server's own refusal while the confirm is open, or null. Same advisory
+   * shape as the two above: the message names who was matched and why, so the prompt shows it verbatim instead of
+   * inventing a vaguer sentence.
+   */
+  const [duplicatePatientPrompt, setDuplicatePatientPrompt] = useState<string | null>(null)
+  /**
+   * Overrides the user has already granted in this submit sequence.
+   *
+   * <p>Needed because the server checks the collision BEFORE the working hours, so a booking that is both
+   * double-booked and out-of-hours prompts twice. Without carrying the first grant forward, confirming the overlap
+   * and then confirming the hours would retry with `allowOverlap` lost and prompt for the overlap again — a loop.
+   * `performCreate` merges into this rather than replacing it, so each grant survives the next prompt; a fresh
+   * `handleSubmit` resets it, because a re-submit after editing the time deserves to be asked again.</p>
+   */
+  const grantedOverridesRef = useRef<CreateOverrides>({ ...NO_OVERRIDES })
+
+  /**
+   * The patient this submit sequence has **already created**, if any.
+   *
+   * ⚠️ This is the fix for the reported defect: a new patient booked into a taken slot ended up on `/patients`
+   * twice. `performCreate` is re-entered by design — the slot-taken, out-of-hours and past-time confirmations all
+   * call it again — and it re-ran `patientsApi.create` every time, so confirming « créer quand même » created a
+   * second patient. The first one is already committed and cannot be taken back, so the retry has to *reuse* it.
+   *
+   * <p>A ref rather than state, because the retry reads it in the same tick the confirmation grants the override;
+   * a state update would not have landed yet. Cleared only when the dialog closes — it is a fact about the
+   * database, not about this submit — which is also why the fields below go read-only once it is set: the patient
+   * exists under the name that was typed, and letting the name drift afterwards would silently produce the very
+   * second record this ref prevents.</p>
+   */
+  const createdPatientIdRef = useRef<string | null>(null)
+  /**
+   * The created patient's name — and the **render signal** for the ref above, which a ref cannot be: a ref change
+   * does not re-render, so the read-only fields and their explanation would not appear until something else did.
+   * Set and cleared together with the ref, always.
+   */
+  const [createdPatientName, setCreatedPatientName] = useState<string | null>(null)
+  const patientAlreadyCreated = createdPatientName !== null
+
 
   // Load patients and procedure types when dialog opens
   useEffect(() => {
@@ -170,28 +248,53 @@ export function CreateAppointmentDialog({
     }
   }, [open])
 
-  // When opened to schedule a plan step, fix the patient and record the act name in the notes.
+  // When opened to schedule a plan step, fix the patient. The act name no longer goes into the notes
+  // (AC-P1.51) — the effect below preselects `procedureTypeId`, which is where the act belongs.
   useEffect(() => {
     if (open && isPlanScheduling) {
       setIsBusySlot(false)
       setIsNewPatient(false)
       if (presetPatientId) setSelectedPatientId(presetPatientId)
-      if (presetProcedureName) setAppointmentType(presetProcedureName)
     }
-  }, [open, isPlanScheduling, presetPatientId, presetProcedureName])
+  }, [open, isPlanScheduling, presetPatientId])
 
-  // Preselect the plan act's procedure once the catalog has loaded (it arrives async, so this cannot live in
-  // the effect above). Guarded on the id actually being in the loaded list — a stale or cross-clinic id must
-  // fall through to the free-text behaviour rather than select nothing and silently drop the link. Only fills
-  // an untouched dropdown, so reopening the dialog never overrides a choice the user just made.
+  /**
+   * Seed the act list from the plan acts once the catalog has loaded (it arrives async, so this cannot live in the
+   * effect above).
+   *
+   * <p>An act whose procedure is **not** in the loaded catalog — a stale id, or a devis line the clinic never
+   * turned into a catalog act — is seeded as a **link-only** row rather than dropped. It carries no duration or
+   * colour, but it does carry its devis link, which is the whole reason the visit is being booked.</p>
+   *
+   * <p>Only fills an untouched list, so reopening the dialog never overwrites acts the user just added.</p>
+   */
   useEffect(() => {
-    if (!open || !isPlanScheduling || !presetProcedureTypeId) return
-    if (selectedProcedureTypeId || customProcedureMode) return
-    const match = procedureTypes.find((p) => p.id === presetProcedureTypeId)
-    if (!match) return
-    setSelectedProcedureTypeId(match.id)
-    if (match.defaultDurationMinutes) setDuration(String(match.defaultDurationMinutes))
-  }, [open, isPlanScheduling, presetProcedureTypeId, procedureTypes, selectedProcedureTypeId, customProcedureMode])
+    if (!open || !isPlanScheduling || selectedActs.length > 0) return
+    setSelectedActs(
+      planActs.map<SelectedAct>((a) => ({
+        procedureTypeId:
+          a.procedureTypeId && procedureTypes.some((p) => p.id === a.procedureTypeId)
+            ? a.procedureTypeId
+            : null,
+        treatmentPlanItemId: a.planItemId,
+        planLabel: "devis",
+        fallbackName: a.label,
+      })),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isPlanScheduling, procedureTypes])
+
+  /**
+   * The visit's length follows the sum of its acts until the user says otherwise. This is what makes grouping
+   * usable: three acts booked into one séance need the room for three, and a séance that inherited only the first
+   * act's 30 minutes would collide with whatever is booked after it on every calendar it appears on.
+   */
+  useEffect(() => {
+    if (!open || durationTouched || useEndTime) return
+    const total = totalActsDuration(selectedActs, procedureTypes)
+    if (total > 0) setDuration(String(total))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, selectedActs, procedureTypes, durationTouched, useEndTime])
 
   // Booking from a patient's page ("Planifier un rendez-vous"): preselect that patient (existing patient,
   // not a busy slot / not the inline-new-patient form). Plan scheduling takes precedence when both apply.
@@ -231,13 +334,8 @@ export function CreateAppointmentDialog({
       setNewPatientLastName("")
       setNewPatientPhone("")
       setSelectedDoctorId("")
-      setAppointmentType("")
-      setSelectedProcedureTypeId(undefined)
-      setCustomProcedureMode(false)
-      setCustomProcedureName("")
-      setCustomProcedureDuration("")
-      setCustomProcedureCost("")
-      setCustomProcedureError(null)
+      setSelectedActs([])
+      setDurationTouched(false)
       const initialTime = getInitialTime()
       setStartHour(initialTime.hour)
       setStartMinute(initialTime.minute)
@@ -249,6 +347,14 @@ export function CreateAppointmentDialog({
       setError(null)
       setPatientPickerOpen(false)
       setShowPastTimeConfirm(false)
+      setSlotTakenPrompt(null)
+      setOutsideHoursPrompt(null)
+      setDuplicatePatientPrompt(null)
+      // The created-patient memory ends with the dialog: a new booking starts from a blank new-patient form, and
+      // reusing an id across two openings would attach an unrelated appointment to whoever was created last.
+      createdPatientIdRef.current = null
+      setCreatedPatientName(null)
+      grantedOverridesRef.current = { ...NO_OVERRIDES }
       // Reset date to defaultDate or new Date
       setDate(defaultDate || new Date())
     }
@@ -274,26 +380,20 @@ export function CreateAppointmentDialog({
   const loadProcedureTypes = async () => {
     try {
       setLoadingProcedureTypes(true)
+      setProcedureTypesError(null)
       const data = await procedureTypesApi.list(false) // Only active procedure types
       setProcedureTypes(data || [])
     } catch (err) {
-      console.error("Failed to load procedure types:", err)
-      // Don't show error to user, just log it - procedure types are optional
+      // AC-P3.31 — the old `// Don't show error to user` was wrong in the one way that matters: an empty
+      // list looks identical to a clinic that has no procedures configured, so the user retypes the act as
+      // a custom procedure instead of retrying. It is not blocking (the dialog still saves), so this is an
+      // inline explanation next to the empty list, not a form-level error.
+      setProcedureTypesError(getErrorMessage(err, "La liste des actes n'a pas pu être chargée."))
       setProcedureTypes([]) // Ensure it's always an array
     } finally {
       setLoadingProcedureTypes(false)
     }
   }
-
-  // Handle procedure type selection - update duration when procedure is selected
-  useEffect(() => {
-    if (selectedProcedureTypeId && procedureTypes.length > 0) {
-      const selectedProcedure = procedureTypes.find(p => p.id === selectedProcedureTypeId)
-      if (selectedProcedure && selectedProcedure.defaultDurationMinutes) {
-        setDuration(String(selectedProcedure.defaultDurationMinutes))
-      }
-    }
-  }, [selectedProcedureTypeId, procedureTypes])
 
   // Calculate duration from end time
   const calculatedDuration = useMemo(() => {
@@ -323,7 +423,7 @@ export function CreateAppointmentDialog({
 
   // Overlap detection: a same-practitioner clash blocks Save (mirrors the server guard); an
   // other-practitioner overlap stays an advisory amber hint.
-  const { warning: overlapWarning, blocking: overlapBlocking } = useAppointmentOverlap({
+  const { warning: overlapWarning, samePractitioner: overlapSamePractitioner } = useAppointmentOverlap({
     enabled: open,
     date,
     startHour,
@@ -383,9 +483,13 @@ export function CreateAppointmentDialog({
     return true
   }
 
-  // Performs the actual create (patient creation + appointment). Called directly, or from the
-  // past-time confirmation dialog once the user confirms (AC-2).
-  const performCreate = async () => {
+  // Performs the actual create (patient creation + appointment). Called directly, or from either
+  // confirmation dialog once the user confirms (past time, AC-2; out-of-hours, AC-P1.31).
+  const performCreate = async (overrides: Partial<CreateOverrides> = {}) => {
+    // Merge, never replace: a grant given to an earlier prompt in this same sequence must survive the next one.
+    const granted: CreateOverrides = { ...grantedOverridesRef.current, ...overrides }
+    grantedOverridesRef.current = granted
+    const { hours: allowOutsideWorkingHours, overlap: allowOverlap } = granted
     setError(null)
     setLoading(true)
 
@@ -396,21 +500,50 @@ export function CreateAppointmentDialog({
       if (!isBusySlot) {
         patientId = selectedPatientId
         if (isNewPatient) {
-          try {
-            const newPatient = await patientsApi.create({
-              firstName: newPatientFirstName.trim(),
-              lastName: newPatientLastName.trim(),
-              phoneNumber: newPatientPhone.trim() || null,
-            })
-            patientId = newPatient.id
-          } catch (err) {
-            if (err instanceof ApiError) {
-              setError(`Échec de la création du patient : ${err.message}`)
-            } else {
-              setError("Échec de la création du patient")
+          /*
+           * ⚠️ Reuse before create. This block runs again on every confirmation the server asks for — slot taken,
+           * out of hours, past time — and it used to call `patientsApi.create` each time, which is exactly how the
+           * reported duplicate happened: one « créer quand même » on a taken slot, two patients on /patients.
+           *
+           * The already-created patient is committed and cannot be withdrawn, so the retry books the appointment
+           * onto it. Nothing else in this function needs to know a retry is in progress.
+           */
+          if (createdPatientIdRef.current) {
+            patientId = createdPatientIdRef.current
+          } else {
+            try {
+              const newPatient = await patientsApi.create({
+                firstName: newPatientFirstName.trim(),
+                lastName: newPatientLastName.trim(),
+                phoneNumber: newPatientPhone.trim() || null,
+                // Absent on the first attempt: the server checks whether this person is already on file and
+                // refuses with `PatientDuplicate` if so. Only a confirmed prompt sets it.
+                allowDuplicate: granted.duplicatePatient || undefined,
+              })
+              patientId = newPatient.id
+              createdPatientIdRef.current = newPatient.id
+              setCreatedPatientName(`${newPatient.firstName} ${newPatient.lastName}`.trim())
+            } catch (err) {
+              // « Ce patient existe déjà » is a question, not a dead end — two people really can share a name, and
+              // this form is also where a walk-in with nothing but a name is registered. Guarded on the grant so a
+              // refusal that somehow persists surfaces as a real error instead of reopening the same prompt.
+              if (
+                err instanceof ApiError &&
+                err.code === ApiErrorCode.PatientDuplicate &&
+                !granted.duplicatePatient
+              ) {
+                setDuplicatePatientPrompt(err.message)
+                setLoading(false)
+                return
+              }
+              if (err instanceof ApiError) {
+                setError(`Échec de la création du patient : ${err.message}`)
+              } else {
+                setError("Échec de la création du patient")
+              }
+              setLoading(false)
+              return
             }
-            setLoading(false)
-            return
           }
         }
       }
@@ -422,13 +555,23 @@ export function CreateAppointmentDialog({
         return
       }
 
-      // Combine appointment type and notes if both exist
-      let appointmentNotes = notes.trim()
-      if (appointmentType && notes.trim()) {
-        appointmentNotes = `Type: ${appointmentType}\n${notes.trim()}`
-      } else if (appointmentType) {
-        appointmentNotes = `Type: ${appointmentType}`
-      }
+      // AC-P1.51: the `Type: ` prefix writer is gone — the act is carried by `procedureTypeId` alone.
+      //
+      // This dialog was the source of the divergence: when scheduling a plan step it wrote
+      // `Type: <presetProcedureName>` unconditionally, while `procedureTypeId` was filled by a *separate*
+      // guarded effect that could no-op (a stale or cross-clinic id) or bail (the user had already picked
+      // something). The note then said one act and the column another.
+      const appointmentNotes = notes.trim()
+
+      // The séance's acts. A « créneau occupé » carries none by definition — no patient, so no clinical act.
+      // A row with a null procedure is a devis link with no catalog act behind it; the server accepts those and
+      // names them from the plan step's désignation.
+      const procedures = isBusySlot
+        ? []
+        : selectedActs.map((a) => ({
+            procedureTypeId: a.procedureTypeId,
+            treatmentPlanItemId: a.treatmentPlanItemId ?? null,
+          }))
 
       // Create appointment
       const created = await appointmentsApi.create({
@@ -437,9 +580,12 @@ export function CreateAppointmentDialog({
         durationMinutes: calculatedDuration,
         doctorId: selectedDoctorId || undefined,
         notes: appointmentNotes || undefined,
-        procedureTypeId: isBusySlot ? undefined : selectedProcedureTypeId,
+        // The devis links ride on the act rows, so the single-act `treatmentPlanItemId` is deliberately not sent:
+        // the server derives that scalar from the list, and sending both risks naming a different lead act.
+        procedures,
         treatmentPlanId: isPlanScheduling ? presetPlanId : undefined,
-        treatmentPlanItemId: isPlanScheduling ? presetPlanItemId : undefined,
+        allowOutsideWorkingHours: allowOutsideWorkingHours || undefined,
+        allowOverlap: allowOverlap || undefined,
       })
 
       onCreated?.(created.id)
@@ -447,7 +593,16 @@ export function CreateAppointmentDialog({
       onOpenChange(false)
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(err.message)
+        // Out-of-hours is a warning, not a refusal: offer to proceed instead of leaving the user stuck. Guarded
+        // on `!allowOutsideWorkingHours` so a re-submit that somehow still refuses surfaces as a real error
+        // rather than reopening the same prompt forever.
+        if (err.code === ApiErrorCode.SlotTaken && !allowOverlap) {
+          setSlotTakenPrompt(err.message)
+        } else if (err.code === ApiErrorCode.OutsideWorkingHours && !allowOutsideWorkingHours) {
+          setOutsideHoursPrompt(err.message)
+        } else {
+          setError(err.message)
+        }
       } else {
         setError("Échec de la création du rendez-vous")
       }
@@ -456,60 +611,13 @@ export function CreateAppointmentDialog({
     }
   }
 
-  // Create a procedure on the fly from the custom-procedure panel, persist it to the catalog, and select
-  // it. Typical duration is optional — when omitted, the appointment's current duration is used as the
-  // procedure's default; when provided, selecting the procedure updates the appointment duration (via the
-  // procedure-selection effect, so we drop end-time mode to let the preset duration take effect).
-  const handleCreateCustomProcedure = async () => {
-    setCustomProcedureError(null)
-    const name = customProcedureName.trim()
-    if (!name) {
-      setCustomProcedureError("Le nom de la procédure est requis")
-      return
-    }
-    // Duplicate names are rejected by the backend (unique per clinic). Catch the common case up front
-    // with a clear message instead of a round-trip 400.
-    const existing = procedureTypes.find((pt) => pt.name.trim().toLowerCase() === name.toLowerCase())
-    if (existing) {
-      setCustomProcedureError(`Une procédure nommée « ${existing.name} » existe déjà. Choisissez-la dans la liste ou utilisez un autre nom.`)
-      return
-    }
-    const typedDuration = customProcedureDuration ? Number(customProcedureDuration) : NaN
-    const inferred = Number.isFinite(typedDuration) && typedDuration > 0 ? Math.floor(typedDuration) : calculatedDuration
-    const durationMinutes = Math.min(479, Math.max(1, inferred || 30))
-    const cost = customProcedureCost ? Number.parseFloat(customProcedureCost) : null
-    if (cost !== null && (Number.isNaN(cost) || cost < 0)) {
-      setCustomProcedureError("Le montant est invalide")
-      return
-    }
-
-    setCreatingCustomProcedure(true)
-    try {
-      const colorHex = CUSTOM_PROCEDURE_COLORS[procedureTypes.length % CUSTOM_PROCEDURE_COLORS.length]
-      const created = await procedureTypesApi.create({ name, defaultDurationMinutes: durationMinutes, defaultCost: cost, colorHex })
-      setProcedureTypes((prev) => [...prev, created])
-      setUseEndTime(false)
-      setSelectedProcedureTypeId(created.id)
-      setCustomProcedureMode(false)
-      setCustomProcedureName("")
-      setCustomProcedureDuration("")
-      setCustomProcedureCost("")
-    } catch (err) {
-      const message = err instanceof ApiError ? err.message : ""
-      // Backend also enforces uniqueness (e.g. an inactive procedure with the same name) — surface it in French.
-      if (/already exists|existe déjà/i.test(message)) {
-        setCustomProcedureError(`Une procédure nommée « ${name} » existe déjà. Choisissez-la dans la liste ou utilisez un autre nom.`)
-      } else {
-        setCustomProcedureError(message || "Échec de la création de la procédure")
-      }
-    } finally {
-      setCreatingCustomProcedure(false)
-    }
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    // A fresh submit re-asks every question: the user may have changed the time, the practitioner or the patient
+    // since the last one, so a grant given about the previous attempt says nothing about this one. (The created
+    // patient is deliberately NOT reset — see `createdPatientIdRef`.)
+    grantedOverridesRef.current = { ...NO_OVERRIDES }
 
     if (!validateForm()) return
 
@@ -528,16 +636,37 @@ export function CreateAppointmentDialog({
     await performCreate()
   }
 
+
+  /*
+   * A typed booking is not discarded by a stray tap (J9). Below `md:` this is a full-screen sheet, so the strip
+   * above it is a live dismiss target over a form that can hold a patient, several acts, a doctor and a time.
+   *
+   * Only the ROOT and « Annuler » route through the guard; every save path calls the raw prop, and so do the
+   * AlertDialog escalations below — a confirmation the user just accepted must not then ask whether to discard.
+   */
+  const guard = useDirtyGuard(open, onOpenChange)
+
   return (
     <>
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+    <Dialog open={open} onOpenChange={guard.onOpenChange}>
+      {/*
+        The form scrolls; the header and the footer do not.
+
+        Before, `overflow-y-auto` was on the DialogContent itself, so « Créer le rendez-vous » sat at the
+        bottom of a four-section form and had to be scrolled to — on the app's most repeated action. (The
+        error banner had already been moved down beside it to compensate, which was evidence of the layout
+        problem rather than a fix for it; with a pinned footer it can stay there and always be visible.)
+        `sm:max-w-2xl` rather than a bare `max-w-2xl`, so the width cap no longer overrides the primitive's
+        own `max-w-[calc(100%-2rem)]` mobile guard.
+      */}
+      <DialogContent mobile="sheet" className="gap-0 overflow-hidden p-0 md:max-h-[90dvh] md:max-w-2xl">
+        <DialogHeader className="flex-shrink-0 px-6 pb-4 pt-6">
           <DialogTitle className="text-2xl">Créer un rendez-vous</DialogTitle>
           <DialogDescription>Planifier un nouveau rendez-vous pour un patient</DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6 mt-4">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-4">
           {/* Patient Section */}
           <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
             <div className="flex items-center justify-between">
@@ -558,8 +687,8 @@ export function CreateAppointmentDialog({
                         setNewPatientFirstName("")
                         setNewPatientLastName("")
                         setNewPatientPhone("")
-                        setSelectedProcedureTypeId(undefined)
-                        setCustomProcedureMode(false)
+                        // A busy slot has no patient, so it has no clinical acts either.
+                        setSelectedActs([])
                       }
                     }}
                   />
@@ -571,9 +700,21 @@ export function CreateAppointmentDialog({
               <div className="space-y-2">
                 <div className="rounded-md border bg-background p-3">
                   <p className="text-sm font-medium">{presetPatientName ?? "Patient"}</p>
-                  <Badge variant="secondary" className="mt-1 gap-1 text-xs">
-                    <Stethoscope className="h-3 w-3" /> Acte du plan{presetProcedureName ? ` : ${presetProcedureName}` : ""}
-                  </Badge>
+                  {/* One badge per act, so a grouped séance says up front which steps of the devis it covers —
+                      « Acte du plan : X » in the singular would have hidden the other two. */}
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {planActs.map((act) => (
+                      <Badge key={act.planItemId} variant="secondary" className="gap-1 text-xs">
+                        <Stethoscope className="h-3 w-3" />
+                        {act.label}
+                      </Badge>
+                    ))}
+                  </div>
+                  {planActs.length > 1 && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Ces {planActs.length} actes seront réalisés dans la même séance.
+                    </p>
+                  )}
                 </div>
               </div>
             ) : !isBusySlot ? (
@@ -582,6 +723,9 @@ export function CreateAppointmentDialog({
                   <span className="text-sm text-muted-foreground">Nouveau patient</span>
                   <Switch
                     checked={isNewPatient}
+                    // Locked once the patient has actually been created: turning it off would clear the fields and
+                    // book onto whoever is picked instead, silently orphaning a real patient record.
+                    disabled={patientAlreadyCreated}
                     onCheckedChange={(checked) => {
                       setIsNewPatient(checked)
                       if (checked) {
@@ -597,17 +741,34 @@ export function CreateAppointmentDialog({
 
                 {isNewPatient ? (
                   <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
+                    {/*
+                      The patient is created but the appointment is not — the state you are left in when a booking is
+                      refused after the patient went in (a taken slot, closed hours). Saying so is what makes the
+                      read-only fields legible instead of looking broken, and it is the honest answer to « why can I
+                      not correct the name now? »: the record exists, and editing this form cannot reach it.
+                    */}
+                    {patientAlreadyCreated && (
+                      <p
+                        role="status"
+                        className="rounded-md border border-warning/40 bg-warning-wash px-3 py-2 text-xs text-warning-ink"
+                      >
+                        {createdPatientName ?? "Ce patient"} a été créé. Il reste à enregistrer le rendez-vous —
+                        corrigez l&apos;heure si besoin puis réessayez. Pour modifier son nom, ouvrez sa fiche depuis
+                        « Patients ».
+                      </p>
+                    )}
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="space-y-2">
                         <Label htmlFor="firstName" className="text-sm">
                           Prénom *
                         </Label>
                         <Input
                           id="firstName"
-                          placeholder="John"
+                          placeholder="Mohamed"
                           value={newPatientFirstName}
                           onChange={(e) => setNewPatientFirstName(e.target.value)}
                           className="h-10"
+                          disabled={patientAlreadyCreated}
                           required
                         />
                       </div>
@@ -617,10 +778,11 @@ export function CreateAppointmentDialog({
                         </Label>
                         <Input
                           id="lastName"
-                          placeholder="Doe"
+                          placeholder="Ben Salah"
                           value={newPatientLastName}
                           onChange={(e) => setNewPatientLastName(e.target.value)}
                           className="h-10"
+                          disabled={patientAlreadyCreated}
                           required
                         />
                       </div>
@@ -636,6 +798,7 @@ export function CreateAppointmentDialog({
                         value={newPatientPhone}
                         onChange={(e) => setNewPatientPhone(e.target.value)}
                         className="h-10"
+                        disabled={patientAlreadyCreated}
                       />
                       <p className="text-xs text-muted-foreground">
                         {newPatientPhone.trim()
@@ -663,6 +826,10 @@ export function CreateAppointmentDialog({
                           role="combobox"
                           aria-expanded={patientPickerOpen}
                           disabled={loadingPatients || loading}
+                          /* Radix focuses the first tabbable element in the dialog, which was the « Créneau
+                             occupé » switch — so booking always started with a reach for the mouse. The
+                             patient is the first decision in this form, so it gets the focus. */
+                          autoFocus
                           className="w-full h-10 justify-between font-normal"
                         >
                           <span className={cn("truncate", !selectedPatientId && "text-muted-foreground")}>
@@ -715,9 +882,23 @@ export function CreateAppointmentDialog({
                 )}
               </>
             ) : (
-              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
-                <p className="text-sm text-amber-800 dark:text-amber-200">
-                  Ce créneau sera marqué comme occupé. Aucun patient ne pourra être assigné à cette période.
+              /*
+                ⚠️ The copy states what the server actually does now, and it used to state the opposite of it.
+                « Aucun patient ne pourra être assigné à cette période » was a promise the product could not keep:
+                a block carries no patient and, until L2b, `FindCollisionAsync` returned "no collision" for any
+                candidate with no `DoctorId` — so a « créneau occupé » with no practitioner prevented **nothing**,
+                and the database could not help either (its exclusion constraint is predicated on
+                `DoctorId IS NOT NULL`). L2b made an unassigned booking compete with everything in the clinic,
+                which is what finally makes a lunch break protectable.
+                Two wordings, because the scope genuinely differs — and neither says « aucun … ne pourra », since
+                the guard is advisory: a colleague can still book over it by confirming « Continuer quand même »,
+                and the row is then recorded as a deliberate overlap.
+              */
+              <div className="p-3 rounded-lg bg-warning-wash border border-warning/30">
+                <p className="text-sm text-warning-ink">
+                  {selectedDoctorId
+                    ? "Ce créneau sera marqué comme occupé pour ce praticien : toute tentative de lui assigner un rendez-vous à cette période demandera une confirmation."
+                    : "Ce créneau sera marqué comme occupé pour tout le cabinet : toute tentative d'y créer un rendez-vous demandera une confirmation."}
                 </p>
               </div>
             )}
@@ -727,16 +908,17 @@ export function CreateAppointmentDialog({
           <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
             <div className="flex items-center gap-2">
               <CalendarIcon className="h-5 w-5 text-muted-foreground" />
-              <h3 className="font-semibold">Date & Time</h3>
+              <h3 className="font-semibold">Date et heure</h3>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Date Picker */}
               <div className="space-y-2">
-                <Label className="text-sm">Date *</Label>
+                <Label htmlFor="create-appt-date" className="text-sm">Date *</Label>
                 <Popover modal>
                   <PopoverTrigger asChild>
                     <Button
+                      id="create-appt-date"
                       variant="outline"
                       className={cn(
                         "w-full h-10 justify-start text-left font-normal",
@@ -753,42 +935,20 @@ export function CreateAppointmentDialog({
                 </Popover>
               </div>
 
-              {/* Start Time */}
+              {/* Start Time — one typeable field. Was two Selects, the second listing all sixty minutes. */}
               <div className="space-y-2">
-                <Label className="text-sm">Heure de début *</Label>
-                <div className="flex gap-2">
-                  <Select value={startHour} onValueChange={setStartHour} required>
-                    <SelectTrigger className="h-10">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[200px]">
-                      {Array.from({ length: 24 }, (_, i) => {
-                        const hour = String(i).padStart(2, "0")
-                        return (
-                          <SelectItem key={i} value={hour}>
-                            {hour}
-                          </SelectItem>
-                        )
-                      })}
-                    </SelectContent>
-                  </Select>
-                  <span className="flex items-center text-lg font-semibold">:</span>
-                  <Select value={startMinute} onValueChange={setStartMinute} required>
-                    <SelectTrigger className="h-10">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[200px]">
-                      {Array.from({ length: 60 }, (_, i) => {
-                        const min = String(i).padStart(2, "0")
-                        return (
-                          <SelectItem key={i} value={min}>
-                            {min}
-                          </SelectItem>
-                        )
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
+                <Label htmlFor="create-appt-start-time" className="text-sm">Heure de début *</Label>
+                <TimeField
+                  id="create-appt-start-time"
+                  hour={startHour}
+                  minute={startMinute}
+                  onChange={({ hour, minute }) => {
+                    setStartHour(hour)
+                    setStartMinute(minute)
+                  }}
+                  disabled={loading}
+                  required
+                />
               </div>
             </div>
 
@@ -825,52 +985,44 @@ export function CreateAppointmentDialog({
             {/* Duration or End Time Input */}
             <div className="space-y-2">
               {useEndTime ? (
-                <div className="space-y-2">
-                  <Label className="text-sm">Heure de fin *</Label>
-                  <div className="flex gap-2">
-                    <Select value={endHour} onValueChange={setEndHour} required>
-                      <SelectTrigger className="h-10">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[200px]">
-                        {Array.from({ length: 24 }, (_, i) => {
-                          const hour = String(i).padStart(2, "0")
-                          return (
-                            <SelectItem key={i} value={hour}>
-                              {hour}
-                            </SelectItem>
-                          )
-                        })}
-                      </SelectContent>
-                    </Select>
-                    <span className="flex items-center text-lg font-semibold">:</span>
-                    <Select value={endMinute} onValueChange={setEndMinute} required>
-                      <SelectTrigger className="h-10">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[200px]">
-                        {Array.from({ length: 60 }, (_, i) => {
-                          const min = String(i).padStart(2, "0")
-                          return (
-                            <SelectItem key={i} value={min}>
-                              {min}
-                            </SelectItem>
-                          )
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="space-y-2 sm:max-w-[50%]">
+                  <Label htmlFor="create-appt-end-time" className="text-sm">Heure de fin *</Label>
+                  <TimeField
+                    id="create-appt-end-time"
+                    hour={endHour}
+                    minute={endMinute}
+                    onChange={({ hour, minute }) => {
+                      setEndHour(hour)
+                      setEndMinute(minute)
+                    }}
+                    disabled={loading}
+                    required
+                  />
                 </div>
               ) : (
-                <div className="flex gap-2">
+                /*
+                 * A GRID below `sm:`, because these six buttons could not shrink and could not wrap.
+                 *
+                 * `buttonVariants` carries both `shrink-0` and `whitespace-nowrap`, and `flex-1` /
+                 * `shrink-0` are different tailwind-merge groups — so both survived and `flex-shrink: 0`
+                 * won. Six `px-3` presets need ~324 px of min-content against ~310 px of form body at 390 px
+                 * (~294 px at 360 px), and the body is `overflow-y-auto`, which computes `overflow-x` to
+                 * `auto`: « 2h » was clipped and the form gained a horizontal scrollbar, breaking the
+                 * "the body never scrolls sideways" invariant the shell is built on.
+                 *
+                 * Two rows of three fits every phone with room to spare, and `sm:flex` restores the single
+                 * row where it always fitted. `flex-1` is dropped: a grid cell is already equal-width.
+                 */
+                <div className="grid grid-cols-3 gap-2 sm:flex">
                   {[15, 30, 45, 60, 90, 120].map((mins) => (
                     <Button
                       key={mins}
                       type="button"
                       variant={duration === String(mins) ? "default" : "outline"}
                       size="sm"
-                      onClick={() => setDuration(String(mins))}
-                      className="flex-1"
+                      // Picking a duration by hand stops the act-sum from overwriting it — see `durationTouched`.
+                      onClick={() => { setDurationTouched(true); setDuration(String(mins)) }}
+                      className="sm:flex-1"
                     >
                       {mins < 60 ? `${mins}m` : `${mins / 60}h`}
                     </Button>
@@ -879,18 +1031,33 @@ export function CreateAppointmentDialog({
               )}
             </div>
 
-            {/* Overlap warning: red + blocking for a same-practitioner clash, amber advisory otherwise. */}
-            {overlapWarning && (
-              <p
-                className={
-                  overlapBlocking
-                    ? "text-sm text-red-600 dark:text-red-400"
-                    : "text-sm text-amber-600 dark:text-amber-400"
-                }
-              >
-                ⚠ {overlapWarning}
-              </p>
-            )}
+            {/*
+              Overlap warning: red + blocking for a same-practitioner clash, amber advisory otherwise.
+
+              Two changes worth knowing. (a) The slot has a **reserved minimum height**, so the message
+              appearing and disappearing as the user nudges the time no longer shoves the rest of the form up
+              and down — the layout was jumping under the cursor precisely while they were adjusting the very
+              field the message is about. (b) A blocking clash now says so *here*, next to the reason, because
+              the only other signal was a disabled submit button two sections further down with nothing
+              explaining why it was dead.
+            */}
+            <div className="min-h-[2.5rem] pt-1" aria-live="polite">
+              {overlapWarning && (
+                <div
+                  className={cn(
+                    "space-y-0.5 text-sm transition-opacity duration-200 ease-snap",
+                    overlapSamePractitioner ? "text-destructive" : "text-warning-ink",
+                  )}
+                >
+                  <p>⚠ {overlapWarning}</p>
+                  {overlapSamePractitioner && (
+                    <p className="text-xs">
+                      Vous pouvez continuer : une confirmation vous sera demandée.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Additional Details Section */}
@@ -900,7 +1067,7 @@ export function CreateAppointmentDialog({
               <h3 className="font-semibold">Détails</h3>
             </div>
 
-            <div className={`grid gap-4 ${!isBusySlot ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+            <div className="grid grid-cols-1 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="doctor" className="text-sm">
                   Médecin
@@ -919,7 +1086,7 @@ export function CreateAppointmentDialog({
                     ) : (
                       doctors.map((doctor) => (
                         <SelectItem key={doctor.id || doctor.name} value={doctor.id || ""}>
-                          {doctor.name} {doctor.specialty ? `- ${doctor.specialty}` : ""}
+                          {doctor.name} {doctor.specialty ? `- ${specialtyLabel(doctor.specialty)}` : ""}
                         </SelectItem>
                       ))
                     )}
@@ -927,150 +1094,23 @@ export function CreateAppointmentDialog({
                 </Select>
               </div>
 
-              {!isBusySlot && (
-                <div className="space-y-2">
-                  <Label htmlFor="procedureType" className="text-sm">
-                    Type d'acte
-                  </Label>
-                  <Select
-                    value={selectedProcedureTypeId}
-                    onValueChange={(v) => {
-                      if (v === CUSTOM_PROCEDURE_VALUE) {
-                        // Open the inline creation panel instead of selecting a real procedure.
-                        setCustomProcedureMode(true)
-                        setCustomProcedureError(null)
-                      } else if (v) {
-                        // Ignore the spurious empty-string reset Radix Select fires right after a value is
-                        // set to a just-added item (before its internal collection registers it) — writing
-                        // that "" back would clear the freshly created custom procedure. Real ids are never "".
-                        setSelectedProcedureTypeId(v)
-                      }
-                    }}
-                    disabled={loadingProcedureTypes}
-                  >
-                    <SelectTrigger id="procedureType" className="h-10 w-full">
-                      <SelectValue placeholder={loadingProcedureTypes ? "Chargement…" : "Sélectionner un type d'acte"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[200px]">
-                      {procedureTypes.map((procedureType) => (
-                        <SelectItem key={procedureType.id} value={procedureType.id}>
-                          <div className="flex items-center gap-2">
-                            <div
-                              className="w-3 h-3 rounded-full"
-                              style={{ backgroundColor: procedureType.colorHex }}
-                            />
-                            {procedureType.name} ({procedureType.defaultDurationMinutes} min)
-                          </div>
-                        </SelectItem>
-                      ))}
-                      <SelectItem value={CUSTOM_PROCEDURE_VALUE}>
-                        <div className="flex items-center gap-2 font-medium">
-                          <Plus className="h-3.5 w-3.5" />
-                          Procédure personnalisée…
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  {selectedProcedureTypeId && !customProcedureMode && (
-                    <div className="flex items-center gap-2 mt-1">
-                      <p className="text-xs text-muted-foreground">
-                        Duration set to {procedureTypes.find(p => p.id === selectedProcedureTypeId)?.defaultDurationMinutes} minutes (you can change it)
-                      </p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-5 px-2 text-xs"
-                        onClick={() => setSelectedProcedureTypeId(undefined)}
-                      >
-                        Clear
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
-            {/* Custom-procedure creation — full width below the row so it isn't cramped in one column. */}
-            {!isBusySlot && customProcedureMode && (
-              <div className="rounded-md border bg-background p-3 space-y-3">
-                <p className="text-sm font-medium">Nouvelle procédure personnalisée</p>
-                {customProcedureError && (
-                  <p className="text-xs text-red-600 dark:text-red-400">{customProcedureError}</p>
-                )}
-                <div className="grid gap-3 sm:grid-cols-[1fr_120px_140px]">
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Nom *</Label>
-                    <Input
-                      value={customProcedureName}
-                      onChange={(e) => setCustomProcedureName(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateCustomProcedure() } }}
-                      placeholder="Nom de la procédure"
-                      className="h-9"
-                      disabled={creatingCustomProcedure}
-                      autoFocus
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Durée (min)</Label>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="479"
-                      value={customProcedureDuration}
-                      onChange={(e) => setCustomProcedureDuration(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateCustomProcedure() } }}
-                      placeholder="auto"
-                      className="h-9"
-                      disabled={creatingCustomProcedure}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Montant</Label>
-                    <div className="relative">
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DT</span>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={customProcedureCost}
-                        onChange={(e) => setCustomProcedureCost(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateCustomProcedure() } }}
-                        placeholder="0.00"
-                        className="h-9 pl-8"
-                        disabled={creatingCustomProcedure}
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-[11px] text-muted-foreground">
-                    Durée et montant optionnels. Sans durée, celle du rendez-vous ({calculatedDuration} min) est utilisée.
-                  </p>
-                  <div className="flex flex-shrink-0 gap-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8"
-                      onClick={() => { setCustomProcedureMode(false); setCustomProcedureError(null) }}
-                      disabled={creatingCustomProcedure}
-                    >
-                      Annuler
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="h-8"
-                      onClick={handleCreateCustomProcedure}
-                      disabled={creatingCustomProcedure}
-                    >
-                      {creatingCustomProcedure ? "Ajout…" : "Ajouter"}
-                    </Button>
-                  </div>
-                </div>
-              </div>
+            {/* The séance's acts — full width below the practitioner, because it is a list that grows and a
+                half-width column truncates every act name. A « créneau occupé » has none by definition. */}
+            {!isBusySlot && (
+              <AppointmentActsPicker
+                procedureTypes={procedureTypes}
+                loading={loadingProcedureTypes}
+                error={procedureTypesError}
+                onRetry={() => void loadProcedureTypes()}
+                value={selectedActs}
+                onChange={setSelectedActs}
+                disabled={loading}
+                onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
+                fallbackDurationMinutes={calculatedDuration}
+                idPrefix="create-appt"
+              />
             )}
           </div>
 
@@ -1088,19 +1128,21 @@ export function CreateAppointmentDialog({
             />
           </div>
 
-          {/* Validation error shown next to the submit button — the dialog is tall and scrollable, so an
-              error at the top would be off-screen when the user submits from the bottom. */}
-          {error && (
-            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 dark:bg-red-950 dark:border-red-800 dark:text-red-200">
-              {error}
-            </div>
-          )}
+            {/* Validation error shown next to the submit button — the dialog is tall and scrollable, so an
+                error at the top would be off-screen when the user submits from the bottom. */}
+            {/* The shared primitive, not a hand-rolled red box: this is the busiest form in the app and it was
+                reporting failures in a slightly different red from the eighteen dialogs that route through
+                `FormErrorBanner` — which now renders on `--destructive` tokens and needs no `dark:` twin. */}
+            <FormErrorBanner message={error} />
+          </div>
 
-          <DialogFooter className="gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-              Cancel
+          <DialogFooter className="flex-shrink-0 gap-2 border-t bg-background px-6 py-4">
+            <Button type="button" variant="outline" onClick={() => guard.onOpenChange(false)} disabled={loading}>
+              Annuler
             </Button>
-            <Button type="submit" disabled={loading || overlapBlocking}>
+            {/* No longer disabled on an overlap: the collision is advisory and the server offers the override.
+                Blocking here made the warning a dead end and hid the fact that proceeding is allowed. */}
+            <Button type="submit" disabled={loading}>
               {loading ? "Création…" : "Créer le rendez-vous"}
             </Button>
           </DialogFooter>
@@ -1131,6 +1173,134 @@ export function CreateAppointmentDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+
+    {/*
+      Double-booking confirmation. Same shape as the out-of-hours confirm below, and for the same reason: an overlap
+      with the same practitioner is a legitimate thing a clinic does (a second chair, an assistant preparing one
+      patient while the dentist starts another, an emergency squeezed in), so it warns and lets the user proceed.
+
+      Driven by the server's `slot_taken` code rather than the local overlap hook, because the server is the
+      authority — and because confirming here sets `allowOverlap`, which is what records the acknowledgement and
+      exempts the row from the database's exclusion constraint. Without that flag the write is impossible, so a
+      purely client-side "ignore the warning" would fail at the database.
+    */}
+    <AlertDialog
+      open={slotTakenPrompt !== null}
+      onOpenChange={(o) => { if (!o) setSlotTakenPrompt(null) }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Créneau déjà occupé</AlertDialogTitle>
+          <AlertDialogDescription>
+            {slotTakenPrompt} Voulez-vous quand même créer ce rendez-vous ? Le double rendez-vous sera enregistré comme
+            volontaire.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={loading}>Annuler</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              setSlotTakenPrompt(null)
+              // `true` makes the server record it via Appointment.MarkBookedWithOverlap() rather than letting it
+              // through unmarked — the flag is both the audit trail and the constraint exemption.
+              void performCreate({ overlap: true })
+            }}
+            disabled={loading}
+          >
+            Continuer
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    {/*
+      Out-of-hours confirmation. Same shape as the past-time confirm above, and deliberately so: booking outside
+      the posted hours is a legitimate thing a clinic does (an emergency, a favour, a Saturday not yet in the
+      settings), so it warns and lets the user proceed rather than refusing.
+
+      Driven by the server's `outside_working_hours` code, not a client-side hours check — the rule resolves a
+      doctor override against the clinic's hours in clinic-local time, and duplicating that in the browser is how
+      the two would drift.
+    */}
+    <AlertDialog
+      open={outsideHoursPrompt !== null}
+      onOpenChange={(o) => { if (!o) setOutsideHoursPrompt(null) }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>En dehors des horaires d&apos;ouverture</AlertDialogTitle>
+          <AlertDialogDescription>
+            {outsideHoursPrompt} Voulez-vous quand même créer ce rendez-vous ?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={loading}>Annuler</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              setOutsideHoursPrompt(null)
+              // `true` makes the server record the booking as a deliberate out-of-hours exception
+              // (Appointment.MarkBookedOutsideWorkingHours) rather than just letting it through unmarked.
+              void performCreate({ hours: true })
+            }}
+            disabled={loading}
+          >
+            Continuer
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    {/*
+      « Ce patient existe déjà » — the third advisory refusal, and the one this dialog needed most: its quick-add form
+      collects a name and a phone, so the patient it creates is exactly the kind that is hard to tell apart from
+      somebody already on file, and nothing here used to check.
+
+      ⚠️ The destructive-looking option is « Créer quand même », not « Annuler ». A duplicate cannot be merged or
+      deleted afterwards, so it is the irreversible choice and is styled as one — the ordinary answer is to close this,
+      turn « Nouveau patient » off and pick the existing patient from the list.
+    */}
+    <AlertDialog
+      open={duplicatePatientPrompt !== null}
+      onOpenChange={(o) => { if (!o) setDuplicatePatientPrompt(null) }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Ce patient existe peut-être déjà</AlertDialogTitle>
+          <AlertDialogDescription>
+            {duplicatePatientPrompt}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          {/* Named after what it does, and it does it: the safe answer is not « annuler the booking » but « this is
+              the patient you already have », so this switches the form back to the picker and clears what was typed
+              — the same thing the « Nouveau patient » switch does when turned off. Nothing was created, so there is
+              nothing to keep. */}
+          <AlertDialogCancel
+            disabled={loading}
+            onClick={() => {
+              setIsNewPatient(false)
+              setNewPatientFirstName("")
+              setNewPatientLastName("")
+              setNewPatientPhone("")
+            }}
+          >
+            Choisir un patient existant
+          </AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={() => {
+              setDuplicatePatientPrompt(null)
+              void performCreate({ duplicatePatient: true })
+            }}
+            disabled={loading}
+          >
+            Créer quand même
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    <DiscardChangesDialog guard={guard} />
     </>
   )
 }

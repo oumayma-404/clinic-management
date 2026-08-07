@@ -3,6 +3,8 @@ using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
 
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Infrastructure.Repositories;
 
 public class RecurringAppointmentRepository : IRecurringAppointmentRepository
@@ -21,7 +23,12 @@ public class RecurringAppointmentRepository : IRecurringAppointmentRepository
             .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
     }
 
-    public async Task<IEnumerable<RecurringAppointment>> GetByClinicIdAsync(Guid clinicId, bool activeOnly = true, CancellationToken cancellationToken = default)
+    public async Task<PagedResult<RecurringAppointment>> GetByClinicIdAsync(
+        Guid clinicId,
+        bool activeOnly = true,
+        string? searchTerm = null,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _context.RecurringAppointments
             .Include(r => r.Patient)
@@ -32,9 +39,19 @@ public class RecurringAppointmentRepository : IRecurringAppointmentRepository
             query = query.Where(r => r.IsActive);
         }
 
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(r =>
+                EF.Functions.ILike(SqlSearch.Unaccent(r.Patient!.FirstName + " " + r.Patient.LastName)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(r.DoctorName)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(r.Notes)!, pattern, SqlSearch.EscapeString));
+        }
+
         return await query
             .OrderByDescending(r => r.CreatedAt)
-            .ToListAsync(cancellationToken);
+            .ThenBy(r => r.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
     }
 
     public async Task<RecurringAppointment> AddAsync(RecurringAppointment series, CancellationToken cancellationToken = default)

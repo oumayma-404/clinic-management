@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Auth;
@@ -27,41 +26,34 @@ public class LocalAuthEnforcementMiddleware
 
     public async Task InvokeAsync(HttpContext context, IUserRepository users)
     {
-        if (context.User?.Identity?.IsAuthenticated == true)
+        // Shared with TenantScopeMiddleware, which needs the same row for the clinic it scopes to — one lookup
+        // per request rather than two.
+        var account = await RequestAccount.ResolveAsync(context, users);
+
+        if (account is not null && account.IsLocalAccount())
         {
-            var subject = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                          ?? context.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
-
-            if (!string.IsNullOrEmpty(subject))
+            // Token revocation (US-5 / AC-5.1). A token whose version no longer matches — or which carries no
+            // version at all, i.e. was issued before this shipped (AC-5.15) — is dead, even though the JWT
+            // signature and lifetime are still perfectly valid.
+            if (!HasCurrentTokenVersion(context.User, account.TokenVersion))
             {
-                var account = await users.GetByAuth0SubAsync(subject, context.RequestAborted);
-                if (account is not null && account.IsLocalAccount())
-                {
-                    // Token revocation (US-5 / AC-5.1). Rides the account lookup this middleware already
-                    // performs, so it costs no extra query. A token whose version no longer matches — or
-                    // which carries no version at all, i.e. was issued before this shipped (AC-5.15) — is
-                    // dead, even though the JWT signature and lifetime are still perfectly valid.
-                    if (!HasCurrentTokenVersion(context.User, account.TokenVersion))
-                    {
-                        await WriteErrorAsync(context, StatusCodes.Status401Unauthorized,
-                            "Votre session n'est plus valide. Veuillez vous reconnecter.");
-                        return;
-                    }
+                await WriteErrorAsync(context, StatusCodes.Status401Unauthorized,
+                    "Votre session n'est plus valide. Veuillez vous reconnecter.");
+                return;
+            }
 
-                    if (!account.IsActive)
-                    {
-                        await WriteErrorAsync(context, StatusCodes.Status401Unauthorized,
-                            "This account has been deactivated.");
-                        return;
-                    }
+            if (!account.IsActive)
+            {
+                await WriteErrorAsync(context, StatusCodes.Status401Unauthorized,
+                    "This account has been deactivated.");
+                return;
+            }
 
-                    if (account.MustChangePassword && !IsChangePasswordRequest(context.Request))
-                    {
-                        await WriteErrorAsync(context, StatusCodes.Status403Forbidden,
-                            "You must change your password before continuing.", "must_change_password");
-                        return;
-                    }
-                }
+            if (account.MustChangePassword && !IsChangePasswordRequest(context.Request))
+            {
+                await WriteErrorAsync(context, StatusCodes.Status403Forbidden,
+                    "You must change your password before continuing.", "must_change_password");
+                return;
             }
         }
 

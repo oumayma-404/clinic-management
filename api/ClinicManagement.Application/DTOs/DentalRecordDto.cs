@@ -4,6 +4,13 @@ public class DentalRecordDto
 {
     public Guid Id { get; set; }
     public Guid PatientId { get; set; }
+
+    /// <summary>
+    /// The appointment this fiche documents, or null when it was entered outside the agenda. Read back so a screen can
+    /// answer « cette séance a-t-elle déjà une fiche ? » — which nothing could, because the column was never populated.
+    /// </summary>
+    public Guid? AppointmentId { get; set; }
+
     public DateTime InterventionDate { get; set; }
     /// <summary>Derived summary of the acts' procedure names (read-only).</summary>
     public string ProcedureType { get; set; } = string.Empty;
@@ -25,6 +32,47 @@ public class DentalRecordDto
     /// </summary>
     public uint Version { get; set; }
     public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>
+    /// What happened to the money when this fiche was saved. Present on the create/update responses only — it is
+    /// the outcome of a post-commit side effect, not stored state, so a later <c>GET</c> leaves it null.
+    /// <para>
+    /// It exists because the billing is best-effort for the <i>record</i> but must never be silent about the
+    /// <i>cash</i>: a swallowed failure would put the user right back where they started, believing money was
+    /// recorded when it was not.
+    /// </para>
+    /// </summary>
+    public DentalRecordBillingDto? Billing { get; set; }
+}
+
+/// <summary>What saving a fiche did about its « Montant payé ».</summary>
+public enum DentalRecordBillingOutcome
+{
+    /// <summary>No payment on the fiche, so nothing was billed. Not an error.</summary>
+    NotCollected = 0,
+
+    /// <summary>A note d'honoraires was issued and the payment recorded.</summary>
+    Billed = 1,
+
+    /// <summary>The fiche was already on a live note — the expected outcome of re-saving one.</summary>
+    AlreadyBilled = 2,
+
+    /// <summary>The record saved, the billing did not. The user has to be told.</summary>
+    Failed = 3
+}
+
+/// <summary>The money outcome of a fiche save (see <see cref="DentalRecordDto.Billing"/>).</summary>
+public class DentalRecordBillingDto
+{
+    /// <summary>A <see cref="DentalRecordBillingOutcome"/> name.</summary>
+    public string Outcome { get; set; } = string.Empty;
+
+    public Guid? InvoiceId { get; set; }
+    public string? InvoiceNumber { get; set; }
+    public decimal? AmountCollected { get; set; }
+
+    /// <summary>The French reason, for <c>Failed</c> and <c>AlreadyBilled</c>.</summary>
+    public string? Message { get; set; }
 }
 
 /// <summary>One act on a dental record (procedure + teeth + cost + resulting odontogram state).</summary>

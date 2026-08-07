@@ -8,9 +8,15 @@ using ClinicManagement.Domain.ValueObjects;
 namespace ClinicManagement.Application.Features.Recall.Commands;
 
 /// <summary>
-/// Optionally send a recall (« relance ») to a patient over the configured SMS/WhatsApp channel(s) (AC-1.3),
-/// then record the contact + snooze so they leave the active list. The actual send is connectivity-gated and
-/// done later by the dispatcher; the enqueue is best-effort (a channel not being configured is not an error).
+/// Send a recall (« relance ») to a patient over the configured SMS/WhatsApp channel(s), then record the
+/// contact + snooze so they leave the active list. The actual send is connectivity-gated and done later by
+/// the dispatcher.
+///
+/// AC-P3.1–3.4: the enqueue's outcome is now <b>load-bearing</b>. It used to be fire-and-forget — the command
+/// stamped « contacté » and snoozed 30 days even when <c>ScheduleRecallAsync</c> had queued nothing because
+/// no channel was configured, and the UI toasted « Rappel envoyé à … ». A patient therefore dropped off the
+/// relance list for a month with nobody ever contacted and nobody told. Enqueuing is still not the same as
+/// sending, which is why the dispatcher undoes the snooze if every channel ultimately fails (AC-P3.5–3.6).
 /// </summary>
 public class SendRecallCommand : IRequest<Result<bool>>
 {
@@ -63,11 +69,20 @@ public class SendRecallCommandHandler : IRequestHandler<SendRecallCommand, Resul
 
             var reason = string.IsNullOrWhiteSpace(request.Reason) ? patient.RecallReason : request.Reason;
 
-            // Enqueue the outbound recall (best-effort; per-channel, connectivity-gated at send).
-            await _reminderScheduler.ScheduleRecallAsync(
+            // Enqueue the outbound recall (per-channel, connectivity-gated at send) and act on what it says.
+            var outcome = await _reminderScheduler.ScheduleRecallAsync(
                 clinic.Value, patient.Id, patient.GetFullName(), reason, cancellationToken);
 
-            // Sending a recall counts as contacting the patient — stamp it and snooze so it leaves the list.
+            // AC-P3.2 — nothing was queued: refuse, and leave the patient exactly as they were. The message
+            // names the fix (the reminder settings) and the alternative (« Marquer comme contacté ») so the
+            // refusal is a next step rather than a dead end.
+            if (outcome != RecallDispatchOutcome.Enqueued)
+            {
+                return Result<bool>.Failure(FailureMessage(outcome));
+            }
+
+            // AC-P3.4 — a channel IS configured: unchanged behaviour. Sending a recall counts as contacting
+            // the patient, so stamp it and snooze so they leave the list.
             patient.MarkRecallContacted(DateTime.UtcNow.AddDays(ContactedSnoozeDays), reason);
             await _patientRepository.UpdateAsync(patient, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -79,4 +94,20 @@ public class SendRecallCommandHandler : IRequestHandler<SendRecallCommand, Resul
             return Result<bool>.Failure($"Erreur lors de l'envoi de la relance : {ex.Message}");
         }
     }
+
+    // One French message per non-sending outcome. Each names what to do next: the refusal replaces a
+    // success toast, so it has to carry the information that toast was hiding.
+    private static string FailureMessage(RecallDispatchOutcome outcome) => outcome switch
+    {
+        RecallDispatchOutcome.NoChannelConfigured =>
+            "Aucun canal de rappel (SMS ou WhatsApp) n'est activé : la relance n'a pas été envoyée. "
+            + "Activez un canal dans « Paramètres → Rappels », ou utilisez « Marquer comme contacté » "
+            + "après avoir appelé le patient.",
+        RecallDispatchOutcome.NoDeliverablePhone =>
+            "Ce patient n'a pas de numéro de téléphone valide : la relance ne peut pas être envoyée. "
+            + "Contactez-le autrement, puis utilisez « Marquer comme contacté ».",
+        _ =>
+            "La relance n'a pas pu être mise en file d'envoi. Le patient reste dans la liste des relances ; "
+            + "réessayez dans quelques instants.",
+    };
 }

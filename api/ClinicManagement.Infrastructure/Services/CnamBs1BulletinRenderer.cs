@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
@@ -183,7 +184,9 @@ internal sealed class CnamBs1BulletinRenderer
         return pages;
     }
 
-    private static void StampAssureAndMalade(PdfPage page, Bs1Model model)
+    // An instance method (its siblings are static) because the identifiant-unique comb below reports an
+    // over-length value through _logger.
+    private void StampAssureAndMalade(PdfPage page, Bs1Model model)
     {
         using var gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
 
@@ -195,6 +198,21 @@ internal sealed class CnamBs1BulletinRenderer
 
         // Identifiant Unique — one character per cell, left to right.
         var idu = model.IdentifiantUnique;
+
+        // The loop below stops at the last printed cell, so a longer number silently lost its tail: a CNAM
+        // identifier cut off mid-way, with nothing in the logs and no failure anywhere. The write path now
+        // refuses an over-length value (BulletinCnamValidation), which makes this unreachable for a bulletin
+        // saved through the editor — so it is reported rather than fixed here. If the form is ever revised to
+        // more than ten cells, or a legacy document carries a longer number, this line is what surfaces it
+        // instead of the paper quietly being wrong.
+        if (idu.Length > IduCellCentersX.Length)
+        {
+            _logger?.LogWarning(
+                "Bulletin CNAM : l'identifiant unique compte {DigitCount} chiffres pour {CellCount} cases sur le "
+                + "formulaire — seuls les {CellCount} premiers sont imprimés.",
+                idu.Length, IduCellCentersX.Length, IduCellCentersX.Length);
+        }
+
         for (var i = 0; i < idu.Length && i < IduCellCentersX.Length; i++)
         {
             var cell = new XRect(IduCellCentersX[i] - IduCellWidth / 2, IduCellTopY, IduCellWidth, IduCellHeight);
@@ -202,15 +220,21 @@ internal sealed class CnamBs1BulletinRenderer
         }
 
         // Régime — tick exactly the selected option (unknown value → nothing ticked).
+        //
+        // ⚠️ The cases are `CnamInfo`'s constants, not literals retyped here. These strings are also what the
+        // patient dialog offers and what the write-path validation accepts, and they used to be three
+        // independent copies of a French label — « Convention bilatérale » carries an accent, so a single
+        // mismatch in casing or diacritics printed an EMPTY régime box while every layer reported success.
+        // Matching on a shared const makes that a compile-time fact.
         switch (model.Regime)
         {
-            case "CNSS":
+            case CnamInfo.RegimeCnss:
                 DrawCentered(gfx, "X", tickFont, RegimeCnss);
                 break;
-            case "CNRPS":
+            case CnamInfo.RegimeCnrps:
                 DrawCentered(gfx, "X", tickFont, RegimeCnrps);
                 break;
-            case "Convention bilatérale":
+            case CnamInfo.RegimeConventionBilaterale:
                 DrawCentered(gfx, "X", tickFont, RegimeConvention);
                 break;
         }
@@ -222,12 +246,13 @@ internal sealed class CnamBs1BulletinRenderer
         DrawLeft(gfx, model.AssurePostalCode, fieldFont, AssureCodePostalX, AssureCodePostalBaselineY);
 
         // Le malade — lien + rang.
+        // Same reasoning as the régime switch above — `CnamInfo`'s constants, never retyped literals.
         var lienCell = model.MaladeLien switch
         {
-            "Assuré lui-même" => (XRect?)LienAssureSocial,
-            "Conjoint" => LienConjoint,
-            "Enfant" => LienEnfant,
-            "Ascendant" => LienAscendant,
+            CnamInfo.LienAssureLuiMeme => (XRect?)LienAssureSocial,
+            CnamInfo.LienConjoint => LienConjoint,
+            CnamInfo.LienEnfant => LienEnfant,
+            CnamInfo.LienAscendant => LienAscendant,
             _ => null,
         };
         if (lienCell.HasValue)
@@ -494,7 +519,31 @@ internal sealed class CnamBs1BulletinRenderer
                 : value;
         }
 
+        /// <summary>
+        /// How a dinar amount is written on the printed form: fr-TN convention — three decimals (millimes),
+        /// a <b>decimal comma</b>, no grouping, no currency symbol.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ Built explicitly rather than taken from <c>CultureInfo.GetCultureInfo("fr-TN")</c>: a server
+        /// running .NET in globalization-invariant mode (a container, a trimmed publish) resolves every named
+        /// culture to the invariant one and would silently print a period again — the exact defect this fixes,
+        /// only harder to reproduce. It also pins the group separator to empty, so the fr-TN non-breaking space
+        /// can never reach the narrow honoraires column: <c>"0.000"</c> asks for no grouping today, but a future
+        /// four-digit amount must not acquire a separator the <c>Fit</c> shrink cannot anticipate. That keeps the
+        /// column width a comma-for-period swap, which is the one substitution the calibration tolerates.
+        /// </remarks>
+        private static readonly NumberFormatInfo FormFormat = new()
+        {
+            NumberDecimalSeparator = ",",
+            NumberGroupSeparator = string.Empty,
+            NumberNegativePattern = 1,
+        };
+
         // AC-3: TND with 3 decimals (millimes), no currency symbol, consistent with the recorded cost.
+        // K8: the separator is the product's, not the invariant culture's — `30.000` with a period was being
+        // printed on a CNAM document, while the editor's own on-screen figure two panes away used `formatDT`
+        // and showed `30,000 DT`. The millime precision was right; the separator was the one thing on the
+        // *paper* that disagreed with every other number the software prints.
         private static string FormatHonoraires(string raw)
         {
             var value = raw.Trim();
@@ -511,8 +560,11 @@ internal sealed class CnamBs1BulletinRenderer
             const NumberStyles styles = NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite
                 | NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint;
 
+            // ⚠️ Parse with InvariantCulture (the input was just normalized to a '.' decimal point) but FORMAT
+            // with `FormFormat` — the two cultures are deliberately different, and using InvariantCulture on the
+            // way out is exactly the K8 defect: it prints `30.000` with a period on a CNAM document.
             return decimal.TryParse(normalized, styles, CultureInfo.InvariantCulture, out var amount)
-                ? amount.ToString("0.000", CultureInfo.InvariantCulture)
+                ? amount.ToString("0.000", FormFormat)
                 : value;
         }
     }

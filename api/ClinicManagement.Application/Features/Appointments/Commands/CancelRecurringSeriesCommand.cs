@@ -28,17 +28,20 @@ public class CancelRecurringSeriesCommandHandler : IRequestHandler<CancelRecurri
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IReminderScheduler _reminderScheduler;
 
     public CancelRecurringSeriesCommandHandler(
         IRecurringAppointmentRepository recurringRepository,
         IAppointmentRepository appointmentRepository,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IReminderScheduler reminderScheduler)
     {
         _recurringRepository = recurringRepository;
         _appointmentRepository = appointmentRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _reminderScheduler = reminderScheduler;
     }
 
     public async Task<Result<int>> Handle(CancelRecurringSeriesCommand request, CancellationToken cancellationToken)
@@ -92,6 +95,7 @@ public class CancelRecurringSeriesCommandHandler : IRequestHandler<CancelRecurri
             }
 
             var cancelled = 0;
+            var cancelledIds = new List<Guid>();
             foreach (var appointment in toCancel)
             {
                 if (appointment.Status is AppointmentStatus.Completed or AppointmentStatus.Cancelled)
@@ -99,15 +103,29 @@ public class CancelRecurringSeriesCommandHandler : IRequestHandler<CancelRecurri
 
                 appointment.Cancel(request.Reason);
                 await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
+                cancelledIds.Add(appointment.Id);
                 cancelled++;
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // L3b — void the queued reminders, post-commit and best-effort, exactly as the single-appointment
+            // cancel does. This file referenced no reminder type at all, so cancelling a 12-visit series left
+            // twelve reminders to fail one by one over the following months, filling « Échecs (7 j) » with
+            // failures that were the *correct* outcome — which is how a dentist learns to ignore the counter
+            // that warns about the real ones. The dispatcher's own status re-check would drop each row, but only
+            // by recording it as a failure; suppressing it here is what makes it a non-event.
+            foreach (var appointmentId in cancelledIds)
+            {
+                await _reminderScheduler.VoidForAppointmentAsync(appointmentId, cancellationToken);
+            }
+
             return Result<int>.Success(cancelled);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<int>.Failure($"Erreur lors de l'annulation de la série : {ex.Message}");
+            // A-7 (second copy).
+            return Result<int>.Failure("Erreur lors de l'annulation de la série. Veuillez réessayer.");
         }
     }
 }

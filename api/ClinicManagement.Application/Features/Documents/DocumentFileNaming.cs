@@ -16,6 +16,7 @@ public static class DocumentFileNaming
             DocumentTypes.Honoraires => "note-d-honoraires",
             DocumentTypes.Certificat => "certificat-medical",
             DocumentTypes.BulletinCnam => "bulletin-de-soins-cnam",
+            DocumentTypes.ArretTravail => "arret-de-travail",
             _ => documentType.ToLowerInvariant()
         };
 }

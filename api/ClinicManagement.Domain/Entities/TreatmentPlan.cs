@@ -1,6 +1,7 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -15,6 +16,41 @@ public class TreatmentPlan : AggregateRoot<Guid>
 {
     public Guid ClinicId { get; private set; }
     public Guid PatientId { get; private set; }
+    /// <summary>
+    /// Which practitioner earned this — nullable, and nullable means nullable (L9 attribution).
+    ///
+    /// <para><b>What was missing.</b> <c>DoctorId</c> existed on exactly three entities in the whole model
+    /// (<c>Appointment</c> — the only real FK to <c>Doctors</c> — <c>RecurringAppointment</c>, and
+    /// <c>WaitingListEntry.PreferredDoctorId</c>, which was not even an FK), and on nothing that carries money or
+    /// clinical work. So « combien a produit ce praticien ce mois ? » had no answer, and
+    /// <c>Features/Dashboard/</c> contained <b>zero</b> occurrences of <c>Doctor</c> across all four readers.</para>
+    ///
+    /// <para>⚠️ <b>Historical rows legitimately have none</b> — the column did not exist when they were written,
+    /// and the migration only backfills where a linked appointment names a practitioner. Every read must therefore
+    /// tolerate null rather than treating it as « the clinic », which would silently attribute one dentist's work
+    /// to whoever the filter happens to select.</para>
+    ///
+    /// <para>This is <b>attribution, not authorization</b>: it answers who earned a figure. Per-practitioner data
+    /// scoping (« this dentist sees only their own patients ») is a separate decision with its own blast radius and
+    /// is deliberately out of scope.</para>
+    /// </summary>
+    public Guid? DoctorId { get; private set; }
+
+    /// <summary>The practitioner navigation, for the read-side name resolution. Null when unattributed.</summary>
+    public Doctor? Doctor { get; private set; }
+
+    /// <summary>
+    /// Attribute (or un-attribute) this record to a practitioner. Deliberately its own mutator rather than a ctor
+    /// parameter on every construction path: the answer is often only known *after* the aggregate exists (it comes
+    /// from the appointment the record was written against), and a required ctor argument would have forced every
+    /// caller to guess.
+    /// </summary>
+    public void SetDoctor(Guid? doctorId)
+    {
+        DoctorId = doctorId == Guid.Empty ? null : doctorId;
+        Touch();
+    }
+
 
     /// <summary>Sequential number <c>AAAA-NNNN</c>; null while a draft (assigned at acceptance).</summary>
     public string? Number { get; private set; }
@@ -78,10 +114,26 @@ public class TreatmentPlan : AggregateRoot<Guid>
         RecomputeTotal();
     }
 
-    /// <summary>Update the title / notes. Draft only.</summary>
+    /// <summary>
+    /// Update the title / notes.
+    /// <para>
+    /// Allowed on a draft <b>and</b> on an accepted or in-progress devis. It used to be <c>EnsureDraft</c>-only,
+    /// which meant a typo in the title a patient reads on their devis printout froze permanently at acceptance
+    /// and the only way to fix it was to cancel the devis and retype it — losing its number. Neither field is
+    /// money and neither is the number itself, and an amendment that changes the printed title bumps
+    /// <see cref="RevisionNumber"/> through the same <see cref="RecordAmendment"/> its caller already calls, so
+    /// an earlier printout stays identifiable. Refused on a Completed or Cancelled plan, matching the two
+    /// windows its callers live in (the draft editor and <c>EnsureAmendable</c>).
+    /// </para>
+    /// </summary>
     public void UpdateDetails(string title, string? notes)
     {
-        EnsureDraft();
+        if (Status != TreatmentPlanStatus.Draft
+            && Status != TreatmentPlanStatus.Accepted
+            && Status != TreatmentPlanStatus.InProgress)
+        {
+            throw new InvalidOperationException("Seul un devis brouillon, accepté ou en cours peut être modifié.");
+        }
         if (string.IsNullOrWhiteSpace(title))
             throw new ArgumentException("Le titre du plan est requis.", nameof(title));
 
@@ -240,13 +292,19 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// Record a payment against one installment. Allowed on an accepted, in-progress <b>or completed</b> plan —
     /// see <see cref="EnsurePayable"/>. A payment never re-opens a completed plan.
     /// </summary>
-    public InstallmentPayment RecordInstallmentPayment(Guid installmentId, decimal amount, PaymentMethod method, DateTime paidOn)
+    /// <param name="cheque">The cheque's number, bank and due date (L8). Null for any other method.</param>
+    public InstallmentPayment RecordInstallmentPayment(
+        Guid installmentId,
+        decimal amount,
+        PaymentMethod method,
+        DateTime paidOn,
+        ChequeDetails? cheque = null)
     {
         EnsurePayable();
         var installment = _installments.FirstOrDefault(i => i.Id == installmentId)
             ?? throw new InvalidOperationException("Échéance introuvable.");
 
-        var payment = installment.RecordPayment(amount, method, paidOn);
+        var payment = installment.RecordPayment(amount, method, paidOn, cheque);
         if (Status == TreatmentPlanStatus.Accepted)
             Status = TreatmentPlanStatus.InProgress;
         Touch();
@@ -309,6 +367,41 @@ public class TreatmentPlan : AggregateRoot<Guid>
     }
 
     /// <summary>Close the plan once every act has been carried out.</summary>
+    /// <summary>
+    /// Undo <see cref="MarkItemDone"/> for one act, reopening the plan as the exact inverse of the promotions
+    /// that method performs.
+    /// <para>
+    /// Deliberately <b>not</b> guarded by <see cref="EnsureActive"/>: marking the last act done auto-completes
+    /// the plan, so a correction that required an active plan could never reach the case it exists for. One act
+    /// ticked against the wrong fiche would close a devis permanently.
+    /// </para>
+    /// <para>
+    /// The caller is responsible for refusing an act already billed on a live invoice — the domain cannot see
+    /// invoices, and un-marking billed work would desynchronise the plan from the money.
+    /// </para>
+    /// </summary>
+    public void UnmarkItemDone(Guid itemId)
+    {
+        EnsureCorrectable();
+        var item = _items.FirstOrDefault(i => i.Id == itemId)
+            ?? throw new InvalidOperationException("Acte introuvable.");
+
+        if (!item.Unmark())
+        {
+            // Already « prévu » — do not touch the plan's status; it was never closed by this act.
+            return;
+        }
+
+        // Mirror MarkItemDone exactly: it promotes Accepted → InProgress on the first done act and → Completed
+        // when all are done. Completed is therefore only reachable with every act done, so un-marking one always
+        // reopens; and with no act done at all the plan is back where acceptance left it.
+        Status = _items.Any(i => i.Status == TreatmentPlanItemStatus.Done)
+            ? TreatmentPlanStatus.InProgress
+            : TreatmentPlanStatus.Accepted;
+
+        Touch();
+    }
+
     public void Complete()
     {
         if (Status != TreatmentPlanStatus.Accepted && Status != TreatmentPlanStatus.InProgress)
@@ -324,7 +417,8 @@ public class TreatmentPlan : AggregateRoot<Guid>
     //
     // Before this, a plan froze the instant it was accepted: SetItems/SetInstallments are EnsureDraft()-only,
     // so the first time treatment changed the only escape was Cancel + retype, losing the devis number, the
-    // échéancier and every réalisé act. These four methods let an accepted plan evolve instead.
+    // échéancier and every réalisé act. These methods let an accepted plan evolve instead: add acts, revise the
+    // ones already on it, remove them, re-spread the échéancier, reorder, and stamp the revision.
     //
     // The caller (the amend handler) is responsible for the one rule this aggregate cannot see: a plan with a
     // linked non-cancelled invoice must refuse every amendment, because the money reads treat that invoice as
@@ -371,6 +465,64 @@ public class TreatmentPlan : AggregateRoot<Guid>
         if (added == 0)
         {
             return;
+        }
+
+        RecomputeTotal();
+        Touch();
+    }
+
+    /// <summary>
+    /// Correct acts **already on** an accepted or in-progress plan, in place — designation, fee, teeth, and the
+    /// catalog/procedure links — keeping each act's id.
+    /// <para>
+    /// This is the third amendment verb, and its absence was the gap: <see cref="AddItems"/> and
+    /// <see cref="RemoveItem"/> could only ever express "change this act" as remove-then-add, which re-issues
+    /// the id (orphaning any appointment or fiche link pointing at it) and is refused outright for an act that
+    /// is <c>Done</c> or booked. So the one correction a dentist actually needs most — a wrong price on work
+    /// already scheduled or carried out — was the one the amendment window could not make.
+    /// </para>
+    /// <para>
+    /// Each line's <see cref="TreatmentPlanItemInput.Id"/> must name an act on this plan; an unknown id is
+    /// refused rather than silently added, because a caller asking to *revise* a specific act and getting a new
+    /// one instead would double the line and the total. Recomputes <see cref="TotalPlanned"/>, so the caller
+    /// carries the same obligation as after an add or a remove: a changed total must be followed by a
+    /// re-spread échéancier.
+    /// </para>
+    /// </summary>
+    public void UpdateItems(IEnumerable<TreatmentPlanItemInput> items)
+    {
+        EnsureAmendable();
+
+        var list = items.ToList();
+        if (list.Count == 0)
+        {
+            return;
+        }
+
+        // Resolve every line before mutating any of them: a partially-applied batch would leave the plan with
+        // some acts revised, some not, and a total that matches neither the old devis nor the new one.
+        var targets = new List<(TreatmentPlanItem Item, TreatmentPlanItemInput Input)>();
+        foreach (var input in list)
+        {
+            if (!input.Id.HasValue)
+            {
+                throw new InvalidOperationException("Un acte à modifier doit désigner l'acte existant concerné.");
+            }
+
+            var item = _items.FirstOrDefault(i => i.Id == input.Id.Value)
+                ?? throw new InvalidOperationException("Acte introuvable.");
+            targets.Add((item, input));
+        }
+
+        foreach (var (item, input) in targets)
+        {
+            item.Revise(
+                input.DesignationFr,
+                input.PlannedCost,
+                input.DentalActCodeId,
+                input.CodeActe,
+                input.ProcedureTypeId,
+                input.ToothNumbers);
         }
 
         RecomputeTotal();
@@ -549,6 +701,22 @@ public class TreatmentPlan : AggregateRoot<Guid>
     {
         if (Status != TreatmentPlanStatus.Accepted && Status != TreatmentPlanStatus.InProgress)
             throw new InvalidOperationException("Le plan doit être accepté pour cette opération.");
+    }
+
+    /// <summary>
+    /// A correction to what was already recorded may be applied to a <c>Completed</c> plan — unlike
+    /// <see cref="EnsureActive"/>, which guards *doing* work. Marking the last act done closes the plan, so a
+    /// correction gate that excluded <c>Completed</c> would lock out the exact mistake it needs to fix. A
+    /// <c>Draft</c> has no realised act to undo and a <c>Cancelled</c> plan is void.
+    /// </summary>
+    private void EnsureCorrectable()
+    {
+        if (Status != TreatmentPlanStatus.Accepted
+            && Status != TreatmentPlanStatus.InProgress
+            && Status != TreatmentPlanStatus.Completed)
+        {
+            throw new InvalidOperationException("Seul un devis accepté, en cours ou terminé peut être corrigé.");
+        }
     }
 
     /// <summary>

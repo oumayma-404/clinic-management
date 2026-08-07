@@ -72,6 +72,9 @@ public class GetClinicReminderSettingsQueryHandler
                 WhatsAppEffectiveStatus = resolved.WhatsAppConfigured
                     ? ReminderEffectiveStatus.Configured
                     : ReminderEffectiveStatus.NotConfigured,
+                EmailEffectiveStatus = resolved.EmailConfigured
+                    ? ReminderEffectiveStatus.Configured
+                    : ReminderEffectiveStatus.NotConfigured,
             };
 
             return Result<ReminderSettingsDto>.Success(dto);

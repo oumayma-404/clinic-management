@@ -27,8 +27,7 @@ public class InstallmentPaymentConfiguration : IEntityTypeConfiguration<Installm
         builder.Property(p => p.InstallmentId)
             .IsRequired();
 
-        builder.Property(p => p.Amount)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(p => p.Amount);
 
         builder.Property(p => p.Method)
             .IsRequired()
@@ -55,11 +54,25 @@ public class InstallmentPaymentConfiguration : IEntityTypeConfiguration<Installm
         builder.Property(p => p.VoidedByName)
             .HasMaxLength(200);
 
+        // Cheque identity (L8) — same three columns, same widths and same reasoning as `PaymentConfiguration`.
+        builder.Property(p => p.ChequeNumber)
+            .HasMaxLength(50);
+
+        builder.Property(p => p.ChequeBankName)
+            .HasMaxLength(200);
+
+        builder.Property(p => p.ChequeDueDate);
+
         builder.HasIndex(p => p.InstallmentId);
 
         // The index that makes the fixed monthly cash read cheap. Installments previously had no date index
         // at all, so the old (wrong) LastPaidOn query already scanned — this must not repeat that.
         builder.HasIndex(p => p.PaidOn)
             .HasFilter("NOT \"IsVoided\"");
+
+        // « Chèques à encaisser » must see BOTH ledgers, so the index exists on both. See `PaymentConfiguration`
+        // for why the filter keys on the due date rather than on the method's ordinal.
+        builder.HasIndex(p => p.ChequeDueDate)
+            .HasFilter("\"ChequeDueDate\" IS NOT NULL AND NOT \"IsVoided\"");
     }
 }

@@ -80,6 +80,40 @@ public class Notification : Entity<Guid>
         }
     }
 
+    /// <summary>
+    /// Parks the row: it cannot be sent for a reason a retry cannot change (the channel was disabled after
+    /// enqueue, its credentials are missing, or no sender implements it), so it leaves the dispatch scan
+    /// instead of occupying the front of it for ever. <b>Not terminal</b> — retention never deletes it and
+    /// <see cref="Unblock"/> puts it back.
+    ///
+    /// <para><paramref name="reason"/> is the French sentence the « Rappels » page shows beside the row: the
+    /// whole defect this status fixes is that a starved queue said nothing at all. The retry count is
+    /// deliberately <b>not</b> incremented — no attempt was made, and consuming the budget here would let a
+    /// misconfiguration silently spend a reminder's retries.</para>
+    /// </summary>
+    public void MarkAsBlocked(string reason)
+    {
+        Status = NotificationStatus.Blocked;
+        ErrorMessage = reason;
+    }
+
+    /// <summary>
+    /// Returns a <see cref="NotificationStatus.Blocked"/> row to the dispatch queue, clearing the reason it
+    /// carried. Called when the channel becomes sendable again — the row was kept precisely so that this could
+    /// happen rather than the patient silently never being contacted.
+    /// </summary>
+    public bool Unblock()
+    {
+        if (Status != NotificationStatus.Blocked)
+        {
+            return false;
+        }
+
+        Status = NotificationStatus.Pending;
+        ErrorMessage = null;
+        return true;
+    }
+
     public void Retry()
     {
         if (Status == NotificationStatus.Failed)

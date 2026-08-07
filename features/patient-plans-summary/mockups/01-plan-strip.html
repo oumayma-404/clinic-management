@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patient — bandeau « Plans de traitement »</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  /* Real tokens copied from web/app/globals.css so the mockup is not an approximation. */
+  :root{
+    --background:oklch(0.99 0 0); --foreground:oklch(0.18 0 0);
+    --card:oklch(1 0 0); --primary:oklch(0.52 0.14 245); --primary-foreground:oklch(0.99 0 0);
+    --muted:oklch(0.97 0.005 250); --muted-foreground:oklch(0.48 0.01 250);
+    --accent:oklch(0.965 0.01 245); --accent-foreground:oklch(0.35 0.12 245);
+    --border:oklch(0.93 0.005 250); --destructive:oklch(0.58 0.2 25);
+    --radius:0.5rem;
+    --ease-snap:cubic-bezier(0.23,1,0.32,1);
+  }
+  body{background:var(--background);color:var(--foreground);
+       font-family:Geist,ui-sans-serif,system-ui,sans-serif;}
+  .txt-muted{color:var(--muted-foreground)}
+  .bd{border-color:var(--border)}
+  .btn-primary{background:var(--primary);color:var(--primary-foreground);
+    transition:transform 160ms var(--ease-snap),background-color 160ms var(--ease-snap)}
+  .btn-primary:active{transform:scale(.97)}
+  .btn-ghost{transition:transform 160ms var(--ease-snap),background-color 160ms var(--ease-snap)}
+  .btn-ghost:hover{background:var(--accent)}
+  .btn-ghost:active{transform:scale(.97)}
+  .chip{transition:background-color 160ms var(--ease-snap)}
+  .chip:hover{background:var(--accent)}
+  .tabnums{font-variant-numeric:tabular-nums}
+
+  /* ---- Act pips -------------------------------------------------------------
+     One pip per act. Filled = réalisé, ring = séance planifiée, hollow = à
+     planifier. Carries more than a percentage bar in less space, and a plan with
+     nothing done still shows its SHAPE (how many acts) instead of a grey slab. */
+  .pip{width:9px;height:9px;border-radius:9999px;flex:0 0 auto}
+  .pip-done{background:var(--primary)}
+  .pip-scheduled{background:transparent;box-shadow:inset 0 0 0 2px var(--primary)}
+  .pip-todo{background:transparent;box-shadow:inset 0 0 0 1.5px var(--border)}
+  .pip-overdue{background:transparent;box-shadow:inset 0 0 0 2px oklch(0.70 0.16 70)}
+
+  .sep{width:1px;align-self:stretch;background:var(--border)}
+  .demo-label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground)}
+</style>
+</head>
+<body class="p-6 md:p-10">
+<div class="mx-auto max-w-5xl space-y-10">
+
+  <header class="space-y-1">
+    <h1 class="text-2xl font-semibold tracking-tight">Bandeau « Plans de traitement » — patient</h1>
+    <p class="text-sm txt-muted">
+      Remplace <code>patient-plan-card.tsx</code>. Deux lignes, sans carte. Toutes les données proviennent déjà de
+      <code>TreatmentPlanDto</code> — aucun travail API.
+    </p>
+  </header>
+
+  <!-- ============================ BEFORE ============================ -->
+  <section class="space-y-3">
+    <p class="demo-label">Avant — ~250 px</p>
+    <div class="rounded-xl border bd bg-white p-5 opacity-70">
+      <div class="flex items-center gap-2 text-base font-semibold">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        Plan de traitement 2026-0045
+        <span class="rounded-md bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">Accepté</span>
+      </div>
+      <div class="mt-6 h-2 w-full rounded-full" style="background:var(--muted)"></div>
+      <p class="mt-3 text-sm txt-muted">0/2 actes réalisé · 0,000 DT / 120,000 DT</p>
+      <p class="mt-3 text-sm">Prochaine séance : 31 juil. 2026</p>
+      <div class="mt-4 flex items-center gap-2">
+        <button class="btn-primary rounded-md px-3 py-2 text-sm font-medium">Enregistrer la fiche →</button>
+        <button class="btn-ghost rounded-md border bd px-3 py-2 text-sm font-medium">Voir le plan</button>
+        <span class="text-xs txt-muted underline">+2 autres</span>
+      </div>
+    </div>
+    <ul class="ml-1 space-y-1 text-xs txt-muted">
+      <li>· La barre à 0 % est une bande grise qui n'informe de rien et coûte une ligne entière.</li>
+      <li>· « 0/2 actes <b>réalisé</b> » — accord fautif (le code accorde sur <code>itemsDone</code>).</li>
+      <li>· « Reste » absent : on voit 0 / 120 000 mais pas ce qui est dû.</li>
+      <li>· « +2 autres » exclut <b>Terminé</b> et <b>Annulé</b> — les plans finis sont invisibles.</li>
+    </ul>
+  </section>
+
+  <!-- ============================ AFTER ============================ -->
+  <section class="space-y-3">
+    <p class="demo-label">Après — ~76 px · plan actif, une séance déjà passée sans fiche</p>
+
+    <!-- The strip. Border only on top+bottom: it is a band in the page flow, not an object floating on it. -->
+    <div class="border-y bd py-3">
+      <!-- Line 1 — identity, then the ONE thing to do, then the way in. -->
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span class="text-sm font-semibold">Plan 2026-0045</span>
+        <span class="rounded-md bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-800">Accepté</span>
+        <a href="#" class="chip rounded-md border bd px-1.5 py-0.5 text-[11px] txt-muted">Facturé — F2026-0112</a>
+
+        <!-- The next action leads, as the largest text on the strip: it is the only line that says what to DO,
+             and it re-derives itself as visit times pass (planItemState). -->
+        <span class="ml-auto flex items-center gap-2">
+          <span class="h-1.5 w-1.5 rounded-full" style="background:oklch(0.70 0.16 70)"></span>
+          <span class="text-[15px] font-semibold">1 acte à enregistrer</span>
+        </span>
+        <button class="btn-primary rounded-md px-3 py-1.5 text-sm font-medium">Enregistrer la fiche →</button>
+      </div>
+
+      <!-- Line 2 — the facts, hairline-separated so they read as distinct figures without four boxes. -->
+      <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+        <span class="flex items-center gap-1.5">
+          <span class="flex items-center gap-1"><i class="pip pip-done"></i><i class="pip pip-overdue"></i></span>
+          <span class="txt-muted tabnums">1/2 actes</span>
+        </span>
+        <span class="sep"></span>
+        <span class="txt-muted">Reste <b class="font-semibold text-[color:var(--foreground)] tabnums">120,000 DT</b></span>
+        <span class="sep"></span>
+        <span class="txt-muted">Prochaine séance <b class="font-semibold text-[color:var(--foreground)]">31 juil.</b></span>
+        <span class="sep"></span>
+        <!-- Answers "and the finished ones?" — every status, one line, each chip opens the tab filtered. -->
+        <span class="flex flex-wrap items-center gap-1">
+          <a href="#" class="chip rounded-md bg-green-100 px-1.5 py-0.5 text-[11px] font-medium text-green-800">2 terminés</a>
+          <a href="#" class="chip rounded-md px-1.5 py-0.5 text-[11px] font-medium txt-muted" style="background:var(--muted)">1 brouillon</a>
+        </span>
+        <a href="#" class="ml-auto text-xs txt-muted underline underline-offset-2">Tous les plans</a>
+      </div>
+    </div>
+
+    <div class="ml-1 flex flex-wrap gap-x-5 gap-y-1 text-xs txt-muted">
+      <span class="flex items-center gap-1.5"><i class="pip pip-done"></i> réalisé</span>
+      <span class="flex items-center gap-1.5"><i class="pip pip-scheduled"></i> séance planifiée</span>
+      <span class="flex items-center gap-1.5"><i class="pip pip-overdue"></i> séance passée, fiche à saisir</span>
+      <span class="flex items-center gap-1.5"><i class="pip pip-todo"></i> à planifier</span>
+    </div>
+  </section>
+
+  <!-- ============================ STATES ============================ -->
+  <section class="space-y-5">
+    <p class="demo-label">Tous les états</p>
+
+    <!-- 1. Draft: no progress, no Reste (a draft devis is not debt), acceptance is the only step. -->
+    <div class="space-y-1.5">
+      <p class="text-xs txt-muted">Brouillon — un devis non accepté n'est pas une dette : ni pips ni « Reste ».</p>
+      <div class="border-y bd py-3">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span class="text-sm font-semibold">Devis — brouillon</span>
+          <span class="rounded-md px-1.5 py-0.5 text-[11px] font-medium txt-muted" style="background:var(--muted)">Brouillon</span>
+          <span class="ml-auto text-[15px] font-semibold">À accepter</span>
+          <button class="btn-primary rounded-md px-3 py-1.5 text-sm font-medium">Accepter le devis</button>
+        </div>
+        <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+          <span class="txt-muted tabnums">3 actes</span>
+          <span class="sep"></span>
+          <span class="txt-muted">Total <b class="font-semibold text-[color:var(--foreground)] tabnums">340,000 DT</b></span>
+          <a href="#" class="ml-auto text-xs txt-muted underline underline-offset-2">Tous les plans</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. In progress, nothing booked — the pips still show the plan's shape at 0 done. -->
+    <div class="space-y-1.5">
+      <p class="text-xs txt-muted">En cours, rien de planifié — à 0 réalisé les pips montrent encore la forme du plan (là où la barre ne montrait rien).</p>
+      <div class="border-y bd py-3">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span class="text-sm font-semibold">Plan 2026-0051</span>
+          <span class="rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">En cours</span>
+          <span class="ml-auto text-[15px] font-semibold">4 actes à planifier</span>
+          <button class="btn-primary rounded-md px-3 py-1.5 text-sm font-medium">Planifier la suite →</button>
+        </div>
+        <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+          <span class="flex items-center gap-1.5">
+            <span class="flex items-center gap-1"><i class="pip pip-todo"></i><i class="pip pip-todo"></i><i class="pip pip-todo"></i><i class="pip pip-todo"></i></span>
+            <span class="txt-muted tabnums">0/4 actes</span>
+          </span>
+          <span class="sep"></span>
+          <span class="txt-muted">Reste <b class="font-semibold text-[color:var(--foreground)] tabnums">480,000 DT</b></span>
+          <span class="sep"></span>
+          <span class="txt-muted">Aucune séance planifiée</span>
+          <a href="#" class="ml-auto text-xs txt-muted underline underline-offset-2">Tous les plans</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Everything done, money outstanding — the action becomes the money. -->
+    <div class="space-y-1.5">
+      <p class="text-xs txt-muted">Actes terminés mais reste à encaisser — l'action suivante devient l'argent.</p>
+      <div class="border-y bd py-3">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span class="text-sm font-semibold">Plan 2026-0032</span>
+          <span class="rounded-md bg-green-100 px-1.5 py-0.5 text-[11px] font-medium text-green-800">Terminé</span>
+          <span class="ml-auto text-[15px] font-semibold">Reste à encaisser</span>
+          <button class="btn-primary rounded-md px-3 py-1.5 text-sm font-medium">Encaisser</button>
+        </div>
+        <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+          <span class="flex items-center gap-1.5">
+            <span class="flex items-center gap-1"><i class="pip pip-done"></i><i class="pip pip-done"></i><i class="pip pip-done"></i></span>
+            <span class="txt-muted tabnums">3/3 actes</span>
+          </span>
+          <span class="sep"></span>
+          <span class="txt-muted">Reste <b class="font-semibold tabnums" style="color:var(--destructive)">90,000 DT</b></span>
+          <span class="sep"></span>
+          <span class="txt-muted">Encaissé <b class="font-semibold text-[color:var(--foreground)] tabnums">250,000 DT</b></span>
+          <a href="#" class="ml-auto text-xs txt-muted underline underline-offset-2">Tous les plans</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Many acts: pips would become a smear, so they collapse to a bar + fraction. -->
+    <div class="space-y-1.5">
+      <p class="text-xs txt-muted">Plan long (&gt; 12 actes) — les pips deviendraient illisibles : repli sur une barre fine + fraction.</p>
+      <div class="border-y bd py-3">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span class="text-sm font-semibold">Plan 2026-0018</span>
+          <span class="rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">En cours</span>
+          <span class="ml-auto text-[15px] font-semibold">2 actes à planifier</span>
+          <button class="btn-primary rounded-md px-3 py-1.5 text-sm font-medium">Planifier la suite →</button>
+        </div>
+        <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+          <span class="flex items-center gap-2">
+            <span class="h-[3px] w-24 overflow-hidden rounded-full" style="background:var(--border)">
+              <span class="block h-full rounded-full" style="width:61%;background:var(--primary)"></span>
+            </span>
+            <span class="txt-muted tabnums">11/18 actes</span>
+          </span>
+          <span class="sep"></span>
+          <span class="txt-muted">Reste <b class="font-semibold text-[color:var(--foreground)] tabnums">640,000 DT</b></span>
+          <span class="sep"></span>
+          <span class="txt-muted">Prochaine séance <b class="font-semibold text-[color:var(--foreground)]">4 août</b></span>
+          <a href="#" class="ml-auto text-xs txt-muted underline underline-offset-2">Tous les plans</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. Only finished/cancelled plans — no active plan to lead with. The strip must still exist,
+            because "this patient had treatment that is finished" is information. -->
+    <div class="space-y-1.5">
+      <p class="text-xs txt-muted">Aucun plan actif, mais un historique — le bandeau reste : « ce patient a été traité » est une information.</p>
+      <div class="border-y bd py-3">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span class="text-sm font-semibold txt-muted">Aucun plan en cours</span>
+          <span class="ml-auto flex flex-wrap items-center gap-1">
+            <a href="#" class="chip rounded-md bg-green-100 px-1.5 py-0.5 text-[11px] font-medium text-green-800">3 terminés</a>
+            <a href="#" class="chip rounded-md bg-red-100 px-1.5 py-0.5 text-[11px] font-medium text-red-800">1 annulé</a>
+          </span>
+          <button class="btn-ghost rounded-md border bd px-3 py-1.5 text-sm font-medium">Nouveau devis</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. Single plan, nothing else — chips and "Tous les plans" disappear rather than showing "0 autres". -->
+    <div class="space-y-1.5">
+      <p class="text-xs txt-muted">Un seul plan — les chips et « Tous les plans » disparaissent au lieu d'afficher « 0 autre ».</p>
+      <div class="border-y bd py-3">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span class="text-sm font-semibold">Plan 2026-0060</span>
+          <span class="rounded-md bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-800">Accepté</span>
+          <span class="ml-auto text-[15px] font-semibold">1 acte à planifier</span>
+          <button class="btn-primary rounded-md px-3 py-1.5 text-sm font-medium">Planifier la suite →</button>
+        </div>
+        <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+          <span class="flex items-center gap-1.5">
+            <span class="flex items-center gap-1"><i class="pip pip-done"></i><i class="pip pip-scheduled"></i><i class="pip pip-todo"></i></span>
+            <span class="txt-muted tabnums">1/3 actes</span>
+          </span>
+          <span class="sep"></span>
+          <span class="txt-muted">Reste <b class="font-semibold text-[color:var(--foreground)] tabnums">160,000 DT</b></span>
+          <span class="sep"></span>
+          <span class="txt-muted">Prochaine séance <b class="font-semibold text-[color:var(--foreground)]">2 août</b></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7. Narrow / mobile: the strip wraps rather than truncating. Nothing is lost, it just gets taller. -->
+    <div class="space-y-1.5">
+      <p class="text-xs txt-muted">Étroit (375 px) — le bandeau se replie au lieu de tronquer : rien n'est perdu, il grandit.</p>
+      <div class="w-[375px] rounded-lg border bd p-3">
+        <div class="border-y bd py-3">
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span class="text-sm font-semibold">Plan 2026-0045</span>
+            <span class="rounded-md bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-800">Accepté</span>
+            <span class="w-full text-[15px] font-semibold">1 acte à enregistrer</span>
+            <button class="btn-primary w-full rounded-md px-3 py-1.5 text-sm font-medium">Enregistrer la fiche →</button>
+          </div>
+          <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+            <span class="flex items-center gap-1.5">
+              <span class="flex items-center gap-1"><i class="pip pip-done"></i><i class="pip pip-overdue"></i></span>
+              <span class="txt-muted tabnums">1/2 actes</span>
+            </span>
+            <span class="sep"></span>
+            <span class="txt-muted">Reste <b class="font-semibold text-[color:var(--foreground)] tabnums">120,000 DT</b></span>
+            <span class="w-full txt-muted">Prochaine séance <b class="font-semibold text-[color:var(--foreground)]">31 juil.</b></span>
+            <span class="flex flex-wrap items-center gap-1">
+              <a href="#" class="chip rounded-md bg-green-100 px-1.5 py-0.5 text-[11px] font-medium text-green-800">2 terminés</a>
+              <a href="#" class="chip rounded-md px-1.5 py-0.5 text-[11px] font-medium txt-muted" style="background:var(--muted)">1 brouillon</a>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="space-y-2 rounded-lg border bd p-4">
+    <p class="text-sm font-semibold">Ce qui est corrigé au passage</p>
+    <ul class="space-y-1 text-sm txt-muted">
+      <li>· « actes réalisé<b>s</b> » — accord sur le nom, plus sur <code>itemsDone</code>.</li>
+      <li>· Plus de bande grise à 0 % : les pips gardent du sens à zéro, la barre non.</li>
+      <li>· « Reste » affiché — et en rouge quand les actes sont finis mais l'argent non.</li>
+      <li>· Les plans <b>Terminé</b> / <b>Annulé</b> sont enfin représentés (chips), y compris quand il n'y a plus de plan actif.</li>
+      <li>· Une seule action primaire, dérivée de <code>planNextAction</code>, au lieu de deux boutons + un lien.</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>

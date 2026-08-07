@@ -3,6 +3,8 @@ using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
 
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Infrastructure.Repositories;
 
 /// <summary>
@@ -26,7 +28,11 @@ public class MedicationCatalogRepository : IMedicationCatalogRepository
             .FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
     }
 
-    public async Task<IEnumerable<Medication>> GetAllAsync(bool includeInactive = false, CancellationToken cancellationToken = default)
+    public async Task<PagedResult<Medication>> GetAllAsync(
+        bool includeInactive = false,
+        string? searchTerm = null,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _context.Medications
             .Include(m => m.ActiveIngredients)
@@ -37,10 +43,25 @@ public class MedicationCatalogRepository : IMedicationCatalogRepository
             query = query.Where(m => m.IsActive);
         }
 
+        // The DCI clause is why this predicate belongs in SQL rather than over the mapped DTOs: prescribers
+        // search by molecule at least as often as by brand ("amoxicilline", not "Clamoxyl"), and that is an
+        // EXISTS over the child table — reachable from a page of parents only by having read them all first.
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(m =>
+                EF.Functions.ILike(SqlSearch.Unaccent(m.BrandName)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(m.Form)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(m.Strength)!, pattern, SqlSearch.EscapeString) ||
+                m.ActiveIngredients.Any(i =>
+                    EF.Functions.ILike(SqlSearch.Unaccent(i.Dci)!, pattern, SqlSearch.EscapeString)));
+        }
+
         return await query
             .OrderBy(m => m.BrandName)
             .ThenBy(m => m.Strength)
-            .ToListAsync(cancellationToken);
+            .ThenBy(m => m.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
     }
 
     public async Task<bool> BrandExistsAsync(string brandName, string form, string strength, Guid? excludeId = null, CancellationToken cancellationToken = default)

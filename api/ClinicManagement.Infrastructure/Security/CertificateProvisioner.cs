@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Logging;
@@ -133,29 +132,15 @@ public sealed class CertificateProvisioner
         sanBuilder.AddDnsName("localhost");
         sanBuilder.AddIpAddress(IPAddress.Loopback); // 127.0.0.1 — server PC via localhost (AC-2.5)
 
-        foreach (var ip in GetLocalIPv4Addresses())
+        // Shared with the trust page, which advertises one of these as the address a phone should use. The
+        // two must not drift: an advertised address absent from this SAN set installs the CA and then still
+        // fails the TLS handshake. See LanAddresses for why that is one type and not two helpers.
+        foreach (var ip in LanAddresses.IPv4())
         {
             sanBuilder.AddIpAddress(ip);
         }
 
         return sanBuilder.Build();
-    }
-
-    private static IEnumerable<IPAddress> GetLocalIPv4Addresses()
-    {
-        IPAddress[] addresses;
-        try
-        {
-            addresses = Dns.GetHostAddresses(Dns.GetHostName());
-        }
-        catch (SocketException)
-        {
-            return Array.Empty<IPAddress>();
-        }
-
-        return addresses
-            .Where(a => a.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(a))
-            .Distinct();
     }
 
     private static string GeneratePassword() =>

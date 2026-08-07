@@ -49,6 +49,8 @@ NEXT_PUBLIC_API_URL=/api AUTH_MODE=local API_INTERNAL_URL=http://localhost:5000/
 | `Hosting:HttpPort` (default `5000`) | HTTP; redirects to HTTPS. |
 | `Hosting:WebPort` (default `3000`) | localhost port the Next server listens on; the front door proxies non-`/api` routes here. |
 | `Https:CertPath` | Leave **empty** to self-generate a CA + server cert into `.local/` (FR-E2). If set, the file must exist or the server refuses to start (no silent HTTP downgrade). |
+| `Clients:MinimumShellVersion` | Oldest **mobile app** build this server still answers. Leave **empty** (the default) and nothing is refused. Set it (e.g. `1.2.0`) and an older app gets « Mise à jour requise » with the store link instead of screen-by-screen failures; it takes effect **without restarting the service**. Browsers and the desktop shell send no version at all and are never affected. |
+| `Clients:CurrentShellVersion` · `Clients:StoreUrls:Android` / `:Ios` | What a refused app is told to install, and where to get it. Published anonymously at `GET /api/meta/client-requirements` — the one route deliberately exempt from the floor, since it is what a refused app reads. |
 
 Secrets (signing key, cert password, Google refresh token) live in the gitignored per-install `.local/`
 folder, generated on the target machine — never committed (FR-F4). The exported CA is `.local/ca.crt`
@@ -77,36 +79,73 @@ login. No internet, email, or cloud service is involved.
 
 ## Backup & restore (S1 — US-8 / FR-G)
 
-### Backup (in-app)
+### Backup — automatic, and verified (L4)
 
-An administrator runs **Settings → Sauvegarde → "Sauvegarder maintenant"** (Local mode only). This writes,
-into a timestamped `clinic-backup-<yyyyMMdd-HHmmss>` subfolder of the chosen destination:
+**Automatic, every day.** A recurring job backs the clinic up without anyone pressing anything. The schedule
+lives on the clinic, not in this file — **Paramètres → Sauvegarde**: on/off, the hour (clinic-local, default
+**02:00**), how many copies to keep (default **7**) and after how long without a success the admins are told
+(default **48 h**). The job runs **hourly** and asks each clinic whether it is due, which is what also covers a
+clinic PC that is switched off overnight: a fixed 02:00 cron on such a machine never runs at all.
+
+**Manual, any time.** An administrator can still run **Paramètres → Sauvegarde → « Sauvegarder maintenant »**.
+
+Either way, into a timestamped `clinic-backup-<yyyyMMdd-HHmmss>` subfolder of the destination:
 
 - `database.dump` — a PostgreSQL custom-format dump (via the bundled `pg_dump.exe`), and
 - `files/` — a recursive copy of the file-storage folder.
 
-The app reports the exact destination path and size on success, or a clear reason on failure (unwritable
-destination, insufficient disk space, `pg_dump` missing) — never silently (AC-8.2/8.3).
+Three things are new and worth knowing:
 
-### Restore (manual — FR-G3 / AC-8.4)
+- **The dump is verified readable before the backup is called a success.** `pg_dump` exiting 0 is not proof, and
+  the old implementation only measured the folder's size — a truncated or zero-byte dump has a size too. The
+  service now runs `pg_restore --list` on the output and requires a non-empty table of contents; the **object
+  count** is recorded, because « 3 objets » where the schema has thirty-eight tables is a detectable disaster.
+  A failed verification is a **failed backup**: the partial folder is deleted.
+- **There is a real default destination.** `<install>\api\Backups`, created by the installer and written into
+  `appsettings.Install.json`. Leaving the destination field blank in the app now works, which is what the screen
+  had always said. ⚠️ The app **warns prominently** when the destination is on the same volume as the live data —
+  which the default necessarily is. Point it at an external disk or a network share.
+- **Every attempt is recorded**, success or failure, and **Paramètres → Sauvegarde** leads with
+  « Dernière sauvegarde réussie ». Past the staleness threshold the admins get an in-app notification. A week of
+  nightly failures therefore reads as « it is trying and failing », not as « nobody has backed up » — two
+  entirely different conversations. `GET /api/backup/history` serves the same rows (admin-only, paged).
 
-There is **no in-app restore**. To restore a backup onto a server PC:
+**Retention.** After a successful run, folders beyond the clinic's retention count are pruned **oldest first**.
+It matches only `clinic-backup-*` names (your own folders in the same destination are not its business) and
+**never deletes the last surviving backup**, whatever the count says.
 
-1. **Stop the Clinic Management API service** (so nothing writes while restoring).
-2. **Restore the database** with `pg_restore` (bundled with PostgreSQL). Custom-format dumps support
-   `--clean --if-exists` to drop and recreate objects:
-   ```powershell
-   $env:PGPASSWORD = "<clinic_user password>"
-   & "<postgres>\bin\pg_restore.exe" `
-       --host localhost --port 5432 --username clinic_user `
-       --dbname clinic_management --clean --if-exists `
-       "<backup-folder>\clinic-backup-YYYYMMDD-HHMMSS\database.dump"
-   ```
-   (If the database was dropped entirely, create an empty `clinic_management` owned by `clinic_user`
-   first, then run `pg_restore` without `--clean`.)
-3. **Restore the files**: copy the contents of `<backup-folder>\...\files\` back into the file-storage
-   base folder (`FileStorage:BasePath`, under the install directory), overwriting existing files.
-4. **Start the Clinic Management API service.**
+**Before a migration.** An upgrade that carries a schema change now takes a backup **first** and **aborts the
+migration if that backup fails**, with a French message on the console, in the log and in the Event Log. The
+last migration is lossy by design with an empty `Down()`, so « rollback means restoring this backup » — a
+sentence that used to be true only if such a backup happened to exist.
+
+### Restore (`restore-backup`)
+
+There **is** a restore now, as a console verb — the same family as `reset-admin-password`, `reconcile-money`
+and `verify-schema`. It is not an in-app button on purpose: a restore drops and recreates every table the
+application is holding open, so an endpoint inside the app being replaced is the wrong shape.
+
+```powershell
+sc stop ClinicManagementApi
+& "<install>\api\ClinicManagement.API.exe" restore-backup "<backup-folder>\clinic-backup-YYYYMMDD-HHMMSS"
+sc start ClinicManagementApi
+```
+
+**Paramètres → Sauvegarde** prints that command with the resolved folder already filled in.
+
+What it does, in this order — every refusal happens **before** anything is destroyed:
+
+1. Validates the folder: `database.dump` present, non-empty, and readable by `pg_restore --list`.
+2. **Refuses if the application is still running** (it checks the app's own ports), naming the service to stop.
+3. **Takes a safety dump of the current state** into `clinic-pre-restore-<timestamp>` — deliberately *not* a
+   `clinic-backup-*` name, so retention can never prune it. If that dump fails, **the restore is abandoned**.
+4. `pg_restore --clean --if-exists --no-owner` into the configured database.
+5. Copies `files/` back. **Refuses** if the live file folder is not empty, unless you pass `--force`.
+6. **Invalidates every live session** (bumps each user's token version), so nobody keeps operating on a token
+   minted against the newer state. Everyone logs in again.
+7. Prints a French summary and the next steps. Exit code **0** restored, **1** refused or failed.
+
+Credentials come from the install's own configuration — no password is typed or prompted for.
 
 Restore over a quiet system for a consistent result.
 
@@ -333,10 +372,18 @@ passwords with the hardware.
 
 | Port | Bind | Purpose | Firewall |
 |------|------|---------|----------|
-| `5001` | all interfaces (HTTPS) | Kestrel front door — the only browser-facing endpoint | **open (LAN)** |
+| `5001` | all interfaces (HTTPS) | Kestrel front door — the only browser-facing endpoint for the app | **open (LAN)** |
+| `5080` | all interfaces (**HTTP**) | Device-trust page only — `/api/trust`; every other path is refused on this port | **open (LAN)** |
 | `5000` | loopback | API plain HTTP (redirects to HTTPS) / internal BFF target | closed |
 | `3000` | loopback | Next web server (proxied by Kestrel) | closed |
 | `5432` | loopback | PostgreSQL | closed |
+
+`5080` is cleartext **by necessity**: a phone cannot be asked to download the fix for a certificate it does not
+trust over that same certificate. It is not a second door into the API — the application refuses every path
+except `/api/trust` on that port (`TrustPortGate`), so what it exposes is a CA's *public* certificate, install
+instructions and a QR of an address the LAN already broadcasts. Set `Hosting:TrustPort` to `0` in
+`appsettings.Production.json` to switch the page off entirely (staff phones then need the CA installed by hand,
+or by the client installer on a Windows PC).
 
 ## Client installer (`client/clinic-client.iss`)
 
@@ -356,6 +403,57 @@ Changer de serveur…** (AC-2.3). On the server PC, point it at `localhost` (AC-
 unreachable the shell shows a friendly **"Impossible de joindre le serveur de la clinique"** screen with
 **Réessayer** — never a blank page or raw browser error (AC-2.4). Re-running the client installer updates
 the shell in place (auto-update is out of scope).
+
+---
+
+## Phones & tablets — the device-trust page (AC-44 / AC-45)
+
+The client installer above covers **Windows PCs**. A phone or tablet has no installer, so it gets the CA from
+a page the server publishes for exactly that purpose.
+
+**The flow.** On the device, open **`http://<adresse-du-serveur>:5080/api/trust`**. The page is in French,
+works offline, and needs no login — it cannot require one, because the device has no way to log in until it
+trusts the server. It offers:
+
+- **iPhone / iPad** → a generated `.mobileconfig` profile. Tap it, then **Réglages → Profil téléchargé →
+  Installer**.
+- **Android** → the raw `ca.crt`, plus the Settings path for importing a CA certificate.
+- **A QR code** of the page's own LAN address, so the operator can open the page on the server PC and let staff
+  scan it instead of dictating an IP address.
+
+Once the certificate is trusted, the device uses the normal front door at `https://<adresse-du-serveur>:5001`.
+The trust page is not the application and never shows clinic data.
+
+> The `.mobileconfig` is **generated on request, never staged into the installer**. On a reinstall the CA is
+> reused; on a fresh install it is newly minted. A profile baked into a build artefact would install a root
+> that signs nothing.
+
+### When it does not work
+
+Four states, each with one action. The first is by far the most common.
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| iPhone: profile installed, browser **still** warns | On iOS a profile-installed root is **inert until separately enabled**. This is an Apple design decision, not a bug, and nothing the server sends can flip the switch. | **Réglages → Général → Informations → Certificats de confiance** → enable the switch named after the clinic. |
+| Browser refuses to load and offers **no** "continue anyway" | **HSTS** is remembered for that host, so the browser will not let anyone click through. Only possible if an operator set `Security:EnableHsts` — it is **off by default** in Local mode for exactly this reason. | Clear site data for that address (or use another browser), install the CA, then reload. If it recurs, set `Security:EnableHsts` to `false`. |
+| It worked, then every device started warning again | **The server was reinstalled or `.local/` was cleared**, so a *new* CA was generated. Devices still trust the old one. | Remove the old profile/certificate on each device, then redo the trust page. The `.mobileconfig`'s identity is derived from the CA, so a new CA is correctly seen as a new profile rather than silently replacing the stale one. |
+| **CA is installed and correct, and HTTPS still fails** | ⚠️ **The server's IP changed** (new DHCP lease). The certificate's SANs are captured **when it is generated** and the certificate is then reused unchanged, so an address obtained later is not in it. The CA is fine; the *address* is not covered. | Give the server PC a **static IP or a reserved DHCP lease**, then reach it at that address. If the address must change, delete `api\.local\` and reprovision — which regenerates the CA, so every device must re-trust (row above). |
+
+⚠️ Two limits worth knowing before deploying: the certificate covers **IPv4 addresses only**, and there is
+**no `.local`/mDNS name** — devices must reach the server by IPv4 literal, or by a hostname the local network
+already resolves.
+
+### Certificate lifetime (AC-46 — open)
+
+The server leaf is minted for **5 years**. Apple refuses TLS server certificates valid for more than **398
+days** — but explicitly **exempts certificates that chain to a user-installed root**, which is precisely this
+case. That exemption is believed to apply here and **has not been verified on a physical iPhone**; treat it as
+open until it is.
+
+If it turns out not to hold, **do not simply shorten the leaf**: `EnsureServerCertificate` never checks expiry
+and the CA's private key is not persisted, so a short leaf would expire with nothing able to renew it, and
+re-provisioning regenerates the **CA** — breaking trust on every device (row 3 above). Shortening the lifetime
+therefore requires persisting the CA key and adding leaf-only renewal first.
 
 ---
 
@@ -415,6 +513,33 @@ previous install** (that second pass is the one most existing clinics will take)
       under `pgdata`) → the installer shows a French error and **aborts**; it does not report success.
 - [ ] **Mise hors service** — The decommissioning procedure above is understood and the five paths are on the
       operator's erase list.
+
+### Phones & tablets — device trust (P8, AC-44…AC-46)
+
+**Not CI-runnable, and not runnable in the development environment either.** Needs a **physical iPhone or
+iPad** and a **physical Android device** on the clinic LAN. Nothing substitutes: iOS's certificate-trust
+behaviour is the thing under test.
+
+- [ ] **AC-44** — From a phone on the LAN, `http://<server-ip>:5080/api/trust` loads **before** any certificate
+      is installed, in French, with no login.
+- [ ] **AC-44** — The QR on the page, scanned from a second device, opens the same page on that device.
+- [ ] **AC-44 (iOS)** — « iPhone / iPad » installs the profile; enabling it under **Certificats de confiance**
+      then makes `https://<server-ip>:5001` load with **no** interstitial.
+- [ ] **AC-44 (Android)** — « Android » downloads `ca.crt`; importing it as a CA certificate then makes
+      `https://<server-ip>:5001` load with no interstitial.
+- [ ] **AC-44 (Cloud)** — With `Auth:Mode=Cloud`, all four trust routes return **404**.
+- [ ] **R-11 (the security assertion — do not skip)** — On the trust port, every non-trust path is refused:
+      `curl -i http://<server-ip>:5080/api/auth/mode` → **404**, and likewise `/api/patients`, `/hangfire`, `/`.
+      Only `/api/trust*` answers. Confirm the app itself is still fully reachable on `5001`.
+- [ ] **Ports** — Firewall shows `5001` **and** `5080` inbound, and nothing else; `3000` / `5000` / `5432`
+      remain unreachable from the LAN.
+- [ ] **Uninstall** — Both firewall rules ("Clinic Management HTTPS" and "Clinic Management Trust") are gone.
+- [ ] **AC-45** — Walk the four failure states in the table above and confirm each stated action resolves it.
+      The DHCP row is the one most likely to be met in the field and the least likely to be guessed.
+- [ ] **AC-46 (open)** — On a **real iPhone**, confirm the 5-year leaf is accepted once the CA is trusted
+      (Apple's user-installed-root exemption). If it is rejected, **do not just shorten the leaf** — read the
+      lifetime note above first; the change needs CA-key persistence and leaf-only renewal, and without them a
+      short leaf expires with nothing able to renew it.
 
 ### Client installer (S7)
 

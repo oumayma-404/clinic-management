@@ -5,6 +5,9 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.WaitingList.Commands;
 using ClinicManagement.Application.Features.WaitingList.Queries;
 
+using ClinicManagement.Domain.Common;
+using ClinicManagement.Application.Common.Authorization;
+
 namespace ClinicManagement.API.Controllers;
 
 /// <summary>
@@ -13,7 +16,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/waiting-list")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class WaitingListController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -25,9 +28,24 @@ public class WaitingListController : ApiControllerBase
 
     /// <summary>List the clinic's waiting-list entries (highest priority first); activeOnly keeps only those still waiting.</summary>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<WaitingListEntryDto>>> GetWaitingList([FromQuery] bool activeOnly = true)
+    /// <param name="page">1-based page number. Omit both paging parameters to get every match.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">
+    /// Free-text filter, applied in SQL <b>before</b> the page is cut so it spans the whole clinic.
+    /// </param>
+    public async Task<ActionResult<PagedResult<WaitingListEntryDto>>> GetWaitingList(
+        [FromQuery] bool activeOnly = true,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null)
     {
-        var result = await _mediator.Send(new GetWaitingListQuery { ActiveOnly = activeOnly });
+        var result = await _mediator.Send(new GetWaitingListQuery
+        {
+            ActiveOnly = activeOnly,
+            Page = page,
+            PageSize = pageSize,
+            SearchTerm = search
+        });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

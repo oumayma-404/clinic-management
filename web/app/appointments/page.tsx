@@ -1,11 +1,19 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { useState, useCallback, useEffect, useRef } from "react"
+import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Plus, RefreshCw, Calendar } from "lucide-react"
+import { Plus } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { AppointmentCalendar } from "@/components/appointment-calendar"
 import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 import { EditAppointmentDialog } from "@/components/edit-appointment-dialog"
@@ -21,10 +29,59 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useSession } from "@/lib/auth/session"
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
+import { ActiveFilterChip } from "@/components/ui/list-toolbar"
+import { useMediaQuery } from "@/lib/hooks/use-media-query"
+import { cn } from "@/lib/utils"
 
 export default function AppointmentsPage() {
-  const [view, setView] = useState<"day" | "week" | "month">("day")
+  // Week is the default: it is the span staff actually plan against, and a single day of a specialist practice's
+  // calendar is mostly empty. Month view stays one click away, and clicking a day cell there still drops into Day
+  // view (handleSelectDay). ⚠️ Below `md:` the *initial* view becomes Jour instead — see `viewDecidedRef`.
+  const [view, setView] = useState<"day" | "week" | "month">("week")
+  /**
+   * Has the view already been settled by something that outranks the narrow-screen default? (AC-28/AC-29)
+   *
+   * Three things set it: the user picking a tab, the dashboard drill-through forcing Mois, and the
+   * narrow-screen default itself the first time it applies.
+   *
+   * ⚠️ It exists because « Jour below `md:` » is an **initial value, not a rule**. Without it the default
+   * would re-assert on every `isNarrow` change — so rotating a phone would throw away the view the user had
+   * just chosen, and a « RDV honorés — Ce mois » drill-through opened on a phone would land on a single day
+   * instead of the month the card counted. `features/LEARNINGS.md`: a size heuristic must not be the sole
+   * gate on an affordance.
+   */
+  const viewDecidedRef = useRef(false)
+  // `md:` is 768px — the same boundary the nav rail, the card lists and the dialogs switch at.
+  const isNarrow = useMediaQuery("(max-width: 767px)")
+  const selectView = useCallback((next: "day" | "week" | "month") => {
+    viewDecidedRef.current = true
+    setView(next)
+  }, [])
+
+  /**
+   * The cross-fade that replaces the remount.
+   *
+   * Collapsing three `<TabsContent>` calendars into one (below) removed the only thing that visually marked a
+   * view switch — the rebuild. A prop change swaps three very different geometries in a single frame, which
+   * reads as a glitch rather than as a transition, so 150 ms of opacity stands in for it.
+   *
+   * ⚠️ The fade class has to land in the **same commit that swaps the view**, which is why this is a
+   * render-phase update (legal in React, and StrictMode-safe — unlike mutating a ref during render) rather than
+   * an effect. From an effect the new grid paints fully opaque for a frame and *then* dips: a flicker, i.e. the
+   * exact artefact the fade exists to remove. The rAF below clears it once that opacity-0 frame has actually
+   * been painted, giving `transition-opacity` two values to animate between.
+   */
+  const [shownView, setShownView] = useState(view)
+  const [viewFading, setViewFading] = useState(false)
+  if (shownView !== view) {
+    setShownView(view)
+    setViewFading(true)
+  }
+  useEffect(() => {
+    if (!viewFading) return
+    const frame = window.requestAnimationFrame(() => setViewFading(false))
+    return () => window.cancelAnimationFrame(frame)
+  }, [viewFading])
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentDto | null>(null)
@@ -34,6 +91,8 @@ export default function AppointmentsPage() {
   const [bookingPatientId, setBookingPatientId] = useState<string | undefined>(undefined)
   const [isGoogleCalendarAuthorized, setIsGoogleCalendarAuthorized] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [disconnectOpen, setDisconnectOpen] = useState(false)
+  const [isDisconnecting, setIsDisconnecting] = useState(false)
   const [showCancelled, setShowCancelled] = useState(false)
   const [showCompleted, setShowCompleted] = useState(false)
   // Google Calendar needs the server's internet egress; gate its controls in Local offline mode
@@ -61,10 +120,11 @@ export default function AppointmentsPage() {
   }, [])
 
   // Month view: clicking a day cell's empty area / "+N more" focuses that date in Day view (AC-4).
+  // Below `md:` the week strip lands here too — tapping a day in the density strip opens it.
   const handleSelectDay = useCallback((date: Date) => {
     setSelectedDate(date)
-    setView("day")
-  }, [])
+    selectView("day")
+  }, [selectView])
 
   const handleAppointmentCreated = useCallback(() => {
     setRefreshKey(prev => prev + 1)
@@ -75,26 +135,31 @@ export default function AppointmentsPage() {
   }, [])
 
   // Real-time: when another client of this clinic creates/edits/cancels an appointment, the server
-  // broadcasts entityChanged("appointments") and we refetch by bumping refreshKey (the calendar
-  // remounts and reloads) — same refresh path as a local create/edit. Additive: if the hub is down,
-  // manual refresh still works (AC-5).
+  // broadcasts entityChanged("appointments") and we bump `refreshKey`, which reaches the calendar as its
+  // `reloadToken` prop and refetches the current window IN PLACE.
+  //
+  // It used to arrive as `key={refreshKey}`, i.e. a remount: the calendar lost its scroll position, re-read
+  // the clinic's working hours and flashed empty. Because this same handler is wired to the realtime hub, a
+  // colleague booking a patient at reception blanked and re-scrolled the dentist's open agenda. Additive: if
+  // the hub is down, manual refresh still works (AC-5).
   useClinicRealtime(RealtimeResource.Appointments, handleAppointmentUpdated)
 
   // Check Google Calendar status on mount and after authorization
-  useEffect(() => {
-    const checkGoogleCalendarStatus = async () => {
-      try {
-        const status = await googleCalendarApi.getStatus()
-        setIsGoogleCalendarAuthorized(status.isConfigured && status.tokenValid !== false)
-        
-        // Show message if token is invalid
-        if (status.hasRefreshToken && !status.tokenValid) {
-          console.warn("Google Calendar token is invalid. Please re-authorize.")
-        }
-      } catch (error) {
-        console.error("Failed to check Google Calendar status:", error)
+  const checkGoogleCalendarStatus = useCallback(async () => {
+    try {
+      const status = await googleCalendarApi.getStatus()
+      setIsGoogleCalendarAuthorized(status.isConfigured && status.tokenValid !== false)
+
+      // Show message if token is invalid
+      if (status.hasRefreshToken && !status.tokenValid) {
+        console.warn("Google Calendar token is invalid. Please re-authorize.")
       }
+    } catch (error) {
+      console.error("Failed to check Google Calendar status:", error)
     }
+  }, [])
+
+  useEffect(() => {
     checkGoogleCalendarStatus()
 
     // Check if we just came back from authorization
@@ -106,7 +171,7 @@ export default function AppointmentsPage() {
       // Refresh status
       checkGoogleCalendarStatus()
     }
-  }, [])
+  }, [checkGoogleCalendarStatus])
 
   // Deep-link from a notification: open the referenced appointment — focus its day and open the edit
   // dialog. Graceful (spec Edge Cases): if the appointment no longer exists/is not visible, we simply
@@ -144,6 +209,61 @@ export default function AppointmentsPage() {
       setDialogOpen(true)
     }
   }, [])
+
+  /**
+   * Dashboard drill-through (« Rendez-vous honorés » / « Taux d'absence »): `?from=&to=&status=`.
+   *
+   * <p>The calendar has no arbitrary-range view, so the window is honoured by focusing its FIRST day and switching to
+   * the widest view — month — which is the closest honest rendering of "the period the card counted". The status list
+   * is comma-separated because the absence rate's numerator is NoShow **and** Cancelled; landing on no-shows alone
+   * would show a fraction of what the card counted.</p>
+   *
+   * <p>Only `Cancelled` and `Completed` need a toggle switched on: the calendar hides exactly those two by default and
+   * already shows no-shows. Turning on `showCancelled` for a `NoShow`-only link would surface appointments the card
+   * never counted, so the two are matched individually rather than as one "unusual statuses" group.</p>
+   *
+   * <p>Nothing here refuses a bad value: an unparseable date or an unknown status simply leaves the calendar as it
+   * was, matching the graceful-deep-link rule the rest of this page follows.</p>
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const from = params.get("from")
+    const statuses = (params.get("status") ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
+
+    if (!from && statuses.length === 0) return
+
+    if (from && !Number.isNaN(Date.parse(from))) {
+      setSelectedDate(new Date(`${from}T00:00:00`))
+      // `selectView`, not `setView`: this marks the view DECIDED, so the narrow-screen Jour default below
+      // cannot overwrite it. Without that, « RDV honorés — Ce mois » opened on a phone would land on one day.
+      selectView("month")
+    }
+
+    if (statuses.includes("cancelled")) setShowCancelled(true)
+    if (statuses.includes("completed")) setShowCompleted(true)
+
+    window.history.replaceState({}, "", "/appointments")
+  }, [selectView])
+
+  /**
+   * Below `md:`, open on Jour (AC-28).
+   *
+   * ⚠️ Deliberately an effect keyed on `isNarrow` rather than a lazy `useState` initialiser: `useMediaQuery`
+   * is SSR-guarded and reports `false` on the server and on the first client render, so an initialiser would
+   * always read "wide" and never fire. The effect runs again once `matchMedia` has answered.
+   *
+   * One-shot via `viewDecidedRef`, which is what makes it *initial* rather than enforced — the drill-through
+   * above has already claimed the view by the time this can run, and once it applies, rotating the device
+   * leaves the user's view alone.
+   */
+  useEffect(() => {
+    if (viewDecidedRef.current || !isNarrow) return
+    viewDecidedRef.current = true
+    setView("day")
+  }, [isNarrow])
 
   // Already on this page: a same-route push doesn't remount, so react to the header's deep-link event.
   useEffect(() => {
@@ -188,126 +308,204 @@ export default function AppointmentsPage() {
     }
   }, [])
 
+  /**
+   * AC-P2.33–2.35: disconnect the clinic's Google account. `Clinic.ClearGoogleCalendarConnection()` had existed
+   * with no caller, so a clinic that authorised the wrong Google account could only overwrite it by re-running
+   * the whole OAuth flow — never simply stop syncing.
+   */
+  const handleDisconnectGoogle = useCallback(async () => {
+    setIsDisconnecting(true)
+    try {
+      await googleCalendarApi.disconnect()
+      toast.success("Google Calendar déconnecté. Les rendez-vous ne sont plus envoyés à Google.")
+      // Re-read rather than assume: the status endpoint is the authority on « connecté », and it also folds in
+      // the server-side ClientId/ClientSecret configuration this action does not touch.
+      await checkGoogleCalendarStatus()
+      setDisconnectOpen(false)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 0) {
+        toast.error("Connexion perdue. Veuillez réessayer.")
+      } else {
+        toast.error(error instanceof ApiError ? error.message : "Échec de la déconnexion de Google Calendar.")
+      }
+    } finally {
+      setIsDisconnecting(false)
+    }
+  }, [checkGoogleCalendarStatus])
+
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-      <DashboardSidebar />
+      {/* The one genuine `mainClassName` user: the calendar scrolls its own time grid, so the page
+          itself must not scroll — and the grid needs a bounded `h-full` flex column to size against. */}
+      <AppShell width="wide" mainClassName="overflow-hidden" contentClassName="h-full flex flex-col">
+        {/*
+          ⚠️ A plain `<div>`, not `<Tabs>` — and that is a correctness fix, not tidying.
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <DashboardHeader />
+          Once the three `<TabsContent>` panels were collapsed into the single always-mounted calendar below,
+          `<Tabs>` had no panels left to own. Radix still emits `aria-controls` on every `TabsTrigger`, pointing
+          at panel ids that no longer render, so all three desktop triggers advertised a relationship to nothing
+          — a screen reader follows the reference and finds no element. Keeping the component only for its
+          styling meant keeping a broken ARIA contract for it.
 
-        <main className="flex-1 overflow-hidden p-4">
-          <div className="mx-auto h-full max-w-[1400px] flex flex-col">
-            {/* View Tabs */}
-            <Tabs value={view} onValueChange={(v) => setView(v as "day" | "week" | "month")} className="flex-1 flex flex-col min-h-0">
-              <div className="flex items-center justify-between mb-3 flex-shrink-0">
-                <TabsList>
-                  <TabsTrigger value="day">Jour</TabsTrigger>
-                  <TabsTrigger value="week">Semaine</TabsTrigger>
-                  <TabsTrigger value="month">Mois</TabsTrigger>
-                </TabsList>
-                <div className="flex items-center gap-2">
-                  {isAdmin && (!isGoogleCalendarAuthorized ? (
-                    <Button
-                      onClick={handleAuthorizeGoogleCalendar}
-                      variant="outline"
-                      className="gap-2"
-                      size="sm"
-                      disabled={!internetReachable}
-                      title={!internetReachable ? "Connexion internet requise" : undefined}
-                    >
-                      <Calendar className="h-4 w-4" />
-                      Synchroniser avec Google Calendar
-                    </Button>
-                  ) : (
-                    <Button
-                      onClick={handleSyncFromGoogle}
-                      variant="outline"
-                      className="gap-2"
-                      size="sm"
-                      disabled={isSyncing || !internetReachable}
-                      title={!internetReachable ? "Connexion internet requise" : undefined}
-                    >
-                      <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
-                      {isSyncing ? "Synchronisation…" : "Importer depuis Google"}
-                    </Button>
-                  ))}
-                  {isAdmin && !internetReachable && (
-                    <span className="text-xs text-amber-600 dark:text-amber-400">Connexion requise</span>
-                  )}
-                  <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId}>
-                    <SelectTrigger className="h-9 w-[180px]">
-                      <SelectValue placeholder="Praticien" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Tous les praticiens</SelectItem>
-                      {doctors.filter((doc) => doc.id).map((doc) => (
-                        <SelectItem key={doc.id} value={doc.id!}>
-                          {doc.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button onClick={() => setDialogOpen(true)} className="gap-2" size="sm">
-                    <Plus className="h-4 w-4" />
-                    Nouveau rendez-vous
-                  </Button>
-                </div>
-              </div>
+          The replacement is the pattern the other two segmented controls in the app already use — the
+          dashboard's `PeriodSelector` and, since this pass, the agenda's own phone header: `role="group"` plus
+          `aria-pressed` on real buttons. That describes what this control actually is (three toggles that
+          rescope one persistent view) rather than a tab set that lost its tabs.
+        */}
+        <div className="flex flex-1 flex-col min-h-0">
+          {/*
+            What is left at page level: the **active-filter chips**, and nothing else.
 
-              <TabsContent value="day" className="flex-1 min-h-0 mt-0">
-                <AppointmentCalendar
-                  key={refreshKey}
-                  view="day"
-                  selectedDate={selectedDate}
-                  onDateChange={setSelectedDate}
-                  onTimeSlotClick={handleTimeSlotClick}
-                  onAppointmentClick={handleAppointmentClick}
-                  showCancelled={showCancelled}
-                  showCompleted={showCompleted}
-                  onShowCancelledChange={setShowCancelled}
-                  onShowCompletedChange={setShowCompleted}
-                  onChanged={handleAppointmentUpdated}
-                  doctorId={doctorFilterId}
+            The view switch, « Nouveau rendez-vous », the praticien filter and the Google controls used to live
+            here in two rows above the calendar's own two — four rows of chrome before the grid, with the *date*
+            two rows away from the *view switch* and an administrative Google row between them. They are now props
+            on `<AppointmentCalendar>` (`onViewChange`, `onNewAppointment`, `doctorFilter`, `googleControls`) and
+            render inside the one agenda bar the calendar owns, which is the component that also owns the window,
+            the appointment index and the date arithmetic that bar is made of.
+
+            The chips stay here deliberately. They are a statement about the page's own URL state — two of the
+            fifteen entries in `lib/dashboard-links.ts` arrive with `?status=` and flip these on — and § 13
+            requires an unrequested filter to be visible and removable *at every width*, so they must not be
+            folded into the popover that holds the switches themselves.
+          */}
+          <div className="mb-3 flex flex-shrink-0 flex-col gap-2">
+            {/*
+              AC-29 — a filter the user did not choose has to be visible and removable.
+
+              Two of the fifteen entries in `lib/dashboard-links.ts` arrive here with `?status=`, which flips
+              these toggles on. Without a chip the calendar simply shows more than usual with nothing on
+              screen saying why, and « Taux d'absence » lands on a list the user cannot un-filter without
+              hunting for a switch inside the calendar's own toolbar.
+
+              ⚠️ No `hidden md:flex` on this row any more. It used to be desktop-only, which was safe only
+              because `AgendaPhoneHeader` renders its own copy of the chips below `md:`; the row now holds
+              nothing else, so leaving it hidden would mean an empty flex container on a phone and two rules to
+              keep in step instead of one. The phone header's copies still render — a phone shows the chips
+              inside its own header band, which is where its other controls are.
+            */}
+            <div className="hidden flex-wrap items-center gap-2 md:flex">
+              {showCancelled && (
+                <ActiveFilterChip label="Annulés affichés" onRemove={() => setShowCancelled(false)} />
+              )}
+              {showCompleted && (
+                <ActiveFilterChip label="Terminés affichés" onRemove={() => setShowCompleted(false)} />
+              )}
+              {doctorFilterId && (
+                <ActiveFilterChip
+                  label={`Praticien : ${doctors.find((doc) => doc.id === doctorFilterId)?.name ?? "sélectionné"}`}
+                  onRemove={() => setSelectedDoctorId("all")}
                 />
-              </TabsContent>
-
-              <TabsContent value="week" className="flex-1 min-h-0 mt-0">
-                <AppointmentCalendar
-                  key={refreshKey}
-                  view="week"
-                  selectedDate={selectedDate}
-                  onDateChange={setSelectedDate}
-                  onTimeSlotClick={handleTimeSlotClick}
-                  onAppointmentClick={handleAppointmentClick}
-                  showCancelled={showCancelled}
-                  showCompleted={showCompleted}
-                  onShowCancelledChange={setShowCancelled}
-                  onShowCompletedChange={setShowCompleted}
-                  onChanged={handleAppointmentUpdated}
-                  doctorId={doctorFilterId}
-                />
-              </TabsContent>
-
-              <TabsContent value="month" className="flex-1 min-h-0 mt-0">
-                <AppointmentCalendar
-                  key={refreshKey}
-                  view="month"
-                  selectedDate={selectedDate}
-                  onDateChange={setSelectedDate}
-                  onAppointmentClick={handleAppointmentClick}
-                  onSelectDay={handleSelectDay}
-                  showCancelled={showCancelled}
-                  showCompleted={showCompleted}
-                  onShowCancelledChange={setShowCancelled}
-                  onShowCompletedChange={setShowCompleted}
-                  onChanged={handleAppointmentUpdated}
-                  doctorId={doctorFilterId}
-                />
-              </TabsContent>
-            </Tabs>
+              )}
+            </div>
           </div>
-        </main>
+
+          {/*
+            ⚠️ **ONE calendar, rendered outside `TabsContent`.**
+
+            It used to be three — one per `<TabsContent>` — and Radix unmounts inactive content, so *every view
+            switch destroyed and rebuilt the calendar*. That is not a re-render, it is a remount: `useAppointments`
+            loses `hasLoadedRef` so the full skeleton flashes on every single tap, the clinic-status fetch fires
+            again, `monthsAhead` resets, and the scroll position — the one thing a 24-hour grid must keep — is
+            gone. Jour ⇄ Semaine ⇄ Mois is the most-used control on the screen, and each press paid for a cold
+            start.
+
+            The three prop sets were verified equivalent before collapsing them: only two props differed, and
+            neither is read by the view that omitted it. `onSelectDay` was absent on Jour (nothing in Jour calls
+            it) and `onTimeSlotClick` absent on Mois (Mois has no hour cells) — so passing both to one instance
+            changes no behaviour. `<Tabs>` stays purely for the desktop `TabsList`.
+          */}
+          <div
+            className={cn(
+              "flex-1 min-h-0 transition-opacity duration-150 ease-snap",
+              viewFading ? "opacity-0" : "opacity-100",
+            )}
+          >
+            <AppointmentCalendar
+              reloadToken={refreshKey}
+              view={view}
+              selectedDate={selectedDate}
+              onDateChange={setSelectedDate}
+              onTimeSlotClick={handleTimeSlotClick}
+              onAppointmentClick={handleAppointmentClick}
+              /*
+               * Semaine and Mois both navigate to a day.
+               *
+               * ⚠️ This prop was once missing on Semaine, and the symptom was silent: `renderWeekStrip` — the
+               * phone's whole Semaine view — is a list of seven day buttons calling `onSelectDay?.(day)`, so
+               * with the prop absent every row was tappable, pressed, highlighted, and did **nothing**. An
+               * optional callback that a whole view depends on has no way to complain about not being passed;
+               * one instance is one fewer place to forget it.
+               */
+              onSelectDay={handleSelectDay}
+              showCancelled={showCancelled}
+              showCompleted={showCompleted}
+              onShowCancelledChange={setShowCancelled}
+              onShowCompletedChange={setShowCompleted}
+              onChanged={handleAppointmentUpdated}
+              onViewChange={selectView}
+              doctorId={doctorFilterId}
+              onNewAppointment={() => setDialogOpen(true)}
+              doctorFilter={{ doctors, value: selectedDoctorId, onChange: setSelectedDoctorId }}
+              /*
+               * Admins only, and that is the gate rather than a disabled state: every Google endpoint behind
+               * these three actions is `AdminOnly`, so offering them to a secretary buys a 403 and a generic
+               * « Échec » toast (finding #9). `undefined` leaves the calendar's « ⋯ » menu holding Exporter alone.
+               */
+              googleControls={
+                isAdmin
+                  ? {
+                      authorized: isGoogleCalendarAuthorized,
+                      syncing: isSyncing,
+                      onConnect: handleAuthorizeGoogleCalendar,
+                      onImport: handleSyncFromGoogle,
+                      // AC-P2.34 — behind an AlertDialog, and deliberately NOT gated on internetReachable:
+                      // clearing our own stored token is a local DB write, and it is exactly what an admin needs
+                      // when the connected account is wrong or unreachable.
+                      onDisconnect: () => setDisconnectOpen(true),
+                    }
+                  : undefined
+              }
+            />
+          </div>
+        </div>
+
+      {/*
+        The agenda's create action below `md:`, where the toolbar row above is hidden. « Nouveau rendez-vous »
+        keeps a stable home at every width (AC-31).
+
+        ⚠️ **Labelled, not a bare `+`.** The toolbar button it replaces carries an explicit note that its label
+        *shortens rather than disappearing*, because an icon-only primary action on the busiest screen in the app
+        is the unlabelled-ghost-icon problem P3 spent a whole part removing. A plain `+` circle would have walked
+        straight back into it, so this is an extended floating action instead.
+
+        `--bottom-inset` is the global bottom nav plus the home indicator, so the action clears navigation.
+
+        ⚠️ **Centred, and that is a collision fix, not a preference.** This used to be `right-4` at exactly
+        `bottom-[calc(1rem+var(--bottom-inset))]` — the *byte-identical* anchor `ai-chat.tsx` gives its minimised
+        launcher, at `z-50` against this `z-40`. So the assistant's 56 px Bot circle sat permanently on top of the
+        right-hand end of this pill, which is what made « Nouveau RDV » look misplaced. The comment that used to
+        live here claimed the shared offset was why "the three never stack": sharing an offset is precisely how
+        they stack. The centre is free, and it also reads correctly — the page's own action sits above the nav it
+        belongs to, while the global assistant keeps its corner.
+
+        A bottom-centre toast can still pass over this for its four seconds (`app-toaster.tsx` anchors there on a
+        coarse pointer). That is left alone deliberately: a transient toast over a floating action is ordinary
+        mobile behaviour — it already happened to the AI launcher — whereas a button permanently under another
+        button is a defect.
+
+        The wrapper, rather than positioning classes on the `Button`: `ui/button.tsx` applies
+        `active:scale-[0.97]`, so the press transform and a centring `-translate-x-1/2` would be arguing over the
+        same property. `pointer-events-none` on the full-width strip keeps it from swallowing taps meant for the
+        agenda underneath; the button re-enables them for itself.
+      */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(1rem+var(--bottom-inset))] z-40 flex justify-center md:hidden">
+        <Button
+          onClick={() => setDialogOpen(true)}
+          className="pointer-events-auto gap-2 rounded-full shadow-lg"
+        >
+          <Plus className="h-4 w-4" />
+          Nouveau RDV
+        </Button>
       </div>
 
       <CreateAppointmentDialog
@@ -325,7 +523,35 @@ export default function AppointmentsPage() {
         appointment={selectedAppointment}
         onSuccess={handleAppointmentUpdated}
       />
-      </div>
+
+      {/* AC-P2.34/2.35 — disconnect confirmation. The copy is explicit that nothing is deleted in Google: an
+          admin hesitating over this button is usually worried exactly about that. */}
+      <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Déconnecter Google Calendar ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Les nouveaux rendez-vous ne seront plus envoyés à Google et l&apos;import manuel sera indisponible.
+              Rien n&apos;est supprimé : les rendez-vous déjà synchronisés restent dans votre agenda Google, et
+              vous pouvez reconnecter le compte à tout moment.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDisconnecting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                void handleDisconnectGoogle()
+              }}
+              disabled={isDisconnecting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDisconnecting ? "Déconnexion…" : "Déconnecter"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      </AppShell>
     </ClinicGuard>
   )
 }

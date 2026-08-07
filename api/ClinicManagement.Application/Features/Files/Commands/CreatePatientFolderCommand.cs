@@ -82,6 +82,7 @@ public class CreatePatientFolderCommandHandler : IRequestHandler<CreatePatientFo
             var folder = new PatientFolder(
                 Guid.NewGuid(),
                 request.PatientId,
+                patient.ClinicId,
                 request.Name.Trim(),
                 request.ParentFolderId);
 

@@ -21,22 +21,19 @@ public class LocalDiskFileStorage : IFileStorage
         _logger = logger;
     }
 
-    public Task<string> UploadAsync(Stream file, string contentType,
+    public Task<string> UploadAsync(Stream file, string contentType, Guid clinicId,
         CancellationToken cancellationToken = default)
     {
-        return UploadAsync(file, contentType, null, cancellationToken);
+        return UploadAsync(file, contentType, clinicId, null, cancellationToken);
     }
 
-    public async Task<string> UploadAsync(Stream file, string contentType, string? customPath,
+    public async Task<string> UploadAsync(Stream file, string contentType, Guid clinicId, string? relativePath,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            // Storage key: a deterministic custom path (e.g. the clinic-logo path) or a unique
-            // guid-based key, matching MinioFileStorage's key format.
-            var storageKey = !string.IsNullOrWhiteSpace(customPath)
-                ? customPath
-                : $"{Guid.NewGuid()}-{DateTime.UtcNow:yyyyMMddHHmmss}";
+            // US-5: the same composer MinioFileStorage uses, so a key means the same thing in both backends.
+            var storageKey = ClinicStorageKey.Compose(clinicId, relativePath);
 
             var fullPath = ResolveWithinBase(storageKey);
 
@@ -112,6 +109,36 @@ public class LocalDiskFileStorage : IFileStorage
         {
             _logger.LogError(ex, "Error deleting file from local disk. Storage key: {StorageKey}", storageKey);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Confirms the base folder exists and is writable, by creating it if absent and then opening — and
+    /// immediately deleting — a probe file. The write half is the point: an unmounted volume, a full disk and a
+    /// folder the service account cannot write to all present as an existing directory, and every one of them
+    /// breaks the first upload rather than the check.
+    ///
+    /// <para>The probe file is named per attempt so two concurrent checks cannot collide on it, and it is deleted
+    /// in a <c>finally</c> so a failure mid-way leaves nothing behind.</para>
+    /// </summary>
+    public async Task ProbeAsync(CancellationToken cancellationToken = default)
+    {
+        Directory.CreateDirectory(_basePath);
+
+        var probePath = Path.Combine(_basePath, $".health-{Guid.NewGuid():N}");
+
+        try
+        {
+            await using var probe = new FileStream(
+                probePath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            await probe.WriteAsync(new byte[] { 0 }, cancellationToken);
+        }
+        finally
+        {
+            if (File.Exists(probePath))
+            {
+                File.Delete(probePath);
+            }
         }
     }
 

@@ -146,6 +146,112 @@ public class NotificationGenerationTests
         Assert.Equal(NotificationTargetKind.StockItem, n.TargetKind);
     }
 
+    // ---- NotificationGenerator: approaching expiry (AC-P4.6) --------------------
+
+    // [AC-P4.6] The expiry alert is the same CLASS of notification low stock is: no actor (so every member of
+    // staff sees it) and the stock screen as its deep-link target.
+    [Fact]
+    public async Task StockExpiringSoon_Has_No_Actor_And_Targets_Stock()
+    {
+        var h = new GeneratorHarness();
+        var itemId = Guid.NewGuid();
+
+        await h.Generator().EnsureStockExpiringSoonAsync(
+            ClinicId, itemId, "Anesthésique", DateTime.UtcNow.Date.AddDays(10));
+
+        var n = Assert.Single(h.Added);
+        Assert.Equal(NotificationCategory.StockExpiringSoon, n.Category);
+        Assert.Null(n.ActorUserId);
+        Assert.Equal(NotificationTargetKind.StockItem, n.TargetKind);
+        Assert.Equal(itemId, n.StockItemId);
+        Assert.Contains("Anesthésique", n.Message);
+        h.Realtime.Verify(r => r.NotifyEntityChangedAsync(ClinicId, "notifications", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // [AC-P4.6] The reason this is an "ensure" and not a fire-once: the daily scan re-runs against the same
+    // item every day. A second call for the SAME batch must write nothing and broadcast nothing — otherwise
+    // one short-dated box produces a notification per day until it is used up.
+    [Fact]
+    public async Task StockExpiringSoon_Is_Idempotent_For_The_Same_Batch()
+    {
+        var h = new GeneratorHarness();
+        var itemId = Guid.NewGuid();
+        var expiry = DateTime.UtcNow.Date.AddDays(10);
+
+        await h.Generator().EnsureStockExpiringSoonAsync(ClinicId, itemId, "Anesthésique", expiry);
+        var first = Assert.Single(h.Added);
+
+        // Second run finds the row it wrote.
+        h.Repo.Setup(r => r.GetStockExpiringSoonByItemAsync(itemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(first);
+
+        await h.Generator().EnsureStockExpiringSoonAsync(ClinicId, itemId, "Anesthésique", expiry);
+
+        Assert.Single(h.Added); // nothing added
+        h.Realtime.Verify(
+            r => r.NotifyEntityChangedAsync(ClinicId, "notifications", It.IsAny<CancellationToken>()),
+            Times.Once); // and nobody made to refetch a second time
+    }
+
+    // [AC-P4.6] A DIFFERENT batch (the flagged one was consumed, so the next lot's date is now the earliest)
+    // restates the existing row rather than stacking a second alert on the same item.
+    [Fact]
+    public async Task StockExpiringSoon_Restates_When_The_Batch_Changes()
+    {
+        var h = new GeneratorHarness();
+        var itemId = Guid.NewGuid();
+
+        await h.Generator().EnsureStockExpiringSoonAsync(ClinicId, itemId, "Anesthésique", DateTime.UtcNow.Date.AddDays(5));
+        var existing = Assert.Single(h.Added);
+        var originalMessage = existing.Message;
+
+        h.Repo.Setup(r => r.GetStockExpiringSoonByItemAsync(itemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existing);
+
+        await h.Generator().EnsureStockExpiringSoonAsync(ClinicId, itemId, "Anesthésique", DateTime.UtcNow.Date.AddDays(20));
+
+        Assert.Single(h.Added);                          // still one row for the item
+        Assert.NotEqual(originalMessage, existing.Message); // restated in place
+        h.Repo.Verify(r => r.RemoveAsync(It.IsAny<StaffNotification>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // [AC-P4.6] Clearing is what lets the item's NEXT batch alert: the row is removed once nothing on the
+    // shelf is expiring soon, and clients are told so the panel drops it.
+    [Fact]
+    public async Task ClearStockExpiringSoon_Removes_The_Row_And_Broadcasts()
+    {
+        var h = new GeneratorHarness();
+        var itemId = Guid.NewGuid();
+        var existing = new StaffNotification(
+            Guid.NewGuid(), ClinicId, NotificationCategory.StockExpiringSoon, "Péremption proche", "…",
+            DateTime.UtcNow, NotificationTargetKind.StockItem, actorUserId: null, appointmentId: null,
+            stockItemId: itemId);
+        h.Repo.Setup(r => r.GetStockExpiringSoonByItemAsync(itemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existing);
+
+        await h.Generator().ClearStockExpiringSoonAsync(ClinicId, itemId);
+
+        h.Repo.Verify(r => r.RemoveAsync(existing, It.IsAny<CancellationToken>()), Times.Once);
+        h.Realtime.Verify(r => r.NotifyEntityChangedAsync(ClinicId, "notifications", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // [AC-P4.6] The daily scan calls Clear for every item that is NOT expiring — i.e. almost all of them. That
+    // path must cost one read and nothing else: no delete, no save, and no broadcast telling every client in
+    // the clinic to refetch its notification panel.
+    [Fact]
+    public async Task ClearStockExpiringSoon_Is_A_No_Op_When_Nothing_Is_Flagged()
+    {
+        var h = new GeneratorHarness();
+
+        await h.Generator().ClearStockExpiringSoonAsync(ClinicId, Guid.NewGuid());
+
+        h.Repo.Verify(r => r.RemoveAsync(It.IsAny<StaffNotification>(), It.IsAny<CancellationToken>()), Times.Never);
+        h.Uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        h.Realtime.Verify(
+            r => r.NotifyEntityChangedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     // Best-effort: a persistence failure is swallowed (never breaks the core operation).
     [Fact]
     public async Task Generator_Swallows_Persistence_Failure()
@@ -175,8 +281,10 @@ public class NotificationGenerationTests
             Uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
         }
 
+        public Mock<IStockMovementRepository> Movements { get; } = new();
+
         public UpdateStockItemCommandHandler Handler() =>
-            new(Stock.Object, ClinicResolver.Object, Uow.Object, Generator.Object);
+            new(Stock.Object, Movements.Object, ClinicResolver.Object, Uow.Object, Generator.Object);
 
         public StockItem ExistingItem(int currentStock, int min)
         {
@@ -255,6 +363,7 @@ public class NotificationGenerationTests
 
         var handler = new UpdateAppointmentCommandHandler(
             repo.Object, new Mock<IProcedureTypeRepository>().Object, new Mock<IDoctorRepository>().Object,
+            new Mock<IClinicRepository>().Object,
             new Mock<ITreatmentPlanRepository>().Object, clinicResolver.Object,
             context.Object, uow.Object, new Mock<IAppointmentGoogleSyncDispatcher>().Object, gen.Object,
             new Mock<IReminderScheduler>().Object,
@@ -460,7 +569,8 @@ public class NotificationGenerationTests
         var gen = new Mock<INotificationGenerator>();
 
         var handler = new CreateAppointmentCommandHandler(
-            appointments.Object, patients.Object, new Mock<IDoctorRepository>().Object, procedures.Object,
+            appointments.Object, patients.Object, new Mock<IDoctorRepository>().Object,
+            new Mock<IClinicRepository>().Object, procedures.Object,
             new Mock<ITreatmentPlanRepository>().Object, users.Object,
             context.Object, uow.Object, gen.Object,
             new Mock<IReminderScheduler>().Object, new Mock<IAppointmentGoogleSyncDispatcher>().Object, NullLogger<CreateAppointmentCommandHandler>.Instance);

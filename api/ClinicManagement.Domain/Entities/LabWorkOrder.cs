@@ -89,11 +89,77 @@ public class LabWorkOrder : AggregateRoot<Guid>
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// The stages an order may move to from each stage — the declared transition table (AC-P2.38).
+    /// <para>
+    /// Forward one step is the normal path. One step **backward** is deliberately legal: « Reçu » → « En cours »
+    /// is how a prothèse that arrives wrong goes back to the lab, and « Posé » → « Reçu » undoes a fitting
+    /// recorded on the wrong order. What is refused is skipping the lab (« Envoyé » → « Posé », so a fitting is
+    /// never recorded for work never received) and rewinding a fitted order all the way to « Envoyé », which
+    /// would erase that the piece was ever delivered.
+    /// </para>
+    /// <para>
+    /// Reads are never gated (AC-P2.41) — this table governs <see cref="SetStatus"/> only, so rows already in
+    /// any state, including ones this table could not have produced, still load and render.
+    /// </para>
+    /// </summary>
+    private static readonly Dictionary<LabOrderStatus, LabOrderStatus[]> AllowedTransitions = new()
+    {
+        [LabOrderStatus.Sent] = new[] { LabOrderStatus.InProgress, LabOrderStatus.Received },
+        [LabOrderStatus.InProgress] = new[] { LabOrderStatus.Sent, LabOrderStatus.Received },
+        [LabOrderStatus.Received] = new[] { LabOrderStatus.InProgress, LabOrderStatus.Fitted },
+        [LabOrderStatus.Fitted] = new[] { LabOrderStatus.Received },
+    };
+
+    /// <summary>The stages this order may move to right now. Drives the UI's status control (AC-P2.40).</summary>
+    public static IReadOnlyCollection<LabOrderStatus> NextStatusesFrom(LabOrderStatus current) =>
+        AllowedTransitions.TryGetValue(current, out var allowed) ? allowed : Array.Empty<LabOrderStatus>();
+
+    /// <summary>
+    /// Move the order to a new lab stage.
+    /// <para>
+    /// This was a bare assignment with no rules at all: a « Posé » order could be pushed straight back to
+    /// « Envoyé », and an order could jump from « Envoyé » to « Posé » without ever being received — recording a
+    /// fitting for work the clinic never had. Illegal transitions now throw with a French message
+    /// (AC-P2.40); re-assigning the current status stays a silent no-op, since a UI select can re-emit it.
+    /// </para>
+    /// </summary>
     public void SetStatus(LabOrderStatus status)
     {
+        if (status == Status)
+        {
+            return;
+        }
+
+        if (!NextStatusesFrom(Status).Contains(status))
+        {
+            throw new InvalidOperationException(
+                $"Transition impossible : un bon « {FrenchLabel(Status)} » ne peut pas passer à « {FrenchLabel(status)} ».");
+        }
+
         Status = status;
-        if (status == LabOrderStatus.Received && ReceivedDate == null)
+
+        // AC-P2.39: re-stamped on every arrival, not only the first. A prothèse sent back to the lab and
+        // received again is a NEW arrival; keeping the original date forever meant the délai the clinic reads
+        // was the one for the piece that had to be redone.
+        if (status == LabOrderStatus.Received)
+        {
             ReceivedDate = DateTime.UtcNow;
+        }
+
         UpdatedAt = DateTime.UtcNow;
     }
+
+    /// <summary>
+    /// French stage name, so a refusal names the stages the way the user sees them in the UI. Lives here rather
+    /// than in the API layer because it is the domain that raises the message.
+    /// </summary>
+    private static string FrenchLabel(LabOrderStatus status) => status switch
+    {
+        LabOrderStatus.Sent => "Envoyé",
+        LabOrderStatus.InProgress => "En cours",
+        LabOrderStatus.Received => "Reçu",
+        LabOrderStatus.Fitted => "Posé",
+        _ => status.ToString(),
+    };
 }

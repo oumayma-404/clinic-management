@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestion Clinique — Fonctionnalités | Maquette v3</title>
+<link rel="stylesheet" href="shared-styles.css">
+<style>
+  /* Agenda reconstitué — trois colonnes de jour, sobre. */
+  .ag { display: grid; grid-template-columns: 42px repeat(3, minmax(0, 1fr)); font-size: 12px; letter-spacing: 0; }
+  .ag .hh { color: var(--ink-2); font-size: 10.5px; text-align: right; padding: 6px 8px 0 0; font-variant-numeric: tabular-nums; }
+  .ag .dh { font-weight: 600; font-size: 11.5px; padding: 0 0 8px 6px; }
+  .ag .c { border-left: 1px solid var(--hair); border-top: 1px solid var(--hair); min-height: 40px; padding: 4px; }
+  .sl { border-radius: 9px; padding: 6px 8px; line-height: 1.32; border-left: 3px solid var(--teal); background: color-mix(in srgb, var(--teal) 10%, transparent); }
+  .sl b { font-weight: 600; }
+  .sl.b2 { border-left-color: #6f8fd6; background: color-mix(in srgb, #6f8fd6 12%, transparent); }
+  .sl.b3 { border-left-color: #d99a3f; background: color-mix(in srgb, #d99a3f 13%, transparent); }
+  .sl .m { color: var(--ink-2); font-size: 11px; }
+
+  /* Onglets du dossier patient. */
+  .tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--hair); }
+  .tabs span { padding: 10px 12px; font-size: 13px; white-space: nowrap; color: var(--ink-2); border-bottom: 2px solid transparent; letter-spacing: 0; }
+  .tabs span.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--teal); }
+
+  /* Étapes d'un devis. */
+  .st { display: flex; align-items: center; gap: 14px; padding: 13px 0; border-bottom: 1px solid var(--hair); font-size: 15px; letter-spacing: -0.006em; }
+  .st:last-child { border-bottom: 0; }
+  .st .n { width: 20px; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
+  .st .nm { flex: 1; min-width: 0; }
+  .st .a { font-variant-numeric: tabular-nums; font-weight: 500; }
+
+  /* Trois chiffres d'argent. */
+  .figs { display: grid; gap: 20px; }
+  .figs > div { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; }
+  .figs b { font-size: clamp(26px, 3vw, 34px); font-weight: 600; letter-spacing: -0.028em; }
+
+  .mini { display: grid; gap: 12px; }
+  .mini h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.012em; }
+  .mini p { font-size: 15px; line-height: 1.55; color: var(--ink-2); letter-spacing: -0.004em; }
+  .mini .ico { color: var(--teal); }
+
+  @media (max-width: 700px) { .ag { grid-template-columns: 34px repeat(3, minmax(0, 1fr)); } }
+</style>
+</head>
+<body>
+
+<div class="flag"><span>MAQUETTE v3 — Fonctionnalités</span><span>2/5</span></div>
+
+<nav class="nav" aria-label="Navigation principale">
+  <div class="row">
+    <a class="brand" href="01-accueil.html">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+      Gestion Clinique
+    </a>
+    <div class="menu">
+      <a href="02-fonctionnalites.html" aria-current="page">Fonctionnalités</a>
+      <a href="04-cloud-vs-local.html">Cloud ou Local</a>
+      <a href="03-tarifs.html">Tarifs</a>
+      <a href="05-contact.html">Contact</a>
+    </div>
+    <div class="end">
+      <button class="tog" data-theme-toggle aria-label="Basculer le thème sombre">
+        <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+      </button>
+      <a class="btn btn-fill btn-sm" href="05-contact.html">Demander une démo</a>
+    </div>
+    <button class="burger" aria-label="Ouvrir le menu">
+      <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- ============================ HÉRO ============================ -->
+<section>
+  <div class="wrap center rise">
+    <p class="eyebrow">Fonctionnalités</p>
+    <h1 class="display" style="margin: 14px 0 0; font-size: clamp(36px, 5.6vw, 68px);">
+      Le cabinet, écran par écran.
+    </h1>
+    <p class="lede wide center" style="margin-top: 22px;">
+      Dans l'ordre du trajet d'un patient. Quand une fonction demande une connexion
+      ou un branchement de votre part, c'est écrit.
+    </p>
+  </div>
+</section>
+
+<!-- ============================ AGENDA ============================ -->
+<section class="tight">
+  <div class="wrap-wide split">
+    <div class="stack rise">
+      <p class="eyebrow">Agenda</p>
+      <h2 class="title">Une séance,<br>plusieurs actes.</h2>
+      <p class="body">
+        « Détartrage + deux obturations » est un seul rendez-vous, dont la durée est
+        la somme des actes — et non une ligne tapée dans les notes, invisible partout
+        ailleurs. Le créneau connaît aussi sa suite : un rendez-vous facturé affiche
+        le numéro de la note d'honoraires.
+      </p>
+      <ul class="ticks">
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Deux rendez-vous ne peuvent pas occuper le même créneau — la base le refuse</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Séries récurrentes, avec le compte des créneaux ignorés en conflit</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Annulation : cette occurrence, les suivantes, ou toute la série</span></li>
+      </ul>
+      <p class="fine">Agenda Google : l'envoi vers Google est automatique à chaque enregistrement,
+        l'import depuis Google se lance par un bouton. Demande une connexion internet.</p>
+    </div>
+
+    <div class="frame rise">
+      <div style="padding: clamp(22px, 2.6vw, 32px);">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 14px; margin-bottom: 18px; flex-wrap: wrap;">
+          <div style="font-weight: 600; font-size: 16px; letter-spacing: -0.014em;">Semaine du 27 juillet</div>
+          <span class="pill">Dr Ben Salah</span>
+        </div>
+        <div class="ag">
+          <div></div><div class="dh">Lun 27</div><div class="dh">Mar 28</div><div class="dh">Mer 29</div>
+
+          <div class="hh">08:30</div>
+          <div class="c"><div class="sl"><b>I. Trabelsi</b><div class="m">Détartrage</div></div></div>
+          <div class="c"></div>
+          <div class="c"><div class="sl b2"><b>K. Jelassi</b><div class="m">Contrôle</div></div></div>
+
+          <div class="hh">09:30</div>
+          <div class="c"></div>
+          <div class="c"><div class="sl b2"><b>M. Gharbi</b><div class="m">Détartrage + 2 obturations<br>90 min · 3 actes</div></div></div>
+          <div class="c"></div>
+
+          <div class="hh">11:00</div>
+          <div class="c"><div class="sl b3"><b>S. Ayari</b><div class="m">Couronne 16<br>Facturé · F-2026-0151</div></div></div>
+          <div class="c"></div>
+          <div class="c"><div class="sl b3"><b>H. Mabrouk</b><div class="m">Empreinte</div></div></div>
+
+          <div class="hh">14:00</div>
+          <div class="c"><div class="sl"><b>N. Chaabane</b><div class="m">Extraction 38</div></div></div>
+          <div class="c"><div class="sl"><b>R. Fekih</b><div class="m">Détartrage</div></div></div>
+          <div class="c"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ DOSSIER (bande sombre) ============================ -->
+<section class="night">
+  <div class="wrap-wide split">
+    <div class="frame rise" style="order: 2; box-shadow: none;">
+      <div style="padding: clamp(20px, 2.4vw, 28px) 0 0;">
+        <div style="padding: 0 clamp(20px, 2.4vw, 28px) 18px; display: flex; align-items: center; gap: 14px;">
+          <div style="width: 42px; height: 42px; border-radius: 999px; background: color-mix(in srgb, var(--night-teal) 18%, transparent); color: var(--night-teal); display: flex; align-items: center; justify-content: center; font-weight: 600;">IT</div>
+          <div>
+            <div style="font-weight: 600; font-size: 16px; letter-spacing: -0.014em;">Ines Trabelsi</div>
+            <div class="small" style="color: var(--night-ink-2);">34 ans · Tunis</div>
+          </div>
+        </div>
+        <div class="tabs scroll-x" style="padding: 0 clamp(20px, 2.4vw, 28px); border-bottom-color: var(--night-hair);">
+          <span class="on" style="border-bottom-color: var(--night-teal);">Dossiers</span>
+          <span>Rendez-vous</span><span>Notes</span><span>Documents</span>
+          <span>Fichiers</span><span>Factures</span><span>Plan de traitement</span>
+        </div>
+        <div style="padding: 20px clamp(20px, 2.4vw, 28px) clamp(22px, 2.6vw, 30px);">
+          <div class="small" style="color: var(--night-ink-2); margin-bottom: 14px;">Fiche de soins du 24/07 — Dr Ben Salah</div>
+          <div class="st" style="border-bottom-color: var(--night-hair);"><span class="nm">Obturation composite — 14</span><span class="a nums">120,000</span></div>
+          <div class="st" style="border-bottom-color: var(--night-hair);"><span class="nm">Obturation composite — 34</span><span class="a nums">120,000</span></div>
+          <div class="st"><span class="nm">Détartrage deux arcades</span><span class="a nums">80,000</span></div>
+          <div class="actions" style="margin-top: 20px;">
+            <button class="btn btn-fill btn-sm">Facturer cette séance</button>
+            <button class="btn btn-ghost btn-sm">Verser dans un devis</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stack rise">
+      <p class="eyebrow">Dossier patient</p>
+      <h2 class="title">Sept onglets,<br>et rien à ressaisir.</h2>
+      <p class="lede">
+        « Facturer cette séance » tarife les actes, émet la note d'honoraires et
+        enregistre le règlement en une seule opération.
+      </p>
+      <ul class="ticks">
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Coordonnées vraiment facultatives — un dossier sans e-mail reste valide</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>La suppression est refusée dès que quelque chose est rattaché ; on archive</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Recherche insensible aux accents : « bechir » trouve « Béchir »</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Radios, photos et documents scannés, classés par dossier</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ DEVIS ============================ -->
+<section>
+  <div class="wrap-wide split">
+    <div class="stack rise">
+      <p class="eyebrow">Devis et plans de traitement</p>
+      <h2 class="title">Un devis qui sait<br>où il en est.</h2>
+      <p class="body">
+        Chaque acte lit son état dans les rendez-vous qui le visent — à planifier,
+        planifié, réalisé — et affiche la facture qui le règle. Vous cochez des actes
+        et vous les planifiez ensemble, en une séance, ou séparément.
+      </p>
+      <p class="body">
+        Un devis accepté s'<strong style="color: var(--ink); font-weight: 600;">amende</strong>
+        avec un numéro de révision plutôt que d'être annulé puis retapé.
+      </p>
+    </div>
+
+    <div class="frame rise">
+      <div style="padding: clamp(22px, 2.6vw, 32px);">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 14px; margin-bottom: 16px; flex-wrap: wrap;">
+          <div>
+            <span style="font-weight: 600; font-size: 16px; letter-spacing: -0.014em;">D-2026-0031</span>
+            <span class="small"> · révision 2</span>
+          </div>
+          <span class="pill pill-on"><span class="dot"></span>Accepté</span>
+        </div>
+        <div class="st"><span class="n">1</span><span class="nm">Détartrage deux arcades<div class="small">séance de 3 actes · 29/07</div></span><span class="pill pill-on"><span class="dot"></span>Réalisé</span></div>
+        <div class="st"><span class="n">2</span><span class="nm">Obturation — 14<div class="small">séance de 3 actes · 29/07</div></span><span class="pill pill-on"><span class="dot"></span>Réalisé</span></div>
+        <div class="st"><span class="n">3</span><span class="nm">Traitement de racine — 25</span><span class="pill">Planifié 05/08</span></div>
+        <div class="st"><span class="n">4</span><span class="nm">Couronne — 16</span><span class="pill">À planifier</span></div>
+        <hr class="hair" style="margin: 18px 0;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 16px;">
+          <span class="small">Échéancier — 2 sur 3 réglées</span>
+          <span class="nums" style="font-weight: 600; letter-spacing: -0.02em;">850,000 / 1 190,000 DT</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ ARGENT (bande sombre) ============================ -->
+<section class="night">
+  <div class="wrap-wide split">
+    <div class="frame rise" style="order: 2; box-shadow: none;">
+      <div style="padding: clamp(24px, 2.8vw, 36px);">
+        <div class="small" style="color: var(--night-ink-2); margin-bottom: 22px;">Juillet 2026</div>
+        <div class="figs">
+          <div><span class="small" style="color: var(--night-ink-2);">Facturé</span><b class="nums">24 130</b></div>
+          <div><span class="small" style="color: var(--night-ink-2);">Encaissé</span><b class="nums">18 460</b></div>
+          <div><span class="small" style="color: var(--night-ink-2);">Avoirs</span><b class="nums">−540</b></div>
+          <div><span class="small" style="color: var(--night-ink-2);">Reste à recouvrer</span><b class="nums accent">9 840</b></div>
+        </div>
+        <p class="fine" style="color: var(--night-ink-2); margin-top: 22px;">Montants en dinars, trois décimales.</p>
+      </div>
+    </div>
+
+    <div class="stack rise">
+      <p class="eyebrow">Facturation et caisse</p>
+      <h2 class="title">L'argent se corrige,<br>il ne s'efface pas.</h2>
+      <p class="lede">
+        Une erreur passe par un avoir. Un règlement mal saisi s'annule avec son motif
+        et son auteur — la ligne reste, barrée, et le reçu réimprimé porte « REÇU ANNULÉ ».
+      </p>
+      <ul class="ticks">
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Notes d'honoraires numérotées sans trou, TVA et timbre fiscal</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>La caisse a un extrait : chaque mouvement derrière le total</span></li>
+        <li><svg class="ico ico-s" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>« Créances » répond à qui doit encore combien, factures et échéanciers réunis</span></li>
+      </ul>
+      <p class="fine">El Fatoora (TTN) est prêt côté logiciel ; la transmission réelle demande vos
+        identifiants TTN et un certificat de signature. Les avoirs ne sont pas transmis.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ ET AUSSI ============================ -->
+<section>
+  <div class="wrap-wide">
+    <div class="center rise" style="max-width: 560px;">
+      <h2 class="title">Et le reste du cabinet.</h2>
+    </div>
+
+    <div class="g3 rise-g" style="margin-top: clamp(38px, 4.5vw, 60px);">
+      <div class="mini">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <h3>Salle d'attente</h3>
+        <p>Une file dont on promeut une entrée en rendez-vous dès qu'une place se libère.</p>
+      </div>
+      <div class="mini">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2v7.5L4.8 18A2 2 0 0 0 6.5 21h11a2 2 0 0 0 1.7-3L14 9.5V2"/><path d="M8.5 2h7M7 15h10"/></svg>
+        <h3>Bons de prothèse</h3>
+        <p>Le travail au laboratoire, son étape, et les retards comptés sur le tableau de bord.</p>
+      </div>
+      <div class="mini">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8v8l-9 5-9-5V8l9-5Z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>
+        <h3>Stock</h3>
+        <p>Lots, seuils de réapprovisionnement, alerte de péremption quotidienne — qui part même hors ligne.</p>
+      </div>
+      <div class="mini">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M15 2v5h5M9 15l2 2 4-4"/></svg>
+        <h3>Documents</h3>
+        <p>Ordonnance avec catalogue de médicaments, lettre de liaison, certificat. En PDF, avec votre cachet.</p>
+      </div>
+      <div class="mini">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-5 3 3 5-7"/></svg>
+        <h3>Tableau de bord</h3>
+        <p>Jour, semaine ou mois, avec l'écart sur la période précédente. Chaque chiffre est un lien.</p>
+      </div>
+      <div class="mini">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>
+        <h3>Trois rôles, un code</h3>
+        <p>Administrateur, praticien, secrétaire. L'équipe se rattache avec un code, sans créer les comptes un par un.</p>
+      </div>
+    </div>
+
+    <p class="fine rise" style="margin-top: clamp(30px, 3.5vw, 44px);">
+      Un compte appartient à une clinique : le logiciel sert autant de cliniques qu'on veut, étanches
+      les unes aux autres, mais il n'y a pas de sélecteur pour piloter plusieurs cabinets d'une seule
+      connexion. La sauvegarde en un clic existe sur une installation locale ; elle est manuelle,
+      non planifiée.
+    </p>
+  </div>
+</section>
+
+<!-- ============================ APPEL ============================ -->
+<section class="night tight">
+  <div class="wrap center rise">
+    <h2 class="title">Le plus simple est de le voir tourner.</h2>
+    <p class="lede wide center" style="margin-top: 16px;">Trente minutes, avec vos actes et vos tarifs.</p>
+    <div class="actions center" style="margin-top: 28px;">
+      <a class="btn btn-fill" href="05-contact.html">Demander une démo</a>
+      <a class="btn btn-ghost" href="03-tarifs.html">Voir les tarifs</a>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap-wide">
+    <div class="foot-cols">
+      <div><h4>Produit</h4><ul>
+        <li><a href="01-accueil.html">Accueil</a></li>
+        <li><a href="04-cloud-vs-local.html">Cloud ou Local</a></li>
+        <li><a href="03-tarifs.html">Tarifs</a></li>
+      </ul></div>
+      <div><h4>Cabinet dentaire</h4><ul>
+        <li><a href="#">Schéma dentaire</a></li>
+        <li><a href="#">Devis et échéanciers</a></li>
+        <li><a href="#">Bulletin CNAM</a></li>
+      </ul></div>
+      <div><h4>Contact</h4><ul>
+        <li><a href="05-contact.html">Demander une démo</a></li>
+        <li><a href="#">contact@gestion-clinique.tn</a></li>
+        <li><a href="#" class="nums">+216 71 000 000</a></li>
+      </ul></div>
+      <div><h4>Légal</h4><ul>
+        <li><a href="#">Conditions</a></li>
+        <li><a href="#">Confidentialité</a></li>
+      </ul></div>
+    </div>
+    <div class="foot-end">
+      <span>© 2026 Gestion Clinique — Tunis, Tunisie</span>
+      <span>Maquette de site vitrine</span>
+    </div>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

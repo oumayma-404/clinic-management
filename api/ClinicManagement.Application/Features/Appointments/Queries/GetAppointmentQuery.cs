@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Appointments.Queries;
@@ -15,15 +16,18 @@ public class GetAppointmentQuery : IRequest<Result<AppointmentDto>>
 public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, Result<AppointmentDto>>
 {
     private readonly IAppointmentRepository _appointmentRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
 
     public GetAppointmentQueryHandler(
         IAppointmentRepository appointmentRepository,
+        IInvoiceRepository invoiceRepository,
         IUserRepository userRepository,
         IClinicContext clinicContext)
     {
         _appointmentRepository = appointmentRepository;
+        _invoiceRepository = invoiceRepository;
         _userRepository = userRepository;
         _clinicContext = clinicContext;
     }
@@ -55,6 +59,11 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
                 return Result<AppointmentDto>.Failure("Rendez-vous introuvable.");
             }
 
+            // The note d'honoraires this visit is billed on, if any (AC-P6.13) — resolved through the same
+            // helper the list read uses, so the two cannot disagree about which invoice counts.
+            var invoiceLinks = await AppointmentInvoiceLinks.ResolveAsync(
+                _invoiceRepository, user.ClinicId, new[] { appointment.Id }, cancellationToken);
+
             var dto = new AppointmentDto
             {
                 Id = appointment.Id,
@@ -69,15 +78,19 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
                 DoctorName = appointment.DoctorName,
                 Notes = appointment.Notes,
                 Status = appointment.Status.ToString(),
+                AllowedNextStatuses = Appointment.NextStatusesFrom(appointment.Status).Select(s => s.ToString()).ToList(),
                 CreatedAt = appointment.CreatedAt.Kind == DateTimeKind.Utc
                     ? appointment.CreatedAt
                     : DateTime.SpecifyKind(appointment.CreatedAt, DateTimeKind.Utc),
                 Version = appointment.Version,
                 ProcedureTypeId = appointment.ProcedureTypeId,
-                ProcedureTypeName = appointment.ProcedureType?.Name,
+                ProcedureTypeName = appointment.LeadProcedureName(),
                 // Use current procedure type color if available, otherwise use stored color
                 ProcedureColorHex = appointment.ProcedureType?.Color.Value ?? appointment.ProcedureColorHex,
+                Procedures = appointment.ToProcedureDtos(),
                 TreatmentPlanItemId = appointment.TreatmentPlanItemId,
+                InvoiceId = invoiceLinks.GetValueOrDefault(appointment.Id)?.InvoiceId,
+                InvoiceNumber = invoiceLinks.GetValueOrDefault(appointment.Id)?.Number,
                 IsSyncedToGoogle = appointment.GoogleCalendarEventId != null
             };
 

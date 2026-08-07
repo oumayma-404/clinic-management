@@ -2,11 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { statusToneClass } from "@/components/ui/status-tone"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { DEFAULT_PAGE_SIZE, emptyPage } from "@/lib/api/paging"
+// The seven English storage keys + their French labels — the same list the setup and join wizards offer, so a
+// practitioner created here is filed under a value every other screen already renders.
+import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,22 +33,78 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Users, KeyRound, UserX, UserCheck, RefreshCw, Copy, Check } from "lucide-react"
-import { usersApi, type ClinicUserDto } from "@/lib/api/users"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal } from "lucide-react"
+import { ZONES, zoneChipClass } from "@/lib/zones"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  usersApi,
+  USER_ROLES,
+  USER_ROLE_LABELS_FR,
+  type ClinicUserDto,
+  type ClinicUsersPageDto,
+  type UserRole,
+} from "@/lib/api/users"
 import { clinicsApi } from "@/lib/api/clinics"
+import { authApi } from "@/lib/api/auth"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
+/** The chip both section headers wear. `/users` is the `config` zone — see the note at « Code de la clinique ». */
+const SECTION_CHIP = `flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`
+
 type PendingAction =
   | { type: "reset"; user: ClinicUserDto }
   | { type: "status"; user: ClinicUserDto }
   | { type: "regenerate" }
+  | { type: "role"; user: ClinicUserDto; role: UserRole }
 
 export function UserManagement() {
-  const { user: currentUser } = useSession()
-  const [users, setUsers] = useState<ClinicUserDto[]>([])
+  const { user: currentUser, mode } = useSession()
+  /**
+   * AC-P2.29: « Réinitialiser le mot de passe » only exists for local (password-backed) accounts —
+   * `ResetUserPasswordCommand` correctly refuses anything else with « Ce compte n'utilise pas de mot de passe
+   * local. ». Now that this screen is reachable in Cloud (AC-P2.28), offering the button there would be a
+   * guaranteed dead end: Cloud identities are managed in Auth0.
+   */
+  const canResetPasswords = mode === "local"
+  /**
+   * US-3: same underlying question as `canResetPasswords` — does this product own its accounts — asked
+   * separately because the two are genuinely independent of the *third* one below. `POST /api/users` 404s in
+   * Cloud (Auth0 owns identities) but stays open in both local-account profiles, since it is precisely what a
+   * deployment with self-registration closed uses instead.
+   */
+  const canCreateAccounts = mode === "local"
+  /**
+   * Whether staff can still mint their own account with the clinic code. False on the hosted profile, where the
+   * six-character code is a password everyone who ever worked at the practice knows. Asked of the server because
+   * `mode` cannot answer it (US-3). Optimistic default: the LAN install is the common case, and a probe that
+   * failed must not make « Code de la clinique » claim the code is dead when it is not.
+   */
+  const [selfRegistrationEnabled, setSelfRegistrationEnabled] = useState(true)
+  const [userPage, setUserPage] = useState<ClinicUsersPageDto>(() => ({
+    ...emptyPage<ClinicUserDto>(),
+    pendingActivationCount: 0,
+  }))
+  const users = userPage.items
+  /**
+   * I5: self-registration no longer mints a live account, so somebody may be unable to log in right now and the
+   * only place that says so is this screen. Counted server-side over the WHOLE clinic and deliberately not
+   * narrowed by the search box — an admin who typed a name must still learn that someone else is waiting.
+   */
+  const pendingCount = userPage.pendingActivationCount
+  const [search, setSearch] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [clinicCode, setClinicCode] = useState<string>("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -48,9 +112,23 @@ export function UserManagement() {
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [working, setWorking] = useState(false)
 
-  // Temp password shown once after a reset (AC-5.2).
+  // Temp password shown once after a reset (AC-5.2) or after creating an account (US-3) — the same dialog,
+  // because it is the same fact with the same handling rules.
   const [tempPassword, setTempPassword] = useState<{ email?: string; password: string } | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // « Créer un compte » (US-3).
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createEmail, setCreateEmail] = useState("")
+  const [createFullName, setCreateFullName] = useState("")
+  const [createRole, setCreateRole] = useState<UserRole>("secretary")
+  // The praticien fields, sent only for the doctor role. Kept when the admin switches role and back, so a mistaken
+  // change of « Rôle » does not silently discard what they typed.
+  const [createFirstName, setCreateFirstName] = useState("")
+  const [createLastName, setCreateLastName] = useState("")
+  const [createSpecialty, setCreateSpecialty] = useState<string>(DOCTOR_SPECIALTIES[0])
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
 
   // Guards against setState after unmount (the admin can navigate away mid-load or mid-refresh).
   const mountedRef = useRef(true)
@@ -61,16 +139,26 @@ export function UserManagement() {
     }
   }, [])
 
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  // A new term must not leave the table on a page the narrowed result set no longer has.
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch])
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
       const [userList, status] = await Promise.all([
-        usersApi.list(),
+        usersApi.listPaged({ page, pageSize, search: debouncedSearch || undefined }),
         clinicsApi.getUserStatus(),
       ])
       if (!mountedRef.current) return
-      setUsers(userList)
+      setUserPage(userList)
       setClinicCode(status.clinic?.code || "")
     } catch (err) {
       if (!mountedRef.current) return
@@ -79,11 +167,26 @@ export function UserManagement() {
     } finally {
       if (mountedRef.current) setLoading(false)
     }
-  }, [])
+  }, [page, pageSize, debouncedSearch])
 
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // A deployment fact, so read once rather than on every page change.
+  useEffect(() => {
+    authApi
+      .getMode()
+      .then(({ selfRegistrationEnabled: enabled }) => {
+        if (mountedRef.current) setSelfRegistrationEnabled(enabled)
+      })
+      .catch((err) => {
+        // Deliberately no user-facing failure state, and this is not the `.catch(() => [])` shape: nothing is
+        // emptied. The only consumer is the clinic-code caption, so an unread probe leaves it at the wording it
+        // has always had — a claim the screen was already making — rather than inventing a new one either way.
+        console.error("Could not read the deployment's auth capabilities:", err)
+      })
+  }, [])
 
   // Real-time: refetch the users table + clinic code when any client of this clinic changes a user
   // (reset password / activate / deactivate) or registers.
@@ -100,13 +203,26 @@ export function UserManagement() {
         await loadData()
       } else if (pending.type === "status") {
         const nextActive = !pending.user.isActive
+        const wasPending = pending.user.isPendingActivation
         await usersApi.setStatus(pending.user.id, nextActive)
-        toast.success(nextActive ? "Utilisateur réactivé." : "Utilisateur désactivé.")
+        toast.success(
+          nextActive
+            ? wasPending
+              ? "Compte activé. La personne peut maintenant se connecter."
+              : "Utilisateur réactivé."
+            : "Utilisateur désactivé.",
+        )
         await loadData()
       } else if (pending.type === "regenerate") {
         const clinic = await clinicsApi.regenerateCode()
         setClinicCode(clinic.code || "")
         toast.success("Code de la clinique régénéré. L'ancien code ne fonctionne plus.")
+      } else if (pending.type === "role") {
+        await usersApi.setRole(pending.user.id, pending.role)
+        toast.success(
+          `Rôle modifié : ${USER_ROLE_LABELS_FR[pending.role]}. Il s'applique à la prochaine requête de l'utilisateur.`,
+        )
+        await loadData()
       }
       setPending(null)
     } catch (err) {
@@ -114,6 +230,44 @@ export function UserManagement() {
       toast.error(message)
     } finally {
       setWorking(false)
+    }
+  }
+
+  const submitCreate = async () => {
+    setCreating(true)
+    setCreateError(null)
+    try {
+      const created = await usersApi.create({
+        email: createEmail.trim(),
+        fullName: createFullName.trim(),
+        role: createRole,
+        // Only for the practitioner role — the server ignores it otherwise, and sending a half-filled object for a
+        // secretary would be a doctor record nobody asked for.
+        ...(createRole === "doctor"
+          ? {
+              doctorInfo: {
+                firstName: createFirstName.trim(),
+                lastName: createLastName.trim(),
+                specialty: createSpecialty,
+              },
+            }
+          : {}),
+      })
+      setCreateOpen(false)
+      setCreateEmail("")
+      setCreateFullName("")
+      setCreateRole("secretary")
+      setCreateFirstName("")
+      setCreateLastName("")
+      setCreateSpecialty(DOCTOR_SPECIALTIES[0])
+      setTempPassword({ email: created.email, password: created.temporaryPassword })
+      toast.success("Compte créé. Communiquez le mot de passe temporaire à la personne concernée.")
+      await loadData()
+    } catch (err) {
+      // § 13: the dialog stays open with every field as typed — a duplicate email is corrected here, not retyped.
+      setCreateError(err instanceof ApiError ? err.message : "La création du compte a échoué. Veuillez réessayer.")
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -128,40 +282,74 @@ export function UserManagement() {
     }
   }
 
-  const roleLabel = (role: string) => {
-    const map: Record<string, string> = { admin: "Administrateur", doctor: "Médecin", secretary: "Secrétaire" }
-    return map[role?.toLowerCase()] ?? (role.charAt(0).toUpperCase() + role.slice(1))
+  // A role outside the closed set can only be legacy data, so render it verbatim rather than blank.
+  const roleLabel = (role: string) =>
+    USER_ROLE_LABELS_FR[role?.toLowerCase() as UserRole] ?? (role.charAt(0).toUpperCase() + role.slice(1))
+
+  /** The stored role as one of the three known keys, or null for a legacy/unknown value. */
+  const knownRole = (role: string): UserRole | null => {
+    const key = role?.toLowerCase() as UserRole
+    return USER_ROLES.includes(key) ? key : null
   }
   const formatDate = (value?: string) =>
     value ? new Date(value).toLocaleString("fr-FR") : "Jamais"
 
+  // `min-h-full`, not `min-h-screen` — see the note in `clinic-settings.tsx`: inside `<main>` a full-viewport
+  // minimum is always taller than the container, so it guaranteed an unnecessary scroll and trailing dead space.
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-950">
-      <div className="mx-auto max-w-5xl space-y-4 p-4">
-        <div className="mb-2 flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600">
-            <Users className="h-4 w-4 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Gestion des utilisateurs</h1>
-            <p className="text-xs text-muted-foreground">Gérez les comptes de la clinique et le code d'auto-inscription</p>
-          </div>
-        </div>
+    <div>
+      {/* Same as `clinic-settings.tsx`: the hand-rolled header is gone because `/users` now renders
+          `<PageHeader title="Utilisateurs">`, and its solid-primary `Users` mark duplicated the route's own
+          page chip. `p-4` went with it — `AppShell` owns the gutter. */}
+      <div className="mx-auto max-w-5xl space-y-4">
 
         {/* Clinic code + regenerate (AC-4.5) */}
-        <Card className="border border-gray-200 dark:border-slate-800">
+        <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Code de la clinique</CardTitle>
+            {/*
+              The icon chip — `app/documents/page.tsx`'s template-tile idiom, sized for a header: the glyph goes
+              inside a tinted `rounded-lg` square rather than loose in the heading's own ink, where it would be
+              more text rather than a mark the eye can find. `config` is this page's zone (`lib/zones.ts`), and
+              it is the deliberately near-neutral one, so two of these down a page stay quiet.
+
+              ⚠️ The `Users` glyph repeats the page title's own chip above. That is accepted rather than worked
+              around: the two are different objects — the page mark is a solid `bg-primary` square with an
+              inverted glyph, the section marks are washes — and inventing a second-choice glyph for the users
+              list purely to avoid the repetition would make the *section* harder to recognise, which is the
+              only thing the chip is for. The honest fix is in the page mark, which hand-rolls its header
+              instead of using `ui/page-header.tsx` + `navIconForPath`: the rail draws `UserCog` for `/users`,
+              and that helper exists precisely so a page never shows one icon while the rail shows another.
+            */}
+            <CardTitle className="flex min-w-0 items-center gap-2.5 text-base leading-snug">
+              <span aria-hidden="true" className={SECTION_CHIP}>
+                <KeyRound className="size-4" strokeWidth={1.75} />
+              </span>
+              Code de la clinique
+            </CardTitle>
           </CardHeader>
           <CardContent>
+            {/* US-3 — the caption used to instruct an admin to hand out a code that, on a hosted deployment, no
+                longer creates anything. Left alone it would be a control that lies, which is worse than a
+                missing one; the card stays (the code is still the clinic's) and says what changed instead. */}
+            {!selfRegistrationEnabled && (
+              <p className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                L&apos;inscription avec le code du cabinet est désactivée sur cette installation : sur Internet, ce
+                code est connu de toute personne ayant travaillé au cabinet. Créez les comptes du personnel avec
+                « Créer un compte » ci-dessous.
+              </p>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <Label className="text-xs text-muted-foreground">À communiquer au personnel pour créer un compte</Label>
+                <Label className="text-xs text-muted-foreground">
+                  {selfRegistrationEnabled
+                    ? "À communiquer au personnel pour créer un compte"
+                    : "Identifiant du cabinet — il ne permet plus de créer un compte"}
+                </Label>
                 <div className="mt-1.5">
                   {clinicCode ? (
                     <Badge
                       variant="outline"
-                      className="border-blue-300 bg-white px-3 py-1 font-mono text-base font-bold text-blue-700 dark:border-blue-700 dark:bg-slate-900 dark:text-blue-300"
+                      className="border-primary/40 bg-card px-3 py-1 font-mono text-base font-bold text-primary"
                     >
                       {clinicCode}
                     </Badge>
@@ -185,24 +373,197 @@ export function UserManagement() {
         </Card>
 
         {/* Users list (AC-5.1) */}
-        <Card className="border border-gray-200 dark:border-slate-800">
+        <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle className="flex min-w-0 flex-wrap items-center gap-2.5 text-base leading-snug">
+              <span aria-hidden="true" className={SECTION_CHIP}>
+                <Users className="size-4" strokeWidth={1.75} />
+              </span>
               Utilisateurs
-              <Badge variant="secondary">{users.length}</Badge>
+              <Badge variant="secondary">{userPage.totalCount}</Badge>
+              {/* `active` is the tone that asks for attention — see `ui/status-tone.ts`; there is no
+                  separate "warning" tone and inventing a seventh colour is how the four private palettes
+                  it replaced came about. */}
+              {pendingCount > 0 && (
+                <Badge variant="secondary" className={statusToneClass("active")}>
+                  {pendingCount} en attente
+                </Badge>
+              )}
             </CardTitle>
+            {/* `CardAction`, not `ms-auto` inside the title (which re-solved what `CardHeader`'s
+                `has-data-[slot=card-action]:grid-cols-[1fr_auto]` already provides). Inside the wrapping title row the
+                ~149 px button dropped to a second line where `ms-auto` right-aligned it alone and pushed the pending
+                badge to a third — a three-line header with the action floating in the middle of it. */}
+            {canCreateAccounts && (
+              <CardAction>
+                <Button
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => {
+                    setCreateError(null)
+                    setCreateOpen(true)
+                  }}
+                >
+                  <UserPlus className="size-4" aria-hidden="true" />
+                  Créer un compte
+                </Button>
+              </CardAction>
+            )}
           </CardHeader>
           <CardContent>
-            {error && (
-              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-                {error}
-              </div>
+            <FormErrorBanner message={error} className="mb-4" />
+            {/*
+              I5 — the one thing this screen has to say out loud.
+
+              A self-registered account is created pending, so a new colleague who typed the clinic code cannot
+              log in until somebody here presses « Réactiver ». They have no way to tell an admin through the
+              product, and the row that needs approving may be on another page — so a badge on the row is not
+              enough. The banner is stated in the plural-aware French the count needs and names the action.
+            */}
+            {pendingCount > 0 && (
+              <p
+                role="status"
+                className="mb-4 rounded-md border border-warning/30 bg-warning-wash px-3 py-2 text-sm text-warning-ink"
+              >
+                {pendingCount === 1
+                  ? "1 compte attend votre activation : cette personne s'est inscrite avec le code du cabinet mais ne peut pas encore se connecter."
+                  : `${pendingCount} comptes attendent votre activation : ces personnes se sont inscrites avec le code du cabinet mais ne peuvent pas encore se connecter.`}{" "}
+                Utilisez « Réactiver » sur la ligne concernée pour lui donner accès.
+              </p>
             )}
+            {/* AC-P2.29 — this screen now also opens in Cloud, where password resets are not ours to do. */}
+            {!canResetPasswords && (
+              <p className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                Les mots de passe sont gérés par le fournisseur d&apos;identité (Auth0) : la réinitialisation
+                depuis cet écran n&apos;est disponible que sur une installation locale. Les rôles et l&apos;accès
+                se modifient ici dans les deux modes.
+              </p>
+            )}
+            <div className="mb-4">
+              <Label htmlFor="users-search" className="sr-only">
+                Rechercher un utilisateur
+              </Label>
+              <Input
+                id="users-search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Rechercher un utilisateur (nom, email)…"
+              />
+            </div>
             {loading ? (
               <p className="py-8 text-center text-muted-foreground">Chargement des utilisateurs…</p>
             ) : (
               <div className="overflow-x-auto">
-                <Table>
+                {/*
+                  Two things this surface does differently.
+
+                  (a) The title falls back to the email. `fullName` renders as "-" in the table when blank,
+                      but a card titled "-" identifies nobody — and the email is what actually names the
+                      account.
+                  (b) The rôle `Select` stays a CONTROL, as the value of a labelled field. It is an action
+                      living in a data column, so moving it into the menu would turn a one-tap change into
+                      two and lose the current value from view; keeping it as a field keeps both.
+                */}
+                <CardList
+                  className={CARDS_ONLY}
+                  ariaLabel="Utilisateurs de la clinique"
+                  items={users}
+                  getKey={(u) => u.id}
+                  title={(u) => u.fullName || u.email || "Compte sans nom"}
+                  subtitle={(u) => (u.fullName ? u.email : null)}
+                  muted={(u) => !u.isActive}
+                  status={(u) => (
+                    <>
+                      {/*
+                        Both halves of the pair go through `statusToneClass` (see the table below for the
+                        same change). « Actif » was `bg-green-600 hover:bg-green-600` — a solid, *button*-
+                        coloured pill with a hover state it never uses, on a span nobody can click — while
+                        « Inactif » was the solid destructive variant. Two solids of unequal loudness for
+                        two values of one field; the tones give both the same shape.
+                      */}
+                      {/* I5: three states, not two. « Inactif » on a five-minute-old self-registration reads as
+                          a bug in the registration the person just completed; « En attente » says an approval is
+                          owed and by whom. `active` is the attention tone, `negative` stays for a real shutdown. */}
+                      {u.isActive ? (
+                        <Badge variant="secondary" className={statusToneClass("positive")}>Actif</Badge>
+                      ) : u.isPendingActivation ? (
+                        <Badge variant="secondary" className={statusToneClass("active")}>En attente d&apos;activation</Badge>
+                      ) : (
+                        <Badge variant="secondary" className={statusToneClass("negative")}>Inactif</Badge>
+                      )}
+                      {u.mustChangePassword && (
+                        <Badge variant="secondary" className="text-2xs">Doit changer le mot de passe</Badge>
+                      )}
+                    </>
+                  )}
+                  fields={(u) => [
+                    {
+                      label: "Rôle",
+                      value: knownRole(u.role) ? (
+                        <Select
+                          value={knownRole(u.role)!}
+                          onValueChange={(value) => setPending({ type: "role", user: u, role: value as UserRole })}
+                          disabled={working}
+                        >
+                          {/* Card side: a card field is label-left / value-right, so a fixed 150px control
+                              plus the « Rôle » label plus the gap overruns a 288px card. Full width here;
+                              the desktop table below keeps its 150px column. Also 44px, not 32 — this is a
+                              real control a secretary changes, not a read-out. */}
+                          <SelectTrigger className="min-h-11 w-full text-sm" aria-label="Rôle">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {USER_ROLES.map((role) => (
+                              <SelectItem key={role} value={role} className="text-sm">
+                                {USER_ROLE_LABELS_FR[role]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Badge variant="outline">{roleLabel(u.role)}</Badge>
+                      ),
+                    },
+                    { label: "Dernière connexion", value: formatDate(u.lastLoginAt) },
+                  ]}
+                  actions={(u) => {
+                    const isSelf = !!u.email && u.email === currentUser?.email
+                    return (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label={`Actions pour ${u.fullName || u.email}`}>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {canResetPasswords && (
+                            <DropdownMenuItem onSelect={() => setPending({ type: "reset", user: u })}>
+                              Réinitialiser le mot de passe
+                            </DropdownMenuItem>
+                          )}
+                          {u.isActive ? (
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              disabled={isSelf}
+                              onSelect={() => setPending({ type: "status", user: u })}
+                            >
+                              Désactiver
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem onSelect={() => setPending({ type: "status", user: u })}>
+                              {/* « Réactiver » is wrong for an account that was never active. */}
+                              {u.isPendingActivation ? "Activer le compte" : "Réactiver"}
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )
+                  }}
+                  empty={
+                    debouncedSearch ? "Aucun utilisateur ne correspond à votre recherche" : "Aucun utilisateur"
+                  }
+                />
+                <Table containerClassName={TABLE_ONLY}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Nom</TableHead>
@@ -217,7 +578,9 @@ export function UserManagement() {
                     {users.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                          Aucun utilisateur
+                          {debouncedSearch
+                            ? "Aucun utilisateur ne correspond à votre recherche"
+                            : "Aucun utilisateur"}
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -230,32 +593,63 @@ export function UserManagement() {
                           <TableCell className="font-medium text-foreground">{user.fullName || "-"}</TableCell>
                           <TableCell className="text-muted-foreground">{user.email || "-"}</TableCell>
                           <TableCell>
-                            <Badge variant="outline">{roleLabel(user.role)}</Badge>
+                            {/* AC-P2.23 — no user's role could ever be changed, so a member onboarded with the
+                                wrong one had to be deactivated and re-registered. A legacy value outside the
+                                closed set keeps the read-only badge: pre-selecting a role we did not store
+                                would misreport what the account actually holds. */}
+                            {knownRole(user.role) ? (
+                              <Select
+                                value={knownRole(user.role)!}
+                                onValueChange={(value) =>
+                                  setPending({ type: "role", user, role: value as UserRole })
+                                }
+                                disabled={working}
+                              >
+                                <SelectTrigger className="h-8 w-[150px] text-sm" aria-label="Rôle">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {USER_ROLES.map((role) => (
+                                    <SelectItem key={role} value={role} className="text-sm">
+                                      {USER_ROLE_LABELS_FR[role]}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Badge variant="outline">{roleLabel(user.role)}</Badge>
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap items-center gap-1.5">
                               {user.isActive ? (
-                                <Badge className="bg-green-600 hover:bg-green-600">Actif</Badge>
+                                <Badge variant="secondary" className={statusToneClass("positive")}>Actif</Badge>
+                              ) : user.isPendingActivation ? (
+                                <Badge variant="secondary" className={statusToneClass("active")}>
+                                  En attente d&apos;activation
+                                </Badge>
                               ) : (
-                                <Badge variant="destructive">Inactif</Badge>
+                                <Badge variant="secondary" className={statusToneClass("negative")}>Inactif</Badge>
                               )}
                               {user.mustChangePassword && (
-                                <Badge variant="secondary" className="text-[10px]">Doit changer le mot de passe</Badge>
+                                <Badge variant="secondary" className="text-2xs">Doit changer le mot de passe</Badge>
                               )}
                             </div>
                           </TableCell>
                           <TableCell className="text-muted-foreground">{formatDate(user.lastLoginAt)}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 gap-1"
-                                onClick={() => setPending({ type: "reset", user })}
-                              >
-                                <KeyRound className="h-3 w-3" />
-                                Réinitialiser le mot de passe
-                              </Button>
+                              {canResetPasswords && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 gap-1"
+                                  onClick={() => setPending({ type: "reset", user })}
+                                >
+                                  <KeyRound className="h-3 w-3" />
+                                  Réinitialiser le mot de passe
+                                </Button>
+                              )}
                               {user.isActive ? (
                                 <Button
                                   variant="ghost"
@@ -276,7 +670,7 @@ export function UserManagement() {
                                   onClick={() => setPending({ type: "status", user })}
                                 >
                                   <UserCheck className="h-3 w-3" />
-                                  Réactiver
+                                  {user.isPendingActivation ? "Activer le compte" : "Réactiver"}
                                 </Button>
                               )}
                             </div>
@@ -287,6 +681,13 @@ export function UserManagement() {
                     )}
                   </TableBody>
                 </Table>
+                <DataTablePagination
+                  page={userPage}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                  loading={loading}
+                  label={["utilisateur", "utilisateurs"]}
+                />
               </div>
             )}
           </CardContent>
@@ -300,8 +701,13 @@ export function UserManagement() {
             <AlertDialogTitle>
               {pending?.type === "reset" && "Réinitialiser le mot de passe de cet utilisateur ?"}
               {pending?.type === "status" &&
-                (pending.user.isActive ? "Désactiver cet utilisateur ?" : "Réactiver cet utilisateur ?")}
+                (pending.user.isActive
+                  ? "Désactiver cet utilisateur ?"
+                  : pending.user.isPendingActivation
+                    ? "Activer ce compte ?"
+                    : "Réactiver cet utilisateur ?")}
               {pending?.type === "regenerate" && "Régénérer le code de la clinique ?"}
+              {pending?.type === "role" && "Modifier le rôle de cet utilisateur ?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pending?.type === "reset" && (
@@ -317,13 +723,33 @@ export function UserManagement() {
                   Ses données historiques sont conservées.
                 </>
               )}
-              {pending?.type === "status" && !pending.user.isActive && (
+              {pending?.type === "status" && !pending.user.isActive && pending.user.isPendingActivation && (
+                <>
+                  {/* I5 — this is an access grant, not a restoration. Naming the role is the point: it is what
+                      the person chose for themselves at registration, and it decides what they can see. */}
+                  <span className="font-semibold">{pending.user.email}</span> s&apos;est inscrit(e) avec le code
+                  du cabinet et pourra se connecter en tant que{" "}
+                  <span className="font-semibold">{USER_ROLE_LABELS_FR[pending.user.role as UserRole] ?? pending.user.role}</span>.
+                  Vérifiez qu&apos;il s&apos;agit bien d&apos;un membre de votre équipe : le compte donne accès aux
+                  dossiers des patients.
+                </>
+              )}
+              {pending?.type === "status" && !pending.user.isActive && !pending.user.isPendingActivation && (
                 <>
                   <span className="font-semibold">{pending.user.email}</span> pourra de nouveau se connecter.
                 </>
               )}
               {pending?.type === "regenerate" &&
                 "Le code actuel cessera de fonctionner pour les nouvelles inscriptions. Les comptes existants ne sont pas affectés."}
+              {pending?.type === "role" && (
+                <>
+                  <span className="font-semibold">{pending.user.email || pending.user.fullName}</span> passera de{" "}
+                  <span className="font-semibold">{roleLabel(pending.user.role)}</span> à{" "}
+                  <span className="font-semibold">{USER_ROLE_LABELS_FR[pending.role]}</span>. Sa session actuelle
+                  est révoquée : le nouveau rôle s&apos;applique dès sa prochaine requête, et il devra peut-être
+                  se reconnecter.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -335,18 +761,185 @@ export function UserManagement() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Temp password display (AC-5.2) — shown once for the admin to relay */}
-      <Dialog open={tempPassword !== null} onOpenChange={(open) => !open && setTempPassword(null)}>
+      {/*
+        « Créer un compte » (US-3). No password field, deliberately: the server mints one, so an admin cannot
+        set a weak shared secret, and the account is forced to replace it at first login. Not a `Sheet` below
+        `md:` — three short fields is a light surface, not a data-entry one (§ 5).
+      */}
+      <Dialog open={createOpen} onOpenChange={(open) => !creating && setCreateOpen(open)}>
         <DialogContent>
           <DialogHeader>
+            <DialogTitle>Créer un compte</DialogTitle>
+            <DialogDescription>
+              Le mot de passe est généré et affiché une seule fois. La personne devra le changer à sa première
+              connexion.
+            </DialogDescription>
+          </DialogHeader>
+          <FormErrorBanner message={createError} />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="create-user-fullname">Nom complet</Label>
+              <Input
+                id="create-user-fullname"
+                value={createFullName}
+                onChange={(e) => setCreateFullName(e.target.value)}
+                autoComplete="off"
+                disabled={creating}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-user-email">Email</Label>
+              <Input
+                id="create-user-email"
+                type="email"
+                value={createEmail}
+                onChange={(e) => setCreateEmail(e.target.value)}
+                autoComplete="off"
+                disabled={creating}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-user-role">Rôle</Label>
+              <Select
+                value={createRole}
+                onValueChange={(value) => setCreateRole(value as UserRole)}
+                disabled={creating}
+              >
+                {/* `w-full` because the primitive's base is `w-fit`: without it this renders as a ~110 px stub in a
+                    240 px column of full-width fields, and being shrink-to-fit it *changes width* when the admin
+                    picks « Administrateur » over « Secrétaire », reflowing the field mid-interaction. */}
+                <SelectTrigger id="create-user-role" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {USER_ROLES.map((role) => (
+                    <SelectItem key={role} value={role}>
+                      {USER_ROLE_LABELS_FR[role]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Le compte donne accès aux dossiers des patients. Le rôle décide de ce qu&apos;il peut consulter.
+              </p>
+            </div>
+
+            {/*
+              The practitioner behind a « médecin » account. Required by the server for that role and shown only for
+              it, exactly as « Rejoindre une clinique » does — an admin or a secretary is not a practitioner.
+              Without these the account got no `Doctor` record, so the person was absent from the praticien lists,
+              « Mon profil » had nothing to edit, the money they collected was unattributed, and their ordonnances
+              and certificats printed with **no** cachet and no n° d'ordre CNOMDT.
+            */}
+            {createRole === "doctor" && (
+              <div className="space-y-4 rounded-lg border bg-muted/40 p-3">
+                <p className="text-xs text-muted-foreground">
+                  Ces informations créent la fiche praticien : elles apparaissent sur les ordonnances, les
+                  certificats et les bulletins CNAM.
+                </p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="create-user-firstname">Prénom du praticien</Label>
+                    <Input
+                      id="create-user-firstname"
+                      value={createFirstName}
+                      onChange={(e) => setCreateFirstName(e.target.value)}
+                      autoComplete="off"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="create-user-lastname">Nom du praticien</Label>
+                    <Input
+                      id="create-user-lastname"
+                      value={createLastName}
+                      onChange={(e) => setCreateLastName(e.target.value)}
+                      autoComplete="off"
+                      disabled={creating}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="create-user-specialty">Spécialité</Label>
+                  <Select
+                    value={createSpecialty}
+                    onValueChange={setCreateSpecialty}
+                    disabled={creating}
+                  >
+                    <SelectTrigger id="create-user-specialty" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DOCTOR_SPECIALTIES.map((specialty) => (
+                        <SelectItem key={specialty} value={specialty}>
+                          {specialtyLabel(specialty)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+          </div>
+          {/* `coarse:h-11` — the default Button is `h-9` (36 px), under the § 2 floor on a finger. */}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="coarse:h-11"
+              onClick={() => setCreateOpen(false)}
+              disabled={creating}
+            >
+              Annuler
+            </Button>
+            {/* The praticien terms are part of the gate for the doctor role, so the server's refusal is unreachable
+                rather than merely unlikely — the same reasoning as `chequePaymentFields()`. */}
+            <Button
+              className="coarse:h-11"
+              onClick={submitCreate}
+              disabled={
+                creating ||
+                !createEmail.trim() ||
+                !createFullName.trim() ||
+                (createRole === "doctor" &&
+                  (!createFirstName.trim() || !createLastName.trim() || !createSpecialty))
+              }
+            >
+              {creating ? "Création…" : "Créer le compte"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Temp password display (AC-5.2) — shown once for the admin to relay */}
+      <Dialog open={tempPassword !== null} onOpenChange={(open) => !open && setTempPassword(null)}>
+        {/*
+          `onInteractOutside` prevented because this dialog is *opened by* `submitCreate` in the same commit that
+          closes « Créer un compte » — i.e. while the admin's thumb is still travelling from the button they just
+          pressed, which on a phone sat where this sheet's content now lands. Below `md:` it renders as a ~300 px
+          bottom sheet under ~540 px of live overlay, and Radix closes on a tap anywhere in that band. Escape, the ✕
+          and « Terminé » stay as deliberate exits, so § 2's keyboard requirement is untouched.
+        */}
+        <DialogContent onInteractOutside={(event) => event.preventDefault()}>
+          <DialogHeader>
             <DialogTitle>Mot de passe temporaire</DialogTitle>
+            {/*
+              The copy no longer denies a recovery that exists: `usersApi.resetPassword` is gated on the same
+              condition as account creation, so « Réinitialiser le mot de passe » on the new row does regenerate one.
+              Saying « affiché une seule fois » alone made a lost password read as an unrecoverable mistake.
+            */}
             <DialogDescription>
               Communiquez-le à {tempPassword?.email || "l'utilisateur"}. Il n'est affiché qu'une seule fois et
-              l'utilisateur devra le changer à la prochaine connexion.
+              l'utilisateur devra le changer à la prochaine connexion. Si vous le perdez, utilisez
+              « Réinitialiser le mot de passe » sur la ligne de ce compte pour en générer un nouveau.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 rounded-lg border bg-muted p-3">
-            <code className="flex-1 font-mono text-lg font-bold tracking-wider">{tempPassword?.password}</code>
+            {/* `min-w-0` because a flex item's automatic minimum is its min-content width, and a monospace
+                password has no break opportunity — without it the string cannot shrink and pushes « Copier »
+                out of the dialog. `break-all` lets it wrap rather than overflow once it can shrink. */}
+            <code className="min-w-0 flex-1 break-all font-mono text-lg font-bold tracking-wider">
+              {tempPassword?.password}
+            </code>
             <Button variant="outline" size="sm" className="gap-1" onClick={copyTempPassword}>
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               {copied ? "Copié" : "Copier"}

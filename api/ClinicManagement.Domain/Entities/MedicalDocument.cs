@@ -5,6 +5,10 @@ namespace ClinicManagement.Domain.Entities;
 public class MedicalDocument : Entity<Guid>
 {
     public Guid PatientId { get; private set; }
+
+    /// <summary>The owning clinic, denormalised from <see cref="Patient"/>. See <see cref="PatientMedicalHistory.ClinicId"/>.</summary>
+    public Guid ClinicId { get; private set; }
+
     public string DocumentType { get; private set; } // prescription, liaison, honoraires, certificat
     public DateTime DocumentDate { get; private set; }
     
@@ -44,6 +48,7 @@ public class MedicalDocument : Entity<Guid>
     public MedicalDocument(
         Guid id,
         Guid patientId,
+        Guid clinicId,
         string documentType,
         DateTime documentDate,
         string patientName,
@@ -71,6 +76,7 @@ public class MedicalDocument : Entity<Guid>
         
         Id = id;
         PatientId = patientId;
+        ClinicId = clinicId;
         DocumentType = documentType;
         DocumentDate = documentDate;
         PatientName = patientName;

@@ -93,9 +93,9 @@ export function ActSlot({
         />
 
         <div className="min-w-0 flex-1 basis-48">
-          <p className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.09em] text-muted-foreground">
+          <p className="flex items-center gap-1.5 font-mono text-2xs uppercase tracking-[0.09em] text-muted-foreground">
             {editingAct ? (
-              <Badge variant="outline" className="border-amber-500 text-[9px] text-amber-700 dark:text-amber-300">
+              <Badge variant="outline" className="border-amber-500 text-2xs text-amber-700 dark:text-amber-300">
                 Modification
               </Badge>
             ) : proposedFromAppointment ? (
@@ -107,7 +107,7 @@ export function ActSlot({
           <p className="mt-0.5 text-sm font-semibold leading-tight" title={draft.procedureName}>
             {draft.procedureName}
           </p>
-          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted-foreground">
             {condition ? (
               <span className="flex items-center gap-1.5">
                 <span className={cn("h-2 w-2 rounded-full", condition.swatch)} />

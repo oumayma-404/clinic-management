@@ -1,112 +1,190 @@
 using MediatR;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
-using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 
+using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Application.Features.Recall.Queries;
 
 /// <summary>
-/// The "patients à relancer" list — clinic patients whose next recall is due or overdue. Due date is derived
-/// from each patient's last completed visit (or creation date if never seen) + the clinic recall interval.
-/// Excludes patients with a future Scheduled/Confirmed appointment (they don't need a recall) or an active
-/// snooze. Most overdue first. Clinic-scoped.
+/// The « à rappeler » worklist — every patient worth calling, and why.
+///
+/// <para>Four reasons are aggregated per patient: an <b>overdue échéance</b>, a <b>stalled devis</b> (accepted, acts
+/// left, nothing booked), an <b>unanswered devis</b>, and the original <b>overdue visit</b>. The last one used to be
+/// the whole feature, which for a perio/implant practice is the least informative of the four — a patient seen last
+/// week who stopped halfway through an accepted plan is both lost revenue and an unfinished surgical case, and a
+/// time-since-last-visit rule can never surface them.</para>
+///
+/// <para>Excludes, for every reason alike, patients who are archived, snoozed, or have a future booking. A patient who
+/// is coming in on Tuesday is not chased — whatever the reason, staff handle it in the chair.</para>
+///
+/// <para>Four reads total, all clinic-scoped projections: the eligible population, plan facts, installment
+/// outstanding (which already computes the oldest overdue due date for « Créances »), and the bridge links needed to
+/// de-duplicate a devis already billed to an invoice.</para>
 /// </summary>
-public class GetPatientsToRecallQuery : IRequest<Result<IEnumerable<RecallDto>>>
+public class GetPatientsToRecallQuery : IRequest<Result<PagedResult<RecallDto>>>
 {
+    /// <summary>1-based page and page size. Both null = every patient due.</summary>
+    public int? Page { get; set; }
+    public int? PageSize { get; set; }
+
+    /// <summary>
+    /// Free-text filter over the patient's name and phone. Matched <b>in memory</b>, like « Créances » — see the
+    /// paging comment below for why this read has no queryable final set.
+    /// </summary>
+    public string? SearchTerm { get; set; }
 }
 
-public class GetPatientsToRecallQueryHandler : IRequestHandler<GetPatientsToRecallQuery, Result<IEnumerable<RecallDto>>>
+public class GetPatientsToRecallQueryHandler : IRequestHandler<GetPatientsToRecallQuery, Result<PagedResult<RecallDto>>>
 {
     private readonly IPatientRepository _patientRepository;
-    private readonly IAppointmentRepository _appointmentRepository;
     private readonly IClinicRepository _clinicRepository;
+    private readonly ITreatmentPlanRepository _planRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
 
     public GetPatientsToRecallQueryHandler(
         IPatientRepository patientRepository,
-        IAppointmentRepository appointmentRepository,
         IClinicRepository clinicRepository,
+        ITreatmentPlanRepository planRepository,
+        IInvoiceRepository invoiceRepository,
         ICurrentClinicResolver clinicResolver)
     {
         _patientRepository = patientRepository;
-        _appointmentRepository = appointmentRepository;
         _clinicRepository = clinicRepository;
+        _planRepository = planRepository;
+        _invoiceRepository = invoiceRepository;
         _clinicResolver = clinicResolver;
     }
 
-    public async Task<Result<IEnumerable<RecallDto>>> Handle(GetPatientsToRecallQuery request, CancellationToken cancellationToken)
+    public async Task<Result<PagedResult<RecallDto>>> Handle(GetPatientsToRecallQuery request, CancellationToken cancellationToken)
     {
         try
         {
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinicResult.IsFailure)
-                return Result<IEnumerable<RecallDto>>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
+                return Result<PagedResult<RecallDto>>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             var clinicId = clinicResult.Value;
 
             var clinic = await _clinicRepository.GetByIdAsync(clinicId, cancellationToken);
-            var intervalMonths = clinic?.RecallIntervalMonths ?? 6;
+            var intervalMonths = clinic?.RecallIntervalMonths ?? RecallDueRule.DefaultIntervalMonths;
 
             var now = DateTime.UtcNow;
-            // Archived patients are excluded: relancing someone the clinic has archived is exactly what
-            // archiving is meant to stop.
-            var patients = await _patientRepository.GetByClinicIdAsync(
-                clinicId, cancellationToken: cancellationToken);
-            var appointments = await _appointmentRepository.GetByClinicIdAsync(clinicId, cancellationToken: cancellationToken);
 
-            var apptsByPatient = appointments
-                .Where(a => a.PatientId.HasValue)
-                .GroupBy(a => a.PatientId!.Value)
+            // The same de-duplication every money read applies: a devis already represented by a non-cancelled
+            // invoice is counted through that invoice, so its échéancier must not also be chased here.
+            var billedPlanIds = PlanBillingRules.BilledPlanIds(
+                await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken));
+
+            var planFacts = (await _planRepository.GetRecallPlanFactsAsync(clinicId, cancellationToken))
+                .Where(p => !billedPlanIds.Contains(p.PlanId))
+                .ToList();
+            var plansByPatient = planFacts
+                .GroupBy(p => p.PatientId)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
+            var installments = await _planRepository.GetInstallmentOutstandingByPatientAsync(
+                clinicId, now, billedPlanIds, cancellationToken);
+            var installmentByPatient = installments.ToDictionary(r => r.PatientId, r => r);
+
+            // Patients a non-visit reason already qualifies. They must come back from the population read even though
+            // their last visit may be recent — a stalled devis has nothing to do with when they were last seen.
+            // Passed as an explicit id set rather than by dropping the date bound, which would re-open the § 9.6
+            // full-scan (AC-P4.41). Both source sets are naturally small: plans in flight, and patients with debt.
+            var alwaysInclude = planFacts
+                .Where(p => RecallWorklistRules.IsStalled(p, now) || RecallWorklistRules.IsUnanswered(p, now))
+                .Select(p => p.PatientId)
+                .Concat(installments.Where(r => r.OldestOverdueDueDate != null).Select(r => r.PatientId))
+                .Distinct()
+                .ToList();
+
+            // The archived / snoozed / future-booking exclusions still apply to those ids — being owed money does not
+            // override an archive, and a patient coming in on Tuesday is handled in the chair.
+            var anchorOnOrBefore = RecallDueRule.AnchorUpperBound(now, intervalMonths);
+            var candidates = await _patientRepository.GetRecallCandidatesAsync(
+                clinicId, anchorOnOrBefore, now, alwaysInclude, cancellationToken);
+
             var recalls = new List<RecallDto>();
-            foreach (var patient in patients)
+            foreach (var candidate in candidates)
             {
-                var appts = apptsByPatient.TryGetValue(patient.Id, out var list)
-                    ? list
-                    : new List<Domain.Entities.Appointment>();
+                plansByPatient.TryGetValue(candidate.PatientId, out var plans);
+                installmentByPatient.TryGetValue(candidate.PatientId, out var money);
 
-                // A patient with a future booked appointment does not need a recall.
-                var hasFutureBooking = appts.Any(a => a.AppointmentDateTime > now &&
-                    (a.Status == AppointmentStatus.Scheduled || a.Status == AppointmentStatus.Confirmed));
-                if (hasFutureBooking)
+                var reasons = RecallWorklistRules.ReasonsFor(
+                    candidate.RecallAnchorUtc,
+                    intervalMonths,
+                    plans ?? new List<RecallPlanFact>(),
+                    money.OldestOverdueDueDate,
+                    money.Outstanding,
+                    now);
+
+                if (reasons.Count == 0)
                     continue;
 
-                // An active snooze temporarily removes the patient from the list.
-                if (patient.RecallSnoozedUntil.HasValue && patient.RecallSnoozedUntil.Value > now)
-                    continue;
-
-                var completedDates = appts
-                    .Where(a => a.Status == AppointmentStatus.Completed)
-                    .Select(a => a.AppointmentDateTime)
-                    .ToList();
-                DateTime? lastVisit = completedDates.Count > 0 ? completedDates.Max() : null;
-
-                var dueDate = (lastVisit ?? patient.CreatedAt).AddMonths(intervalMonths);
-                if (dueDate > now)
-                    continue;
-
+                var headline = reasons[0];
                 recalls.Add(new RecallDto
                 {
-                    PatientId = patient.Id,
-                    PatientName = patient.GetFullName(),
-                    PhoneNumber = patient.PhoneNumber?.Value,
-                    LastVisitDate = lastVisit,
-                    DueDate = dueDate,
-                    DaysOverdue = Math.Max(0, (now.Date - dueDate.Date).Days),
-                    Reason = patient.RecallReason,
-                    LastContactedAt = patient.LastRecallContactedAt
+                    PatientId = candidate.PatientId,
+                    PatientName = $"{candidate.FirstName} {candidate.LastName}",
+                    PhoneNumber = candidate.PhoneNumber,
+                    LastVisitDate = candidate.LastCompletedVisitUtc,
+                    DueDate = headline.DueSince,
+                    DaysOverdue = DaysOverdue(headline.DueSince, now),
+                    PrimaryReason = headline.Kind.ToString(),
+                    Reasons = reasons
+                        .Select(r => new RecallReasonDto
+                        {
+                            Kind = r.Kind.ToString(),
+                            DueSince = r.DueSince,
+                            DaysOverdue = DaysOverdue(r.DueSince, now),
+                            Detail = r.Detail
+                        })
+                        .ToList(),
+                    Note = candidate.RecallReason,
+                    LastContactedAt = candidate.LastRecallContactedAt
                 });
             }
 
-            var sorted = recalls.OrderByDescending(r => r.DaysOverdue).ThenBy(r => r.PatientName).ToList();
-            return Result<IEnumerable<RecallDto>>.Success(sorted);
+            // Most urgent kind first, then longest-waiting — so money and stalled surgical cases lead the list
+            // rather than a routine six-month check-up.
+            var sorted = recalls
+                .OrderBy(r => ReasonRank(r.PrimaryReason))
+                .ThenByDescending(r => r.DaysOverdue)
+                .ThenBy(r => r.PatientName)
+                .ToList();
+
+            // Filtered and paged in memory, and unavoidably so: SQL returns a deliberate SUPERSET (the recall
+            // anchor bound is widened by three days because inverting `AddMonths` is not equivalent at month
+            // boundaries — AC-P4.42), and the exact `RecallDueRule.IsDue` test plus the reason ranking are both
+            // applied here. Which patients are actually due, and in what order, is therefore not known until this
+            // point, so there is no query to put a LIMIT on. The SQL read is already bounded by the candidate
+            // predicate, not by the clinic's whole patient list.
+            var filtered = string.IsNullOrWhiteSpace(request.SearchTerm)
+                ? sorted
+                : sorted.Where(r => SearchTerm.Matches(request.SearchTerm, r.PatientName, r.PhoneNumber)).ToList();
+
+            return Result<PagedResult<RecallDto>>.Success(
+                PagedResult<RecallDto>.FromSource(filtered, PageRequest.From(request.Page, request.PageSize)));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IEnumerable<RecallDto>>.Failure($"Erreur lors du calcul des patients à relancer : {ex.Message}");
+            return Result<PagedResult<RecallDto>>.Failure($"Erreur lors du calcul des patients à rappeler : {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// How many days an échéance has been late, counted in <b>calendar days of the clinic's own day</b>
+    /// (AC-P6.4). `nowUtc.Date` was the UTC day, so between 00:00 and 01:00 Tunis every « en retard depuis N
+    /// jours » on this list was a day short — and this read takes no date arguments, so no caller could correct
+    /// it.
+    /// </summary>
+    private static int DaysOverdue(DateTime dueSince, DateTime nowUtc) =>
+        Math.Max(0, (ClinicClock.ClinicToday(nowUtc) - dueSince.Date).Days);
+
+    private static int ReasonRank(string kind) =>
+        Enum.TryParse<RecallReasonKind>(kind, out var parsed) ? (int)parsed : int.MaxValue;
 }

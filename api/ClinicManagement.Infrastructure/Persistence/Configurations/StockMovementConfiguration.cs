@@ -22,5 +22,15 @@ public class StockMovementConfiguration : IEntityTypeConfiguration<StockMovement
         builder.Property(m => m.CreatedAt).IsRequired();
 
         builder.HasIndex(m => new { m.StockItemId, m.CreatedAt });
+
+        // AC-P4.35 — ClinicId is appended to EVERY read of this table by the global query filter, and was
+        // unindexed. It also had no FK at all, so a movement could outlive the clinic it belongs to.
+        // Cascade + index follow the StockItemConfiguration template exactly.
+        builder.HasOne<Clinic>()
+            .WithMany()
+            .HasForeignKey(m => m.ClinicId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(m => m.ClinicId);
     }
 }

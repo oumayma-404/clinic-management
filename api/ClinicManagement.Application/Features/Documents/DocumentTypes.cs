@@ -12,4 +12,11 @@ public static class DocumentTypes
     public const string Certificat = "certificat";
     public const string Honoraires = "honoraires";
     public const string BulletinCnam = "bulletin-cnam";
+
+    /// <summary>
+    /// « Certificat médical d'arrêt de travail » — stamped onto the genuine CNAM <b>P 061</b> form (L11).
+    /// A token only: the type is otherwise indistinguishable from its siblings, which is what lets the create /
+    /// update / naming / render paths each recognise it by comparing to this constant instead of a literal.
+    /// </summary>
+    public const string ArretTravail = "arret-travail";
 }

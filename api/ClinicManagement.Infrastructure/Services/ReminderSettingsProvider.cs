@@ -81,6 +81,17 @@ public class ReminderSettingsProvider : IReminderSettingsProvider
 
             LeadTimeHours = ResolveLeadTimeHours(clinic),
             MessageTemplateBody = clinic?.MessageTemplateBody,
+
+            // Outbound email (SMTP) — same per-clinic-else-per-install rule as the two message channels, and
+            // the same secret handling: a per-clinic password that can no longer be decrypted resolves to null
+            // rather than silently falling back to the install's, because the clinic chose its own identity.
+            SmtpHost = clinic?.SmtpHost ?? SmtpConfig.Host(_configuration),
+            SmtpPort = clinic?.SmtpPort ?? SmtpConfig.Port(_configuration),
+            SmtpUseTls = clinic?.SmtpUseTls ?? SmtpConfig.UseTls(_configuration),
+            SmtpUsername = clinic?.SmtpUsername ?? SmtpConfig.Username(_configuration),
+            SmtpPassword = ResolveSecret(clinic?.SmtpPasswordEncrypted, SmtpConfig.Password(_configuration), NotificationType.Email),
+            SmtpFromAddress = clinic?.SmtpFromAddress ?? SmtpConfig.FromAddress(_configuration),
+            SmtpFromName = clinic?.SmtpFromName ?? SmtpConfig.FromName(_configuration),
         };
 
         _resolveCache[cacheKey] = resolved;

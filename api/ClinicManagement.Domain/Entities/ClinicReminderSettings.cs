@@ -42,6 +42,20 @@ public class ClinicReminderSettings : Entity<Guid>
     public string? WhatsAppLastError { get; private set; }
     public DateTime? WhatsAppConnectedAt { get; private set; }
 
+    // Outbound email (SMTP) — the channel that sends generated documents to a patient or a confrère. It lives
+    // on this row rather than in a parallel settings aggregate because everything it needs already exists here:
+    // per-clinic-else-per-install resolution, write-only encrypted secrets, and one admin screen. A separate
+    // aggregate + provider + protector for one channel's four fields would be duplication, not separation.
+    // null/blank = inherit the per-install Notification:Smtp config. Each clinic sends from its own address:
+    // a document carries a practitioner's name, so a shared sender would misattribute it.
+    public string? SmtpHost { get; private set; }
+    public int? SmtpPort { get; private set; }
+    public bool? SmtpUseTls { get; private set; }
+    public string? SmtpUsername { get; private set; }
+    public string? SmtpPasswordEncrypted { get; private set; }
+    public string? SmtpFromAddress { get; private set; }
+    public string? SmtpFromName { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -139,6 +153,34 @@ public class ClinicReminderSettings : Entity<Guid>
     public void SetWhatsAppAccessTokenEncrypted(string ciphertext)
     {
         WhatsAppAccessTokenEncrypted = ciphertext ?? throw new ArgumentNullException(nameof(ciphertext));
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Replaces the non-secret SMTP settings. Blank strings and a non-positive port normalize to <c>null</c>
+    /// (= inherit the per-install value); the password is set separately, write-only.
+    /// </summary>
+    public void ApplySmtpSettings(
+        string? smtpHost,
+        int? smtpPort,
+        bool? smtpUseTls,
+        string? smtpUsername,
+        string? smtpFromAddress,
+        string? smtpFromName)
+    {
+        SmtpHost = Normalize(smtpHost);
+        SmtpPort = smtpPort is > 0 ? smtpPort : null;
+        SmtpUseTls = smtpUseTls;
+        SmtpUsername = Normalize(smtpUsername);
+        SmtpFromAddress = Normalize(smtpFromAddress);
+        SmtpFromName = Normalize(smtpFromName);
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Stores a new (already-encrypted) SMTP password. Only call when the admin supplied a new value.</summary>
+    public void SetSmtpPasswordEncrypted(string ciphertext)
+    {
+        SmtpPasswordEncrypted = ciphertext ?? throw new ArgumentNullException(nameof(ciphertext));
         UpdatedAt = DateTime.UtcNow;
     }
 

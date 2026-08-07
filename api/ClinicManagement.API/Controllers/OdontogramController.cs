@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using ClinicManagement.Application.Common.Authorization;
 using Microsoft.AspNetCore.Http;
 using MediatR;
 using ClinicManagement.Application.DTOs;
@@ -8,9 +9,19 @@ using ClinicManagement.Application.Features.Patients.Queries;
 
 namespace ClinicManagement.API.Controllers;
 
+/// <summary>
+/// The odontogram — charted diagnoses and completed treatments per tooth. <b><c>AnyClinicRole</c></b>: the chart
+/// is part of the patient record the whole cabinet works from, and it was <c>AdminOrDoctor</c>, so the strip on
+/// the patient page 403'd for a secretary before they had touched anything.
+///
+/// <para><see cref="RemoveCondition"/> deliberately inherits the class policy rather than tightening to
+/// <c>AdminOrDoctor</c> like the clinical-record deletes: it removes a <b>charted diagnosis</b> — charting's own
+/// undo, for the tooth someone just mis-clicked — and it cannot touch a treatment entry, which is edited through
+/// the fiche de soins that produced it.</para>
+/// </summary>
 [ApiController]
 [Route("api/patients/{patientId:guid}/odontogram")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class OdontogramController : ApiControllerBase
 {
     private readonly IMediator _mediator;

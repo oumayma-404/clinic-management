@@ -14,11 +14,18 @@ namespace ClinicManagement.Application.Features.Documents.Queries;
 /// </summary>
 public class GetPractitionerRenderSnapshotQuery : IRequest<Result<PractitionerRenderSnapshotDto>>
 {
+    /// <summary>
+    /// The practitioner the document names, when the editor chose one. Resolved ahead of the caller's own doctor
+    /// record and tenant-checked (<c>PractitionerRenderSnapshot.ResolveAsync</c>) — so the previewed and printed
+    /// copy carries the named practitioner's cachet, not the cachet of whoever pressed the button.
+    /// </summary>
+    public Guid? IssuingDoctorId { get; set; }
 }
 
 public class PractitionerRenderSnapshotDto
 {
     public string? ClinicCity { get; set; }
+    public string? ClinicEmail { get; set; }
     public string? DoctorOrdreNumber { get; set; }
     public string? DoctorCachetKey { get; set; }
     public string? DoctorCachetContentType { get; set; }
@@ -62,11 +69,13 @@ public class GetPractitionerRenderSnapshotQueryHandler
             }
 
             var snapshot = await PractitionerRenderSnapshot.ResolveAsync(
-                userId, user.ClinicId, _doctorRepository, _clinicRepository, cancellationToken);
+                request.IssuingDoctorId, userId, user.ClinicId,
+                _doctorRepository, _clinicRepository, cancellationToken);
 
             return Result<PractitionerRenderSnapshotDto>.Success(new PractitionerRenderSnapshotDto
             {
                 ClinicCity = snapshot.ClinicCity,
+                ClinicEmail = snapshot.ClinicEmail,
                 DoctorOrdreNumber = snapshot.DoctorOrdreNumber,
                 DoctorCachetKey = snapshot.DoctorCachetKey,
                 DoctorCachetContentType = snapshot.DoctorCachetContentType

@@ -1,10 +1,13 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useRef } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Button } from "@/components/ui/button"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -26,8 +29,11 @@ import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
 import type { TreatmentPlanDto, PatientDto, DentalActDto, ProcedureTypeDto } from "@/lib/api/types"
-import { formatDT } from "@/lib/format"
+import { formatAmount, formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
 import { ToothMultiSelect } from "@/components/tooth-multiselect"
+import { conditionStyle } from "@/components/odontogram-conditions"
+import { cn } from "@/lib/utils"
+import { planItemState } from "@/components/treatment-plans/plan-next-action"
 
 interface LineRow {
   /**
@@ -45,13 +51,39 @@ interface LineRow {
    */
   procedureTypeId: string | null
   designationFr: string
+  /**
+   * The charted diagnosis this row was seeded from, e.g. « Carie — dent 15 ». Display only — it is a reason to
+   * treat, not an act, so it is never sent to the server. Empty for a hand-added row.
+   */
+  diagnosisLabel?: string
+  /** The condition behind that label, so the hint can use its own colour from the odontogram palette. */
+  diagnosisCondition?: string
   plannedCost: string
+  /**
+   * Has the dentist typed this fee themselves? Until they do, it **follows** whichever act the row is set to,
+   * so picking a different act reprices the line.
+   *
+   * The guard this replaces was `plannedCost === ""` — prefill only an empty field — which could not tell a fee
+   * the dentist typed from one a *previous pick* had prefilled, and so protected both. Any row arriving with a
+   * cost (every odontogram seed does) therefore kept its original fee through every subsequent change of act:
+   * « Détartrage » priced at the couronne's fee.
+   */
+  costTouched: boolean
   toothNumbers: number[]
 }
 
 interface InstallmentRow {
+  /**
+   * The existing échéance this row revises. Dropped before (only `dueDate`/`amount` were kept), which is
+   * harmless on a draft — the server replaces the whole schedule — but destructive on an **amendment**: an
+   * échéance that has collected money must be echoed back by id or the server refuses the call outright
+   * ("Une échéance déjà encaissée ne peut pas être supprimée de l'échéancier").
+   */
+  id: string | null
   dueDate: string
   amount: string
+  /** Cash already collected on this échéance. 0 for a new row. Drives the "locked" affordance (AC-P2.6). */
+  amountPaid: number
 }
 
 const emptyLine = (): LineRow => ({
@@ -61,13 +93,19 @@ const emptyLine = (): LineRow => ({
   procedureTypeId: null,
   designationFr: "",
   plannedCost: "",
+  costTouched: false,
   toothNumbers: [],
 })
 
 /** A draft act line pre-filled from the odontogram ("Créer un plan depuis l'odontogramme"). */
 export interface TreatmentPlanSeedLine {
   toothNumbers: number[]
+  /** The act to perform. Blank when the charted condition names no single procedure — the dentist picks. */
   designationFr: string
+  /** The charted diagnosis, shown as context under the field. Display only, never persisted. */
+  diagnosisLabel?: string
+  /** The condition behind that label, for the hint's colour. */
+  diagnosisCondition?: string
   /** Prefilled planned cost from the matching procedure-type default (omitted when no catalog match). */
   plannedCost?: number
   /**
@@ -82,6 +120,18 @@ interface TreatmentPlanFormModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   editingPlan?: TreatmentPlanDto | null
+  /**
+   * Amend an **accepted** devis instead of rewriting a draft (AC-P2.1). Requires `editingPlan`. The form is the
+   * same, but the submit derives `addItems` / `removeItemIds` / `installments` and posts to
+   * `POST /treatment-plans/{id}/amend`, which keeps the devis number and bumps `revisionNumber` — where the
+   * draft path (`PUT /treatment-plans/{id}`) replaces the acts wholesale and is refused after acceptance.
+   *
+   * Since plans are accepted at creation this is the **only** editor a devis ever gets, so everything the
+   * endpoint accepts is editable here: acts in place (`updateItems`, id preserved), additions, removals, the
+   * échéancier, the title and the notes. Only the patient is fixed — moving a numbered devis to someone else is
+   * not an amendment.
+   */
+  amendMode?: boolean
   /** When opened from a patient page, the patient is preset and locked. */
   presetPatientId?: string
   presetPatientName?: string
@@ -112,6 +162,7 @@ export function TreatmentPlanFormModal({
   open,
   onOpenChange,
   editingPlan,
+  amendMode = false,
   presetPatientId,
   presetPatientName,
   seedLines,
@@ -120,6 +171,8 @@ export function TreatmentPlanFormModal({
   const [patients, setPatients] = useState<PatientDto[]>([])
   const [acts, setActs] = useState<DentalActDto[]>([])
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
+  /** At least one of the three picker reads failed — never conflated with "the catalogue is empty". */
+  const [pickersFailed, setPickersFailed] = useState(false)
   const [patientId, setPatientId] = useState("")
   const [title, setTitle] = useState("")
   const [notes, setNotes] = useState("")
@@ -128,32 +181,70 @@ export function TreatmentPlanFormModal({
   const [pickerOpenIndex, setPickerOpenIndex] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const guard = useDirtyGuard(open, onOpenChange)
   const conflictStreak = useRef(0)
 
   const isEditing = !!editingPlan
+  const isAmending = amendMode && !!editingPlan
+
+  /**
+   * Acts the server will refuse to remove, with the reason, so the form can say so *before* submit instead of
+   * bouncing a French sentence back from the API. Keyed by act id; an act absent from the map is removable.
+   *
+   * Mirrors `TreatmentPlan.RemoveItem`: a réalisé act cannot be retired from a devis (its fiche and possibly
+   * its invoice line point at it), and an act with a live appointment must have that appointment moved or
+   * cancelled first.
+   */
+  const removalBlockers = new Map<string, string>()
+  if (isAmending && editingPlan) {
+    for (const item of editingPlan.items) {
+      const state = planItemState(item)
+      if (state === "done") {
+        removalBlockers.set(
+          item.id,
+          "Acte déjà réalisé — détachez sa fiche de soins avant de le retirer du devis.",
+        )
+      } else if (state === "scheduled" || state === "to-record") {
+        removalBlockers.set(
+          item.id,
+          "Un rendez-vous est prévu pour cet acte — annulez ou déplacez-le avant de le retirer.",
+        )
+      }
+    }
+  }
+
+  /*
+   * The three lists this editor picks from — and, crucially, **whether each read failed**.
+   *
+   * ⚠️ All three used to end in `.catch(() => setX([]))`. On a devis editor that is not a soft degradation: an
+   * empty « Mes actes » / CNAM catalogue leaves the practitioner typing a désignation and a fee by hand, so the
+   * plan is created with no `dentalActCodeId` and no `procedureTypeId` — no CNAM code on the devis PDF, and no
+   * procédure when the act is later booked. An empty patient list on the create path is worse: the form's only
+   * required field has no selectable value, and « aucun patient » in a clinic with three hundred reads as the
+   * software having lost them.
+   */
+  const loadPickers = useCallback(async () => {
+    const [actsResult, proceduresResult, patientsResult] = await Promise.allSettled([
+      dentalActsApi.list(),
+      procedureTypesApi.list(false),
+      presetPatientId ? Promise.resolve(null) : patientsApi.list({ limit: 500 }),
+    ])
+
+    if (actsResult.status === "fulfilled") setActs(actsResult.value)
+    if (proceduresResult.status === "fulfilled") setProcedureTypes(proceduresResult.value)
+    if (patientsResult.status === "fulfilled" && patientsResult.value) setPatients(patientsResult.value)
+
+    setPickersFailed(
+      actsResult.status === "rejected" ||
+        proceduresResult.status === "rejected" ||
+        patientsResult.status === "rejected",
+    )
+  }, [presetPatientId])
 
   useEffect(() => {
     if (!open) return
 
-    // Load the active dental act catalog for the line picker.
-    dentalActsApi
-      .list()
-      .then(setActs)
-      .catch(() => setActs([]))
-
-    // Load the clinic's active procedure types — the primary "Mes actes" source for the line picker.
-    procedureTypesApi
-      .list(false)
-      .then(setProcedureTypes)
-      .catch(() => setProcedureTypes([]))
-
-    // Only load a patient list when the caller doesn't preset one.
-    if (!presetPatientId) {
-      patientsApi
-        .list({ limit: 500 })
-        .then(setPatients)
-        .catch(() => setPatients([]))
-    }
+    void loadPickers()
 
     if (editingPlan) {
       setPatientId(editingPlan.patientId)
@@ -167,15 +258,21 @@ export function TreatmentPlanFormModal({
               codeActe: it.codeActe,
               procedureTypeId: it.procedureTypeId,
               designationFr: it.designationFr,
-              plannedCost: String(it.plannedCost),
+              plannedCost: formatAmount(it.plannedCost),
+              // A stored fee is the number that was agreed with the patient, whatever the catalogue says today.
+              // It is never re-derived from a default, so re-picking an act to fix its designation cannot
+              // reprice work already quoted.
+              costTouched: true,
               toothNumbers: it.toothNumbers,
             }))
           : [emptyLine()],
       )
       setInstallments(
         editingPlan.installments.map((inst) => ({
+          id: inst.id,
           dueDate: inst.dueDate.slice(0, 10),
-          amount: String(inst.amount),
+          amount: formatAmount(inst.amount),
+          amountPaid: inst.amountPaid,
         })),
       )
     } else {
@@ -193,8 +290,14 @@ export function TreatmentPlanFormModal({
               // Carried when the odontogram could tie the charted condition to exactly one procedure.
               procedureTypeId: s.procedureTypeId ?? null,
               designationFr: s.designationFr,
+              diagnosisLabel: s.diagnosisLabel,
+              diagnosisCondition: s.diagnosisCondition,
               // Prefill the fee from the matching procedure-type default (odontogram match); blank otherwise.
-              plannedCost: s.plannedCost != null && s.plannedCost > 0 ? String(s.plannedCost) : "",
+              plannedCost: s.plannedCost != null && s.plannedCost > 0 ? formatAmount(s.plannedCost) : "",
+              // Untouched on purpose: this fee came from a catalogue default the app chose, not from the
+              // dentist. It is exactly the case the old empty-field guard got wrong — the seed arrives with a
+              // cost, so every later change of act kept the *seeded* act's price.
+              costTouched: false,
               toothNumbers: s.toothNumbers,
             }))
           : [emptyLine()],
@@ -203,7 +306,7 @@ export function TreatmentPlanFormModal({
     }
     setError(null)
     // Seeds once when the dialog opens.
-  }, [open, editingPlan, presetPatientId, seedLines])
+  }, [open, editingPlan, presetPatientId, seedLines, loadPickers])
 
   const updateLine = (index: number, patch: Partial<LineRow>) => {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)))
@@ -212,6 +315,22 @@ export function TreatmentPlanFormModal({
   const addLine = () => setLines((prev) => [...prev, emptyLine()])
   const removeLine = (index: number) =>
     setLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
+
+  /**
+   * The fee a row should show after being re-pointed at a new act.
+   *
+   * A fee the dentist typed is theirs and survives every later pick. Otherwise the fee follows the act — which
+   * is the whole fix: the previous act's price is simply wrong for the act now named, and leaving it there is
+   * how « Détartrage » ended up at the couronne's fee.
+   *
+   * A new act with no default clears the field rather than keeping the old number: an empty box asks for the
+   * price, whereas a stale one silently asserts a wrong one. (Harmless server-side — for a CNAM-linked line
+   * `TreatmentPlanItemPricing` fills a blank cost from the act's own default.)
+   */
+  const repricedFor = (line: LineRow, defaultFee: number | null | undefined): string => {
+    if (line.costTouched) return line.plannedCost
+    return defaultFee != null && defaultFee > 0 ? formatAmount(defaultFee) : ""
+  }
 
   const selectAct = (index: number, act: DentalActDto) => {
     setLines((prev) =>
@@ -225,8 +344,7 @@ export function TreatmentPlanFormModal({
               // replaced, so keeping the link would leave the act claiming a procedure it no longer names.
               procedureTypeId: null,
               designationFr: act.designationFr,
-              // Prefill the fee from the catalog default only when the line has no cost yet.
-              plannedCost: l.plannedCost.trim() === "" && act.defaultFee != null ? String(act.defaultFee) : l.plannedCost,
+              plannedCost: repricedFor(l, act.defaultFee),
             }
           : l,
       ),
@@ -247,8 +365,7 @@ export function TreatmentPlanFormModal({
               codeActe: null,
               procedureTypeId: pt.id,
               designationFr: pt.name,
-              // Prefill the fee from the procedure default only when the line has no cost yet.
-              plannedCost: l.plannedCost.trim() === "" && pt.defaultCost != null ? String(pt.defaultCost) : l.plannedCost,
+              plannedCost: repricedFor(l, pt.defaultCost),
             }
           : l,
       ),
@@ -264,16 +381,19 @@ export function TreatmentPlanFormModal({
     setInstallments((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
   }
   const addInstallment = () =>
-    setInstallments((prev) => [...prev, { dueDate: new Date().toISOString().slice(0, 10), amount: "" }])
+    setInstallments((prev) => [
+      ...prev,
+      { id: null, dueDate: todayLocalIso(), amount: "", amountPaid: 0 },
+    ])
   const removeInstallment = (index: number) => setInstallments((prev) => prev.filter((_, i) => i !== index))
 
   const total = lines.reduce((sum, l) => {
-    const cost = Number(l.plannedCost)
+    const cost = parseAmountInput(l.plannedCost)
     return Number.isFinite(cost) ? sum + cost : sum
   }, 0)
 
   const installmentsSum = installments.reduce((sum, r) => {
-    const amt = Number(r.amount)
+    const amt = parseAmountInput(r.amount)
     return Number.isFinite(amt) ? sum + amt : sum
   }, 0)
 
@@ -299,7 +419,7 @@ export function TreatmentPlanFormModal({
         codeActe: l.codeActe,
         procedureTypeId: l.procedureTypeId,
         designationFr: l.designationFr.trim(),
-        plannedCost: Number(l.plannedCost),
+        plannedCost: parseAmountInput(l.plannedCost),
         toothNumbers: l.toothNumbers,
       }))
       .filter((l) => l.designationFr !== "")
@@ -324,7 +444,7 @@ export function TreatmentPlanFormModal({
           return
         }
       }
-      const amounts = installments.map((r) => Number(r.amount))
+      const amounts = installments.map((r) => parseAmountInput(r.amount))
       for (let i = 0; i < amounts.length - 1; i++) {
         if (!Number.isFinite(amounts[i]) || amounts[i] < 0) {
           setError("Montant d'échéance invalide.")
@@ -338,9 +458,112 @@ export function TreatmentPlanFormModal({
         return
       }
       parsedInstallments = installments.map((r, i) => ({
+        // Echoing the id back is what lets the server *revise* an existing échéance rather than replace the
+        // schedule — mandatory for any row that has collected money.
+        id: r.id,
         dueDate: `${r.dueDate}T00:00:00`,
-        amount: i === amounts.length - 1 ? lastAmount : Number(r.amount),
+        amount: i === amounts.length - 1 ? lastAmount : parseAmountInput(r.amount),
       }))
+
+      // AC-P2.6: refuse locally what the server refuses anyway, but name the row. A paid échéance may be
+      // re-dated and raised, never lowered below what was collected and never dropped.
+      for (let i = 0; i < installments.length; i++) {
+        const row = installments[i]
+        if (row.amountPaid > 0 && parsedInstallments[i].amount < row.amountPaid - 0.0005) {
+          setError(
+            `L'échéance du ${row.dueDate} a déjà encaissé ${formatDT(row.amountPaid)} — son montant ne peut pas être ramené en dessous.`,
+          )
+          return
+        }
+      }
+    }
+
+    if (isAmending && editingPlan) {
+      const originalIds = new Set(editingPlan.items.map((i) => i.id))
+      const keptIds = new Set(parsedLines.map((l) => l.id).filter((id): id is string => !!id))
+      const removeItemIds = [...originalIds].filter((id) => !keptIds.has(id))
+
+      const blocked = removeItemIds.filter((id) => removalBlockers.has(id))
+      if (blocked.length > 0) {
+        setError(removalBlockers.get(blocked[0])!)
+        return
+      }
+
+      // Rows with no id are additions; rows with one are **corrections in place**, sent as `updateItems`.
+      //
+      // They used to be dropped here on the belief that the endpoint took additions and removals only. It takes
+      // `updateItems` too, and the inputs above were already editable — so a dentist could retype a fee, press
+      // « Enregistrer la révision », get a success toast and lose the edit. That silent discard is the whole
+      // reason a plan needed a draft stage to be correctable, and it has to go for creation-time acceptance to
+      // be safe. Sending an id also *preserves* it, so every appointment and fiche link survives the change —
+      // which remove-then-add cannot do, and which is refused outright for a réalisé or booked act.
+      const addItems = parsedLines.filter((l) => !l.id)
+      const updateItems = parsedLines.filter((l) => {
+        if (!l.id) return false
+        const before = editingPlan.items.find((i) => i.id === l.id)
+        if (!before) return false
+        // Only genuinely changed lines: re-sending every act unchanged would bump the révision counter on a
+        // no-op save, and that counter is how a patient's earlier printout is identified.
+        return (
+          l.designationFr.trim() !== before.designationFr.trim() ||
+          Math.abs(l.plannedCost - before.plannedCost) > 0.0005 ||
+          (l.codeActe ?? null) !== (before.codeActe ?? null) ||
+          (l.dentalActCodeId ?? null) !== (before.dentalActCodeId ?? null) ||
+          (l.procedureTypeId ?? null) !== (before.procedureTypeId ?? null) ||
+          l.toothNumbers.join(",") !== before.toothNumbers.join(",")
+        )
+      })
+
+      const retitling = title.trim() !== "" && title.trim() !== editingPlan.title
+      const renoting = (notes.trim() || null) !== (editingPlan.notes ?? null)
+
+      if (
+        addItems.length === 0 &&
+        updateItems.length === 0 &&
+        removeItemIds.length === 0 &&
+        parsedInstallments.length === 0 &&
+        !retitling &&
+        !renoting
+      ) {
+        setError("Aucune modification demandée.")
+        return
+      }
+
+      // An échéancier that was dropped entirely is sent as an empty list; the server answers
+      // "L'échéancier ne peut pas être vide sur un devis accepté." rather than us guessing a spread.
+      const droppedPaidRow = editingPlan.installments.some(
+        (inst) => inst.amountPaid > 0 && !installments.some((r) => r.id === inst.id),
+      )
+      if (droppedPaidRow) {
+        setError(
+          "Une échéance déjà encaissée ne peut pas être supprimée de l'échéancier. Conservez-la et ajustez les autres.",
+        )
+        return
+      }
+
+      setLoading(true)
+      try {
+        await treatmentPlansApi.amend(editingPlan.id, {
+          addItems,
+          updateItems,
+          removeItemIds,
+          installments: parsedInstallments,
+          title: title.trim(),
+          // Tri-state server-side and always sent: it compares against the stored value, so an unchanged note
+          // is not counted as an amendment and does not bump the révision.
+          notes: notes.trim() || null,
+          // The copy this form was hydrated from, so a peer's edit 409s instead of overwriting their fees.
+          version: editingPlan.version,
+        })
+        toast.success("Devis modifié")
+        onSuccess?.()
+        onOpenChange(false)
+      } catch (err) {
+        setError(conflictMessage(err, "Échec de la modification du devis.", conflictStreak))
+      } finally {
+        setLoading(false)
+      }
+      return
     }
 
     setLoading(true)
@@ -362,8 +585,12 @@ export function TreatmentPlanFormModal({
           items: parsedLines,
           installments: parsedInstallments,
         }
-        await treatmentPlansApi.create(payload)
-        toast.success("Plan de traitement créé")
+        const created = await treatmentPlansApi.create(payload)
+        // Names the number, because that is the evidence the plan is already live — a bare « créé » left the
+        // dentist looking for the « Accepter » button that no longer exists.
+        toast.success(
+          created.number ? `Devis ${created.number} créé et validé` : "Devis créé et validé",
+        )
       }
       onSuccess?.()
       onOpenChange(false)
@@ -375,17 +602,46 @@ export function TreatmentPlanFormModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+    <>
+    {/* Only the ROOT and « Annuler » route through the guard — the save path calls the raw prop (AC-23). */}
+    <Dialog open={open} onOpenChange={guard.onOpenChange}>
+      <DialogContent mobile="sheet" className="md:max-h-[90dvh] md:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "Modifier le plan de traitement" : "Nouveau plan de traitement"}</DialogTitle>
+          <DialogTitle>
+            {isAmending
+              ? "Modifier le devis"
+              : isEditing
+                ? "Modifier le plan de traitement"
+                : "Nouveau plan de traitement"}
+          </DialogTitle>
           <DialogDescription>
-            Devis : actes planifiés, coûts et échéancier de paiement. Un brouillon peut être modifié librement.
+            {isAmending ? (
+              <>
+                Le devis garde son numéro{editingPlan?.number ? ` (${editingPlan.number})` : ""} et passe en
+                révision {(editingPlan?.revisionNumber ?? 0) + 1}. Corrigez les actes et leurs montants, ajoutez
+                ou retirez-en, puis ajustez l&apos;échéancier au nouveau total. Seul le patient n&apos;est pas
+                modifiable.
+              </>
+            ) : (
+              "Devis : actes planifiés, coûts et échéancier. Il est validé et numéroté dès sa création — les montants restent corrigeables ensuite."
+            )}
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* The form owns the remaining height so `DialogBody` scrolls and the footer stays on screen (AC-21). */}
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col gap-4">
+          <DialogBody className="space-y-4">
           <FormErrorBanner message={error} />
+
+          {/* One notice for the three picker reads: they load together, they fail together in practice, and three
+              separate banners over one form would say the same thing three times. */}
+          {pickersFailed && (
+            <LoadFailureNotice
+              message="Les listes de sélection n'ont pas pu être chargées."
+              detail="Patients, actes CNAM et « Mes actes » sont peut-être incomplets — un acte saisi à la main n'aura ni code CNAM ni procédure."
+              onRetry={() => void loadPickers()}
+            />
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -439,7 +695,12 @@ export function TreatmentPlanFormModal({
           <div className="space-y-2">
             <Label>Actes</Label>
             <div className="space-y-3">
-              {lines.map((line, index) => (
+              {lines.map((line, index) => {
+                // Every field of an existing act is editable in amend mode — the endpoint now takes in-place
+                // edits, and a réalisé or booked act is precisely the one whose price cannot be corrected any
+                // other way, since it refuses removal. Only *removal* is still gated (`removalBlocked`).
+                const removalBlocked = line.id ? removalBlockers.get(line.id) : undefined
+                return (
                 <div key={index} className="rounded-lg border p-3 space-y-2">
                   <div className="flex items-start gap-2">
                     <div className="flex-1 space-y-1">
@@ -511,6 +772,23 @@ export function TreatmentPlanFormModal({
                           </PopoverContent>
                         </Popover>
                       </div>
+
+                      {/* The diagnosis that motivated this line — context, not content. It used to BE the
+                          designation, so the devis billed « Carie — dent 15 » as an act. Now the field opens
+                          empty for a pathology and this says what to treat. */}
+                      {line.diagnosisLabel && (
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          <span className="text-xs text-muted-foreground">Diagnostic :</span>
+                          <span
+                            className={cn(
+                              "rounded border px-1.5 py-0.5 text-xs font-medium",
+                              conditionStyle(line.diagnosisCondition ?? "").box,
+                            )}
+                          >
+                            {line.diagnosisLabel}
+                          </span>
+                        </div>
+                      )}
                       {line.codeActe && (
                         <Badge variant="secondary" className="gap-1 font-mono text-xs">
                           {line.codeActe}
@@ -524,14 +802,18 @@ export function TreatmentPlanFormModal({
                           </button>
                         </Badge>
                       )}
+                      {removalBlocked && (
+                        <p className="text-xs text-muted-foreground">{removalBlocked}</p>
+                      )}
                     </div>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
                       onClick={() => removeLine(index)}
-                      disabled={loading || lines.length === 1}
+                      disabled={loading || lines.length === 1 || !!removalBlocked}
                       aria-label="Supprimer l'acte"
+                      title={removalBlocked ?? "Supprimer l'acte"}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -544,19 +826,24 @@ export function TreatmentPlanFormModal({
                     />
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs text-muted-foreground">Coût (DT)</span>
+                      {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a number input refuses the
+                          comma this product prints with, and a rejected keystroke returns an EMPTY value — so an
+                          act looked priced and the devis planned 0 for it. The keypad still appears. */}
                       <Input
-                        type="number"
-                        min="0"
-                        step="0.001"
+                        type="text"
+                        inputMode="decimal"
                         value={line.plannedCost}
-                        onChange={(e) => updateLine(index, { plannedCost: e.target.value })}
+                        // Typing a fee claims it: from here on it is the dentist's number and no later
+                        // catalogue pick overwrites it.
+                        onChange={(e) => updateLine(index, { plannedCost: e.target.value, costTouched: true })}
                         className="w-32"
                         disabled={loading}
                       />
                     </div>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
             <Button type="button" variant="outline" size="sm" onClick={addLine} disabled={loading} className="gap-2">
               <Plus className="h-4 w-4" /> Ajouter un acte
@@ -575,64 +862,95 @@ export function TreatmentPlanFormModal({
               {installments.length === 0 && (
                 <p className="text-sm text-muted-foreground">Aucune échéance. Ajoutez un échéancier de paiement (optionnel).</p>
               )}
-              {installments.map((row, index) => (
-                <div key={index} className="flex items-end gap-2">
-                  <div className="flex-1 space-y-1">
-                    {index === 0 && <span className="text-xs text-muted-foreground">Échéance</span>}
-                    <Input
-                      type="date"
-                      value={row.dueDate}
-                      onChange={(e) => updateInstallment(index, { dueDate: e.target.value })}
-                      disabled={loading}
-                    />
+              {installments.map((row, index) => {
+                // AC-P2.6: an échéance that has collected cash is locked against deletion and against being
+                // lowered — the user sees which rows and why *before* submitting, not as an API refusal.
+                const collected = row.amountPaid > 0
+                return (
+                <div key={index} className="space-y-1">
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1 space-y-1">
+                      {index === 0 && <span className="text-xs text-muted-foreground">Échéance</span>}
+                      <Input
+                        type="date"
+                        value={row.dueDate}
+                        onChange={(e) => updateInstallment(index, { dueDate: e.target.value })}
+                        disabled={loading}
+                      />
+                    </div>
+                    <div className="w-36 space-y-1">
+                      {index === 0 && <span className="text-xs text-muted-foreground">Montant (DT)</span>}
+                      {/* Same conversion as « Coût » above (J8). The `min` it drops was never the real guard:
+                          the server refuses an échéance below what it has already collected, and the locked-row
+                          note above says so before submit. */}
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        value={row.amount}
+                        onChange={(e) => updateInstallment(index, { amount: e.target.value })}
+                        disabled={loading}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeInstallment(index)}
+                      disabled={loading || collected}
+                      aria-label="Supprimer l'échéance"
+                      title={
+                        collected
+                          ? "Échéance déjà encaissée — elle ne peut pas être supprimée."
+                          : "Supprimer l'échéance"
+                      }
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <div className="w-36 space-y-1">
-                    {index === 0 && <span className="text-xs text-muted-foreground">Montant (DT)</span>}
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.001"
-                      value={row.amount}
-                      onChange={(e) => updateInstallment(index, { amount: e.target.value })}
-                      disabled={loading}
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeInstallment(index)}
-                    disabled={loading}
-                    aria-label="Supprimer l'échéance"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {collected && (
+                    <p className="text-xs text-muted-foreground">
+                      Déjà encaissé : {formatDT(row.amountPaid)} — cette échéance ne peut être ni supprimée ni
+                      ramenée en dessous de ce montant.
+                    </p>
+                  )}
                 </div>
-              ))}
+                )
+              })}
             </div>
             <Button type="button" variant="outline" size="sm" onClick={addInstallment} disabled={loading} className="gap-2">
               <Plus className="h-4 w-4" /> Ajouter une échéance
             </Button>
             {installments.length > 0 && (
               <div className="flex justify-end text-xs">
-                <span className={installmentsMatch ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400"}>
+                {/* Token, not `amber-600` + a `dark:` twin — same reasoning as `revise-installments-modal`:
+                    `--warning-ink` is the amber step that stays legible at this size and follows the palette. */}
+                <span className={installmentsMatch ? "text-muted-foreground" : "text-warning-ink"}>
                   Total des échéances : {formatDT(installmentsSum)} / {formatDT(total)}
                   {!installmentsMatch && " — la dernière échéance sera ajustée à l'enregistrement."}
                 </span>
               </div>
             )}
           </div>
+          </DialogBody>
 
           <DialogFooter className="gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+            <Button type="button" variant="outline" onClick={() => guard.onOpenChange(false)} disabled={loading}>
               Annuler
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? "Enregistrement..." : isEditing ? "Enregistrer" : "Créer le plan"}
+              {loading
+                ? "Enregistrement..."
+                : isAmending
+                  ? "Enregistrer la révision"
+                  : isEditing
+                    ? "Enregistrer"
+                    : "Créer le plan"}
             </Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
+    <DiscardChangesDialog guard={guard} />
+    </>
   )
 }

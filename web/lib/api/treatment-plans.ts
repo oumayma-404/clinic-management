@@ -1,5 +1,6 @@
-import { apiGet, apiPost, apiPut, apiDelete, getAccessToken } from './client';
+import { apiGet, apiGetBlob, apiPost, apiPut, apiDelete } from './client';
 import type { TreatmentPlanDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
@@ -34,12 +35,32 @@ export interface TreatmentPlanInstallmentInput {
   amount: number;
 }
 
-/** Amend an accepted devis: add/remove acts and re-spread the échéancier in one call. */
+/**
+ * Amend an accepted devis: add acts, edit the acts already on it, remove acts, retitle it and re-spread the
+ * échéancier — in one call, so the schedule can never be left out of sync with a total that just changed.
+ */
 export interface AmendTreatmentPlanRequest {
   addItems?: TreatmentPlanItemInput[];
+  /**
+   * Acts already on the plan to correct in place. Each entry's `id` is required and must name an act on this
+   * plan; the act keeps that id, so every appointment and fiche link pointing at it survives the amendment.
+   * This is what makes "fix a wrong price" possible on an act that is done or booked — remove-then-add is
+   * refused for exactly those acts.
+   */
+  updateItems?: TreatmentPlanItemInput[];
   removeItemIds?: string[];
+  /** Omitted or blank leaves the title untouched. */
+  title?: string;
+  /**
+   * Tri-state server-side: omit the key to leave the notes alone, send `null` to clear them. The form always
+   * sends the field, and the server compares it against the stored value, so re-submitting unchanged notes
+   * does not count as an amendment.
+   */
+  notes?: string | null;
   /** Required whenever the amendment changes the total; the server rejects a mismatch. */
   installments?: TreatmentPlanInstallmentInput[];
+  /** The `version` the client read, so a concurrent edit 409s instead of silently overwriting a fee. */
+  version?: number;
 }
 
 export interface CreateTreatmentPlanRequest {
@@ -62,20 +83,48 @@ export interface RecordInstallmentPaymentRequest {
   /** Cash | Cheque | Card | Transfer */
   method: string;
   paidOn: string;
-}
-
-export interface MarkItemDoneRequest {
-  doneOn?: string | null;
-  linkedDentalRecordId?: string | null;
+  /**
+   * Cheque identity (L8) — only for `method: "Cheque"`. Same contract as the invoice side's
+   * `RecordPaymentRequest`; build with `chequePaymentFields()`.
+   */
+  chequeNumber?: string;
+  /** @see chequeNumber */
+  chequeBankName?: string;
+  /** A bare `YYYY-MM-DD` calendar day — see the invoice-side note on why not an ISO instant. */
+  chequeDueDate?: string;
 }
 
 export const treatmentPlansApi = {
+  /**
+   * `from`/`to` bound the CREATION date; `acceptedFrom`/`acceptedTo` bound `acceptedDate`. Both exist because the
+   * dashboard's « Devis acceptés » counts by acceptance, so drilling into it with the created-date range would list a
+   * different set of devis than the card counted.
+   */
   list: async (params?: {
     patientId?: string;
     status?: string;
     from?: string;
     to?: string;
-  }): Promise<TreatmentPlanDto[]> => apiGet<TreatmentPlanDto[]>('/treatment-plans', params),
+    acceptedFrom?: string;
+    acceptedTo?: string;
+  }): Promise<TreatmentPlanDto[]> =>
+    unwrapPaged(await apiGet<PagedResponse<TreatmentPlanDto>>('/treatment-plans', params)),
+
+  /**
+   * One page of devis. `search` matches the devis number, title, notes **and the patient's name**, server-side
+   * over the whole clinic (same EXISTS-against-Patients reasoning as the invoice list).
+   */
+  listPaged: async (
+    params: PageParams & {
+      patientId?: string;
+      status?: string;
+      from?: string;
+      to?: string;
+      acceptedFrom?: string;
+      acceptedTo?: string;
+    },
+  ): Promise<PagedResponse<TreatmentPlanDto>> =>
+    apiGet<PagedResponse<TreatmentPlanDto>>('/treatment-plans', params),
 
   get: async (id: string): Promise<TreatmentPlanDto> => apiGet<TreatmentPlanDto>(`/treatment-plans/${id}`),
 
@@ -101,10 +150,20 @@ export const treatmentPlansApi = {
   ): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/installments/${installmentId}/payments`, data),
 
-  markItemDone: async (id: string, itemId: string, data: MarkItemDoneRequest): Promise<TreatmentPlanDto> =>
-    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/done`, data),
+  /**
+   * Return a « réalisé » act to « prévu » and detach its fiche de soins, reopening the devis if that act had
+   * closed it. Takes no body — the act to correct is fully identified by the route. Server-side: AdminOrDoctor,
+   * and refused once a live invoice bills the plan or the act's own fiche.
+   *
+   * There is deliberately **no** `markItemDone` counterpart here: an act is marked réalisé by saving the fiche
+   * de soins that evidences it (`dentalRecordsApi`), never by a manual toggle, so a client function for
+   * `POST .../done` would be a second, unevidenced way into the same state. The uncalled one was deleted
+   * rather than wired (AC-P2.11).
+   */
+  markItemUndone: async (id: string, itemId: string): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/items/${itemId}/undone`, {}),
 
-  /** Add/remove acts on an accepted devis (+ the matching échéancier). Server-side: AdminOrDoctor. */
+  /** Add/edit/remove acts on an accepted devis (+ title, notes and the matching échéancier). AdminOrDoctor. */
   amend: async (id: string, data: AmendTreatmentPlanRequest): Promise<TreatmentPlanDto> =>
     apiPost<TreatmentPlanDto>(`/treatment-plans/${id}/amend`, data),
 
@@ -124,28 +183,9 @@ export const treatmentPlansApi = {
 
   remove: async (id: string): Promise<void> => apiDelete<void>(`/treatment-plans/${id}`),
 
-  // The devis PDF is a binary blob — drop to raw fetch and attach the bearer token ourselves.
-  downloadDevisPdf: async (id: string): Promise<Blob> => {
-    const token = await getAccessToken();
-    const headers: HeadersInit = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+  downloadDevisPdf: async (id: string): Promise<Blob> =>
+    apiGetBlob(`/treatment-plans/${id}/devis-pdf`),
 
-    const base = typeof window !== 'undefined' ? window.location.origin : undefined;
-    const url = new URL(`${API_BASE_URL}/treatment-plans/${id}/devis-pdf`, base);
-
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers,
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `Échec du téléchargement du devis (HTTP ${response.status})`);
-    }
-    return response.blob();
-  },
-
-  // The installment receipt PDF is a binary blob — drop to raw fetch and attach the bearer token ourselves.
   /**
    * Void a payment recorded against an échéance — "this was never received". The ledger row is kept and
    * marked; the installment's totals are re-derived. The plan's status is NOT walked back, because it tracks
@@ -167,28 +207,6 @@ export const treatmentPlansApi = {
    * several payments, and the receipt used to print the cumulative total rather than the money handed over.
    * A voided payment still renders, over-stamped « REÇU ANNULÉ ».
    */
-  downloadInstallmentReceipt: async (id: string, installmentId: string, paymentId: string): Promise<Blob> => {
-    const token = await getAccessToken();
-    const headers: HeadersInit = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
-    const base = typeof window !== 'undefined' ? window.location.origin : undefined;
-    const url = new URL(
-      `${API_BASE_URL}/treatment-plans/${id}/installments/${installmentId}/payments/${paymentId}/receipt-pdf`,
-      base,
-    );
-
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers,
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      let message = text;
-      try { message = JSON.parse(text)?.error ?? text; } catch { /* body is not JSON */ }
-      throw new Error(message || `Échec du téléchargement du reçu (HTTP ${response.status})`);
-    }
-    return response.blob();
-  },
+  downloadInstallmentReceipt: async (id: string, installmentId: string, paymentId: string): Promise<Blob> =>
+    apiGetBlob(`/treatment-plans/${id}/installments/${installmentId}/payments/${paymentId}/receipt-pdf`),
 };

@@ -21,6 +21,20 @@ public class AppointmentSyncMappingTests
 {
     private static readonly Guid ClinicId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
+    /// <summary>
+    /// An invoice repository that reports « aucune facture » for every visit. Both appointment reads now resolve
+    /// the billing link (AC-P6.13); a bare <c>Mock</c> returns a null <c>Task</c> for it. Stubbed rather than made
+    /// defensive in production code — a repository handing back null is a broken fake, not a real state.
+    /// </summary>
+    private static IInvoiceRepository NoInvoices()
+    {
+        var invoices = new Mock<IInvoiceRepository>();
+        invoices.Setup(r => r.GetAppointmentLinksAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, ClinicManagement.Domain.Enums.InvoiceStatus)>());
+        return invoices.Object;
+    }
+
     private static Appointment NewAppointment(string? googleEventId)
     {
         var appointment = new Appointment(
@@ -66,7 +80,8 @@ public class AppointmentSyncMappingTests
         var users = new Mock<IUserRepository>();
         users.Setup(r => r.GetByAuth0SubAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
-        var handler = new GetAppointmentQueryHandler(repo.Object, users.Object, context.Object);
+        var handler = new GetAppointmentQueryHandler(
+            repo.Object, NoInvoices(), users.Object, context.Object);
         var result = await handler.Handle(new GetAppointmentQuery { Id = appointment.Id }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -87,10 +102,11 @@ public class AppointmentSyncMappingTests
         var users = new Mock<IUserRepository>();
         users.Setup(r => r.GetByAuth0SubAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
         var repo = new Mock<IAppointmentRepository>();
-        repo.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+        repo.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { synced, unsynced });
 
-        var handler = new GetAppointmentsQueryHandler(repo.Object, users.Object, context.Object);
+        var handler = new GetAppointmentsQueryHandler(
+            repo.Object, NoInvoices(), users.Object, context.Object);
         var result = await handler.Handle(new GetAppointmentsQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -113,6 +129,7 @@ public class AppointmentSyncMappingTests
             new Mock<IAppointmentRepository>().Object,
             new Mock<IPatientRepository>().Object,
             new Mock<IDoctorRepository>().Object,
+            new Mock<IClinicRepository>().Object,
             new Mock<IProcedureTypeRepository>().Object,
             new Mock<ITreatmentPlanRepository>().Object,
             users.Object,
@@ -150,6 +167,7 @@ public class AppointmentSyncMappingTests
             repo.Object,
             new Mock<IProcedureTypeRepository>().Object,
             new Mock<IDoctorRepository>().Object,
+            new Mock<IClinicRepository>().Object,
             new Mock<ITreatmentPlanRepository>().Object,
             clinicResolver.Object,
             new Mock<IClinicContext>().Object,

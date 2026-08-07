@@ -13,10 +13,12 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cnamNomenclatureApi } from "@/lib/api/cnam-nomenclature"
 import type { CnamNomenclatureEntryDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
+import { parseAmountInput } from "@/lib/format"
 
 const CATEGORIES = [
   "Consultation",
@@ -66,7 +68,7 @@ export function CnamEntryFormModal({ open, onOpenChange, editingEntry, onSuccess
     if (!codeActe.trim()) return setError("Le code acte est obligatoire.")
     if (!designationFr.trim()) return setError("La désignation est obligatoire.")
     if (!lettreCle.trim()) return setError("La lettre clé est obligatoire.")
-    const coef = Number.parseFloat(coefficient.replace(",", "."))
+    const coef = parseAmountInput(coefficient)
     if (!Number.isFinite(coef) || coef <= 0) return setError("Le coefficient doit être strictement positif.")
 
     const payload = {
@@ -95,7 +97,10 @@ export function CnamEntryFormModal({ open, onOpenChange, editingEntry, onSuccess
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      {/* No `max-h-[90dvh] overflow-y-auto` here: `ui/dialog.tsx`'s base already declares both (and the `md:`
+          counterparts). Repeating them unprefixed meant this call site would silently override the primitive
+          the day it changes. */}
+      <DialogContent className="md:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editingEntry ? "Modifier l'acte" : "Ajouter un acte"}</DialogTitle>
           <DialogDescription>
@@ -104,13 +109,11 @@ export function CnamEntryFormModal({ open, onOpenChange, editingEntry, onSuccess
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-              {error}
-            </div>
-          )}
+          {/* The shared refusal banner, on `--destructive-wash` / `--destructive`. It replaces a hand-written
+              `border-red-200 bg-red-50 … dark:` copy — one of ~18 that each maintained dark mode themselves. */}
+          <FormErrorBanner message={error} />
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="codeActe" className="text-sm">
                 Code acte <span className="text-destructive">*</span>
@@ -150,16 +153,19 @@ export function CnamEntryFormModal({ open, onOpenChange, editingEntry, onSuccess
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="coefficient" className="text-sm">
                 Coefficient <span className="text-destructive">*</span>
               </Label>
+              {/* `text` + `inputMode="decimal"`, never `type="number"` (J8). The `.replace(",", ".")` this
+                    field's handler already carried was **dead code**: a number input never yields a comma, it
+                    returns an EMPTY value for the rejected keystroke. Parsing now goes through the shared
+                    `parseAmountInput`. */}
               <Input
                 id="coefficient"
-                type="number"
-                min="0"
-                step="0.001"
+                type="text"
+                inputMode="decimal"
                 placeholder="ex. 10"
                 value={coefficient}
                 onChange={(e) => setCoefficient(e.target.value)}
@@ -171,7 +177,9 @@ export function CnamEntryFormModal({ open, onOpenChange, editingEntry, onSuccess
                 Catégorie <span className="text-destructive">*</span>
               </Label>
               <Select value={category} onValueChange={setCategory} disabled={loading}>
-                <SelectTrigger id="category">
+                {/* `w-full`: `ui/select.tsx`'s trigger ships `w-fit`, so with no width the control rendered
+                    narrower than the « Coefficient » input beside it in the same grid row. */}
+                <SelectTrigger id="category" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

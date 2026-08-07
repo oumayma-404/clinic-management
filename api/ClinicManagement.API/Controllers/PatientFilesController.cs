@@ -4,12 +4,15 @@ using MediatR;
 using ClinicManagement.Application.Features.Files.Commands;
 using ClinicManagement.Application.Features.Files.Queries;
 using System.Security.Claims;
+using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Files;
+using ClinicManagement.Domain.Common;
 
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/patients/{patientId}/files")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class PatientFilesController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -64,15 +67,19 @@ public class PatientFilesController : ApiControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Application.DTOs.PatientFileDto>>> GetFiles(
+    public async Task<ActionResult<PagedResult<Application.DTOs.PatientFileDto>>> GetFiles(
         Guid patientId,
         [FromQuery] Guid? folderId = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
         CancellationToken cancellationToken = default)
     {
         var query = new GetPatientFilesQuery
         {
             PatientId = patientId,
-            FolderId = folderId
+            FolderId = folderId,
+            Page = page,
+            PageSize = pageSize
         };
 
         var result = await _mediator.Send(query, cancellationToken);
@@ -104,7 +111,11 @@ public class PatientFilesController : ApiControllerBase
         return CreatedAtAction(nameof(GetFolders), new { patientId }, result.Value);
     }
 
+    // AC-3.6: the ceiling is the catalog's, per action — ASP.NET's default 30 MB body limit would otherwise be
+    // the real one, and a 150 MB CBCT study would die on a framework 413 the app never sees and cannot explain.
     [HttpPost("upload")]
+    [RequestSizeLimit(FileTypeCatalog.MaxBytesAcrossCatalog)]
+    [RequestFormLimits(MultipartBodyLengthLimit = FileTypeCatalog.MaxBytesAcrossCatalog)]
     public async Task<ActionResult<Application.DTOs.PatientFileDto>> UploadFile(
         Guid patientId,
         [FromForm] Models.UploadFileRequest request,
@@ -122,7 +133,6 @@ public class PatientFilesController : ApiControllerBase
             PatientId = patientId,
             FolderId = request.FolderId,
             FileName = request.File.FileName,
-            ContentType = request.File.ContentType,
             FileSize = request.File.Length,
             FileStream = request.File.OpenReadStream(),
             Description = request.Description,
@@ -169,7 +179,53 @@ public class PatientFilesController : ApiControllerBase
         return File(fileDto.FileStream, fileDto.ContentType, fileDto.FileName);
     }
 
+    // AC-4.4 — record yes, erase no: renaming, describing and moving are recording, so they stay on the class
+    // policy beside upload. Only the two deletes below are tightened.
+    [HttpPut("{fileId}")]
+    public async Task<ActionResult<Application.DTOs.PatientFileDto>> UpdateFile(
+        Guid patientId,
+        Guid fileId,
+        [FromBody] UpdatePatientFileCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        command.PatientId = patientId;
+        command.FileId = fileId;
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    [HttpPut("folders/{folderId}")]
+    public async Task<ActionResult<Application.DTOs.PatientFolderDto>> RenameFolder(
+        Guid patientId,
+        Guid folderId,
+        [FromBody] RenamePatientFolderCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        command.PatientId = patientId;
+        command.FolderId = folderId;
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    // Reception scans documents *in* — uploading, listing and downloading are the front desk's job, which is
+    // why the class policy is open. Removing a scanned document is not: nothing on any screen afterwards says
+    // it was ever there.
     [HttpDelete("{fileId}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<IActionResult> DeleteFile(
         Guid patientId,
         Guid fileId,
@@ -192,6 +248,7 @@ public class PatientFilesController : ApiControllerBase
     }
 
     [HttpDelete("folders/{folderId}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<IActionResult> DeleteFolder(
         Guid patientId,
         Guid folderId,

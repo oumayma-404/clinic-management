@@ -68,6 +68,7 @@ public class DiagnoseToothCommandHandler : IRequestHandler<DiagnoseToothCommand,
             var state = new ToothState(
                 Guid.NewGuid(),
                 request.PatientId,
+                patient.ClinicId,
                 request.ToothNumber,
                 condition,
                 DateTime.UtcNow,

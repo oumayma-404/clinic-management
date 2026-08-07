@@ -20,6 +20,7 @@ public class AppointmentRepository : IAppointmentRepository
         return await _context.Appointments
             .Include(a => a.Patient)
             .Include(a => a.ProcedureType)
+            .Include(a => a.Procedures).ThenInclude(p => p.ProcedureType)
             .FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
     }
 
@@ -28,6 +29,7 @@ public class AppointmentRepository : IAppointmentRepository
         return await _context.Appointments
             .Include(a => a.Patient)
             .Include(a => a.ProcedureType)
+            .Include(a => a.Procedures).ThenInclude(p => p.ProcedureType)
             .ToListAsync(cancellationToken);
     }
 
@@ -36,11 +38,13 @@ public class AppointmentRepository : IAppointmentRepository
         DateTime? startDate = null,
         DateTime? endDate = null,
         Guid? doctorId = null,
+        Guid? patientId = null,
         CancellationToken cancellationToken = default)
     {
         var query = _context.Appointments
             .Include(a => a.Patient)
             .Include(a => a.ProcedureType)
+            .Include(a => a.Procedures).ThenInclude(p => p.ProcedureType)
             .Where(a => a.ClinicId == clinicId);
 
         if (startDate.HasValue)
@@ -56,6 +60,11 @@ public class AppointmentRepository : IAppointmentRepository
         if (doctorId.HasValue)
         {
             query = query.Where(a => a.DoctorId == doctorId.Value);
+        }
+
+        if (patientId.HasValue)
+        {
+            query = query.Where(a => a.PatientId == patientId.Value);
         }
 
         return await query
@@ -96,11 +105,30 @@ public class AppointmentRepository : IAppointmentRepository
         return await query.CountAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyDictionary<AppointmentStatus, int>> CountByStatusBetweenAsync(
+        Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default)
+    {
+        // One GROUP BY. The dashboard needs Completed, NoShow, Cancelled and the total over the SAME window (the
+        // taux d'absence denominator); four CountByClinicIdAsync calls would be four round trips whose bounds
+        // could drift apart, which is exactly the failure the single-authority period exists to prevent.
+        // Bounds are inclusive on both ends, matching CountByClinicIdAsync.
+        var rows = await _context.Appointments
+            .Where(a => a.ClinicId == clinicId
+                        && a.AppointmentDateTime >= from
+                        && a.AppointmentDateTime <= toInclusive)
+            .GroupBy(a => a.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+
+        return rows.ToDictionary(r => r.Status, r => r.Count);
+    }
+
     public async Task<IEnumerable<Appointment>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default)
     {
         return await _context.Appointments
             .Include(a => a.Patient)
             .Include(a => a.ProcedureType)
+            .Include(a => a.Procedures).ThenInclude(p => p.ProcedureType)
             .Where(a => a.PatientId == patientId)
             .OrderByDescending(a => a.AppointmentDateTime)
             .ToListAsync(cancellationToken);
@@ -111,6 +139,7 @@ public class AppointmentRepository : IAppointmentRepository
         return await _context.Appointments
             .Include(a => a.Patient)
             .Include(a => a.ProcedureType)
+            .Include(a => a.Procedures).ThenInclude(p => p.ProcedureType)
             .Where(a => a.AppointmentDateTime >= fromDate &&
                        (a.Status == AppointmentStatus.Scheduled || a.Status == AppointmentStatus.Confirmed))
             .OrderBy(a => a.AppointmentDateTime)
@@ -125,6 +154,7 @@ public class AppointmentRepository : IAppointmentRepository
         return await _context.Appointments
             .Include(a => a.Patient)
             .Include(a => a.ProcedureType)
+            .Include(a => a.Procedures).ThenInclude(p => p.ProcedureType)
             .Where(a => a.AppointmentDateTime >= startOfDay && a.AppointmentDateTime < endOfDay)
             .OrderBy(a => a.AppointmentDateTime)
             .ToListAsync(cancellationToken);
@@ -135,8 +165,33 @@ public class AppointmentRepository : IAppointmentRepository
         return await _context.Appointments
             .Include(a => a.Patient)
             .Include(a => a.ProcedureType)
-            .Where(a => a.ProcedureTypeId == procedureTypeId)
+            .Include(a => a.Procedures).ThenInclude(p => p.ProcedureType)
+            // Matches the whole séance, not just its lead act: a procedure renamed or recoloured must be
+            // re-snapshotted on every row that carries it, and a procedure booked as a future visit's *second*
+            // act must still block its hard deletion (ProcedureType.IsUsedByFutureAppointments).
+            .Where(a => a.ProcedureTypeId == procedureTypeId
+                        || a.Procedures.Any(p => p.ProcedureTypeId == procedureTypeId))
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, int>> CountByRecurringSeriesAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> seriesIds,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = seriesIds.Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return new Dictionary<Guid, int>();
+        }
+
+        return await _context.Appointments
+            .Where(a => a.ClinicId == clinicId
+                && a.RecurringAppointmentId.HasValue
+                && ids.Contains(a.RecurringAppointmentId.Value))
+            .GroupBy(a => a.RecurringAppointmentId!.Value)
+            .Select(g => new { SeriesId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.SeriesId, x => x.Count, cancellationToken);
     }
 
     public async Task<IReadOnlyList<Appointment>> GetByTreatmentPlanItemIdsAsync(
@@ -149,12 +204,18 @@ public class AppointmentRepository : IAppointmentRepository
             return Array.Empty<Appointment>();
         }
 
-        // No Include here (unlike the other reads): the plan-workflow projection needs only the link,
-        // the date and the status, and this runs for every plan on a list page.
+        // The child rows ARE included here, unlike the other lean reads: a séance that groups several devis acts
+        // is one appointment whose *second* and *third* acts live only in `Procedures`, so a projection built from
+        // the parent scalar alone would report those acts as « À planifier » forever — offering to book a visit
+        // that already exists. Nothing else about the acts is loaded (no ProcedureType), because the projection
+        // needs only the link, the date and the status, and this runs for every plan on a list page.
         return await _context.Appointments
+            .Include(a => a.Procedures)
             .Where(a => a.ClinicId == clinicId
-                        && a.TreatmentPlanItemId != null
-                        && treatmentPlanItemIds.Contains(a.TreatmentPlanItemId.Value))
+                        && ((a.TreatmentPlanItemId != null
+                             && treatmentPlanItemIds.Contains(a.TreatmentPlanItemId.Value))
+                            || a.Procedures.Any(p => p.TreatmentPlanItemId != null
+                                                     && treatmentPlanItemIds.Contains(p.TreatmentPlanItemId.Value))))
             .OrderBy(a => a.AppointmentDateTime)
             .ToListAsync(cancellationToken);
     }

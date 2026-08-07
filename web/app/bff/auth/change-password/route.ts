@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SESSION_COOKIE, MUST_CHANGE_COOKIE } from '@/lib/auth/local-auth';
+import { SESSION_COOKIE } from '@/lib/auth/local-auth';
+import { clearMustChangeCookie } from '@/lib/auth/session-cookie';
 import { forwardedForHeader } from '@/lib/auth/forwarded-for';
 
 export const dynamic = 'force-dynamic';
@@ -52,8 +53,9 @@ export async function POST(request: NextRequest) {
     }
 
     const response = NextResponse.json({ ok: true });
-    // Forced-change satisfied — clear the flag so the middleware stops redirecting.
-    response.cookies.set(MUST_CHANGE_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 });
+    // Forced-change satisfied — clear the flag so the middleware stops redirecting. The next token exchange
+    // would clear it too (the server reports the flag), but that is up to half an hour away.
+    clearMustChangeCookie(response);
     return response;
   } catch {
     return NextResponse.json(

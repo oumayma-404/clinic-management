@@ -11,7 +11,7 @@ interface OverlapOptions {
   startHour: string;
   startMinute: string;
   durationMinutes: number;
-  /** Practitioner being booked — a clash with the SAME doctor is a hard (blocking) conflict. */
+  /** Practitioner being booked — a clash with the SAME doctor is the loud case (still not a block). */
   doctorId?: string;
   /** Edit: exclude the appointment being edited from the overlap check. */
   excludeAppointmentId?: string;
@@ -20,17 +20,22 @@ interface OverlapOptions {
 export interface OverlapResult {
   /** French warning message naming the first conflict, or null when there is no overlap. */
   warning: string | null;
-  /** True only for a hard clash with the SAME practitioner — the dialog blocks Save on this. */
-  blocking: boolean;
+  /**
+   * True only for a clash with the SAME practitioner. Named for what it IS, not for what it used to cause: this no
+   * longer blocks Save. The collision is advisory, and the server offers an explicit override
+   * (`slot_taken` → `allowOverlap`), so this only drives how loudly the warning is styled.
+   */
+  samePractitioner: boolean;
 }
 
 /**
  * Overlap detection for the appointment dialogs. Fetches the selected day's appointments once per day
- * via the existing appointmentsApi and classifies a conflict as either a hard clash with the same
- * practitioner (`blocking` — mirrors the server-side double-booking guard) or a soft advisory overlap
- * with another practitioner (non-blocking amber hint).
+ * via the existing appointmentsApi and classifies a conflict as either a clash with the same
+ * practitioner (`samePractitioner` — the loud case, mirroring the server-side guard) or a softer overlap with
+ * another practitioner. **Neither blocks**: the server treats a collision as advisory and offers an explicit
+ * override, so this hook only decides how the warning reads.
  *
- * A fetch failure silently disables the warning (never blocks booking); cancelled / no-show
+ * A fetch failure silently disables the warning; cancelled / no-show
  * appointments are ignored; busy ("Occupé") slots count as overlaps.
  */
 export function useAppointmentOverlap({
@@ -71,7 +76,7 @@ export function useAppointmentOverlap({
   }, [enabled, dayKey]);
 
   return useMemo<OverlapResult>(() => {
-    if (!enabled || !date || durationMinutes <= 0) return { warning: null, blocking: false };
+    if (!enabled || !date || durationMinutes <= 0) return { warning: null, samePractitioner: false };
 
     const start = new Date(date);
     start.setHours(Number.parseInt(startHour), Number.parseInt(startMinute), 0, 0);
@@ -86,17 +91,24 @@ export function useAppointmentOverlap({
       return start < aptEnd && end > aptStart;
     });
 
-    if (conflicts.length === 0) return { warning: null, blocking: false };
+    if (conflicts.length === 0) return { warning: null, samePractitioner: false };
 
     // A hard clash is one with the SAME practitioner being booked (other-doctor overlaps stay advisory).
     const sameDoctor = doctorId ? conflicts.find((c) => c.doctorId && c.doctorId === doctorId) : undefined;
     const conflict = sameDoctor ?? conflicts[0];
-    const label = conflict.patientName || 'Occupé';
     const time = format(new Date(conflict.appointmentDateTime), 'HH:mm');
+    // The name is the PATIENT already in the slot — never the practitioner. The old copy read
+    // « réservé pour ce praticien : « <nom> » », which named a patient right after the word "praticien" and so
+    // said the opposite of what it meant. A busy slot with no patient ("Occupé") has no name to show at all,
+    // so it gets its own wording rather than « patient : « Occupé » ».
+    const withWhom = conflict.patientName ? `patient : « ${conflict.patientName} »` : 'créneau occupé';
 
     if (sameDoctor) {
-      return { warning: `Ce créneau est déjà réservé pour ce praticien : « ${label} » à ${time}`, blocking: true };
+      return {
+        warning: `Ce praticien a déjà un rendez-vous à ${time} (${withWhom})`,
+        samePractitioner: true,
+      };
     }
-    return { warning: `Chevauchement avec « ${label} » à ${time}`, blocking: false };
+    return { warning: `Chevauchement à ${time} avec un autre praticien (${withWhom})`, samePractitioner: false };
   }, [enabled, date, startHour, startMinute, durationMinutes, doctorId, excludeAppointmentId, dayAppointments]);
 }

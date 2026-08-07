@@ -8,6 +8,14 @@ namespace ClinicManagement.Infrastructure.Services;
 /// <c>RemindersConfig</c>). Non-secret settings come from the <c>Ttn:*</c> config section; the signing
 /// certificate + its password and the TTN API credentials come from the per-install <c>.local/</c> store
 /// or environment variables — never from committed config.
+///
+/// <para>⚠️ Since <c>multi-tenant-cloud</c> US-4 the identity accessors here describe the <b>per-install</b>
+/// identity only, which is a <i>fall-back</i> and no longer the answer. A clinic's own certificate and TTN
+/// account live on its row, and <see cref="TtnIdentityProvider"/> is the single place that chooses between
+/// them — the fall-back applies only where the install serves one clinic
+/// (<c>DeploymentProfile.SharesInstallWideTtnIdentity</c>). Read these four from anywhere else and you have
+/// written a second, disagreeing answer to « whose certificate is this? ». The endpoint and outbox accessors
+/// are unaffected: TTN is one national platform, so its URLs and the retry policy are per install by nature.</para>
 /// </summary>
 public static class TtnConfig
 {

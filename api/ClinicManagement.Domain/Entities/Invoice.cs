@@ -1,6 +1,7 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -19,6 +20,41 @@ public class Invoice : AggregateRoot<Guid>
     /// <summary>The treatment plan (devis) this note was generated from, if any — the devis→facture link
     /// used by « Solde patient » to count the invoice instead of the plan (no double-count).</summary>
     public Guid? TreatmentPlanId { get; private set; }
+    /// <summary>
+    /// Which practitioner earned this — nullable, and nullable means nullable (L9 attribution).
+    ///
+    /// <para><b>What was missing.</b> <c>DoctorId</c> existed on exactly three entities in the whole model
+    /// (<c>Appointment</c> — the only real FK to <c>Doctors</c> — <c>RecurringAppointment</c>, and
+    /// <c>WaitingListEntry.PreferredDoctorId</c>, which was not even an FK), and on nothing that carries money or
+    /// clinical work. So « combien a produit ce praticien ce mois ? » had no answer, and
+    /// <c>Features/Dashboard/</c> contained <b>zero</b> occurrences of <c>Doctor</c> across all four readers.</para>
+    ///
+    /// <para>⚠️ <b>Historical rows legitimately have none</b> — the column did not exist when they were written,
+    /// and the migration only backfills where a linked appointment names a practitioner. Every read must therefore
+    /// tolerate null rather than treating it as « the clinic », which would silently attribute one dentist's work
+    /// to whoever the filter happens to select.</para>
+    ///
+    /// <para>This is <b>attribution, not authorization</b>: it answers who earned a figure. Per-practitioner data
+    /// scoping (« this dentist sees only their own patients ») is a separate decision with its own blast radius and
+    /// is deliberately out of scope.</para>
+    /// </summary>
+    public Guid? DoctorId { get; private set; }
+
+    /// <summary>The practitioner navigation, for the read-side name resolution. Null when unattributed.</summary>
+    public Doctor? Doctor { get; private set; }
+
+    /// <summary>
+    /// Attribute (or un-attribute) this record to a practitioner. Deliberately its own mutator rather than a ctor
+    /// parameter on every construction path: the answer is often only known *after* the aggregate exists (it comes
+    /// from the appointment the record was written against), and a required ctor argument would have forced every
+    /// caller to guess.
+    /// </summary>
+    public void SetDoctor(Guid? doctorId)
+    {
+        DoctorId = doctorId == Guid.Empty ? null : doctorId;
+        Touch();
+    }
+
 
     /// <summary>Sequential number <c>AAAA-NNNN</c>; null while a draft (assigned at issue).</summary>
     public string? Number { get; private set; }
@@ -61,6 +97,30 @@ public class Invoice : AggregateRoot<Guid>
 
     private readonly List<InvoiceLine> _lines = new();
     public IReadOnlyCollection<InvoiceLine> Lines => _lines.AsReadOnly();
+
+    /// <summary>
+    /// Detach every line raised from a fiche de soins that is being deleted, returning how many were cleared.
+    /// <para>
+    /// The invoice keeps its number, its lines, its amounts and its status — deleting a clinical record must never
+    /// alter a fiscal document. Only the FK-less provenance pointer is dropped, so no line is left referencing a
+    /// row that no longer exists. Works on a cancelled invoice too: a dangling pointer is just as wrong there.
+    /// </para>
+    /// </summary>
+    public int ClearDentalRecordLinks(Guid dentalRecordId)
+    {
+        var affected = _lines.Where(l => l.DentalRecordId == dentalRecordId).ToList();
+        foreach (var line in affected)
+        {
+            line.ClearDentalRecordLink();
+        }
+
+        if (affected.Count > 0)
+        {
+            UpdatedAt = DateTime.UtcNow;
+        }
+
+        return affected.Count;
+    }
 
     private readonly List<Payment> _payments = new();
     public IReadOnlyCollection<Payment> Payments => _payments.AsReadOnly();
@@ -192,11 +252,16 @@ public class Invoice : AggregateRoot<Guid>
     /// Record a payment. Allowed only on an issued/partially-paid invoice. An overpayment (collected
     /// beyond the TTC) is refused; reaching the TTC exactly moves the invoice to Paid.
     /// </summary>
+    /// <param name="cheque">
+    /// The cheque's number, bank and due date (L8) — required to be null for any method other than
+    /// <see cref="PaymentMethod.Cheque"/>, which <see cref="ChequeDetails.For"/> enforces before this is reached.
+    /// </param>
     public void RecordPayment(
         decimal amount,
         PaymentMethod method,
         DateTime paidOn,
-        Guid? sourceInstallmentPaymentId = null)
+        Guid? sourceInstallmentPaymentId = null,
+        ChequeDetails? cheque = null)
     {
         if (Status != InvoiceStatus.Issued && Status != InvoiceStatus.PartiallyPaid)
             throw new InvalidOperationException("Un paiement ne peut être enregistré que sur une facture émise.");
@@ -211,7 +276,7 @@ public class Invoice : AggregateRoot<Guid>
         if (InvoiceCalculator.RoundMoney(AmountCollected + rounded) > TotalTtc)
             throw new InvalidOperationException("Le paiement dépasse le montant restant dû.");
 
-        _payments.Add(new Payment(Guid.NewGuid(), Id, rounded, method, paidOn, sourceInstallmentPaymentId));
+        _payments.Add(new Payment(Guid.NewGuid(), Id, rounded, method, paidOn, sourceInstallmentPaymentId, cheque));
         RecomputeCollected();
         Touch();
     }
@@ -362,6 +427,29 @@ public class Invoice : AggregateRoot<Guid>
 
         CancellationReason = reason.Trim();
         Status = InvoiceStatus.Cancelled;
+
+        /*
+         * Dequeue the e-invoice (J4). The guard above refuses only the three states TTN has already seen
+         * (`Valid`/`Submitted`/`Validating`); `Queued` and `Signed` passed it, `CancelInvoiceCommand` never
+         * dequeued, and `EInvoiceService.ProcessAsync` never consulted this `Status` — so a cancelled note was
+         * still declared to El Fatoora by the next outbox tick and came back « validée ». A note validated at
+         * TTN can never be cancelled there, so the local cancellation and the national registry stayed
+         * permanently out of step in the one direction that cannot be undone.
+         *
+         * Dequeuing rather than refusing is deliberate: a mis-keyed note that happens to be queued must remain
+         * cancellable, and refusing would make it *uncancellable* — the retry budget is only exhausted after
+         * several minutely ticks, during which the only escape would be to let it be declared first.
+         *
+         * `NotSubmitted` is the honest resting state: nothing reached TTN. Any signed artifact already stored
+         * keeps its key — it is a record of what was built, and deleting it would lose the trail this whole
+         * state machine exists to keep.
+         */
+        if (EInvoiceStatus is EInvoiceStatus.Queued or EInvoiceStatus.Signed)
+        {
+            EInvoiceStatus = EInvoiceStatus.NotSubmitted;
+            EInvoiceNextAttemptAt = null;
+        }
+
         Touch();
     }
 
@@ -440,6 +528,34 @@ public class Invoice : AggregateRoot<Guid>
             TtnReceiptStorageKey = receiptStorageKey.Trim();
         }
         EInvoiceNextAttemptAt = null;
+        Touch();
+    }
+
+    /// <summary>
+    /// Park a queued e-invoice against a <b>configuration</b> state — this clinic has no usable El Fatoora signing
+    /// identity yet. Records the operator's reason and leaves the row <c>Queued</c> and due, <b>consuming no
+    /// attempt</b>.
+    ///
+    /// <para><b>Why this is not <see cref="RecordEInvoiceFailure"/></b> (review finding 6): that one is right for a
+    /// transient failure and wrong here. A missing qualified certificate lasts days, so five bounded attempts empty
+    /// in about ten minutes and the note then leaves the outbox <i>permanently</i> — needing a manual
+    /// <see cref="QueueForElFatoora"/> nobody is told to perform, on what US-4 makes the <b>normal</b> state of
+    /// every newly provisioned clinic. Parking is the <c>Blocked</c> status the reminder outbox has, expressed
+    /// without a new state: the row stays exactly where the dispatcher will find it, and uploading the PFX is all it
+    /// takes to resume.</para>
+    ///
+    /// <para>⚠️ <b><paramref name="retryAt"/> must be a real instant, never null.</b> Both the dispatcher's due-query
+    /// and the <c>GET /api/outbox</c> depth read require <c>EInvoiceNextAttemptAt != null</c> to see a row at all, so
+    /// clearing it would park the invoice somewhere *nothing* looks — invisible to the retry and absent from the very
+    /// backlog figure meant to reveal it.</para>
+    /// </summary>
+    public void ParkEInvoiceUntilConfigured(string reason, DateTime retryAt)
+    {
+        EInvoiceLastError = string.IsNullOrWhiteSpace(reason)
+            ? "Identité El Fatoora de ce cabinet non configurée."
+            : reason.Trim();
+        EInvoiceStatus = EInvoiceStatus.Queued;
+        EInvoiceNextAttemptAt = retryAt;
         Touch();
     }
 

@@ -18,6 +18,14 @@ public class ToothStateConfiguration : IEntityTypeConfiguration<ToothState>
         builder.Property(t => t.PatientId)
             .IsRequired();
 
+        // Denormalised from the patient so this clinical child carries a global query filter of its
+        // own — see ApplicationDbContext.OnModelCreating. The two must agree; verify-schema's
+        // clinical-child-clinic-matches-patient is what holds that.
+        builder.Property(t => t.ClinicId)
+            .IsRequired();
+
+        builder.HasIndex(t => t.ClinicId);
+
         builder.Property(t => t.ToothNumber)
             .IsRequired();
 

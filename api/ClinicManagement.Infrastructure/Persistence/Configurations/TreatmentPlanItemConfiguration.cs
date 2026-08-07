@@ -44,8 +44,7 @@ public class TreatmentPlanItemConfiguration : IEntityTypeConfiguration<Treatment
                     c => c != null ? c.ToList() : new List<int>()))
             .HasColumnType("text");
 
-        builder.Property(i => i.PlannedCost)
-            .HasColumnType("decimal(18,3)");
+        builder.Property(i => i.PlannedCost);
 
         builder.Property(i => i.Status)
             .IsRequired()

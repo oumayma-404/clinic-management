@@ -3,20 +3,54 @@
 import type React from "react"
 
 import { useCallback, useEffect, useState } from "react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
+
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
-import { Plus, Pencil, Trash2, Loader2, FlaskConical } from "lucide-react"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import {
+  AlertTriangle,
+  Check,
+  ChevronsUpDown,
+  FlaskConical,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react"
+import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { EmptyState } from "@/components/ui/empty-state"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import { cn } from "@/lib/utils"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
+import { ExportButton } from "@/components/ui/export-button"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -39,11 +73,13 @@ import { labOrdersApi, type LabWorkOrderPayload } from "@/lib/api/lab-orders"
 import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
 import type { LabWorkOrderDto, PatientDto } from "@/lib/api/types"
+import { formatDT, parseAmountInput } from "@/lib/format"
 
 // The four lifecycle stages a lab work order moves through (mirrors the backend enum).
 type LabOrderStatus = "Sent" | "InProgress" | "Received" | "Fitted"
 
-const STATUS_OPTIONS: LabOrderStatus[] = ["Sent", "InProgress", "Received", "Fitted"]
+
+const ALL_STATUSES = "all"
 
 const STATUS_LABELS: Record<LabOrderStatus, string> = {
   Sent: "Envoyé",
@@ -78,9 +114,12 @@ function formatDateFr(iso?: string | null): string {
   }
 }
 
-// Tunisian dinar with millime precision (3 decimals); "—" when no cost recorded.
+// Tunisian dinar through the app's one money formatter; "—" when no cost recorded (AC-P6.18).
+// It used to interpolate `toFixed(3)` by hand, which printed a period and no thousands grouping — every other
+// amount in the product reads « 1 234,500 DT ». `formatDT` treats null as 0, hence the explicit null branch:
+// « 0,000 DT » and « pas de coût saisi » are different facts.
 function formatCost(cost?: number | null): string {
-  return cost != null ? `${cost.toFixed(3)} DT` : "—"
+  return cost != null ? formatDT(cost) : "—"
 }
 
 // An ISO date string begins with yyyy-MM-dd, exactly what <input type="date"> expects as its value.
@@ -94,15 +133,36 @@ function parseIntOrNull(value: string): number | null {
   return Number.isNaN(n) ? null : n
 }
 
-function parseFloatOrNull(value: string): number | null {
+/**
+ * A money amount typed by hand, or **null when the field is empty** — an optional cost.
+ *
+ * <p>Delegates to the shared {@link parseAmountInput} (J8) rather than carrying its own comma swap. It had one,
+ * and that copy was weaker in two ways that matter here: it replaced only the **first** comma (so « 1,2,3 » read
+ * as `1.2`) and stripped no whitespace (so « 1 200,500 » pasted back out of this very app failed). A helper
+ * retyped per screen is the defect J8 exists to end — this wrapper keeps only what is genuinely local, which is
+ * the empty-means-null contract the lab-order cost needs and a plain amount field does not.</p>
+ */
+function parseAmountOrNull(value: string): number | null {
   if (value.trim() === "") return null
-  const n = parseFloat(value)
-  return Number.isNaN(n) ? null : n
+  const n = parseAmountInput(value)
+  return Number.isFinite(n) ? n : null
 }
 
-// Native <select> styled to match the shadcn Input primitive.
+/** Column widths the loading skeleton mirrors, in the table's own order (10 columns). */
+const LAB_COLUMN_WIDTHS = [
+  "w-[16%]", "w-[16%]", "w-[13%]", "w-[6%]", "w-[9%]", "w-[9%]", "w-[9%]", "w-[8%]", "w-[8%]", "w-[6%]",
+] as const
+
+/**
+ * Native <select> styled to match the shadcn Input primitive.
+ *
+ * `coarse:min-h-11` is the 44px touch floor. `globals.css` raises `input`, `textarea` and
+ * `[data-slot="select-trigger"]` on a coarse pointer but never a bare `<select>`, so these controls — including
+ * the stage picker that IS this page's main action — sat at 32–36px on the tablet at the chair. `min-height`
+ * beats `height`, so the `h-8` variant below stays compact on a mouse and still clears the floor on a finger.
+ */
 const SELECT_CLASS =
-  "border-input h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
+  "border-input h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 coarse:min-h-11 md:text-sm"
 
 interface LabOrderFormModalProps {
   open: boolean
@@ -123,6 +183,10 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
   const [notes, setNotes] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [patientPickerOpen, setPatientPickerOpen] = useState(false)
+
+  const selectedPatient = patients.find((p) => p.id === patientId)
+  const selectedPatientName = selectedPatient ? `${selectedPatient.firstName} ${selectedPatient.lastName}`.trim() : ""
 
   useEffect(() => {
     if (editingOrder) {
@@ -167,7 +231,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
       toothNumber: parseIntOrNull(toothNumber),
       sentDate: sentDate || null,
       expectedDate: expectedDate || null,
-      cost: parseFloatOrNull(cost),
+      cost: parseAmountOrNull(cost),
       notes: notes.trim() || null,
     }
 
@@ -191,7 +255,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="md:max-w-md">
         <DialogHeader>
           <DialogTitle>{editingOrder ? "Modifier le bon" : "Nouveau bon de prothèse"}</DialogTitle>
           <DialogDescription>
@@ -209,19 +273,59 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
             {editingOrder ? (
               <Input id="patient" value={editingOrder.patientName ?? "—"} disabled />
             ) : (
-              <select
-                id="patient"
-                className={SELECT_CLASS}
-                value={patientId}
-                onChange={(e) => setPatientId(e.target.value)}
-              >
-                <option value="">Sélectionner un patient</option>
-                {patients.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.firstName} {p.lastName}
-                  </option>
-                ))}
-              </select>
+              /*
+                A searchable Popover+Command, following `create-appointment-dialog.tsx`. It replaces a native
+                `<select>` holding the clinic's entire patient list — unfilterable, and at `h-9` under the 44px
+                touch floor, since `globals.css` raises inputs and select TRIGGERS but not a bare `<select>`.
+
+                `modal` because the parent Dialog kills pointer events outside its content; without it the
+                portalled list can only be driven by keyboard.
+              */
+              <Popover open={patientPickerOpen} onOpenChange={setPatientPickerOpen} modal>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="patient"
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={patientPickerOpen}
+                    className="h-10 w-full justify-between font-normal"
+                  >
+                    <span className={cn("truncate", !patientId && "text-muted-foreground")}>
+                      {selectedPatientName || "Sélectionner un patient"}
+                    </span>
+                    <ChevronsUpDown className="ms-2 h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0" align="start" style={{ width: "var(--radix-popover-trigger-width)" }}>
+                  <Command>
+                    <CommandInput placeholder="Rechercher un patient…" />
+                    <CommandList>
+                      <CommandEmpty>Aucun patient trouvé.</CommandEmpty>
+                      <CommandGroup>
+                        {patients.map((p) => {
+                          const fullName = `${p.firstName} ${p.lastName}`.trim()
+                          return (
+                            <CommandItem
+                              key={p.id}
+                              value={fullName}
+                              onSelect={() => {
+                                setPatientId(p.id)
+                                setPatientPickerOpen(false)
+                              }}
+                            >
+                              <Check
+                                className={cn("me-2 h-4 w-4", patientId === p.id ? "opacity-100" : "opacity-0")}
+                              />
+                              {fullName}
+                            </CommandItem>
+                          )
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             )}
             {errors.patientId && <p className="text-xs text-destructive">{errors.patientId}</p>}
           </div>
@@ -252,13 +356,17 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
             {errors.workDescription && <p className="text-xs text-destructive">{errors.workDescription}</p>}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="toothNumber">Dent (FDI)</Label>
+              {/* A tooth number is a LABEL, not a quantity: 46 is a name, not forty-six of anything. As
+                  `type="number"` it carried spinners that invite « 47 » to be reached by stepping, and an
+                  accidental scroll over the focused field silently changed which tooth the bon is for. */}
               <Input
                 id="toothNumber"
-                type="number"
-                min="0"
+                type="text"
+                inputMode="numeric"
+                maxLength={2}
                 placeholder="Optionnel"
                 value={toothNumber}
                 onChange={(e) => setToothNumber(e.target.value)}
@@ -266,12 +374,14 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="cost">Coût</Label>
+              <Label htmlFor="cost">Coût (DT)</Label>
+              {/* Text + `inputMode="decimal"`, parsed by `parseAmountOrNull`: the app prints « 90,500 DT », and
+                  `type="number"` refuses a comma outright — the browser reports an empty value and the cost is
+                  dropped without a word. */}
               <Input
                 id="cost"
-                type="number"
-                min="0"
-                step="0.001"
+                type="text"
+                inputMode="decimal"
                 placeholder="Optionnel"
                 value={cost}
                 onChange={(e) => setCost(e.target.value)}
@@ -279,7 +389,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="sentDate">Date d&apos;envoi</Label>
               <Input id="sentDate" type="date" value={sentDate} onChange={(e) => setSentDate(e.target.value)} />
@@ -322,7 +432,13 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
 }
 
 export default function LabOrdersPage() {
-  const [orders, setOrders] = useState<LabWorkOrderDto[]>([])
+  const [orderPage, setOrderPage] = useState<PagedResponse<LabWorkOrderDto>>(() => emptyPage<LabWorkOrderDto>())
+  const orders = orderPage.items
+  const [search, setSearch] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+
   const [patients, setPatients] = useState<PatientDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -332,13 +448,21 @@ export default function LabOrdersPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [orderToDelete, setOrderToDelete] = useState<LabWorkOrderDto | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // The list had no filter of any kind, which left the dashboard's « Prothèses en retard » card with nowhere truthful
+  // to land. ALL_STATUSES keeps the default behaviour (the full list) unchanged.
+  const [statusFilter, setStatusFilter] = useState<string>(ALL_STATUSES)
 
   const loadOrders = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
-      const data = await labOrdersApi.list()
-      setOrders(data)
+      const data = await labOrdersApi.listPaged({
+        page,
+        pageSize,
+        search: debouncedSearch || undefined,
+        status: statusFilter === ALL_STATUSES ? undefined : statusFilter,
+      })
+      setOrderPage(data)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Échec du chargement des bons de laboratoire"
       setError(message)
@@ -346,7 +470,18 @@ export default function LabOrdersPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [statusFilter, page, pageSize, debouncedSearch])
+
+  // Debounced so a search does not fire a request per keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  // A new term (or filter) must not leave the table on a page the narrowed result set no longer has.
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch, statusFilter])
 
   // Patients back the "Nouveau bon" picker; a failure there shouldn't blank the page, just warn.
   const loadPatients = useCallback(async () => {
@@ -362,6 +497,19 @@ export default function LabOrdersPage() {
     loadOrders()
     loadPatients()
   }, [loadOrders, loadPatients])
+
+  // Dashboard drill-through (« Prothèses en retard »): ?status=Sent narrows to the work still at the laboratory.
+  // window.location in an effect rather than useSearchParams — the repo's idiom. An unknown value is ignored, so a
+  // stale link lands on the full list.
+  useEffect(() => {
+    const urlStatus = new URLSearchParams(window.location.search).get("status")
+    if (urlStatus && urlStatus in STATUS_LABELS) setStatusFilter(urlStatus)
+  }, [])
+
+  // AC-P4.21/4.26 — a bon de prothèse has a status lifecycle two people drive: the assistant sends it, the
+  // dentist marks it received. `laborders` was emitted by the backend from the start with nothing listening,
+  // so each of them worked from a snapshot taken when their page loaded.
+  useClinicRealtime(RealtimeResource.LabOrders, loadOrders)
 
   const handleAddNew = () => {
     setEditingOrder(null)
@@ -392,6 +540,44 @@ export default function LabOrdersPage() {
     setDeleteDialogOpen(true)
   }
 
+  /**
+   * Two different facts, never one message (finding #4). The list carries BOTH a live search box and an
+   * « Étape » filter, and a single « Aucun bon de laboratoire » told a dentist who mistyped a prosthetist's
+   * name — or who left the filter on « Posé » — that the laboratory register was empty.
+   *
+   * The filtered branch deliberately offers no « Nouveau bon »: the bon probably exists, and a create button
+   * there is an invitation to raise a duplicate order with the laboratory.
+   */
+  const hasActiveFilter = debouncedSearch !== "" || statusFilter !== ALL_STATUSES
+
+  const clearFilters = () => {
+    setSearch("")
+    setStatusFilter(ALL_STATUSES)
+  }
+
+  const renderEmpty = (size: "default" | "compact") =>
+    hasActiveFilter ? (
+      <div className="flex flex-col items-center gap-2 py-2">
+        <p className="text-sm text-muted-foreground">Aucun bon ne correspond à vos filtres</p>
+        <Button variant="outline" size="sm" onClick={clearFilters}>
+          Effacer les filtres
+        </Button>
+      </div>
+    ) : (
+      <EmptyState
+        icon={FlaskConical}
+        size={size}
+        title="Aucun bon de prothèse"
+        description="Suivez ici les travaux confiés au laboratoire — de « Envoyé » à « Posé » — avec la dent, le prothésiste, la date prévue et le coût."
+        action={
+          <Button onClick={handleAddNew} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Nouveau bon
+          </Button>
+        }
+      />
+    )
+
   const confirmDelete = async () => {
     if (!orderToDelete) return
     try {
@@ -410,138 +596,289 @@ export default function LabOrdersPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
+      <AppShell contentClassName="space-y-6">
+        {/*
+          `flex-col` below `sm:`: the title sat against a ~300px cluster (an « Étape » filter plus « Nouveau
+          bon ») in a row that could not wrap, so on a 390px screen neither fitted.
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
+          No `zone`: `PageHeader` derives it from the route now.
+        */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <PageHeader
+            title="Laboratoire"
+            subtitle="Bons de prothèse — travaux envoyés au laboratoire et leur étape."
+          />
 
-          <main className="flex-1 overflow-y-auto p-6">
-            <div className="mx-auto max-w-7xl space-y-6">
-              {/* Page Header */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-semibold text-foreground">Laboratoire — bons de prothèse</h1>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Suivez les travaux prothétiques envoyés au laboratoire
-                  </p>
-                </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="lab-status" className="text-sm text-muted-foreground">
+                Étape
+              </Label>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger id="lab-status" className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_STATUSES}>Toutes</SelectItem>
+                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/*
+              L5 — « Exporter » beside the primary action, never inside it: exporting is not creating. Unlike
+              `/stock` and `/creances`, this page owns its own filters, so the button lives here and reads them
+              directly. `debouncedSearch` (not `search`) is what the list request carried — sending the raw
+              keystroke would export a set the table has not shown yet.
+            */}
+            <ExportButton
+              path="/lab-orders/export"
+              label="bons"
+              compact
+              params={{
+                search: debouncedSearch || undefined,
+                status: statusFilter === ALL_STATUSES ? undefined : statusFilter,
+              }}
+            />
+            <Button onClick={handleAddNew} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Nouveau bon
+            </Button>
+          </div>
+        </div>
 
-                <Button onClick={handleAddNew} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Nouveau bon
+        {/* Orders Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FlaskConical className="h-5 w-5" />
+              Bons de laboratoire
+              <Badge variant="secondary" className="ml-2">
+                {orderPage.totalCount}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* Retry banner (finding #2) + `loading` routed into the list rather than a lone spinner that the
+                full table then replaces (finding #3). Shape from `dashboard/dashboard-section.tsx`. */}
+            {error ? (
+              <div
+                role="status"
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive-wash p-3 text-sm"
+              >
+                <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+                <span className="min-w-0 flex-1">{error}</span>
+                <Button size="sm" variant="outline" onClick={loadOrders}>
+                  Réessayer
                 </Button>
               </div>
+            ) : (
+              <div>
+                <div className="mb-4">
+                  <Label htmlFor="lab-orders-search" className="sr-only">
+                    Rechercher un bon
+                  </Label>
+                  <Input
+                    id="lab-orders-search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Rechercher un bon (prothésiste, description, patient)…"
+                  />
+                </div>
+                {/*
+                  Patient + travail as title and subtitle: « Ben Ali » repeats across a busy list and
+                  « Couronne céramique » does not say whose, so neither identifies a bon on its own.
 
-              {/* Orders Table */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <FlaskConical className="h-5 w-5" />
-                    Bons de laboratoire
-                    <Badge variant="secondary" className="ml-2">
-                      {orders.length}
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {loading ? (
-                    <div className="flex items-center justify-center py-12 text-muted-foreground">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                    </div>
-                  ) : error ? (
-                    <p className="py-12 text-center text-sm text-destructive">{error}</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Patient</TableHead>
-                            <TableHead>Travail</TableHead>
-                            <TableHead>Prothésiste</TableHead>
-                            <TableHead>Dent</TableHead>
-                            <TableHead>Envoyé</TableHead>
-                            <TableHead>Prévu</TableHead>
-                            <TableHead>Reçu</TableHead>
-                            <TableHead>Coût</TableHead>
-                            <TableHead>Statut</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {orders.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={10} className="h-24 text-center">
-                                <p className="text-muted-foreground">Aucun bon de laboratoire</p>
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            orders.map((order) => (
-                              <TableRow key={order.id}>
-                                <TableCell className="font-medium text-foreground">
-                                  {order.patientName ?? "—"}
-                                </TableCell>
-                                <TableCell>{order.workDescription}</TableCell>
-                                <TableCell className="text-muted-foreground">{order.prosthetist}</TableCell>
-                                <TableCell className="text-muted-foreground">{order.toothNumber ?? "—"}</TableCell>
-                                <TableCell className="text-muted-foreground">{formatDateFr(order.sentDate)}</TableCell>
-                                <TableCell className="text-muted-foreground">
-                                  {formatDateFr(order.expectedDate)}
-                                </TableCell>
-                                <TableCell className="text-muted-foreground">
-                                  {formatDateFr(order.receivedDate)}
-                                </TableCell>
-                                <TableCell className="text-muted-foreground">{formatCost(order.cost)}</TableCell>
-                                <TableCell>
-                                  <Badge variant={statusVariant(order.status)}>{statusLabel(order.status)}</Badge>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <select
-                                      aria-label="Changer le statut"
-                                      className={`${SELECT_CLASS} h-8 w-32`}
-                                      value={order.status}
-                                      disabled={statusUpdatingId === order.id}
-                                      onChange={(e) => handleStatusChange(order, e.target.value)}
-                                    >
-                                      {STATUS_OPTIONS.map((s) => (
-                                        <option key={s} value={s}>
-                                          {STATUS_LABELS[s]}
-                                        </option>
-                                      ))}
-                                    </select>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleEdit(order)}
-                                      className="h-8 gap-1"
-                                    >
-                                      <Pencil className="h-3 w-3" />
-                                      Modifier
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleDelete(order)}
-                                      className="h-8 gap-1 text-destructive hover:text-destructive"
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                      Supprimer
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
+                  ⚠️ The stage `<select>` stays a CONTROL, as a labelled field's value — it is the action this
+                  screen exists for, and it is also the status display. Putting it in the menu would hide the
+                  current stage AND make advancing it two taps. Its `allowedNextStatuses` gate is the server's,
+                  unchanged.
+                */}
+                <CardList
+                  className={CARDS_ONLY}
+                  ariaLabel="Bons de laboratoire"
+                  items={orders}
+                  loading={loading}
+                  getKey={(o) => o.id}
+                  title={(o) => o.patientName ?? "Patient inconnu"}
+                  subtitle={(o) => o.workDescription}
+                  status={(o) => <Badge variant={statusVariant(o.status)}>{statusLabel(o.status)}</Badge>}
+                  fields={(o) => [
+                    {
+                      label: "Stade",
+                      value: (
+                        /* `w-full` + the shared class's `coarse:min-h-11`. This control exists ONLY on the
+                           phone card, and advancing a prothèse's stage is what this page is for — it was
+                           rendering at 32px, the smallest tap target on the screen it matters most on. */
+                        <select
+                          aria-label="Changer le statut"
+                          className={`${SELECT_CLASS} h-8 w-full`}
+                          value={o.status}
+                          disabled={
+                            statusUpdatingId === o.id || (o.allowedNextStatuses?.length ?? 0) === 0
+                          }
+                          onChange={(e) => handleStatusChange(o, e.target.value)}
+                        >
+                          <option value={o.status}>{statusLabel(o.status)}</option>
+                          {(o.allowedNextStatuses ?? []).map((s) => (
+                            <option key={s} value={s}>
+                              {statusLabel(s)}
+                            </option>
+                          ))}
+                        </select>
+                      ),
+                    },
+                    { label: "Prothésiste", value: o.prosthetist },
+                    { label: "Dent", value: o.toothNumber },
+                    { label: "Coût", value: formatCost(o.cost) },
+                    { label: "Envoyé", value: formatDateFr(o.sentDate) },
+                    { label: "Prévu", value: formatDateFr(o.expectedDate) },
+                    { label: "Reçu", value: formatDateFr(o.receivedDate) },
+                  ]}
+                  actions={(o) => (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" aria-label={`Actions pour le bon de ${o.patientName ?? "ce patient"}`}>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => handleEdit(o)}>Modifier</DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onSelect={() => handleDelete(o)}
+                        >
+                          Supprimer
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
-                </CardContent>
-              </Card>
-            </div>
-          </main>
-        </div>
+                  empty={renderEmpty("compact")}
+                />
+                <Table containerClassName={TABLE_ONLY}>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Patient</TableHead>
+                      <TableHead>Travail</TableHead>
+                      <TableHead>Prothésiste</TableHead>
+                      <TableHead>Dent</TableHead>
+                      <TableHead>Envoyé</TableHead>
+                      <TableHead>Prévu</TableHead>
+                      <TableHead>Reçu</TableHead>
+                      <TableHead>Coût</TableHead>
+                      <TableHead>Statut</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      Array.from({ length: 5 }).map((_, row) => (
+                        <TableRow key={`skeleton-${row}`}>
+                          {LAB_COLUMN_WIDTHS.map((width, col) => (
+                            <TableCell key={col}>
+                              <div
+                                className={`h-5 animate-pulse rounded bg-muted ${width}`}
+                                role={row === 0 && col === 0 ? "status" : undefined}
+                                aria-label={row === 0 && col === 0 ? "Chargement des bons" : undefined}
+                              />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : orders.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={10}>{renderEmpty("default")}</TableCell>
+                      </TableRow>
+                    ) : (
+                      orders.map((order) => (
+                        <TableRow key={order.id}>
+                          <TableCell className="font-medium text-foreground">
+                            {order.patientName ?? "—"}
+                          </TableCell>
+                          <TableCell>{order.workDescription}</TableCell>
+                          <TableCell className="text-muted-foreground">{order.prosthetist}</TableCell>
+                          <TableCell className="text-muted-foreground">{order.toothNumber ?? "—"}</TableCell>
+                          <TableCell className="text-muted-foreground">{formatDateFr(order.sentDate)}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatDateFr(order.expectedDate)}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatDateFr(order.receivedDate)}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{formatCost(order.cost)}</TableCell>
+                          <TableCell>
+                            <Badge variant={statusVariant(order.status)}>{statusLabel(order.status)}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              {/* AC-P2.40 — offer only the stages the server will accept from here. It
+                                  used to list all four unconditionally, so « Posé » → « Envoyé » looked
+                                  like a normal choice and (before the domain had any rules) silently
+                                  rewound a delivered prothèse. The current stage stays in the list as the
+                                  selected value; `allowedNextStatuses` comes from the domain's table, so
+                                  the client never re-derives it. A legacy row in an unmapped state gets an
+                                  empty list — the control is then disabled rather than offering a
+                                  transition that would be refused. */}
+                              <select
+                                aria-label="Changer le statut"
+                                className={`${SELECT_CLASS} h-8 w-32`}
+                                value={order.status}
+                                disabled={
+                                  statusUpdatingId === order.id ||
+                                  (order.allowedNextStatuses?.length ?? 0) === 0
+                                }
+                                onChange={(e) => handleStatusChange(order, e.target.value)}
+                              >
+                                <option value={order.status}>{statusLabel(order.status)}</option>
+                                {(order.allowedNextStatuses ?? []).map((s) => (
+                                  <option key={s} value={s}>
+                                    {statusLabel(s)}
+                                  </option>
+                                ))}
+                              </select>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEdit(order)}
+                                className="h-8 gap-1"
+                              >
+                                <Pencil className="h-3 w-3" />
+                                Modifier
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDelete(order)}
+                                className="h-8 gap-1 text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Supprimer
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+                {/* Hidden while the skeletons are up: the pager reads its counts from an empty page, so it
+                    would print « Aucun … » under rows that are still loading. */}
+                {!loading && (
+                  <DataTablePagination
+                    page={orderPage}
+                    onPageChange={setPage}
+                    onPageSizeChange={setPageSize}
+                    loading={loading}
+                    label={["bon", "bons"]}
+                  />
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <LabOrderFormModal
           open={modalOpen}
@@ -550,33 +887,33 @@ export default function LabOrdersPage() {
           patients={patients}
           onSaved={loadOrders}
         />
-
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Êtes-vous sûr ?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Le bon de{" "}
-                <span className="font-semibold">{orderToDelete?.workDescription}</span> sera définitivement
-                supprimé. Cette action est irréversible.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={(e) => {
-                  e.preventDefault()
-                  confirmDelete()
-                }}
-                disabled={deleting}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                {deleting ? "Suppression..." : "Supprimer"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            {/* The title names the object; « Êtes-vous sûr ? » said nothing this dialog exists to say. */}
+            <AlertDialogTitle>Supprimer ce bon de prothèse ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Le bon de{" "}
+              <span className="font-semibold">{orderToDelete?.workDescription}</span> sera définitivement
+              supprimé. Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                confirmDelete()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Suppression..." : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
         </AlertDialog>
-      </div>
+      </AppShell>
     </ClinicGuard>
   )
 }

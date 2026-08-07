@@ -6,6 +6,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using ClinicManagement.Application.Common.Authorization;
 
 namespace ClinicManagement.API.Controllers;
 
@@ -15,7 +16,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/doctors")]
-[Authorize]
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class DoctorsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -39,7 +40,10 @@ public class DoctorsController : ApiControllerBase
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
+    // `/me` above is « Mon profil » and open to every role; `/{id}` edits *another* practitioner's document
+    // identity — the CNOMDT order number and the cachet that signs ordonnances and certificats.
     [HttpPut("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<IActionResult> UpdateProfile(Guid id, [FromForm] UpdateDoctorProfileRequest request, CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(ToCommand(id, request), cancellationToken);
@@ -72,6 +76,8 @@ public class DoctorsController : ApiControllerBase
 
     /// <summary>Set a dentist's per-practitioner working hours (AC-3.3). An empty list clears the override.</summary>
     [HttpPut("{id:guid}/working-hours")]
+    // Reading the hours is what the agenda does for everyone; deciding them is the practitioner's own call.
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult<IEnumerable<WorkingDayDto>>> SetWorkingHours(Guid id, [FromBody] SetDoctorWorkingHoursCommand command, CancellationToken cancellationToken)
     {
         command.DoctorId = id;
@@ -84,7 +90,8 @@ public class DoctorsController : ApiControllerBase
         DoctorId = doctorId,
         OrdreNumberCnomdt = request.OrdreNumberCnomdt,
         CachetStream = request.Cachet?.OpenReadStream(),
-        CachetContentType = request.Cachet?.ContentType,
+        CachetFileName = request.Cachet?.FileName,
+        CachetLength = request.Cachet?.Length ?? 0,
         RemoveCachet = request.RemoveCachet
     };
 }

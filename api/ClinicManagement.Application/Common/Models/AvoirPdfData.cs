@@ -43,6 +43,19 @@ public class AvoirPdfData
     public decimal AmountHt { get; set; }
     public decimal AmountVat { get; set; }
 
+    /// <summary>
+    /// The share of the credited total that is <b>timbre fiscal</b>, not VAT base.
+    ///
+    /// <para>
+    /// It has to be its own field because the timbre sits <b>outside</b> the VAT base on the corrected note
+    /// (<c>ttc = ht + vat + stamp</c>). De-VATing the whole credited TTC therefore over-reports the TVA being
+    /// reversed — on a 100 DT HT / 7 % / 1 DT note a full-value avoir declared HT 100,935 + TVA 7,065 instead of
+    /// HT 100,000 + TVA 7,000 + timbre 1,000. An avoir reverses the tax that was actually charged, so the three
+    /// figures must be the invoice's own frozen ones.
+    /// </para>
+    /// </summary>
+    public decimal AmountStamp { get; set; }
+
     /// <summary>The credited total — the figure the patient sees, and the one stored on the entity.</summary>
     public decimal AmountTtc { get; set; }
 

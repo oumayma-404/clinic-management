@@ -25,7 +25,9 @@ public sealed class LoginAttemptTrackerTests : IDisposable
 
     public LoginAttemptTrackerTests()
     {
-        _tracker = new LoginAttemptTracker(_cache, _accessor);
+        // LoopbackOnly keeps every case below meaning what it meant before the trusted-proxy set existed: these
+        // assert the LAN rule, and TrustedProxiesTests owns the proxy-aware behaviour.
+        _tracker = new LoginAttemptTracker(_cache, _accessor, TrustedProxies.LoopbackOnly);
     }
 
     public void Dispose() => _cache.Dispose();

@@ -1,79 +1,373 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+/*
+ * `dark:` applies inside `.dark` — EXCEPT inside a `.light` island (AC-39).
+ *
+ * A `.light` subtree is a **document surface**: the two A4 previews, the PDF preview iframes, the CNAM BS1
+ * overlay, the print surface, and an uploaded cachet or logo. Those are not app chrome — they are pieces of
+ * paper. A « certificat médical » that renders white-on-black on screen and then prints black-on-white is
+ * showing the dentist something other than what the patient will receive, and a cachet is a scanned image
+ * whose background is white whatever the theme says.
+ *
+ * ⚠️ The exemption HAS to live in the variant. `.light` on a wrapper cannot otherwise stop a `dark:` utility
+ * on a descendant, because `&:is(.dark *)` matches *any* descendant of `.dark` however deeply nested — so a
+ * document surface inside a dark page would keep inverting no matter what class it carried.
+ */
+@custom-variant dark (&:is(.dark *):not(:is(.light, .light *)));
 
-:root {
-  /* Modern medical UI theme with clean blues and neutrals */
-  --background: oklch(0.99 0 0);
-  --foreground: oklch(0.18 0 0);
+
+/*
+ * `hover-hover:` — only on devices with a real pointer.
+ *
+ * A touch tap fires `:hover` and leaves it applied until the next tap somewhere else, so any hover effect
+ * that moves or scales becomes a stuck state on a tablet — which is exactly what a dentist holds at the
+ * chair. Gate *movement* hovers behind this; plain colour/background hovers can stay ungated, since a
+ * lingering tint reads as "selected" rather than as broken.
+ */
+@custom-variant hover-hover (@media (hover: hover) and (pointer: fine));
+
+/*
+ * `coarse:` — a finger, not a mouse. The mirror of `hover-hover:` and the gate for the 44px touch-target floor
+ * (AC-10).
+ *
+ * Keyed on the POINTER, not on a breakpoint: an iPad in landscape is 1180px wide and is still operated with a
+ * gloved hand at the chair, so a `md:`-based rule would leave the one device this feature exists for on 36px
+ * buttons. A 1440px desk machine with a mouse is untouched either way.
+ */
+@custom-variant coarse (@media (pointer: coarse));
+
+/*
+ * ── Palette: « menthe clinique » ──────────────────────────────────────────────────────────────────────────
+ *
+ * The previous theme read as washed out, and the cause was structural rather than a matter of taste:
+ *
+ *   • `--background` was oklch(0.99 0 0) against `--card` oklch(1 0 0) — **1 % apart**, so no surface ever lifted
+ *     off the page and the whole app was one sheet with hairlines drawn on it.
+ *   • Every surface neutral sat at chroma 0.005–0.01, i.e. grey.
+ *   • `--primary` existed at a respectable chroma and **filled nothing** — it reached one small active button and
+ *     the chart line, so the app had an accent on paper and none on screen.
+ *
+ * What changed, and why each is load-bearing:
+ *
+ *   • The ground is tinted (0.975 at chroma 0.008) and cards stay pure white. A *visible* ground/card gap is what
+ *     makes a surface exist; without it, elevation has nothing to be measured against.
+ *   • Neutrals carry a real hue bias at **215** — between the accent (188) and the old blue (250) — so grey reads
+ *     as chosen rather than inherited.
+ *   • The accent is a deep clinical teal. Teal because this is a dental practice: it is the hue of mouthwash,
+ *     scrubs and hygiene, and it is *not* the institutional blue half of medical software already wears.
+ *   • `--primary` is L 0.49, not the brighter 0.60 the accent reads as elsewhere: it is a **button fill with
+ *     near-white text**, and 0.60 lands around 3.3:1 — under the 4.5:1 floor. `--chart-1` carries the brighter
+ *     step, where contrast with white type is not the constraint.
+ *   • Semantic state (`--success` / `--warning` / `--destructive` + their `-wash` pairs) is deliberately its own
+ *     family, independent of the accent hue. A state that takes the brand colour stops being a state — and the
+ *     washes are what let a delta be a tinted pill instead of bare coloured text.
+ *   • `--radius` 0.5rem → 0.75rem: the "smooth". It flows to every `rounded-md/lg/xl` through the @theme map
+ *     below, so buttons land at 10 px and surfaces at 12–16 px rather than a uniform tight 8.
+ */
+/*
+ * `.light` re-declares the light palette (AC-39) rather than repeating fifty tokens somewhere else.
+ *
+ * The `dark:` *utilities* are already exempted by the variant above, but the palette **variables** are not:
+ * `.dark` sets `--background`/`--foreground`/… for its whole subtree, and a document surface nested inside
+ * would inherit them. Listing `.light` alongside `:root` gives that island the light values back, and since
+ * custom properties resolve from the *nearest* ancestor that sets them, a `.light` inside `.dark` wins for
+ * its subtree without needing extra specificity.
+ */
+:root,
+.light {
+  --background: oklch(0.975 0.008 215);
+  --foreground: oklch(0.20 0.015 235);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0 0);
+  --card-foreground: oklch(0.20 0.015 235);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0 0);
-  --primary: oklch(0.52 0.14 245);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.97 0.005 250);
-  --secondary-foreground: oklch(0.18 0 0);
-  --muted: oklch(0.97 0.005 250);
-  --muted-foreground: oklch(0.48 0.01 250);
-  --accent: oklch(0.965 0.01 245);
-  --accent-foreground: oklch(0.35 0.12 245);
-  --destructive: oklch(0.58 0.2 25);
+  --popover-foreground: oklch(0.20 0.015 235);
+  --primary: oklch(0.49 0.105 188);
+  --primary-foreground: oklch(0.99 0.005 190);
+  --secondary: oklch(0.965 0.008 215);
+  --secondary-foreground: oklch(0.20 0.015 235);
+  --muted: oklch(0.965 0.008 215);
+  --muted-foreground: oklch(0.50 0.018 225);
+  --accent: oklch(0.955 0.028 190);
+  --accent-foreground: oklch(0.38 0.09 190);
+  --destructive: oklch(0.55 0.19 25);
   --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(0.93 0.005 250);
-  --input: oklch(0.93 0.005 250);
-  --ring: oklch(0.52 0.14 245);
-  --chart-1: oklch(0.58 0.14 245);
-  --chart-2: oklch(0.62 0.18 200);
-  --chart-3: oklch(0.55 0.16 270);
-  --chart-4: oklch(0.65 0.12 220);
-  --chart-5: oklch(0.7 0.1 190);
-  --radius: 0.5rem;
+  --border: oklch(0.915 0.008 215);
+  --input: oklch(0.915 0.008 215);
+  --ring: oklch(0.49 0.105 188);
+
+  /* Semantic state + the tinted-pill backgrounds. Constant hues; never the accent. */
+  --success: oklch(0.52 0.12 155);
+  --success-wash: oklch(0.955 0.035 155);
+  --warning: oklch(0.62 0.13 72);
+  --warning-wash: oklch(0.965 0.045 80);
+  /* The darkened amber that is legible ON --warning-wash. --warning itself sits at L 0.62, which lands near
+     3.5:1 against its own wash — under the floor for badge text, so a status pill needs this step instead. */
+  --warning-ink: oklch(0.45 0.11 62);
+  --destructive-wash: oklch(0.962 0.03 25);
+
+  /* The hero surface: a filled accent panel — the one bold surface on the dashboard. */
+  --hero-from: oklch(0.455 0.095 190);
+  --hero-to: oklch(0.375 0.085 196);
+  --hero-glow: oklch(0.60 0.115 185);
+  --hero-foreground: oklch(0.99 0.005 190);
+
+  /*
+   * ── Zone hues ─────────────────────────────────────────────────────────────────────────────────────────────
+   *
+   * One colour per area of the app — see `lib/zones.ts` for what they mean and the three places they are allowed
+   * to appear. They exist because the rail's five groups and `PageHeader`'s `zone` prop were both already there
+   * and both rendered grey, so the app's own structure was invisible.
+   *
+   * ⚠️ Every one sits at L 0.46–0.49, the same step as `--primary`, and that is a contrast requirement rather
+   * than a stylistic one. These are used as INK — an 11 px uppercase eyebrow and a 20 px icon on `--card`
+   * (pure white). L 0.52 measures ~4.2:1 against white, under the 4.5:1 floor; L 0.48 measures ~4.8:1. A zone
+   * hue chosen for how it looks in a swatch rather than for its lightness is a legend the reader cannot read.
+   *
+   * `daily` is exactly `--primary`, not a near-miss: the everyday screens ARE the accent's home, and two teals
+   * four hundredths apart is the kind of difference that reads as a mistake rather than as a distinction.
+   *
+   * `config` is near-neutral (chroma 0.02) on purpose. A fifth saturated hue turns the rail into a paint chart,
+   * and settings is the one group whose job is to stay out of the way until wanted.
+   */
+  --zone-daily: oklch(0.49 0.105 188);
+  --zone-clinical: oklch(0.49 0.13 295);
+  --zone-money: oklch(0.48 0.105 68);
+  --zone-ops: oklch(0.48 0.11 155);
+  --zone-config: oklch(0.46 0.02 235);
+
+  --chart-1: oklch(0.60 0.12 187);
+  --chart-2: oklch(0.58 0.14 240);
+  --chart-3: oklch(0.62 0.13 300);
+  --chart-4: oklch(0.66 0.13 45);
+  --chart-5: oklch(0.55 0.13 155);
+  --radius: 0.75rem;
   --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.18 0 0);
-  --sidebar-primary: oklch(0.52 0.14 245);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.965 0.01 245);
-  --sidebar-accent-foreground: oklch(0.35 0.12 245);
-  --sidebar-border: oklch(0.93 0.005 250);
-  --sidebar-ring: oklch(0.52 0.14 245);
+  --sidebar-foreground: oklch(0.20 0.015 235);
+  --sidebar-primary: oklch(0.49 0.105 188);
+  --sidebar-primary-foreground: oklch(0.99 0.005 190);
+  --sidebar-accent: oklch(0.955 0.028 190);
+  --sidebar-accent-foreground: oklch(0.38 0.09 190);
+  --sidebar-border: oklch(0.915 0.008 215);
+  --sidebar-ring: oklch(0.49 0.105 188);
 }
 
+/*
+ * Dark is given the same care rather than an inversion. The ground/card gap is *widened* here (0.135 → 0.185, a
+ * 5-point step) because elevation is harder to read on a dark ground, and `--primary` moves up to L 0.52 so a
+ * teal button stays clearly above the surface while still carrying near-white type at an acceptable ratio.
+ */
 .dark {
-  /* Dark mode with softer blue accents for medical context */
-  --background: oklch(0.12 0.005 250);
-  --foreground: oklch(0.97 0.005 250);
-  --card: oklch(0.16 0.008 250);
-  --card-foreground: oklch(0.97 0.005 250);
-  --popover: oklch(0.16 0.008 250);
-  --popover-foreground: oklch(0.97 0.005 250);
-  --primary: oklch(0.6 0.16 245);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.22 0.01 250);
-  --secondary-foreground: oklch(0.97 0.005 250);
-  --muted: oklch(0.22 0.01 250);
-  --muted-foreground: oklch(0.58 0.01 250);
-  --accent: oklch(0.22 0.015 245);
-  --accent-foreground: oklch(0.75 0.12 245);
-  --destructive: oklch(0.52 0.2 25);
+  --background: oklch(0.135 0.008 230);
+  --foreground: oklch(0.965 0.006 225);
+  --card: oklch(0.185 0.012 232);
+  --card-foreground: oklch(0.965 0.006 225);
+  --popover: oklch(0.185 0.012 232);
+  --popover-foreground: oklch(0.965 0.006 225);
+  --primary: oklch(0.52 0.105 188);
+  --primary-foreground: oklch(0.98 0.005 190);
+  --secondary: oklch(0.235 0.012 228);
+  --secondary-foreground: oklch(0.965 0.006 225);
+  --muted: oklch(0.235 0.012 228);
+  --muted-foreground: oklch(0.655 0.015 228);
+  --accent: oklch(0.26 0.035 190);
+  --accent-foreground: oklch(0.80 0.10 188);
+  --destructive: oklch(0.55 0.19 25);
   --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(0.24 0.01 250);
-  --input: oklch(0.24 0.01 250);
-  --ring: oklch(0.6 0.16 245);
-  --chart-1: oklch(0.58 0.14 245);
-  --chart-2: oklch(0.62 0.18 200);
-  --chart-3: oklch(0.55 0.16 270);
-  --chart-4: oklch(0.65 0.12 220);
-  --chart-5: oklch(0.7 0.1 190);
-  --sidebar: oklch(0.16 0.008 250);
-  --sidebar-foreground: oklch(0.97 0.005 250);
-  --sidebar-primary: oklch(0.6 0.16 245);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.22 0.015 245);
-  --sidebar-accent-foreground: oklch(0.75 0.12 245);
-  --sidebar-border: oklch(0.24 0.01 250);
-  --sidebar-ring: oklch(0.6 0.16 245);
+  --border: oklch(0.265 0.012 228);
+  --input: oklch(0.265 0.012 228);
+  --ring: oklch(0.62 0.11 187);
+
+  --success: oklch(0.70 0.13 155);
+  --success-wash: oklch(0.27 0.045 155);
+  --warning: oklch(0.76 0.13 78);
+  --warning-wash: oklch(0.29 0.05 78);
+  --warning-ink: oklch(0.86 0.11 80);
+  --destructive-wash: oklch(0.28 0.05 25);
+
+  --hero-from: oklch(0.40 0.075 190);
+  --hero-to: oklch(0.295 0.06 197);
+  --hero-glow: oklch(0.55 0.10 186);
+  --hero-foreground: oklch(0.98 0.005 190);
+
+  /*
+   * Zone hues, lifted for a dark ground. The card sits at L 0.185, and the 4.5:1 floor against it starts at
+   * about L 0.61 — so these are not the light values with a tweak, they are a different step of the same hue.
+   * Chroma comes down slightly as lightness rises, or a saturated pastel on near-black reads as neon.
+   */
+  --zone-daily: oklch(0.74 0.095 188);
+  --zone-clinical: oklch(0.75 0.105 295);
+  --zone-money: oklch(0.78 0.10 75);
+  --zone-ops: oklch(0.74 0.10 155);
+  --zone-config: oklch(0.70 0.018 235);
+
+  --chart-1: oklch(0.70 0.115 186);
+  --chart-2: oklch(0.66 0.14 245);
+  --chart-3: oklch(0.70 0.13 300);
+  --chart-4: oklch(0.74 0.13 50);
+  --chart-5: oklch(0.70 0.13 155);
+  --sidebar: oklch(0.185 0.012 232);
+  --sidebar-foreground: oklch(0.965 0.006 225);
+  --sidebar-primary: oklch(0.52 0.105 188);
+  --sidebar-primary-foreground: oklch(0.98 0.005 190);
+  --sidebar-accent: oklch(0.26 0.035 190);
+  --sidebar-accent-foreground: oklch(0.80 0.10 188);
+  --sidebar-border: oklch(0.265 0.012 228);
+  --sidebar-ring: oklch(0.62 0.11 187);
+}
+
+/*
+ * Motion tokens, declared in `@theme` so Tailwind generates real utilities from them: `ease-snap`,
+ * `ease-smooth`, `ease-panel`. The stock CSS easings are too weak to read as intentional at UI durations,
+ * and typing `ease-[cubic-bezier(…)]` at each call site is how a design system ends up with nine curves.
+ *
+ *   ease-snap    entering / exiting elements — starts fast, so the first frame is visible movement
+ *   ease-smooth  something moving or morphing while already on screen
+ *   ease-panel   the iOS-like panel curve (Ionic's), for the mobile nav Sheet
+ *
+ * Deliberately NOT named `--ease-out` / `--ease-in-out` / `--ease-drawer`: `--ease-*` is Tailwind's own
+ * namespace for the built-in `ease-*` utilities, so those names silently *replace* `ease-out` and
+ * `ease-in-out` everywhere in the app — a global change to every existing transition, made by accident, and
+ * decided by nothing more than which block the bundler happened to emit last.
+ *
+ * There is no `ease-in` counterpart on purpose: `ease-in` delays the first frame, which is the exact moment
+ * the user is watching, so a 200 ms `ease-in` *feels* slower than a 200 ms `ease-out` over the same distance.
+ */
+@theme {
+  --ease-snap: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-smooth: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-panel: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /*
+   * Type scale — two steps added to Tailwind's stock ladder, which otherwise stops at `text-xs` (12px).
+   *
+   * `text-2xs` (11px) is the FLOOR, and it is a hard one: no text that carries information may render smaller
+   * (AC-2). It replaces 121 hand-written `text-[Npx]` values, 71 of which were 8-10.5px — tooth numbers, the
+   * « +N » act counts, appointment-block body text, the « non synchronisé » badge, every reminder status
+   * chip. A pixel value is also frozen: it ignores the user's text-size setting and does not respond to zoom,
+   * so the same markup that is merely small for one reader is unreadable for another.
+   *
+   * `text-title` (26px) is the page-title size that `ui/page-header.tsx` already used as an arbitrary value.
+   * It is a design decision reached by 11 pages, so it belongs in the scale rather than in one component.
+   *
+   * The paired `--text-*--line-height` is not optional: a size declared without one emits a font-size with no
+   * leading. The `calc(target / size)` form matches how Tailwind writes its own steps.
+   *
+   * NOT declared here: `--breakpoint-*`. The four device states this app targets — phone / tablet portrait /
+   * tablet landscape / desktop — are exactly the stock `sm` (40rem) · `lg` (64rem) · `xl` (80rem) boundaries,
+   * so there is nothing to add. Declaring a token that REDEFINES an existing key silently re-points every
+   * utility already using it (75 `md:` sites here), which is a large, invisible change for no gain.
+   */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: calc(1 / 0.6875);
+  --text-title: 1.625rem;
+  --text-title--line-height: calc(2 / 1.625);
+
+  /*
+   * The bottom edge of a phone, owned in one place (AC-8).
+   *
+   * Four things want it: the bottom nav bar (a flex sibling of `<main>`, so it needs no offset of its own), the
+   * AI assistant's FAB and panel, the toasts, and P4's bottom sheets. Before this token each carried its own
+   * `bottom-4` and they simply overlapped — the FAB sat on top of the bar, and a toast covered both.
+   *
+   * `--bottom-inset` is what a FIXED element must clear to sit above the bar: the bar's height plus the home
+   * indicator. Elements in the normal flex flow need neither — `<main>` shrinks around the bar on its own, which
+   * is exactly why the bar is not `fixed` (EC-3: a landscape phone has ~250px of content height, and a fixed bar
+   * would overlay a quarter of it).
+   *
+   * The `0px` fallback matters: `env()` resolves to nothing at all in a browser that does not know it, and
+   * `calc(3.5rem + )` is an invalid declaration that drops silently.
+   */
+  --bottom-bar-h: 3.5rem;
+  --bottom-inset: calc(var(--bottom-bar-h) + env(safe-area-inset-bottom, 0px));
+
+  /*
+   * ── Elevation ─────────────────────────────────────────────────────────────────────────────────────────────
+   *
+   * These REDEFINE Tailwind's stock `shadow-*`, deliberately and with the redefinition risk understood: every
+   * existing `shadow-xs` / `shadow-sm` in the app re-points to these, which is the entire point — there are ~40
+   * of them and none should be pure black.
+   *
+   * Two changes from stock, both structural rather than decorative:
+   *
+   *   • **The shadow is tinted.** Stock Tailwind shadows are `rgb(0 0 0 / …)`. Neutral black over a ground that
+   *     is tinted at hue 215 produces a grey halo that reads as dirt rather than as depth, and it is one of the
+   *     two reasons the app looked washed out (the other, the 1 %-apart ground/card gap, was already fixed).
+   *     Casting the shadow in the SAME hue as the neutrals makes a lifted card look lifted instead of smudged.
+   *
+   *   • **Two layers per step, not one.** A single blur is a glow. Real depth is a tight contact shadow that
+   *     says "this edge touches" plus a wide ambient one that says "this is above" — which is why `shadow-md`
+   *     upward carries both, at different offsets and opacities.
+   *
+   * Opacities stay low (4–12 %). This is a clinical tool read under bright surgery lighting, and heavy shadows
+   * on a white ground are the fastest way to make software look like a 2013 template.
+   *
+   * ⚠️ Dark mode is not given a darker version of these. On a dark ground a shadow is nearly invisible whatever
+   * its opacity, and the palette already carries elevation properly — the ground/card gap is widened to a
+   * 5-point step there for exactly this reason. Adding stronger dark shadows would spend paint on nothing.
+   */
+  --shadow-2xs: 0 1px 2px 0 oklch(0.20 0.02 235 / 0.04);
+  --shadow-xs: 0 1px 2px 0 oklch(0.20 0.02 235 / 0.05);
+  --shadow-sm: 0 1px 2px 0 oklch(0.20 0.02 235 / 0.05), 0 1px 3px 0 oklch(0.20 0.02 235 / 0.04);
+  --shadow-md: 0 2px 4px -1px oklch(0.20 0.02 235 / 0.05), 0 5px 12px -2px oklch(0.20 0.02 235 / 0.07);
+  --shadow-lg: 0 4px 8px -2px oklch(0.20 0.02 235 / 0.06), 0 14px 28px -6px oklch(0.20 0.02 235 / 0.09);
+  --shadow-xl: 0 8px 16px -4px oklch(0.20 0.02 235 / 0.07), 0 28px 56px -12px oklch(0.20 0.02 235 / 0.11);
+  /* `2xl` is redefined too, even though the app should rarely reach it — leaving one step on Tailwind's pure
+     black would put a visibly *greyer* shadow above the tinted ones, i.e. the single most conspicuous place for
+     the inconsistency to show. It is used on the A4 document previews, where the paper metaphor wants depth. */
+  --shadow-2xl: 0 12px 24px -6px oklch(0.20 0.02 235 / 0.08), 0 40px 80px -16px oklch(0.20 0.02 235 / 0.14);
+
+  /*
+   * ── Entrance ──────────────────────────────────────────────────────────────────────────────────────────────
+   *
+   * `animate-rise` — 4 px up and a fade, 220 ms, once per navigation on the page's content wrapper.
+   *
+   * Sized against the rule that decides whether an animation should exist at all: how often will it be seen? A
+   * navigation happens dozens of times a day, which puts this firmly in "drastically reduce" territory — so it
+   * is 220 ms and 4 px, not 400 ms and 16 px. At that size it is not perceived as an animation; it is perceived
+   * as the page having arrived rather than having been swapped, which is the only thing it is for.
+   *
+   * `both` fill: without it the element paints at its natural opacity for one frame before the animation takes
+   * hold, which is a flash — the exact artefact the animation exists to remove.
+   *
+   * ⚠️ Deliberately NOT applied to list rows. Every list here refetches on a peer's SignalR edit, and a row
+   * that re-animates whenever a colleague saves something in another room is a distraction on a clinical
+   * screen. `prefers-reduced-motion` already collapses this to 0.01 ms via the base layer.
+   */
+  --animate-rise: rise 220ms var(--ease-snap) both;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /*
+   * `animate-page-in` — the shell's own entrance, and the reason it is separate from `rise`.
+   *
+   * ⚠️ It is **opacity-only, on purpose**. `AppShell` puts this on `<main>`, and `<main>` contains
+   * `position: fixed` descendants (the agenda's action bar, the AI launcher). A `transform` on an ancestor
+   * makes that ancestor the containing block for every fixed descendant — so a 4 px `rise` here would drag
+   * those elements 4 px and settle them with a visible jump on every navigation. `opacity` creates a stacking
+   * context but not a containing block, which makes it the only property safe to animate at this level.
+   *
+   * Use `rise` for a self-contained element with no fixed children; use this for a layout region.
+   */
+  --animate-page-in: page-in 200ms var(--ease-snap) both;
+
+  @keyframes page-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
 }
 
 @theme inline {
@@ -98,6 +392,28 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  /* Semantic state, so a delta pill is `bg-success-wash text-success` rather than a hardcoded `text-green-700`
+     that no theme can follow. */
+  --color-success: var(--success);
+  --color-success-wash: var(--success-wash);
+  --color-warning: var(--warning);
+  --color-warning-wash: var(--warning-wash);
+  --color-warning-ink: var(--warning-ink);
+  --color-destructive-wash: var(--destructive-wash);
+  /*
+   * Zone hues as real colour utilities, so `text-zone-money` and `bg-zone-money/12` both exist.
+   *
+   * The wash is deliberately NOT a second token: Tailwind compiles `/12` to
+   * `color-mix(in oklab, var(--color-zone-money) 12%, transparent)`, which tracks the ink automatically. Ten
+   * hand-maintained tokens where five plus an opacity modifier will do is ten chances for a wash to stop
+   * matching its own ink after someone nudges a hue.
+   */
+  --color-zone-daily: var(--zone-daily);
+  --color-zone-clinical: var(--zone-clinical);
+  --color-zone-money: var(--zone-money);
+  --color-zone-ops: var(--zone-ops);
+  --color-zone-config: var(--zone-config);
+  --color-hero-foreground: var(--hero-foreground);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -117,11 +433,249 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+@layer utilities {
+  /*
+   * `touch-target` — raises an element's TAPPABLE AREA to 44×44 px on a coarse pointer, without changing a
+   * single painted pixel (AC-10).
+   *
+   * Growing the controls themselves would have been one line, and wrong: the row actions of 22 tables are
+   * 32 px icon buttons, and inflating them to 44 px inflates every row on a tablet — a density regression on
+   * the exact device this feature is for. An overlaid pseudo-element leaves `ui/table.tsx`'s tuned
+   * `px-3 py-2.5` alone and still gives the finger something to hit.
+   *
+   * `min-width`/`min-height` with `width: 100%` resolves to max(own size, 44px), so a control that is already
+   * large enough is untouched rather than being forced to a square.
+   *
+   * Scoped entirely inside the media query — on a mouse this class emits nothing at all, so `position` is not
+   * changed and no existing absolutely-positioned child can shift. (Verified: no `<Button>` in the app has an
+   * absolute child without declaring `relative` on the button itself.)
+   *
+   * ⚠️ Only for elements that can host a pseudo-element. `<input>` is void and cannot — those grow their own
+   * height under `coarse:` instead, where paint and hit area are the same thing anyway.
+   */
+  /*
+   * A 44 px floor for DATA-ENTRY controls on a finger — the companion to `.touch-target`, not a replacement.
+   *
+   * `.touch-target` overlays a hit area without repainting, which is right for the 32 px icon buttons in 22
+   * table rows: inflating those would inflate every row on a tablet. But an `<input>` is void and cannot host
+   * a pseudo-element, and for a text field the painted box IS the hit area — you tap where the caret goes.
+   *
+   * Applied here rather than at ~56 call sites because that is what the settings surfaces actually contain:
+   * `clinic-settings` alone has 29 controls at `h-7`/`h-8` (28–32 px), and `reminder-settings` another 22.
+   * Editing each one is 56 chances to miss one and no protection against the 57th being added tomorrow —
+   * whereas a rule keyed on the control's own `data-slot` covers every existing and future instance.
+   *
+   * Deliberately narrow: inputs, textareas and select triggers only. It does NOT touch `<button>` generally,
+   * because that is exactly the table-row-density regression `.touch-target` was written to avoid. A utility
+   * class still wins where a component sets its own larger height — this is a floor, not an override.
+   */
+  /*
+   * ⚠️ `select` is in this list because a **native** `<select>` matches none of the others and carries no
+   * `touch-target` either — it is not the shadcn `SelectTrigger`, so it fell through both halves of the floor.
+   * Four real controls were left under it, and the worst is the lab-orders stage select rendered inside the
+   * **phone card list** (`h-8`, 32 px): it exists only on a phone, and changing a prosthesis stage is that
+   * page's whole job. A native select is not a void element, so a `min-height` applies to it cleanly.
+   */
+  @media (pointer: coarse) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+    textarea,
+    select,
+    [data-slot="select-trigger"] {
+      min-height: 44px;
+    }
+  }
+
+  /*
+   * ⚠️ A `.lift` hover-elevation utility was written here and then removed before shipping, deliberately —
+   * recording it so it is not re-added on the same reasoning.
+   *
+   * The intent was sound: `ui/card.tsx` had no hover treatment, so every clickable card hand-rolled its own.
+   * But the two surfaces that would have used it turned out not to want it. `/documents`' tiles already chose a
+   * bolder `scale-[1.03]` + ring, commented and deliberate. `KpiCard` sits inside `KpiGrid`, which draws its
+   * hairlines as `gap-px` over a `bg-border` container — translating one cell tears the grid it is part of. And
+   * `CardList` renders only below `md:`, where a `hover: hover` rule emits nothing at all.
+   *
+   * What the audit actually identified was the missing *transition*, not a missing lift, and that now lives on
+   * `Card` itself. An unused utility in a design system is worse than none: the next person reads it as the
+   * house pattern and applies it to the grid cell that cannot take it.
+   */
+
+  @media (pointer: coarse) {
+    .touch-target {
+      position: relative;
+    }
+    .touch-target::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      translate: -50% -50%;
+      width: 100%;
+      height: 100%;
+      min-width: 44px;
+      min-height: 44px;
+    }
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground;
+  }
+
+  /*
+   * AC-P3.42 — a visible focus indicator on everything reachable by keyboard.
+   *
+   * `outline-ring/50` above only sets the *colour* of an outline; most elements here render with
+   * `outline-none` or no outline width at all, so a keyboard user had nothing to follow on the plain
+   * elements — the shadcn primitives each ship their own `focus-visible:ring-*`, but a bare `<button>`,
+   * `<a>`, `<summary>` or a `tabIndex={0}` card did not. This is the floor: any component with its own
+   * richer ring still wins, because `:focus-visible` here is a single-class-specificity base rule and the
+   * primitives apply theirs through Tailwind utilities in the component layer.
+   *
+   * `:focus-visible`, not `:focus`, so a mouse click does not leave a ring behind.
+   */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /*
+   * A thin, self-effacing scrollbar for a panel that scrolls *inside* a page that also scrolls.
+   *
+   * The sidebar nav is the only user: nineteen destinations still overflow a short viewport, and a full-width
+   * scrollbar next to `<main>`'s reads as a second *page* scrollbar rather than as "this panel has more below" —
+   * which is exactly what made the app look like it had two scrolls. Firefox gets the standard properties;
+   * WebKit needs its pseudo-elements, and `transparent` on the track keeps the rail's own background showing so
+   * the bar has no gutter of its own.
+   */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 999px;
+  }
+  .scrollbar-thin:hover::-webkit-scrollbar-thumb {
+    background-color: var(--muted-foreground);
+  }
+
+  /*
+   * Reduced motion means *fewer and gentler* animations, not none. Opacity and colour transitions carry
+   * meaning (a dimmed table says "refetching in progress", a fading banner says "this is new") and are kept;
+   * everything that moves or scales is removed, because movement is what causes motion sickness.
+   *
+   * Scoped to transform/translate/scale/rotate rather than `animation: none !important`, so the Radix
+   * enter/exit animations still run — they just cross-fade instead of sliding, and Radix's animation-driven
+   * unmount (`data-[state=closed]`) keeps working. Killing animations outright would leave closed dialogs
+   * mounted, which is a worse outcome than motion.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-property: color, background-color, border-color, fill, stroke, opacity, box-shadow,
+        text-decoration-color !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+    /*
+     * Two exceptions, both opacity-only rather than movement: the spinner is the sole signal that a request
+     * is still in flight, and the skeleton pulse is the sole signal that a table is about to fill in.
+     */
+    .animate-spin {
+      animation-duration: 1s !important;
+      animation-iteration-count: infinite !important;
+    }
+    .animate-pulse {
+      animation-duration: 2s !important;
+      animation-iteration-count: infinite !important;
+    }
+  }
+}
+
+/*
+ * ── Print ─────────────────────────────────────────────────────────────────────────────────────────────────
+ *
+ * Printing any screen used to print the app: the rail, the header, the bottom bar and the AI launcher, with the
+ * document content squeezed into whatever was left. There was **no `@media print` anywhere** in the repo — the only
+ * print CSS was a string injected into a `window.open` popup by the document editor, so every other surface
+ * (`/factures`, a patient record, a fiche) printed its chrome.
+ *
+ * ⚠️ **The chrome is hidden by `print:hidden` ON each element, not from here.** The rail, the header, the phone's
+ * bottom bar, the nav drawer and the assistant's launcher and panel each carry it. A selector here would have to be
+ * `aside` / `header` / `nav[aria-label="…"]` plus something for an unnamed `fixed` div — all of which stop matching
+ * *silently* under an ordinary markup change, and a print regression is invisible until someone reaches for paper.
+ * This block owns only the three things a utility on an element cannot express.
+ *
+ * Deliberately no `break-inside`/`break-after` rules: which card may be split is a per-surface judgement, and a
+ * blanket `break-inside: avoid` on every card turns a long table into one card per page.
+ */
+@media print {
+  /* 1. Release the viewport cage. `AppShell` is `h-dvh` with `overflow-hidden`, and `<main>` scrolls itself — so
+        without this the printout is exactly one screenful and the rest of the document is simply gone. Keyed on
+        `<main>`'s own id and on any ancestor holding it, so no class list is hardcoded. */
+  body *:has(#contenu-principal),
+  #contenu-principal {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  /* `animate-page-in` starts at `opacity: 0` with `both` fill. It has finished long before a user reaches for
+     Print — but a blank sheet is the one print failure worth insuring against outright. */
+  #contenu-principal {
+    animation: none;
+    opacity: 1;
+  }
+
+  /* 2. sonner renders in its own portal, so it is the one piece of chrome no element of ours can carry a class on. */
+  [data-sonner-toaster] {
+    display: none;
+  }
+
+  /*
+   * 3. Paper is white and ink is dark, whatever the screen theme was. In dark mode `--foreground` is near-white and
+   * `--card` is near-black, so a printed patient record was white text on white paper inside black slabs.
+   *
+   * ⚠️ These are **print** values, not a second copy of the light palette — there is deliberately nothing here to
+   * drift *from*. A copy was the alternative and it cannot work: `.dark` sits on `<html>`, the same element as
+   * `:root`, so there is no ancestor for `:root`'s light values to be inherited from and reuse would mean
+   * re-listing fifty tokens. Overriding the surface and ink tokens reaches every card, table and border, because
+   * the whole app draws from them (`components/CLAUDE.md`: "colour is expressed in tokens, never in literals").
+   */
+  .dark {
+    --background: #ffffff;
+    --card: #ffffff;
+    --popover: #ffffff;
+    --muted: #f4f4f5;
+    --sidebar: #ffffff;
+    --foreground: #18181b;
+    --card-foreground: #18181b;
+    --popover-foreground: #18181b;
+    --muted-foreground: #52525b;
+    --border: #d4d4d8;
+  }
+
+  /* The page's own ground, which is painted on `<body>` from `--background` and so is not covered above. */
+  html,
+  body {
+    background: #ffffff;
+  }
+
+  @page {
+    margin: 12mm;
   }
 }

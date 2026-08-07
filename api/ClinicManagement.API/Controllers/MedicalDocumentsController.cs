@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
+using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Features.Documents.Commands;
 using ClinicManagement.Application.Features.Documents.Queries;
 using ClinicManagement.API.Models;
@@ -18,14 +19,26 @@ namespace ClinicManagement.API.Controllers;
 // authenticates it in BOTH modes' terms — in Local mode it is also covered by the fail-closed fallback
 // policy (FR-E3); in Cloud it now requires the Auth0 bearer the frontend already sends (verified: the
 // one raw-fetch caller attaches the token).
-[Authorize]
+//
+// `AnyClinicRole` (was `AdminOrDoctor`): ordonnances, certificats, lettres de liaison, bulletins CNAM and
+// arrêts de travail are typed at the desk in a Tunisian cabinet, and the whole « Documents » screen 403'd for
+// a secretary. `DELETE` still tightens to `AdminOrDoctor` — see the attribute on DeleteDocument.
+//
+// ⚠️ Opening authorship required fixing what used to make it safe by accident. The cachet and the n° d'ordre
+// CNOMDT were resolved from the *caller's* own Doctor record, so a document authored by anyone without one
+// rendered with no practitioner identity at all — silently, on a form whose whole purpose is to carry it.
+// They are now resolved from the practitioner the editor **chose** (`IssuingDoctorId`), validated against this
+// clinic's roster, with the caller's own record as the fall-back. See PractitionerRenderSnapshot.ResolveAsync.
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class MedicalDocumentsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
+    private readonly ILogger<MedicalDocumentsController> _logger;
 
-    public MedicalDocumentsController(IMediator mediator)
+    public MedicalDocumentsController(IMediator mediator, ILogger<MedicalDocumentsController> logger)
     {
         _mediator = mediator;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -102,6 +115,7 @@ public class MedicalDocumentsController : ApiControllerBase
                 DoctorName = GetFormValue("doctorName") ?? throw new ArgumentException("doctorName is required"),
                 DoctorSpecialty = GetFormValue("doctorSpecialty") ?? throw new ArgumentException("doctorSpecialty is required"),
                 AppointmentId = Guid.TryParse(GetFormValue("appointmentId"), out var appointmentIdValue) ? appointmentIdValue : null,
+                IssuingDoctorId = Guid.TryParse(GetFormValue("issuingDoctorId"), out var issuingDoctorIdValue) ? issuingDoctorIdValue : null,
                 PdfFile = null // Will be set separately
             };
             
@@ -139,7 +153,8 @@ public class MedicalDocumentsController : ApiControllerBase
             ClinicPhone = request.ClinicPhone,
             DoctorName = request.DoctorName,
             DoctorSpecialty = request.DoctorSpecialty,
-            AppointmentId = request.AppointmentId
+            AppointmentId = request.AppointmentId,
+            IssuingDoctorId = request.IssuingDoctorId
         };
 
         // Read PDF file if provided
@@ -190,6 +205,7 @@ public class MedicalDocumentsController : ApiControllerBase
                 RecipientDoctorSpecialty = GetFormValue("recipientDoctorSpecialty"),
                 ContentJson = GetFormValue("contentJson") ?? throw new ArgumentException("contentJson is required"),
                 FileId = Guid.TryParse(GetFormValue("fileId"), out var fileIdValue) ? (Guid?)fileIdValue : null,
+                IssuingDoctorId = Guid.TryParse(GetFormValue("issuingDoctorId"), out var issuingDoctorIdValue) ? issuingDoctorIdValue : null,
                 PdfFile = null // Will be set separately
             };
             
@@ -221,7 +237,18 @@ public class MedicalDocumentsController : ApiControllerBase
         return Ok(result.Value);
     }
 
+    /// <summary>
+    /// Delete a medical document (ordonnance, certificat, lettre de liaison…) and its stored blob.
+    /// `AdminOrDoctor` — the document is a signed clinical instrument issued in a practitioner's name; the
+    /// class-level <c>[Authorize]</c> was the only gate (audit adjacent defect A-12), so a secretary could
+    /// destroy an ordonnance.
+    ///
+    /// <para>⚠️ Since the class opened to <c>AnyClinicRole</c> this attribute is the only gate on the delete,
+    /// and the distinction it draws is the feature's: reception <b>writes</b> the cabinet's documents and does
+    /// not <b>destroy</b> them. Note this also deletes the blob, so there is nothing to restore afterwards.</para>
+    /// </summary>
     [HttpDelete("{id}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<IActionResult> DeleteDocument(
         Guid id,
         CancellationToken cancellationToken = default)
@@ -273,16 +300,25 @@ public class MedicalDocumentsController : ApiControllerBase
             // practitioner's cachet). Clear any client-provided values first, then overlay the server-resolved
             // snapshot. Best-effort: a resolution failure renders without a cachet/city/ordre — never with a
             // client-injected one.
+            //
+            // IssuingDoctorId is deliberately NOT cleared: it selects which of the caller's own clinic's
+            // practitioners to resolve (tenant-checked in PractitionerRenderSnapshot.ResolveAsync) and carries no
+            // value of its own. Clearing it would put us back to resolving from the caller, which is what printed
+            // an ordonnance with no cachet whenever the person at the keyboard was not the prescriber.
             documentData.DoctorCachetKey = null;
             documentData.DoctorCachetContentType = null;
             documentData.DoctorOrdreNumber = null;
             documentData.ClinicCity = null;
+            documentData.ClinicEmail = null;
 
-            var snapshotResult = await _mediator.Send(new GetPractitionerRenderSnapshotQuery(), cancellationToken);
+            var snapshotResult = await _mediator.Send(
+                new GetPractitionerRenderSnapshotQuery { IssuingDoctorId = documentData.IssuingDoctorId },
+                cancellationToken);
             if (snapshotResult.IsSuccess && snapshotResult.Value != null)
             {
                 var snap = snapshotResult.Value;
                 documentData.ClinicCity = snap.ClinicCity;
+                documentData.ClinicEmail = snap.ClinicEmail;
                 documentData.DoctorOrdreNumber = snap.DoctorOrdreNumber;
                 documentData.DoctorCachetKey = snap.DoctorCachetKey;
                 documentData.DoctorCachetContentType = snap.DoctorCachetContentType;
@@ -296,7 +332,20 @@ public class MedicalDocumentsController : ApiControllerBase
         }
         catch (Exception ex)
         {
-            return BadRequest($"Error generating PDF: {ex.Message}");
+            // Was `BadRequest($"Error generating PDF: {ex.Message}")` — a bare JSON *string*, not the canonical
+            // `{ error }` body. The client's `generatePdfForDownload` therefore threw a plain `Error` rather than
+            // an `ApiError`, and `handleDownloadPdf` only surfaces a message `if (error instanceof ApiError)`, so
+            // the three deliberate French operator messages on this path (a missing or unreadable `Assets/BS1.pdf`,
+            // no system font for the overlay) were **structurally unreachable** — the dentist got a generic toast
+            // for a problem with a named remedy.
+            //
+            // Only `InvalidOperationException` is surfaced verbatim: that is the type those three fail-fast
+            // messages use, and they are written for an operator. Anything else is generic — an arbitrary
+            // exception message is a .NET internal, not French, and can carry a path or a connection string.
+            _logger.LogError(ex, "Failed to render a document PDF for download ({DocumentType})", documentData.DocumentType);
+            return ex is InvalidOperationException
+                ? Failure(ex.Message)
+                : Failure(ClinicManagement.Application.Common.ErrorMessages.Generic);
         }
     }
 }

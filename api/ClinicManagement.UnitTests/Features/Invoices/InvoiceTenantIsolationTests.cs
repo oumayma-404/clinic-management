@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Invoices.Commands;
@@ -154,13 +156,26 @@ public class InvoiceTenantIsolationTests
         Authenticated();
         _invoices.Setup(r => r.GetFilteredAsync(
                 ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
-                It.IsAny<InvoiceStatus?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<Invoice>());
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<Patient>());
+                It.IsAny<InvoiceStatus?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Array.Empty<Invoice>()).AsPage());
+        // The list resolves patient names over the **page** now (list-pagination) rather than loading the whole
+        // clinic. Unstubbed, `GetByIdsAsync` returns a null dictionary, the handler enumerates it, and the
+        // swallowed NullReferenceException arrives as a French Result.Failure — i.e. a red assertion on
+        // `IsSuccess` that says nothing about the stub that is missing.
+        _patients.Setup(r => r.GetByIdsAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, Patient>());
+
+        // L9 — the practitioner-roster read, mocked empty. That reproduces this test's ORIGINAL behaviour exactly:
+        // with no roster, no `DoctorName` resolves and each DTO carries null, which is what it carried before the
+        // column existed. Attribution has its own tests rather than being smuggled into these.
+        var doctors = new Mock<IDoctorRepository>();
+        doctors.Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Doctor>());
 
         var handler = new GetInvoicesQueryHandler(
-            _invoices.Object, _patients.Object, _creditNotes.Object, _clinicResolver.Object,
+            _invoices.Object, _patients.Object, _creditNotes.Object, doctors.Object, _clinicResolver.Object,
             NullLogger<GetInvoicesQueryHandler>.Instance);
 
         var result = await handler.Handle(new GetInvoicesQuery(), CancellationToken.None);
@@ -168,6 +183,7 @@ public class InvoiceTenantIsolationTests
         Assert.True(result.IsSuccess);
         _invoices.Verify(r => r.GetFilteredAsync(
             ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(),
-            It.IsAny<InvoiceStatus?>(), It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<InvoiceStatus?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 }

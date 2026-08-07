@@ -1,5 +1,6 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -27,6 +28,17 @@ public class CreateMedicalDocumentCommand : IRequest<Result<MedicalDocumentDto>>
     public string DoctorSpecialty { get; set; } = string.Empty;
     public byte[]? PdfFile { get; set; } // PDF file as byte array (optional, generated on frontend)
     public Guid? AppointmentId { get; set; } // Optional link to the documented appointment (post-visit review)
+
+    /// <summary>
+    /// The practitioner this document is issued in the name of — the editor's explicit choice, which is what
+    /// <c>DoctorName</c> already carries as free text. It resolves the cachet + n° d'ordre CNOMDT
+    /// (<c>PractitionerRenderSnapshot.ResolveAsync</c>), so that the identity printed on the document is the one
+    /// named on it rather than the one who happened to type it — the case that matters now that reception can
+    /// author documents. A <b>selector, not a value</b>: it is tenant-checked, and the cachet key itself is still
+    /// stripped from any client payload. Optional — omitted, the caller's own doctor record is used, which is the
+    /// single-dentist cabinet and stays correct.
+    /// </summary>
+    public Guid? IssuingDoctorId { get; set; }
 }
 
 public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedicalDocumentCommand, Result<MedicalDocumentDto>>
@@ -99,6 +111,31 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                     "Le nom du confrère destinataire est obligatoire pour une lettre de liaison.");
             }
 
+            // A bulletin de soins is the one document here that a third party refuses: the caisse rejects it on
+            // any missing mandatory field, and every one of those fields degraded silently before this (a blank
+            // is simply not drawn, an unrecognised régime ticks no box). Refusing at the write is what makes an
+            // unstampable bulletin unsaveable rather than quietly wrong — see BulletinCnamValidation.
+            if (request.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.BulletinCnam)
+            {
+                var bulletinProblem = BulletinCnamValidation.Validate(request.ContentJson);
+                if (bulletinProblem != null)
+                {
+                    return Result<MedicalDocumentDto>.Failure(bulletinProblem);
+                }
+            }
+
+            // An arrêt de travail is the second document a third party refuses, and its renderer is silent in the
+            // same way (a blank duration simply is not drawn), so it gets the same gate from the start rather than
+            // after the first rejected form — see ArretTravailValidation.
+            if (request.DocumentType.Trim().ToLowerInvariant() == DocumentTypes.ArretTravail)
+            {
+                var arretProblem = ArretTravailValidation.Validate(request.ContentJson);
+                if (arretProblem != null)
+                {
+                    return Result<MedicalDocumentDto>.Failure(arretProblem);
+                }
+            }
+
             // Authoritative tenant guard: resolve the caller's clinic from the DB and verify the patient
             // belongs to it before creating any document/file/folder (the primary gate; the side-effect
             // helpers below re-resolve independently). Defense-in-depth, independent of the fail-open global
@@ -138,6 +175,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 folder = new PatientFolder(
                     Guid.NewGuid(),
                     request.PatientId,
+                    patient.ClinicId,
                     folderName);
                 await _folderRepository.AddAsync(folder, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -158,6 +196,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                     documentsFolder = new PatientFolder(
                         Guid.NewGuid(),
                         request.PatientId,
+                        patient.ClinicId,
                         documentsFolderName);
                     await _folderRepository.AddAsync(documentsFolder, cancellationToken);
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -169,10 +208,24 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 var baseFileName = $"{documentTypeName}-{sanitizedPatientName}";
                 var fileName = await GenerateUniqueFileName(_fileRepository, documentsFolder.Id, baseFileName, "pdf", cancellationToken);
 
+                // The row this writes lands in the same table the patient-file upload guards, so it goes
+                // through the same validator: the bytes arrive from the browser's own renderer, and a
+                // hardcoded "application/pdf" was a second, unchecked door onto PatientFile.
+                using var pdfStream = new MemoryStream(pdfFileToSave);
+                var pdfValidation = await FileUploadValidator.ValidateAsync(
+                    FileUploadProfile.MedicalDocumentPdf, fileName, pdfFileToSave.Length, pdfStream, cancellationToken);
+
+                if (pdfValidation.IsFailure)
+                {
+                    return Result<MedicalDocumentDto>.Failure(pdfValidation.Error!);
+                }
+
+                var pdf = pdfValidation.Value!;
+
                 // Store the PDF blob first, then persist the record. If the DB save fails we must
                 // remove the just-stored blob so no orphan remains (FR-C3).
-                using var pdfStream = new MemoryStream(pdfFileToSave);
-                var storageKey = await _fileStorage.UploadAsync(pdfStream, "application/pdf", cancellationToken);
+                var storageKey = await _fileStorage.UploadAsync(
+                    pdf.Content, pdf.ContentType, patient.ClinicId, cancellationToken);
 
                 try
                 {
@@ -180,11 +233,12 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                     var patientFile = new PatientFile(
                         Guid.NewGuid(),
                         request.PatientId,
-                        fileName,
+                        patient.ClinicId,
+                        pdf.FileName,
                         storageKey,
-                        "application/pdf",
-                        pdfFileToSave.Length,
-                        FileType.MedicalRecord,
+                        pdf.ContentType,
+                        pdf.ByteLength,
+                        pdf.Entry.Category,
                         documentsFolder.Id, // Always use documents folder for PDFs
                         $"Document médical: {documentTypeName}");
 
@@ -204,11 +258,13 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
             // city into ContentJson at creation, so the unauthenticated background PDF job can render them
             // without a live doctor/clinic lookup. Best-effort: a resolution problem must never fail the
             // document creation — the document simply carries no snapshot (renderer falls back cleanly).
-            var contentJson = await SnapshotPractitionerAndClinicAsync(request.ContentJson, cancellationToken);
+            var contentJson = await SnapshotPractitionerAndClinicAsync(
+                request.ContentJson, request.IssuingDoctorId, cancellationToken);
 
             var document = new MedicalDocument(
                 Guid.NewGuid(),
                 request.PatientId,
+                patient.ClinicId,
                 request.DocumentType,
                 request.DocumentDate,
                 patientName,
@@ -288,12 +344,28 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 return; // cross-clinic or unknown id → leave everything unchanged
             }
 
-            appointment.MarkVisitCompleted(); // idempotent no-op if already terminal
-            // No explicit UpdateAsync: the appointment is change-tracked from GetByIdAsync, so SaveChanges
-            // persists MarkVisitCompleted() on its own (repo "rely on EF change tracking" convention).
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            // AC-P1.12: `Contradicted` means this document was filed against a visit the schedule says was
+            // cancelled or missed. Logged as a Warning rather than swallowed, and the appointment is left
+            // as-is — a cancelled visit is never silently reopened by a document.
+            var outcome = appointment.MarkVisitCompleted();
+            if (outcome == VisitCompletionOutcome.Contradicted)
+            {
+                _logger.LogWarning(
+                    "Medical document recorded against appointment {AppointmentId}, which is {Status}. The "
+                    + "appointment was left unchanged; its post-visit review is cleared regardless.",
+                    appointmentId, appointment.Status);
+            }
 
-            // The review is fulfilled — remove it so the popup/panel stops prompting.
+            // Only Completed changed anything, so the other two outcomes skip the save rather than issuing an
+            // UPDATE that sets nothing. No explicit UpdateAsync: the appointment is change-tracked from
+            // GetByIdAsync (repo "rely on EF change tracking" convention).
+            if (outcome == VisitCompletionOutcome.Completed)
+            {
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+
+            // The review is fulfilled in all three outcomes — on AlreadyCompleted because it is idempotent, and
+            // on Contradicted because prompting for a visit that will not happen is worse than clearing it.
             await _notificationGenerator.CancelPostVisitReviewAsync(appointment.ClinicId, appointmentId, cancellationToken);
 
             // The completion is driven from the "documents" command, so RealtimeBroadcastBehavior only tells
@@ -307,11 +379,18 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
         }
     }
 
-    // Merges the current practitioner's cachet/ordre + the cabinet city into the document's ContentJson
+    // Merges the issuing practitioner's cachet/ordre + the cabinet city into the document's ContentJson
     // (FR-3.3 / FR-6.1). The keys are shared with the renderers via PractitionerRenderSnapshot. Any failure
     // (unresolved clinic, malformed JSON, missing doctor) falls back to the original ContentJson unchanged —
     // the snapshot is an enrichment, never a gate on document creation.
-    private async Task<string> SnapshotPractitionerAndClinicAsync(string originalContentJson, CancellationToken cancellationToken)
+    //
+    // `issuingDoctorId` is the practitioner the editor named. It wins over the caller's own doctor record, which
+    // is what lets reception type a dentist's ordonnance and have it carry *that dentist's* cachet — the id is
+    // tenant-checked inside ResolveAsync, so a foreign or stale one falls through instead of resolving.
+    private async Task<string> SnapshotPractitionerAndClinicAsync(
+        string originalContentJson,
+        Guid? issuingDoctorId,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -322,7 +401,8 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
             // inject a foreign cachet reference that the unauthenticated PDF job would later dereference.
             var snapshot = clinicResult.IsSuccess
                 ? await PractitionerRenderSnapshot.ResolveAsync(
-                    _clinicContext.GetUserId(), clinicResult.Value, _doctorRepository, _clinicRepository, cancellationToken)
+                    issuingDoctorId, _clinicContext.GetUserId(), clinicResult.Value,
+                    _doctorRepository, _clinicRepository, cancellationToken)
                 : PractitionerRenderSnapshot.Empty;
 
             return snapshot.ApplyTo(originalContentJson);

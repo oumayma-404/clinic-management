@@ -440,4 +440,159 @@ public class TreatmentPlanTests
         Assert.Throws<InvalidOperationException>(() =>
             plan.AddItems(new[] { ("Implant", 800m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 21 }) }));
     }
+
+    // ---- In-place act edits (UpdateItems / TreatmentPlanItem.Revise) ------------------------------------
+    //
+    // The third amendment verb. AddItems + RemoveItem could only express "change this act" as remove-then-add,
+    // which re-issues the id — orphaning any Appointment.TreatmentPlanItemId or LinkedDentalRecordId, neither of
+    // which has an FK — and is refused outright for a Done or booked act.
+
+    private static IEnumerable<TreatmentPlanItemInput> OneEdit(
+        Guid itemId, string designation, decimal cost, params int[] teeth) =>
+        new[] { new TreatmentPlanItemInput(itemId, designation, cost, null, null, null, teeth) };
+
+    // The point of editing in place rather than remove-then-add: the id survives, so every link to the act does.
+    [Fact]
+    public void UpdateItems_Keeps_The_Acts_Id_And_Recomputes_The_Total()
+    {
+        var plan = AcceptedPlan(2);
+        var itemId = plan.Items.First().Id;
+
+        plan.UpdateItems(OneEdit(itemId, "Couronne céramique", 750m, 11, 21));
+
+        var edited = plan.Items.Single(i => i.Id == itemId);
+        Assert.Equal("Couronne céramique", edited.DesignationFr);
+        Assert.Equal(750m, edited.PlannedCost);
+        Assert.Equal(new[] { 11, 21 }, edited.ToothNumbers);
+        Assert.Equal(1250m, plan.TotalPlanned); // 750 + the untouched 500
+    }
+
+    // A price correction is not a claim that the act un-happened: Status, DoneDate and the fiche link are all
+    // left alone. Correcting *whether* it happened is Unmark.
+    [Fact]
+    public void Revising_A_Done_Act_Leaves_Its_Realisation_Untouched()
+    {
+        var plan = AcceptedPlan(2);
+        var doneId = plan.Items.First().Id;
+        plan.MarkItemDone(doneId, DoneOn, RecordId);
+
+        plan.UpdateItems(OneEdit(doneId, "Acte 1 corrigé", 300m, 11));
+
+        var edited = plan.Items.Single(i => i.Id == doneId);
+        Assert.Equal(300m, edited.PlannedCost);
+        Assert.Equal(TreatmentPlanItemStatus.Done, edited.Status);
+        Assert.Equal(DoneOn, edited.DoneDate);
+        Assert.Equal(RecordId, edited.LinkedDentalRecordId);
+    }
+
+    // Nor does it move the act in the clinical order — that is SetItemOrder's job.
+    [Fact]
+    public void Revising_An_Act_Leaves_Its_Position_Alone()
+    {
+        var plan = AcceptedPlan(3);
+        var second = plan.Items.ElementAt(1);
+        var sequence = second.SequenceNumber;
+
+        plan.UpdateItems(OneEdit(second.Id, "Renommé", 500m, 12));
+
+        Assert.Equal(sequence, plan.Items.Single(i => i.Id == second.Id).SequenceNumber);
+        Assert.Equal("Renommé", plan.Items.ElementAt(1).DesignationFr);
+    }
+
+    // An id that is not on this plan is refused rather than added — a caller asking to revise a specific act
+    // and silently getting a new one would double the line and the total.
+    [Fact]
+    public void UpdateItems_Rejects_An_Unknown_Act()
+    {
+        var plan = AcceptedPlan();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            plan.UpdateItems(OneEdit(Guid.NewGuid(), "Fantôme", 100m)));
+        Assert.Single(plan.Items);
+        Assert.Equal(500m, plan.TotalPlanned);
+    }
+
+    // …and a line with no id at all is a caller bug: this verb revises, it never appends.
+    [Fact]
+    public void UpdateItems_Rejects_A_Line_With_No_Id()
+    {
+        var plan = AcceptedPlan();
+
+        Assert.Throws<InvalidOperationException>(() => plan.UpdateItems(
+            new[] { new TreatmentPlanItemInput(null, "Implant", 800m, null, null, null, Array.Empty<int>()) }));
+    }
+
+    // All-or-nothing: a batch whose second line is unknown must not leave the first one applied, or the total
+    // matches neither the old devis nor the new one.
+    [Fact]
+    public void UpdateItems_Applies_Nothing_When_Any_Line_Is_Unknown()
+    {
+        var plan = AcceptedPlan(2);
+        var goodId = plan.Items.First().Id;
+
+        Assert.Throws<InvalidOperationException>(() => plan.UpdateItems(new[]
+        {
+            new TreatmentPlanItemInput(goodId, "Corrigé", 900m, null, null, null, new[] { 11 }),
+            new TreatmentPlanItemInput(Guid.NewGuid(), "Fantôme", 100m, null, null, null, Array.Empty<int>()),
+        }));
+
+        Assert.Equal("Acte 1", plan.Items.Single(i => i.Id == goodId).DesignationFr);
+        Assert.Equal(1000m, plan.TotalPlanned);
+    }
+
+    // Same window as every other amendment verb.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void UpdateItems_Is_Rejected_On_A_Closed_Plan(bool completed)
+    {
+        var plan = completed ? CompletedPlan() : AcceptedPlan();
+        var itemId = plan.Items.First().Id;
+        if (!completed) plan.Cancel("Patient parti");
+
+        Assert.Throws<InvalidOperationException>(() => plan.UpdateItems(OneEdit(itemId, "Corrigé", 400m, 11)));
+    }
+
+    // An invalid revision is refused whole — the act must not keep the new teeth and the old designation.
+    [Fact]
+    public void A_Rejected_Revision_Leaves_The_Act_Entirely_Unchanged()
+    {
+        var plan = AcceptedPlan();
+        var itemId = plan.Items.First().Id;
+
+        Assert.Throws<ArgumentException>(() => plan.UpdateItems(OneEdit(itemId, "Corrigé", 400m, 99)));
+
+        var untouched = plan.Items.Single();
+        Assert.Equal("Acte 1", untouched.DesignationFr);
+        Assert.Equal(500m, untouched.PlannedCost);
+        Assert.Equal(new[] { 11 }, untouched.ToothNumbers);
+    }
+
+    // ---- Title / notes past the draft ------------------------------------------------------------------
+
+    // A typo in the title a patient reads on their devis used to freeze at acceptance, fixable only by
+    // cancelling the devis and losing its number.
+    [Fact]
+    public void UpdateDetails_Is_Allowed_On_An_Accepted_Plan()
+    {
+        var plan = AcceptedPlan();
+
+        plan.UpdateDetails("Réhabilitation complète", "Accord du patient");
+
+        Assert.Equal("Réhabilitation complète", plan.Title);
+        Assert.Equal("Accord du patient", plan.Notes);
+        Assert.Equal("2026-0001", plan.Number);
+    }
+
+    // Same window as the amendment verbs: a Completed plan is closed and a Cancelled one is void.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void UpdateDetails_Is_Rejected_On_A_Closed_Plan(bool completed)
+    {
+        var plan = completed ? CompletedPlan() : AcceptedPlan();
+        if (!completed) plan.Cancel("Patient parti");
+
+        Assert.Throws<InvalidOperationException>(() => plan.UpdateDetails("Autre titre", null));
+    }
 }

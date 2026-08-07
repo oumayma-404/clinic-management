@@ -1,9 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
 import { StockTable } from "@/components/stock-table"
 import { StockItemFormModal } from "@/components/stock-item-form-modal"
 import { Button } from "@/components/ui/button"
@@ -17,6 +17,10 @@ export default function StockPage() {
   const [editingItem, setEditingItem] = useState<StockItemDto | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [highlightItemId, setHighlightItemId] = useState<string | null>(null)
+  // Dashboard drill-through (« Stock bas » / « Périment bientôt »): ?filter=low|expiring pre-applies the matching
+  // filter so the list shows exactly the items the card counted. An unknown value is ignored — a stale link lands on
+  // the full list, never a broken state.
+  const [initialFilter, setInitialFilter] = useState<"low" | "expiring" | undefined>()
 
   // Live-refresh on a peer's stock mutation (finding #14: the page didn't subscribe though the backend
   // already broadcasts the "stock" key).
@@ -30,9 +34,14 @@ export default function StockPage() {
     window.history.replaceState({}, "", "/stock")
   }, [])
 
-  // On mount (cross-page navigation): read the query param.
+  // On mount (cross-page navigation): read the query params. `filter` is read BEFORE highlightItem may clear the
+  // query string, so a link carrying both still applies both.
   useEffect(() => {
-    const itemId = new URLSearchParams(window.location.search).get("itemId")
+    const params = new URLSearchParams(window.location.search)
+    const filter = params.get("filter")
+    if (filter === "low" || filter === "expiring") setInitialFilter(filter)
+
+    const itemId = params.get("itemId")
     if (itemId) highlightItem(itemId)
   }, [highlightItem])
 
@@ -66,32 +75,35 @@ export default function StockPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
+      <AppShell contentClassName="space-y-6">
+        {/*
+          `flex items-center justify-between` with no wrap put a ~190px button against the title on a 390px
+          screen and neither could give way. Same shape as `/caisse`, which already had it right.
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
+          No `zone` prop: `PageHeader` derives it from the route now (`lib/zones.ts` puts `/stock` in
+          « Gestion »), and the hardcoded « Clinique » here disagreed with the rail — the exact drift the
+          derivation was introduced to end.
+        */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <PageHeader title="Stock" subtitle="Fournitures, lots et seuils de réapprovisionnement." />
 
-          <main className="flex-1 overflow-y-auto p-6">
-            <div className="mx-auto max-w-7xl space-y-6">
-              {/* Page Header */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-semibold text-foreground">Gestion du stock</h1>
-                  <p className="mt-1 text-sm text-muted-foreground">Gérez les fournitures médicales et l&apos;inventaire</p>
-                </div>
-
-                <Button onClick={handleAddNew} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Ajouter un article
-                </Button>
-              </div>
-
-              {/* Stock Table */}
-              <StockTable refreshKey={refreshKey} onEdit={handleEdit} highlightItemId={highlightItemId} />
-            </div>
-          </main>
+          <Button onClick={handleAddNew} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Ajouter un article
+          </Button>
         </div>
+
+        {/* Stock Table */}
+        <StockTable
+          refreshKey={refreshKey}
+          onEdit={handleEdit}
+          onAdd={handleAddNew}
+          highlightItemId={highlightItemId}
+          initialFilter={initialFilter}
+          // Remount when the arriving filter resolves, so StockTable's initial filter state actually takes
+          // effect — it seeds useState, which a re-render alone would not revisit.
+          key={initialFilter ?? "all"}
+        />
 
         <StockItemFormModal
           open={modalOpen}
@@ -99,7 +111,7 @@ export default function StockPage() {
           editingItem={editingItem}
           onSaved={() => setRefreshKey((k) => k + 1)}
         />
-      </div>
+      </AppShell>
     </ClinicGuard>
   )
 }

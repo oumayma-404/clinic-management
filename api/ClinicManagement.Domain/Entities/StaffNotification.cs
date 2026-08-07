@@ -94,4 +94,25 @@ public class StaffNotification : AggregateRoot<Guid>
         Title = title ?? throw new ArgumentNullException(nameof(title));
         Message = message ?? throw new ArgumentNullException(nameof(message));
     }
+
+    /// <summary>
+    /// Restates a live <see cref="NotificationCategory.StockExpiringSoon"/> alert to the item's current
+    /// earliest expiring batch (AC-P4.6). Unlike <see cref="LowStock"/>, which fires once per not-low→low
+    /// crossing, this alert is *ensured*: the daily scan re-evaluates the same item every run, so the row is
+    /// kept in step with the batch it is about instead of a second row being written every day. The feed time
+    /// is deliberately left alone — the alert's place in the feed is when the clinic was first told.
+    /// </summary>
+    /// <summary>
+    /// Re-words a live alert in place, for the <b>ensure</b> categories whose underlying fact changed (a stock
+    /// item's expiring batch, or the clinic's last successful backup).
+    ///
+    /// <para>Renamed from <c>RestateStockExpiry</c> when the backup-staleness pair arrived (L4d): it was never
+    /// about stock — it is the one operation « ensure » needs beyond create — and a second, byte-identical
+    /// mutator with a different name is how two categories start disagreeing about what restating means.</para>
+    /// </summary>
+    public void Restate(string title, string message)
+    {
+        Title = title ?? throw new ArgumentNullException(nameof(title));
+        Message = message ?? throw new ArgumentNullException(nameof(message));
+    }
 }

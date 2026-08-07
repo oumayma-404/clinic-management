@@ -6,6 +6,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Application.Features.Invoices.Commands;
 
@@ -16,6 +17,18 @@ public class RecordPaymentCommand : IRequest<Result<InvoiceDto>>
     public decimal Amount { get; set; }
     public string Method { get; set; } = string.Empty;
     public DateTime PaidOn { get; set; }
+
+    /// <summary>
+    /// The cheque's number, bank and due date (L8) — all optional, and all refused for any method other than
+    /// <c>Cheque</c>. Post-dated cheques are ubiquitous in Tunisian practice and had nowhere to be recorded.
+    /// </summary>
+    public string? ChequeNumber { get; set; }
+
+    /// <inheritdoc cref="ChequeNumber"/>
+    public string? ChequeBankName { get; set; }
+
+    /// <inheritdoc cref="ChequeNumber"/>
+    public DateTime? ChequeDueDate { get; set; }
 }
 
 public class RecordPaymentCommandHandler : IRequestHandler<RecordPaymentCommand, Result<InvoiceDto>>
@@ -71,7 +84,12 @@ public class RecordPaymentCommandHandler : IRequestHandler<RecordPaymentCommand,
                 return Result<InvoiceDto>.Failure("Facture introuvable.");
             }
 
-            invoice.RecordPayment(request.Amount, method, request.PaidOn);
+            // Throws `ArgumentException` when cheque details arrive on a non-cheque payment, which the catch below
+            // already turns into the French `Result.Failure` this endpoint returns for every other refusal.
+            var cheque = ChequeDetails.For(
+                method, request.ChequeNumber, request.ChequeBankName, request.ChequeDueDate);
+
+            invoice.RecordPayment(request.Amount, method, request.PaidOn, cheque: cheque);
 
             await _invoiceRepository.UpdateAsync(invoice, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

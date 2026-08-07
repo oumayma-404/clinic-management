@@ -4,33 +4,41 @@ using Xunit;
 namespace ClinicManagement.UnitTests.Infrastructure.Services;
 
 /// <summary>
-/// Official-documents production-readiness, Part D (FR-2). The certificat body is composed by the pure
-/// <see cref="CertificatTextBuilder"/> (shared shape with the frontend preview / Word export). Tested here
-/// directly — the QuestPDF renderer emits opaque bytes with no text seam — covering the mandatory mention
-/// (REND-1), the CNOMDT ordre label (REND-2) and the optional repos clause (CERT-2/CERT-3).
+/// The certificat body is composed by the pure <see cref="CertificatTextBuilder"/> (shared shape with the
+/// frontend preview / Word export). Tested here directly — the QuestPDF renderer emits opaque bytes with no
+/// text seam — covering the mandatory mention (REND-1), the CNOMDT ordre label (REND-2) and the optional repos
+/// clause (CERT-2/CERT-3).
+/// <para>
+/// ⚠️ Since <c>ordonnance-certificat-norms</c>, the builder no longer takes the ordre <b>number</b> or the
+/// cabinet address: both render in the shared identity block (<see cref="DocumentIdentity"/>) for every document
+/// type, which is what gave the ordonnance the ordre number it legally requires. The attestation formula here
+/// still names the registering body — that is the legal form of the sentence, not a duplicate of the number.
+/// </para>
 /// </summary>
 public class CertificatTextBuilderTests
 {
-    private static CertificatText Build(string? objetMotif, string? duration, string? startDate, string? ordre = "CNOMDT-12345") =>
+    private static CertificatText Build(string? objetMotif, string? duration, string? startDate) =>
         CertificatTextBuilder.Build(
             doctorName: "Alice Martin",
             doctorSpecialty: "Médecin dentiste",
-            ordreNumber: ordre,
-            clinicAddress: "Avenue Habib Bourguiba, Tunis",
             patientName: "Jean Dupont",
             patientDobFormatted: "01/01/1990",
             objetMotif: objetMotif,
             duration: duration,
             startDateFormatted: startDate);
 
-    // [REND-1] the mandatory deontological mention is present (above the signature block).
+    // [REND-1] the mandatory deontological mention is present (above the signature block), carrying BOTH the
+    // remise en main propre and the finality clause the CNOM requires.
     [Fact]
     public void Certificat_Renders_Mandatory_Deontological_Mention()
     {
         var text = Build(objetMotif: "présence ce jour", duration: null, startDate: null);
 
-        Assert.Equal("Certificat établi à la demande de l'intéressé(e) et remis en main propre.", text.Mention);
+        Assert.Equal(
+            "Certificat établi à la demande de l'intéressé(e) et remis en main propre pour faire valoir ce que de droit.",
+            text.Mention);
         Assert.Contains("remis en main propre", text.FullText);
+        Assert.Contains("pour faire valoir ce que de droit", text.FullText);
     }
 
     // [REND-2] the ordre label reads "Ordre National des Médecins Dentistes (CNOMDT)", never "Ordre des Médecins".
@@ -72,12 +80,15 @@ public class CertificatTextBuilderTests
         Assert.Contains(text.BodyParagraphs, p => p.Contains("1 jour") && !p.Contains("1 jours"));
     }
 
-    // [FR-2.5] a missing ordre falls back to a bracketed placeholder rather than an empty label.
+    // Replaces the old "missing ordre falls back to [Numéro]" case: the prose no longer states a number at all,
+    // so there is no placeholder to fall back to. The guarantee that a missing ordre prints no empty label now
+    // belongs to DocumentIdentity, which omits the line entirely.
     [Fact]
-    public void Certificat_Without_Ordre_Uses_Placeholder()
+    public void Certificat_Prose_Does_Not_State_The_Ordre_Number()
     {
-        var text = Build(objetMotif: "présence", duration: null, startDate: null, ordre: null);
+        var text = Build(objetMotif: "présence", duration: null, startDate: null);
 
-        Assert.Contains("sous le n° [Numéro]", text.FullText);
+        Assert.DoesNotContain("sous le n°", text.FullText);
+        Assert.DoesNotContain("[Numéro]", text.FullText);
     }
 }

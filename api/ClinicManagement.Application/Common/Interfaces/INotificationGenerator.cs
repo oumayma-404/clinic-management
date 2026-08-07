@@ -40,6 +40,52 @@ public interface INotificationGenerator
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Ensures a stock item holding a batch inside the clinic's expiry lead window carries exactly one live
+    /// approaching-expiry alert, restated to that batch's date (AC-P4.6). Visible to all staff, like
+    /// <see cref="LowStockAsync"/>, and deep-links to the item on the stock screen.
+    ///
+    /// <b>Ensure, not fire-once</b>, because expiry is crossed by the passage of time rather than by a write:
+    /// the daily scan re-evaluates every item, so a fire-once call would write a duplicate row every day.
+    /// Pair with <see cref="ClearStockExpiringSoonAsync"/> — an item whose expiring batch has been used up
+    /// must stop being flagged, and clearing the row is also what lets the item's *next* batch alert.
+    /// </summary>
+    Task EnsureStockExpiringSoonAsync(
+        Guid clinicId, Guid stockItemId, string itemName, DateTime earliestExpiryUtc,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes a stock item's approaching-expiry alert if one exists — the batch was consumed, discarded or
+    /// re-dated, so the item is no longer expiring soon (AC-P4.6). No-op when there is nothing to clear.
+    /// </summary>
+    Task ClearStockExpiringSoonAsync(
+        Guid clinicId, Guid stockItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Ensures the clinic carries exactly one live « sauvegarde ancienne » alert, restated to the moment of its
+    /// last successful backup (L4d). Deep-links to the « Sauvegarde » section of « Paramètres ».
+    ///
+    /// <para><b>Ensure/clear, not fire-once</b>, for the identical reason as
+    /// <see cref="EnsureStockExpiringSoonAsync"/>: staleness is crossed by the passage of time, so the daily job
+    /// re-evaluates the same fact every run. A fire-once call would write one alert per day for ever, which is the
+    /// fastest way to make the notification feed unreadable — and the feed is where the four other alerts that
+    /// matter live.</para>
+    ///
+    /// <para><paramref name="lastSuccessUtc"/> is <c>null</c> on an install that has <b>never</b> backed up, and
+    /// the wording differs: « aucune sauvegarde » on a brand-new clinic is not the same message as « la dernière
+    /// remonte à trois jours », and firing the alarming version on a clinic created this morning is how an alert
+    /// gets dismissed permanently on day one.</para>
+    /// </summary>
+    Task EnsureBackupStaleAsync(
+        Guid clinicId, DateTime? lastSuccessUtc, int staleAfterHours,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes the clinic's backup-staleness alert if one exists — a backup has just succeeded (L4d). No-op when
+    /// there is nothing to clear, which is the overwhelmingly common case on a nightly run.
+    /// </summary>
+    Task ClearBackupStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ensures a "post-visit review" notification for an appointment matches its current state — created if
     /// missing, otherwise moved. It becomes visible at the appointment's end (<paramref name="appointmentEndUtc"/> =
     /// start + duration; deferred visibility). The target user is resolved from <paramref name="doctorId"/>
@@ -53,4 +99,21 @@ public interface INotificationGenerator
     /// <summary>Removes the post-visit review notification for an appointment, if one exists (cancel / fulfilled).</summary>
     Task CancelPostVisitReviewAsync(
         Guid clinicId, Guid appointmentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// An outbound SMS/WhatsApp row reached <c>Failed</c> (AC-P3.7). Visible to <b>all</b> clinic staff — no
+    /// actor exclusion — because the person who needs to pick up the phone is whoever is at the desk, not only
+    /// an admin looking at the reminder-status card (AC-P3.8).
+    ///
+    /// <paramref name="appointmentId"/> is the discriminator, exactly as it is on the outbox row itself: a
+    /// booking reminder always carries one and deep-links to that appointment; a recall never does and
+    /// deep-links to the relance list, where <c>Patient.ClearRecallSnooze</c> has just put the patient back.
+    /// Passing a flag alongside the id would let the two disagree.
+    ///
+    /// <paramref name="patientRequiresRecontact"/> adds the explicit « à recontacter » sentence for the recall
+    /// case (AC-P3.5), which is only true once every channel of that send has failed.
+    /// </summary>
+    Task ReminderDeliveryFailedAsync(
+        Guid clinicId, Guid? appointmentId, string patientName, string channel, string? reason,
+        bool patientRequiresRecontact, CancellationToken cancellationToken = default);
 }

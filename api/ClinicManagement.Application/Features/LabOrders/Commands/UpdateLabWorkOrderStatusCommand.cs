@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -19,15 +20,18 @@ public class UpdateLabWorkOrderStatusCommandHandler : IRequestHandler<UpdateLabW
     private readonly ILabWorkOrderRepository _labWorkOrderRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<UpdateLabWorkOrderStatusCommandHandler> _logger;
 
     public UpdateLabWorkOrderStatusCommandHandler(
         ILabWorkOrderRepository labWorkOrderRepository,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<UpdateLabWorkOrderStatusCommandHandler> logger)
     {
         _labWorkOrderRepository = labWorkOrderRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<LabWorkOrderDto>> Handle(UpdateLabWorkOrderStatusCommand request, CancellationToken cancellationToken)
@@ -56,9 +60,19 @@ public class UpdateLabWorkOrderStatusCommandHandler : IRequestHandler<UpdateLabW
         {
             return Result<LabWorkOrderDto>.Failure(ex.Message);
         }
+        catch (InvalidOperationException ex)
+        {
+            // AC-P2.40: an illegal transition. The aggregate's message is already French and names both stages,
+            // so it is surfaced verbatim rather than flattened into the generic failure below — which is what
+            // would have happened while the generic catch was the only one that could see it.
+            return Result<LabWorkOrderDto>.Failure(ex.Message);
+        }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<LabWorkOrderDto>.Failure($"Erreur lors de la mise à jour du statut du bon de laboratoire : {ex.Message}");
+            // A-8 defect class: the raw exception was interpolated into a clinic-facing message. The detail
+            // belongs in the log.
+            _logger.LogError(ex, "Unhandled failure updating the status of lab work order {OrderId}", request.Id);
+            return Result<LabWorkOrderDto>.Failure("Erreur lors de la mise à jour du statut du bon de laboratoire. Veuillez réessayer.");
         }
     }
 }

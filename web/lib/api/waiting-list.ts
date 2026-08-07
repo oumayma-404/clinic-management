@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { WaitingListEntryDto } from './types';
+import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export interface WaitingListPayload {
   patientId: string;
@@ -11,7 +12,13 @@ export interface WaitingListPayload {
 
 export const waitingListApi = {
   list: async (activeOnly: boolean = true): Promise<WaitingListEntryDto[]> =>
-    apiGet<WaitingListEntryDto[]>('/waiting-list', { activeOnly }),
+    unwrapPaged(await apiGet<PagedResponse<WaitingListEntryDto>>('/waiting-list', { activeOnly })),
+
+  /** One page of the salle d'attente. `search` matches patient / note / créneau souhaité server-side. */
+  listPaged: async (
+    params: PageParams & { activeOnly?: boolean },
+  ): Promise<PagedResponse<WaitingListEntryDto>> =>
+    apiGet<PagedResponse<WaitingListEntryDto>>('/waiting-list', params),
 
   create: async (data: WaitingListPayload): Promise<WaitingListEntryDto> =>
     apiPost<WaitingListEntryDto>('/waiting-list', data),

@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete, apiPostFormData, apiPutFormData, getAccessToken } from './client';
+import { apiGet, apiPost, apiPostBlob, apiPut, apiDelete, apiPostFormData, apiPutFormData } from './client';
 import type { MedicalDocumentDto } from './types';
 
 export interface CreateMedicalDocumentRequest {
@@ -16,6 +16,13 @@ export interface CreateMedicalDocumentRequest {
   pdfFile?: File;
   /** Optional link to the documented appointment — filling the record marks it Completed (post-visit review). */
   appointmentId?: string;
+  /**
+   * The practitioner the document is issued in the name of — the id behind `doctorName`. The server resolves the
+   * cachet + n° d'ordre CNOMDT from **this** rather than from the caller, so a document typed by reception carries
+   * the identity of the practitioner named on it. A *selector*: it is checked against the caller's own clinic
+   * roster, and the cachet key itself is always server-resolved and stripped from the payload.
+   */
+  issuingDoctorId?: string;
 }
 
 export interface UpdateMedicalDocumentRequest {
@@ -25,6 +32,8 @@ export interface UpdateMedicalDocumentRequest {
   contentJson: string;
   fileId?: string;
   pdfFile?: File;
+  /** See `CreateMedicalDocumentRequest.issuingDoctorId`. Omitted, the stored snapshot is preserved. */
+  issuingDoctorId?: string;
 }
 
 export const medicalDocumentsApi = {
@@ -55,6 +64,7 @@ export const medicalDocumentsApi = {
       formData.append('doctorName', data.doctorName);
       formData.append('doctorSpecialty', data.doctorSpecialty);
       if (data.appointmentId) formData.append('appointmentId', data.appointmentId);
+      if (data.issuingDoctorId) formData.append('issuingDoctorId', data.issuingDoctorId);
       formData.append('pdfFile', data.pdfFile);
       const result = await apiPostFormData<MedicalDocumentDto>('/medical-documents', formData);
       return result;
@@ -72,6 +82,7 @@ export const medicalDocumentsApi = {
       if (data.recipientDoctorSpecialty) formData.append('recipientDoctorSpecialty', data.recipientDoctorSpecialty);
       formData.append('contentJson', data.contentJson);
       if (data.fileId) formData.append('fileId', data.fileId);
+      if (data.issuingDoctorId) formData.append('issuingDoctorId', data.issuingDoctorId);
       formData.append('pdfFile', data.pdfFile);
       return apiPutFormData<MedicalDocumentDto>(`/medical-documents/${id}`, formData);
     }
@@ -97,31 +108,11 @@ export const medicalDocumentsApi = {
     clinicPhone: string;
     doctorName: string;
     doctorSpecialty: string;
+    /** See `CreateMedicalDocumentRequest.issuingDoctorId` — whose cachet the rendered PDF carries. */
+    issuingDoctorId?: string;
     recipientDoctorName?: string;
     recipientDoctorSpecialty?: string;
     content: Record<string, string>;
-  }): Promise<Blob> => {
-    const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-    const token = await getAccessToken();
-
-    const headers: HeadersInit = { 'Content-Type': 'application/json' };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(`${API_BASE_URL}/medical-documents/generate-pdf-download`, {
-      method: 'POST',
-      headers,
-      credentials: 'include',
-      body: JSON.stringify(documentData),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to generate PDF: ${response.statusText} - ${errorText}`);
-    }
-
-    return response.blob();
-  },
+  }): Promise<Blob> => apiPostBlob('/medical-documents/generate-pdf-download', documentData),
 };
 

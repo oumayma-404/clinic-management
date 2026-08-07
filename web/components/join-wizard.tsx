@@ -8,20 +8,15 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Building2, ChevronRight, CheckCircle2, AlertCircle } from "lucide-react"
+import { Building2, ChevronRight, CheckCircle2 } from "lucide-react"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { clinicsApi, type JoinClinicRequest } from "@/lib/api/clinics"
+import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
 import { getErrorMessage } from "@/lib/errors"
+import JoinUnavailable from "@/components/join-unavailable"
 
-const specialties = [
-  "Dentist",
-  "Orthodontist",
-  "Prosthodontist",
-  "Endodontist",
-  "Periodontist",
-  "Oral Surgeon",
-  "Pediatric Dentist",
-]
+import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
 
 interface JoinWizardProps {
   clinicCode: string
@@ -34,6 +29,18 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
   const [error, setError] = useState<string | null>(null)
   const { mode } = useSession()
   const isLocalMode = mode === "local"
+
+  /**
+   * I5: a self-registration no longer produces an account that can log in — it produces one **pending an
+   * admin's approval**. So the flow cannot end by sending the person to `/login`, where they would type
+   * credentials that work, be refused, and reasonably conclude the registration failed. It ends here, saying
+   * what happened and what has to happen next.
+   */
+  const [registered, setRegistered] = useState(false)
+
+  // US-3: this deployment has no self-registration at all. Distinct from `error` — nothing the person typed is
+  // wrong, so a banner above a form they should retry would be the wrong shape.
+  const [selfRegistrationClosed, setSelfRegistrationClosed] = useState(false)
 
   // Local (offline) self-registration account fields.
   const [regFullName, setRegFullName] = useState("")
@@ -93,7 +100,9 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
           role,
           doctorInfo,
         })
-        window.location.href = "/login"
+        // Not a redirect to /login: the account exists but is inactive until an admin activates it (I5).
+        setRegistered(true)
+        setIsLoading(false)
         return
       }
 
@@ -108,6 +117,14 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
       // Redirect to app after successful join
       window.location.href = "/"
     } catch (err) {
+      // US-3: `register` 404s where self-registration is closed. The page probes for that and normally never
+      // renders this wizard there — this is the backstop for the one case it cannot cover, a probe that failed
+      // on a deployment that really has closed it. An « introuvable » toast would blame the clinic code.
+      if (isLocalMode && err instanceof ApiError && err.status === 404) {
+        setSelfRegistrationClosed(true)
+        setIsLoading(false)
+        return
+      }
       // Single formatting point (lib/errors) — same reason as the setup wizard.
       setError(getErrorMessage(err, "Échec de l'adhésion à la clinique. Veuillez réessayer."))
       console.error("Error joining clinic:", err)
@@ -123,25 +140,63 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
         { number: 2, title: "Infos personnelles", description: "Vos informations" },
       ]
 
+  /*
+   * I5 — the terminal state of a Local self-registration.
+   *
+   * It replaces `window.location.href = "/login"`. Sending someone to a login form they cannot yet pass is the
+   * worst available ending: their password is correct, so the refusal reads as the product being broken, and the
+   * one fact that would explain it — an admin has to let them in — is never stated. Nothing here is actionable
+   * by them, which is exactly what it has to say.
+   */
+  if (selfRegistrationClosed) {
+    return <JoinUnavailable />
+  }
+
+  if (registered) {
+    return (
+      <div className="min-h-dvh bg-background flex items-center justify-center p-6">
+        <div className="w-full max-w-lg space-y-6 text-center">
+          <div className="inline-flex size-16 items-center justify-center rounded-full bg-success-wash">
+            <CheckCircle2 className="size-8 text-success" />
+          </div>
+          <div className="space-y-3">
+            <h1 className="text-2xl font-bold text-accent-foreground sm:text-3xl">Demande envoyée</h1>
+            <p className="text-muted-foreground">
+              Votre compte a bien été créé pour{" "}
+              <span className="font-semibold text-foreground">{regEmail.trim()}</span>.
+            </p>
+          </div>
+          <div
+            role="status"
+            className="rounded-lg border border-warning/30 bg-warning-wash px-4 py-3 text-start text-sm text-warning-ink"
+          >
+            Un administrateur du cabinet doit activer votre accès avant votre première connexion. Prévenez-le, puis
+            revenez vous connecter — vos identifiants sont déjà enregistrés, il n&apos;y a rien d&apos;autre à
+            remplir.
+          </div>
+          {/* A link, not an auto-redirect: leaving is the person's decision, and the message above is the point
+              of this screen. `min-h-11` for the coarse-pointer floor — this is the only control here. */}
+          <Button variant="outline" className="min-h-11 w-full" onClick={() => (window.location.href = "/login")}>
+            Aller à la page de connexion
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
+    /* `bg-background`, not a gradient with a hand-written `dark:` pair — see the note in `setup-wizard.tsx`;
+       this is the same screen for the second and every later member of a clinic. */
+    <div className="min-h-dvh bg-background flex items-center justify-center p-6">
       <div className="w-full max-w-2xl">
         {/* Header */}
         <div className="text-center space-y-3 mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/20 mb-2">
-            <Building2 className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-accent/20 mb-2">
+            <Building2 className="w-8 h-8 text-primary" />
           </div>
-          <h1 className="text-3xl font-bold text-blue-900 dark:text-blue-100">Rejoindre une clinique</h1>
+          <h1 className="text-3xl font-bold text-accent-foreground">Rejoindre une clinique</h1>
           <p className="text-muted-foreground">Complétez votre profil pour accéder à la clinique</p>
         </div>
-
-        {/* Error Message */}
-        {error && (
-          <div className="mb-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
-            <p className="text-sm text-destructive">{error}</p>
-          </div>
-        )}
 
         {/* Progress Steps */}
         <div className="flex items-center justify-center gap-4 mb-8">
@@ -150,18 +205,18 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
               <div className="flex flex-col items-center">
                 <div
                   className={`w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all ${
-                    currentStep > step.number
-                      ? "bg-blue-600 border-blue-600 text-white"
+ currentStep > step.number
+                      ? "bg-primary border-primary text-primary-foreground"
                       : currentStep === step.number
-                        ? "bg-blue-100 border-blue-600 text-blue-600 ring-4 ring-blue-100"
-                        : "bg-white border-gray-300 text-gray-400"
+                        ? "bg-accent border-primary text-primary ring-4 ring-primary/20"
+                        : "bg-card border-border text-muted-foreground"
                   }`}
                 >
                   {currentStep > step.number ? <CheckCircle2 className="w-6 h-6" /> : step.number}
                 </div>
                 <div className="mt-2 text-center">
                   <p
-                    className={`text-sm font-medium ${currentStep >= step.number ? "text-blue-900 dark:text-blue-100" : "text-gray-400"}`}
+                    className={`text-sm font-medium ${currentStep >= step.number ? "text-accent-foreground" : "text-muted-foreground"}`}
                   >
                     {step.title}
                   </p>
@@ -169,20 +224,20 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                 </div>
               </div>
               {index < steps.length - 1 && (
-                <div className={`w-16 h-0.5 mb-12 mx-2 ${currentStep > step.number ? "bg-blue-600" : "bg-gray-300"}`} />
+                <div className={`w-16 h-0.5 mb-12 mx-2 ${currentStep > step.number ? "bg-primary" : "bg-border"}`} />
               )}
             </div>
           ))}
         </div>
 
         {/* Step Content */}
-        <Card className="border-blue-100 shadow-lg">
+        <Card className="border-primary/20 shadow-lg">
           <CardContent className="p-8">
             {/* Step 1: Role Selection */}
             {currentStep === 1 && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">Choisissez votre rôle</h2>
+                  <h2 className="text-2xl font-semibold text-accent-foreground mb-2">Choisissez votre rôle</h2>
                   <p className="text-muted-foreground">Sélectionnez le rôle qui décrit le mieux votre fonction</p>
                 </div>
 
@@ -266,8 +321,8 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                   </div>
 
                   {role === "secretary" && (
-                    <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                      <p className="text-sm text-blue-700 dark:text-blue-300">
+                    <div className="p-4 bg-accent/20 rounded-lg border border-primary/25">
+                      <p className="text-sm text-primary">
                         En tant que secrétaire/assistant(e), vous n&apos;avez pas besoin de fournir d&apos;informations
                         personnelles supplémentaires. L&apos;email de votre compte sera utilisé.
                       </p>
@@ -281,7 +336,7 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
             {currentStep === 2 && role === "doctor" && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-semibold text-blue-900 dark:text-blue-100 mb-2">Vos informations</h2>
+                  <h2 className="text-2xl font-semibold text-accent-foreground mb-2">Vos informations</h2>
                   <p className="text-muted-foreground">Parlez-nous de vous</p>
                 </div>
 
@@ -324,9 +379,10 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                           <SelectValue placeholder="Sélectionnez votre spécialité" />
                         </SelectTrigger>
                         <SelectContent>
-                          {specialties.map((spec) => (
+                          {/* Value = the English storage key, label = French (AC-P2.42/2.43). */}
+                          {DOCTOR_SPECIALTIES.map((spec) => (
                             <SelectItem key={spec} value={spec}>
-                              {spec}
+                              {specialtyLabel(spec)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -347,8 +403,8 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                     </div>
                   </div>
                 ) : (
-                  <div className="p-4 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
-                    <p className="text-sm text-green-700 dark:text-green-300">
+                  <div className="p-4 bg-success-wash rounded-lg border border-success/25">
+                    <p className="text-sm text-success">
                       Tout est prêt ! En tant que secrétaire/assistant(e), aucune information supplémentaire
                       n&apos;est nécessaire. Cliquez sur « Terminer » pour rejoindre la clinique.
                     </p>
@@ -358,44 +414,50 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
             )}
 
             {/* Navigation Buttons */}
-            <div className="flex items-center justify-between mt-8 pt-6 border-t">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentStep(currentStep - 1)}
-                disabled={currentStep === 1 || isLoading}
-                className="border-blue-200"
-              >
-                Précédent
-              </Button>
-
-              {currentStep < steps.length ? (
+            <div className="mt-8 pt-6 border-t">
+              {/* Beside the button that produced it — see `setup-wizard.tsx` for the defect this replaced. */}
+              <FormErrorBanner message={error} className="mb-4" />
+              <div className="flex items-center justify-between">
                 <Button
-                  onClick={() => {
-                    if (role === "secretary" && currentStep === 1) {
-                      // Complete immediately if secretary
-                      handleComplete()
-                    } else {
-                      setCurrentStep(currentStep + 1)
-                    }
-                  }}
-                  disabled={!isStep1Valid()}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  variant="outline"
+                  onClick={() => setCurrentStep(currentStep - 1)}
+                  disabled={currentStep === 1 || isLoading}
+                  className="border-primary/25"
                 >
-                  {role === "secretary" && currentStep === 1 ? "Terminer" : "Suivant"}
-                  <ChevronRight className="w-4 h-4 ml-2" />
+                  Précédent
                 </Button>
-              ) : (
-                <Button onClick={handleComplete} disabled={isLoading || !isStep2Valid()} className="bg-green-600 hover:bg-green-700">
-                  {isLoading ? (
-                    "Adhésion…"
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4 mr-2" />
-                      Terminer
-                    </>
-                  )}
-                </Button>
-              )}
+
+                {currentStep < steps.length ? (
+                  <Button
+                    onClick={() => {
+                      if (role === "secretary" && currentStep === 1) {
+                        // Complete immediately if secretary
+                        handleComplete()
+                      } else {
+                        setCurrentStep(currentStep + 1)
+                      }
+                    }}
+                    disabled={!isStep1Valid()}
+                    className="bg-primary hover:bg-primary/90"
+                  >
+                    {role === "secretary" && currentStep === 1 ? "Terminer" : "Suivant"}
+                    <ChevronRight className="w-4 h-4 ml-2" />
+                  </Button>
+                ) : (
+                  /* The default (primary) fill — same reason as `setup-wizard.tsx`: there is no solid-success
+                     token, and `bg-success` with white type fails contrast at its dark-mode step. */
+                  <Button onClick={handleComplete} disabled={isLoading || !isStep2Valid()}>
+                    {isLoading ? (
+                      "Adhésion…"
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        Terminer
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

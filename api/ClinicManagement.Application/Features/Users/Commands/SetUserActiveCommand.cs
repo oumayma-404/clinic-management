@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Exceptions;
@@ -22,15 +23,18 @@ public class SetUserActiveCommandHandler : IRequestHandler<SetUserActiveCommand,
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<SetUserActiveCommandHandler> _logger;
 
     public SetUserActiveCommandHandler(
         IUserRepository userRepository,
         IClinicContext clinicContext,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<SetUserActiveCommandHandler> logger)
     {
         _userRepository = userRepository;
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<ClinicUserDto>> Handle(SetUserActiveCommand request, CancellationToken cancellationToken)
@@ -101,7 +105,12 @@ public class SetUserActiveCommandHandler : IRequestHandler<SetUserActiveCommand,
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<ClinicUserDto>.Failure($"Error updating user status: {ex.Message}");
+            // Same A-8 defect class as DeleteMedicalDocumentCommand: English text plus the raw exception,
+            // straight to a French-speaking clinic. Fixed here because step 7 builds its sibling command on
+            // this handler's guards, so leaving one of the pair leaking would be the drift the sweep exists to
+            // prevent.
+            _logger.LogError(ex, "Unhandled failure updating the status of user {TargetUserId}", request.TargetUserId);
+            return Result<ClinicUserDto>.Failure("Erreur lors de la modification du statut de l'utilisateur. Veuillez réessayer.");
         }
     }
 }

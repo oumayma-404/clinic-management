@@ -2,7 +2,12 @@
 # TLS terminates here once; upstreams speak plain HTTP on the internal Docker network.
 #
 #   /api/*  -> api:5000   (the .NET API — controller routes live under /api/...)
+#   /hub/*  -> api:5000   (SignalR, mapped at the HOST root — not under /api)
+#   /health -> api:5000   (liveness, also at the host root — not under /api)
 #   /*      -> web:3000   (the Next.js frontend; also serves /auth/* and /bff/* + /_next/*)
+#
+# Shared by both hosted profiles (docker-compose.prod.yml = CloudBrowser,
+# docker-compose.hosted.yml = HostedMultiTenant).
 #
 # DOMAIN and ACME_EMAIL are injected from the environment by docker-compose.
 
@@ -13,13 +18,55 @@
 {$DOMAIN} {
 	encode zstd gzip
 
+	# HSTS belongs HERE, not in the API. `SecurityHeadersMiddleware` guards on `context.Request.IsHttps`, and TLS
+	# terminates in this container — it speaks plain HTTP to `api:5000` and nothing in the solution consumes
+	# `X-Forwarded-Proto` (`UseForwardedHeaders` is deliberately absent so the loopback gates on `setup` and
+	# `/hangfire` stay a property of the real TCP peer). So `IsHttps` is false for every proxied request and the
+	# header was never emitted in either hosted profile, despite the middleware's own docstring saying a publicly
+	# trusted certificate gets it. Set once at the site level so it covers /api/*, /hub/*, /health and the pages.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
 	# API — same-origin front door for the frontend's relative `/api` calls (AC-3).
 	handle /api/* {
 		reverse_proxy api:5000
 	}
 
+	# SignalR — the hub is mapped at the host root (`/hub/clinic`), NOT under /api, so without this
+	# block it falls through to the catch-all below, reaches the Next container and 404s. The failure is
+	# totally silent: the client's `connection.start()` sits behind a bare `catch {}` and the server-side
+	# broadcast is swallowed by design, so every clinic simply sees stale screens. Caddy forwards the
+	# WebSocket upgrade automatically — this needs no extra directive.
+	handle /hub/* {
+		reverse_proxy api:5000
+	}
+
+	# Liveness. Mapped on the API (never under /api, so it is outside the rate limiter and the client-version
+	# floor) — which means without this block it falls through to the catch-all, reaches the Next container and
+	# 404s: an endpoint nothing in this topology could reach. Deliberately public: an uptime monitor cannot hold
+	# an admin token, and the body carries check names and statuses only, never a reason.
+	handle /health {
+		reverse_proxy api:5000
+	}
+
 	# Everything else (pages, /_next/*, /auth/* Auth0 routes, /bff/* BFF auth routes).
 	handle {
+		# The API's SecurityHeadersMiddleware covers only what Kestrel serves, which behind this proxy is
+		# /api/* alone — and Next emits its own headers only when AUTH_MODE != local, which is false in
+		# HostedMultiTenant. Stating them here is what keeps a page response covered in both hosted
+		# profiles. Caddy replaces rather than appends, so a header Next already set is not duplicated.
+		#
+		# ⚠️ The CSP is the load-bearing addition. Without it page responses carried NO policy at all, which made
+		# `Security:EnforceCsp` — the switch US-6 added — have no effect whatsoever on the HTML documents and
+		# scripts it exists to constrain: an operator flipping it after a clean page walk would believe the pages
+		# were protected when only JSON API responses were. Kept byte-identical to
+		# `SecurityHeadersMiddleware.ContentSecurityPolicy`; the two must be changed together.
+		header {
+			X-Content-Type-Options nosniff
+			X-Frame-Options DENY
+			Referrer-Policy strict-origin-when-cross-origin
+			Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		}
+
 		reverse_proxy web:3000
 	}
 }
