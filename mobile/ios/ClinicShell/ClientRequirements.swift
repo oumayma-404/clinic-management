@@ -37,10 +37,34 @@ enum ClientRequirements {
         // asked the same question every other call asks.
         request.setValue(ShellVersion.name, forHTTPHeaderField: "X-Client-Version")
 
-        URLSession.shared.dataTask(with: request) { data, response, _ in
+        // ⚠️ Not `URLSession.shared`: it takes no delegate, so it cannot honour a user-installed CA and this
+        // probe would fail on every `SelfHostedLan` server — see `ServerTrust`. It fails *soft* (a null result
+        // means « no floor »), so the symptom would have been silent rather than loud: the floor check quietly
+        // never applying on the one topology it is most likely to matter for.
+        probeSession.dataTask(with: request) { data, response, _ in
             let parsed = parse(data: data, response: response)
             DispatchQueue.main.async { completion(parsed) }
         }.resume()
+    }
+
+    private static let probeSession: URLSession = {
+        URLSession(configuration: .ephemeral, delegate: TrustingSessionDelegate(), delegateQueue: nil)
+    }()
+
+    /// Defers the trust decision to the OS, exactly as the web view's own challenge handler does.
+    private final class TrustingSessionDelegate: NSObject, URLSessionDelegate {
+        func urlSession(
+            _ session: URLSession,
+            didReceive challenge: URLAuthenticationChallenge,
+            completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+        ) {
+            guard ServerTrust.isTrustedByTheSystem(challenge),
+                  let credential = ServerTrust.credential(for: challenge) else {
+                completionHandler(.performDefaultHandling, nil)
+                return
+            }
+            completionHandler(.useCredential, credential)
+        }
     }
 
     private static func parse(data: Data?, response: URLResponse?) -> Requirements? {

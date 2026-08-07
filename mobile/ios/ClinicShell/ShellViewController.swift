@@ -335,11 +335,32 @@ extension ShellViewController: WKNavigationDelegate {
     // `webView(_:decidePolicyFor navigationResponse:)` is deliberately NOT implemented to turn a status into a
     // shell state. An HTTP status means the server answered, and what it answered with is the app's own French
     // error page — which AC-74 requires be *shown* rather than replaced.
-    //
-    // `didReceiveAuthenticationChallenge` is deliberately NOT implemented either: the default rejects an untrusted
-    // certificate, so a self-signed one becomes « Impossible de joindre » rather than a silently accepted MITM.
-    // The offline-LAN install is reached by installing the clinic's CA on the device and trusting it in Settings —
-    // the iOS counterpart of Android's `network_security_config.xml`, and the reason no ATS exception is declared.
+
+    /**
+     Ask the OS whether this certificate is one the user trusts (see [ServerTrust]).
+
+     ⚠️ **Not implementing this was a defect, not a safeguard.** The original reasoning was that the default
+     handling rejects an untrusted certificate, so a self-signed one would surface as « Impossible de joindre »
+     rather than a silently accepted MITM. That much is true — but it also rejects a certificate the user *has*
+     installed and trusted, because **ATS ignores user-installed roots while Safari honours them**. On a real
+     iPhone with the clinic's CA fully trusted, Safari loaded the app and this shell refused it. `SelfHostedLan`
+     is defined by a self-signed LAN certificate, so the shell could never reach the topology it exists for.
+
+     The MITM protection is unchanged: an untrusted chain still falls to `.performDefaultHandling`, which
+     rejects. `proceed`-style unconditional acceptance appears nowhere.
+     */
+    func webView(
+        _ webView: WKWebView,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard ServerTrust.isTrustedByTheSystem(challenge),
+              let credential = ServerTrust.credential(for: challenge) else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        completionHandler(.useCredential, credential)
+    }
 }
 
 // MARK: - WKUIDelegate
