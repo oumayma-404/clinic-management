@@ -85,11 +85,10 @@ const clientTooOldListeners = new Set<ClientTooOldListener>();
 /**
  * Subscribe to « the server has refused this client as too old » (426). Returns an unsubscribe function.
  *
- * The listener fires for calls made through this module's helpers. The dozen raw-`fetch` blob/upload sites
- * deliberately keep their own response handling (plan R-5, so no legacy caller's error message changes) and so
- * do not notify — which costs nothing in practice: the floor refuses every route, so the next ordinary call
- * surfaces it. {@link isClientRefusedAsTooOld} exists for the same reason in the other direction — a gate that
- * mounts *after* the first refusal must still know.
+ * The listener fires for calls made through this module's helpers, which is now **every** call to the clinic API:
+ * the blob and upload sites that used to keep their own response handling (and so never notified) were moved onto
+ * `apiGetBlob` / `apiGetFile` / `apiPostBlob`. {@link isClientRefusedAsTooOld} exists for the same reason in the
+ * other direction — a gate that mounts *after* the first refusal must still know.
  */
 export function onClientTooOld(listener: ClientTooOldListener): () => void {
   clientTooOldListeners.add(listener);
@@ -259,7 +258,16 @@ function readableValidationDetail(errors: unknown): string {
   return parts.join(' ');
 }
 
-async function handleResponse<T>(response: Response): Promise<T> {
+/**
+ * Throws for a non-OK response, and returns quietly for an OK one.
+ *
+ * Split out of `handleResponse` so a caller that reads the body differently — `apiGetBlob`, whose success path is
+ * `response.blob()` rather than JSON — gets the identical refusal handling instead of its own copy. Four raw
+ * `fetch` sites in `patient-files.ts` each hand-wrote that copy and each read `errorData.message`, while the
+ * backend's canonical body is `{ error }`: every French refusal reason was dropped and the user saw
+ * « HTTP 400: Bad Request ». A second place that interprets the error contract is the whole defect.
+ */
+async function throwIfNotOk(response: Response): Promise<void> {
   if (!response.ok) {
     // Kept as a named value rather than rebuilt twice: it is the sentinel meaning "nothing usable arrived",
     // and the two places that compare against it have to compare against the *same* string.
@@ -347,12 +355,59 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
     throw new ApiError(response.status, errorMessage, undefined, errorCode);
   }
+}
+
+async function handleResponse<T>(response: Response): Promise<T> {
+  await throwIfNotOk(response);
 
   const contentType = response.headers.get('content-type');
   if (contentType && contentType.includes('application/json')) {
     return response.json();
   }
   return response.text() as unknown as T;
+}
+
+/** The download counterpart of `handleResponse`: the same refusal handling, a blob body. */
+async function readBlob(response: Response): Promise<Blob> {
+  await throwIfNotOk(response);
+  return response.blob();
+}
+
+/** A download whose name the server chose. `filename` is `null` when it did not say. */
+export interface DownloadedFile {
+  blob: Blob;
+  filename: string | null;
+}
+
+async function readDownloadedFile(response: Response): Promise<DownloadedFile> {
+  await throwIfNotOk(response);
+  return {
+    blob: await response.blob(),
+    filename: filenameFromDisposition(response.headers.get('content-disposition')),
+  };
+}
+
+/**
+ * Reads the filename out of `Content-Disposition`, preferring the RFC 5987 `filename*` form — the one that
+ * survives the accents every French filename in this product could carry.
+ *
+ * Here rather than in `export.ts` because the CSV exports are no longer the only download whose name the server
+ * owns, and a second parser would be a second answer to « what is this file called ».
+ */
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1]);
+    } catch {
+      // A malformed value must not lose the download — fall through to the plain form.
+    }
+  }
+
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  return plain ? plain[1] : null;
 }
 
 /**
@@ -368,17 +423,21 @@ async function handleResponse<T>(response: Response): Promise<T> {
  *
  * `requestFn` therefore takes the token as a parameter rather than closing over it — the retry has to be able
  * to build the request again with a *different* token.
+ *
+ * `readBody` exists so a blob download gets the retry, the deadline mapping and the `{ error }` interpretation
+ * without a second implementation of any of them.
  */
 async function handleRequest<T>(
   accessToken: string | null | undefined,
   requestFn: (token: string | null) => Promise<Response>,
+  readBody: (response: Response) => Promise<T> = handleResponse,
 ): Promise<T> {
   const explicit = accessToken !== undefined;
   let token = explicit ? accessToken! : await getAccessToken();
 
   for (let attempt = 0; ; attempt++) {
     try {
-      return await handleResponse<T>(await requestFn(token));
+      return await readBody(await requestFn(token));
     } catch (err) {
       const canRetry = !explicit && attempt === 0 && err instanceof ApiError && err.status === 401;
       if (canRetry) {
@@ -532,10 +591,15 @@ export type ApiContentType = 'json' | 'none';
 const REQUEST_TIMEOUT_MS = 20_000
 
 /**
- * Uploads get much longer. A panoramique over a slow uplink legitimately takes minutes, and killing a transfer
- * that is still making progress would be a worse failure than the one this guards against.
+ * Moving a **file** in either direction gets much longer. A panoramique over a slow uplink legitimately takes
+ * minutes, and killing a transfer that is still making progress would be a worse failure than the one this guards
+ * against.
+ *
+ * ⚠️ Downloads share it, not `REQUEST_TIMEOUT_MS`, and the difference is not cosmetic: a CBCT study or a
+ * 3 000-row CSV export cannot finish inside 20 s on a clinic's uplink, so the tighter deadline would trade
+ * « hangs for ever » for « always fails », which is the worse of the two.
  */
-const UPLOAD_TIMEOUT_MS = 180_000
+const TRANSFER_TIMEOUT_MS = 180_000
 
 /** `undefined` where the runtime lacks it, so an old renderer loses the deadline rather than every request. */
 function deadline(ms: number): AbortSignal | undefined {
@@ -562,7 +626,7 @@ export function apiHeaders(accessToken?: string | null, contentType: ApiContentT
   return headers;
 }
 
-export async function apiGet<T>(endpoint: string, params?: Record<string, any>, accessToken?: string | null): Promise<T> {
+function buildUrl(endpoint: string, params?: Record<string, any>): string {
   // Pass an origin base so a RELATIVE API base (`/api` in the same-origin front-door build, S4) parses —
   // `new URL('/api/foo')` throws "Invalid URL" without a base. Absolute bases ignore the second arg, so
   // this is a no-op for the Cloud build (absolute NEXT_PUBLIC_API_URL). Guard `window` (Finding 11): an
@@ -577,13 +641,39 @@ export async function apiGet<T>(endpoint: string, params?: Record<string, any>, 
       }
     });
   }
+  return url.toString();
+}
 
-  return handleRequest<T>(accessToken, (token) => fetch(url.toString(), {
+export async function apiGet<T>(endpoint: string, params?: Record<string, any>, accessToken?: string | null): Promise<T> {
+  const url = buildUrl(endpoint, params);
+
+  return handleRequest<T>(accessToken, (token) => fetch(url, {
     method: 'GET',
     headers: apiHeaders(token),
     credentials: 'include',
     signal: deadline(REQUEST_TIMEOUT_MS),
   }));
+}
+
+/**
+ * A GET whose body is a file, not JSON — patient files, invoice PDFs, a practitioner's cachet.
+ *
+ * Exists because the download sites were raw `fetch`: they lost the deadline (so a dead transport left the
+ * caller's promise pending for ever), the one-shot 401 retry (and a download is user-initiated after a period of
+ * reading, i.e. the request most likely to be the first past a token's expiry), and — since they read
+ * `errorData.message` — every French refusal the server sent.
+ *
+ * `'none'` on the headers because there is no request body to describe.
+ */
+export async function apiGetBlob(endpoint: string, params?: Record<string, any>, accessToken?: string | null): Promise<Blob> {
+  const url = buildUrl(endpoint, params);
+
+  return handleRequest<Blob>(accessToken, (token) => fetch(url, {
+    method: 'GET',
+    headers: apiHeaders(token, 'none'),
+    credentials: 'include',
+    signal: deadline(TRANSFER_TIMEOUT_MS),
+  }), readBlob);
 }
 
 export async function apiPost<T>(endpoint: string, data: any, accessToken?: string | null): Promise<T> {
@@ -615,6 +705,35 @@ export async function apiDelete<T>(endpoint: string, accessToken?: string | null
   }));
 }
 
+/** `apiGetBlob` for a download whose filename the server dictates — the CSV exports. */
+export async function apiGetFile(endpoint: string, params?: Record<string, any>, accessToken?: string | null): Promise<DownloadedFile> {
+  const url = buildUrl(endpoint, params);
+
+  return handleRequest<DownloadedFile>(accessToken, (token) => fetch(url, {
+    method: 'GET',
+    headers: apiHeaders(token, 'none'),
+    credentials: 'include',
+    signal: deadline(TRANSFER_TIMEOUT_MS),
+  }), readDownloadedFile);
+}
+
+/**
+ * A POST whose response is a file — the one download in the app that has to send a body.
+ *
+ * `medical-documents`' inline PDF render takes the whole document as its request, so it cannot be a GET: the
+ * server re-resolves the practitioner snapshot from what is posted. Everything else about it is a download, so it
+ * wants `readBlob`, not `handleResponse`.
+ */
+export async function apiPostBlob(endpoint: string, data: any, accessToken?: string | null): Promise<Blob> {
+  return handleRequest<Blob>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+    method: 'POST',
+    headers: apiHeaders(token),
+    body: JSON.stringify(data),
+    credentials: 'include',
+    signal: deadline(TRANSFER_TIMEOUT_MS),
+  }), readBlob);
+}
+
 export async function apiPostFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null): Promise<T> {
   // Headers are built INSIDE the callback so a 401 retry rebuilds them with the renewed token. Uploads are
   // exactly where a stale token bites — they are user-initiated after a period of reading, so they are the
@@ -624,7 +743,7 @@ export async function apiPostFormData<T>(endpoint: string, formData: FormData, a
     headers: apiHeaders(token, 'none'),
     body: formData,
     credentials: 'include',
-    signal: deadline(UPLOAD_TIMEOUT_MS),
+    signal: deadline(TRANSFER_TIMEOUT_MS),
   }));
 }
 
@@ -634,7 +753,7 @@ export async function apiPutFormData<T>(endpoint: string, formData: FormData, ac
     headers: apiHeaders(token, 'none'),
     body: formData,
     credentials: 'include',
-    signal: deadline(UPLOAD_TIMEOUT_MS),
+    signal: deadline(TRANSFER_TIMEOUT_MS),
   }));
 }
 

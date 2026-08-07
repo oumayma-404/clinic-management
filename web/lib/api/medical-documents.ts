@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete, apiPostFormData, apiPutFormData, apiHeaders, getAccessToken } from './client';
+import { apiGet, apiPost, apiPostBlob, apiPut, apiDelete, apiPostFormData, apiPutFormData } from './client';
 import type { MedicalDocumentDto } from './types';
 
 export interface CreateMedicalDocumentRequest {
@@ -113,25 +113,6 @@ export const medicalDocumentsApi = {
     recipientDoctorName?: string;
     recipientDoctorSpecialty?: string;
     content: Record<string, string>;
-  }): Promise<Blob> => {
-    const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-    const token = await getAccessToken();
-
-    const headers = apiHeaders(token);
-
-    const response = await fetch(`${API_BASE_URL}/medical-documents/generate-pdf-download`, {
-      method: 'POST',
-      headers,
-      credentials: 'include',
-      body: JSON.stringify(documentData),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to generate PDF: ${response.statusText} - ${errorText}`);
-    }
-
-    return response.blob();
-  },
+  }): Promise<Blob> => apiPostBlob('/medical-documents/generate-pdf-download', documentData),
 };
 

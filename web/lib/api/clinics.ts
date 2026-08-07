@@ -1,7 +1,5 @@
-import { apiGet, apiPost, apiPostFormData, apiPut, apiPutFormData, apiHeaders, getAccessToken } from './client';
+import { apiGet, apiGetBlob, apiPost, apiPostFormData, apiPut, apiPutFormData } from './client';
 import type { WorkingDay } from '@/lib/working-hours';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 export interface DoctorDto {
   id?: string;
@@ -261,21 +259,6 @@ export const clinicsApi = {
     return result.value;
   },
 
-  getLogo: async (): Promise<Blob> => {
-    const token = await getAccessToken();
-    const headers = apiHeaders(token, 'none');
-
-    const response = await fetch(`${API_BASE_URL}/clinics/logo`, {
-      method: 'GET',
-      headers,
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to get clinic logo');
-    }
-
-    return response.blob();
-  },
+  getLogo: async (): Promise<Blob> => apiGetBlob('/clinics/logo'),
 };
 

@@ -1,8 +1,6 @@
-import { apiGet, apiPost, apiPut, apiDelete, apiHeaders, getAccessToken } from './client';
+import { apiGet, apiGetBlob, apiPost, apiPut, apiDelete } from './client';
 import type { CreditNoteDto, InvoiceDto, InvoiceRevenueDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 export interface InvoiceLineInput {
   designation: string;
@@ -38,25 +36,6 @@ export interface RecordPaymentRequest {
    * paper document, and `toISOString()` would shift it a day for the Tunisian offset.
    */
   chequeDueDate?: string;
-}
-
-/** Authenticated GET returning a Blob — the PDF/artifact routes can't go through `client.ts`. */
-async function downloadInvoiceBlob(path: string, failureLabel: string): Promise<Blob> {
-  const token = await getAccessToken();
-  const headers = apiHeaders(token, 'none');
-
-  const base = typeof window !== 'undefined' ? window.location.origin : undefined;
-  const url = new URL(`${API_BASE_URL}${path}`, base);
-
-  const response = await fetch(url.toString(), { method: 'GET', headers, credentials: 'include' });
-  if (!response.ok) {
-    const text = await response.text();
-    // The API returns the { error } JSON contract — surface that message, not the raw JSON body.
-    let message = text;
-    try { message = JSON.parse(text)?.error ?? text; } catch { /* body is not JSON */ }
-    throw new Error(message || `${failureLabel} (HTTP ${response.status})`);
-  }
-  return response.blob();
 }
 
 export const invoicesApi = {
@@ -159,51 +138,13 @@ export const invoicesApi = {
 
   delete: async (id: string): Promise<void> => apiDelete<void>(`/invoices/${id}`),
 
-  // e-invoicing artifacts are binary — drop to raw fetch and attach the bearer token ourselves.
-  downloadEInvoiceArtifact: async (id: string, artifact: 'xml' | 'receipt'): Promise<Blob> => {
-    const token = await getAccessToken();
-    const headers = apiHeaders(token, 'none');
-
-    const base = typeof window !== 'undefined' ? window.location.origin : undefined;
-    const url = new URL(`${API_BASE_URL}/invoices/${id}/e-invoice/${artifact}`, base);
-
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers,
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      // The API returns the { error } JSON contract — surface that message, not the raw JSON body.
-      let message = text;
-      try { message = JSON.parse(text)?.error ?? text; } catch { /* body is not JSON */ }
-      throw new Error(message || `Échec du téléchargement (HTTP ${response.status})`);
-    }
-    return response.blob();
-  },
+  downloadEInvoiceArtifact: async (id: string, artifact: 'xml' | 'receipt'): Promise<Blob> =>
+    apiGetBlob(`/invoices/${id}/e-invoice/${artifact}`),
 
   // The avoir's own PDF — the patient's proof of the refund. Note the route is keyed by the AVOIR's id,
   // not the invoice's.
   downloadAvoirPdf: async (creditNoteId: string): Promise<Blob> =>
-    downloadInvoiceBlob(`/invoices/avoirs/${creditNoteId}/pdf`, 'Échec du téléchargement du PDF'),
+    apiGetBlob(`/invoices/avoirs/${creditNoteId}/pdf`),
 
-  // PDF is a binary blob — drop to raw fetch and attach the bearer token ourselves.
-  downloadPdf: async (id: string): Promise<Blob> => {
-    const token = await getAccessToken();
-    const headers = apiHeaders(token, 'none');
-
-    const base = typeof window !== 'undefined' ? window.location.origin : undefined;
-    const url = new URL(`${API_BASE_URL}/invoices/${id}/pdf`, base);
-
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers,
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `Échec du téléchargement du PDF (HTTP ${response.status})`);
-    }
-    return response.blob();
-  },
+  downloadPdf: async (id: string): Promise<Blob> => apiGetBlob(`/invoices/${id}/pdf`),
 };

@@ -1,8 +1,16 @@
-import { apiGet, apiDelete, apiHeaders, getAccessToken } from './client';
+import { apiGet, apiGetBlob, apiPost, apiPostFormData, apiDelete } from './client';
 import type { PatientFileDto, PatientFolderDto } from './types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-
+/**
+ * Patient folders and files.
+ *
+ * ⚠️ **Every call goes through `client.ts`, and that is the fix for a real defect** — not tidiness. All four of
+ * the write/download calls here used to be raw `fetch` with their own error block reading `errorData.message`,
+ * while the backend's canonical failure body is `{ error }` (`ApiControllerBase`). So a refused upload — the
+ * signature check catching a `.txt` renamed to `.pdf`, say — threw away « Le contenu du fichier ne correspond pas
+ * à son format déclaré » and surfaced the English sentinel « HTTP 400: Bad Request » instead. Those calls also
+ * had no request deadline (a dead transport froze the drop zone with no toast and no retry) and no 401 retry.
+ */
 export const patientFilesApi = {
   // Get folders for a patient
   getFolders: async (patientId: string, parentFolderId?: string): Promise<PatientFolderDto[]> => {
@@ -18,37 +26,13 @@ export const patientFilesApi = {
 
   // Initialize default folders
   initializeDefaultFolders: async (patientId: string): Promise<PatientFolderDto[]> => {
-    const token = await getAccessToken();
-    const response = await fetch(`${API_BASE_URL}/patients/${patientId}/files/folders/initialize-defaults`, {
-      method: 'POST',
-      headers: apiHeaders(token, 'none'),
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    return response.json();
+    // The action takes no body — it reads the patient from the route — so `{}` is sent and ignored.
+    return apiPost<PatientFolderDto[]>(`/patients/${patientId}/files/folders/initialize-defaults`, {});
   },
 
   // Create a new folder
   createFolder: async (patientId: string, name: string, parentFolderId?: string): Promise<PatientFolderDto> => {
-    const token = await getAccessToken();
-    const response = await fetch(`${API_BASE_URL}/patients/${patientId}/files/folders`, {
-      method: 'POST',
-      headers: apiHeaders(token),
-      credentials: 'include',
-      body: JSON.stringify({ name, parentFolderId }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    return response.json();
+    return apiPost<PatientFolderDto>(`/patients/${patientId}/files/folders`, { name, parentFolderId });
   },
 
   // Upload a file
@@ -58,7 +42,6 @@ export const patientFilesApi = {
     folderId?: string,
     description?: string
   ): Promise<PatientFileDto> => {
-    const token = await getAccessToken();
     const formData = new FormData();
     formData.append('file', file);
     if (folderId) {
@@ -68,36 +51,12 @@ export const patientFilesApi = {
       formData.append('description', description);
     }
 
-    const response = await fetch(`${API_BASE_URL}/patients/${patientId}/files/upload`, {
-      method: 'POST',
-      headers: apiHeaders(token, 'none'),
-      credentials: 'include',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    return response.json();
+    return apiPostFormData<PatientFileDto>(`/patients/${patientId}/files/upload`, formData);
   },
 
   // Download a file
   downloadFile: async (patientId: string, fileId: string): Promise<Blob> => {
-    const token = await getAccessToken();
-    const response = await fetch(`${API_BASE_URL}/patients/${patientId}/files/${fileId}/download`, {
-      method: 'GET',
-      headers: apiHeaders(token, 'none'),
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    return response.blob();
+    return apiGetBlob(`/patients/${patientId}/files/${fileId}/download`);
   },
 
   // Delete a file
@@ -110,4 +69,3 @@ export const patientFilesApi = {
     return apiDelete<void>(`/patients/${patientId}/files/folders/${folderId}`);
   },
 };
-

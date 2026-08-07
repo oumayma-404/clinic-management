@@ -1,8 +1,6 @@
-import { apiGet, apiHeaders, getAccessToken } from './client';
+import { apiGet, apiGetBlob } from './client';
 import type { ChequesDueDto, CnamCeilingDto, PatientBillingSummaryDto, ReceivableDto, ReceivablesPageDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 export const billingApi = {
   /** The unified per-patient balance + CNAM split. */
@@ -43,21 +41,7 @@ export const billingApi = {
     params: PageParams & { dueFrom?: string; dueTo?: string } = {},
   ): Promise<ChequesDueDto> => apiGet<ChequesDueDto>('/billing/cheques', params),
 
-  /** The receipt (reçu) PDF for a single invoice payment — a binary blob, so drop to raw fetch. */
-  downloadPaymentReceipt: async (paymentId: string): Promise<Blob> => {
-    const token = await getAccessToken();
-    const headers = apiHeaders(token, 'none');
-
-    const base = typeof window !== 'undefined' ? window.location.origin : undefined;
-    const url = new URL(`${API_BASE_URL}/payments/${paymentId}/receipt-pdf`, base);
-
-    const response = await fetch(url.toString(), { method: 'GET', headers, credentials: 'include' });
-    if (!response.ok) {
-      const text = await response.text();
-      let message = text;
-      try { message = JSON.parse(text)?.error ?? text; } catch { /* body is not JSON */ }
-      throw new Error(message || `Échec du téléchargement du reçu (HTTP ${response.status})`);
-    }
-    return response.blob();
-  },
+  /** The receipt (reçu) PDF for a single invoice payment. */
+  downloadPaymentReceipt: async (paymentId: string): Promise<Blob> =>
+    apiGetBlob(`/payments/${paymentId}/receipt-pdf`),
 };

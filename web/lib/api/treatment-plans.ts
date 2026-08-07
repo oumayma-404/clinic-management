@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete, apiHeaders, getAccessToken } from './client';
+import { apiGet, apiGetBlob, apiPost, apiPut, apiDelete } from './client';
 import type { TreatmentPlanDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
@@ -183,27 +183,9 @@ export const treatmentPlansApi = {
 
   remove: async (id: string): Promise<void> => apiDelete<void>(`/treatment-plans/${id}`),
 
-  // The devis PDF is a binary blob — drop to raw fetch and attach the bearer token ourselves.
-  downloadDevisPdf: async (id: string): Promise<Blob> => {
-    const token = await getAccessToken();
-    const headers = apiHeaders(token, 'none');
+  downloadDevisPdf: async (id: string): Promise<Blob> =>
+    apiGetBlob(`/treatment-plans/${id}/devis-pdf`),
 
-    const base = typeof window !== 'undefined' ? window.location.origin : undefined;
-    const url = new URL(`${API_BASE_URL}/treatment-plans/${id}/devis-pdf`, base);
-
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers,
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `Échec du téléchargement du devis (HTTP ${response.status})`);
-    }
-    return response.blob();
-  },
-
-  // The installment receipt PDF is a binary blob — drop to raw fetch and attach the bearer token ourselves.
   /**
    * Void a payment recorded against an échéance — "this was never received". The ledger row is kept and
    * marked; the installment's totals are re-derived. The plan's status is NOT walked back, because it tracks
@@ -225,27 +207,6 @@ export const treatmentPlansApi = {
    * several payments, and the receipt used to print the cumulative total rather than the money handed over.
    * A voided payment still renders, over-stamped « REÇU ANNULÉ ».
    */
-  downloadInstallmentReceipt: async (id: string, installmentId: string, paymentId: string): Promise<Blob> => {
-    const token = await getAccessToken();
-    const headers = apiHeaders(token, 'none');
-
-    const base = typeof window !== 'undefined' ? window.location.origin : undefined;
-    const url = new URL(
-      `${API_BASE_URL}/treatment-plans/${id}/installments/${installmentId}/payments/${paymentId}/receipt-pdf`,
-      base,
-    );
-
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers,
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      let message = text;
-      try { message = JSON.parse(text)?.error ?? text; } catch { /* body is not JSON */ }
-      throw new Error(message || `Échec du téléchargement du reçu (HTTP ${response.status})`);
-    }
-    return response.blob();
-  },
+  downloadInstallmentReceipt: async (id: string, installmentId: string, paymentId: string): Promise<Blob> =>
+    apiGetBlob(`/treatment-plans/${id}/installments/${installmentId}/payments/${paymentId}/receipt-pdf`),
 };
