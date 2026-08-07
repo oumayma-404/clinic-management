@@ -182,6 +182,12 @@ public class TrustController : ApiControllerBase
         return lan?.ToString() ?? requestHost;
     }
 
+    // ⚠️ The two download links in the page below are ROOT-relative, not document-relative, and that is the whole
+    // point: `href="ca.crt"` on a page served at `/api/trust` resolves against `/api/`, so the browser asks for
+    // `/api/ca.crt` — a 404, and refused outright by TrustPortGate on this port. Both buttons therefore failed for
+    // anyone reaching the page without a trailing slash, which is the address printed in the docs and typed by
+    // hand. Found on an iPhone: the page rendered and the one screen whose entire job is installing the CA could
+    // not install it.
     private int TrustPort() =>
         _configuration.GetValue<int?>("Hosting:TrustPort") ?? Startup.TrustPortGate.DefaultPort;
 
@@ -204,8 +210,8 @@ public class TrustController : ApiControllerBase
 
                        <h2>1 · Installer le certificat</h2>
                        <div class="grid">
-                         <a class="btn" href="profile.mobileconfig">iPhone / iPad</a>
-                         <a class="btn" href="ca.crt">Android</a>
+                         <a class="btn" href="/api/trust/profile.mobileconfig">iPhone / iPad</a>
+                         <a class="btn" href="/api/trust/ca.crt">Android</a>
                        </div>
 
                        <h3>Sur iPhone / iPad</h3>
