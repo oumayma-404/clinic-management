@@ -63,7 +63,86 @@ public class AuthController : ApiControllerBase
         var mode = deployment.UsesLocalAccounts
             ? LocalAuthConfig.LocalMode
             : LocalAuthConfig.CloudMode;
-        return Ok(new { mode, selfRegistrationEnabled = deployment.AllowsSelfRegistration });
+        return Ok(new
+        {
+            mode,
+            selfRegistrationEnabled = deployment.AllowsSelfRegistration,
+            // clinic-self-signup. A third field rather than a reuse of the second, because they answer opposite
+            // questions: `selfRegistrationEnabled` is « may a stranger join an EXISTING clinic with its shared
+            // code? » (✗ here) and this is « may a visitor create their OWN clinic behind an emailed token? »
+            // (✓ here). The `/signup` page reads it so it never offers a form the endpoint would 404.
+            publicSignupEnabled = deployment.AllowsPublicClinicSignup,
+        });
+    }
+
+    /// <summary>
+    /// Public clinic self-signup: writes a pending signup and emails a verification link. Creates no clinic, no
+    /// account and no catalogue — that happens at <see cref="VerifySignUp"/>.
+    ///
+    /// <para>⚠️ Gated on <c>AllowsPublicClinicSignup</c>, which is <b>not</b> <c>AllowsSelfRegistration</c>: that
+    /// one is about joining an existing clinic with its six-character code and stays closed here. This door hands
+    /// out no shared secret at all — the gate is a single-use 32-byte token sent to an address the caller must
+    /// control.</para>
+    ///
+    /// <para>The 404 is returned <b>before the mediator is reached</b> (AC-1), so on a profile without the
+    /// capability the handler, its repository and its mail sender are never resolved.</para>
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [HttpPost("signup")]
+    public async Task<IActionResult> SignUp([FromBody] ClinicSignUpRequest request)
+    {
+        if (!Deployment.AllowsPublicClinicSignup)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new SignUpClinicCommand
+        {
+            ClinicName = request.ClinicName,
+            FullName = request.FullName,
+            Email = request.Email,
+            Password = request.Password,
+            Phone = request.Phone,
+            Address = request.Address,
+            City = request.City,
+            DoctorInfo = request.DoctorInfo,
+            WorkingHoursJson = request.WorkingHoursJson
+        });
+
+        if (!result.IsSuccess)
+        {
+            // 503, not 400, when the deployment itself cannot complete a signup: a 400 tells every client and
+            // proxy the call is malformed and not worth retrying, the opposite of what the message says.
+            return result.Code == SignUpClinicCommandHandler.UnavailableCode
+                ? HandleFailure(result, StatusCodes.Status503ServiceUnavailable)
+                : HandleFailure(result);
+        }
+
+        // 202: the clinic does not exist yet and may never — the visitor still has to open their email.
+        return Accepted(result.Value);
+    }
+
+    /// <summary>
+    /// Consumes a verification token and provisions the clinic + its first admin.
+    ///
+    /// <para><b>Returns no session</b> — no access token, no cookie (AC-12). Receiving the email is not the same
+    /// as knowing the password, and the password is the credential the visitor already chose; they sign in at
+    /// <c>/login</c> with it.</para>
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [HttpPost("signup/verify")]
+    public async Task<IActionResult> VerifySignUp([FromBody] ClinicSignUpVerifyRequest request)
+    {
+        if (!Deployment.AllowsPublicClinicSignup)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new VerifyClinicSignUpCommand { Token = request.Token });
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
     /// <summary>

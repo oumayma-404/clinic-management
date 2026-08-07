@@ -62,7 +62,10 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
     private static readonly HashSet<string> ExcludedEntityTypes = new(StringComparer.Ordinal)
     {
         nameof(AuditEntry),
-        nameof(Notification)
+        nameof(Notification),
+        // Written by the ANONYMOUS signup endpoint: no actor, no clinic to resolve, so no reading of GET /api/audit
+        // can ever show them — and a purge row would record the abandoned visitor's name and address for ever.
+        nameof(ClinicSignup)
     };
 
     /// <summary>

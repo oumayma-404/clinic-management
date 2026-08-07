@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -205,11 +206,24 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 var baseFileName = $"{documentTypeName}-{sanitizedPatientName}";
                 var fileName = await GenerateUniqueFileName(_fileRepository, documentsFolder.Id, baseFileName, "pdf", cancellationToken);
 
+                // The row this writes lands in the same table the patient-file upload guards, so it goes
+                // through the same validator: the bytes arrive from the browser's own renderer, and a
+                // hardcoded "application/pdf" was a second, unchecked door onto PatientFile.
+                using var pdfStream = new MemoryStream(pdfFileToSave);
+                var pdfValidation = await FileUploadValidator.ValidateAsync(
+                    FileUploadProfile.MedicalDocumentPdf, fileName, pdfFileToSave.Length, pdfStream, cancellationToken);
+
+                if (pdfValidation.IsFailure)
+                {
+                    return Result<MedicalDocumentDto>.Failure(pdfValidation.Error!);
+                }
+
+                var pdf = pdfValidation.Value!;
+
                 // Store the PDF blob first, then persist the record. If the DB save fails we must
                 // remove the just-stored blob so no orphan remains (FR-C3).
-                using var pdfStream = new MemoryStream(pdfFileToSave);
                 var storageKey = await _fileStorage.UploadAsync(
-                    pdfStream, "application/pdf", patient.ClinicId, cancellationToken);
+                    pdf.Content, pdf.ContentType, patient.ClinicId, cancellationToken);
 
                 try
                 {
@@ -217,11 +231,11 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                     var patientFile = new PatientFile(
                         Guid.NewGuid(),
                         request.PatientId,
-                        fileName,
+                        pdf.FileName,
                         storageKey,
-                        "application/pdf",
-                        pdfFileToSave.Length,
-                        FileType.MedicalRecord,
+                        pdf.ContentType,
+                        pdf.ByteLength,
+                        pdf.Entry.Category,
                         documentsFolder.Id, // Always use documents folder for PDFs
                         $"Document médical: {documentTypeName}");
 

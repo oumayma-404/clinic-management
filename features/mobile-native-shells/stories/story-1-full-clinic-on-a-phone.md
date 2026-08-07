@@ -1,5 +1,6 @@
 # Story 1: Full — The clinic works from a phone
 
+
 **Status:** APPROVED
 **Story Status:** in-progress — **Parts 1, 2, 3, 4 and 6 implemented**; **Part 7's three shell-free halves plus
 step 2 (biometric resume, AC-57…AC-60)** implemented (2026-08-06). Part 7's steps 1, 3 and 4 need a physical phone

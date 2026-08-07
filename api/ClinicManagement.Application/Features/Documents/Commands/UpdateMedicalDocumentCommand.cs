@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -208,11 +209,22 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                 var baseFileName = $"{documentTypeName}-{sanitizedPatientName}";
                 var fileName = await GenerateUniqueFileName(_fileRepository, folder.Id, baseFileName, "pdf", cancellationToken);
 
+                // Same door onto PatientFile as the create path, so the same validator judges it.
+                using var pdfStream = new MemoryStream(request.PdfFile);
+                var pdfValidation = await FileUploadValidator.ValidateAsync(
+                    FileUploadProfile.MedicalDocumentPdf, fileName, request.PdfFile.Length, pdfStream, cancellationToken);
+
+                if (pdfValidation.IsFailure)
+                {
+                    return Result<MedicalDocumentDto>.Failure(pdfValidation.Error!);
+                }
+
+                var pdf = pdfValidation.Value!;
+
                 // Store the PDF blob first, then persist the record. If the DB save fails we must
                 // remove the just-stored blob so no orphan remains (FR-C3).
-                using var pdfStream = new MemoryStream(request.PdfFile);
                 var storageKey = await _fileStorage.UploadAsync(
-                    pdfStream, "application/pdf", owningClinicId.Value, cancellationToken);
+                    pdf.Content, pdf.ContentType, owningClinicId.Value, cancellationToken);
 
                 try
                 {
@@ -233,11 +245,11 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                     var patientFile = new PatientFile(
                         Guid.NewGuid(),
                         document.PatientId,
-                        fileName,
+                        pdf.FileName,
                         storageKey,
-                        "application/pdf",
-                        request.PdfFile.Length,
-                        FileType.MedicalRecord,
+                        pdf.ContentType,
+                        pdf.ByteLength,
+                        pdf.Entry.Category,
                         folder.Id,
                         $"Document médical: {documentTypeName}");
 

@@ -3,17 +3,24 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Files.Queries;
 
-public class GetPatientFilesQuery : IRequest<Result<IEnumerable<PatientFileDto>>>
+/// <summary>
+/// One page of a patient's files (AC-5.9). It used to return every file the patient had, unbounded — a drawer
+/// of CBCT studies and years of radiographs, cut in the browser.
+/// </summary>
+public class GetPatientFilesQuery : IRequest<Result<PagedResult<PatientFileDto>>>
 {
     public Guid PatientId { get; set; }
     public Guid? FolderId { get; set; } // Null means root files
+    public int? Page { get; set; }
+    public int? PageSize { get; set; }
 }
 
-public class GetPatientFilesQueryHandler : IRequestHandler<GetPatientFilesQuery, Result<IEnumerable<PatientFileDto>>>
+public class GetPatientFilesQueryHandler : IRequestHandler<GetPatientFilesQuery, Result<PagedResult<PatientFileDto>>>
 {
     private readonly IPatientFileRepository _fileRepository;
     private readonly IPatientFolderRepository _folderRepository;
@@ -32,7 +39,7 @@ public class GetPatientFilesQueryHandler : IRequestHandler<GetPatientFilesQuery,
         _clinicResolver = clinicResolver;
     }
 
-    public async Task<Result<IEnumerable<PatientFileDto>>> Handle(GetPatientFilesQuery request, CancellationToken cancellationToken)
+    public async Task<Result<PagedResult<PatientFileDto>>> Handle(GetPatientFilesQuery request, CancellationToken cancellationToken)
     {
         try
         {
@@ -42,33 +49,31 @@ public class GetPatientFilesQueryHandler : IRequestHandler<GetPatientFilesQuery,
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinicResult.IsFailure)
             {
-                return Result<IEnumerable<PatientFileDto>>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+                return Result<PagedResult<PatientFileDto>>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
             }
 
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<IEnumerable<PatientFileDto>>.Failure("Patient introuvable.");
+                return Result<PagedResult<PatientFileDto>>.Failure("Patient introuvable.");
             }
-
-            IEnumerable<Domain.Entities.PatientFile> files;
 
             if (request.FolderId.HasValue)
             {
                 var folder = await _folderRepository.GetByIdAsync(request.FolderId.Value, cancellationToken);
                 if (folder == null || folder.PatientId != request.PatientId)
                 {
-                    return Result<IEnumerable<PatientFileDto>>.Failure("Dossier introuvable.");
+                    return Result<PagedResult<PatientFileDto>>.Failure("Dossier introuvable.");
                 }
-
-                files = await _fileRepository.GetByFolderIdAsync(request.FolderId.Value, cancellationToken);
-            }
-            else
-            {
-                files = await _fileRepository.GetRootFilesByPatientIdAsync(request.PatientId, cancellationToken);
             }
 
-            var dtos = files.Select(f => new PatientFileDto
+            var files = await _fileRepository.GetPageAsync(
+                request.PatientId,
+                request.FolderId,
+                PageRequest.From(request.Page, request.PageSize),
+                cancellationToken);
+
+            var dtos = files.Map(f => new PatientFileDto
             {
                 Id = f.Id,
                 PatientId = f.PatientId,
@@ -82,11 +87,11 @@ public class GetPatientFilesQueryHandler : IRequestHandler<GetPatientFilesQuery,
                 UploadedBy = f.UploadedBy
             });
 
-            return Result<IEnumerable<PatientFileDto>>.Success(dtos);
+            return Result<PagedResult<PatientFileDto>>.Success(dtos);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IEnumerable<PatientFileDto>>.Failure($"Error retrieving files: {ex.Message}");
+            return Result<PagedResult<PatientFileDto>>.Failure($"Error retrieving files: {ex.Message}");
         }
     }
 }

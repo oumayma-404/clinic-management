@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Exceptions;
@@ -23,7 +24,8 @@ public class CreateClinicCommand : IRequest<Result<ClinicDto>>
     public DoctorPersonalInfoDto? DoctorInfo { get; set; } // Required if Role is "doctor"
     public List<DoctorDto>? Doctors { get; set; } // Legacy: additional doctors (not the creator)
     public Stream? LogoFile { get; set; } // Logo file stream
-    public string? LogoContentType { get; set; } // Logo content type
+    public string? LogoFileName { get; set; } // The format is keyed on this name's extension
+    public long LogoLength { get; set; }
     public string? WorkingHoursJson { get; set; } // Optional onboarding working hours (finding #16)
 
     // Local (offline) first-run only. When Password is set, the handler creates the clinic +
@@ -163,17 +165,34 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
 
             await _clinicRepository.AddAsync(clinic, cancellationToken);
 
-            // Handle logo upload if provided
-            if (request.LogoFile != null && !string.IsNullOrWhiteSpace(request.LogoContentType))
+            // Handle logo upload if provided. The logo is rendered into every document and served back inline
+            // from the app's own origin, so it goes through the same profile as the practitioner cachet — this
+            // path had no type check, no size cap and no signature check of any kind.
+            if (request.LogoFile != null)
             {
+                var logoValidation = await FileUploadValidator.ValidateAsync(
+                    FileUploadProfile.ProfileImage,
+                    request.LogoFileName,
+                    request.LogoLength,
+                    request.LogoFile,
+                    cancellationToken);
+
+                if (logoValidation.IsFailure)
+                {
+                    return Result<ClinicDto>.Failure(logoValidation.Error!);
+                }
+
+                var logo = logoValidation.Value!;
+
                 // US-5: the clinic segment is the storage's own, so the path here is relative to it.
                 var logoUrl = await _fileStorage.UploadAsync(
-                    request.LogoFile,
-                    request.LogoContentType,
+                    logo.Content,
+                    logo.ContentType,
                     clinicId,
                     "logo",
                     cancellationToken);
-                
+
+
                 // Update clinic with logo URL (preserve the city already set on the clinic)
                 clinic.Update(clinic.Name, clinic.Address, clinic.Phone, clinic.Email, logoUrl, clinic.City);
             }

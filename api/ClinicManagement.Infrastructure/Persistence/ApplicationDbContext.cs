@@ -107,6 +107,11 @@ public class ApplicationDbContext : DbContext
     public DbSet<DeviceRegistration> DeviceRegistrations { get; set; }
     public DbSet<PushDelivery> PushDeliveries { get; set; }
 
+    // Pending clinic self-signups (clinic-self-signup). Carries **no ClinicId at all** — there is no clinic yet —
+    // so it is outside the tenant filter by construction rather than by exemption, and the guard that derives the
+    // clinic-owned set from that column never sees it.
+    public DbSet<ClinicSignup> ClinicSignups { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         // The clinic-scoping query filters are applied to the directly-clinic-owned AGGREGATE ROOTS — 19 of

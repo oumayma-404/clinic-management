@@ -503,11 +503,28 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                    OR ("TtnCertificatePasswordEncrypted" IS NOT NULL AND "TtnCertificateKey" IS NULL)
                 """);
 
+        // clinic-self-signup. Two shapes in one figure, because the answer that matters is « is anything stuck
+        // in this table? » rather than which way. The consumed cut-off is 30 days, matching the handler's own
+        // retention, plus a day's slack so a purge that ran this morning does not read as drift this afternoon.
+        var signupOrphans = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "ClinicSignups",
+            requiredColumn: "TokenHash",
+            sql: """
+                SELECT
+                    (SELECT COUNT(*) FROM "ClinicSignups" s
+                     WHERE s."ConsumedAtUtc" IS NULL
+                       AND EXISTS (SELECT 1 FROM "Users" u
+                                   WHERE LOWER(u."Email") = s."Email" AND u."PasswordHash" IS NOT NULL))
+                  + (SELECT COUNT(*) FROM "ClinicSignups"
+                     WHERE "ConsumedAtUtc" IS NOT NULL
+                       AND "ConsumedAtUtc" < NOW() - INTERVAL '31 days')
+                """);
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
             unsetBackupSchedule, chequeDetailsOnNonCheque, attributableButUnattributed, pushClinicMismatch,
-            partialTtnIdentity);
+            partialTtnIdentity, signupOrphans);
     }
 
     /// <summary>

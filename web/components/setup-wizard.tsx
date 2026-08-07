@@ -15,6 +15,7 @@ import { Building2, Plus, Trash2, Upload, X, ChevronRight, ChevronLeft, CheckCir
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { clinicsApi, type CreateClinicRequest } from "@/lib/api/clinics"
+import { authApi } from "@/lib/api/auth"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { TUNISIAN_GOVERNORATES } from "@/lib/tunisia"
@@ -48,11 +49,31 @@ interface WorkingHours {
   [key: string]: { from: string; to: string; enabled: boolean }
 }
 
+/**
+ * Which door this wizard is serving. The **steps, the fields and the resulting clinic are identical** — both
+ * end at the backend's one `LocalClinicProvisioning.ProvisionAsync` — and the only differences are the two a
+ * public door forces:
+ *
+ * - `setup` — first-run bootstrap on an install that has no users yet, reached from the server's own machine.
+ *   Provisions immediately, because being at the machine on a clinic-less install *is* the proof.
+ * - `signup` — anyone, over the internet. There is no such proof, so the answers are held as a pending
+ *   `ClinicSignup` and an emailed single-use token provisions them. It also drops the logo step: blobs are
+ *   keyed `clinics/{clinicId}/…` and there is no clinic to own one yet.
+ *
+ * One component rather than two, deliberately: a second copy is how « what a new clinic is asked » grows two
+ * answers, and the offline install is the copy nobody would remember to update.
+ */
+export type SetupWizardFlow = "setup" | "signup"
+
 interface SetupWizardProps {
   onComplete: () => void
+  flow?: SetupWizardFlow
 }
 
-export default function SetupWizard({ onComplete }: SetupWizardProps) {
+export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardProps) {
+  const isSignup = flow === "signup"
+  // The server's own neutral sentence, shown verbatim once a signup is accepted. Non-null IS the success state.
+  const [signupAcknowledgement, setSignupAcknowledgement] = useState<string | null>(null)
   const router = useRouter()
   const [currentStep, setCurrentStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
@@ -189,22 +210,49 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         })),
       )
 
+      // The admin-is-also-the-practitioner block, shared by the signup and first-run branches below: both
+      // collect it in step 2 and both hand it to the same `LocalClinicRequest.DoctorInfo`.
+      const adminDoctorInfo = (() => {
+        if (!adminIsPractitioner || !adminSpecialty) return undefined
+        const parts = adminFullName.trim().split(/\s+/)
+        const first = parts[0] || adminFullName.trim()
+        return {
+          firstName: first,
+          lastName: parts.slice(1).join(" ") || first,
+          specialty: adminSpecialty,
+          phone: phone || undefined,
+        }
+      })()
+
+      // Public signup: nothing is created here. The answers become one pending row and the emailed link
+      // provisions them — so this branch ends on the server's sentence, never on a redirect into an app the
+      // visitor cannot enter yet.
+      if (isSignup) {
+        const result = await authApi.signUp({
+          clinicName,
+          fullName: adminFullName.trim(),
+          email: adminEmail.trim(),
+          password: adminPassword,
+          phone: phone || undefined,
+          address: fullAddress || undefined,
+          city: governorate || undefined,
+          // ⚠️ Name + specialty only, no `phone`. The wizard's one phone field is the **clinic's**, and sending
+          // it here would persist it on `Doctor` as the practitioner's own contact — a number the visitor never
+          // typed as theirs. `ClinicSignUpRequest.doctorInfo` omits the field for exactly this reason.
+          doctorInfo: adminDoctorInfo && {
+            firstName: adminDoctorInfo.firstName,
+            lastName: adminDoctorInfo.lastName,
+            specialty: adminDoctorInfo.specialty,
+          },
+          workingHoursJson,
+        })
+        setSignupAcknowledgement(result.message)
+        setIsLoading(false)
+        return
+      }
+
       // Local (offline) first-run: create clinic + admin, then go to the login screen.
       if (isLocalMode) {
-        // When the admin is also the practitioner, derive first/last name from the full name (robustly, so
-        // both are non-empty) and send the specialty so the backend creates + links a Doctor record.
-        let doctorInfo: { firstName: string; lastName: string; specialty: string; phone?: string } | undefined
-        if (adminIsPractitioner && adminSpecialty) {
-          const parts = adminFullName.trim().split(/\s+/)
-          const firstName = parts[0] || adminFullName.trim()
-          const lastName = parts.slice(1).join(" ") || firstName
-          doctorInfo = {
-            firstName,
-            lastName,
-            specialty: adminSpecialty,
-            phone: phone || undefined,
-          }
-        }
         await clinicsApi.setup({
           clinicName: clinicName,
           email: adminEmail.trim(),
@@ -213,7 +261,9 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
           phone: phone || undefined,
           address: fullAddress || undefined,
           city: governorate || undefined,
-          doctorInfo,
+          // The same block signup sends — derived once above, so the two doors cannot disagree about when a
+          // Doctor record is created for the admin.
+          doctorInfo: adminDoctorInfo,
           workingHoursJson,
         })
         window.location.href = "/login"
@@ -263,6 +313,31 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
      * a clinic ever sees; the gradient it carried was the app's own theme being ignored on the one page that
      * sets the impression for everything after it.
      */
+    signupAcknowledgement ? (
+      /*
+        The end of the public flow. It renders the server's sentence **verbatim** — that sentence is identical
+        whether the address was free, already an account, or already had a pending signup, and rewording it here
+        is how a page grows the « adresse déjà utilisée » distinction the API took care never to send.
+        `role="status"` because it replaces the form the user just submitted.
+      */
+      <div className="min-h-dvh bg-background flex items-center justify-center p-6">
+        <Card className="w-full max-w-lg border-primary/20">
+          <CardContent className="p-8 text-center space-y-4">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10">
+              <CheckCircle2 className="w-8 h-8 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold text-accent-foreground">Vérifiez votre boîte mail</h1>
+            <p className="text-muted-foreground" role="status">{signupAcknowledgement}</p>
+            <p className="text-sm text-muted-foreground">
+              Votre cabinet sera créé une fois le lien ouvert. Pensez à regarder vos courriers indésirables.
+            </p>
+            <Button variant="outline" onClick={() => router.push("/login")} className="coarse:h-11">
+              Aller à la connexion
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    ) : (
     <div className="min-h-dvh bg-background flex items-center justify-center p-6">
       <div className="w-full max-w-4xl">
         {/* Header */}
@@ -270,15 +345,24 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-accent/20 mb-2">
             <Building2 className="w-8 h-8 text-primary" />
           </div>
-          <h1 className="text-3xl font-bold text-accent-foreground">Bienvenue dans la gestion de votre clinique</h1>
+          <h1 className="text-3xl font-bold text-accent-foreground">
+            {isSignup ? "Créez le cabinet de votre clinique" : "Bienvenue dans la gestion de votre clinique"}
+          </h1>
           <p className="text-muted-foreground">Configurons votre clinique en 3 étapes simples</p>
           <div className="pt-2">
+            {/*
+              On the public door the way back is « I already have an account », not « join with a clinic code »:
+              `AllowsPublicClinicSignup` and `AllowsSelfRegistration` are opposite questions and the hosted
+              profile answers no to the second, so /join there renders « non disponible ».
+            */}
             <Button
               variant="ghost"
-              onClick={() => router.push("/join")}
+              onClick={() => router.push(isSignup ? "/login" : "/join")}
               className="text-muted-foreground hover:text-primary"
             >
-              Vous avez déjà un code clinique ? Rejoindre une clinique
+              {isSignup
+                ? "Vous avez déjà un compte ? Se connecter"
+                : "Vous avez déjà un code clinique ? Rejoindre une clinique"}
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </div>
@@ -407,6 +491,14 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                   )}
                 </div>
 
+                {/*
+                  No logo on the public door. Blobs are keyed `clinics/{clinicId}/…` and the clinic does not
+                  exist until the emailed link is opened — often on a different device from the one that filled
+                  this form, which is where a browser-held file would silently be lost. It is added in
+                  « Paramètres » after the first login, where the upload already works. (§ 0: the capability is
+                  not removed, it is moved to where it can succeed.)
+                */}
+                {!isSignup && (
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Logo de la clinique (optionnel)</Label>
                   <div className="flex items-center gap-4">
@@ -446,6 +538,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                     )}
                   </div>
                 </div>
+                )}
               </div>
             )}
 
@@ -763,11 +856,11 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                   */
                   <Button onClick={handleComplete} disabled={isLoading}>
                     {isLoading ? (
-                      "Création…"
+                      isSignup ? "Envoi…" : "Création…"
                     ) : (
                       <>
                         <CheckCircle2 className="w-4 h-4 mr-2" />
-                        Terminer la configuration
+                        {isSignup ? "Créer mon cabinet" : "Terminer la configuration"}
                       </>
                     )}
                   </Button>
@@ -787,6 +880,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         )}
       </div>
     </div>
+    )
   )
 }
 

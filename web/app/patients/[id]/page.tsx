@@ -101,7 +101,9 @@ import {
 } from "@/components/appointment-labels"
 import { showErrorToast } from "@/lib/errors"
 import { downloadBlob } from "@/lib/download"
-import { PatientFilePdfPreview } from "@/components/patient-file-pdf-preview"
+import { FilePreviewDialog } from "@/components/patients/files/file-preview-dialog"
+import { useFilePreview } from "@/components/patients/files/use-file-preview"
+import { isImageFile, isPdfFile, isPreviewableFile } from "@/components/patients/files/file-kind"
 
 const calculateAge = (dob: string | undefined) => {
   if (!dob) return null
@@ -474,9 +476,21 @@ export default function PatientDetailsPage() {
   const [recordToDelete, setRecordToDelete] = useState<DentalRecordDto | null>(null)
   const [documentToDelete, setDocumentToDelete] = useState<MedicalDocumentDto | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [previewFile, setPreviewFile] = useState<PatientFileDto | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
+  // When in a folder, every loaded file belongs to it; at root, only the files in no folder.
+  const currentFiles = currentFolderId ? files : files.filter((f) => !f.folderId)
+
+  /*
+   * Newest first, sorted ONCE. Sorting inline in the JSX sorts the state array **in place**, and two trees
+   * render this data — so a copy is also what keeps the card list and the table in the same order.
+   */
+  const filesNewestFirst = [...currentFiles].sort(
+    (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
+  )
+
+  // AC-5.3 — the preview lives in one place now; this page held a byte-identical second copy of the hook and
+  // the dialog, only the PDF frame having ever been extracted. The sequence is what the viewer's arrows walk:
+  // this tab loads every file at once, so there is no page to turn.
+  const preview = useFilePreview(patientId, undefined, { files: filesNewestFirst })
   const [refreshKey, setRefreshKey] = useState(0)
   const [treatmentPlans, setTreatmentPlans] = useState<TreatmentPlanDto[]>([])
   // Controlled so PatientPlansStrip can send the user to the plans tab.
@@ -867,72 +881,10 @@ export default function PatientDetailsPage() {
       ? null
       : (appointments.find((a) => a.id === reviewAppointmentId) ?? null)
 
-  // Compute current files based on folder selection
-  // When in a folder, all loaded files belong to that folder
-  // When at root, show only root files (files without folderId)
-  const currentFiles = currentFolderId
-    ? files // All files loaded are for this folder
-    : files.filter(f => !f.folderId) // Root files (not in any folder)
-
-  /*
-   * Newest first, sorted ONCE.
-   *
-   * Both lists used to call `.sort()` inline in the JSX — which sorts the state array **in place**, and now that
-   * two trees render the same data there would be two of those mutations per paint. A copy also means the card
-   * list and the table can never disagree about the order.
-   */
-  const filesNewestFirst = [...currentFiles].sort(
-    (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
-  )
   const appointmentsNewestFirst = [...appointments].sort(
     (a, b) => new Date(b.appointmentDateTime).getTime() - new Date(a.appointmentDateTime).getTime(),
   )
 
-
-  const isImageFile = (file: PatientFileDto) => {
-    return file.contentType.startsWith("image/")
-  }
-
-  const isPdfFile = (file: PatientFileDto) => {
-    return file.contentType === "application/pdf" || file.fileName.toLowerCase().endsWith(".pdf")
-  }
-
-  const isPreviewableFile = (file: PatientFileDto) => {
-    return isImageFile(file) || isPdfFile(file)
-  }
-
-  const handlePreviewFile = async (file: PatientFileDto) => {
-    try {
-      setPreviewLoading(true)
-      setPreviewFile(file)
-      
-      // For previewable files, load the blob for preview
-      if (isPreviewableFile(file)) {
-        const blob = await patientFilesApi.downloadFile(patientId, file.id)
-        const url = window.URL.createObjectURL(blob)
-        setPreviewUrl(url)
-      } else {
-        // For non-previewable files, just show the dialog without loading the file
-        setPreviewUrl(null)
-      }
-    } catch (error) {
-      // AC-P3.30 — the dialog used to close itself with no explanation, which reads as "the click did
-      // nothing". Say why, and offer the download as the way through.
-      showErrorToast(error, "Impossible d'afficher l'aperçu de ce fichier. Essayez de le télécharger.")
-      setPreviewFile(null)
-    } finally {
-      setPreviewLoading(false)
-    }
-  }
-
-  const handleClosePreview = () => {
-    if (previewUrl) {
-      window.URL.revokeObjectURL(previewUrl)
-    }
-    setPreviewFile(null)
-    setPreviewUrl(null)
-    setPreviewLoading(false)
-  }
 
   const handleDownloadFile = async (file: PatientFileDto) => {
     try {
@@ -2154,7 +2106,7 @@ export default function PatientDetailsPage() {
                             items={filesNewestFirst}
                             getKey={(file) => file.id}
                             title={(file) => file.fileName}
-                            onSelect={(file) => handlePreviewFile(file)}
+                            onSelect={(file) => preview.open(file)}
                             fields={(file) => [
                               {
                                 label: "Type",
@@ -2180,7 +2132,7 @@ export default function PatientDetailsPage() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                   {isPreviewableFile(file) && (
-                                    <DropdownMenuItem onSelect={() => handlePreviewFile(file)}>
+                                    <DropdownMenuItem onSelect={() => preview.open(file)}>
                                       Aperçu du fichier
                                     </DropdownMenuItem>
                                   )}
@@ -2212,7 +2164,7 @@ export default function PatientDetailsPage() {
                                     <TableRow 
                                       key={file.id}
                                       className="cursor-pointer hover:bg-muted/50"
-                                      onClick={() => handlePreviewFile(file)}
+                                      onClick={() => preview.open(file)}
                                     >
                                       <TableCell className="font-medium">
                                         <div className="flex items-center gap-2">
@@ -2246,7 +2198,7 @@ export default function PatientDetailsPage() {
                                               variant="ghost"
                                               size="sm"
                                               className="h-8 w-8 p-0"
-                                              onClick={() => handlePreviewFile(file)}
+                                              onClick={() => preview.open(file)}
                                               title="Aperçu du fichier"
                                               aria-label={`Aperçu de ${file.fileName}`}
                                             >
@@ -2669,82 +2621,12 @@ export default function PatientDetailsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* File Preview Dialog */}
-      <Dialog open={!!previewFile} onOpenChange={handleClosePreview}>
-        {/* A preview is the one dialog that wants the whole screen on a phone — it is showing a document.
-            ⚠️ The width is a TEMPLATE LITERAL, which the AC-50 check tokenises through the braces, so the
-            `md:` prefixes here are as load-bearing as the quoted ones. */}
-        <DialogContent
-          mobile="sheet"
-          className={`${previewFile && isPdfFile(previewFile) ? 'md:max-w-[98vw] md:w-[98vw]' : 'md:max-w-6xl'} p-0 md:max-h-[98dvh]`}
-        >
-          {previewFile && (
-            <>
-              <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0 border-b bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-                <DialogTitle className="truncate text-lg font-semibold">{previewFile.fileName}</DialogTitle>
-                <DialogDescription className="mt-1">
-                  {formatFileSize(previewFile.fileSize)} • {formatDate(previewFile.uploadedAt)}
-                </DialogDescription>
-              </DialogHeader>
-              <div className={`relative flex items-start justify-center flex-1 min-h-0 ${previewFile && isPdfFile(previewFile) ? 'bg-slate-100 dark:bg-slate-900 p-6 overflow-auto' : 'bg-black/5 p-6 overflow-auto'}`}>
-                {previewLoading ? (
-                  <div className="flex flex-col items-center justify-center gap-3 h-full">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    <p className="text-sm text-muted-foreground">Chargement de l&apos;aperçu…</p>
-                  </div>
-                ) : previewUrl ? (
-                  <>
-                    {isImageFile(previewFile) ? (
-                      <div className="flex items-center justify-center w-full h-full">
-                        <img
-                          src={previewUrl}
-                          alt={previewFile.fileName}
-                          className="max-w-full max-h-full w-auto h-auto object-contain rounded-lg shadow-lg"
-                        />
-                      </div>
-                    ) : isPdfFile(previewFile) ? (
-                      <PatientFilePdfPreview
-                        previewUrl={previewUrl}
-                        fileName={previewFile.fileName}
-                        onDeliver={() => handleDownloadFile(previewFile)}
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center gap-3 p-8">
-                        <FileText className="h-16 w-16 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">Aperçu non disponible pour ce type de fichier</p>
-                        <Button variant="outline" onClick={() => handleDownloadFile(previewFile)}>
-                          <Download className="h-4 w-4 mr-2" />
-                          Télécharger pour consulter
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center gap-3 p-8">
-                    <FileText className="h-16 w-16 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Aperçu non disponible pour ce type de fichier</p>
-                    <Button variant="outline" onClick={() => handleDownloadFile(previewFile)}>
-                      <Download className="h-4 w-4 mr-2" />
-                      Télécharger pour consulter
-                    </Button>
-                  </div>
-                )}
-              </div>
-              <DialogFooter className="px-6 py-4 flex-shrink-0 border-t bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-                <div className="flex items-center gap-3 w-full justify-between">
-                  <Button variant="outline" onClick={handleClosePreview} className="min-w-[100px]">
-                    Fermer
-                  </Button>
-                  <Button variant="outline" onClick={() => handleDownloadFile(previewFile!)} className="gap-2">
-                    <Download className="h-4 w-4" />
-                    Télécharger
-                  </Button>
-                </div>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* AC-5.3 — one preview, shared with the files manager. */}
+      <FilePreviewDialog
+        preview={preview}
+        patientId={patientId}
+        onDownload={(file) => void handleDownloadFile(file)}
+      />
     </ClinicGuard>
   )
 }

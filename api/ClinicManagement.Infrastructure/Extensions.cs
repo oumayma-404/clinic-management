@@ -127,6 +127,9 @@ public static class Extensions
         // Part 6 — the OS-push registry and its outbox.
         services.AddScoped<IDeviceRegistrationRepository, DeviceRegistrationRepository>();
         services.AddScoped<IPushDeliveryRepository, PushDeliveryRepository>();
+        // clinic-self-signup — pending signups. Registered unconditionally like every other repository; the
+        // capability gate lives on the endpoints, not on whether the table can be read.
+        services.AddScoped<IClinicSignupRepository, ClinicSignupRepository>();
 
         // HttpClient for Auth0 Management API
         services.AddHttpClient();
@@ -287,6 +290,15 @@ public static class Extensions
         // its host/credentials/from-identity from the same IReminderSettingsProvider the two message channels
         // use, so a clinic configures every outbound channel in one place.
         services.AddScoped<IDocumentEmailSender, SmtpDocumentEmailSender>();
+
+        // clinic-self-signup — the first email path in the product bound to NO clinic. It reads the per-install
+        // `Notification:Smtp:*` section directly, and must keep doing so: its one caller runs before any clinic
+        // exists, so there is nothing for IReminderSettingsProvider to resolve against.
+        services.AddScoped<ITransactionalEmailSender, SmtpTransactionalEmailSender>();
+
+        // Where a link in that email has to point. Reads FrontendUrl, the key the Google OAuth redirect already
+        // uses, so an emailed link and a redirected browser cannot arrive at different hosts.
+        services.AddSingleton<IPublicAppUrlProvider, PublicAppUrlProvider>();
 
         // WhatsApp Embedded-Signup onboarding (Cloud) — provisions a clinic's own WABA/phone via the Graph API.
         services.AddScoped<IWhatsAppOnboardingService, WhatsAppOnboardingService>();

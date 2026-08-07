@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Exceptions;
@@ -23,7 +24,8 @@ public class UpdateClinicCommand : IRequest<Result<ClinicDto>>
     public string? Phone { get; set; }
     public string? Email { get; set; }
     public Stream? LogoFile { get; set; }
-    public string? LogoContentType { get; set; }
+    public string? LogoFileName { get; set; }
+    public long LogoLength { get; set; }
 
     // Billing / note-d'honoraires settings. Null = leave the current value unchanged.
     public string? MatriculeFiscal { get; set; }
@@ -144,8 +146,24 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
             var originalLogoUrl = clinic.LogoUrl; // Persisted value, used for orphan cleanup below
             string? logoUrl = originalLogoUrl;    // Keep existing logo by default
 
-            if (request.LogoFile != null && !string.IsNullOrWhiteSpace(request.LogoContentType))
+            if (request.LogoFile != null)
             {
+                // Same profile as the practitioner cachet — a logo is rendered into every document and served
+                // back inline from the app's own origin. This path had no validation of any kind.
+                var logoValidation = await FileUploadValidator.ValidateAsync(
+                    FileUploadProfile.ProfileImage,
+                    request.LogoFileName,
+                    request.LogoLength,
+                    request.LogoFile,
+                    cancellationToken);
+
+                if (logoValidation.IsFailure)
+                {
+                    return Result<ClinicDto>.Failure(logoValidation.Error!);
+                }
+
+                var logo = logoValidation.Value!;
+
                 // Delete old logo if it exists
                 if (!string.IsNullOrWhiteSpace(clinic.LogoUrl))
                 {
@@ -161,8 +179,8 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
 
                 // US-5: the clinic segment is the storage's own, so the path here is relative to it.
                 logoUrl = await _fileStorage.UploadAsync(
-                    request.LogoFile,
-                    request.LogoContentType,
+                    logo.Content,
+                    logo.ContentType,
                     clinicId,
                     "logo",
                     cancellationToken);

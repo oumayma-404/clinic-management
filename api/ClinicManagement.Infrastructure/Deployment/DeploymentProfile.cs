@@ -58,7 +58,8 @@ public sealed class DeploymentProfile
         bool hasLocalDbTooling,
         bool exposesMetaOnboarding,
         bool allowsSelfRegistration,
-        bool sharesInstallWideTtnIdentity)
+        bool sharesInstallWideTtnIdentity,
+        bool allowsPublicClinicSignup)
     {
         Kind = kind;
         UsesLocalAccounts = usesLocalAccounts;
@@ -75,6 +76,7 @@ public sealed class DeploymentProfile
         ExposesMetaOnboarding = exposesMetaOnboarding;
         AllowsSelfRegistration = allowsSelfRegistration;
         SharesInstallWideTtnIdentity = sharesInstallWideTtnIdentity;
+        AllowsPublicClinicSignup = allowsPublicClinicSignup;
     }
 
     /// <summary>Which topology this install is.</summary>
@@ -146,6 +148,27 @@ public sealed class DeploymentProfile
     /// validated by TTN, which cannot be undone.</para>
     /// </summary>
     public bool SharesInstallWideTtnIdentity { get; }
+
+    /// <summary>
+    /// A visitor may create their own clinic and admin account from the public internet
+    /// (<c>POST /api/auth/signup</c> + <c>/signup/verify</c>), with no operator action at all.
+    ///
+    /// <para><b>True only for <see cref="DeploymentKind.HostedMultiTenant"/></b>, and each of the other two is a
+    /// ✗ for its own reason rather than by default. <see cref="DeploymentKind.SelfHostedLan"/> serves <b>one</b>
+    /// clinic from a PC in that clinic's own surgery: a second clinic on it is not a topology, and first-run
+    /// <c>setup</c> — loopback-gated, once — is how the one clinic gets created.
+    /// <see cref="DeploymentKind.CloudBrowser"/> is multi-clinic but Auth0 owns its identities, so a signup here
+    /// would mint a password-backed local account its login path cannot authenticate.</para>
+    ///
+    /// <para>⚠️ <b>This does not reopen what US-3 closed, and it is not
+    /// <see cref="AllowsSelfRegistration"/>.</b> That capability is about <i>joining an existing clinic</i> with
+    /// its six-character code — a shared password everyone who ever worked at the practice knows, which is a gate
+    /// on a LAN and nothing on the internet — and it stays ✗ here. This one hands out no shared secret at all:
+    /// the gate is a fresh 32-byte token delivered to an address the visitor has to control, single-use and
+    /// expiring, and it creates a clinic with exactly one member rather than admitting a stranger to a clinic
+    /// full of patient records.</para>
+    /// </summary>
+    public bool AllowsPublicClinicSignup { get; }
 
     /// <summary>
     /// May this topology deliver OS push to <paramref name="platform"/> at all? (spec FR-10, AC-51/AC-52.)
@@ -230,7 +253,10 @@ public sealed class DeploymentProfile
             exposesMetaOnboarding: false,
             allowsSelfRegistration: true,
             // One clinic per install, so the per-install certificate IS this clinic's certificate.
-            sharesInstallWideTtnIdentity: true),
+            sharesInstallWideTtnIdentity: true,
+            // One clinic per install too, so there is no clinic #2 for a public door to create; first-run
+            // `setup` (loopback-gated, once) is how the one clinic comes into being.
+            allowsPublicClinicSignup: false),
 
         DeploymentKind.HostedMultiTenant => new DeploymentProfile(
             kind,
@@ -250,7 +276,10 @@ public sealed class DeploymentProfile
             // The only capability where HostedMultiTenant differs from SelfHostedLan while sharing its login
             // provider: an operator provisions the clinic and its admin creates the staff (US-3).
             allowsSelfRegistration: false,
-            sharesInstallWideTtnIdentity: false),
+            sharesInstallWideTtnIdentity: false,
+            // The one profile this door exists for: many clinics, our own accounts, and no operator standing by
+            // to run `provision-clinic` for each arrival.
+            allowsPublicClinicSignup: true),
 
         DeploymentKind.CloudBrowser => new DeploymentProfile(
             kind,
@@ -268,7 +297,10 @@ public sealed class DeploymentProfile
             exposesMetaOnboarding: true,
             allowsSelfRegistration: false,
             // Also multi-clinic, so it loses the fall-back too — the one place US-4 changes a shipped profile.
-            sharesInstallWideTtnIdentity: false),
+            sharesInstallWideTtnIdentity: false,
+            // Multi-clinic, but Auth0 issues its identities: a signup here would mint a password-backed local
+            // account that this profile's login path cannot authenticate.
+            allowsPublicClinicSignup: false),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled deployment kind.")
     };

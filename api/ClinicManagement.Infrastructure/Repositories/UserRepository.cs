@@ -79,7 +79,7 @@ public class UserRepository : IUserRepository
 
     public async Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default)
     {
-        var normalized = email.Trim().ToLowerInvariant();
+        var normalized = EmailNormalization.Normalize(email);
         return await _context.Users
             .Include(u => u.Clinic)
             .FirstOrDefaultAsync(

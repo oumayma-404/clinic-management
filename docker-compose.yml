@@ -34,6 +34,21 @@ services:
       timeout: 20s
       retries: 3
 
+  # LOCAL DEV ONLY. A mail sink so transactional email (clinic self-signup's verification link) can be
+  # exercised without a real relay: SMTP on 1025 accepts anything, the web UI on 8025 shows what arrived.
+  # Nothing in the product knows about it — it is pointed at by Notification:Smtp:* in
+  # appsettings.Development.json, the same keys a real deployment fills in.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: clinic-mailpit
+    ports:
+      - "1025:1025"  # SMTP submission
+      - "8025:8025"  # Web UI
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 
 volumes:

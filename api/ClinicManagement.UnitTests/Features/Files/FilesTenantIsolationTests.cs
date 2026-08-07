@@ -2,6 +2,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Files.Commands;
 using ClinicManagement.Application.Features.Files.Queries;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -58,8 +59,8 @@ public class FilesTenantIsolationTests
         var result = await handler.Handle(new GetPatientFilesQuery { PatientId = foreign.Id }, CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        files.Verify(r => r.GetRootFilesByPatientIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
-        files.Verify(r => r.GetByFolderIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        files.Verify(r => r.GetPageAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -78,7 +79,8 @@ public class FilesTenantIsolationTests
             new GetPatientFilesQuery { PatientId = patient.Id, FolderId = foreignFolder.Id }, CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        files.Verify(r => r.GetByFolderIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        files.Verify(r => r.GetPageAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -88,15 +90,15 @@ public class FilesTenantIsolationTests
         var patients = new Mock<IPatientRepository>();
         patients.Setup(r => r.GetByIdAsync(patient.Id, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
         var files = new Mock<IPatientFileRepository>();
-        files.Setup(r => r.GetRootFilesByPatientIdAsync(patient.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { File(patient.Id) });
+        files.Setup(r => r.GetPageAsync(patient.Id, null, It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PagedResult<PatientFile>.Unpaged(new[] { File(patient.Id) }));
         var folders = new Mock<IPatientFolderRepository>();
 
         var handler = new GetPatientFilesQueryHandler(files.Object, folders.Object, patients.Object, Resolver(ClinicId).Object);
         var result = await handler.Handle(new GetPatientFilesQuery { PatientId = patient.Id }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Single(result.Value!);
+        Assert.Single(result.Value!.Items);
     }
 
     // ---- GetPatientFoldersQuery (AC-1/AC-2) ---------------------------------

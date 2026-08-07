@@ -48,10 +48,11 @@ interface PatientFilePdfPreviewProps {
 
 export function PatientFilePdfPreview({ previewUrl, fileName, onDeliver }: PatientFilePdfPreviewProps) {
   return (
-    <div className="flex min-h-full w-full items-start justify-center">
-      {/* ⚠️ `calc(100vw-8rem)` is `md:`-only — a DESKTOP allowance. Unconditionally it clamped a 342px phone to
-          262px, discarding 23% of the screen on the one surface (a panoramique) that wants every pixel. */}
-      <div className="aspect-[210/297] w-full overflow-hidden rounded-lg bg-white shadow-2xl md:max-w-[calc(100vw-8rem)] dark:bg-slate-800">
+    <div className="flex size-full min-h-full justify-center">
+      {/* ⚠️ The frame FILLS the panel — it holds no A4 shape of its own, either way round. Width-driven made the
+          page several screens tall; height-driven made it ~500 px wide in a 1024 px dialog. The browser's own PDF
+          viewer already fits, zooms and scrolls, so the only useful thing to give it is every available pixel. */}
+      <div className="size-full min-h-[24rem] overflow-hidden rounded-lg bg-white shadow-2xl dark:bg-slate-800">
         <iframe
           src={previewUrl}
           title={fileName}

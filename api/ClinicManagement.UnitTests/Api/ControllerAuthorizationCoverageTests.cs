@@ -42,6 +42,14 @@ public class ControllerAuthorizationCoverageTests
         "Auth.Login",                // bootstrap: email+password login (issues the session token)
         "Auth.Setup",                // bootstrap: first-run clinic+admin (also localhost-gated, AC-1.2a)
         "Auth.Register",             // bootstrap: clinic-code self-registration
+        "Auth.SignUp",               // bootstrap: public clinic self-signup (clinic-self-signup). Anonymous by
+                                     // necessity — the caller has no clinic and therefore no account to hold a
+                                     // token. It creates nothing: one pending row and an emailed token, and the
+                                     // whole endpoint 404s where DeploymentProfile.AllowsPublicClinicSignup is
+                                     // false. Rate-limited per submitted account like its neighbours.
+        "Auth.VerifySignUp",         // the other half: consumes that token and provisions the clinic. Anonymous
+                                     // for the same reason and gated by the same capability; the 32-byte
+                                     // single-use token IS the credential, and it issues no session in exchange.
         "Auth.Refresh",              // exchanges the HttpOnly session cookie for a short-lived access token
                                      // (security-hardening US-5). Anonymous by necessity — the caller has no
                                      // access token yet, that being the point. Not unauthenticated in effect:

@@ -13,23 +13,7 @@ import { authApi } from "@/lib/api/auth"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import JoinWizard from "@/components/join-wizard"
 import JoinUnavailable from "@/components/join-unavailable"
-
-/** How long the deployment-capability probe may take before the form is shown anyway. */
-const CapabilityProbeTimeoutMs = 5000
-
-/**
- * Rejects if `promise` has not settled within `ms`. A wrapper rather than `AbortSignal.timeout` passed into the
- * fetch, because `apiGet` takes no signal — and giving the whole client layer one is a change well outside a
- * single page's probe. The request may still be in flight afterwards; nothing here reads its result.
- */
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("La vérification a expiré.")), ms)
-    ),
-  ])
-}
+import { CAPABILITY_PROBE_TIMEOUT_MS, withTimeout } from "@/lib/capability-probe"
 
 export default function JoinClinicPage() {
   const router = useRouter()
@@ -56,7 +40,7 @@ export default function JoinClinicPage() {
           // signal or a captive portal that completes the handshake and never answers left « Vérification du statut
           // de votre clinique… » on screen for ever, with no retry, no error and no way forward, on the normal way
           // into a LAN install. A timeout is treated exactly like the rejection below.
-          const { selfRegistrationEnabled } = await withTimeout(authApi.getMode(), CapabilityProbeTimeoutMs)
+          const { selfRegistrationEnabled } = await withTimeout(authApi.getMode(), CAPABILITY_PROBE_TIMEOUT_MS)
           if (cancelled) return
           setSelfRegistrationClosed(!selfRegistrationEnabled)
         } catch (err) {

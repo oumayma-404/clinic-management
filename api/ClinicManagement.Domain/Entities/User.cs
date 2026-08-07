@@ -103,7 +103,7 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         if (string.IsNullOrWhiteSpace(fullName))
             throw new ArgumentException("Full name is required for a local user.", nameof(fullName));
 
-        var user = new User($"local|{Guid.NewGuid()}", clinicId, role, email.Trim().ToLowerInvariant(), fullName.Trim())
+        var user = new User($"local|{Guid.NewGuid()}", clinicId, role, EmailNormalization.Normalize(email), fullName.Trim())
         {
             PasswordHash = passwordHash,
             IsActive = true,

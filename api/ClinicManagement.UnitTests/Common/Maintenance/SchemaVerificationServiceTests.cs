@@ -52,7 +52,7 @@ public class SchemaVerificationServiceTests
         'x',
         "EXCLUDE USING gist (\"DoctorId\" WITH =, slot WITH &&) WHERE (\"Status\" <> ALL (ARRAY[5, 6]))");
 
-    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0);
+    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0);
 
     private static SchemaVerificationFinding Finding(SchemaVerificationReport report, string check) =>
         report.Findings.Single(f => f.Check == check);
@@ -450,6 +450,7 @@ public class SchemaVerificationServiceTests
             PaymentsWithChequeDetailsOnNonCheque = null,
             PushDeliveriesWithMismatchedClinic = null,
             ClinicsWithPartialTtnIdentity = null,
+            ClinicSignupOrphans = null,
         });
 
         var report = await CreateService().RunAsync();

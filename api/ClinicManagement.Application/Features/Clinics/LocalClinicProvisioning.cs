@@ -235,12 +235,40 @@ public static class LocalClinicProvisioning
         if (string.IsNullOrWhiteSpace(request.PasswordHash)) return "Le mot de passe est requis.";
         if (request.ClinicId == Guid.Empty) return "L'identifiant du cabinet est requis.";
 
-        // A practitioner is optional, but a nameless one is never persisted — mirrors the Cloud CreateClinic and
-        // JoinClinic doctor paths.
-        if (request.DoctorInfo != null && !string.IsNullOrWhiteSpace(request.DoctorInfo.Specialty)
-            && (string.IsNullOrWhiteSpace(request.DoctorInfo.FirstName) || string.IsNullOrWhiteSpace(request.DoctorInfo.LastName)))
+        return ValidatePractitioner(request.DoctorInfo);
+    }
+
+    /// <summary>
+    /// A practitioner is optional, but a half-filled one is never persisted — mirrors the Cloud CreateClinic and
+    /// JoinClinic doctor paths.
+    ///
+    /// <para><b>Public because clinic self-signup has to apply it hours earlier.</b> That path validates at signup
+    /// rather than at verification (refusing on the emailed link is useless — the visitor cannot correct anything
+    /// from there), so without a shared body the rule would exist twice, French wording included, and drift the
+    /// first time either half changed.</para>
+    /// </summary>
+    public static string? ValidatePractitioner(DoctorPersonalInfoDto? doctorInfo)
+    {
+        if (doctorInfo == null)
+        {
+            return null;
+        }
+
+        var hasName = !string.IsNullOrWhiteSpace(doctorInfo.FirstName)
+                      && !string.IsNullOrWhiteSpace(doctorInfo.LastName);
+        var hasSpecialty = !string.IsNullOrWhiteSpace(doctorInfo.Specialty);
+
+        if (hasSpecialty && !hasName)
         {
             return "Le prénom et le nom du praticien sont requis.";
+        }
+
+        // The reverse case, which used to pass silently and create no Doctor at all: only Specialty decides
+        // whether the block is persisted, so a visitor who typed their name and skipped the select was promised a
+        // fiche praticien and got none.
+        if (hasName && !hasSpecialty)
+        {
+            return "Choisissez la spécialité du praticien, ou laissez la section praticien vide.";
         }
 
         return null;

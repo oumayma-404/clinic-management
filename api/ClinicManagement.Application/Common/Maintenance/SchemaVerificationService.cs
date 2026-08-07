@@ -406,6 +406,18 @@ public class SchemaVerificationService
                   + "password with no certificate; e-invoicing will refuse at dispatch",
             n => n == 0);
 
+        // clinic-self-signup. The table's two unique indexes and its columns are diffed against the catalog for
+        // free; what needs a line is that it is the one table with **no owner and no foreign key** — a signup
+        // exists because its clinic does not — so nothing cascades it away and only the opportunistic purge on
+        // the signup path ever deletes a row. A live token for an address that has since become an account is
+        // the half that is a real invariant rather than housekeeping.
+        Add("clinic-signup-has-no-orphans", counts.ClinicSignupOrphans,
+            n => n == 0
+                ? "0 stale or superseded clinic signup(s)"
+                : $"{n} clinic signup(s) can no longer become anything — a pending row whose address already "
+                  + "has an account, or a consumed row past retention that the signup-path purge never reached",
+            n => n == 0);
+
         // Phase 1 (pre-migration): did every item with a legacy scalar expiry get an opening batch? Once the
         // migration drops StockItems.ExpiryDate this becomes unanswerable, which is why phase 2 exists.
         if (counts.StockItemsWithLegacyExpiryLackingBatch is { } uncovered)

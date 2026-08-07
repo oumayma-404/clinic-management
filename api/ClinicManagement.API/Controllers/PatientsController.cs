@@ -8,6 +8,7 @@ using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.API.Models;
 using ClinicManagement.Application.Common.Csv;
+using ClinicManagement.Application.Common.Files;
 
 namespace ClinicManagement.API.Controllers;
 
@@ -171,8 +172,22 @@ public class PatientsController : ApiControllerBase
             return (null, "Fichier trop volumineux (maximum 8 Mo).");
         }
 
+        // The import reads the bytes into memory by design (the planner is pure over the whole file), but what
+        // may be sent is the catalog's decision like every other door — a .exe named .csv is refused here too.
+        var validation = await FileUploadValidator.ValidateAsync(
+            FileUploadProfile.Csv,
+            request.File.FileName,
+            request.File.Length,
+            request.File.OpenReadStream(),
+            cancellationToken);
+
+        if (validation.IsFailure)
+        {
+            return (null, validation.Error);
+        }
+
         using var buffer = new MemoryStream();
-        await request.File.CopyToAsync(buffer, cancellationToken);
+        await validation.Value!.Content.CopyToAsync(buffer, cancellationToken);
         return (buffer.ToArray(), null);
     }
 

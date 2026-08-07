@@ -1,5 +1,7 @@
 using ClinicManagement.API.Models;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Features.Meta.Queries;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,8 +17,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route(RoutePrefix)]
-// The single action below is deliberately [AllowAnonymous]; the class policy exists so a future action added
-// here is covered rather than silently anonymous. Same shape as ConnectivityController.
+// Only `client-requirements` is [AllowAnonymous]; the class policy covers everything else added here.
 [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class MetaController : ApiControllerBase
 {
@@ -31,13 +32,34 @@ public class MetaController : ApiControllerBase
     public const string ClientRequirementsPath = "/" + RoutePrefix + "/" + ClientRequirementsRoute;
 
     private readonly IConfiguration _configuration;
+    private readonly IMediator _mediator;
 
-    public MetaController(IConfiguration configuration)
+    public MetaController(IConfiguration configuration, IMediator mediator)
     {
         _configuration = configuration;
+        _mediator = mediator;
     }
 
     [AllowAnonymous]
     [HttpGet(ClientRequirementsRoute)]
     public IActionResult ClientRequirements() => Ok(Models.ClientRequirements.Read(_configuration));
+
+    /// <summary>
+    /// What the patient-file door accepts, projected from the catalog (AC-5.1). Deliberately <b>not</b> exempt
+    /// from the client-version floor: only <c>client-requirements</c> earns that, being the answer a refused
+    /// client needs in order to stop being refused.
+    /// </summary>
+    [HttpGet("upload-policy")]
+    public async Task<ActionResult<Application.DTOs.UploadPolicyDto>> UploadPolicy(
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetUploadPolicyQuery(), cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
 }

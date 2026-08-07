@@ -54,7 +54,8 @@ public class ClinicsController : ApiControllerBase
     {
         DoctorPersonalInfoDto? doctorInfo = null;
         Stream? logoFile = null;
-        string? logoContentType = null;
+        string? logoFileName = null;
+        long logoLength = 0;
         string name;
         string? address;
         string? city;
@@ -85,7 +86,8 @@ public class ClinicsController : ApiControllerBase
             if (logo != null && logo.Length > 0)
             {
                 logoFile = logo.OpenReadStream();
-                logoContentType = logo.ContentType;
+                logoFileName = logo.FileName;
+                logoLength = logo.Length;
             }
             
             // Parse DoctorInfo from JSON string
@@ -137,7 +139,8 @@ public class ClinicsController : ApiControllerBase
             Role = role,
             DoctorInfo = doctorInfo,
             LogoFile = logoFile,
-            LogoContentType = logoContentType,
+            LogoFileName = logoFileName,
+            LogoLength = logoLength,
             WorkingHoursJson = workingHoursJson
         };
         
@@ -215,7 +218,8 @@ public class ClinicsController : ApiControllerBase
             Phone = request.Phone,
             Email = request.Email,
             LogoFile = request.Logo?.OpenReadStream(),
-            LogoContentType = request.Logo?.ContentType,
+            LogoFileName = request.Logo?.FileName,
+            LogoLength = request.Logo?.Length ?? 0,
             MatriculeFiscal = request.MatriculeFiscal,
             VatApplicable = request.VatApplicable,
             VatRate = request.VatRate,

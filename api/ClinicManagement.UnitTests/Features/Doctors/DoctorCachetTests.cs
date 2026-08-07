@@ -64,11 +64,16 @@ public class DoctorCachetTests
     /// on an assertion (<c>result.IsSuccess</c>) that gave no hint of the cause. The production code was
     /// correct throughout; only the fixture was stale.
     ///
-    /// A PNG signature satisfies the check for both declared types, because the handler asks "is this a valid
-    /// PNG or JPEG", not "does the signature match the declared type".
+    /// Since the catalog, the format is keyed on the <b>extension</b> and the bytes must agree with that entry —
+    /// so a PNG fixture goes with a <c>.png</c> name, and <see cref="JpegImage"/> with a <c>.jpg</c> one.
     /// </summary>
     private static MemoryStream Image() =>
         new(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D });
+
+    private static MemoryStream JpegImage() =>
+        new(new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01 });
+
+    private const long ImageLength = 12;
 
     // [CACHET-1] An admin can set another doctor's ordre number + cachet.
     [Fact]
@@ -85,7 +90,8 @@ public class DoctorCachetTests
             DoctorId = target.Id,
             OrdreNumberCnomdt = "D-04-9",
             CachetStream = Image(),
-            CachetContentType = "image/png"
+            CachetFileName = "cachet.png",
+            CachetLength = ImageLength
         }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -112,7 +118,8 @@ public class DoctorCachetTests
         {
             DoctorId = null,
             CachetStream = Image(),
-            CachetContentType = "image/png"
+            CachetFileName = "cachet.png",
+            CachetLength = ImageLength
         }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -131,7 +138,8 @@ public class DoctorCachetTests
         {
             DoctorId = foreign.Id,
             CachetStream = Image(),
-            CachetContentType = "image/png"
+            CachetFileName = "cachet.png",
+            CachetLength = ImageLength
         }, CancellationToken.None);
 
         Assert.True(result.IsFailure);
@@ -140,11 +148,11 @@ public class DoctorCachetTests
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // [CACHET-4] The uploaded content type is persisted verbatim (png / jpeg), not hardcoded.
+    // [CACHET-4] The persisted content type follows the file's real format (png / jpeg), not a hardcoded one.
     [Theory]
-    [InlineData("image/png")]
-    [InlineData("image/jpeg")]
-    public async Task Cachet_Persists_Actual_ContentType(string contentType)
+    [InlineData("cachet.png", "image/png")]
+    [InlineData("cachet.jpg", "image/jpeg")]
+    public async Task Cachet_Persists_Actual_ContentType(string fileName, string contentType)
     {
         var user = SetUpUser("doctor");
         var own = DoctorIn(ClinicId, linkedUserId: user.Id);
@@ -155,8 +163,9 @@ public class DoctorCachetTests
         var result = await Handler().Handle(new UpdateDoctorProfileCommand
         {
             DoctorId = null,
-            CachetStream = Image(),
-            CachetContentType = contentType
+            CachetStream = contentType == "image/png" ? Image() : JpegImage(),
+            CachetFileName = fileName,
+            CachetLength = ImageLength
         }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -199,7 +208,8 @@ public class DoctorCachetTests
         {
             DoctorId = null,
             CachetStream = new MemoryStream(new byte[] { 0x3C, 0x73, 0x76, 0x67 }),   // "<svg"
-            CachetContentType = "image/png"
+            CachetFileName = "cachet.png",
+            CachetLength = 4
         }, CancellationToken.None);
 
         Assert.True(result.IsFailure);

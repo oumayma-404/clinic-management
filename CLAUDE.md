@@ -99,6 +99,28 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   and are netted in *both* branches of the revenue read and in the dashboard KPI. Issuing a **devis→facture**
   bridge invoice **carries the plan's collected payments across**, with the read-side de-dup extended from
   outstanding to cash — the two had to land together or the money is either doubled or erased.
+- **What may be uploaded has one authority, and the browser is told rather than trusted (`patient-file-uploads`)**:
+  `Application/Common/Files/` is the single catalog — entries keyed on **extension**, never on the declared
+  content type (Windows registers none for `.stl`, `.dcm`, `.ply` or `.obj`, so a MIME allow-list could not admit
+  a single STL however many types were added to it), each carrying its own cap, its French label, whether a
+  browser can paint it, and a signature rule that is `Required` / `Advisory` / `None(reason)` **with an offset**,
+  which is what makes DICOM's `DICM` at byte 128 expressible. All six upload doors name a profile;
+  `FileContentValidation` and `UpdateDoctorProfileCommand`'s three private magic-byte copies are deleted.
+  ⚠️ **The reported bug was two defects stacked**: the `.txt`-renamed-to-`.pdf` refusal was *correct*, and
+  `web/lib/api/patient-files.ts` read `errorData.message` while the backend sends `{ error }` — so the French
+  explanation was replaced by an English « HTTP 400: Bad Request ». Fixing it removed the last raw `fetch` from
+  `lib/api/`.
+  ⚠️ **`GET /api/meta/upload-policy` serves the policy the picker renders** — the `accept` string, the per-format
+  caps, and the server's *own* refusal sentences — so the instant client-side refusal cannot word things
+  differently from the server that re-checks it, and a widened catalog cannot leave a stale constant hiding
+  formats the server would take. A failed probe leaves the picker fully open: the server is the guard, the
+  pre-check is a courtesy.
+  ⚠️ **A file can now be renamed, described and moved** (`PUT /api/patients/{id}/files/{fileId}`), the first
+  caller of four entity methods that had shipped with none. `PatientFile.Rename` takes a **base** name and
+  recomposes from the *stored* extension, so changing a file's format through the API is unrepresentable rather
+  than merely refused — and the editor shows the extension as a fixed suffix for the same reason. Both PUTs are
+  `AnyClinicRole`: **record yes, erase no**, the same line the clinical record is on.
+
 - **Patient records resist destruction (`data-and-money-integrity`)**: deleting a patient is **refused** when
   anything is attached (the message names the real counts), and **archiving** (`Patient.IsArchived`) is the
   escape hatch. Contact details are genuinely optional — `Email`/`PhoneNumber` are nullable and the four
@@ -514,7 +536,7 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   `practitioner-attribution-backfill`, because a backfill is the one thing invisible to every other layer.
 - **Multi-tenancy**: every request is scoped to a clinic. The **authoritative** check is per-request in the handlers — the clinic is resolved from the DB user record (`ICurrentClinicResolver`/`IClinicContext` → DB lookup of the `sub`, not purely from the JWT claim) and each loaded aggregate's `ClinicId` is re-verified. Since `cloud-security-and-tenant-isolation` (PR #11) there is **also** a second layer: EF Core **global query filters** on **21** clinic-owned aggregate roots. ⚠️ **They were fail-open — and therefore inert — until `multi-tenant-cloud` US-2 (Part B).** They are now fed by a three-valued **`ITenantScope`** (`Unset` | `Clinic(id)` | `SystemWide(reason)`) through `ICurrentClinicProvider`, and **only `Unset` refuses**: a path that never established a scope reads **nothing** instead of every clinic. The scope is set per request by `TenantScopeMiddleware` from the **DB-resolved** `User.ClinicId` — never from the JWT claim (amendment C3′: the Cloud claim is written by an Auth0 Action outside this repo, and a stale token used to be harmless under fail-open but would now mean zero rows with no error). Everything that reads with no HTTP context says so explicitly: the five recurring jobs, the startup scope and the three DB-touching console verbs call `UseSystemWide(reason)`; `PdfGenerationJob` and the App→Google dispatcher call `UseClinic(id)` because they handle exactly one record. Pinned by `TenantScopeFilterTests` (derived over every filtered root) and `SystemWideCallerCoverageTests` (derived over « reads a filtered entity with no HTTP context »). ⚠️ **Seven clinical tables carry no `ClinicId` at all** (`MedicalDocument`, `DentalRecord`, `PatientMedicalHistory`, `PatientFamilyHistory`, `PatientFile`, `PatientFolder`, `ToothState`), so no filter is possible and the per-handler check is their **only** layer — held by `*TenantIsolationTests` + `ClinicalRecordTenantIsolationTests`. ⚠️ **SignalR hub methods run with no scope** (HTTP middleware does not run per invocation); `ClinicHub` is safe only because it reads `User`, which is unfiltered. See `Infrastructure/Persistence/ApplicationDbContext.cs`.
 - **Three deployment topologies, one capability per question (`multi-tenant-cloud` US-1 / Part A)**: `Deployment:Profile`
-  resolves to a **`DeploymentProfile`** — a `DeploymentKind` plus **14** named capabilities — and every mode branch in
+  resolves to a **`DeploymentProfile`** — a `DeploymentKind` plus **15** named capabilities — and every mode branch in
   the solution asks one of them. It replaced `LocalAuthConfig.IsLocalMode`, a single boolean answering a dozen
   unrelated questions at ~30 call sites; two profiles happened to agree on all of them, so one flag sufficed, and a
   third does not. Absent ⇒ derived from `Auth:Mode` (`Local` → `SelfHostedLan`, else `CloudBrowser`); an
@@ -625,6 +647,36 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   ⚠️ One consequence worth knowing: the logo and cachet keys were **deterministic**, so a re-upload used to
   overwrite in place. It now lands on a new key, which is why `UpdateDoctorProfileCommand` gained a post-commit
   best-effort delete of the superseded blob (the logo path already deleted the old key before uploading).
+- **A clinic can let itself in, and nothing exists until the email is answered (`clinic-self-signup`)**: a hosted
+  clinic used to exist only because an operator ran `provision-clinic`. `POST /api/auth/signup` (anonymous) writes a
+  pending **`ClinicSignup`** and emails a link; `POST /api/auth/signup/verify` consumes it and provisions the clinic +
+  admin through the **existing** `LocalClinicProvisioning.ProvisionAsync` — its third caller, and it needed no change.
+  Gated on the 15th capability, **`DeploymentProfile.AllowsPublicClinicSignup`** (`HostedMultiTenant` ✓ only), reported
+  to the browser as `publicSignupEnabled` on `GET /api/auth/mode`; pages `/signup` + `/signup/verifier`.
+  ⚠️ **It does not reopen the door US-3 closed, and the two capabilities are opposite questions.**
+  `AllowsSelfRegistration` is « may a stranger *join an existing clinic* with its six-character code? » — a shared
+  password everyone who ever worked there knows — and stays **`false`**. This one hands out no shared secret: the gate
+  is a fresh 32-byte CSPRNG token (`RandomNumberGenerator`), SHA-256 in the row and plaintext **only in the email**,
+  single-use and 24 h. Reading either flag as the other is a security decision made by accident.
+  ⚠️ **`ClinicSignup` carries no `ClinicId`** — a signup exists precisely because its clinic does not — so it is outside
+  the EF tenant filter *by construction* and needs no `TenantScopeFilterTests` entry, whose clinic-owned set is derived
+  from that very column. It is also the one table with **no FK and nothing that cascades it away**, which is why the
+  purge is opportunistic on the signup path (no new job) and why `verify-schema` gained
+  **`clinic-signup-has-no-orphans`**.
+  ⚠️ **The response is byte-identical whether the address is free, already an account, or already pending** — one
+  neutral French sentence, so the endpoint is not an enumeration oracle; only the password-length rule refuses
+  differently, and a length rule is a fact about what was typed. Verification's four failure causes (expired, unknown,
+  malformed, **now-taken**) share **one** refusal, and the now-taken case still *spends* the row.
+  ⚠️ **Verification issues no session** — no token, no cookie: receiving an email is not knowing the password, and the
+  password is the credential the visitor already chose. The admin is created `IsActive` with `MustChangePassword`
+  **false**, unlike `provision-clinic`'s printed one-time password.
+  ⚠️ **`ITransactionalEmailSender`/`SmtpTransactionalEmailSender` is the first email path bound to no clinic**, and it
+  reads the per-install `Notification:Smtp:*` (`SmtpConfig`) rather than `ResolvedReminderSettings` — those resolve
+  *per clinic*, and there is none. Routing it through `IReminderSettingsProvider` would compile and stop working. It is
+  deliberately **not** an outbox either (every queue keys on `ClinicId`, and the visitor is waiting): an unconfigured
+  host is a French refusal **before** anything is written, never a 202 over an email nobody can send. The link comes
+  from `FrontendUrl` via `IPublicAppUrlProvider` — an Application-side seam because that project references no
+  configuration package at all. No new config key.
 - **Pluggable auth (`Auth:Mode` = `Cloud` | `Local`)**: Cloud is the original Auth0 path; **Local** (for offline Windows/LAN installs) issues its own HS256 JWTs against local email+password accounts. Backend seam: `ILocalAuthService`/`LocalAuthService` (+ per-install signing key via `LocalAuthConfig`), a mode-branched JWT setup in `Program.cs`, and `AuthController` (`login`/`setup`/`register`/`mode`/`change-password`). `CreateClinicCommand`/`JoinClinicCommand` branch to a Local path when a `Password` is present. Frontend seam: a single `useSession()` context (`web/lib/auth/session.tsx`) backed by either `CloudSessionProvider` (Auth0) or `LocalSessionProvider` (HttpOnly cookie), gated on `AUTH_MODE`. All Local behavior is additive; the Cloud path is unchanged. Offline admin lockout recovery is a console command (`dotnet run -- reset-admin-password`), not a web endpoint. *All 5 phases of the offline-Windows repackaging are complete — see `features/windows-desktop-app/`.*
   ⚠️ **The Local session slides, and it takes two halves to do so (`mobile-native-shells` P2)**: `RefreshTokenCommandHandler` mints a **fresh** refresh credential on every exchange *and* `web/app/bff/auth/token` re-sets the HttpOnly cookie with it — a backend-only change would rotate a credential nobody stores and no user would feel. Before this, the cookie kept the token issued at login, so a staff member working through the day was asked for their password again twelve hours in. It is **sliding expiry, not revoking rotation**: the superseded credential stays valid until its own expiry (stateless, nothing stores it — two tabs exchanging at once must both keep working), and `User.TokenVersion` is still the only revocation. `web/lib/auth/session-cookie.ts` is now the **single writer** of both `local_session` and `local_must_change_password`; they are written together because a sliding session would otherwise outlive the forced-password-change flag, leaving an app that looks usable while `LocalAuthEnforcementMiddleware` 403s every call.
 - **A backgrounded phone still knows, and a lock screen learns nothing (`mobile-native-shells` P6)**: OS push, from

@@ -90,7 +90,8 @@ public class DoctorsController : ApiControllerBase
         DoctorId = doctorId,
         OrdreNumberCnomdt = request.OrdreNumberCnomdt,
         CachetStream = request.Cachet?.OpenReadStream(),
-        CachetContentType = request.Cachet?.ContentType,
+        CachetFileName = request.Cachet?.FileName,
+        CachetLength = request.Cachet?.Length ?? 0,
         RemoveCachet = request.RemoveCachet
     };
 }

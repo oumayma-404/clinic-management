@@ -56,7 +56,10 @@ public class DeploymentProfileTests
             // `DeploymentProfile.cs` could not be staged without their capability (their addition and Part 6's
             // `PermitsOsPush` land in one diff hunk), and a capability with no row fails the drift guard below.
             // The three values are read off `For(kind)` itself, not chosen here.
-            [nameof(DeploymentProfile.SharesInstallWideTtnIdentity)] = (true, false, false)
+            [nameof(DeploymentProfile.SharesInstallWideTtnIdentity)] = (true, false, false),
+            // clinic-self-signup. The first capability true of HostedMultiTenant ALONE, which is what forced the
+            // `hostedOnlyCapabilities` set in the R-2 test below — see the comment there.
+            [nameof(DeploymentProfile.AllowsPublicClinicSignup)] = (false, true, false)
         };
 
     private static IEnumerable<PropertyInfo> Capabilities() =>
@@ -92,8 +95,28 @@ public class DeploymentProfileTests
             nameof(DeploymentProfile.ExposesMetaOnboarding)
         };
 
+        // ⚠️ Capabilities true of `HostedMultiTenant` and of **neither** shipped kind. They are `false` here
+        // whatever `wasLocal` says, so they are neither `wasLocal` nor its negation and the loop below cannot
+        // express them.
+        //
+        // This is *more* faithful to R-2 rather than a dodge of it. R-2 is « both shipped profiles behave exactly
+        // as before », and a capability the third kind alone holds is precisely a capability that changes neither
+        // of them — asserting `false` for both is the strongest statement available, and it is exactly what the
+        // contract asks. The alternative (giving one of the shipped kinds a value so the old shape still fits)
+        // would be changing a profile to satisfy a test.
+        var hostedOnlyCapabilities = new[]
+        {
+            nameof(DeploymentProfile.AllowsPublicClinicSignup)
+        };
+
         foreach (var capability in Capabilities())
         {
+            if (hostedOnlyCapabilities.Contains(capability.Name))
+            {
+                Assert.False(Read(profile, capability.Name));
+                continue;
+            }
+
             var expected = invertedCapabilities.Contains(capability.Name) ? !wasLocal : wasLocal;
 
             Assert.Equal(expected, Read(profile, capability.Name));

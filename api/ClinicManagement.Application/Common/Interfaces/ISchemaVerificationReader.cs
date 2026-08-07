@@ -200,4 +200,23 @@ public sealed record DataMigrationCounts(
     /// which is honest but hours late; this finds it before an invoice is queued. Null before the columns exist.
     /// </para>
     /// </summary>
-    int? ClinicsWithPartialTtnIdentity);
+    int? ClinicsWithPartialTtnIdentity,
+    /// <summary>
+    /// Pending clinic signups that can no longer become anything (<c>clinic-self-signup</c>): a row still
+    /// unconsumed whose address <b>already has an account</b>, or a consumed row kept well past its retention.
+    /// <para>
+    /// The table's shape — its two unique indexes and its columns — is diffed against the catalog for free by
+    /// reading the EF model, so the only line worth writing here is the one the model cannot state: this table
+    /// has <b>no owner and no foreign key</b> (a signup exists precisely because its clinic does not), so nothing
+    /// in the schema cascades it away and nothing but the opportunistic purge on the signup path ever deletes a
+    /// row. A deployment that stops receiving signups therefore stops trimming, which is the failure mode
+    /// choosing « no background job » accepts — and this is what makes it visible.
+    /// </para>
+    /// <para>
+    /// ⚠️ The first half is a genuine invariant rather than housekeeping: a live token for an address that is now
+    /// an account would provision a second clinic for somebody who already has one. Verification refuses it and
+    /// spends the row, but a non-zero count means such a link is sitting in an inbox unspent. Null before the
+    /// table exists.
+    /// </para>
+    /// </summary>
+    int? ClinicSignupOrphans);

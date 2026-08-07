@@ -174,6 +174,15 @@ documents, nullable-patient appointments, and the multi-tenant clinic/user/docto
   ⚠️ Both index filters key on `"ChequeDueDate" IS NOT NULL`, **not** `"Method" = 1`: equally selective by that
   invariant, and the enum form would bake an ordinal into SQL where no compiler checks it. **Hand-written** for the
   same WDAC reason as the migration above; the delta is six columns and two indexes, small enough to verify by eye.
+- **`20260807102000_AddClinicSignups`** (`clinic-self-signup`) — one new table for the pending signups: fourteen
+  columns, a unique index on `Email` (« one row per address » held by the database, not by a handler winning a
+  race), a unique index on `TokenHash` (the verification lookup), and a `(ConsumedAtUtc, ExpiresAtUtc)` index for
+  the purge. Purely additive; nothing existing is touched. ⚠️ **No `ClinicId` and therefore no FK** — that is the
+  table's whole point — so nothing in the schema cascades these rows away and only the opportunistic purge on the
+  signup path deletes one; `verify-schema`'s `clinic-signup-has-no-orphans` is what makes a deployment that
+  stopped trimming visible. **Hand-written** (migration + `.Designer.cs` + snapshot) for the same reason as the
+  two above, here because the running API held `ClinicManagement.API/bin`; the Designer was derived mechanically
+  from the updated snapshot rather than retyped.
 
 ## Repositories (`Repositories/`)
 Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `ApplicationDbContext`; `GetById*` uses
@@ -206,6 +215,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `ILabWorkOrderRepository` | `LabWorkOrderRepository` (dental-lab) |
 | `IRecurringAppointmentRepository` | `RecurringAppointmentRepository` |
 | `IDeviceRegistrationRepository` | `DeviceRegistrationRepository` (P6). Its `GetByTokenAcrossClinicsAsync` is the only deliberately `IgnoreQueryFilters()` read here besides the seeder's — see the Domain guide for why that is *required* rather than lax |
+| `IClinicSignupRepository` | `ClinicSignupRepository` (`clinic-self-signup`). The one repository with **no** `IgnoreQueryFilters()` and no need of one: `ClinicSignup` carries no `ClinicId`, so no filter is configured for it. Its `PurgeSpentAsync` **stages** removals rather than `ExecuteDelete`, so the trim rides the caller's single `SaveChangesAsync` instead of committing even when the signup it accompanies is refused |
 | `IPushDeliveryRepository` | `PushDeliveryRepository` (P6). The due scan mirrors `NotificationRepository`'s per-clinic fairness bound predicate for predicate |
 
 ## External Services (`Services/`, `Storage/`, `Security/`, `Auth/`)

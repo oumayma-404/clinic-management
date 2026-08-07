@@ -1,3 +1,4 @@
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
@@ -19,6 +20,33 @@ public class PatientFileRepository : IPatientFileRepository
         return await _context.PatientFiles
             .Include(f => f.Folder)
             .FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
+    }
+
+    public async Task<PagedResult<PatientFile>> GetPageAsync(
+        Guid patientId,
+        Guid? folderId,
+        PageRequest? paging,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.PatientFiles
+            .Include(f => f.Folder)
+            .Where(f => f.PatientId == patientId && f.FolderId == folderId);
+
+        var total = await query.CountAsync(cancellationToken);
+
+        // `.ThenBy(Id)` is not tidiness: two files uploaded in the same tick sort arbitrarily under OFFSET, so
+        // one can appear on two pages while another is skipped — which reads as « a scan disappeared ».
+        var ordered = query
+            .OrderByDescending(f => f.UploadedAt)
+            .ThenBy(f => f.Id);
+
+        if (paging is not { } page)
+        {
+            return PagedResult<PatientFile>.Unpaged(await ordered.ToListAsync(cancellationToken));
+        }
+
+        var items = await ordered.Skip(page.Skip).Take(page.Take).ToListAsync(cancellationToken);
+        return new PagedResult<PatientFile>(items, page.Page, page.PageSize, total);
     }
 
     public async Task<IEnumerable<PatientFile>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default)
