@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Documents.Commands;
@@ -38,6 +38,7 @@ public class MedicalDocumentTenantIsolationTests
         var doc = new MedicalDocument(
             Guid.NewGuid(),
             patient.Id,
+            patient.ClinicId,
             "prescription",
             DateTime.UtcNow,
             "Jean Dupont",
@@ -139,7 +140,7 @@ public class MedicalDocumentTenantIsolationTests
         var patient = Patient(ClinicId);
         var fileId = Guid.NewGuid();
         var doc = Document(patient, fileId);
-        var patientFile = new PatientFile(fileId, patient.Id, "ordonnance.pdf", "documents/ordonnance.pdf",
+        var patientFile = new PatientFile(fileId, patient.Id, patient.ClinicId, "ordonnance.pdf", "documents/ordonnance.pdf",
             "application/pdf", 1024, FileType.MedicalRecord);
 
         docs.Setup(r => r.GetByIdAsync(doc.Id, It.IsAny<CancellationToken>())).ReturnsAsync(doc);

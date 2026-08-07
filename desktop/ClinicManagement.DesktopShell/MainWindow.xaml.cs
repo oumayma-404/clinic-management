@@ -73,7 +73,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void NavigateToServer()
+    private async void NavigateToServer()
     {
         if (!_config.IsConfigured)
         {
@@ -82,6 +82,23 @@ public partial class MainWindow : Window
         }
 
         ShowConnecting();
+
+        // An address typed with no port does not yet name a server: 5001 is a clinic's own PC and 443 is a hosted
+        // deployment, and only the server can say which this is. Resolved once and persisted, so this costs a
+        // probe the first time an address is used and nothing on every launch after it.
+        if (!_config.PortIsExplicit)
+        {
+            var resolved = await ServerProbe.ResolveAsync(_config);
+            if (!_coreReady)
+            {
+                return; // The window closed while probing.
+            }
+
+            _config = resolved;
+            ServerConfigStore.Save(_config);
+            ShowConnecting(); // Re-render: the target line was showing the unresolved port.
+        }
+
         // Navigate() (rather than setting Source) forces a fresh request even when the URL is unchanged,
         // so "Réessayer" and "Recharger" actually re-attempt the connection.
         WebView.CoreWebView2.Navigate(_config.BaseUrl);
@@ -123,7 +140,7 @@ public partial class MainWindow : Window
 
     private void ShowServerConfig()
     {
-        ServerAddressTextBox.Text = _config.IsConfigured ? $"{_config.Host}:{_config.Port}" : string.Empty;
+        ServerAddressTextBox.Text = _config.IsConfigured ? _config.DisplayAddress : string.Empty;
         ServerConfigError.Visibility = Visibility.Collapsed;
         // A first-run user has nowhere to cancel back to; only offer cancel once a server is configured.
         ServerConfigCancelButton.Visibility = _config.IsConfigured ? Visibility.Visible : Visibility.Collapsed;

@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Application.Features.Invoices.Commands;
@@ -53,7 +53,7 @@ public class InvoiceFromDentalRecordTests
     /// <summary>A two-act session: a flat 60 DT exam plus a per-tooth composite at 90 DT × 3 teeth.</summary>
     private static DentalRecord RecordFixture()
     {
-        var record = new DentalRecord(Guid.NewGuid(), PatientId, InterventionDate, 0m, true);
+        var record = new DentalRecord(Guid.NewGuid(), PatientId, ClinicId, InterventionDate, 0m, true);
         record.SetActs(new[]
         {
             new DentalRecordActInput(null, "Consultation", 60m, null, false, Array.Empty<int>(), null, null, null),
@@ -381,7 +381,7 @@ public class InvoiceFromDentalRecordTests
     [Fact]
     public void A_Per_Tooth_Act_With_No_Captured_Unit_Price_Stays_One_Line()
     {
-        var record = new DentalRecord(Guid.NewGuid(), PatientId, InterventionDate, 0m, true);
+        var record = new DentalRecord(Guid.NewGuid(), PatientId, ClinicId, InterventionDate, 0m, true);
         record.SetActs(new[]
         {
             // `UnitCost` is nullable precisely because acts recorded before per-tooth pricing never captured one.
@@ -397,7 +397,7 @@ public class InvoiceFromDentalRecordTests
     [Fact]
     public void A_Legacy_Fiche_With_No_Acts_Bills_Its_Own_Derived_Cost()
     {
-        var record = new DentalRecord(Guid.NewGuid(), PatientId, InterventionDate, 0m, true);
+        var record = new DentalRecord(Guid.NewGuid(), PatientId, ClinicId, InterventionDate, 0m, true);
 
         var line = Assert.Single(DentalRecordInvoiceLines.For(record));
 
@@ -409,7 +409,7 @@ public class InvoiceFromDentalRecordTests
     [Fact]
     public async Task A_Fiche_With_Nothing_Billable_Is_Refused()
     {
-        var record = new DentalRecord(Guid.NewGuid(), PatientId, InterventionDate, 0m, true);
+        var record = new DentalRecord(Guid.NewGuid(), PatientId, ClinicId, InterventionDate, 0m, true);
         Arrange(record);
 
         var result = await CreateHandler().Handle(

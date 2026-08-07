@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients.Commands;
@@ -238,10 +238,10 @@ public class DentalRecordActHandlerTests
     {
         var patientId = Guid.NewGuid();
         var treatedDiagnosis = new ToothState(
-            Guid.NewGuid(), patientId, 16, ToothCondition.Carie, Intervention,
+            Guid.NewGuid(), patientId, ClinicId, 16, ToothCondition.Carie, Intervention,
             source: ToothStateSource.Diagnosis);
         var untouchedDiagnosis = new ToothState(
-            Guid.NewGuid(), patientId, 27, ToothCondition.Carie, Intervention,
+            Guid.NewGuid(), patientId, ClinicId, 27, ToothCondition.Carie, Intervention,
             source: ToothStateSource.Diagnosis);
         var h = new Harness(existingForPatient: new[] { treatedDiagnosis, untouchedDiagnosis });
 
@@ -310,8 +310,8 @@ public class DentalRecordActHandlerTests
     public async Task Update_Replaces_Only_This_Records_Tooth_States()
     {
         var h = new Harness();
-        var record = new DentalRecord(Guid.NewGuid(), h.Patient.Id, Intervention, 0m, true);
-        var stale = new ToothState(Guid.NewGuid(), h.Patient.Id, 16, ToothCondition.Obturation, Intervention,
+        var record = new DentalRecord(Guid.NewGuid(), h.Patient.Id, h.Patient.ClinicId, Intervention, 0m, true);
+        var stale = new ToothState(Guid.NewGuid(), h.Patient.Id, h.Patient.ClinicId, 16, ToothCondition.Obturation, Intervention,
             dentalRecordId: record.Id);
         h.Records.Setup(r => r.GetByIdAsync(record.Id, It.IsAny<CancellationToken>())).ReturnsAsync(record);
         h.ToothStates.Setup(r => r.GetByDentalRecordIdAsync(record.Id, It.IsAny<CancellationToken>()))
@@ -333,7 +333,7 @@ public class DentalRecordActHandlerTests
     public async Task Update_Accepts_A_Mixed_Dentition_Session()
     {
         var h = new Harness();
-        var record = new DentalRecord(Guid.NewGuid(), h.Patient.Id, Intervention, 0m, true);
+        var record = new DentalRecord(Guid.NewGuid(), h.Patient.Id, h.Patient.ClinicId, Intervention, 0m, true);
         h.Records.Setup(r => r.GetByIdAsync(record.Id, It.IsAny<CancellationToken>())).ReturnsAsync(record);
         h.ToothStates.Setup(r => r.GetByDentalRecordIdAsync(record.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<ToothState>());
@@ -353,7 +353,7 @@ public class DentalRecordActHandlerTests
     public async Task Update_Preserves_Act_Costs_On_A_No_Op_Save()
     {
         var h = new Harness();
-        var record = new DentalRecord(Guid.NewGuid(), h.Patient.Id, Intervention, 0m, true);
+        var record = new DentalRecord(Guid.NewGuid(), h.Patient.Id, h.Patient.ClinicId, Intervention, 0m, true);
         h.Records.Setup(r => r.GetByIdAsync(record.Id, It.IsAny<CancellationToken>())).ReturnsAsync(record);
         h.ToothStates.Setup(r => r.GetByDentalRecordIdAsync(record.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<ToothState>());

@@ -18,6 +18,14 @@ public class DentalRecordConfiguration : IEntityTypeConfiguration<DentalRecord>
         builder.Property(dr => dr.PatientId)
             .IsRequired();
 
+        // Denormalised from the patient so this clinical child carries a global query filter of its
+        // own — see ApplicationDbContext.OnModelCreating. The two must agree; verify-schema's
+        // clinical-child-clinic-matches-patient is what holds that.
+        builder.Property(dr => dr.ClinicId)
+            .IsRequired();
+
+        builder.HasIndex(dr => dr.ClinicId);
+
         builder.Property(dr => dr.InterventionDate)
             .IsRequired();
 

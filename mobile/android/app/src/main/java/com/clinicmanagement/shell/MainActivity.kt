@@ -209,9 +209,18 @@ class MainActivity : ComponentActivity() {
         showConnecting()
         val target = config
         background.execute {
-            val requirements = ClientRequirements.fetch(target.baseUrl)
+            // An address typed with no port does not yet name a server: 5001 is a clinic's own PC and 443 is a
+            // hosted deployment, and only the server can say which this is. Resolved once and persisted, so it
+            // costs a probe the first time an address is used and nothing on every launch after it.
+            val resolved = ServerProbe.resolve(target)
+            val requirements = ClientRequirements.fetch(resolved.baseUrl)
             runOnUiThread {
                 if (isFinishing || isDestroyed || target != config) return@runOnUiThread
+                if (resolved != config) {
+                    config = resolved
+                    store.save(resolved)
+                    showConnecting() // Re-render: the target line was showing the unresolved port.
+                }
                 val floor = requirements?.minimumShellVersion.orEmpty()
                 storeUrl = requirements?.storeUrlAndroid.orEmpty()
                 if (ClientRequirements.isBelowFloor(BuildConfig.VERSION_NAME, floor)) {
@@ -392,7 +401,10 @@ class MainActivity : ComponentActivity() {
 
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             bridgeScript = try {
-                WebViewCompat.addDocumentStartJavaScript(webView, bridgeSource(), setOf(config.baseUrl))
+                // `bridgeOrigins`, not `baseUrl`: a page served on 443 reports `https://host` as its origin — the
+                // URL spec omits a default port — so granting only `https://host:443` would leave the bridge
+                // silently uninstalled on exactly the deployment that has no other way in.
+                WebViewCompat.addDocumentStartJavaScript(webView, bridgeSource(), config.bridgeOrigins)
             } catch (t: Throwable) {
                 Log.w(TAG, "document-start script rejected — falling back to page-start injection", t)
                 null

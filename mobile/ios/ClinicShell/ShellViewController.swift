@@ -167,14 +167,26 @@ final class ShellViewController: UIViewController {
 
         showConnecting()
         let target = config
-        ClientRequirements.fetch(baseUrl: target.baseUrl) { [weak self] requirements in
+        // An address typed with no port does not yet name a server: 5001 is a clinic's own PC and 443 is a hosted
+        // deployment, and only the server can say which this is. Resolved once and persisted, so it costs a probe
+        // the first time an address is used and nothing on every launch after it.
+        ServerProbe.resolve(target) { [weak self] resolved in
             guard let self, self.config == target else { return }
-            let floor = requirements?.minimumShellVersion ?? ""
-            self.storeUrl = requirements?.storeUrlIos ?? ""
-            if ClientRequirements.isBelowFloor(installed: ShellVersion.name, floor: floor) {
-                self.showUpdateRequired(floor: floor)
-            } else {
-                self.loadApp()
+            if resolved != self.config {
+                self.config = resolved
+                self.store.save(resolved)
+                self.showConnecting() // Re-render: the target line was showing the unresolved port.
+            }
+
+            ClientRequirements.fetch(baseUrl: resolved.baseUrl) { [weak self] requirements in
+                guard let self, self.config == resolved else { return }
+                let floor = requirements?.minimumShellVersion ?? ""
+                self.storeUrl = requirements?.storeUrlIos ?? ""
+                if ClientRequirements.isBelowFloor(installed: ShellVersion.name, floor: floor) {
+                    self.showUpdateRequired(floor: floor)
+                } else {
+                    self.loadApp()
+                }
             }
         }
     }

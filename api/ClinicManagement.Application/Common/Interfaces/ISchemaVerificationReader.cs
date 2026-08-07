@@ -219,4 +219,26 @@ public sealed record DataMigrationCounts(
     /// table exists.
     /// </para>
     /// </summary>
-    int? ClinicSignupOrphans);
+    int? ClinicSignupOrphans,
+    /// <summary>
+    /// Rows across the <b>seven clinical children of <c>Patients</c></b> whose denormalised <c>ClinicId</c> does
+    /// not equal their patient's — the one thing that migration's model changes cannot state.
+    /// <para>
+    /// Seven columns and seven indexes are diffed against the catalog for free by reading the EF model. What no
+    /// model construct can express is « this column always equals the patient's », and that equality is the whole
+    /// basis of the global query filters added with it. The two ways it can break point in opposite directions
+    /// and this figure catches both. A <b>backfill that covered nothing</b> leaves rows at
+    /// <c>Guid.Empty</c>, and because the filter compares the column to the scoped clinic the symptom is not an
+    /// error but an <i>empty patient record</i> — a fiche of ten years' standing that no longer exists as far as
+    /// any screen can tell. A <b>write path that names the wrong clinic</b> is the mirror image: the row is
+    /// visible, to the wrong practice.
+    /// </para>
+    /// <para>
+    /// ⚠️ Deliberately not a CHECK or a composite foreign key. A composite FK would state the rule, but it makes
+    /// every one of these tables carry the patient's clinic in its own key shape and turns a violation into a 500
+    /// at insert rather than a line in this report — and the constructors already take the clinic from the
+    /// patient they just tenant-checked, so a violation means a *new* write path exists that did not. That is
+    /// something to be told about, not something to crash on. Null before the columns exist.
+    /// </para>
+    /// </summary>
+    int? ClinicalChildrenWithWrongClinic);

@@ -70,7 +70,7 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
                 {
                     // Generate a consistent ID based on folder name for default folders
                     var folderId = GenerateDefaultFolderId(request.PatientId, folderName);
-                    var folder = new PatientFolder(folderId, request.PatientId, folderName);
+                    var folder = new PatientFolder(folderId, request.PatientId, patient.ClinicId, folderName);
                     await _folderRepository.AddAsync(folder, cancellationToken);
                     createdFolders.Add(folder);
                 }

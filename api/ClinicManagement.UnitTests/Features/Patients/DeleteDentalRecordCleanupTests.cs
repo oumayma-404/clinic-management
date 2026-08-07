@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Patients.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -43,7 +43,7 @@ public class DeleteDentalRecordCleanupTests
         var patient = new Patient(PatientId, ClinicId, "Mohamed", "Ben Ali", new DateTime(1981, 6, 14), "Male");
         _patients.Setup(r => r.GetByIdAsync(PatientId, It.IsAny<CancellationToken>())).ReturnsAsync(patient);
 
-        var record = new DentalRecord(RecordId, PatientId, DoneOn, 0m, true);
+        var record = new DentalRecord(RecordId, PatientId, ClinicId, DoneOn, 0m, true);
         _records.Setup(r => r.GetByIdAsync(RecordId, It.IsAny<CancellationToken>())).ReturnsAsync(record);
 
         // Default: nothing links to the fiche. Individual tests override.

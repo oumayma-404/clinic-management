@@ -520,11 +520,37 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                        AND "ConsumedAtUtc" < NOW() - INTERVAL '31 days')
                 """);
 
+        // The seven clinical children of Patients, each checked against the patient it hangs off. One figure over
+        // seven UNIONed counts rather than seven findings: the operator's question is « does any clinical row name
+        // the wrong clinic? », and seven lines of zeros answer it worse than one. `PatientFiles` is the required
+        // column probe for all seven because they are added by a single migration — no state exists in which one
+        // of the columns is present and another is not.
+        var clinicalChildrenWrongClinic = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "PatientFiles",
+            requiredColumn: "ClinicId",
+            sql: """
+                SELECT
+                    (SELECT COUNT(*) FROM "ToothStates" c
+                     JOIN "Patients" p ON p."Id" = c."PatientId" WHERE c."ClinicId" <> p."ClinicId")
+                  + (SELECT COUNT(*) FROM "PatientMedicalHistories" c
+                     JOIN "Patients" p ON p."Id" = c."PatientId" WHERE c."ClinicId" <> p."ClinicId")
+                  + (SELECT COUNT(*) FROM "PatientFolders" c
+                     JOIN "Patients" p ON p."Id" = c."PatientId" WHERE c."ClinicId" <> p."ClinicId")
+                  + (SELECT COUNT(*) FROM "PatientFiles" c
+                     JOIN "Patients" p ON p."Id" = c."PatientId" WHERE c."ClinicId" <> p."ClinicId")
+                  + (SELECT COUNT(*) FROM "PatientFamilyHistories" c
+                     JOIN "Patients" p ON p."Id" = c."PatientId" WHERE c."ClinicId" <> p."ClinicId")
+                  + (SELECT COUNT(*) FROM "MedicalDocuments" c
+                     JOIN "Patients" p ON p."Id" = c."PatientId" WHERE c."ClinicId" <> p."ClinicId")
+                  + (SELECT COUNT(*) FROM "DentalRecords" c
+                     JOIN "Patients" p ON p."Id" = c."PatientId" WHERE c."ClinicId" <> p."ClinicId")
+                """);
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
             unsetBackupSchedule, chequeDetailsOnNonCheque, attributableButUnattributed, pushClinicMismatch,
-            partialTtnIdentity, signupOrphans);
+            partialTtnIdentity, signupOrphans, clinicalChildrenWrongClinic);
     }
 
     /// <summary>

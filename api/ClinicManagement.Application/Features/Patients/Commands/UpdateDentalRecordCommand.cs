@@ -125,7 +125,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             }
 
             var toothStates = DentalRecordActParser
-                .BuildToothStates(parsed.Value!, dentalRecord.PatientId, request.InterventionDate, dentalRecord.Id)
+                .BuildToothStates(
+                    parsed.Value!, dentalRecord.PatientId, dentalRecord.ClinicId, request.InterventionDate, dentalRecord.Id)
                 .ToList();
 
             // Treating a tooth closes any open diagnosis charted on it (AC-5).

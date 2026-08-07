@@ -1,0 +1,139 @@
+# The backend and frontend gate — the one this repository did not have.
+#
+# Until this file, `.github/workflows/` held exactly one workflow (the iOS shell's), so nothing built `api/` or
+# `web/` on a push. That mattered for two reasons beyond the usual. **The unit suite is the only automated check
+# the backend has** — there is no integration test and nothing touches a database — and it was being run by hand
+# on a Windows machine where Smart App Control intermittently refuses freshly-built test assemblies, which makes
+# "the suite is green" a claim nobody could cheaply verify. And **`web/` has no test runner and no working
+# ESLint**, so `tsc --noEmit` + `check:responsive` + `next build` are not a subset of its gate, they ARE its gate
+# (`.claude/rules/frontend-web.md` says so); running them anywhere other than a developer's memory is new.
+#
+# ⚠️ Four jobs, deliberately independent rather than one matrix: they share no toolchain (dotnet / node / JDK),
+# and a failure should name which stack broke without reading a log. `desktop` and `android` are the shells' only
+# static gates and have never run outside the author's machine; neither can be a *complete* gate, because both
+# products' real verification is a walk on hardware — see `desktop/CLAUDE.md` and `mobile/CLAUDE.md`.
+#
+# ⚠️ `mobile/ios/` is NOT here: it needs a macOS runner, which is billed on private repositories, so it keeps its
+# own path-filtered workflow and its own decision about when to spend that.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run's answer worthless. Cancel it rather than queue it — but
+# never on the default branch, where each commit's result is a record rather than a preview.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  api:
+    name: API — build + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # Restore separately so a dependency failure is not reported as a compile error.
+      - name: Restore
+        run: dotnet restore api/ClinicManagement.sln
+
+      # ⚠️ `--no-restore`, never `--no-build` on the test step below: a stale assembly passing is worse than no
+      # gate at all, and this repo has been bitten by exactly that.
+      - name: Build
+        run: dotnet build api/ClinicManagement.sln --configuration Release --no-restore
+
+      - name: Unit tests
+        run: >
+          dotnet test api/ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj
+          --configuration Release --no-build --logger "trx;LogFileName=api-tests.trx"
+
+      - name: Upload test results
+        if: always() # The results matter most when the step above failed.
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-results
+          path: "**/TestResults/*.trx"
+          if-no-files-found: warn
+
+  web:
+    name: Web — typecheck + responsive + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # The three checks `.claude/rules/frontend-web.md` names, in its order. Typecheck first: it is the fastest
+      # and the one whose failure makes the other two meaningless.
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Responsive rules
+        run: npm run check:responsive
+
+      - name: Build
+        run: npm run build
+
+  desktop:
+    name: Desktop shell — build
+    # Windows-only by construction: net8.0-windows + WPF. It cannot be *run* here (WebView2 runtime), so this
+    # proves it compiles and nothing more — which is still strictly more than it had.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build
+        run: dotnet build desktop/ClinicManagement.DesktopShell.sln --configuration Release
+
+  android:
+    name: Android shell — lint + assemble
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile/android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Lint runs with `warningsAsErrors`, and it is the module's ONLY static gate — there is no test source set.
+      - name: Lint
+        run: ./gradlew --no-daemon lint
+
+      - name: Assemble debug
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-lint-report
+          path: mobile/android/app/build/reports/lint-results-*.html
+          if-no-files-found: warn

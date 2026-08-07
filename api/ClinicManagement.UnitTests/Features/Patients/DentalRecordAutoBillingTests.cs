@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Invoices.Commands;
@@ -28,6 +28,7 @@ namespace ClinicManagement.UnitTests.Features.Patients;
 /// </summary>
 public class DentalRecordAutoBillingTests
 {
+    private static readonly Guid ClinicId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static readonly Guid PatientId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
     private static readonly DateTime InterventionDate = new(2026, 7, 27, 0, 0, 0, DateTimeKind.Utc);
 
@@ -35,7 +36,7 @@ public class DentalRecordAutoBillingTests
 
     private static DentalRecord RecordFixture()
     {
-        var record = new DentalRecord(Guid.NewGuid(), PatientId, InterventionDate, 0m, true);
+        var record = new DentalRecord(Guid.NewGuid(), PatientId, ClinicId, InterventionDate, 0m, true);
         record.SetActs(new[]
         {
             new DentalRecordActInput(null, "Détartrage", 400m, null, false, Array.Empty<int>(), null, null, null),

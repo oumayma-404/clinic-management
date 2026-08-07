@@ -1,4 +1,4 @@
-using ClinicManagement.Application.DTOs;
+﻿using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Enums;
 using Xunit;
@@ -13,6 +13,7 @@ namespace ClinicManagement.UnitTests.Features.Patients;
 /// </summary>
 public class DentalRecordActParserTests
 {
+    private static readonly Guid ClinicId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static readonly Guid PatientId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
     private static readonly Guid RecordId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
     private static readonly DateTime Intervention = new(2026, 7, 26, 9, 0, 0, DateTimeKind.Utc);
@@ -169,7 +170,7 @@ public class DentalRecordActParserTests
         });
 
         var states = DentalRecordActParser
-            .BuildToothStates(parsed.Value!, PatientId, Intervention, RecordId)
+            .BuildToothStates(parsed.Value!, PatientId, ClinicId, Intervention, RecordId)
             .ToList();
 
         Assert.Equal(2, states.Count);
@@ -187,7 +188,7 @@ public class DentalRecordActParserTests
         var parsed = DentalRecordActParser.Parse(new[] { Input(teeth: new[] { 16, 26 }) });
 
         var states = DentalRecordActParser
-            .BuildToothStates(parsed.Value!, PatientId, Intervention, RecordId)
+            .BuildToothStates(parsed.Value!, PatientId, ClinicId, Intervention, RecordId)
             .ToList();
 
         Assert.Equal(new[] { 16, 26 }, states.Select(s => s.ToothNumber));
@@ -203,7 +204,7 @@ public class DentalRecordActParserTests
         });
 
         var states = DentalRecordActParser
-            .BuildToothStates(parsed.Value!, PatientId, Intervention, RecordId)
+            .BuildToothStates(parsed.Value!, PatientId, ClinicId, Intervention, RecordId)
             .ToList();
 
         Assert.All(states, s => Assert.Equal("MO", s.Surfaces));
@@ -221,7 +222,7 @@ public class DentalRecordActParserTests
             Input(name: "Détartrage", teeth: new[] { 16 }, condition: condition),
         });
 
-        Assert.Empty(DentalRecordActParser.BuildToothStates(parsed.Value!, PatientId, Intervention, RecordId));
+        Assert.Empty(DentalRecordActParser.BuildToothStates(parsed.Value!, PatientId, ClinicId, Intervention, RecordId));
     }
 
     // [AC-5] A mouth-level act charts nothing even when it carries a resulting condition — there is no tooth.
@@ -233,6 +234,6 @@ public class DentalRecordActParserTests
             Input(name: "Détartrage", teeth: Array.Empty<int>(), condition: "Obturation"),
         });
 
-        Assert.Empty(DentalRecordActParser.BuildToothStates(parsed.Value!, PatientId, Intervention, RecordId));
+        Assert.Empty(DentalRecordActParser.BuildToothStates(parsed.Value!, PatientId, ClinicId, Intervention, RecordId));
     }
 }

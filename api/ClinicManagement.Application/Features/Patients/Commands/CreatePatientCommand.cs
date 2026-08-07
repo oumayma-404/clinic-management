@@ -176,6 +176,7 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                         var entry = new PatientMedicalHistory(
                             Guid.NewGuid(),
                             patient.Id,
+                            patient.ClinicId,
                             entryDto.Description,
                             entryDto.Date,
                             entryDto.Notes);
@@ -196,6 +197,7 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                         var entry = new PatientFamilyHistory(
                             Guid.NewGuid(),
                             patient.Id,
+                            patient.ClinicId,
                             entryDto.Relationship,
                             entryDto.Condition,
                             entryDto.Notes);

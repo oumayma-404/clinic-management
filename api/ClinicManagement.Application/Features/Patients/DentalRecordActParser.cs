@@ -72,7 +72,11 @@ public static class DentalRecordActParser
 
     /// <summary>Build the odontogram entries (one per act × tooth) for acts that produce a real tooth state.</summary>
     public static IEnumerable<ToothState> BuildToothStates(
-        IReadOnlyList<DentalRecordActInput> acts, Guid patientId, DateTime treatmentDate, Guid dentalRecordId)
+        IReadOnlyList<DentalRecordActInput> acts,
+        Guid patientId,
+        Guid clinicId,
+        DateTime treatmentDate,
+        Guid dentalRecordId)
     {
         foreach (var a in acts)
         {
@@ -84,7 +88,7 @@ public static class DentalRecordActParser
             foreach (var tooth in a.ToothNumbers.Distinct())
             {
                 yield return new ToothState(
-                    Guid.NewGuid(), patientId, tooth, a.ResultingCondition.Value, treatmentDate,
+                    Guid.NewGuid(), patientId, clinicId, tooth, a.ResultingCondition.Value, treatmentDate,
                     a.Surfaces, a.Note, dentalRecordId);
             }
         }

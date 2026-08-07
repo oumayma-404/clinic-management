@@ -56,6 +56,9 @@ public class CreatePatientMedicalHistoryCommandHandler : IRequestHandler<CreateP
             var entry = new PatientMedicalHistory(
                 Guid.NewGuid(),
                 request.PatientId,
+                // The patient's own clinic, not the caller's — they are equal by the check above, and taking it
+                // from the patient is what makes the denormalised column true by construction.
+                patient.ClinicId,
                 request.Description,
                 request.Date,
                 request.Notes);

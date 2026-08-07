@@ -1,4 +1,4 @@
-using ClinicManagement.Domain.Entities;
+﻿using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using Xunit;
 
@@ -12,6 +12,7 @@ namespace ClinicManagement.UnitTests.Domain.Entities;
 /// </summary>
 public class DentalRecordActPricingTests
 {
+    private static readonly Guid ClinicId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static readonly Guid RecordId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
     private static readonly Guid PatientId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
     private static readonly DateTime Intervention = new(2026, 7, 26, 9, 0, 0, DateTimeKind.Utc);
@@ -27,7 +28,7 @@ public class DentalRecordActPricingTests
         string? note = null) =>
         new(null, name, cost, unitCost, isPerTooth, teeth ?? new[] { 16, 26 }, condition, surfaces, note);
 
-    private static DentalRecord NewRecord() => new(RecordId, PatientId, Intervention, 0m, true);
+    private static DentalRecord NewRecord() => new(RecordId, PatientId, ClinicId, Intervention, 0m, true);
 
     private static DentalRecordAct Build(DentalRecordActInput input) => new(Guid.NewGuid(), RecordId, input);
 

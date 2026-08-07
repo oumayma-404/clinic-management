@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
@@ -175,6 +175,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 folder = new PatientFolder(
                     Guid.NewGuid(),
                     request.PatientId,
+                    patient.ClinicId,
                     folderName);
                 await _folderRepository.AddAsync(folder, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -195,6 +196,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                     documentsFolder = new PatientFolder(
                         Guid.NewGuid(),
                         request.PatientId,
+                        patient.ClinicId,
                         documentsFolderName);
                     await _folderRepository.AddAsync(documentsFolder, cancellationToken);
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -231,6 +233,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                     var patientFile = new PatientFile(
                         Guid.NewGuid(),
                         request.PatientId,
+                        patient.ClinicId,
                         pdf.FileName,
                         storageKey,
                         pdf.ContentType,
@@ -261,6 +264,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
             var document = new MedicalDocument(
                 Guid.NewGuid(),
                 request.PatientId,
+                patient.ClinicId,
                 request.DocumentType,
                 request.DocumentDate,
                 patientName,

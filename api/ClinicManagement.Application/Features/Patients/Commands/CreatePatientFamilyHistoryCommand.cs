@@ -61,6 +61,7 @@ public class CreatePatientFamilyHistoryCommandHandler : IRequestHandler<CreatePa
             var entry = new PatientFamilyHistory(
                 Guid.NewGuid(),
                 request.PatientId,
+                patient.ClinicId,
                 request.Relationship,
                 request.Condition,
                 request.Notes);

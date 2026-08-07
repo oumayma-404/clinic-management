@@ -6,6 +6,10 @@ namespace ClinicManagement.Domain.Entities;
 public class PatientFile : Entity<Guid>
 {
     public Guid PatientId { get; private set; }
+
+    /// <summary>The owning clinic, denormalised from <see cref="Patient"/>. See <see cref="PatientMedicalHistory.ClinicId"/>.</summary>
+    public Guid ClinicId { get; private set; }
+
     public Guid? FolderId { get; private set; } // Null means root folder
     public string FileName { get; private set; }
     public string StorageKey { get; private set; } // MinIO storage key
@@ -25,6 +29,7 @@ public class PatientFile : Entity<Guid>
     public PatientFile(
         Guid id,
         Guid patientId,
+        Guid clinicId,
         string fileName,
         string storageKey,
         string contentType,
@@ -36,6 +41,7 @@ public class PatientFile : Entity<Guid>
     {
         Id = id;
         PatientId = patientId;
+        ClinicId = clinicId;
         FileName = fileName ?? throw new ArgumentNullException(nameof(fileName));
         StorageKey = storageKey ?? throw new ArgumentNullException(nameof(storageKey));
         ContentType = contentType ?? throw new ArgumentNullException(nameof(contentType));

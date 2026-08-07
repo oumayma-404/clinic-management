@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Patients.Commands;
 using ClinicManagement.Application.Features.Patients.Queries;
@@ -77,7 +77,7 @@ public class ClinicalRecordTenantIsolationTests
     [Fact]
     public async Task DeleteDentalRecord_Refuses_Another_Clinics_Record() // [US-2]
     {
-        var record = new DentalRecord(Guid.NewGuid(), _foreignPatient.Id, Visit, 0m, isAdultTeeth: true);
+        var record = new DentalRecord(Guid.NewGuid(), _foreignPatient.Id, _foreignPatient.ClinicId, Visit, 0m, isAdultTeeth: true);
         var records = new Mock<IDentalRecordRepository>();
         records.Setup(r => r.GetByIdAsync(record.Id, It.IsAny<CancellationToken>())).ReturnsAsync(record);
 
@@ -167,7 +167,7 @@ public class ClinicalRecordTenantIsolationTests
     public async Task RemoveToothCondition_Refuses_Another_Clinics_Patient() // [US-2]
     {
         var state = new ToothState(
-            Guid.NewGuid(), _foreignPatient.Id, 11, ToothCondition.Carie, Visit,
+            Guid.NewGuid(), _foreignPatient.Id, _foreignPatient.ClinicId, 11, ToothCondition.Carie, Visit,
             source: ToothStateSource.Diagnosis);
         var teeth = new Mock<IToothStateRepository>();
         teeth.Setup(r => r.GetByIdAsync(state.Id, It.IsAny<CancellationToken>())).ReturnsAsync(state);

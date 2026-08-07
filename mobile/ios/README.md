@@ -71,17 +71,21 @@ accept *any* certificate, which is exactly the silently-accepted MITM the shell 
 
 ## Known defects and open decisions
 
-### ⚠️ Le défaut de port — a hosted address with no port is unreachable
+### ✅ Le défaut de port — fixed, in all three clients at once
 
-`ServerConfig.parseAddress` defaults to **5001** when the address carries no explicit port, so
-`clinic.example.com` becomes `https://clinic.example.com:5001` and a hosted deployment on 443 cannot be reached
-unless the user types `clinic.example.com:443`.
+`ServerConfig.parseAddress` used to default to **5001** when the address carried no explicit port, so
+`clinic.example.com` became `https://clinic.example.com:5001` and a hosted deployment on 443 could not be reached
+unless the user typed `clinic.example.com:443`.
 
-**This is a defect of all three clients** — desktop, Android and iOS — not of this port. It is carried across
-deliberately: the three must agree on what a typed address means, and fixing one alone is the
-two-answers-to-one-question defect the ports exist to avoid. The fix belongs in one change across all three, and
-the likely shape is to probe 443 before 5001 when no port was given, since the launch probe already makes a
-request. **Not done. Recorded here so it is not rediscovered as an iOS bug.**
+It was a defect of **all three** clients — desktop, Android and iOS — and was fixed in one change across all
+three, which is the only way it could be fixed: they must agree on what a typed address means. An address with no
+port is now left *unresolved* and settled at connect time by `ServerProbe`, which tries **443 before 5001** and
+takes the first port that answers (a TLS failure counts as an answer — a self-signed LAN certificate is the
+expected case), then persists the result.
+
+**The rule is stated once, in `mobile/CLAUDE.md` § « The port rule ».** Read it before touching `ServerConfig` or
+`ServerProbe` in any client. ⚠️ Note the iOS half is still **unverified on a device** like the rest of this shell —
+CI proves it compiles.
 
 ### Avant la première soumission
 

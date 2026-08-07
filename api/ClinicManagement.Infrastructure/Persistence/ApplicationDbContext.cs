@@ -55,7 +55,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<DentalRecord> DentalRecords { get; set; }
     public DbSet<DentalRecordTooth> DentalRecordTeeth { get; set; }
     public DbSet<DentalRecordAct> DentalRecordActs { get; set; }
-    // Persistent odontogram — child-of-patient (no ClinicId, no HasQueryFilter); tenant-scoped via the patient.
+    // Persistent odontogram — child-of-patient, and since the clinical-child filter work it carries its own
+    // denormalised ClinicId and a HasQueryFilter like every other clinic-scoped table.
     public DbSet<ToothState> ToothStates { get; set; }
     public DbSet<PatientFolder> PatientFolders { get; set; }
     public DbSet<MedicalDocument> MedicalDocuments { get; set; }
@@ -175,6 +176,20 @@ public class ApplicationDbContext : DbContext
         // owner needs. « Drained cross-clinic by the dispatcher » is not the reason — `DocumentEmail` is filtered and
         // its dispatcher declares `UseSystemWide` too. All four reachable reads take a `clinicId` explicitly.
         modelBuilder.Entity<Patient>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
+        // The seven clinical children of Patient. They carried no ClinicId for the product's whole life, so the
+        // per-handler check was their ONLY layer — and it is the layer a new read forgets, silently, with the
+        // symptom being another clinic's record on screen. The column is denormalised from the patient (the two
+        // must agree; `verify-schema`'s `clinical-child-clinic-matches-patient` is what holds that, since no
+        // model construct can) rather than filtered through the `Patient` navigation: filtering through it would
+        // put a correlated subquery on the hottest reads in the product, and every other filtered entity here
+        // states its clinic as a column. Same shape, same rule, one join fewer.
+        modelBuilder.Entity<PatientFile>().HasQueryFilter(f => IsSystemWide || f.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<PatientFolder>().HasQueryFilter(f => IsSystemWide || f.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<MedicalDocument>().HasQueryFilter(d => IsSystemWide || d.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<DentalRecord>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ToothState>().HasQueryFilter(t => IsSystemWide || t.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<PatientMedicalHistory>().HasQueryFilter(h => IsSystemWide || h.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<PatientFamilyHistory>().HasQueryFilter(h => IsSystemWide || h.ClinicId == ScopedClinicId);
         modelBuilder.Entity<Appointment>().HasQueryFilter(a => IsSystemWide || a.ClinicId == ScopedClinicId);
         modelBuilder.Entity<ProcedureType>().HasQueryFilter(pt => IsSystemWide || pt.ClinicId == ScopedClinicId);
         // StaffNotification is directly clinic-owned → filtered like the others. NotificationRead has no

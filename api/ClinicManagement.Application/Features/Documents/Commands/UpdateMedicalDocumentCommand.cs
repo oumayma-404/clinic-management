@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
@@ -198,6 +198,7 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                     folder = new PatientFolder(
                         Guid.NewGuid(),
                         document.PatientId,
+                        owningClinicId.Value,
                         folderName);
                     await _folderRepository.AddAsync(folder, cancellationToken);
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -245,6 +246,7 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                     var patientFile = new PatientFile(
                         Guid.NewGuid(),
                         document.PatientId,
+                        owningClinicId.Value,
                         pdf.FileName,
                         storageKey,
                         pdf.ContentType,

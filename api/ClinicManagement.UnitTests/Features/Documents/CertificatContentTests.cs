@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Documents;
@@ -191,7 +191,7 @@ public class CertificatContentTests
         const string content = "{\"objetMotif\":\"soins en cours\",\"doctorOrderNumber\":\"9\"," +
                                "\"startDate\":\"2026-07-21\",\"duration\":\"5\"}";
         var document = new MedicalDocument(
-            Guid.NewGuid(), Guid.NewGuid(), "certificat", DateTime.UtcNow, "Jean Dupont", "36 ans",
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "certificat", DateTime.UtcNow, "Jean Dupont", "36 ans",
             "{}", "Cabinet", "Adresse", "+21671000000", "Dr Alice", "Médecin dentiste",
             isDraft: false, null, null, null, null);
 

@@ -142,16 +142,23 @@ export function FilePreviewDialog({
                 <UnavailablePreview file={file} onDownload={onDownload} />
               )}
 
-              {navigable && (
-                <>
-                  <NavArrow side="prev" disabled={!hasPrev} onClick={prev} />
-                  <NavArrow side="next" disabled={!hasNext} onClick={next} />
-                </>
-              )}
             </div>
 
-            {patientId && files.length > 1 && (
-              <Filmstrip preview={preview} patientId={patientId} policy={policy} />
+            {navigable && (
+              /* ⚠️ A real row, not two `absolute` arrows over the document. Overlaid they pinned to the wrong
+                 edge on a narrow sheet and collided in the middle, and an arrow the width of a thumb sitting on
+                 a radiograph was never good on a phone either. One bar, identical at every width. */
+              <div className="flex flex-shrink-0 items-center gap-2 border-t bg-muted/20 px-2 py-2">
+                <NavArrow side="prev" disabled={!hasPrev} onClick={prev} />
+                {patientId && files.length > 1 ? (
+                  <Filmstrip preview={preview} patientId={patientId} policy={policy} />
+                ) : (
+                  <span className="flex-1 text-center text-sm tabular-nums text-muted-foreground">
+                    {position} / {total}
+                  </span>
+                )}
+                <NavArrow side="next" disabled={!hasNext} onClick={next} />
+              </div>
             )}
 
             <DialogFooter className="flex-shrink-0 border-t bg-muted/40 px-4 py-3 md:px-6 md:py-4">
@@ -192,7 +199,8 @@ export function FilePreviewDialog({
   )
 }
 
-/** Overlaid on the document, so it is `size-11` painted rather than a `.touch-target` a sibling could steal. */
+/** `size-11` painted rather than a `.touch-target` overlay — it sits in a row, where an overlay steals its
+ *  neighbour's taps. */
 function NavArrow({
   side,
   disabled,
@@ -211,12 +219,7 @@ function NavArrow({
       disabled={disabled}
       onClick={onClick}
       aria-label={side === "prev" ? "Fichier précédent" : "Fichier suivant"}
-      className={cn(
-        // On EVERY width. Hiding these on a phone left swipe as the only discoverable way forward, which is no
-        // affordance at all — the document coverage they cost is the ordinary photo-viewer trade.
-        "absolute top-1/2 size-11 -translate-y-1/2 rounded-full bg-background/85 shadow-md backdrop-blur",
-        side === "prev" ? "start-2 sm:start-3" : "end-2 sm:end-3",
-      )}
+      className="size-11 shrink-0 rounded-full"
     >
       <Icon className="h-5 w-5" />
     </Button>
@@ -244,7 +247,7 @@ function Filmstrip({
   }, [file?.id])
 
   return (
-    <div className="flex flex-shrink-0 items-center gap-2 overflow-x-auto border-t bg-muted/20 px-4 py-2">
+    <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
       {files.map((candidate) => {
         const current = candidate.id === file?.id
         return (

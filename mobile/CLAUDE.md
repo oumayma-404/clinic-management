@@ -96,10 +96,42 @@ mobile/
 - **iOS has no app icon and a provisional bundle id**, both Part 8's. And free signing carries **no APNs
   entitlement**, so Part 6's iOS half cannot be tested on the free path at all.
 
-## The port defect worth knowing before you touch `ServerConfig` in any client
+## The port rule — one rule, three clients
 
-`parseAddress` defaults to port **5001** when the typed address carries no explicit port, so a hosted deployment on
-443 is unreachable unless the user types `:443`. It is a defect of **all three** clients (desktop, Android, iOS)
-and is carried across deliberately — they must agree on what an address means, and fixing one alone is the
-two-answers-to-one-question defect the ports exist to avoid. Fix it in one change across all three, or not at all.
-Full note in `mobile/ios/README.md` § « Le défaut de port ».
+`parseAddress` used to default to port **5001** whenever the typed address carried no explicit port, so a hosted
+deployment — reached on **443** over the internet — was unreachable unless the user knew to type `:443`. It was a
+defect of **all three** clients and was fixed in **one** change across all three, which is the only way it could be
+fixed: they must agree on what a typed address means, or the same string reaches different servers depending on
+which client the user happens to hold.
+
+The rule now is:
+
+- An address **with** an explicit port uses it verbatim and is **never probed**.
+- An address **without** one is left *unresolved* (`portIsExplicit` false) and settled at connect time against the
+  real server: `ServerProbe` tries `candidatePorts` — **443 before 5001** — and the first port that **answers** wins.
+  The resolved port is persisted, so the probe costs one round trip per address, not one per launch.
+
+⚠️ **« Answers » deliberately includes a TLS failure.** An offline-LAN server presents a certificate signed by a CA
+the device may not have imported yet, so a handshake rejection is the *expected* outcome of probing a live clinic
+server; reading it as « nothing here » would send every LAN install to the wrong port. Only a transport failure —
+no route, refused, timed out, name does not resolve — disqualifies a port.
+
+⚠️ **443 first, and the order is not arbitrary.** A LAN server refuses 443 instantly, whereas an internet firewall
+in front of a hosted server usually *drops* traffic to 5001 — so trying the LAN port first would cost a full
+timeout on every hosted launch, while trying the public one first costs a LAN launch nothing measurable.
+
+⚠️ **Sequential, never concurrent.** With two probes in flight the winner is whichever the network returned first,
+so one address could resolve differently on two launches. A shell that reaches a different server depending on
+timing is worse than one that takes an extra second.
+
+⚠️ **The 443 fallout reached two more places, and both failed silently.** `isSameOrigin` read a URL with *no* port
+as 5001, but a portless HTTPS URL **is** 443 — so on a hosted deployment every same-origin link looked external and
+was handed to a Custom Tab / `SFSafariViewController`. And Android scoped its document-start bridge script to
+`baseUrl` alone; a page served on 443 reports its origin as `https://host` (the URL spec omits a default port), so
+the bridge was silently uninstalled on exactly the deployment that has no other way in — the trap iOS's
+`bridgeOrigins` had already documented. Both now go through `bridgeOrigins`, which carries the two-entry form.
+
+The mechanism is per-platform (`HttpClient` · `HttpURLConnection` · `URLSession`) because each runtime reports
+« the port answered » differently; **the rule is not**. A stored address saved before this existed has no
+explicitness flag, which both stores read as *not* explicit — one probe on the next launch and it self-heals,
+whereas reading it as explicit would keep an install silently pinned to 5001 for ever.

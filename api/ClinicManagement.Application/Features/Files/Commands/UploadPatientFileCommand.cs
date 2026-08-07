@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
@@ -120,6 +120,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
                 var file = new PatientFile(
                     Guid.NewGuid(),
                     request.PatientId,
+                    patient.ClinicId,
                     upload.FileName,
                     storageKey,
                     upload.ContentType,

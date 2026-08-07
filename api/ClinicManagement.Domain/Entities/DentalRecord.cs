@@ -14,6 +14,9 @@ public class DentalRecord : Entity<Guid>
     private const int ProcedureSummaryMaxLength = 200;
 
     public Guid PatientId { get; private set; }
+
+    /// <summary>The owning clinic, denormalised from <see cref="Patient"/>. See <see cref="PatientMedicalHistory.ClinicId"/>.</summary>
+    public Guid ClinicId { get; private set; }
     public DateTime InterventionDate { get; private set; }
 
     /// <summary>
@@ -99,6 +102,7 @@ public class DentalRecord : Entity<Guid>
     public DentalRecord(
         Guid id,
         Guid patientId,
+        Guid clinicId,
         DateTime interventionDate,
         decimal amountPaid,
         bool isAdultTeeth,
@@ -111,6 +115,7 @@ public class DentalRecord : Entity<Guid>
 
         Id = id;
         PatientId = patientId;
+        ClinicId = clinicId;
         InterventionDate = interventionDate;
         AmountPaid = amountPaid;
         IsAdultTeeth = isAdultTeeth;

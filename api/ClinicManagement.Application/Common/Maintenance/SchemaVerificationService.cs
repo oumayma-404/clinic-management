@@ -418,6 +418,17 @@ public class SchemaVerificationService
                   + "has an account, or a consumed row past retention that the signup-path purge never reached",
             n => n == 0);
 
+        // The invariant the seven clinical query filters rest on. A non-zero count is one of two failures and
+        // both are silent: a backfill that covered nothing (rows stuck at Guid.Empty, so a patient's whole
+        // record reads as empty rather than as an error), or a write path that named a clinic other than the
+        // patient's (the row is visible — to the wrong practice).
+        Add("clinical-child-clinic-matches-patient", counts.ClinicalChildrenWithWrongClinic,
+            n => n == 0
+                ? "every fiche, document, file, folder, antécédent and tooth state names its patient's clinic"
+                : $"{n} clinical row(s) name a clinic that is NOT their patient's — either the backfill did not "
+                  + "reach them (they are invisible to their own clinic) or a write path set the wrong clinic",
+            n => n == 0);
+
         // Phase 1 (pre-migration): did every item with a legacy scalar expiry get an opening batch? Once the
         // migration drops StockItems.ExpiryDate this becomes unanswerable, which is why phase 2 exists.
         if (counts.StockItemsWithLegacyExpiryLackingBatch is { } uncovered)

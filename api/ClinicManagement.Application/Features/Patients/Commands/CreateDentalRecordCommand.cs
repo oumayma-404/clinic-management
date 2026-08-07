@@ -119,6 +119,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             var record = new DentalRecord(
                 Guid.NewGuid(),
                 request.PatientId,
+                patient.ClinicId,
                 request.InterventionDate,
                 request.AmountPaid,
                 request.IsAdultTeeth,
@@ -140,7 +141,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             await _dentalRecordRepository.AddAsync(record, cancellationToken);
 
             var toothStates = DentalRecordActParser
-                .BuildToothStates(parsed.Value!, request.PatientId, request.InterventionDate, record.Id)
+                .BuildToothStates(parsed.Value!, request.PatientId, patient.ClinicId, request.InterventionDate, record.Id)
                 .ToList();
 
             // Treating a tooth closes any open diagnosis charted on it (AC-5).
