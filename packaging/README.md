@@ -398,8 +398,12 @@ installer) and drop it into `packaging/build-output/client/ca/ca.crt` **before**
 installer — or import it manually on the client into "Autorités de certification racines de confiance".
 
 **One client installer fits every clinic:** the shell asks for the server address on first launch
-(AC-2.2) and stores it in `%AppData%\ClinicManagement\server.json`; change it any time via **Serveur →
-Changer de serveur…** (AC-2.3). On the server PC, point it at `localhost` (AC-2.5). If the server is
+(AC-2.2) and stores it in `%AppData%\ClinicManagement\server.json`; change it any time by **right-clicking
+anywhere in the app → Changer de serveur…** (AC-2.3). On the server PC, point it at `localhost` (AC-2.5).
+⚠️ **There is no menu bar** — the two shell commands (**Recharger**, **Changer de serveur…**) sit at the top of
+the page's own right-click menu, so the window is the title bar and the app with nothing in between. If a staff
+PC has been pointed at the wrong server and cannot load anything, the **Changer de serveur** button is on the
+« Impossible de joindre le serveur » screen itself, which is where that situation actually lands. If the server is
 unreachable the shell shows a friendly **"Impossible de joindre le serveur de la clinique"** screen with
 **Réessayer** — never a blank page or raw browser error (AC-2.4). Re-running the client installer updates
 the shell in place (auto-update is out of scope).
@@ -464,7 +468,8 @@ Run on a real build machine + target PC(s). Each item maps to a spec acceptance 
 ### Desktop shell (S5)
 
 - [ ] **AC-2.2** — First launch prompts for the server address; after entering it and connecting, relaunch → it reconnects without asking.
-- [ ] **AC-2.3** — **Serveur → Changer de serveur…** edits the address without reinstalling.
+- [ ] **AC-2.3** — **right-click → Changer de serveur…** edits the address without reinstalling (and the same
+      command is on the unreachable screen).
 - [ ] **AC-2.4** — Point the shell at an offline/wrong address → the friendly "Impossible de joindre le serveur de la clinique" screen with **Réessayer** appears (never a blank page or raw browser error). Fix the address / start the server, click **Réessayer** → it connects.
 - [ ] **AC-2.5** — On the server PC, `localhost` connects successfully.
 - [ ] Build: `dotnet build desktop/ClinicManagement.DesktopShell.sln` → 0 errors / 0 warnings.

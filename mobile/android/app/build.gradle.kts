@@ -8,9 +8,8 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        // ⚠️ PROVISIONAL. The bundle identifier and the display name are two of Part 8's four deferred business
-        // decisions, and an applicationId cannot be changed after the first store submission. Settle it before
-        // uploading anything — see `mobile/README.md` § « Avant la première soumission ».
+        // SETTLED. It must stay in step with iOS's `PRODUCT_BUNDLE_IDENTIFIER`, and an applicationId cannot be
+        // changed after the first store submission — see `mobile/README.md` § « Avant la première soumission ».
         applicationId = "com.clinicmanagement.shell"
         minSdk = 26
         targetSdk = 35

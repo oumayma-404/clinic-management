@@ -89,12 +89,19 @@ CI proves it compiles.
 
 ### Avant la première soumission
 
-- **`PRODUCT_BUNDLE_IDENTIFIER` is provisional** (`com.clinicmanagement.shell`, matching Android's
-  `applicationId`). A bundle identifier **cannot be changed after the first store submission** — it is one of
-  Part 8's four deferred business decisions.
+- **`PRODUCT_BUNDLE_IDENTIFIER` is settled**: `com.clinicmanagement.shell`, matching Android's `applicationId`.
+  A bundle identifier **cannot be changed after the first store submission**, so a change here is a change in
+  `android/app/build.gradle.kts` on the same commit or the two stores hold two different products.
 - No signing certificate, no provisioning profile and no App Store Connect record exist.
-- There is **no app icon**: `Info.plist` declares no `CFBundleIconName` and no asset catalog is committed, so the
-  build produces a blank tile. Fine for sideloaded verification, a rejection for submission.
+- **The app icon exists** — `Assets.xcassets/AppIcon.appiconset`, one 1024×1024 generated from the single master
+  (`web/branding/icon.svg`) by `web/scripts/generate-icons.mjs`, wired up by
+  `ASSETCATALOG_COMPILER_APPICON_NAME` in `project.yml`. ⚠️ **Never hand-edit that PNG**: replace the master and
+  re-run the script, or the phone's home screen and the browser tab stop being the same mark. It carries **no
+  alpha channel** on purpose — App Store Connect rejects an app icon that has one, and a locally-built app
+  renders its transparent corners black.
+- ⚠️ **The icon has never been seen on a device**, like everything else in this shell. That it compiles is not
+  evidence that it renders: a catalog that fails to compile into the bundle produces a *successful build* and a
+  white square, which is the failure mode that is only ever found on the first install.
 
 ## Owed verification
 

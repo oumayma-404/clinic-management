@@ -14,9 +14,12 @@
 ; build machine, then compile this script with Inno Setup 6 (ISCC.exe). See ..\README.md.
 ; ============================================================================================
 
-#define AppName        "Clinic Management Server"
+#define AppName        "Gestion Clinique — Serveur"
 #define AppVersion     "1.0.0"
-#define AppPublisher   "Clinic Management"
+#define AppPublisher   "Gestion Clinique"
+; The product mark, shared with the client installer and the shell .exe. Generated from the one master
+; (web/branding/icon.svg) by web/scripts/generate-icons.mjs.
+#define AppIcon        SourcePath + "\..\..\desktop\ClinicManagement.DesktopShell\Assets\app.ico"
 #define ServiceApi     "ClinicManagementApi"
 #define ServiceWeb     "ClinicManagementWeb"
 #define ServiceDb      "ClinicManagementDb"
@@ -36,11 +39,19 @@ AppId={{7F3C1A90-5E2B-4D6A-9C11-CLINICSERVER01}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
+; ⚠️ NOT renamed with the product, and here it is load-bearing rather than merely tidy: the API resolves its
+; config, file storage, logs and the PostgreSQL cluster relative to this directory (R-6), three Windows services
+; point at absolute paths under it, and the operator guide names it. Inno reuses the recorded directory on
+; upgrade, so this string only names a fresh install -- but moving it would still split new clinics from every
+; deployed one for a folder nobody looks at.
 DefaultDirName={autopf}\Clinic Management
-DefaultGroupName=Clinic Management
+DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir={#SourcePath}\..\build-output
+; ASCII and stable: this filename is typed into a URL and printed in the operator guide.
 OutputBaseFilename=ClinicManagementServerSetup-{#AppVersion}
+SetupIconFile={#AppIcon}
+UninstallDisplayName={#AppName}
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -78,8 +89,8 @@ Source: "{#SourcePath}\..\build-output\server\postgres\*"; DestDir: "{app}\postg
 Source: "{#SourcePath}\tools\nssm.exe"; DestDir: "{app}\tools"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
-Name: "{group}\Clinic Management (serveur — localhost)"; Filename: "https://localhost:{#HttpsPort}"
-Name: "{group}\Uninstall Clinic Management Server"; Filename: "{uninstallexe}"
+Name: "{group}\Gestion Clinique (serveur — localhost)"; Filename: "https://localhost:{#HttpsPort}"
+Name: "{group}\Désinstaller {#AppName}"; Filename: "{uninstallexe}"
 
 [UninstallRun]
 ; Stop + remove services on uninstall (best-effort; ignore errors if already gone).
@@ -660,12 +671,18 @@ begin
   else
     ApiDepend := '{#ServiceDb}';
   Exec(ExpandConstant('{sys}\sc.exe'),
-    'create {#ServiceApi} binPath= "' + ApiExe + '" start= auto DisplayName= "Clinic Management API" depend= ' + ApiDepend,
+    'create {#ServiceApi} binPath= "' + ApiExe + '" start= auto DisplayName= "Gestion Clinique - API" depend= ' + ApiDepend,
     '', SW_HIDE, ewWaitUntilTerminated, Rc);
   Exec(ExpandConstant('{sys}\sc.exe'), 'failure {#ServiceApi} reset= 60 actions= restart/5000', '', SW_HIDE, ewWaitUntilTerminated, Rc);
 end;
 
-{ Open the HTTPS front door and the device-trust page on the LAN firewall -- and nothing else. }
+{ Open the HTTPS front door and the device-trust page on the LAN firewall -- and nothing else.
+
+  WARNING: the two rule names below are FROZEN at the English product name and must not be renamed with the
+  product. They are identity keys, not labels: [UninstallRun] deletes each rule by name, so a rename here orphans
+  the rule on every machine that installed a previous build -- an open LAN port with nothing left to remove it.
+  The client installer's CA subject CN ("Clinic Management Local CA") is frozen for the same reason: it must match
+  what the API's CertificateProvisioner already wrote into .local/ on every deployed server. }
 procedure OpenFirewall;
 var
   Rc: Integer;

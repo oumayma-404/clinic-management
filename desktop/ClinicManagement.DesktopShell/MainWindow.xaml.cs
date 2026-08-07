@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Windows;
 using System.Windows.Input;
 using Microsoft.Web.WebView2.Core;
@@ -16,9 +16,37 @@ public partial class MainWindow : Window
     private ServerConfig _config = new();
     private bool _coreReady;
 
+    /// <summary>Where to get a newer client, as the server reports it. Empty means no link is configured.</summary>
+    private string _downloadUrl = string.Empty;
+
+    /// <summary>The newest release the server knows of — what a dismissal is remembered against.</summary>
+    private string _latestKnownVersion = string.Empty;
+
+    /// <summary>
+    /// The version whose notice the user hid. Per version rather than a bare bool, so dismissing today's notice
+    /// does not silently suppress the next release's — and deliberately not persisted: a reminder once per
+    /// session is the point.
+    /// </summary>
+    private string _noticeDismissedForVersion = string.Empty;
+
     public MainWindow()
     {
         InitializeComponent();
+    }
+
+    /// <summary>
+    /// The earliest point at which the window has an HWND, which the DWM chrome attributes need.
+    ///
+    /// <para>
+    /// Windows' own preference is the starting theme and the *only* time it is consulted: no page has loaded, so
+    /// there is no web app to ask. From the first navigation on, <see cref="ApplyReportedTheme"/> takes over.
+    /// Doing this before <c>Loaded</c> is what keeps a dark-mode PC from flashing a white caption on launch.
+    /// </para>
+    /// </summary>
+    private void Window_SourceInitialized(object? sender, EventArgs e)
+    {
+        WindowTheme.Apply(this, WindowTheme.ResolveOsPreference());
+        WindowTheme.Reapply(this);
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -61,6 +89,11 @@ public partial class MainWindow : Window
 
             var env = await CoreWebView2Environment.CreateAsync(browserExecutableFolder: null, userDataFolder: userDataFolder);
             await WebView.EnsureCoreWebView2Async(env);
+
+            WebView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
+            WebView.CoreWebView2.ContextMenuRequested += WebView_ContextMenuRequested;
+            await WebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(ThemeReporterScript);
+
             _coreReady = true;
             return true;
         }
@@ -99,9 +132,60 @@ public partial class MainWindow : Window
             ShowConnecting(); // Re-render: the target line was showing the unresolved port.
         }
 
+        // What this server requires of a client, read natively BEFORE the app is loaded — the desktop twin of the
+        // mobile shells' launch probe. Until this existed the WPF shell was outside the version floor entirely:
+        // it sends no X-Client-Version through a bridge it does not have, and the middleware reads a missing
+        // header as "a browser, accept it".
+        var requirements = await ClientRequirements.FetchAsync(_config.BaseUrl);
+        if (!_coreReady)
+        {
+            return; // The window closed while probing.
+        }
+
+        // Null means the server said nothing readable — offline, an older server with no such route, a malformed
+        // body. That must mean "no floor", never "refuse": a shell that will not start because a probe failed is
+        // worse than anything it could prevent.
+        if (requirements is not null)
+        {
+            _downloadUrl = requirements.DownloadUrl;
+
+            if (ClientRequirements.IsOlderThan(ClientRequirements.InstalledVersion, requirements.MinimumShellVersion))
+            {
+                // Below the floor: every /api call would be refused with 426, so loading the app would show a
+                // clinic a screen where nothing works. Refuse here instead, with somewhere to go.
+                ShowUpdateRequired(requirements.MinimumShellVersion);
+                return;
+            }
+
+            ShowUpdateNoticeIfNewer(requirements.CurrentShellVersion);
+        }
+
         // Navigate() (rather than setting Source) forces a fresh request even when the URL is unchanged,
         // so "Réessayer" and "Recharger" actually re-attempt the connection.
         WebView.CoreWebView2.Navigate(_config.BaseUrl);
+    }
+
+    /// <summary>
+    /// A newer build exists but this one still works, so this is a strip and not a wall. Dismissal is remembered
+    /// per version: hiding it must not hide the *next* release too.
+    /// </summary>
+    private void ShowUpdateNoticeIfNewer(string currentShellVersion)
+    {
+        var installed = ClientRequirements.InstalledVersion;
+        _latestKnownVersion = currentShellVersion;
+        if (!ClientRequirements.IsOlderThan(installed, currentShellVersion)
+            || string.Equals(_noticeDismissedForVersion, currentShellVersion, StringComparison.Ordinal))
+        {
+            UpdateNoticeBar.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        UpdateNoticeText.Text =
+            $"Une nouvelle version ({currentShellVersion}) est disponible. Vous utilisez la version {installed}.";
+        // No link configured means no button, never a button that goes nowhere.
+        UpdateNoticeDownloadButton.Visibility =
+            string.IsNullOrWhiteSpace(_downloadUrl) ? Visibility.Collapsed : Visibility.Visible;
+        UpdateNoticeBar.Visibility = Visibility.Visible;
     }
 
     private void WebView_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -119,6 +203,109 @@ public partial class MainWindow : Window
         }
     }
 
+    // ---- Following the web app's theme ----------------------------------------------------------
+
+    /// <summary>
+    /// Injected into every top-level document before its own scripts run; reports the resolved theme and every
+    /// later change to it.
+    ///
+    /// <para>
+    /// ⚠️ **It watches a class rather than asking once.** The theme is next-themes with <c>attribute="class"</c>,
+    /// so the truth is a <c>dark</c> class on <c>&lt;html&gt;</c> — written by a pre-hydration script that has not
+    /// necessarily run when this one does, and rewritten whenever the user changes the setting inside the app or
+    /// the OS preference moves under <c>system</c>. A single read at navigation-completed would be correct on the
+    /// login page and stale for the rest of the session.
+    /// </para>
+    /// <para>
+    /// ⚠️ Top frame only. This script runs in every frame including iframes, and a themeless iframe reporting
+    /// « light » would fight the page containing it.
+    /// </para>
+    /// <para>
+    /// Everything is wrapped: a page that somehow breaks this must lose the chrome tint, never its own scripts.
+    /// </para>
+    /// </summary>
+    private const string ThemeReporterScript = """
+        (function () {
+          try {
+            if (window.top !== window) { return; }
+            var last = null;
+            var report = function () {
+              var dark = document.documentElement.classList.contains('dark');
+              if (dark === last) { return; }
+              last = dark;
+              window.chrome.webview.postMessage(dark ? 'theme:dark' : 'theme:light');
+            };
+            new MutationObserver(report).observe(document.documentElement, {
+              attributes: true,
+              attributeFilter: ['class'],
+            });
+            report();
+            document.addEventListener('DOMContentLoaded', report);
+          } catch (e) { /* chrome tint only — never the page's problem */ }
+        })();
+        """;
+
+    private void WebView_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        // TryGetWebMessageAsString throws if the page posted a non-string (any script on the page may post here).
+        string message;
+        try
+        {
+            message = e.TryGetWebMessageAsString();
+        }
+        catch (ArgumentException)
+        {
+            return;
+        }
+
+        switch (message)
+        {
+            case "theme:dark":
+                WindowTheme.Apply(this, dark: true);
+                break;
+            case "theme:light":
+                WindowTheme.Apply(this, dark: false);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The two commands that used to be the « Serveur » menu, now on the page's own right-click menu.
+    ///
+    /// <para>
+    /// They are prepended, above a separator: the WebView's stock entries (Retour, Recharger, Inspecter…) are the
+    /// page's, and these two are the *shell's*. Burying them under the browser's own list would make the only way
+    /// to reach a different server the hardest thing in the window to find.
+    /// </para>
+    /// </summary>
+    private void WebView_ContextMenuRequested(object? sender, CoreWebView2ContextMenuRequestedEventArgs e)
+    {
+        var environment = WebView.CoreWebView2.Environment;
+
+        var reload = environment.CreateContextMenuItem(
+            "Recharger", iconStream: null, CoreWebView2ContextMenuItemKind.Command);
+        // Not the page's own reload: this re-probes the port and re-reads the server's version floor, which is
+        // what makes "Recharger" a fix for a server that has just come back up.
+        reload.CustomItemSelected += async (_, _) =>
+        {
+            if (await EnsureWebViewAsync())
+            {
+                NavigateToServer();
+            }
+        };
+
+        var changeServer = environment.CreateContextMenuItem(
+            "Changer de serveur…", iconStream: null, CoreWebView2ContextMenuItemKind.Command);
+        changeServer.CustomItemSelected += (_, _) => ShowServerConfig();
+
+        var separator = environment.CreateContextMenuItem(
+            string.Empty, iconStream: null, CoreWebView2ContextMenuItemKind.Separator);
+
+        e.MenuItems.Insert(0, reload);
+        e.MenuItems.Insert(1, changeServer);
+        e.MenuItems.Insert(2, separator);
+    }
+
     // ---- View-state switching -------------------------------------------------------------------
 
     private void ShowWebView()
@@ -127,6 +314,7 @@ public partial class MainWindow : Window
         ConnectingPanel.Visibility = Visibility.Collapsed;
         ServerConfigPanel.Visibility = Visibility.Collapsed;
         UnreachablePanel.Visibility = Visibility.Collapsed;
+        UpdateRequiredPanel.Visibility = Visibility.Collapsed;
     }
 
     private void ShowConnecting()
@@ -136,6 +324,7 @@ public partial class MainWindow : Window
         WebView.Visibility = Visibility.Collapsed;
         ServerConfigPanel.Visibility = Visibility.Collapsed;
         UnreachablePanel.Visibility = Visibility.Collapsed;
+        UpdateRequiredPanel.Visibility = Visibility.Collapsed;
     }
 
     private void ShowServerConfig()
@@ -149,6 +338,7 @@ public partial class MainWindow : Window
         WebView.Visibility = Visibility.Collapsed;
         ConnectingPanel.Visibility = Visibility.Collapsed;
         UnreachablePanel.Visibility = Visibility.Collapsed;
+        UpdateRequiredPanel.Visibility = Visibility.Collapsed;
         ServerAddressTextBox.Focus();
     }
 
@@ -159,19 +349,12 @@ public partial class MainWindow : Window
         WebView.Visibility = Visibility.Collapsed;
         ConnectingPanel.Visibility = Visibility.Collapsed;
         ServerConfigPanel.Visibility = Visibility.Collapsed;
+        UpdateRequiredPanel.Visibility = Visibility.Collapsed;
     }
 
     // ---- Event handlers -------------------------------------------------------------------------
 
     private void ChangeServer_Click(object sender, RoutedEventArgs e) => ShowServerConfig();
-
-    private async void Reload_Click(object sender, RoutedEventArgs e)
-    {
-        if (await EnsureWebViewAsync())
-        {
-            NavigateToServer();
-        }
-    }
 
     private async void Retry_Click(object sender, RoutedEventArgs e)
     {
@@ -210,5 +393,57 @@ public partial class MainWindow : Window
         _config = parsed;
         ServerConfigStore.Save(_config);
         NavigateToServer();
+    }
+
+    /// <summary>
+    /// This build is below the server's floor. Shown INSTEAD of the app, never over it: loading a page whose
+    /// every request returns 426 hands a clinic a screen where nothing works and no reason why.
+    /// </summary>
+    private void ShowUpdateRequired(string minimumVersion)
+    {
+        UpdateNoticeBar.Visibility = Visibility.Collapsed; // The wall replaces the strip; both at once is noise.
+        UpdateRequiredDetail.Text =
+            $"Ce poste utilise la version {ClientRequirements.InstalledVersion}. "
+            + $"Le serveur exige au minimum la version {minimumVersion}."
+            + Environment.NewLine + Environment.NewLine
+            + "Installez la nouvelle version du client pour continuer.";
+        UpdateRequiredDownloadButton.Visibility =
+            string.IsNullOrWhiteSpace(_downloadUrl) ? Visibility.Collapsed : Visibility.Visible;
+
+        UpdateRequiredPanel.Visibility = Visibility.Visible;
+        WebView.Visibility = Visibility.Collapsed;
+        ConnectingPanel.Visibility = Visibility.Collapsed;
+        ServerConfigPanel.Visibility = Visibility.Collapsed;
+        UnreachablePanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void DownloadUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_downloadUrl))
+        {
+            return;
+        }
+
+        try
+        {
+            // UseShellExecute so Windows opens it in the default browser rather than trying to execute it.
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(_downloadUrl)
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            // A misconfigured URL must not take the shell down — the app behind it still works.
+            MessageBox.Show(
+                "Le lien de téléchargement n'a pas pu être ouvert." + Environment.NewLine + Environment.NewLine + ex.Message,
+                "Mise à jour", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void DismissUpdateNotice_Click(object sender, RoutedEventArgs e)
+    {
+        _noticeDismissedForVersion = _latestKnownVersion;
+        UpdateNoticeBar.Visibility = Visibility.Collapsed;
     }
 }

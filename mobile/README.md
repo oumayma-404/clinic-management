@@ -107,13 +107,23 @@ A hosted deployment with a publicly-trusted certificate needs none of this.
    **Changer de serveur…** — no reinstall.
 3. The same menu offers **Recharger** and **Quitter**.
 
-### Avant la première soumission — four things still open
+### Avant la première soumission — two things still open
 
-1. **The bundle identifier.** `applicationId` is `com.clinicmanagement.shell`, which is **provisional**. It cannot
-   be changed after the first submission. Settle it, in `android/app/build.gradle.kts`.
-2. **The display name.** `app_name` in `res/values/strings.xml` reads « Gestion Clinique ».
-3. **The store account owner** and **the hosted domain a reviewer can reach**.
-4. **`versionCode`** must increase on every upload; `versionName` is what reaches `X-Client-Version` and must stay
+**Settled** — the product is called **« Gestion Clinique »** on every platform (`app_name` in
+`res/values/strings.xml`, iOS's `CFBundleDisplayName`, the web app's `PRODUCT_NAME`, the Windows shell and both
+installers), and the bundle identifier is **`com.clinicmanagement.shell`** on both stores. Neither can be changed
+after the first submission, and the identifier must move on both platforms in one commit or the two stores hold
+two different products.
+
+The launcher icon is the adaptive icon in `res/mipmap-anydpi/ic_launcher.xml` — the same tooth mark as the web
+tile and the iOS `AppIcon`. ⚠️ Its `ic_launcher_foreground.xml` carries the glyph **by hand**, because an Android
+vector drawable is the one output `web/scripts/generate-icons.mjs` cannot rasterise; changing the master means
+copying the new `d` across, and the file's own comment says so.
+
+Still open:
+
+1. **The store account owner** and **the hosted domain a reviewer can reach**.
+2. **`versionCode`** must increase on every upload; `versionName` is what reaches `X-Client-Version` and must stay
    parseable as dotted integers.
 
 ---

@@ -88,13 +88,19 @@ mobile/
 
 - The build needs a JDK 17 and the Android SDK on the machine; `mobile/README.md` has the exact versions and the
   build commands. There is no standalone `gradle` requirement — the committed wrapper is the entry point.
-- `applicationId` is **provisional**. The bundle identifier and the display name are two of Part 8's deferred
-  business decisions and an applicationId cannot be changed after the first store submission.
+- **The name and the identifier are settled**: « Gestion Clinique » on every platform, `com.clinicmanagement.shell`
+  on both stores. Neither can be changed after the first submission, and the identifier lives in **two** files
+  (`android/app/build.gradle.kts`, `ios/project.yml`) that must move together or the stores hold two products.
 - **Do not mark Part 5 done on a simulator** — it does not faithfully exercise persistent cookies, print or
   biometrics, which are three of the four things the iOS shell exists to provide. A green CI build proves the
   Swift compiles and nothing more.
-- **iOS has no app icon and a provisional bundle id**, both Part 8's. And free signing carries **no APNs
-  entitlement**, so Part 6's iOS half cannot be tested on the free path at all.
+- **Both shells now carry the product mark**, and it has **one** source: the `id="mark"` path in
+  `web/branding/icon.svg`. `web/scripts/generate-icons.mjs` rasterises the iOS `AppIcon` (and the Windows `.ico`)
+  from it directly; Android's `ic_launcher_foreground.xml` is the one copy, because a vector drawable is not
+  something `sharp` can emit — its comment names the master, and changing the logo means editing that path too.
+  ⚠️ Neither icon has been seen on hardware. A miswired iOS asset catalog builds **successfully** and ships a
+  white square.
+- Free signing carries **no APNs entitlement**, so Part 6's iOS half cannot be tested on the free path at all.
 
 ## The port rule — one rule, three clients
 

@@ -37,11 +37,15 @@ targets:
           - Info.plist
     settings:
       base:
-        # ⚠️ PROVISIONAL, and it must stay in step with Android's `applicationId`. The bundle identifier and the
-        # display name are two of Part 8's four deferred business decisions, and a bundle id cannot be changed
-        # after the first store submission — see `mobile/ios/README.md` § « Avant la première soumission ».
+        # SETTLED. It must stay in step with Android's `applicationId`, and it cannot be changed after the first
+        # store submission — see `mobile/ios/README.md` § « Avant la première soumission ».
         PRODUCT_BUNDLE_IDENTIFIER: com.clinicmanagement.shell
         INFOPLIST_FILE: ClinicShell/Info.plist
+        # The 1024×1024 in `ClinicShell/Assets.xcassets/AppIcon.appiconset`, generated from the one master by
+        # `web/scripts/generate-icons.mjs`. ⚠️ Naming the set is required: without this setting Xcode compiles the
+        # catalog and ships an app with **no** icon — a build that succeeds and a home screen showing a white
+        # square, which is exactly the failure mode nobody notices until the first TestFlight install.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1,2"
         # Free CI has no signing identity and needs none: the artifact is an unsigned .app that Sideloadly signs
         # on the operator's own machine with their free Apple ID. See the README.

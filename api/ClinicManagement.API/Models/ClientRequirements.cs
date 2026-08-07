@@ -30,7 +30,8 @@ public sealed record ClientRequirements(
             section["CurrentShellVersion"] ?? string.Empty,
             new ClientStoreUrls(
                 section["StoreUrls:Android"] ?? string.Empty,
-                section["StoreUrls:Ios"] ?? string.Empty));
+                section["StoreUrls:Ios"] ?? string.Empty,
+                section["StoreUrls:Windows"] ?? string.Empty));
     }
 
     /// <summary>
@@ -44,5 +45,17 @@ public sealed record ClientRequirements(
         && reported < floor;
 }
 
-/// <summary>Both listings, so a refused shell can name the right store for the phone it is running on.</summary>
-public sealed record ClientStoreUrls(string Android, string Ios);
+/// <summary>
+/// Where each client goes to update itself, so a refused shell can name the right destination for the machine it
+/// is running on.
+///
+/// <para>⚠️ <b><see cref="Windows"/> is not a store listing and that is the point.</b> The desktop shell is
+/// distributed as an installer the operator hosts, so this is a plain download URL rather than a marketplace
+/// entry. It sits on this record anyway because the question the record answers — « where does *this* client get
+/// a newer build? » — is one question with three answers, and a second endpoint for the desktop half would be a
+/// second place for the floor and the current release to drift apart.</para>
+///
+/// <para>Empty means that platform has nowhere to send anyone yet, which every consumer must render as « no
+/// download link » rather than as a broken one.</para>
+/// </summary>
+public sealed record ClientStoreUrls(string Android, string Ios, string Windows);

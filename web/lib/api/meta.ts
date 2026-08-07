@@ -7,7 +7,9 @@ export interface ClientRequirementsDto {
   /** The release the stores currently carry. Empty until an operator states one. */
   currentShellVersion: string;
   /** Empty for a platform with no listing yet. */
-  storeUrls: { android: string; ios: string };
+  // `windows` is a plain installer download URL, not a store listing — the desktop shell is distributed by the
+  // operator. The web gate never reads it (a browser is never out of date); the WPF shell does, natively.
+  storeUrls: { android: string; ios: string; windows: string };
 }
 
 export const metaApi = {

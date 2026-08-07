@@ -43,15 +43,71 @@ parallel with everything else.
 | 2.1 | **Apple Developer Program** | ~$99 / year | hours–days (can be longer for companies: D-U-N-S number required) | iPhone shell, at all |
 | 2.2 | **Google Play Console** | ~$25 one-time | hours–days | Android shell |
 | 2.3 | **Windows code signing** — ⚠️ **deferrable, see below** | ~$10 / mo (Azure Trusted Signing) or ~$200–600 / yr (OV/EV) | days–weeks (identity vetting) | Desktop installer without a SmartScreen warning |
-| 2.4 | **Server hosting** (VPS, ≥4 GB RAM, backed-up disk) | ~$20–60 / month | minutes | The hosted backend |
+| 2.4 | **Server hosting** (≥4 GB RAM) — ⚠️ **free for the pilot, see below** | **$0** (Oracle Always Free) → ~**€4.35 / mo** (Hetzner CX22) | minutes–days | The hosted backend |
 | 2.5 | **Domain name** | ~$10–40 / year | minutes | TLS, store listings, email links |
-| 2.6 | **Off-site backup storage** (S3-compatible bucket, for WAL-G PITR) | a few $ / month | minutes | `WALG_S3_*` — off-machine recovery |
-| 2.7 | **Transactional email sender** (SMTP: Brevo / Postmark / SES) | free tier–$15 / month | hours (domain verification: SPF + DKIM) | Clinic self-signup verification emails |
+| 2.6 | **Off-site backup storage** (S3-compatible, for WAL-G PITR) | **$0** — Oracle Object Storage 20 GB, or Cloudflare R2 10 GB | minutes | `WALG_S3_*` — off-machine recovery |
+| 2.7 | **Transactional email sender** (SMTP) | **$0** — Brevo free: 300/day (~9 k/month) | hours (domain verification: SPF + DKIM) | Clinic self-signup verification emails |
 | 2.8 | A **physical Android phone** and a **physical iPhone** | — | — | The hardware walks in §5/§6 that no CI replaces |
 | 2.9 | A **Mac**, or a paid macOS CI runner | — | — | iOS archive + upload (unsigned CI build is not enough) |
 
 ⚠️ **2.9:** `mobile/ios/` has **never been compiled**. Get `.github/workflows/ios-shell.yml` green *before* spending
 anything on 2.1 — a green build is the cheapest proof the Swift is real.
+
+### ⚠️ 2.4 in detail — start free, move to ~€5/month before real patients
+
+**Oracle Cloud Always Free** is the one free option that genuinely fits: **2 OCPU / 12 GB RAM (ARM)**, 200 GB block
+storage, never expires, commercial use allowed. Note it was **4 OCPU / 24 GB until Oracle halved it on 15 June 2026
+with no announcement** — 12 GB still comfortably exceeds what this stack needs.
+
+Three caveats before relying on it:
+
+1. **It is ARM (aarch64).** Every image must have an arm64 variant. .NET 8, Node, Postgres, Caddy and MinIO do —
+   ⚠️ **verify WAL-G**, which is the one to check. Cheap to test, and the only real technical risk.
+2. **"Out of host capacity"** is common for ARM in busy regions. Frankfurt and Singapore reportedly provision in
+   minutes; US East can take days.
+3. **Oracle can reclaim idle Always Free instances.** A two-clinic pilot may look idle.
+
+A credit card is required for identity verification, and Oracle has just shown it will cut free limits silently.
+
+**Compare: Hetzner CX22 is ~€4.35/month** (2 vCPU / 4 GB, x86) — no ARM question, no capacity lottery, no
+reclamation. So the real choice is *free-with-friction* versus *~€5/month with none*.
+
+**Recommendation: Oracle free for the § 3 deploy rehearsal, restore drill and CSP walk. Move to Hetzner before the
+first real clinic** — patient data on an instance that may be reclaimed is not worth €5.
+
+⚠️ **Free does not dodge § 7.** Neither provider has a Tunisian region, so either way you are choosing a
+jurisdiction (EU, most likely). Settle **data residency first** — it can override both options.
+
+#### If you have no credit card
+
+Oracle, AWS, GCP, Azure and Fly.io all require a card for identity verification, and **no free multi-container
+cloud host fits this stack**: Render's free tier sleeps on inactivity (which alone kills the reminder dispatcher,
+the backup job and the push queue), Koyeb's gives one web service plus one Postgres, and Back4app one container.
+This stack is five containers plus minutely Hangfire jobs.
+
+**The cardless path is to self-host and tunnel** — which suits this product, since it already ships a
+`SelfHostedLan` profile designed to run on a clinic's own Windows PC:
+
+1. Run `deploy/docker-compose.hosted.yml` on a machine you own (Docker is already installed for dev).
+2. Expose it with **Tailscale Funnel** — free, **no card, no domain**, valid HTTPS on
+   `machine.<tailnet>.ts.net`, works behind NAT with no port forwarding.
+   (Cloudflare Tunnel is the alternative, but reports conflict on whether it requires a card, and a custom
+   hostname needs a domain you own.)
+
+⚠️ Three caveats: **Tailscale's free tier is personal-use** — fine for the § 3 rehearsal, **not** for serving real
+clinics; the machine must stay powered on; and **the tunnel terminates TLS**, so Caddy must not also request an
+ACME certificate — serve plain HTTP behind the tunnel and add the tunnel hop to `Security__TrustedProxies`, or
+every address-keyed rate limit collapses into a single bucket.
+
+⚠️ **Linode/Akamai's "$100 / 60-day trial" is NOT cardless** — Akamai requires a valid card or PayPal to activate
+the credit, and **charges it automatically once the credit expires or runs out**. Widely repeated as "no credit
+card required"; it is not. And with a payment method in hand, **Oracle Always Free beats it anyway** — permanent
+$0 versus a 60-day credit with a billing cliff.
+
+⚠️ **Worth asking your bank about a Tunisian « carte technologique »** (the prepaid card with an annual
+foreign-currency allowance for online tech purchases), or any virtual prepaid card. **Unverified — confirm with the
+bank.** It would unlock Oracle Always Free permanently and Hetzner later, and turn this whole section back into the
+normal path.
 
 ### ⚠️ 2.3 in detail — you probably do not need this yet
 

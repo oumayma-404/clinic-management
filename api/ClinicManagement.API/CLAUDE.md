@@ -220,7 +220,7 @@ Secrets are **not committed** (feature cloud-security-and-tenant-isolation, AC-3
 - `Meta:{AppId,AppSecret,GraphApiVersion}` (WhatsApp Embedded Signup — Cloud onboarding, 404 in Local)
 - `Notification:Smtp:*` / `Notification:Sms:*` (dormant legacy)
 - `FrontendUrl` (primary CORS origin + OAuth success redirect); `Cors:AllowedOrigins` (optional LAN origins)
-- **`Clients:MinimumShellVersion`** / `Clients:CurrentShellVersion` / `Clients:StoreUrls:{Android,Ios}` — the native-shell version floor and where to update. Operator-owned, empty by default (**empty = no floor**), effective without a restart
+- **`Clients:MinimumShellVersion`** / `Clients:CurrentShellVersion` / `Clients:StoreUrls:{Android,Ios,Windows}` — the client version floor and where to update. Operator-owned, empty by default (**empty = no floor**), effective without a restart. ⚠️ **`StoreUrls:Windows` is not a store listing**: the desktop shell is an installer the operator hosts, so it is a plain download URL. It lives on the same record because « where does *this* client get a newer build? » is one question with three answers, and a second endpoint for the desktop half would let the floor and the current release drift apart
 - `Https:{CertPath,CertPassword}`, `Hosting:{Urls,HttpPort,HttpsPort,WebPort}` (LAN hosting / front door; Local self-generates the cert into `.local/` when `CertPath` empty)
 - `Backup:{PgDumpPath,DefaultDestination,TimeoutSeconds}` (one-click backup)
 - `Serilog:*`, `Logging:*`, `AllowedHosts`

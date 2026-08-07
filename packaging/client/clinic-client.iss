@@ -14,21 +14,33 @@
 ; build-output\client\ca\ca.crt, then compile with Inno Setup 6 (ISCC.exe). See ..\README.md.
 ; ============================================================================================
 
-#define AppName      "Clinic Management"
+#define AppName      "Gestion Clinique"
 #define AppVersion   "1.0.0"
-#define AppPublisher "Clinic Management"
+#define AppPublisher "Gestion Clinique"
 #define AppExe       "ClinicManagement.DesktopShell.exe"
+; The shell's own icon, read straight out of the repo at compile time. Generated from the one master
+; (web/branding/icon.svg) by web/scripts/generate-icons.mjs -- the same file the .exe embeds, so the setup
+; wizard, the Programs list and the running app cannot show three different marks.
+#define AppIcon      SourcePath + "\..\..\desktop\ClinicManagement.DesktopShell\Assets\app.ico"
 
 [Setup]
 AppId={{9B2E4C71-8A3F-4E15-B6D2-CLINICCLIENT01}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
+; ⚠️ DefaultDirName is deliberately NOT renamed with the product. Inno keys an upgrade on AppId and reuses the
+; recorded directory, so this string only ever names the folder of a *fresh* install -- renaming it would split
+; deployed clinics across two paths for no user-visible gain, since nothing shows the operator this folder.
 DefaultDirName={autopf}\Clinic Management Client
-DefaultGroupName=Clinic Management
+DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir={#SourcePath}\..\build-output
+; The artifact filename stays ASCII and stays stable: it is typed into a URL, and StoreUrls:Windows points at it.
 OutputBaseFilename=ClinicManagementClientSetup-{#AppVersion}
+SetupIconFile={#AppIcon}
+; What the Programs-and-Features row shows. Without it Windows renders a generic box beside the entry.
+UninstallDisplayIcon={app}\{#AppExe}
+UninstallDisplayName={#AppName}
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible

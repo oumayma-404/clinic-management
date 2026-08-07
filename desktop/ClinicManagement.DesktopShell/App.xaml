@@ -3,5 +3,96 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
+        <!--
+          The shell's palette, as the LIGHT values. `WindowTheme.Apply` overwrites every one of these keys when the
+          web app reports its theme, so each is consumed with `DynamicResource` — a `StaticResource` would bake the
+          light value in and the swap would silently do nothing.
+
+          These are here rather than only in WindowTheme.cs so the XAML designer and a first frame drawn before any
+          code runs are never a flash of unstyled window.
+        -->
+        <SolidColorBrush x:Key="ShellBackground" Color="#F1F8FA"/>
+        <SolidColorBrush x:Key="ShellCard" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="ShellInk" Color="#0F171C"/>
+        <SolidColorBrush x:Key="ShellInkMuted" Color="#59666B"/>
+        <SolidColorBrush x:Key="ShellBorder" Color="#DDE4E6"/>
+        <SolidColorBrush x:Key="ShellAccent" Color="#00736B"/>
+        <SolidColorBrush x:Key="ShellAccentInk" Color="#F8FDFC"/>
+        <SolidColorBrush x:Key="ShellDanger" Color="#C92F33"/>
+        <SolidColorBrush x:Key="ShellNoticeBackground" Color="#FFF4CE"/>
+        <SolidColorBrush x:Key="ShellNoticeBorder" Color="#E1C65B"/>
+        <SolidColorBrush x:Key="ShellNoticeInk" Color="#F0D89A"/>
+
+        <!--
+          ⚠️ The buttons and the text box need their own ControlTemplates, and this is not styling for its own sake.
+          WPF's default templates paint the SYSTEM chrome — a light grey gradient with a light hover — and they
+          ignore a Background set on the control the moment the pointer enters it. Under the dark palette that is a
+          bright grey rectangle appearing under the cursor on a near-black panel. There is no way to reach that
+          from a property setter, so the template is replaced.
+        -->
+        <Style x:Key="ShellButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource ShellInk}"/>
+            <Setter Property="Background" Value="{DynamicResource ShellCard}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ShellBorder}"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" CornerRadius="6" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <!-- Hover/press are opacity shifts rather than second and third colours: they then
+                                 work under both palettes without either being tuned by hand. -->
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ShellPrimaryButton" TargetType="Button" BasedOn="{StaticResource ShellButton}">
+            <Setter Property="Background" Value="{DynamicResource ShellAccent}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ShellAccentInk}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ShellAccent}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <!-- The update strip's dismiss "✕": no plate, no border, just a hit area. -->
+        <Style x:Key="ShellGhostButton" TargetType="Button" BasedOn="{StaticResource ShellButton}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource ShellNoticeInk}"/>
+            <Setter Property="Padding" Value="8,2"/>
+        </Style>
+
+        <Style x:Key="ShellTextBox" TargetType="TextBox">
+            <Setter Property="Foreground" Value="{DynamicResource ShellInk}"/>
+            <Setter Property="Background" Value="{DynamicResource ShellCard}"/>
+            <Setter Property="CaretBrush" Value="{DynamicResource ShellInk}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ShellBorder}"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border CornerRadius="6" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Application.Resources>
 </Application>
