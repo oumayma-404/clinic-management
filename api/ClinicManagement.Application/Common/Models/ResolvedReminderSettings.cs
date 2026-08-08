@@ -8,7 +8,14 @@ namespace ClinicManagement.Application.Common.Models;
 /// <c>Reminders</c> config. Produced by <see cref="Interfaces.IReminderSettingsProvider"/> and consumed by the
 /// channel senders — secrets here are already <b>decrypted</b> (in-process only; never serialized/logged).
 /// A null secret means "not configured" for that channel (either genuinely unset, or a decryption failure).
-/// Provider endpoint URLs stay per-install.
+///
+/// <para>
+/// ⚠️ <b>Resolution is per channel, not per field.</b> A clinic that supplies any of a channel's endpoint,
+/// identity or secret owns that whole channel and inherits nothing further for it — so a null secret beside a
+/// per-clinic endpoint means the clinic has not finished configuring it, never that the install's credential
+/// applies. Pairing a tenant endpoint with the install's secret is what sent that secret to the tenant's host;
+/// see <c>ReminderSettingsProvider.ClaimsItsOwnSms</c>.
+/// </para>
 /// </summary>
 public sealed record ResolvedReminderSettings
 {

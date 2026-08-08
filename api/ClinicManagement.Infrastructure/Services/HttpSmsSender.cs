@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Models;
+﻿using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Enums;
 using Microsoft.Extensions.Logging;
 
@@ -16,7 +16,7 @@ public class HttpSmsSender : HttpReminderChannelSender, IReminderChannelSender
     public HttpSmsSender(
         IHttpClientFactory httpClientFactory,
         ILogger<HttpSmsSender> logger)
-        : base(httpClientFactory)
+        : base(httpClientFactory, logger)
     {
         _logger = logger;
     }

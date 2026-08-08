@@ -254,6 +254,10 @@ public static class Extensions
         //   - The channel senders are registered as a set; the dispatcher (NotificationJob) routes each due
         //     row to the sender whose Channel matches the row's NotificationType.
         services.AddScoped<IReminderSettingsProvider, ReminderSettingsProvider>();
+
+        // Whether a clinic may aim an integration endpoint at a private address. Singleton for the same reason
+        // the profile it reads is one: immutable, derived from startup configuration.
+        services.AddSingleton<IOutboundEndpointPolicy, OutboundEndpointPolicy>();
         services.AddScoped<IReminderScheduler, ReminderScheduler>();
         services.AddScoped<IReminderChannelSender, HttpSmsSender>();
         services.AddScoped<IReminderChannelSender, WhatsAppSender>();

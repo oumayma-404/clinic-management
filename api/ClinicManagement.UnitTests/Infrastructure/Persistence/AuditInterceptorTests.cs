@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
@@ -403,7 +403,7 @@ public class AuditInterceptorTests
 
     /// <summary>
     /// [I6] The auditable set is <b>derived</b> from <see cref="AggregateRoot{TId}"/>, so the only thing anyone
-    /// can quietly grow is the exclusion list — and this pins it to the two documented names.
+    /// can quietly grow is the exclusion list — and this pins it to the three documented names.
     ///
     /// <para>Deliberately <b>not</b> a re-walk of the base chain over every model type: that would reimplement
     /// the production rule and then assert the reimplementation against itself, which passes whatever the
@@ -413,17 +413,23 @@ public class AuditInterceptorTests
     /// change tracker. What is left to guard is the hand-maintained part, which is exactly this list.</para>
     /// </summary>
     [Fact]
-    public void The_Exclusion_List_Is_Still_Only_The_Two_Documented_Types()
+    public void The_Exclusion_List_Is_Still_Only_The_Documented_Types()
     {
         var excluded = (HashSet<string>)typeof(AuditSaveChangesInterceptor)
             .GetField("ExcludedEntityTypes", BindingFlags.NonPublic | BindingFlags.Static)!
             .GetValue(null)!;
 
+        // Each entry is structural, and each has its reason on the field itself:
+        //   AuditEntry    — auditing the audit ledger recurses forever.
+        //   Notification  — a minutely-rewritten outbox would bury a clinic's real history in machine noise.
+        //   ClinicSignup  — written by the ANONYMOUS signup endpoint, so there is no actor and no clinic to
+        //                   attribute it to, no reading of GET /api/audit could ever surface it, and a purge row
+        //                   would preserve an abandoned visitor's name and address for ever.
         Assert.True(
-            excluded.SetEquals(new[] { nameof(AuditEntry), nameof(Notification) }),
+            excluded.SetEquals(new[] { nameof(AuditEntry), nameof(Notification), nameof(ClinicSignup) }),
             "The audit exclusion list changed to [" + string.Join(", ", excluded.OrderBy(x => x))
-            + "]. Both original entries are structural (self-audit recursion; a minutely-rewritten outbox). "
-            + "Anything else excluded here is a mutation an owner can no longer see — justify it on the field "
-            + "and update this test.");
+            + "]. Every entry here is structural — self-audit recursion, a minutely-rewritten outbox, and a row "
+            + "with no actor or clinic to attribute. Anything else excluded is a mutation an owner can no longer "
+            + "see — justify it on the field and update this test.");
     }
 }

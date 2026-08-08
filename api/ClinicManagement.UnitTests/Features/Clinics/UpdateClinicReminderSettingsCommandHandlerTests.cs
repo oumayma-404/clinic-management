@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Clinics.Commands;
@@ -25,6 +25,10 @@ public class UpdateClinicReminderSettingsCommandHandlerTests
     private readonly Mock<IReminderSettingsProvider> _provider = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
+    // Hosted default: a clinic may NOT aim an endpoint at a private address. Tests that need the LAN
+    // behaviour set this up explicitly.
+    private readonly Mock<IOutboundEndpointPolicy> _endpointPolicy = new();
+
     public UpdateClinicReminderSettingsCommandHandlerTests()
     {
         // Post-save effectiveStatus resolution — a permissive default (no channels/creds → not_configured).
@@ -34,7 +38,8 @@ public class UpdateClinicReminderSettingsCommandHandlerTests
     }
 
     private UpdateClinicReminderSettingsCommandHandler Handler() =>
-        new(_settings.Object, _users.Object, _context.Object, _protector.Object, _provider.Object, _uow.Object);
+        new(_settings.Object, _users.Object, _context.Object, _protector.Object, _provider.Object,
+            _endpointPolicy.Object, _uow.Object);
 
     private static User Local(string role) =>
         User.CreateLocalUser(ClinicId, role, $"{role}@clinic.com", "HASH", $"{role} name");

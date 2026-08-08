@@ -1,4 +1,4 @@
-# ClinicManagement.Infrastructure
+﻿# ClinicManagement.Infrastructure
 
 Infrastructure layer (Clean Architecture). Implements the outbound interfaces declared in Domain
 (`Domain/Repositories`) and Application (`Application/Common/Interfaces`): EF Core/PostgreSQL data access +
@@ -293,6 +293,10 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 - **`IReminderChannelSender`** + `HttpSmsSender` (config-driven HTTP gateway, alphanumeric sender id) and
   `WhatsAppSender` (WhatsApp Business Graph API, pre-approved utility template — never free-text) over a shared
   **`HttpReminderChannelSender`** base (15s-bounded JSON POST → `Sent`/`TransientFailure`/`NotConfigured`).
+  ⚠️ **The gateway's response body never reaches the result** — it used to, truncated to 200 bytes, and that string
+  is persisted on the outbox row and served back by `reminder-status` (`AdminOnly`) **and `reminder-log`
+  (`AnyClinicRole`)**. Since the endpoint URL is tenant-supplied, that turned a settings field into a read
+  primitive. Status code to the tenant, body to the log.
   Senders read endpoint/identity/secret/template from the resolved settings, never config directly. All scoped;
   the API `NotificationJob` matches each due row to the sender whose `Channel` == the row's `NotificationType`.
 - **`ReminderScheduler`** (`IReminderScheduler`, scoped) — enqueues/voids `Notification` outbox rows best-effort
@@ -303,6 +307,19 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
   (`ClinicReminderSettings` override ?? per-install `RemindersConfig`): channel toggles (`bool?` = inherit),
   identity, endpoint URLs, lead-time tiers, wording. Secrets decrypted in-process; a broken/rotated key ⇒
   channel treated as **not configured** (logged once per scope, never thrown). Memoized per-clinic per scope.
+  ⚠️ **Resolution is per CHANNEL, not per field** (`SECURITY_REVIEW_2026-08`, finding A). It used to coalesce
+  field by field, so a clinic could supply only the endpoint URL and inherit the **install's** credential — which
+  the dispatcher then presented to that clinic-chosen endpoint as a bearer token or SMTP AUTH. On a hosted backend
+  anyone who signs up is an admin of their own clinic, so that was remote theft of an install-wide secret by a
+  stranger. `ClaimsItsOwn{Sms,WhatsApp,Smtp}` now decide ownership: supply *any* of a channel's endpoint, identity
+  or secret and you own **all** of it, inheriting nothing further for it. Only wording and transport details
+  (template name/language, SMTP port, TLS flag, display name) still inherit — they carry no credential and address
+  no host. Pinned by `ReminderSettingsChannelIsolationTests`.
+- **`OutboundEndpointPolicy`** (`IOutboundEndpointPolicy`, **Singleton**) — whether a clinic may aim an integration
+  endpoint at a **private** address. True on `SelfHostedLan` alone, where the private range is the practice's own
+  network; both hosted kinds refuse, because there it is the *operator's* infrastructure (the database, the object
+  store, the loopback the Hangfire dashboard trusts). The rule it feeds lives in `Domain/Common/OutboundEndpoint`
+  and is applied in `ClinicReminderSettings`' two write methods, so every caller is covered.
 - **`ReminderSecretProtector`** (`IReminderSecretProtector`, **Singleton**) — purpose-scoped `IDataProtector`
   encrypts/decrypts per-clinic reminder secrets at rest.
 - **`RemindersConfig`** — static accessors over the `Reminders` section (channels, lead times, min-lead,

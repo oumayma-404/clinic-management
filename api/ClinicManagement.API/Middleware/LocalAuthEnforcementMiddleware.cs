@@ -42,12 +42,8 @@ public class LocalAuthEnforcementMiddleware
                 return;
             }
 
-            if (!account.IsActive)
-            {
-                await WriteErrorAsync(context, StatusCodes.Status401Unauthorized,
-                    "This account has been deactivated.");
-                return;
-            }
+            // The active-account check moved to AccountStateMiddleware, which runs unconditionally in every
+            // profile — it was skipped entirely on CloudBrowser from here, so deactivating a user did nothing.
 
             if (account.MustChangePassword && !IsChangePasswordRequest(context.Request))
             {

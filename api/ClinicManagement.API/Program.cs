@@ -572,16 +572,23 @@ try
     app.UseMiddleware<ClinicManagement.API.Middleware.ClientVersionMiddleware>();
 
     app.UseAuthentication();
+
+    // Is this account still active, and what role does it ACTUALLY hold? Both are read from the caller's own row
+    // and both are enforced in every profile — see AccountStateMiddleware. ⚠️ It runs BEFORE UseAuthorization
+    // because the role it publishes is what RoleAuthorizationHandler reads; the cost is one account lookup on a
+    // request authorization then refuses, and RequestAccount caches it for everything downstream.
+    app.UseMiddleware<ClinicManagement.API.Middleware.AccountStateMiddleware>();
+
     app.UseAuthorization();
 
     // Whose rows this request may read. Unconditional and in EVERY profile: the global query filters refuse an
     // unset scope, so a request that reached a controller without passing here would read nothing at all. It
-    // sits after UseAuthorization so a refused request never pays for the account lookup, and before the
-    // token-state middleware so the two share that one lookup (see RequestAccount).
+    // reuses the account row the middleware above already resolved (see RequestAccount).
     app.UseMiddleware<ClinicManagement.API.Middleware.TenantScopeMiddleware>();
 
-    // The app-issued JWT is stateless, so enforce account state per request — revoke deactivated accounts and
-    // gate users with a pending forced password change.
+    // Token-version revocation and the pending forced password change — the two things only a self-issued JWT
+    // can have, hence the capability gate. The active-account check that used to live here is now unconditional
+    // above: « a deactivated account cannot use the API » is not a property of a topology.
     if (profile.EnforcesTokenState)
     {
         app.UseMiddleware<ClinicManagement.API.Middleware.LocalAuthEnforcementMiddleware>();

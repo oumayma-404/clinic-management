@@ -1,4 +1,4 @@
-using ClinicManagement.Domain.Common;
+﻿using ClinicManagement.Domain.Common;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -81,7 +81,8 @@ public class ClinicReminderSettings : Entity<Guid>
         string? smsApiUrl,
         string? whatsAppApiUrl,
         IReadOnlyList<int>? leadTimeHours,
-        string? messageTemplateBody)
+        string? messageTemplateBody,
+        bool allowPrivateNetwork = false)
     {
         SmsEnabled = smsEnabled;
         WhatsAppEnabled = whatsAppEnabled;
@@ -89,8 +90,12 @@ public class ClinicReminderSettings : Entity<Guid>
         WhatsAppPhoneNumberId = Normalize(whatsAppPhoneNumberId);
         WhatsAppTemplateName = Normalize(whatsAppTemplateName);
         WhatsAppTemplateLanguage = Normalize(whatsAppTemplateLanguage);
-        SmsApiUrl = Normalize(smsApiUrl);
-        WhatsAppApiUrl = Normalize(whatsAppApiUrl);
+        // The two endpoints a tenant can point wherever it likes. Validated here rather than in the handler so
+        // every caller is covered — see OutboundEndpoint for why this is a security boundary and not tidiness.
+        SmsApiUrl = OutboundEndpoint.ValidateUrl(
+            smsApiUrl, "L'URL de la passerelle SMS", allowPrivateNetwork);
+        WhatsAppApiUrl = OutboundEndpoint.ValidateUrl(
+            whatsAppApiUrl, "L'URL de l'API WhatsApp", allowPrivateNetwork);
         LeadTimeHours = FormatLeadTimeHours(leadTimeHours);
         MessageTemplateBody = Normalize(messageTemplateBody);
         UpdatedAt = DateTime.UtcNow;
@@ -166,9 +171,11 @@ public class ClinicReminderSettings : Entity<Guid>
         bool? smtpUseTls,
         string? smtpUsername,
         string? smtpFromAddress,
-        string? smtpFromName)
+        string? smtpFromName,
+        bool allowPrivateNetwork = false)
     {
-        SmtpHost = Normalize(smtpHost);
+        SmtpHost = OutboundEndpoint.ValidateHost(
+            smtpHost, "Le serveur SMTP", allowPrivateNetwork);
         SmtpPort = smtpPort is > 0 ? smtpPort : null;
         SmtpUseTls = smtpUseTls;
         SmtpUsername = Normalize(smtpUsername);

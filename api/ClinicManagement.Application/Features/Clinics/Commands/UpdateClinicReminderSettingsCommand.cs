@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -26,6 +26,7 @@ public class UpdateClinicReminderSettingsCommandHandler
     private readonly IClinicContext _clinicContext;
     private readonly IReminderSecretProtector _secretProtector;
     private readonly IReminderSettingsProvider _settingsProvider;
+    private readonly IOutboundEndpointPolicy _endpointPolicy;
     private readonly IUnitOfWork _unitOfWork;
 
     public UpdateClinicReminderSettingsCommandHandler(
@@ -34,6 +35,7 @@ public class UpdateClinicReminderSettingsCommandHandler
         IClinicContext clinicContext,
         IReminderSecretProtector secretProtector,
         IReminderSettingsProvider settingsProvider,
+        IOutboundEndpointPolicy endpointPolicy,
         IUnitOfWork unitOfWork)
     {
         _settingsRepository = settingsRepository;
@@ -41,6 +43,7 @@ public class UpdateClinicReminderSettingsCommandHandler
         _clinicContext = clinicContext;
         _secretProtector = secretProtector;
         _settingsProvider = settingsProvider;
+        _endpointPolicy = endpointPolicy;
         _unitOfWork = unitOfWork;
     }
 
@@ -72,25 +75,38 @@ public class UpdateClinicReminderSettingsCommandHandler
             var isNew = settings == null;
             settings ??= new ClinicReminderSettings(user.ClinicId);
 
-            settings.ApplyNonSecretSettings(
-                input.SmsEnabled,
-                input.WhatsAppEnabled,
-                input.SmsSenderId,
-                input.WhatsAppPhoneNumberId,
-                input.WhatsAppTemplateName,
-                input.WhatsAppTemplateLanguage,
-                input.SmsApiUrl,
-                input.WhatsAppApiUrl,
-                input.LeadTimeHours,
-                input.MessageTemplateBody);
+            // The three endpoint fields are the ones a tenant can aim anywhere, so the domain refuses a
+            // non-public target. Caught here rather than left to the exception middleware: this is a typo in a
+            // settings form, and it must come back as the French 400 the screen renders — not a generic 500.
+            var allowPrivate = _endpointPolicy.AllowsPrivateNetworkEndpoints;
+            try
+            {
+                settings.ApplyNonSecretSettings(
+                    input.SmsEnabled,
+                    input.WhatsAppEnabled,
+                    input.SmsSenderId,
+                    input.WhatsAppPhoneNumberId,
+                    input.WhatsAppTemplateName,
+                    input.WhatsAppTemplateLanguage,
+                    input.SmsApiUrl,
+                    input.WhatsAppApiUrl,
+                    input.LeadTimeHours,
+                    input.MessageTemplateBody,
+                    allowPrivate);
 
-            settings.ApplySmtpSettings(
-                input.SmtpHost,
-                input.SmtpPort,
-                input.SmtpUseTls,
-                input.SmtpUsername,
-                input.SmtpFromAddress,
-                input.SmtpFromName);
+                settings.ApplySmtpSettings(
+                    input.SmtpHost,
+                    input.SmtpPort,
+                    input.SmtpUseTls,
+                    input.SmtpUsername,
+                    input.SmtpFromAddress,
+                    input.SmtpFromName,
+                    allowPrivate);
+            }
+            catch (ArgumentException ex)
+            {
+                return Result<ReminderSettingsDto>.Failure(ex.Message);
+            }
 
             // Secrets are write-only: only re-encrypt & replace when a non-blank value is supplied.
             if (!string.IsNullOrWhiteSpace(input.SmsApiKey))

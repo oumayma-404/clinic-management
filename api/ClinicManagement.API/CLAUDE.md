@@ -1,4 +1,4 @@
-# ClinicManagement.API
+﻿# ClinicManagement.API
 
 ASP.NET Core 8 Web API — the presentation/host layer of the clinic-management Clean Architecture solution. Thin controllers delegate to Application via MediatR; **pluggable JWT auth** (`Auth:Mode` = Cloud=Auth0 | Local=self-issued HS256); Hangfire (PostgreSQL) for background jobs; **SignalR** for realtime; Serilog logging; Swagger in dev. Composition root is `Program.cs` (top-level statements, **returns `int`** — a non-zero exit is a deliberate operator-facing failure). It wires Application + Infrastructure (`AddApplication()`, `AddInfrastructure(config)`) and applies EF migrations on startup (mode-branched — see below).
 
@@ -190,9 +190,23 @@ Middleware order (after `Build()`): `UseSwagger`/`UI` (Dev only) → `UseHttpsRe
 
 **`ClientVersionMiddleware`** (`mobile-native-shells` P3, **unconditional in every profile** — a client too old for the server is too old on a clinic's PC and in a datacentre alike, so it asks no capability): reads `X-Client-Version` and refuses a build below `Clients:MinimumShellVersion` with **426** and the canonical `{ error, code: "client_too_old" }`. Three decisions worth knowing. ⚠️ **Before `UseAuthentication`**, departing from the blueprint (plan R-11): the refusal needs no principal, and running it first makes a stale shell's *login* 426 rather than 401 — the client reads 401 as « signed out », and the requirement is the opposite (AC-33). ⚠️ **Scoped to `/api`**, and that is load-bearing rather than tidy: where the front door also serves the web app through the YARP catch-all, refusing every path would 426 the page itself and leave the shell showing raw JSON instead of the French update state that page renders; the BFF routes and `/hub/*` sit outside it, which is also AC-32's « a server-side hop is unaffected ». ⚠️ **Unreadable means accepted** — absent header, malformed version, unset or typo'd floor all pass. Nothing may take the whole API off the air for every browser in the clinic because an operator mistyped a version. Config is read **per request**, so raising the floor needs no restart.
 
+**`AccountStateMiddleware`** (`SECURITY_REVIEW_2026-08`, findings B+C, **unconditional in every profile**):
+refuses a deactivated account and publishes the caller's **DB-resolved role** on `HttpContext.Items` for
+`RoleAuthorizationHandler` to prefer over the JWT claim. ⚠️ **It exists because offboarding did not work on
+`CloudBrowser`**: the only per-request reader of live account state was `LocalAuthEnforcementMiddleware`, gated on
+`EnforcesTokenState` (false there) and skipping non-local accounts anyway — so deactivating a user succeeded, bumped
+`TokenVersion`, showed « Désactivé », and the ex-employee's token kept working while fresh Auth0 logins minted more.
+Demotion had the twin defect: the role lives in Auth0 `app_metadata` and `ChangeUserRoleCommand` never told Auth0,
+so a demoted admin passed `AdminOnly` for ever. ⚠️ **Not gated on a capability** — « a deactivated account cannot use
+the API » is not a property of a topology, and treating it as one is how the gap arose. ⚠️ **Runs before
+`UseAuthorization`**, because the role it publishes is what the handler reads; that costs one account lookup on a
+request authorization then refuses, and `RequestAccount` caches it for everything downstream. Pinned by
+`AccountStateEnforcementTests`, including a source-level guard on both the absence of a capability gate and the
+ordering.
+
 **`TenantScopeMiddleware`** (multi-tenant-cloud US-2, **unconditional in every profile**): sets `ITenantScope` from the caller's **DB-resolved** `User.ClinicId`, so the EF global query filters know whose rows the request may see. It must run before any controller, because those filters now **refuse** an unset scope. ⚠️ An unresolvable caller deliberately leaves the scope `Unset` — anonymous requests, the proxied web pages and a principal with no `User` row yet (Cloud onboarding) all land there and all still work, because `User`/`Clinic` carry no filter. Placed after `UseAuthorization` so a refused request never pays for the lookup, and before the middleware below so the two **share one** account query via `RequestAccount` (which also collapses the duplicated `sub`-claim reading).
 
-**`LocalAuthEnforcementMiddleware`** (Local only): the app-issued JWT is stateless, so per authenticated request it revokes deactivated local accounts (401) and forces a pending password change (403 `{ error, code: "must_change_password" }`) except on `/api/auth/change-password`. It reads the account through `RequestAccount`, i.e. the row the tenant-scope middleware already loaded.
+**`LocalAuthEnforcementMiddleware`** (Local only): the app-issued JWT is stateless, so per authenticated request it enforces **token-version revocation** (401) and forces a pending password change (403 `{ error, code: "must_change_password" }`) except on `/api/auth/change-password`. ⚠️ The **active-account** check moved out of here to `AccountStateMiddleware` above: it was skipped entirely on `CloudBrowser`, which is what made deactivation a no-op there. What remains are the two things only a self-issued JWT can have, which is what `EnforcesTokenState` now accurately means. It reads the account through `RequestAccount`, i.e. the row the tenant-scope middleware already loaded.
 
 **EF migrations — mode-branched.** Cloud runs `context.Database.Migrate()` synchronously in `Program.cs` + `IClinicCatalogSeeder.SeedAllClinicsAsync()` backfill. Local defers both to `Startup/DeferredStartupService` (an `IHostedService` that fire-and-forgets the work after the host reports "started"), because applying migrations synchronously as a Windows service blew past the SCM ~30s start timeout (killed mid-migration). `PublishReadyToRun` speeds cold start for that window. The deferred service surfaces a DB-unreachable failure via `StartupDiagnostics.ReportFatal` + `StopApplication()`.
 

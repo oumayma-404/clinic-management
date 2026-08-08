@@ -324,6 +324,11 @@ public class ClinicsController : ApiControllerBase
     /// a secretary fielding « je n'ai reçu aucun message » needs to do, and a row carries a patient name and a
     /// phone masked to its last two digits — no credentials, no template bodies, nothing the admin gate was
     /// protecting. Every <b>write</b> to the channel settings stays admin-gated.</para>
+    /// <para>⚠️ That claim was <b>false</b> for a while and is worth knowing why. A failed row's
+    /// <c>FailureReason</c> used to carry up to 200 bytes of the gateway's own response body — and the gateway URL
+    /// is set by the clinic, so this endpoint returned whatever a tenant-chosen address answered, to every clinic
+    /// role. <c>HttpReminderChannelSender</c> now reports the status code only and logs the body server-side, which
+    /// is what makes the sentence above true again.</para>
     /// <para>All four filters are optional and <b>tolerant</b>: an unknown status or channel is ignored rather than
     /// refused, so a stale bookmark shows the full log instead of a French error about a query parameter.</para>
     /// </remarks>

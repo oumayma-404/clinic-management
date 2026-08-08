@@ -10,10 +10,16 @@ namespace ClinicManagement.Infrastructure.Services;
 
 /// <summary>
 /// Resolves the effective reminder settings for a clinic: per-clinic overrides where set, else the per-install
-/// <see cref="RemindersConfig"/>. Channel toggles are <c>bool?</c> (null = inherit the install default);
-/// identity fields fall back to the install value; secrets are decrypted in-process. A clinic that set its own
-/// secret whose ciphertext can't be decrypted (rotated/unavailable key) is treated as <b>not configured</b>
-/// for that channel — logged once per scope, never thrown (edge case). Endpoint URLs stay per-install.
+/// <see cref="RemindersConfig"/>. Channel toggles are <c>bool?</c> (null = inherit the install default); secrets
+/// are decrypted in-process.
+///
+/// <para>
+/// ⚠️ <b>Resolution is per CHANNEL, not per field.</b> A clinic that supplies any of a channel's endpoint,
+/// identity or secret owns that whole channel and inherits nothing further for it. Per-field coalescing let a
+/// tenant pair its own endpoint with the install's credential, which the dispatcher then handed to that endpoint
+/// — see <c>ClaimsItsOwnSms</c> for the full reasoning. Only wording and transport details (template name and
+/// language, SMTP port, TLS flag, display name) still inherit: they carry no credential and address no host.
+/// </para>
 /// </summary>
 public class ReminderSettingsProvider : IReminderSettingsProvider
 {
@@ -62,35 +68,53 @@ public class ReminderSettingsProvider : IReminderSettingsProvider
 
         var clinic = await LoadAsync(clinicId, cancellationToken);
 
+        // ⚠️ Each channel resolves as an ATOMIC UNIT — see ClaimsItsOwn* below. Resolving the endpoint and the
+        // secret independently is how the install's credential ended up being offered to a tenant-chosen host.
+        var clinicOwnsSms = ClaimsItsOwnSms(clinic);
+        var clinicOwnsWhatsApp = ClaimsItsOwnWhatsApp(clinic);
+        var clinicOwnsSmtp = ClaimsItsOwnSmtp(clinic);
+
         var resolved = new ResolvedReminderSettings
         {
             EnabledChannels = ResolveEnabledChannels(clinic),
 
-            // Endpoint URLs are now a per-clinic override (else the per-install value) so an admin can turn a
-            // channel fully on without a server-config edit (reliability-and-polish AC-1).
-            SmsApiUrl = clinic?.SmsApiUrl ?? RemindersConfig.SmsApiUrl(_configuration),
-            SmsSenderId = clinic?.SmsSenderId ?? RemindersConfig.SmsSenderId(_configuration),
-            SmsApiKey = ResolveSecret(clinic?.SmsApiKeyEncrypted, RemindersConfig.SmsApiKey(_configuration), NotificationType.SMS),
+            // Endpoint URLs are a per-clinic override (else the per-install value) so an admin can turn a
+            // channel fully on without a server-config edit (reliability-and-polish AC-1) — but a clinic that
+            // names its own endpoint gets NO install fall-back for that channel's identity or secret.
+            SmsApiUrl = clinicOwnsSms ? clinic?.SmsApiUrl : RemindersConfig.SmsApiUrl(_configuration),
+            SmsSenderId = clinicOwnsSms ? clinic?.SmsSenderId : RemindersConfig.SmsSenderId(_configuration),
+            SmsApiKey = clinicOwnsSms
+                ? DecryptOwn(clinic?.SmsApiKeyEncrypted, NotificationType.SMS)
+                : RemindersConfig.SmsApiKey(_configuration),
 
-            WhatsAppApiUrl = clinic?.WhatsAppApiUrl ?? RemindersConfig.WhatsAppApiUrl(_configuration),
-            WhatsAppPhoneNumberId = clinic?.WhatsAppPhoneNumberId ?? RemindersConfig.WhatsAppPhoneNumberId(_configuration),
+            WhatsAppApiUrl = clinicOwnsWhatsApp ? clinic?.WhatsAppApiUrl : RemindersConfig.WhatsAppApiUrl(_configuration),
+            WhatsAppPhoneNumberId = clinicOwnsWhatsApp
+                ? clinic?.WhatsAppPhoneNumberId
+                : RemindersConfig.WhatsAppPhoneNumberId(_configuration),
+            WhatsAppAccessToken = clinicOwnsWhatsApp
+                ? DecryptOwn(clinic?.WhatsAppAccessTokenEncrypted, NotificationType.WhatsApp)
+                : RemindersConfig.WhatsAppAccessToken(_configuration),
+            // Template name/language and the body-param flag are wording, not identity: they carry no credential
+            // and address no host, so they keep inheriting.
             WhatsAppTemplateName = clinic?.WhatsAppTemplateName ?? RemindersConfig.WhatsAppTemplateName(_configuration),
             WhatsAppTemplateLanguage = clinic?.WhatsAppTemplateLanguage ?? RemindersConfig.WhatsAppTemplateLanguage(_configuration),
-            WhatsAppAccessToken = ResolveSecret(clinic?.WhatsAppAccessTokenEncrypted, RemindersConfig.WhatsAppAccessToken(_configuration), NotificationType.WhatsApp),
             WhatsAppTemplateHasBodyParam = RemindersConfig.WhatsAppTemplateHasBodyParam(_configuration),
 
             LeadTimeHours = ResolveLeadTimeHours(clinic),
             MessageTemplateBody = clinic?.MessageTemplateBody,
 
-            // Outbound email (SMTP) — same per-clinic-else-per-install rule as the two message channels, and
-            // the same secret handling: a per-clinic password that can no longer be decrypted resolves to null
-            // rather than silently falling back to the install's, because the clinic chose its own identity.
-            SmtpHost = clinic?.SmtpHost ?? SmtpConfig.Host(_configuration),
+            // Outbound email (SMTP) — same atomic rule. A clinic naming its own SmtpHost must supply its own
+            // credentials: offering the install's SMTP username and password to a tenant-chosen host is exactly
+            // the leak this shape closes.
+            SmtpHost = clinicOwnsSmtp ? clinic?.SmtpHost : SmtpConfig.Host(_configuration),
+            SmtpUsername = clinicOwnsSmtp ? clinic?.SmtpUsername : SmtpConfig.Username(_configuration),
+            SmtpPassword = clinicOwnsSmtp
+                ? DecryptOwn(clinic?.SmtpPasswordEncrypted, NotificationType.Email)
+                : SmtpConfig.Password(_configuration),
+            SmtpFromAddress = clinicOwnsSmtp ? clinic?.SmtpFromAddress : SmtpConfig.FromAddress(_configuration),
+            // Transport details and the display name carry no credential and name no host, so they inherit.
             SmtpPort = clinic?.SmtpPort ?? SmtpConfig.Port(_configuration),
             SmtpUseTls = clinic?.SmtpUseTls ?? SmtpConfig.UseTls(_configuration),
-            SmtpUsername = clinic?.SmtpUsername ?? SmtpConfig.Username(_configuration),
-            SmtpPassword = ResolveSecret(clinic?.SmtpPasswordEncrypted, SmtpConfig.Password(_configuration), NotificationType.Email),
-            SmtpFromAddress = clinic?.SmtpFromAddress ?? SmtpConfig.FromAddress(_configuration),
             SmtpFromName = clinic?.SmtpFromName ?? SmtpConfig.FromName(_configuration),
         };
 
@@ -131,14 +155,53 @@ public class ReminderSettingsProvider : IReminderSettingsProvider
         return channels;
     }
 
-    // A clinic that set its own secret uses it (decrypted); if that can't be decrypted the channel is treated
-    // as not configured (null) — never falling back to the install secret (the clinic chose its own identity).
-    // A clinic that did not set a secret inherits the per-install value.
-    private string? ResolveSecret(string? clinicCiphertext, string? installSecret, NotificationType channel)
+    /// <summary>
+    /// Whether the clinic claims a channel as <b>its own</b> — i.e. it supplied any of that channel's endpoint,
+    /// identity or secret.
+    ///
+    /// <para>
+    /// ⚠️ <b>This is the security boundary, not a convenience.</b> Resolution used to coalesce per field, so a
+    /// clinic could supply only the URL and inherit the <i>install's</i> credential — which the dispatcher then
+    /// sent to the clinic's host as a bearer token or SMTP AUTH. On a multi-tenant backend, where any signer-up
+    /// is an admin of their own clinic, that is remote theft of an install-wide secret. Claiming any part of a
+    /// channel therefore means owning all of it: no install fall-back for its endpoint, identity or secret.
+    /// </para>
+    ///
+    /// <para>
+    /// A clinic that claims a channel but leaves its secret empty (or whose ciphertext no longer decrypts) gets a
+    /// <c>null</c> secret, which makes the channel <i>not configured</i> and parks the row. That is the correct
+    /// direction: refusing to send is recoverable, leaking the operator's credential is not.
+    /// </para>
+    /// </summary>
+    private static bool ClaimsItsOwnSms(ClinicReminderSettings? clinic) =>
+        Provided(clinic?.SmsApiUrl) || Provided(clinic?.SmsSenderId) || Provided(clinic?.SmsApiKeyEncrypted);
+
+    /// <inheritdoc cref="ClaimsItsOwnSms"/>
+    private static bool ClaimsItsOwnWhatsApp(ClinicReminderSettings? clinic) =>
+        Provided(clinic?.WhatsAppApiUrl)
+        || Provided(clinic?.WhatsAppPhoneNumberId)
+        || Provided(clinic?.WhatsAppAccessTokenEncrypted);
+
+    /// <inheritdoc cref="ClaimsItsOwnSms"/>
+    private static bool ClaimsItsOwnSmtp(ClinicReminderSettings? clinic) =>
+        Provided(clinic?.SmtpHost)
+        || Provided(clinic?.SmtpUsername)
+        || Provided(clinic?.SmtpPasswordEncrypted)
+        || Provided(clinic?.SmtpFromAddress);
+
+    private static bool Provided(string? value) => !string.IsNullOrWhiteSpace(value);
+
+    /// <summary>
+    /// Decrypts a secret the clinic owns. Never falls back to the install value — the caller has already
+    /// established that this channel belongs to the clinic, so an install secret here would be the very leak
+    /// <see cref="ClaimsItsOwnSms"/> exists to prevent. An undecryptable ciphertext (rotated/unavailable key)
+    /// resolves to null and parks the channel; logged once per scope, never thrown.
+    /// </summary>
+    private string? DecryptOwn(string? clinicCiphertext, NotificationType channel)
     {
         if (string.IsNullOrEmpty(clinicCiphertext))
         {
-            return installSecret;
+            return null;
         }
 
         try
