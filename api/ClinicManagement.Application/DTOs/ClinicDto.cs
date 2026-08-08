@@ -18,9 +18,6 @@ public class ClinicDto
     public bool StampDutyEnabled { get; set; }
     public decimal StampDutyAmount { get; set; }
 
-    // TTN « El Fatoora » e-invoicing settings (non-secret).
-    public bool TtnEInvoicingEnabled { get; set; }
-    public string TtnEnvironment { get; set; } = "Sandbox";
 
     // Working hours (reliability-and-polish AC-7). Null = no saved hours yet (the UI falls back to a default).
     public List<WorkingDayDto>? WorkingHours { get; set; }

@@ -17,7 +17,7 @@ Common/         → cross-cutting: MediatR behaviors, exception middleware, clin
 Domain/         → pure entity/value-object/calculator rules (no mocks needed)
 Features/       → CQRS handler tests, grouped by feature area (the bulk of the suite)
 Hubs/           → SignalR realtime: ClinicHub, ClinicGroups, SignalRRealtimeNotifier
-Infrastructure/ → service/repo/persistence tests: renderers, senders, e-invoice, backup, cert, storage, seeds
+Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, cert, storage, seeds
 ```
 
 ## Conventions (match these when adding tests)
@@ -140,7 +140,7 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, e-invoic
   `{ error }` shape is `ApiControllerBaseTests`' business; this covers only *which* exception is surfaced verbatim
   (`InvalidOperationException`, the type the three fail-fast French operator messages use) and — the case that
   matters as much — that any other exception's message **does not leak** a path or a connection string.
-- **`Infrastructure/Services/`** e-invoicing depth: `TeifXmlGeneratorTests` (TTN TEIF XML), `XadesEInvoiceSignerTests` (XAdES signature), `QrCodeGeneratorTests`, `SandboxTtnClientTests`; reminders: `ReminderChannelSenderTests`/`ReminderScheduler`/`ReminderSettingsProvider`/`ReminderPhone`/`ReminderSchedule`; plus `CertificateProvisionerTests`, `PgDumpBackupServiceTests`, `InternetProbeTests`, `CnamBs1BulletinRendererTests`, document renderers (`Certificat`/`Liaison`/`Generic`/`PractitionerRenderSnapshot`).
+- **`Infrastructure/Services/`** `QrCodeGeneratorTests` (the LAN trust page's QR); reminders: `ReminderChannelSenderTests`/`ReminderScheduler`/`ReminderSettingsProvider`/`ReminderPhone`/`ReminderSchedule`; plus `CertificateProvisionerTests`, `PgDumpBackupServiceTests`, `InternetProbeTests`, `CnamBs1BulletinRendererTests`, document renderers (`Certificat`/`Liaison`/`Generic`/`PractitionerRenderSnapshot`).
 
 ## Gotchas
 

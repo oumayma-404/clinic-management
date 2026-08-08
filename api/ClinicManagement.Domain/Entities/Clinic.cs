@@ -21,34 +21,6 @@ public class Clinic : AggregateRoot<Guid>
     public bool StampDutyEnabled { get; private set; }
     public decimal StampDutyAmount { get; private set; }
 
-    // TTN « El Fatoora » electronic-invoicing settings (FR-8): the on/off toggle + target environment.
-    public bool TtnEInvoicingEnabled { get; private set; }
-    /// <summary>Target TTN environment: "Sandbox" (default, safe) or "Production".</summary>
-    public string TtnEnvironment { get; private set; } = TtnEnvironmentSandbox;
-
-    /*
-     * The clinic's OWN El Fatoora identity (multi-tenant-cloud US-4). All four nullable: a clinic that has not
-     * been issued a qualified certificate has none, which is different from « e-invoicing is off ».
-     *
-     * ⚠️ Why these moved into the DB at all. The identity used to be per *install* — one .local/teif-signing.pfx
-     * and one Ttn:Username — which XadesEInvoiceSigner's own docstring already named as a defect: in a
-     * multi-clinic install every clinic's invoices are signed with the same qualified identity, and a TEIF
-     * signature attests WHO ISSUED the invoice. One hosted backend serving many practices makes that a legal
-     * misattribution, not a configuration inconvenience.
-     *
-     * The per-install values survive as a fall-back only where the install serves one clinic
-     * (DeploymentProfile.SharesInstallWideTtnIdentity); elsewhere a clinic with no identity of its own is
-     * refused rather than signed by somebody else's key.
-     */
-    /// <summary>OAuth2 client id / username for this clinic's TTN account (non-secret identifier).</summary>
-    public string? TtnUsername { get; private set; }
-    /// <summary>OAuth2 client secret, as Data-Protection ciphertext (see <c>ITtnSecretProtector</c>).</summary>
-    public string? TtnApiSecretEncrypted { get; private set; }
-    /// <summary>File-storage key of this clinic's qualified signing certificate (PFX). Not the bytes.</summary>
-    public string? TtnCertificateKey { get; private set; }
-    /// <summary>That PFX's password, as Data-Protection ciphertext. Null is legal — a PFX may have none.</summary>
-    public string? TtnCertificatePasswordEncrypted { get; private set; }
-
     // Working hours as a JSON array of per-day {day, enabled, from, to} (reliability-and-polish AC-7). Null =
     // no saved hours yet; the UI then falls back to the shared default. Opaque JSON here — the shape is owned
     // by WorkingHoursSerializer in the Application layer.
@@ -119,9 +91,6 @@ public class Clinic : AggregateRoot<Guid>
     public const int DefaultBackupRetentionCount = 7;
     public const int DefaultBackupStaleAfterHours = 48;
 
-    public const string TtnEnvironmentSandbox = "Sandbox";
-    public const string TtnEnvironmentProduction = "Production";
-
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -181,8 +150,6 @@ public class Clinic : AggregateRoot<Guid>
         VatRate = 7m;
         StampDutyEnabled = true;
         StampDutyAmount = 1.000m;
-        TtnEInvoicingEnabled = false;
-        TtnEnvironment = TtnEnvironmentSandbox;
         RecallIntervalMonths = 6;
         StockExpiryLeadDays = DefaultStockExpiryLeadDays;
         BackupEnabled = true;
@@ -222,62 +189,6 @@ public class Clinic : AggregateRoot<Guid>
         StampDutyAmount = stampDutyEnabled ? stampDutyAmount : 0m;
         UpdatedAt = DateTime.UtcNow;
     }
-
-    /// <summary>
-    /// Enable/disable TTN « El Fatoora » e-invoicing for this clinic and set the target environment (FR-8).
-    /// The environment must be "Sandbox" or "Production"; anything else falls back to the safe sandbox.
-    /// </summary>
-    public void SetElFatooraSettings(bool enabled, string? environment)
-    {
-        var normalized = string.Equals(environment?.Trim(), TtnEnvironmentProduction, StringComparison.OrdinalIgnoreCase)
-            ? TtnEnvironmentProduction
-            : TtnEnvironmentSandbox;
-
-        TtnEInvoicingEnabled = enabled;
-        TtnEnvironment = normalized;
-        UpdatedAt = DateTime.UtcNow;
-    }
-
-    /// <summary>
-    /// Set (or clear) this clinic's own El Fatoora identity — its TTN account and its qualified signing
-    /// certificate (multi-tenant-cloud US-4). Both secrets arrive already encrypted: this layer never sees a
-    /// plaintext credential, and <c>ITtnSecretProtector</c> is the only thing that does.
-    ///
-    /// <para>Blank is stored as null throughout, so « the operator cleared the field » and « the operator never
-    /// filled it in » are the same state — the resolver treats both as « this clinic has no identity », which is
-    /// the only reading that lets a mistyped value be undone.</para>
-    ///
-    /// <para>⚠️ Refuses <b>half</b> an identity, because the halves are useless apart and the failure would
-    /// otherwise surface hours later as a queued invoice: a secret with no username cannot authenticate, and a
-    /// certificate password with no certificate is ciphertext nothing can open. A password with no secret, or a
-    /// certificate with no TTN account, is legal — the signing half and the submitting half are provisioned
-    /// separately and a clinic mid-provisioning must be storable.</para>
-    /// </summary>
-    public void SetTtnIdentity(
-        string? username,
-        string? apiSecretEncrypted,
-        string? certificateKey,
-        string? certificatePasswordEncrypted)
-    {
-        var resolvedUsername = Blank(username);
-        var resolvedApiSecret = Blank(apiSecretEncrypted);
-        var resolvedCertificateKey = Blank(certificateKey);
-        var resolvedCertificatePassword = Blank(certificatePasswordEncrypted);
-
-        if (resolvedApiSecret != null && resolvedUsername == null)
-            throw new ArgumentException("Un secret TTN sans identifiant est inutilisable.", nameof(username));
-
-        if (resolvedCertificatePassword != null && resolvedCertificateKey == null)
-            throw new ArgumentException("Un mot de passe de certificat sans certificat est inutilisable.", nameof(certificateKey));
-
-        TtnUsername = resolvedUsername;
-        TtnApiSecretEncrypted = resolvedApiSecret;
-        TtnCertificateKey = resolvedCertificateKey;
-        TtnCertificatePasswordEncrypted = resolvedCertificatePassword;
-        UpdatedAt = DateTime.UtcNow;
-    }
-
-    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     public void SetCode(string code)
     {

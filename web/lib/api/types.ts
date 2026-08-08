@@ -276,15 +276,6 @@ export interface InvoiceDto {
   outstanding: number;
   createdAt: string;
   updatedAt?: string | null;
-  // TTN « El Fatoora » e-invoicing state.
-  /** NotSubmitted | Queued | Signed | Submitted | Validating | Valid | Rejected | Failed */
-  eInvoiceStatus: string;
-  ttnIdentifier?: string | null;
-  eInvoiceSubmittedAt?: string | null;
-  eInvoiceValidatedAt?: string | null;
-  eInvoiceLastError?: string | null;
-  eInvoiceAttemptCount: number;
-  canSubmitToElFatoora: boolean;
   /**
    * Server-computed. Do NOT re-derive these from status + amountCollected: that is exactly how the table
    * ended up offering « Annuler » on invoices the API refuses — after a full void the status is Issued and
@@ -292,8 +283,6 @@ export interface InvoiceDto {
    */
   canCancel: boolean;
   canCreateAvoir: boolean;
-  hasSignedXml: boolean;
-  hasTtnReceipt: boolean;
   /**
    * Sum of the avoirs established against this invoice — always present, 0 when there are none. Present on
    * the list too, so a row can show that money was credited back without fetching the avoirs themselves.
@@ -318,11 +307,6 @@ export interface CreditNoteDto {
   method?: string | null;
   /** When the money went back — the date la caisse nets it against. */
   refundedOn: string;
-  /**
-   * The corrected invoice is registered with TTN « El Fatoora ». The avoir is not transmitted, so the
-   * régularisation with TTN is still the clinic's to do.
-   */
-  correctedInvoiceIsTtnRegistered: boolean;
 }
 
 export interface InvoiceRevenueDto {

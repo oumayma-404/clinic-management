@@ -276,24 +276,6 @@ public class CreditNoteReadTests
         Assert.True(result.IsFailure);
     }
 
-    // [AC-45] The avoir is never transmitted to TTN, so a TTN-registered invoice has to say so. The flag the
-    // screen and the PDF both read comes from the corrected invoice, not the avoir.
-    [Theory]
-    [InlineData(EInvoiceStatus.Valid, true)]
-    [InlineData(EInvoiceStatus.Submitted, true)]
-    [InlineData(EInvoiceStatus.Validating, true)]
-    [InlineData(EInvoiceStatus.NotSubmitted, false)]
-    [InlineData(EInvoiceStatus.Rejected, false)]
-    public void Ttn_Warning_Tracks_The_Corrected_Invoice(EInvoiceStatus status, bool expected)
-    {
-        var invoice = PaidInvoice(600m);
-        DriveEInvoiceTo(invoice, status);
-
-        var dto = Avoir(invoice, 250m).ToDto(invoice);
-
-        Assert.Equal(expected, dto.CorrectedInvoiceIsTtnRegistered);
-    }
-
     // ---------------------------------------------------------------- helpers
 
     private async Task<Result<Application.DTOs.CreditNoteDto>> CreateAvoirAsync(CreateCreditNoteCommand command)
@@ -302,28 +284,5 @@ public class CreditNoteReadTests
             _invoices.Object, _creditNotes.Object, _clinicResolver.Object, _uow.Object,
             NullLogger<CreateCreditNoteCommandHandler>.Instance);
         return await handler.Handle(command, CancellationToken.None);
-    }
-
-    /// <summary>Walk an invoice's e-invoice state machine to <paramref name="target"/> through legal steps.</summary>
-    private static void DriveEInvoiceTo(Invoice invoice, EInvoiceStatus target)
-    {
-        if (target == EInvoiceStatus.NotSubmitted) return;
-
-        invoice.QueueForElFatoora();
-        if (target == EInvoiceStatus.Queued) return;
-
-        invoice.MarkEInvoiceSigned("xml-key");
-        if (target == EInvoiceStatus.Signed) return;
-
-        if (target == EInvoiceStatus.Rejected)
-        {
-            invoice.MarkEInvoiceRejected("motif");
-            return;
-        }
-
-        invoice.MarkEInvoiceSubmitted("TTN-1", receiptStorageKey: null);
-        if (target == EInvoiceStatus.Submitted || target == EInvoiceStatus.Validating) return;
-
-        invoice.MarkEInvoiceValidated("TTN-1", "qr-payload", "receipt-key");
     }
 }

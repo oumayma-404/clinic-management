@@ -34,10 +34,6 @@ public class UpdateClinicCommand : IRequest<Result<ClinicDto>>
     public bool? StampDutyEnabled { get; set; }
     public decimal? StampDutyAmount { get; set; }
 
-    // TTN « El Fatoora » e-invoicing settings (null = leave the current value unchanged).
-    public bool? TtnEInvoicingEnabled { get; set; }
-    public string? TtnEnvironment { get; set; }
-
     // Working hours JSON array (reliability-and-polish AC-7). Null/blank = leave the current value unchanged.
     public string? WorkingHoursJson { get; set; }
 }
@@ -94,24 +90,13 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                 return Result<ClinicDto>.Failure("Clinique introuvable.");
             }
 
-            // FR-8/US-6: changing the TTN e-invoicing settings is admin-only. Non-admins may still edit the
-            // rest of the clinic/billing card as long as they don't alter the TTN toggle/environment.
-            var desiredTtnEnabled = request.TtnEInvoicingEnabled ?? clinic.TtnEInvoicingEnabled;
-            var desiredTtnEnvironment = request.TtnEnvironment ?? clinic.TtnEnvironment;
-            var ttnSettingsChanging = desiredTtnEnabled != clinic.TtnEInvoicingEnabled
-                || !string.Equals(desiredTtnEnvironment, clinic.TtnEnvironment, StringComparison.OrdinalIgnoreCase);
-            if (ttnSettingsChanging && !user.IsAdmin())
-            {
-                return Result<ClinicDto>.Failure("Seul un administrateur peut modifier les paramètres de facturation électronique.");
-            }
-
             // Audit § 2, finding 7: PUT /api/clinics carried NO role policy, so a secretary could change the
             // clinic's legal billing identity — matricule fiscal, TVA applicable/rate, timbre fiscal. Those
             // values are frozen onto every invoice issued afterwards, which makes them a different class of
             // setting from the phone number.
             //
-            // Gated per FIELD rather than by closing the endpoint, extending the desired-vs-current pattern
-            // the TTN check above already uses. That matters for a real reason: the settings form submits the
+            // Gated per FIELD rather than by closing the endpoint, on a desired-vs-current comparison. That
+            // matters for a real reason: the settings form submits the
             // whole card, so a secretary correcting the clinic phone re-sends matricule fiscal and TVA at
             // their existing values. Comparing against the stored value means an unchanged field is not a
             // change, and only an actual edit is refused (spec EC-11).
@@ -205,11 +190,6 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                     request.StampDutyEnabled ?? clinic.StampDutyEnabled,
                     request.StampDutyAmount ?? clinic.StampDutyAmount);
 
-                // TTN e-invoicing settings: apply provided values, keeping the current value where null.
-                clinic.SetElFatooraSettings(
-                    request.TtnEInvoicingEnabled ?? clinic.TtnEInvoicingEnabled,
-                    request.TtnEnvironment ?? clinic.TtnEnvironment);
-
                 // Working hours (AC-7): only touched when a valid payload was supplied.
                 if (normalizedWorkingHours != null)
                 {
@@ -251,8 +231,6 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                 VatRate = clinic.VatRate,
                 StampDutyEnabled = clinic.StampDutyEnabled,
                 StampDutyAmount = clinic.StampDutyAmount,
-                TtnEInvoicingEnabled = clinic.TtnEInvoicingEnabled,
-                TtnEnvironment = clinic.TtnEnvironment,
                 WorkingHours = WorkingHoursSerializer.Parse(clinic.WorkingHoursJson)
             };
 

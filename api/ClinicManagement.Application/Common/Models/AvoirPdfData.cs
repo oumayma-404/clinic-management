@@ -67,11 +67,6 @@ public class AvoirPdfData
     /// <summary>How the money went back (French label), when recorded.</summary>
     public string? Method { get; set; }
 
-    /// <summary>
-    /// True when the corrected invoice is registered with TTN. The avoir itself is NOT transmitted, so the
-    /// document says so rather than letting the clinic assume it was declared.
-    /// </summary>
-    public bool CorrectedInvoiceIsTtnRegistered { get; set; }
 }
 
 /// <summary>Generated avoir PDF plus a suggested download file name.</summary>

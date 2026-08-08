@@ -13,7 +13,7 @@ namespace ClinicManagement.Application.Features.Invoices.Commands;
 /// <summary>
 /// Devis → facture bridge (finding #7): create a draft invoice from an accepted treatment plan, seeding its
 /// lines from the plan's acts and linking it back via <c>Invoice.TreatmentPlanId</c>. « Solde patient » then
-/// counts the invoice instead of the plan (no double-count). Numbering/TVA/El Fatoora still happen at issue.
+/// counts the invoice instead of the plan (no double-count). Numbering/TVA still happen at issue.
 /// </summary>
 public class CreateInvoiceFromTreatmentPlanCommand : IRequest<Result<InvoiceDto>>
 {

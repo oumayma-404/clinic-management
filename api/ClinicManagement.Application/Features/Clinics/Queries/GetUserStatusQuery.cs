@@ -102,8 +102,6 @@ public class GetUserStatusQueryHandler : IRequestHandler<GetUserStatusQuery, Res
                     VatRate = clinic.VatRate,
                     StampDutyEnabled = clinic.StampDutyEnabled,
                     StampDutyAmount = clinic.StampDutyAmount,
-                    TtnEInvoicingEnabled = clinic.TtnEInvoicingEnabled,
-                    TtnEnvironment = clinic.TtnEnvironment,
                     WorkingHours = WorkingHoursSerializer.Parse(clinic.WorkingHoursJson),
                     CreatedAt = clinic.CreatedAt,
                     Version = clinic.Version,

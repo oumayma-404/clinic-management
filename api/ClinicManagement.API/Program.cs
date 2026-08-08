@@ -685,14 +685,6 @@ try
         job => job.ProcessPendingNotifications(),
         Cron.Minutely);
 
-    // TTN « El Fatoora » outbox dispatcher — minutely, connectivity-gated (see EInvoiceOutboxJob). Sends
-    // queued e-invoices only when the server has internet; otherwise no-ops and leaves them queued. Safe to
-    // run unconditionally (does nothing until a clinic enables e-invoicing and queues an invoice).
-    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.EInvoiceOutboxJob>(
-        "dispatch-einvoices",
-        job => job.DispatchQueuedInvoices(),
-        Cron.Minutely);
-
     // Document-email outbox dispatcher — minutely, connectivity-gated (see DocumentEmailJob). Sends the queued
     // document PDFs only when the server has internet; otherwise no-ops and leaves them queued, which is what
     // makes « Envoyer par email » meaningful on an offline LAN install. Safe to run unconditionally (does
@@ -750,6 +742,11 @@ try
     // Google→App stays manual-only (GoogleCalendarController). Defensively drop any stale recurring
     // registration a previous deploy may have left in Hangfire storage so it can't fire a deleted job type.
     RecurringJob.RemoveIfExists("sync-google-calendar");
+
+    // The electronic-invoicing subsystem was removed wholesale (adoption-gaps-remediation Part 1). Drop the
+    // registration an upgrading install still has in Hangfire storage, or it fires every minute at a job type
+    // that no longer exists. The literal below is that stored job's id, so it cannot be reworded.
+    RecurringJob.RemoveIfExists("dispatch-einvoices");
 
     // Log the transport posture on startup so it is observable (S3 step 4 / fail-loud-and-observable).
     if (profile.SelfSignsCertificate)

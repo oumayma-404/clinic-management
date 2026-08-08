@@ -35,7 +35,7 @@ public sealed record TransactionalEmailResult(TransactionalEmailOutcome Outcome,
 /// separate rather than an overload of the document sender.</para>
 ///
 /// <para>⚠️ <b>Deliberately not an outbox queue either.</b> Every queue in this product keys on
-/// <c>ClinicId</c> — the reminder outbox, the e-invoice outbox, the document-email outbox — and a verification
+/// <c>ClinicId</c> — the reminder outbox, the document-email outbox — and a verification
 /// email is not a background dispatch: the visitor is sitting in front of the form waiting for it, so a failure
 /// has to reach them as a refusal they can retry (AC-15), not as a row in a table nobody will look at.</para>
 /// </summary>

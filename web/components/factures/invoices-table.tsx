@@ -44,13 +44,11 @@ import { downloadBlob } from "@/lib/download"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
-import { useConnectivity } from "@/lib/connectivity/connectivity"
-import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
 import { InvoiceFormModal } from "./invoice-form-modal"
 import { PaymentModal } from "./payment-modal"
 import { InvoiceDetailModal } from "./invoice-detail-modal"
 import {
-  invoiceStatusLabel, invoiceStatusBadgeClass, eInvoiceStatusLabel, eInvoiceStatusBadgeClass,
+  invoiceStatusLabel, invoiceStatusBadgeClass,
   paymentMethodLabel, PAYMENT_METHODS,
 } from "./invoice-labels"
 
@@ -95,11 +93,6 @@ export function InvoicesTable({
   // colleague recording a payment should not move the page you are reading).
   const [localRefresh, setLocalRefresh] = useState(0)
   const [busyId, setBusyId] = useState<string | null>(null)
-  const { internetReachable } = useConnectivity()
-  // El Fatoora is per-clinic opt-in: only surface the submit action when the clinic has enabled TTN
-  // e-invoicing (otherwise the submit would just fail server-side with "non activée").
-  const { status: clinicStatus } = useClinicAccess(false)
-  const eInvoicingEnabled = clinicStatus?.clinic?.ttnEInvoicingEnabled ?? false
 
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<InvoiceDto | null>(null)
@@ -266,44 +259,6 @@ export function InvoicesTable({
     }
   }
 
-  const handleSubmitEInvoice = async (invoice: InvoiceDto) => {
-    setBusyId(invoice.id)
-    try {
-      const updated = await invoicesApi.submitToElFatoora(invoice.id)
-      // Offline installs queue the invoice; the outbox sends it when internet returns (US-2).
-      if (updated.eInvoiceStatus === "Valid") {
-        toast.success("Facture enregistrée auprès de El Fatoora")
-      } else if (updated.eInvoiceStatus === "Rejected" || updated.eInvoiceStatus === "Failed") {
-        toast.error(updated.eInvoiceLastError || "Envoi à El Fatoora refusé.")
-      } else if (updated.eInvoiceStatus === "Queued" && updated.eInvoiceLastError) {
-        // Online attempt hit a transient error — it stays queued and will auto-retry, but don't imply success.
-        toast.warning(updated.eInvoiceLastError)
-      } else {
-        toast.success(internetReachable
-          ? "Envoi à El Fatoora en cours…"
-          : "Facture mise en file d'attente — elle sera envoyée dès le retour d'internet.")
-      }
-      afterMutation()
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'envoi à El Fatoora.")
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const handleDownloadArtifact = async (invoice: InvoiceDto, artifact: "xml" | "receipt") => {
-    setBusyId(invoice.id)
-    try {
-      const blob = await invoicesApi.downloadEInvoiceArtifact(invoice.id, artifact)
-      const suffix = artifact === "xml" ? "teif" : "recu-ttn"
-      await downloadBlob(blob, `${suffix}-${invoice.number ?? invoice.id}.xml`)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Échec du téléchargement.")
-    } finally {
-      setBusyId(null)
-    }
-  }
-
   const confirmDelete = async () => {
     if (!deleteTarget) return
     setBusyId(deleteTarget.id)
@@ -391,25 +346,6 @@ export function InvoicesTable({
           )}
           {inv.canCreateAvoir && (
             <DropdownMenuItem onSelect={() => openAvoir(inv)}>Établir un avoir</DropdownMenuItem>
-          )}
-          {!isDraft && eInvoicingEnabled && inv.canSubmitToElFatoora && (
-            <DropdownMenuItem onSelect={() => handleSubmitEInvoice(inv)}>
-              {inv.eInvoiceStatus === "Rejected" || inv.eInvoiceStatus === "Failed"
-                ? "Renvoyer à El Fatoora"
-                : internetReachable
-                  ? "Envoyer à El Fatoora"
-                  : "Mettre en file d'attente"}
-            </DropdownMenuItem>
-          )}
-          {inv.hasSignedXml && (
-            <DropdownMenuItem onSelect={() => handleDownloadArtifact(inv, "xml")}>
-              Télécharger le TEIF signé
-            </DropdownMenuItem>
-          )}
-          {inv.hasTtnReceipt && (
-            <DropdownMenuItem onSelect={() => handleDownloadArtifact(inv, "receipt")}>
-              Télécharger le reçu TTN
-            </DropdownMenuItem>
           )}
           {!isDraft && (
             <DropdownMenuItem onSelect={() => handleDownloadPdf(inv)}>Télécharger le PDF</DropdownMenuItem>
@@ -532,11 +468,6 @@ export function InvoicesTable({
               <Badge variant="secondary" className={invoiceStatusBadgeClass(inv.status)}>
                 {invoiceStatusLabel(inv.status)}
               </Badge>
-              {inv.status !== "Draft" && (
-                <Badge variant="secondary" className={eInvoiceStatusBadgeClass(inv.eInvoiceStatus)}>
-                  {eInvoiceStatusLabel(inv.eInvoiceStatus)}
-                </Badge>
-              )}
               {inv.treatmentPlanId && (
                 <Badge variant="outline" className="whitespace-nowrap">
                   Devis
@@ -575,7 +506,6 @@ export function InvoicesTable({
               {showPatientColumn && <TableHead>Patient</TableHead>}
               <TableHead>Date</TableHead>
               <TableHead>Statut</TableHead>
-              <TableHead>El Fatoora</TableHead>
               <TableHead className="text-right">Total TTC (DT)</TableHead>
               <TableHead className="text-right">Encaissé (DT)</TableHead>
               <TableHead className="text-right">Reste (DT)</TableHead>
@@ -646,19 +576,6 @@ export function InvoicesTable({
                       <Badge variant="secondary" className={invoiceStatusBadgeClass(invoice.status)}>
                         {invoiceStatusLabel(invoice.status)}
                       </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {isDraft ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <Badge
-                          variant="secondary"
-                          className={eInvoiceStatusBadgeClass(invoice.eInvoiceStatus)}
-                          title={invoice.eInvoiceLastError ?? undefined}
-                        >
-                          {eInvoiceStatusLabel(invoice.eInvoiceStatus)}
-                        </Badge>
-                      )}
                     </TableCell>
                     <TableCell numeric>{formatAmount(invoice.totalTtc)}</TableCell>
                     <TableCell numeric>
@@ -909,17 +826,6 @@ export function InvoicesTable({
                 required
               />
             </div>
-
-            {/* AC-45: only the invoice is transmitted to TTN — the avoir never is. Silence here would let
-                a clinic assume El Fatoora had been corrected along with the books.
-                On the theme's warning family (`--warning-wash` + `--warning-ink`), not a hand-maintained
-                `amber-50 / dark:amber-950` pair. */}
-            {avoirTarget && ["Submitted", "Validating", "Valid"].includes(avoirTarget.eInvoiceStatus) && (
-              <div className="rounded-md border border-warning/30 bg-warning-wash p-3 text-sm text-warning-ink">
-                Cette facture est enregistrée auprès de TTN « El Fatoora ». L&apos;avoir n&apos;est pas
-                télétransmis : la régularisation auprès de TTN reste à effectuer par le cabinet.
-              </div>
-            )}
           </div>
           <DialogFooter className="gap-2">
             <Button

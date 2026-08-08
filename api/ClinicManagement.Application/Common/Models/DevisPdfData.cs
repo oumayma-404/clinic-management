@@ -1,7 +1,7 @@
 namespace ClinicManagement.Application.Common.Models;
 
 /// <summary>
-/// Rendering model for a dental devis (quote) PDF — a non-fiscal estimate (no VAT/timbre/TTN QR).
+/// Rendering model for a dental devis (quote) PDF — a non-fiscal estimate (no VAT, no timbre).
 /// Amounts in TND millimes.
 /// </summary>
 public class DevisPdfData

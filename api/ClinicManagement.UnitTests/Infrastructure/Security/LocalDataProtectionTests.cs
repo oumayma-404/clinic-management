@@ -88,7 +88,7 @@ public class LocalDataProtectionTests
                 (LocalDataProtection.KeyRingPathKey, configured))));
 
         // The framework fallback is per-instance and ephemeral. It WORKS — and then the first redeploy replaces the
-        // ring, so every clinic's stored reminder and TTN credentials become undecryptable and each channel reports
+        // ring, so every clinic's stored reminder credentials become undecryptable and each channel reports
         // « non configuré » with nothing in any log tying that to a deployment. Failing loud at startup is the only
         // moment this is visible at all.
         Assert.Contains(LocalDataProtection.KeyRingPathKey, ex.Message, StringComparison.Ordinal);

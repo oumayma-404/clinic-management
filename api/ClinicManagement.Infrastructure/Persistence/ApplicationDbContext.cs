@@ -70,7 +70,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<ClinicReminderSettings> ClinicReminderSettings { get; set; }
     // Outbound document-email outbox (clinic-scoped aggregate root — added to the global filter below). Its
     // dispatcher job runs with no clinic in scope, so the filter is inactive there and it can drain every
-    // clinic's queue, exactly like the reminder and e-invoice outboxes.
+    // clinic's queue, exactly like the reminder outbox.
     public DbSet<DocumentEmail> DocumentEmails { get; set; }
     // One user's dashboard layout choices (1:1 with User, shared PK). Deliberately carries NO clinic query
     // filter: the row is keyed by the user id and a user belongs to exactly one clinic, so it is scoped by

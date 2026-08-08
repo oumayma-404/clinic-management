@@ -24,10 +24,6 @@ public class UpdateClinicRequest
     public bool? StampDutyEnabled { get; set; }
     public decimal? StampDutyAmount { get; set; }
 
-    // TTN « El Fatoora » e-invoicing settings (optional; null leaves the current value unchanged).
-    public bool? TtnEInvoicingEnabled { get; set; }
-    public string? TtnEnvironment { get; set; }
-
     // Working hours as a JSON array (reliability-and-polish AC-7). Sent as a form field by the settings UI;
     // null/blank leaves the current value unchanged.
     public string? WorkingHoursJson { get; set; }

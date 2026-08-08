@@ -1,18 +1,16 @@
 namespace ClinicManagement.Application.DTOs;
 
 /// <summary>
-/// How deep the clinic's three background queues are (multi-tenant-cloud US-6, <c>GET /api/outbox</c>).
+/// How deep the clinic's two background queues are (multi-tenant-cloud US-6, <c>GET /api/outbox</c>).
 ///
-/// <para><b>Three named sections rather than one uniform row per queue</b>, because the queues genuinely differ:
-/// only reminders can be <c>Blocked</c>, only the e-invoice outbox backs off between attempts, and a document
-/// email has no scheduled instant at all. A common shape would mean zeros standing in for concepts that do not
-/// exist, and « Blocked 0 » about a queue with no blocked state is not a true statement — it is a field the
-/// operator has to know to ignore.</para>
+/// <para><b>Named sections rather than one uniform row per queue</b>, because the queues genuinely differ: only
+/// reminders can be <c>Blocked</c> with a send time behind them, while a document email has no scheduled instant
+/// at all. A common shape would mean zeros standing in for concepts that do not exist, and « Due 0 » about a
+/// queue with no due-ness is not a true statement — it is a field the operator has to know to ignore.</para>
 /// </summary>
 public class OutboxDepthDto
 {
     public required ReminderOutboxDepthDto Reminders { get; init; }
-    public required EInvoiceOutboxDepthDto EInvoices { get; init; }
     public required DocumentEmailOutboxDepthDto DocumentEmails { get; init; }
 
     /// <summary>
@@ -54,15 +52,6 @@ public class ReminderOutboxDepthDto
     /// distinguishes a queue from a stoppage</b>: minutes old is a queue draining, hours old is a job not running.
     /// </summary>
     public DateTime? OldestDueScheduledForUtc { get; init; }
-}
-
-/// <summary>The El Fatoora e-invoice outbox. A rejected note backs off, so Queued &gt; Due is normal.</summary>
-public class EInvoiceOutboxDepthDto
-{
-    public int Queued { get; init; }
-    public int Due { get; init; }
-    public int Failed { get; init; }
-    public DateTime? OldestDueNextAttemptUtc { get; init; }
 }
 
 /// <summary>

@@ -24,7 +24,7 @@ public enum AclHardeningOutcome
 /// granted to <c>BUILTIN\Users</c> so de-privileged <c>initdb</c> can run was never revoked. The result was
 /// that every local account on the clinic PC could read the whole patient database, every uploaded
 /// radiograph, the logs, and the entire <c>.local/</c> trust store — the JWT signing key, the HTTPS server
-/// key, the Data Protection key ring and the e-invoice signing certificate.
+/// key and the Data Protection key ring.
 ///
 /// Two callers share this class so the policy cannot drift between them: the Local <c>harden-permissions</c>
 /// console verb (invoked by the server installer) and the one-click backup, whose output folder would

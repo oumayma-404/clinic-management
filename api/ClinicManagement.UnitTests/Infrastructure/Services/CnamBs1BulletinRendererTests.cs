@@ -19,7 +19,7 @@ namespace ClinicManagement.UnitTests.Infrastructure.Services;
 public class CnamBs1BulletinRendererTests
 {
     private static readonly Type RendererType =
-        typeof(TeifXmlGenerator).Assembly.GetType("ClinicManagement.Infrastructure.Services.CnamBs1BulletinRenderer")!;
+        typeof(QrCodeGenerator).Assembly.GetType("ClinicManagement.Infrastructure.Services.CnamBs1BulletinRenderer")!;
 
     private static readonly Type Bs1ModelType = RendererType.GetNestedType("Bs1Model", BindingFlags.NonPublic)!;
     private static readonly Type Bs1ActType = RendererType.GetNestedType("Bs1Act", BindingFlags.NonPublic)!;

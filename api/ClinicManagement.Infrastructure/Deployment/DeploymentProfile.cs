@@ -58,7 +58,6 @@ public sealed class DeploymentProfile
         bool hasLocalDbTooling,
         bool exposesMetaOnboarding,
         bool allowsSelfRegistration,
-        bool sharesInstallWideTtnIdentity,
         bool allowsPublicClinicSignup)
     {
         Kind = kind;
@@ -75,7 +74,6 @@ public sealed class DeploymentProfile
         HasLocalDbTooling = hasLocalDbTooling;
         ExposesMetaOnboarding = exposesMetaOnboarding;
         AllowsSelfRegistration = allowsSelfRegistration;
-        SharesInstallWideTtnIdentity = sharesInstallWideTtnIdentity;
         AllowsPublicClinicSignup = allowsPublicClinicSignup;
     }
 
@@ -129,25 +127,6 @@ public sealed class DeploymentProfile
     /// (<c>CreateClinicUserCommand</c>) and hands over a one-time password.</para>
     /// </summary>
     public bool AllowsSelfRegistration { get; }
-
-    /// <summary>
-    /// The per-install TTN « El Fatoora » identity — <c>.local/teif-signing.pfx</c> and <c>Ttn:Username</c> —
-    /// may stand in for a clinic that has none of its own (US-4).
-    ///
-    /// <para>True only where the install serves <b>one</b> clinic, because that is the only topology where a
-    /// per-install credential <i>is</i> a per-clinic credential. Everywhere else the fall-back would sign one
-    /// practice's invoices with another's qualified certificate and file them under another's TTN account — and a
-    /// TEIF signature attests who issued the invoice, so that is a misattribution on a legal document rather than
-    /// a configuration inconvenience. <c>XadesEInvoiceSigner</c> said as much long before this profile existed:
-    /// « acceptable only for a single-tenant-per-install deployment ».</para>
-    ///
-    /// <para>⚠️ <b><see cref="DeploymentKind.CloudBrowser"/> is false, and that changes its behaviour</b> — it is
-    /// multi-clinic and has been leaning on the per-install certificate all along. The refusal is deliberately
-    /// loud rather than silent: the dispatch records a transient failure naming what is missing, so the invoice
-    /// stays <c>Queued</c> and surfaces in <c>GET /api/outbox</c> instead of being signed by the wrong key and
-    /// validated by TTN, which cannot be undone.</para>
-    /// </summary>
-    public bool SharesInstallWideTtnIdentity { get; }
 
     /// <summary>
     /// A visitor may create their own clinic and admin account from the public internet
@@ -252,8 +231,6 @@ public sealed class DeploymentProfile
             hasLocalDbTooling: true,
             exposesMetaOnboarding: false,
             allowsSelfRegistration: true,
-            // One clinic per install, so the per-install certificate IS this clinic's certificate.
-            sharesInstallWideTtnIdentity: true,
             // One clinic per install too, so there is no clinic #2 for a public door to create; first-run
             // `setup` (loopback-gated, once) is how the one clinic comes into being.
             allowsPublicClinicSignup: false),
@@ -276,7 +253,6 @@ public sealed class DeploymentProfile
             // The only capability where HostedMultiTenant differs from SelfHostedLan while sharing its login
             // provider: an operator provisions the clinic and its admin creates the staff (US-3).
             allowsSelfRegistration: false,
-            sharesInstallWideTtnIdentity: false,
             // The one profile this door exists for: many clinics, our own accounts, and no operator standing by
             // to run `provision-clinic` for each arrival.
             allowsPublicClinicSignup: true),
@@ -296,8 +272,6 @@ public sealed class DeploymentProfile
             hasLocalDbTooling: false,
             exposesMetaOnboarding: true,
             allowsSelfRegistration: false,
-            // Also multi-clinic, so it loses the fall-back too — the one place US-4 changes a shipped profile.
-            sharesInstallWideTtnIdentity: false,
             // Multi-clinic, but Auth0 issues its identities: a signup here would mint a password-backed local
             // account that this profile's login path cannot authenticate.
             allowsPublicClinicSignup: false),

@@ -4,7 +4,7 @@ Infrastructure layer (Clean Architecture). Implements the outbound interfaces de
 (`Domain/Repositories`) and Application (`Application/Common/Interfaces`): EF Core/PostgreSQL data access +
 multi-tenant query filters, repository implementations, mode-branched file storage (MinIO vs local disk),
 per-clinic Google Calendar two-way sync, HuggingFace AI + agentic action dispatch, SMS/WhatsApp reminders
-(+ per-clinic settings, encrypted secrets), TTN « El Fatoora » e-invoicing, CNAM BS1 bulletin + French PDF
+(+ per-clinic settings, encrypted secrets), CNAM BS1 bulletin + French PDF
 rendering, Auth0 management (Cloud) / local JWT auth (Local), and — for offline installs — `pg_dump` backup,
 self-generated HTTPS trust material, and per-clinic reference-catalog seeding. All wiring lives in
 `Extensions.cs` (`AddInfrastructure`).
@@ -204,7 +204,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `IUserRepository` | `UserRepository` |
 | `IClinicRepository` | `ClinicRepository` |
 | `IDoctorRepository` | `DoctorRepository` |
-| `IInvoiceRepository` | `InvoiceRepository` (billing + e-invoice outbox) |
+| `IInvoiceRepository` | `InvoiceRepository` (billing) |
 | `ITreatmentPlanRepository` | `TreatmentPlanRepository` (devis + installments) |
 | `IClinicReminderSettingsRepository` | `ClinicReminderSettingsRepository` |
 | `ICnamCatalogRepository` | `CnamCatalogRepository` (nomenclature + lettre-clé values) |
@@ -255,7 +255,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
   owns the French *reason* a platform is unavailable, so the registration refusal, the parked row's message and the
   settings sentence are one wording rather than three.
 - **`PushConfig`** + **`ResolvedPushCredentials`** — static accessors over the `Push` section, on
-  `RemindersConfig`/`TtnConfig`'s pattern. **Per install, not per clinic**: one mobile app means one Firebase
+  `RemindersConfig`'s pattern. **Per install, not per clinic**: one mobile app means one Firebase
   project and one Apple team. Secrets expected from env (`Push__Fcm__ServiceAccountKey`,
   `Push__Apns__PrivateKey`); `IsConfigured` is the single sendability predicate every layer reads.
 - **`IPushSender`** + `FcmPushSender`/`ApnsPushSender` over a shared **`HttpPushSender`** (15 s-bounded, never
@@ -331,60 +331,23 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
   exchange + app-subscribe + phone-register via Graph API, using `MetaConfig` (`Meta:AppId`/`AppSecret`,
   `Meta:GraphApiVersion`). Failures thrown as categorized `WhatsAppOnboardingException`.
 
-### E-invoicing — TTN « El Fatoora »
-- **`EInvoiceService`** (`IEInvoiceService`, scoped) — orchestrates one dispatch attempt for a `Queued` invoice:
-  TEIF → sign → store signed XML → submit → persist outcome (Validated + QR cachet payload / permanent Rejected /
-  bounded transient retry with backoff). **Best-effort, self-committing, never throws** (safe from a command or
-  the outbox job). Picks the `ITtnClient` by the clinic's environment, falling back to sandbox.
-- **`TeifXmlGenerator`** (`ITeifXmlGenerator`) — builds TEIF XML (version pinned in-code; exact XSD is an open
-  question). **`XadesEInvoiceSigner`** (`IEInvoiceSigner`) — enveloped XMLDSig (RSA-SHA256). It reads no
-  configuration and touches no disk: the certificate arrives as **bytes** on a `ResolvedTtnIdentity`, so signing is
-  a pure synchronous transform. **`QrCodeGenerator`** (`IQrCodeGenerator`, **Singleton**) — visible cachet QR.
-- **`TtnIdentityProvider`** (`ITtnIdentityProvider`, scoped, `multi-tenant-cloud` US-4) — **the single answer to
-  « whose certificate signs this clinic's invoices? »**: the clinic's own (`Clinic.TtnUsername` /
-  `TtnApiSecretEncrypted` / `TtnCertificateKey` / `TtnCertificatePasswordEncrypted`, the PFX fetched from
-  `IFileStorage`, the two secrets decrypted through `ITtnSecretProtector`), else the per-install pair — and that
-  fall-back exists **only** where `DeploymentProfile.SharesInstallWideTtnIdentity` holds, i.e. `SelfHostedLan`,
-  the one topology where « per install » and « per clinic » name the same thing.
-  It replaced the constraint this file used to record as a fact: one `.local/teif-signing.pfx` for the whole
-  install meant that in a multi-clinic deployment **every** clinic's e-invoices were signed with the same
-  qualified identity — and a TEIF signature attests *who issued* the invoice, so on a hosted backend that is a
-  false legal declaration, made irreversible by TTN validation.
-  ⚠️ **It is a provider rather than an `if` in the signer because the identity has two consumers** — the signer
-  wants the certificate, `HttpTtnClient` wants the credentials — and `EInvoiceService` resolves it **once** per
-  dispatch and hands the same object to both, which is what makes « signed as clinic A, filed under clinic B »
-  unreachable. ⚠️ **A clinic that HAS a certificate never silently falls back to the install's**, not even when
-  the blob is missing: substituting an identity for a clinic that was explicitly given one is the exact failure
-  being prevented. Every refusal is an `InvalidOperationException` with a French operator message —
-  `EInvoiceService`'s existing catch turns that into a queued retry with the reason on the row, so nothing is a
-  new error channel. ⚠️ **Nothing writes those four columns yet** (the admin surface is owed), so `verify-schema`'s
-  **`ttn-identity-is-complete`** is the only guard a hand-populated row has.
-- **`TtnSecretProtector`** (`ITtnSecretProtector`, **Singleton**) — `ReminderSecretProtector`'s twin on its own
-  purpose (`ClinicManagement.TtnSecrets.v1`). Deliberately not the reminder protector: a Data-Protection *purpose*
-  exists to stop one subsystem's ciphertext being read by another. Its key ring surviving a redeploy is what
-  `DataProtection:KeyRingPath` guarantees (required in `HostedMultiTenant` since US-6) — which is why that step
-  had to land **before** this one.
-- **`SandboxTtnClient`** (`ITtnClient`, env `Sandbox` — default) — validates any signed TEIF locally, returns a
-  deterministic fake TTN id + receipt (whole pipeline exercisable offline). **`HttpTtnClient`** (`ITtnClient`,
-  env `Production`) — best-effort OAuth2 + REST submit driven by `Ttn:*`; unconfigured/5xx ⇒ transient (invoice
-  stays Queued). Both registered as a set; `EInvoiceService` keys them by `Environment`.
-- **`TtnConfig`** — static accessors: cert path/password (`.local/teif-signing.pfx`, env `TTN_CERT_PASSWORD`),
-  base/token URLs per environment, `Ttn:Username`/`ApiSecret` (env `TTN_API_SECRET`), `MaxAttempts` (5),
-  `BackoffBaseSeconds` (60), `DispatchBatchSize` (20).
-  ⚠️ Since US-4 the four **identity** accessors describe the *per-install fall-back only* — read them anywhere but
-  `TtnIdentityProvider` and you have written a second, disagreeing answer to « whose certificate is this? ». The
-  endpoint and outbox accessors are unaffected: TTN is one national platform, so its URLs and the retry policy are
-  per install by nature.
+### QR rendering
+- **`QrCodeGenerator`** (`IQrCodeGenerator`, **Singleton**) — renders a payload to a PNG QR. Its only live
+  caller is `TrustController`, which puts the LAN trust page's URL on screen for a phone to scan. It is what
+  survived the electronic-invoicing removal (`adoption-gaps-remediation` Part 1); everything else in that
+  subsystem — the XML generator, the signer, the two national-platform clients, the identity provider, its
+  secret protector and the dispatch orchestrator — was deleted.
 
 ### File Storage (`IFileStorage`, scoped, mode-branched)
 - **`Storage/ClinicStorageKey`** (`multi-tenant-cloud` US-5) — **the single composer of a new blob's key**, used by
   both backends: `clinics/{clinicId}/` then the caller's clinic-relative path or a unique `{guid}-{timestamp}` leaf.
   Before US-5 « which clinic owns this blob » had **two** answers — four upload sites prefixed a path of their own
-  with a bare `{clinicId}/` (logo, cachet, e-invoice artifacts) while four wrote a flat guid with no clinic in it at
+  with a bare `{clinicId}/` (logo, cachet, and the two artifacts of the electronic-invoicing subsystem of the
+  day) while four wrote a flat guid with no clinic in it at
   all — and a third was one new upload away. Both `IFileStorage.UploadAsync` overloads therefore **require** a
   `Guid clinicId`, so an unprefixed key is not something a caller can write; `ClinicStorageKeyTests` derives that
   assertion off the interface rather than listing today's overloads.
-  ⚠️ **The clinic is a parameter, not read off the ambient `ITenantScope`** — the e-invoice outbox uploads under
+  ⚠️ **The clinic is a parameter, not read off the ambient `ITenantScope`** — an outbox job uploads under
   `UseSystemWide` (no clinic in scope at all) and would have written an unattributed key, silently.
   ⚠️ **Reading is deliberately not symmetrical**: `DownloadAsync`/`DeleteAsync` pass the stored key through
   **verbatim**, so a row written before US-5 keeps resolving with **no backfill** (amendment M2). Composing on the
@@ -481,7 +444,6 @@ a call fails cleanly ("pg_dump introuvable").
   `DataProtection:KeyRingPath` if set, else framework default) + `IReminderSecretProtector` (**Singleton**).
 - **Reminders** — `IReminderSettingsProvider`, `IReminderScheduler` (scoped); `IReminderChannelSender` ×2
   (`HttpSmsSender`, `WhatsAppSender`, scoped); `IWhatsAppOnboardingService` (scoped).
-- **E-invoicing** — `ITeifXmlGenerator`, `IEInvoiceSigner`, `IEInvoiceService`, `ITtnIdentityProvider`,
   `ITtnClient` ×2 (Sandbox + Http) scoped; `IQrCodeGenerator` + **`ITtnSecretProtector`** Singleton.
 - `IGoogleCalendarService`, `IGoogleCalendarSyncService`, `IPdfGenerationService`, `IHuggingFaceAIService`,
   `IAIActionService`, `IClinicCatalogSeeder`, `IBackupService` — all scoped.
@@ -506,11 +468,10 @@ unrecognised value **fails startup loud**); `Auth:Mode` (`Cloud`|`Local`);
 (all optional; key else generated `.local/signing-key`); `Connectivity:{ProbeUrl,ProbeTimeoutSeconds,
 ProbeCacheSeconds}`; `Cors:AllowedOrigins` (Local); `Reminders:{Channels,LeadTimesHours,MinLeadHours,MaxRetries,
 Sms:{ApiUrl,SenderId,ApiKey},WhatsApp:{ApiUrl,PhoneNumberId,TemplateName,AccessToken,TemplateLanguage,
-TemplateHasBodyParam}}`; `Ttn:{CertPath,CertPassword,Username,ApiSecret,MaxAttempts,BackoffBaseSeconds,
-DispatchBatchSize,Sandbox:{BaseUrl,TokenUrl},Production:{BaseUrl,TokenUrl}}`; `Meta:{AppId,AppSecret,
+TemplateHasBodyParam}}`; `Meta:{AppId,AppSecret,
 GraphApiVersion}`; `DataProtection:KeyRingPath` (Cloud); `Backup:{PgDumpPath,DefaultDestination,TimeoutSeconds}`.
 Secrets are expected from env, not committed config (e.g. `Reminders__Sms__ApiKey`, `Reminders__WhatsApp__
-AccessToken`, `Meta__AppSecret`, `TTN_CERT_PASSWORD`, `TTN_API_SECRET`). *(HTTPS/Kestrel hosting keys —
+AccessToken`, `Meta__AppSecret`). *(HTTPS/Kestrel hosting keys —
 `Https:*`, `Hosting:*` — are read in API `Program.cs`, not here.)*
 
 > When code changes, update this file so the map stays accurate.

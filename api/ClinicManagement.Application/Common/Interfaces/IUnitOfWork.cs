@@ -15,7 +15,7 @@ public interface IUnitOfWork
     /// <para>
     /// <b>Zero means "not supplied" and skips the check.</b> Real rows never carry an <c>xmin</c> of 0, and
     /// several writers legitimately have no user-held version — the AI action dispatcher, the Google→App
-    /// calendar sync, the reminder and e-invoice jobs. Making it mandatory would break them for no gain;
+    /// calendar sync, the reminder job. Making it mandatory would break them for no gain;
     /// they are not two people editing one form.
     /// </para>
     /// </summary>

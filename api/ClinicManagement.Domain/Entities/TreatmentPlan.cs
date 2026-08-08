@@ -10,7 +10,7 @@ namespace ClinicManagement.Domain.Entities;
 /// planned act lines + an optional installment schedule (échéancier) and renders as a devis (quote). It is
 /// <c>Accept</c>ed to receive a per-clinic-per-year number (<c>AAAA-NNNN</c>, separate from invoices) and
 /// freeze; acts are then marked done and installment payments recorded, moving it through
-/// InProgress → Completed, or it can be Cancelled. Not a fiscal document (no VAT/timbre/TTN).
+/// InProgress → Completed, or it can be Cancelled. Not a fiscal document (no VAT, no timbre).
 /// </summary>
 public class TreatmentPlan : AggregateRoot<Guid>
 {

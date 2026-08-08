@@ -323,7 +323,7 @@ The server installer is safe to re-run over an existing install **without wiping
 Closes the four P0 findings in § 2 of `CODEBASE_AUDIT_2026-07.md`. Before this release every local Windows
 account on the clinic PC could read the entire patient database, every uploaded radiograph, the logs, and the
 whole `.local/` trust store — the JWT signing key (enough to forge an admin token for any clinic), the HTTPS
-server key, the Data Protection key ring, and the e-invoice signing certificate.
+server key and the Data Protection key ring.
 
 ### What the installer now does
 

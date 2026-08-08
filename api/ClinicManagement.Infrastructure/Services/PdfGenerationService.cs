@@ -295,23 +295,6 @@ public class PdfGenerationService : IPdfGenerationService
                                 }
                             });
 
-                            // TTN « cachet électronique visible » — only present once the invoice is validated (FR-7).
-                            if (data.QrCodePng != null && data.QrCodePng.Length > 0)
-                            {
-                                column.Item().PaddingTop(12).Row(qrRow =>
-                                {
-                                    qrRow.ConstantItem(110).Image(data.QrCodePng);
-                                    qrRow.RelativeItem().PaddingLeft(12).AlignMiddle().Column(info =>
-                                    {
-                                        info.Spacing(2);
-                                        info.Item().Text("Cachet électronique — TTN « El Fatoora »").FontSize(9).Bold().FontFamily("Helvetica");
-                                        if (!string.IsNullOrWhiteSpace(data.TtnIdentifier))
-                                            info.Item().Text($"Référence TTN : {data.TtnIdentifier}").FontSize(9).FontFamily("Helvetica");
-                                        info.Item().Text("Facture électronique enregistrée auprès de TTN.").FontSize(8).FontColor(Colors.Grey.Darken1).FontFamily("Helvetica");
-                                    });
-                                });
-                            }
-
                             column.Item().ExtendVertical();
                         });
 
@@ -706,16 +689,6 @@ public class PdfGenerationService : IPdfGenerationService
                                 totals.Item().PaddingTop(3).Text($"Montant remboursé : {FormatDt(data.AmountTtc)}")
                                     .FontSize(14).Bold().FontColor(Colors.Blue.Darken2).FontFamily("Helvetica");
                             });
-
-                            // The avoir is never transmitted to TTN — only the invoice is. Without this line
-                            // a clinic would reasonably assume the declared figure had been corrected too.
-                            if (data.CorrectedInvoiceIsTtnRegistered)
-                            {
-                                column.Item().PaddingTop(10).Text(
-                                        "La facture corrigée est enregistrée auprès de TTN « El Fatoora ». Cet avoir n'est pas "
-                                        + "télétransmis : la régularisation auprès de TTN reste à effectuer par le cabinet.")
-                                    .FontSize(9).FontColor(Colors.Red.Darken2).FontFamily("Helvetica");
-                            }
 
                             column.Item().ExtendVertical();
                         });

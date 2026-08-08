@@ -23,7 +23,7 @@ public static class Extensions
     {
         // ⚠️ **The console verbs have no host builder, so nothing else registers this.** Five Infrastructure
         // types take `IConfiguration` in their constructor (`LocalAuthService`, `LocalAuthConfig`,
-        // `ConnectivityConfig`, `EInvoiceService`, `Auth0ManagementService`), and a verb that builds a bare
+        // `ConnectivityConfig`, `Auth0ManagementService`), and a verb that builds a bare
         // `new ServiceCollection()` + `AddInfrastructure(configuration)` could not activate any of them:
         // `provision-clinic` died on « Unable to resolve service for type
         // 'Microsoft.Extensions.Configuration.IConfiguration' while attempting to activate 'LocalAuthService' ».
@@ -336,22 +336,8 @@ public static class Extensions
         // PDF Generation Service
         services.AddScoped<IPdfGenerationService, PdfGenerationService>();
 
-        // TTN « El Fatoora » electronic invoicing (feature facturation-einvoicing-ttn):
-        //   - TEIF XML generation + XAdES/XMLDSig signing + QR cachet rendering.
-        //   - ITtnClient registered as a set (sandbox + production); EInvoiceService picks the one matching
-        //     the clinic's configured environment (mirrors the reminder-sender pattern).
-        //   - EInvoiceService orchestrates the whole dispatch; the outbox job + submit command call it.
-        //   - ITtnIdentityProvider (US-4) answers WHOSE certificate and TTN account a clinic's invoices use —
-        //     the clinic's own, or the per-install pair where the topology permits it. The signer no longer
-        //     reads configuration at all, so this is the only place that question is answered.
-        services.AddScoped<ITeifXmlGenerator, TeifXmlGenerator>();
-        services.AddScoped<IEInvoiceSigner, XadesEInvoiceSigner>();
+        // The QR renderer's live caller is TrustController, which renders the LAN trust page's QR from it.
         services.AddSingleton<IQrCodeGenerator, QrCodeGenerator>();
-        services.AddSingleton<ITtnSecretProtector, TtnSecretProtector>();
-        services.AddScoped<ITtnIdentityProvider, TtnIdentityProvider>();
-        services.AddScoped<ITtnClient, SandboxTtnClient>();
-        services.AddScoped<ITtnClient, HttpTtnClient>();
-        services.AddScoped<IEInvoiceService, EInvoiceService>();
 
         // Hugging Face AI Service
         services.AddScoped<IHuggingFaceAIService, HuggingFaceAIService>();

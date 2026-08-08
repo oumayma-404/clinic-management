@@ -81,7 +81,7 @@ public class NotificationJob
             return;
         }
 
-        // AC-P4.31 — bounded, like EInvoiceOutboxJob. The scan was unbounded against a table nothing had ever
+        // AC-P4.31 — bounded. The scan was unbounded against a table nothing had ever
         // purged, so one backlog could make a single tick run for minutes while holding this job's
         // [DisableConcurrentExecution] lock and starving every later tick.
         //

@@ -2247,7 +2247,7 @@ export function DocumentEditorContent() {
    * ⚠️ No « honoraires » case, deliberately (defect #6). `/documents/honoraires` is guarded by the route
    * (`app/documents/[type]/page.tsx` renders a notice pointing at /factures), so this editor is never mounted
    * for that type — and a note d'honoraires is money, owned by the Factures module, which numbers it, applies
-   * TVA + timbre and files it with El Fatoora. The branches that used to live here rendered « 120,00 € » on a
+   * TVA + timbre. The branches that used to live here rendered « 120,00 € » on a
    * Tunisian document, including in the Word export; they were one route change away from printing euros.
    */
   const getDocumentTitle = () => {

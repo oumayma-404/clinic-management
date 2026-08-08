@@ -23,7 +23,7 @@ public sealed record ResolvedPushCredentials(
 
 /// <summary>
 /// Static accessors over the <c>Push</c> configuration section, mirroring <c>RemindersConfig</c> and
-/// <c>TtnConfig</c>.
+/// <c>RemindersConfig</c>.
 ///
 /// <para><b>Per install, not per clinic</b>: there is one mobile app, so one Firebase project and one Apple team
 /// for the whole deployment. Secrets are expected from the environment

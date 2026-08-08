@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace ClinicManagement.API.Controllers;
 
 /// <summary>
-/// Queue depth for the clinic's three background outboxes — reminders, El Fatoora e-invoices, document emails
+/// Queue depth for the clinic's two background outboxes — reminders and document emails
 /// (multi-tenant-cloud US-6).
 ///
 /// <para><b>It exists because the Hangfire dashboard cannot be reached where it is most needed.</b>

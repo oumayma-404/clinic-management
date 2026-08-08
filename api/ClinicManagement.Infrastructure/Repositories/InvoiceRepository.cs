@@ -357,50 +357,6 @@ public class InvoiceRepository : IInvoiceRepository
             .FirstOrDefaultAsync(i => i.Payments.Any(p => p.Id == paymentId), cancellationToken);
     }
 
-    public async Task<IEnumerable<Invoice>> GetDueForElFatooraDispatchAsync(int maxCount, DateTime now, CancellationToken cancellationToken = default)
-    {
-        return await _context.Invoices
-            .Include(i => i.Lines)
-            .Include(i => i.Payments)
-            // A cancelled note is never declared (J4). `Invoice.Cancel` dequeues, so a cancelled row should
-            // already have left this set — the predicate is the belt to that braces, and it also covers the rows
-            // cancelled *before* the dequeue existed, which are still sitting in the outbox with a due date.
-            .Where(i => i.EInvoiceStatus == EInvoiceStatus.Queued
-                        && i.Status != InvoiceStatus.Cancelled
-                        && i.EInvoiceNextAttemptAt != null
-                        && i.EInvoiceNextAttemptAt <= now)
-            .OrderBy(i => i.EInvoiceNextAttemptAt)
-            .Take(maxCount)
-            .ToListAsync(cancellationToken);
-    }
-
-    public async Task<EInvoiceOutboxDepth> GetEInvoiceOutboxDepthAsync(
-        Guid clinicId, DateTime nowUtc, CancellationToken cancellationToken = default)
-    {
-        var scoped = _context.Invoices.Where(i => i.ClinicId == clinicId);
-
-        // Clause for clause GetDueForElFatooraDispatchAsync's, minus its due bound — including the cancelled-note
-        // exclusion, without which this would count rows the dispatcher deliberately skips forever.
-        var queued = scoped.Where(i => i.EInvoiceStatus == EInvoiceStatus.Queued
-                                       && i.Status != InvoiceStatus.Cancelled
-                                       && i.EInvoiceNextAttemptAt != null);
-
-        var queuedCount = await queued.CountAsync(cancellationToken);
-
-        var due = queued.Where(i => i.EInvoiceNextAttemptAt <= nowUtc);
-
-        var dueCount = await due.CountAsync(cancellationToken);
-
-        var oldestDue = await due
-            .Select(i => i.EInvoiceNextAttemptAt)
-            .MinAsync(cancellationToken);
-
-        var failed = await scoped.CountAsync(
-            i => i.EInvoiceStatus == EInvoiceStatus.Failed, cancellationToken);
-
-        return new EInvoiceOutboxDepth(queuedCount, dueCount, failed, oldestDue);
-    }
-
     public async Task<Invoice> AddAsync(Invoice invoice, CancellationToken cancellationToken = default)
     {
         await _context.Invoices.AddAsync(invoice, cancellationToken);

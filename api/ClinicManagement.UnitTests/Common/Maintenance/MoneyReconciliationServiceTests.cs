@@ -293,7 +293,7 @@ public class MoneyReconciliationServiceTests
     }
 
     // [AC-36] Bridge invoices issued before the carry-over existed still re-bill a deposit the patient paid.
-    // They are REPORTED, never repaired — numbered documents, some filed with El Fatoora.
+    // They are REPORTED, never repaired — they are numbered fiscal documents.
     [Fact]
     public async Task An_Untransferred_Bridge_Is_Reported_As_Drift()
     {

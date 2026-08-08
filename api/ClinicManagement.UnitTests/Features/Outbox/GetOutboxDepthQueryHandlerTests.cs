@@ -11,12 +11,11 @@ namespace ClinicManagement.UnitTests.Features.Outbox;
 /// <summary>
 /// The operator's queue-depth read (multi-tenant-cloud US-6).
 ///
-/// <para><b>Two things here are worth a test rather than a comment.</b> First, all three queues must be measured
-/// against <b>one</b> instant: the whole value of the read is comparing the figures with each other and with the
-/// reading taken five minutes ago, and three clock reads would make « due » mean three slightly different things.
-/// Second, every read must be issued with the caller's <i>own</i> clinic id — the reminder outbox carries no query
-/// filter at all (it is drained cross-clinic by the dispatcher), so the handler's argument is the only thing
-/// keeping one practice's queue out of another's report.</para>
+/// <para><b>Two things here are worth a test rather than a comment.</b> First, the reported instant must be the
+/// one the queues were actually measured against: the whole value of the read is comparing the figures with the
+/// reading taken five minutes ago. Second, every read must be issued with the caller's <i>own</i> clinic id — the
+/// reminder outbox carries no query filter at all (it is drained cross-clinic by the dispatcher), so the handler's
+/// argument is the only thing keeping one practice's queue out of another's report.</para>
 /// </summary>
 public class GetOutboxDepthQueryHandlerTests
 {
@@ -25,14 +24,12 @@ public class GetOutboxDepthQueryHandlerTests
     private const string CallerId = "local|admin";
 
     private readonly Mock<INotificationRepository> _notifications = new();
-    private readonly Mock<IInvoiceRepository> _invoices = new();
     private readonly Mock<IDocumentEmailRepository> _documentEmails = new();
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IClinicContext> _clinicContext = new();
 
     private GetOutboxDepthQueryHandler Handler() => new(
         _notifications.Object,
-        _invoices.Object,
         _documentEmails.Object,
         _users.Object,
         _clinicContext.Object,
@@ -47,18 +44,12 @@ public class GetOutboxDepthQueryHandlerTests
 
     private void GivenQueues(
         ReminderOutboxDepth? reminders = null,
-        EInvoiceOutboxDepth? eInvoices = null,
         DocumentEmailOutboxDepth? documentEmails = null)
     {
         _notifications
             .Setup(r => r.GetOutboxDepthAsync(
                 It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(reminders ?? new ReminderOutboxDepth(0, 0, 0, 0, null));
-
-        _invoices
-            .Setup(r => r.GetEInvoiceOutboxDepthAsync(
-                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(eInvoices ?? new EInvoiceOutboxDepth(0, 0, 0, null));
 
         _documentEmails
             .Setup(r => r.GetOutboxDepthAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
@@ -71,12 +62,10 @@ public class GetOutboxDepthQueryHandlerTests
         GivenCaller("admin", Clinic);
 
         var oldestReminder = new DateTime(2026, 8, 5, 6, 30, 0, DateTimeKind.Utc);
-        var oldestAttempt = new DateTime(2026, 8, 5, 7, 0, 0, DateTimeKind.Utc);
         var oldestEmail = new DateTime(2026, 8, 4, 18, 0, 0, DateTimeKind.Utc);
 
         GivenQueues(
             new ReminderOutboxDepth(Pending: 40, Due: 12, Blocked: 3, FailedRecent: 2, oldestReminder),
-            new EInvoiceOutboxDepth(Queued: 7, Due: 4, Failed: 1, oldestAttempt),
             new DocumentEmailOutboxDepth(Queued: 5, Blocked: 4, Failed: 6, oldestEmail));
 
         var result = await Handler().Handle(new GetOutboxDepthQuery(), CancellationToken.None);
@@ -90,11 +79,6 @@ public class GetOutboxDepthQueryHandlerTests
         Assert.Equal(2, dto.Reminders.FailedRecent);
         Assert.Equal(oldestReminder, dto.Reminders.OldestDueScheduledForUtc);
 
-        Assert.Equal(7, dto.EInvoices.Queued);
-        Assert.Equal(4, dto.EInvoices.Due);
-        Assert.Equal(1, dto.EInvoices.Failed);
-        Assert.Equal(oldestAttempt, dto.EInvoices.OldestDueNextAttemptUtc);
-
         Assert.Equal(5, dto.DocumentEmails.Queued);
         // Blocked is what separates « the queue is deep » from « the dispatcher is dead » on this queue, which had
         // no such figure until the review's finding 5.
@@ -104,12 +88,12 @@ public class GetOutboxDepthQueryHandlerTests
     }
 
     [Fact]
-    public async Task All_three_queues_are_measured_against_one_instant()
+    public async Task The_reported_instant_is_the_one_the_queue_was_measured_against()
     {
         GivenCaller("admin", Clinic);
         GivenQueues();
 
-        DateTime reminderNow = default, invoiceNow = default;
+        DateTime reminderNow = default;
 
         _notifications
             .Setup(r => r.GetOutboxDepthAsync(
@@ -117,15 +101,8 @@ public class GetOutboxDepthQueryHandlerTests
             .Callback((Guid _, DateTime now, DateTime _, CancellationToken _) => reminderNow = now)
             .ReturnsAsync(new ReminderOutboxDepth(0, 0, 0, 0, null));
 
-        _invoices
-            .Setup(r => r.GetEInvoiceOutboxDepthAsync(
-                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .Callback((Guid _, DateTime now, CancellationToken _) => invoiceNow = now)
-            .ReturnsAsync(new EInvoiceOutboxDepth(0, 0, 0, null));
-
         var result = await Handler().Handle(new GetOutboxDepthQuery(), CancellationToken.None);
 
-        Assert.Equal(reminderNow, invoiceNow);
         Assert.Equal(reminderNow, result.Value!.MeasuredAtUtc);
     }
 
@@ -162,8 +139,6 @@ public class GetOutboxDepthQueryHandlerTests
 
         _notifications.Verify(r => r.GetOutboxDepthAsync(
             Clinic, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
-        _invoices.Verify(r => r.GetEInvoiceOutboxDepthAsync(
-            Clinic, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
         _documentEmails.Verify(r => r.GetOutboxDepthAsync(Clinic, It.IsAny<CancellationToken>()), Times.Once);
 
         // The reminder outbox carries no query filter, so the argument is the ONLY isolation there is.
@@ -186,7 +161,6 @@ public class GetOutboxDepthQueryHandlerTests
 
         // And nothing was read — a refusal that still queried would leak timing and load for no reason.
         _notifications.VerifyNoOtherCalls();
-        _invoices.VerifyNoOtherCalls();
         _documentEmails.VerifyNoOtherCalls();
     }
 
@@ -218,10 +192,9 @@ public class GetOutboxDepthQueryHandlerTests
     {
         GivenCaller("admin", Clinic);
         GivenQueues();
-        _invoices
-            .Setup(r => r.GetEInvoiceOutboxDepthAsync(
-                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("relation \"Invoices\" does not exist"));
+        _documentEmails
+            .Setup(r => r.GetOutboxDepthAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("relation \"DocumentEmails\" does not exist"));
 
         var result = await Handler().Handle(new GetOutboxDepthQuery(), CancellationToken.None);
 

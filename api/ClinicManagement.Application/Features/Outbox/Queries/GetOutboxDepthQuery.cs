@@ -9,8 +9,8 @@ using Microsoft.Extensions.Logging;
 namespace ClinicManagement.Application.Features.Outbox.Queries;
 
 /// <summary>
-/// Admin-only: how deep the clinic's three background queues are — reminders, El Fatoora e-invoices, document
-/// emails (multi-tenant-cloud US-6).
+/// Admin-only: how deep the clinic's two background queues are — reminders and document emails
+/// (multi-tenant-cloud US-6).
 ///
 /// <para><b>Why this exists at all.</b> <c>/hangfire</c> is loopback-only in <i>every</i> profile, and behind a
 /// reverse proxy every request's <c>RemoteIpAddress</c> is the proxy container — correct as security, total as
@@ -40,7 +40,6 @@ public class GetOutboxDepthQuery : IRequest<Result<OutboxDepthDto>>
 public class GetOutboxDepthQueryHandler : IRequestHandler<GetOutboxDepthQuery, Result<OutboxDepthDto>>
 {
     private readonly INotificationRepository _notificationRepository;
-    private readonly IInvoiceRepository _invoiceRepository;
     private readonly IDocumentEmailRepository _documentEmailRepository;
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
@@ -48,14 +47,12 @@ public class GetOutboxDepthQueryHandler : IRequestHandler<GetOutboxDepthQuery, R
 
     public GetOutboxDepthQueryHandler(
         INotificationRepository notificationRepository,
-        IInvoiceRepository invoiceRepository,
         IDocumentEmailRepository documentEmailRepository,
         IUserRepository userRepository,
         IClinicContext clinicContext,
         ILogger<GetOutboxDepthQueryHandler> logger)
     {
         _notificationRepository = notificationRepository;
-        _invoiceRepository = invoiceRepository;
         _documentEmailRepository = documentEmailRepository;
         _userRepository = userRepository;
         _clinicContext = clinicContext;
@@ -85,19 +82,16 @@ public class GetOutboxDepthQueryHandler : IRequestHandler<GetOutboxDepthQuery, R
                     "Seuls les administrateurs peuvent consulter l'état des files d'attente.");
             }
 
-            // ONE instant for all three queues. Reading the clock per queue would let two of the three « due »
-            // figures be measured against different moments, and the whole value of this read is comparing them
-            // with each other and with the reading taken five minutes ago.
+            // ONE instant for both queues. Reading the clock per queue would let the « due » figures be measured
+            // against different moments, and the whole value of this read is comparing them with each other and
+            // with the reading taken five minutes ago.
             var now = DateTime.UtcNow;
             var failedSince = now.AddDays(-GetOutboxDepthQuery.FailedWindowDays);
 
-            // Sequential, not Task.WhenAll: the three repositories share the request's DbContext, which a
-            // concurrent read throws on — the same constraint the dashboard's section readers document.
+            // Sequential, not Task.WhenAll: the repositories share the request's DbContext, which a concurrent
+            // read throws on — the same constraint the dashboard's section readers document.
             var reminders = await _notificationRepository.GetOutboxDepthAsync(
                 caller.ClinicId, now, failedSince, cancellationToken);
-
-            var eInvoices = await _invoiceRepository.GetEInvoiceOutboxDepthAsync(
-                caller.ClinicId, now, cancellationToken);
 
             var documentEmails = await _documentEmailRepository.GetOutboxDepthAsync(
                 caller.ClinicId, cancellationToken);
@@ -113,13 +107,6 @@ public class GetOutboxDepthQueryHandler : IRequestHandler<GetOutboxDepthQuery, R
                     FailedRecent = reminders.FailedRecent,
                     FailedSinceUtc = failedSince,
                     OldestDueScheduledForUtc = reminders.OldestDueScheduledFor
-                },
-                EInvoices = new EInvoiceOutboxDepthDto
-                {
-                    Queued = eInvoices.Queued,
-                    Due = eInvoices.Due,
-                    Failed = eInvoices.Failed,
-                    OldestDueNextAttemptUtc = eInvoices.OldestDueNextAttemptAt
                 },
                 DocumentEmails = new DocumentEmailOutboxDepthDto
                 {

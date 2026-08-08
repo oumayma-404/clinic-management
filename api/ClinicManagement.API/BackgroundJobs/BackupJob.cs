@@ -14,7 +14,7 @@ namespace ClinicManagement.API.BackgroundJobs;
 /// and keep the staleness alert in step with reality.
 ///
 /// <para><b>Not connectivity-gated</b>, unlike <see cref="NotificationJob"/> and
-/// <see cref="EInvoiceOutboxJob"/> and for the same reason as <see cref="StockExpiryJob"/>: the output is a file
+/// <see cref="NotificationJob"/> and for the same reason as <see cref="StockExpiryJob"/>: the output is a file
 /// on a local disk, so it must work on an offline LAN install — which is the only kind of install this feature
 /// exists for.</para>
 ///

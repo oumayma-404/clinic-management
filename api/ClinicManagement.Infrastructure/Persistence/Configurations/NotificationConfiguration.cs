@@ -68,7 +68,7 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
         // and it ran unindexed against a table that has never been purged, so it degraded forever. Status
         // leads because it is the selective predicate (Pending is a shrinking minority once rows start
         // sending), and ScheduledFor second serves both the range and the ORDER BY from the same index.
-        // Closest precedent is InvoiceConfiguration's (EInvoiceStatus, EInvoiceNextAttemptAt) — the same
+        // Closest precedent is a status+due-instant outbox index — the same
         // outbox shape, deliberately mirrored rather than re-invented.
         builder.HasIndex(n => new { n.Status, n.ScheduledFor });
     }

@@ -56,7 +56,6 @@ public class DeploymentProfileTests
             // `DeploymentProfile.cs` could not be staged without their capability (their addition and Part 6's
             // `PermitsOsPush` land in one diff hunk), and a capability with no row fails the drift guard below.
             // The three values are read off `For(kind)` itself, not chosen here.
-            [nameof(DeploymentProfile.SharesInstallWideTtnIdentity)] = (true, false, false),
             // clinic-self-signup. The first capability true of HostedMultiTenant ALONE, which is what forced the
             // `hostedOnlyCapabilities` set in the R-2 test below — see the comment there.
             [nameof(DeploymentProfile.AllowsPublicClinicSignup)] = (false, true, false)

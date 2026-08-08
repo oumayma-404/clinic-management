@@ -9,7 +9,7 @@ public interface IFileStorage
     /// <c>clinics/{clinicId}/</c>, so a hosted deployment's object store is partitioned by tenant rather than a
     /// flat pile of guids. The id is a required parameter rather than something the backend reads off the ambient
     /// tenant scope, because the two uploads with no request behind them cannot supply one that way — the
-    /// e-invoice outbox runs <c>SystemWide</c> (no clinic in scope at all) and would silently write an
+    /// outbox jobs run <c>SystemWide</c> (no clinic in scope at all) and would silently write an
     /// unattributed key.</para>
     /// </summary>
     Task<string> UploadAsync(Stream file, string contentType, Guid clinicId, CancellationToken cancellationToken = default);

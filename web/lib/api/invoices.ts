@@ -132,14 +132,7 @@ export const invoicesApi = {
   listAvoirs: async (id: string): Promise<CreditNoteDto[]> =>
     apiGet<CreditNoteDto[]>(`/invoices/${id}/avoirs`),
 
-  // Send (or retry sending) an issued invoice to TTN « El Fatoora ». Idempotent per invoice.
-  submitToElFatoora: async (id: string): Promise<InvoiceDto> =>
-    apiPost<InvoiceDto>(`/invoices/${id}/e-invoice/submit`, {}),
-
   delete: async (id: string): Promise<void> => apiDelete<void>(`/invoices/${id}`),
-
-  downloadEInvoiceArtifact: async (id: string, artifact: 'xml' | 'receipt'): Promise<Blob> =>
-    apiGetBlob(`/invoices/${id}/e-invoice/${artifact}`),
 
   // The avoir's own PDF — the patient's proof of the refund. Note the route is keyed by the AVOIR's id,
   // not the invoice's.

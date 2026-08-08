@@ -18,7 +18,7 @@ public static class RemindersConfig
     private const int DefaultMaxRetries = 3;
 
     /// <summary>
-    /// How many due rows one dispatch tick may take (AC-P4.31), mirroring <c>TtnConfig.DispatchBatchSize</c>.
+    /// How many due rows one dispatch tick may take (AC-P4.31).
     /// The scan was unbounded: one large backlog could make a single tick run for minutes while holding the
     /// job's <c>[DisableConcurrentExecution]</c> lock, starving every later tick.
     /// </summary>

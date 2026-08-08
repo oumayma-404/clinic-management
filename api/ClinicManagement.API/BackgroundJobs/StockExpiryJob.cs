@@ -19,7 +19,7 @@ namespace ClinicManagement.API.BackgroundJobs;
 /// instead of up to a day later; this job covers everything time does afterwards.
 ///
 /// Runs unconditionally and is <b>not</b> connectivity-gated, unlike <see cref="NotificationJob"/> and
-/// <see cref="EInvoiceOutboxJob"/>: the alert it writes is in-app, so it must work on an offline LAN install.
+/// <see cref="NotificationJob"/>: the alert it writes is in-app, so it must work on an offline LAN install.
 /// Per-item failures are logged and skipped so one bad row cannot stop the scan.
 /// </summary>
 public class StockExpiryJob

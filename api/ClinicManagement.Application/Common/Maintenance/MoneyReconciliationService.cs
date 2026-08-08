@@ -256,7 +256,7 @@ public class MoneyReconciliationService
     /// Bridge invoices issued before the carry-over existed. Their devis collected money that was never moved
     /// onto the invoice, so the patient is still being re-billed for a deposit they already paid.
     ///
-    /// Reported, never repaired — these are numbered documents, some filed with El Fatoora, so the correction
+    /// Reported, never repaired — these are numbered fiscal documents, so the correction
     /// belongs to a human with the clinic's context (an avoir, or a payment recorded by hand).
     /// </summary>
     private static IEnumerable<MoneyReconciliationFinding> CheckUntransferredBridges(ClinicMoneyFacts clinic)

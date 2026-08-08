@@ -9,7 +9,7 @@ namespace ClinicManagement.UnitTests.Common;
 /// Every path that reads a clinic-filtered entity with <b>no HTTP context</b> must declare its tenant scope
 /// (multi-tenant-cloud US-2, risk R-1). This is the guard for the story's whole failure mode: the query filters
 /// now refuse an unset scope, so a job that forgets reads <i>nothing</i> and logs a clean run — reminders stop,
-/// e-invoices stop, « Envoyer par email » stops, and every layer reports success.
+/// reminders stop, « Envoyer par email » stops, and every layer reports success.
 ///
 /// <para><b>The criterion is stated before the enumeration, and the enumeration is derived from it.</b> Reading
 /// it off « is it a job? » produced a wrong list in both directions during planning, so the candidates are found

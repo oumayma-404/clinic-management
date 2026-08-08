@@ -43,15 +43,6 @@ public static class InvoiceMappingExtensions
         CreatedAt = invoice.CreatedAt,
         Version = invoice.Version,
         UpdatedAt = invoice.UpdatedAt,
-        EInvoiceStatus = invoice.EInvoiceStatus.ToString(),
-        TtnIdentifier = invoice.TtnIdentifier,
-        EInvoiceSubmittedAt = invoice.EInvoiceSubmittedAt,
-        EInvoiceValidatedAt = invoice.EInvoiceValidatedAt,
-        EInvoiceLastError = invoice.EInvoiceLastError,
-        EInvoiceAttemptCount = invoice.EInvoiceAttemptCount,
-        CanSubmitToElFatoora = invoice.CanSubmitToElFatoora,
-        HasSignedXml = !string.IsNullOrWhiteSpace(invoice.SignedXmlStorageKey),
-        HasTtnReceipt = !string.IsNullOrWhiteSpace(invoice.TtnReceiptStorageKey),
         Lines = invoice.Lines
             .Select(l => new InvoiceLineDto
             {
@@ -91,8 +82,7 @@ public static class InvoiceMappingExtensions
     };
 
     /// <summary>
-    /// Maps an avoir to its DTO. Takes the corrected invoice so the TTN warning can be carried to the UI —
-    /// the avoir itself has no e-invoicing state, and never will: only the invoice is transmitted.
+    /// Maps an avoir to its DTO.
     /// </summary>
     public static CreditNoteDto ToDto(this CreditNote creditNote, Invoice? correctedInvoice = null) => new()
     {
@@ -103,14 +93,6 @@ public static class InvoiceMappingExtensions
         Amount = creditNote.Amount,
         Reason = creditNote.Reason,
         Method = creditNote.Method?.ToString(),
-        RefundedOn = creditNote.RefundedOn,
-        CorrectedInvoiceIsTtnRegistered = correctedInvoice is not null && IsTtnRegistered(correctedInvoice)
+        RefundedOn = creditNote.RefundedOn
     };
-
-    /// <summary>
-    /// An invoice is "registered with TTN" once it has been accepted or is in flight — the states where the
-    /// declared figure no longer matches what the clinic actually keeps after an avoir.
-    /// </summary>
-    public static bool IsTtnRegistered(Invoice invoice) =>
-        invoice.EInvoiceStatus is EInvoiceStatus.Submitted or EInvoiceStatus.Validating or EInvoiceStatus.Valid;
 }

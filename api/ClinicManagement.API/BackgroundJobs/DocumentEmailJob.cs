@@ -14,7 +14,7 @@ namespace ClinicManagement.API.BackgroundJobs;
 /// ⇒ it does nothing and leaves rows queued, which is the whole reason the send is an outbox: on an offline LAN
 /// install the practitioner's click has to mean "send this when you can", not "fail".
 /// <para>
-/// Shaped after <see cref="EInvoiceOutboxJob"/> and <c>NotificationJob</c>: batch-bounded, per-row commit (one
+/// Shaped after <see cref="NotificationJob"/>: batch-bounded, per-row commit (one
 /// bad row cannot abort the tick), bounded retry. It does <b>not</b> render anything — the attachment was
 /// rendered and stored in the request, because every PDF renderer resolves the clinic from the caller's token
 /// and a job has none.

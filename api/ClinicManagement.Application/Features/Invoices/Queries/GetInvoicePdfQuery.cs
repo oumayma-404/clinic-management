@@ -21,7 +21,6 @@ public class GetInvoicePdfQueryHandler : IRequestHandler<GetInvoicePdfQuery, Res
     private readonly IClinicRepository _clinicRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IPdfGenerationService _pdfGenerationService;
-    private readonly IQrCodeGenerator _qrCodeGenerator;
     private readonly ICnamBillingCalculator _cnamBillingCalculator;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetInvoicePdfQueryHandler> _logger;
@@ -31,7 +30,6 @@ public class GetInvoicePdfQueryHandler : IRequestHandler<GetInvoicePdfQuery, Res
         IClinicRepository clinicRepository,
         IPatientRepository patientRepository,
         IPdfGenerationService pdfGenerationService,
-        IQrCodeGenerator qrCodeGenerator,
         ICnamBillingCalculator cnamBillingCalculator,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetInvoicePdfQueryHandler> logger)
@@ -40,7 +38,6 @@ public class GetInvoicePdfQueryHandler : IRequestHandler<GetInvoicePdfQuery, Res
         _clinicRepository = clinicRepository;
         _patientRepository = patientRepository;
         _pdfGenerationService = pdfGenerationService;
-        _qrCodeGenerator = qrCodeGenerator;
         _cnamBillingCalculator = cnamBillingCalculator;
         _clinicResolver = clinicResolver;
         _logger = logger;
@@ -82,22 +79,6 @@ public class GetInvoicePdfQueryHandler : IRequestHandler<GetInvoicePdfQuery, Res
                 cnamLines, invoice.TotalTtc, patient?.DateOfBirth, careDate, cancellationToken);
             data.CnamReimbursable = split.Reimbursable;
             data.PatientOutOfPocket = split.OutOfPocket;
-
-            // FR-7: once validated, stamp the QR « cachet électronique visible » + TTN reference onto the PDF.
-            // Degrade gracefully — a QR render failure must not block the (legally-important) invoice PDF, so
-            // render without the cachet rather than failing the whole document.
-            if (invoice.EInvoiceStatus == EInvoiceStatus.Valid && !string.IsNullOrWhiteSpace(invoice.QrPayload))
-            {
-                data.TtnIdentifier = invoice.TtnIdentifier;
-                try
-                {
-                    data.QrCodePng = _qrCodeGenerator.GeneratePng(invoice.QrPayload);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to render El Fatoora QR for invoice {InvoiceId}; PDF rendered without the cachet.", invoice.Id);
-                }
-            }
 
             var bytes = await _pdfGenerationService.GenerateInvoicePdfAsync(data, cancellationToken);
 

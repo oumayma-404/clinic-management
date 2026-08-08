@@ -491,18 +491,6 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                 WHERE p."ClinicId" <> d."ClinicId"
                 """);
 
-        // US-4's invariant, and the only one here with no application write path behind it: until the admin
-        // surface lands, these columns are filled in by hand, so this query is the whole guard.
-        var partialTtnIdentity = await ScalarOrNullAsync(connection, cancellationToken,
-            requiredTable: "Clinics",
-            requiredColumn: "TtnCertificateKey",
-            sql: """
-                SELECT COUNT(*)
-                FROM "Clinics"
-                WHERE ("TtnApiSecretEncrypted" IS NOT NULL AND "TtnUsername" IS NULL)
-                   OR ("TtnCertificatePasswordEncrypted" IS NOT NULL AND "TtnCertificateKey" IS NULL)
-                """);
-
         // clinic-self-signup. Two shapes in one figure, because the answer that matters is « is anything stuck
         // in this table? » rather than which way. The consumed cut-off is 30 days, matching the handler's own
         // retention, plus a day's slack so a purge that ran this morning does not read as drift this afternoon.
@@ -550,7 +538,7 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
             unsetBackupSchedule, chequeDetailsOnNonCheque, attributableButUnattributed, pushClinicMismatch,
-            partialTtnIdentity, signupOrphans, clinicalChildrenWrongClinic);
+            signupOrphans, clinicalChildrenWrongClinic);
     }
 
     /// <summary>

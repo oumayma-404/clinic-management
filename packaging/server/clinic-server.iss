@@ -64,7 +64,7 @@ PrivilegesRequired=admin
 ; Permissions are deliberately NOT set here any more. Inno's `Permissions:` flag only ADDS an ACE and leaves
 ; the inherited "Users: Read & Execute" from Program Files fully intact -- which is exactly the defect this
 ; release fixes (audit section 2, findings 2-3: the JWT signing key, the HTTPS server key, the Data
-; Protection key ring, the e-invoice certificate and every uploaded radiograph were readable by every local
+; Protection key ring and every uploaded radiograph were readable by every local
 ; account). The directories are created here and SECURED after install by the API's `harden-permissions`
 ; console verb, which breaks inheritance and removes Users/Everyone -- one testable implementation, shared
 ; with the one-click backup so the two cannot drift.

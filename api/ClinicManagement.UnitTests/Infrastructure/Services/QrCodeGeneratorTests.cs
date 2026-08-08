@@ -12,11 +12,11 @@ public class QrCodeGeneratorTests
     // The 8-byte PNG file signature.
     private static readonly byte[] PngMagic = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
 
-    // [FR-7] A payload renders to a non-empty PNG.
+    // A payload renders to a non-empty PNG. Its live caller is the LAN trust page's QR (TrustController).
     [Fact]
     public void GeneratePng_Returns_Png_Bytes()
     {
-        var png = new QrCodeGenerator().GeneratePng("ttn=TTN-123;mf=1234567A;ttc=108.000");
+        var png = new QrCodeGenerator().GeneratePng("https://192.168.1.10:5001/trust");
 
         Assert.NotEmpty(png);
         Assert.True(png.Length > PngMagic.Length);

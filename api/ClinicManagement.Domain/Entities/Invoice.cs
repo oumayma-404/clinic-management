@@ -68,24 +68,6 @@ public class Invoice : AggregateRoot<Guid>
 
     public string? CancellationReason { get; private set; }
 
-    // --- TTN « El Fatoora » electronic-invoicing state (FR-5). Independent of the fiscal Status above.
-    public EInvoiceStatus EInvoiceStatus { get; private set; }
-    /// <summary>The unique identifier TTN returns once the e-invoice is accepted/validated.</summary>
-    public string? TtnIdentifier { get; private set; }
-    /// <summary>File-storage key of the signed TEIF XML (a legal record — stored immutably).</summary>
-    public string? SignedXmlStorageKey { get; private set; }
-    /// <summary>File-storage key of the TTN receipt/acknowledgement.</summary>
-    public string? TtnReceiptStorageKey { get; private set; }
-    /// <summary>Payload encoded into the QR « cachet électronique visible » once validated.</summary>
-    public string? QrPayload { get; private set; }
-    public DateTime? EInvoiceSubmittedAt { get; private set; }
-    public DateTime? EInvoiceValidatedAt { get; private set; }
-    public string? EInvoiceLastError { get; private set; }
-    /// <summary>Number of dispatch attempts made by the outbox (drives bounded retry).</summary>
-    public int EInvoiceAttemptCount { get; private set; }
-    /// <summary>Earliest time the outbox may (re)attempt dispatch — implements backoff.</summary>
-    public DateTime? EInvoiceNextAttemptAt { get; private set; }
-
     // Totals (TND millimes) — recomputed from lines + frozen VAT/stamp.
     public decimal TotalHt { get; private set; }
     public decimal TotalVat { get; private set; }
@@ -130,16 +112,6 @@ public class Invoice : AggregateRoot<Guid>
 
     /// <summary>Only a draft can be deleted; an issued invoice is cancelled instead.</summary>
     public bool CanBeDeleted => Status == InvoiceStatus.Draft;
-
-    /// <summary>
-    /// True when the invoice may be sent (or re-sent) to El Fatoora: it is fiscally issued (numbered, not
-    /// a draft, not cancelled) and not already validated or mid-flight at TTN. Idempotency guard for FR-4.
-    /// </summary>
-    public bool CanSubmitToElFatoora =>
-        (Status == InvoiceStatus.Issued || Status == InvoiceStatus.PartiallyPaid || Status == InvoiceStatus.Paid)
-        && EInvoiceStatus != EInvoiceStatus.Valid
-        && EInvoiceStatus != EInvoiceStatus.Submitted
-        && EInvoiceStatus != EInvoiceStatus.Validating;
 
     private Invoice() { } // For EF Core
 
@@ -349,50 +321,13 @@ public class Invoice : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// True when this invoice may be cancelled: issued, not already cancelled, carrying no <b>live</b> payment,
-    /// and not registered with El Fatoora.
+    /// True when this invoice may be cancelled: issued, not already cancelled, and carrying no <b>live</b>
+    /// payment. Purely fiscal — no external declaration state can hold a cancellation any more.
     /// </summary>
     public bool CanCancel =>
         Status != InvoiceStatus.Draft
         && Status != InvoiceStatus.Cancelled
-        && !_payments.Any(p => !p.IsVoided)
-        && EInvoiceStatus != EInvoiceStatus.Valid
-        && EInvoiceStatus != EInvoiceStatus.Submitted
-        && EInvoiceStatus != EInvoiceStatus.Validating;
-
-    /// <summary>
-    /// Copy the whole TTN e-invoicing block from another instance of this same invoice, leaving every other
-    /// field alone.
-    ///
-    /// <para>
-    /// Exists for exactly one caller: the e-invoice dispatcher, when a peer edited the invoice between the
-    /// TTN exchange and the save. The exchange is not repeatable — TTN has already accepted the document and
-    /// issued its identifier — so the outcome must land on the peer's version of the row rather than being
-    /// discarded, which would leave the invoice Queued and let the outbox submit it a second time.
-    /// </para>
-    /// <para>
-    /// Deliberately a whole-block copy, not a merge: these ten fields are one state machine and mixing two
-    /// snapshots of it would produce a state neither side ever reached.
-    /// </para>
-    /// </summary>
-    public void CopyEInvoiceStateFrom(Invoice source)
-    {
-        if (source is null) throw new ArgumentNullException(nameof(source));
-        if (source.Id != Id)
-            throw new InvalidOperationException("L'état e-facture ne peut être copié que depuis la même facture.");
-
-        EInvoiceStatus = source.EInvoiceStatus;
-        TtnIdentifier = source.TtnIdentifier;
-        SignedXmlStorageKey = source.SignedXmlStorageKey;
-        TtnReceiptStorageKey = source.TtnReceiptStorageKey;
-        QrPayload = source.QrPayload;
-        EInvoiceSubmittedAt = source.EInvoiceSubmittedAt;
-        EInvoiceValidatedAt = source.EInvoiceValidatedAt;
-        EInvoiceLastError = source.EInvoiceLastError;
-        EInvoiceAttemptCount = source.EInvoiceAttemptCount;
-        EInvoiceNextAttemptAt = source.EInvoiceNextAttemptAt;
-        UpdatedAt = DateTime.UtcNow;
-    }
+        && !_payments.Any(p => !p.IsVoided);
 
     /// <summary>True when an avoir may be established: the invoice is issued and has collected money to credit.</summary>
     public bool CanCreateCreditNote =>
@@ -416,168 +351,11 @@ public class Invoice : AggregateRoot<Guid>
         if (_payments.Any(p => !p.IsVoided))
             throw new InvalidOperationException("Une facture avec des paiements enregistrés ne peut pas être annulée. Établissez un avoir.");
 
-        // Cancelling locally an invoice that TTN has already registered would put the clinic's books and the
-        // national e-invoice registry permanently out of step, with no trace on either side.
-        if (EInvoiceStatus is EInvoiceStatus.Valid or EInvoiceStatus.Submitted or EInvoiceStatus.Validating)
-            throw new InvalidOperationException(
-                "Cette facture est déclarée à El Fatoora et ne peut plus être annulée. Établissez un avoir.");
-
         if (string.IsNullOrWhiteSpace(reason))
             throw new ArgumentException("Le motif d'annulation est requis.", nameof(reason));
 
         CancellationReason = reason.Trim();
         Status = InvoiceStatus.Cancelled;
-
-        /*
-         * Dequeue the e-invoice (J4). The guard above refuses only the three states TTN has already seen
-         * (`Valid`/`Submitted`/`Validating`); `Queued` and `Signed` passed it, `CancelInvoiceCommand` never
-         * dequeued, and `EInvoiceService.ProcessAsync` never consulted this `Status` — so a cancelled note was
-         * still declared to El Fatoora by the next outbox tick and came back « validée ». A note validated at
-         * TTN can never be cancelled there, so the local cancellation and the national registry stayed
-         * permanently out of step in the one direction that cannot be undone.
-         *
-         * Dequeuing rather than refusing is deliberate: a mis-keyed note that happens to be queued must remain
-         * cancellable, and refusing would make it *uncancellable* — the retry budget is only exhausted after
-         * several minutely ticks, during which the only escape would be to let it be declared first.
-         *
-         * `NotSubmitted` is the honest resting state: nothing reached TTN. Any signed artifact already stored
-         * keeps its key — it is a record of what was built, and deleting it would lose the trail this whole
-         * state machine exists to keep.
-         */
-        if (EInvoiceStatus is EInvoiceStatus.Queued or EInvoiceStatus.Signed)
-        {
-            EInvoiceStatus = EInvoiceStatus.NotSubmitted;
-            EInvoiceNextAttemptAt = null;
-        }
-
-        Touch();
-    }
-
-    /// <summary>
-    /// Queue the invoice for El Fatoora submission (the offline outbox entry point, US-1/US-2). Allowed only
-    /// on a fiscally-issued, non-validated invoice; resets the retry budget and makes it due immediately.
-    /// </summary>
-    public void QueueForElFatoora()
-    {
-        if (!CanSubmitToElFatoora)
-            throw new InvalidOperationException("Cette facture ne peut pas être envoyée à El Fatoora dans son état actuel.");
-
-        EInvoiceStatus = EInvoiceStatus.Queued;
-        EInvoiceLastError = null;
-        EInvoiceAttemptCount = 0;
-        EInvoiceNextAttemptAt = DateTime.UtcNow;
-        Touch();
-    }
-
-    /// <summary>Record that the signed TEIF has been produced and stored (transient state before submission).</summary>
-    public void MarkEInvoiceSigned(string signedXmlStorageKey)
-    {
-        if (string.IsNullOrWhiteSpace(signedXmlStorageKey))
-            throw new ArgumentException("La clé du XML signé est requise.", nameof(signedXmlStorageKey));
-
-        SignedXmlStorageKey = signedXmlStorageKey.Trim();
-        EInvoiceStatus = EInvoiceStatus.Signed;
-        Touch();
-    }
-
-    /// <summary>Record that the signed e-invoice was accepted by TTN and is awaiting final validation.</summary>
-    public void MarkEInvoiceSubmitted(string ttnIdentifier, string? receiptStorageKey)
-    {
-        if (string.IsNullOrWhiteSpace(ttnIdentifier))
-            throw new ArgumentException("L'identifiant TTN est requis.", nameof(ttnIdentifier));
-
-        TtnIdentifier = ttnIdentifier.Trim();
-        TtnReceiptStorageKey = string.IsNullOrWhiteSpace(receiptStorageKey) ? TtnReceiptStorageKey : receiptStorageKey.Trim();
-        EInvoiceStatus = EInvoiceStatus.Submitted;
-        EInvoiceSubmittedAt = DateTime.UtcNow;
-        EInvoiceLastError = null;
-        EInvoiceNextAttemptAt = null;
-        Touch();
-    }
-
-    /// <summary>Record TTN validation: the invoice is now a legally-registered e-invoice with a QR cachet.</summary>
-    public void MarkEInvoiceValidated(string ttnIdentifier, string qrPayload, string? receiptStorageKey)
-    {
-        if (string.IsNullOrWhiteSpace(ttnIdentifier))
-            throw new ArgumentException("L'identifiant TTN est requis.", nameof(ttnIdentifier));
-
-        if (string.IsNullOrWhiteSpace(qrPayload))
-            throw new ArgumentException("Le contenu du QR cachet est requis.", nameof(qrPayload));
-
-        TtnIdentifier = ttnIdentifier.Trim();
-        QrPayload = qrPayload;
-        TtnReceiptStorageKey = string.IsNullOrWhiteSpace(receiptStorageKey) ? TtnReceiptStorageKey : receiptStorageKey.Trim();
-        EInvoiceStatus = EInvoiceStatus.Valid;
-        EInvoiceValidatedAt = DateTime.UtcNow;
-        EInvoiceSubmittedAt ??= DateTime.UtcNow;
-        EInvoiceLastError = null;
-        EInvoiceNextAttemptAt = null;
-        Touch();
-    }
-
-    /// <summary>
-    /// Record a permanent TTN rejection (bad data/schema). Requires correction + resubmission. An optional
-    /// rejection receipt/ack (its file-storage key) is kept so the operator can inspect the TTN reason.
-    /// </summary>
-    public void MarkEInvoiceRejected(string reason, string? receiptStorageKey = null)
-    {
-        EInvoiceStatus = EInvoiceStatus.Rejected;
-        EInvoiceLastError = string.IsNullOrWhiteSpace(reason) ? "Rejetée par El Fatoora." : reason.Trim();
-        if (!string.IsNullOrWhiteSpace(receiptStorageKey))
-        {
-            TtnReceiptStorageKey = receiptStorageKey.Trim();
-        }
-        EInvoiceNextAttemptAt = null;
-        Touch();
-    }
-
-    /// <summary>
-    /// Park a queued e-invoice against a <b>configuration</b> state — this clinic has no usable El Fatoora signing
-    /// identity yet. Records the operator's reason and leaves the row <c>Queued</c> and due, <b>consuming no
-    /// attempt</b>.
-    ///
-    /// <para><b>Why this is not <see cref="RecordEInvoiceFailure"/></b> (review finding 6): that one is right for a
-    /// transient failure and wrong here. A missing qualified certificate lasts days, so five bounded attempts empty
-    /// in about ten minutes and the note then leaves the outbox <i>permanently</i> — needing a manual
-    /// <see cref="QueueForElFatoora"/> nobody is told to perform, on what US-4 makes the <b>normal</b> state of
-    /// every newly provisioned clinic. Parking is the <c>Blocked</c> status the reminder outbox has, expressed
-    /// without a new state: the row stays exactly where the dispatcher will find it, and uploading the PFX is all it
-    /// takes to resume.</para>
-    ///
-    /// <para>⚠️ <b><paramref name="retryAt"/> must be a real instant, never null.</b> Both the dispatcher's due-query
-    /// and the <c>GET /api/outbox</c> depth read require <c>EInvoiceNextAttemptAt != null</c> to see a row at all, so
-    /// clearing it would park the invoice somewhere *nothing* looks — invisible to the retry and absent from the very
-    /// backlog figure meant to reveal it.</para>
-    /// </summary>
-    public void ParkEInvoiceUntilConfigured(string reason, DateTime retryAt)
-    {
-        EInvoiceLastError = string.IsNullOrWhiteSpace(reason)
-            ? "Identité El Fatoora de ce cabinet non configurée."
-            : reason.Trim();
-        EInvoiceStatus = EInvoiceStatus.Queued;
-        EInvoiceNextAttemptAt = retryAt;
-        Touch();
-    }
-
-    /// <summary>
-    /// Record a transient dispatch failure. Consumes one attempt; stays <c>Queued</c> (retried after
-    /// <paramref name="nextAttemptAt"/>) until <paramref name="maxAttempts"/> is reached, then → <c>Failed</c>.
-    /// </summary>
-    public void RecordEInvoiceFailure(string error, int maxAttempts, DateTime nextAttemptAt)
-    {
-        EInvoiceAttemptCount++;
-        EInvoiceLastError = string.IsNullOrWhiteSpace(error) ? "Échec de l'envoi à El Fatoora." : error.Trim();
-
-        if (EInvoiceAttemptCount >= maxAttempts)
-        {
-            EInvoiceStatus = EInvoiceStatus.Failed;
-            EInvoiceNextAttemptAt = null;
-        }
-        else
-        {
-            EInvoiceStatus = EInvoiceStatus.Queued;
-            EInvoiceNextAttemptAt = nextAttemptAt;
-        }
         Touch();
     }
 

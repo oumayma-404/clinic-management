@@ -153,9 +153,6 @@ export default function ClinicSettings() {
   const [isBillingCollapsed, setIsBillingCollapsed] = useState(true)
   const [originalBilling, setOriginalBilling] = useState<any>({})
 
-  // TTN « El Fatoora » e-invoicing settings (part of the billing card)
-  const [ttnEInvoicingEnabled, setTtnEInvoicingEnabled] = useState(false)
-  const [ttnEnvironment, setTtnEnvironment] = useState("Sandbox")
 
   // Working Hours State — seeded from the shared default; overwritten by the clinic's saved hours on load.
   const [workingHours, setWorkingHours] = useState<WorkingHoursInput[]>(
@@ -224,8 +221,6 @@ export default function ClinicSettings() {
         setStampDutyEnabled(clinic.stampDutyEnabled ?? true)
         // `formatAmount` (J8) — the timbre is a millime-precision amount and the field now accepts « 1,000 ».
         setStampDutyAmount(formatAmount(clinic.stampDutyAmount ?? 1))
-        setTtnEInvoicingEnabled(clinic.ttnEInvoicingEnabled ?? false)
-        setTtnEnvironment(clinic.ttnEnvironment ?? "Sandbox")
         // Working hours (AC-7): use the clinic's saved hours; keep the default when none are stored.
         if (clinic.workingHours && clinic.workingHours.length > 0) {
           setWorkingHours(clinic.workingHours.map((d) => ({ ...d })))
@@ -463,7 +458,7 @@ export default function ClinicSettings() {
   }
 
   const handleEditBilling = () => {
-    setOriginalBilling({ matriculeFiscal, vatApplicable, vatRate, stampDutyEnabled, stampDutyAmount, ttnEInvoicingEnabled, ttnEnvironment })
+    setOriginalBilling({ matriculeFiscal, vatApplicable, vatRate, stampDutyEnabled, stampDutyAmount })
     setIsEditingBilling(true)
   }
 
@@ -473,8 +468,6 @@ export default function ClinicSettings() {
     setVatRate(originalBilling.vatRate ?? "7")
     setStampDutyEnabled(originalBilling.stampDutyEnabled ?? true)
     setStampDutyAmount(originalBilling.stampDutyAmount ?? "1.000")
-    setTtnEInvoicingEnabled(originalBilling.ttnEInvoicingEnabled ?? false)
-    setTtnEnvironment(originalBilling.ttnEnvironment ?? "Sandbox")
     setIsEditingBilling(false)
   }
 
@@ -495,8 +488,6 @@ export default function ClinicSettings() {
         vatRate: parseAmountInput(vatRate) || 0,
         stampDutyEnabled,
         stampDutyAmount: parseAmountInput(stampDutyAmount) || 0,
-        ttnEInvoicingEnabled,
-        ttnEnvironment,
       })
 
       toast.success("Paramètres de facturation enregistrés.")
@@ -1331,42 +1322,6 @@ export default function ClinicSettings() {
                       className={`h-8 md:text-sm ${!isEditingBilling || !stampDutyEnabled ? "bg-muted/40" : ""}`}
                     />
                   </div>
-                </div>
-              </div>
-
-              {/* TTN « El Fatoora » electronic invoicing (FR-8) */}
-              <div className="space-y-3 pt-3 border-t">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="ttn-enabled"
-                    checked={ttnEInvoicingEnabled}
-                    onCheckedChange={(checked) => setTtnEInvoicingEnabled(checked === true)}
-                    disabled={!isEditingBilling}
-                    className="h-4 w-4"
-                  />
-                  <Label htmlFor="ttn-enabled" className="text-xs font-medium">
-                    Facturation électronique TTN « El Fatoora »
-                  </Label>
-                </div>
-                <div className="space-y-1 max-w-xs">
-                  <Label htmlFor="ttn-environment" className="text-xs font-medium">Environnement</Label>
-                  <Select
-                    value={ttnEnvironment}
-                    onValueChange={setTtnEnvironment}
-                    disabled={!isEditingBilling || !ttnEInvoicingEnabled}
-                  >
-                    <SelectTrigger id="ttn-environment" className="h-8 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Sandbox">Test (sandbox)</SelectItem>
-                      <SelectItem value="Production">Production</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-2xs text-muted-foreground">
-                    Le certificat qualifié et les identifiants TTN sont fournis côté serveur (dossier sécurisé
-                    <code className="mx-1">.local/</code>), jamais saisis ici.
-                  </p>
                 </div>
               </div>
 

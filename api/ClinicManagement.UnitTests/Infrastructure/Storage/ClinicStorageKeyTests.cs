@@ -50,7 +50,7 @@ public class ClinicStorageKeyTests
     // path now, so a leading clinic segment would produce clinics/{id}/{id}/logo.
     [Theory]
     [InlineData("logo")]
-    [InlineData("e-invoices/2026-0001-signed.xml")]
+    [InlineData("exports/2026-0001-lignes.csv")]
     public void A_Relative_Path_Is_Placed_Under_Its_Clinic(string relativePath)
     {
         Assert.Equal($"clinics/{Clinic}/{relativePath}", ClinicStorageKey.Compose(Clinic, relativePath));

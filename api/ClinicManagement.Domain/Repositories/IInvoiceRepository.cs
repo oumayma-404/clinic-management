@@ -5,20 +5,6 @@ using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Domain.Repositories;
 
 /// <summary>
-/// How deep the El Fatoora e-invoice outbox is (multi-tenant-cloud US-6, <c>GET /api/outbox</c>).
-///
-/// <para><see cref="Queued"/> counts every note waiting to be declared; <see cref="Due"/> counts the subset whose
-/// next attempt has come round, which is what the dispatcher would take on its next tick. The gap between them is
-/// normal — a rejected note backs off — so it is the <see cref="Due"/> figure standing still, and
-/// <see cref="OldestDueNextAttemptAt"/> receding, that says the job is not running.</para>
-/// </summary>
-public sealed record EInvoiceOutboxDepth(
-    int Queued,
-    int Due,
-    int Failed,
-    DateTime? OldestDueNextAttemptAt);
-
-/// <summary>
 /// One payment row behind the caisse statement. A projection rather than a <c>Payment</c>: the statement needs
 /// the owning invoice's number, which a bare <c>Payment</c> cannot reach.
 /// <para>
@@ -218,25 +204,6 @@ public interface IInvoiceRepository
 
     /// <summary>Load the invoice that owns a given payment (with lines + payments), or null. Clinic-agnostic — the caller guards the clinic.</summary>
     Task<Invoice?> GetByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// El Fatoora outbox: invoices <c>Queued</c> for e-invoicing and due for a dispatch attempt
-    /// (<c>EInvoiceNextAttemptAt &lt;= now</c>), across all clinics, oldest-due first, capped at
-    /// <paramref name="maxCount"/>. Loaded with lines + payments for TEIF generation.
-    /// </summary>
-    Task<IEnumerable<Invoice>> GetDueForElFatooraDispatchAsync(int maxCount, DateTime now, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// The e-invoice outbox's queue depth for one clinic — see <see cref="EInvoiceOutboxDepth"/>.
-    ///
-    /// <para>⚠️ <b>Its predicates are a copy of <see cref="GetDueForElFatooraDispatchAsync"/>'s, deliberately</b>
-    /// — the same reason <c>GetPaymentsBetweenAsync</c> mirrors its SUM sibling clause for clause. A looser
-    /// predicate here (say, every <c>Queued</c> row including the cancelled notes the dispatcher skips) would
-    /// report a backlog nothing will ever drain, and the operator would go looking for a broken job that is
-    /// working perfectly.</para>
-    /// </summary>
-    Task<EInvoiceOutboxDepth> GetEInvoiceOutboxDepthAsync(
-        Guid clinicId, DateTime nowUtc, CancellationToken cancellationToken = default);
 
     Task<Invoice> AddAsync(Invoice invoice, CancellationToken cancellationToken = default);
     Task UpdateAsync(Invoice invoice, CancellationToken cancellationToken = default);

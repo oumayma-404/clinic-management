@@ -40,7 +40,6 @@ public class InvoicePdfMentionsTests
     private readonly Mock<IClinicRepository> _clinics = new();
     private readonly Mock<IPatientRepository> _patients = new();
     private readonly Mock<IPdfGenerationService> _pdf = new();
-    private readonly Mock<IQrCodeGenerator> _qr = new();
     private readonly Mock<ICnamBillingCalculator> _cnam = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
 
@@ -84,7 +83,7 @@ public class InvoicePdfMentionsTests
     private async Task<InvoicePdfData> RenderAsync(Invoice invoice)
     {
         var handler = new GetInvoicePdfQueryHandler(
-            _invoices.Object, _clinics.Object, _patients.Object, _pdf.Object, _qr.Object, _cnam.Object,
+            _invoices.Object, _clinics.Object, _patients.Object, _pdf.Object, _cnam.Object,
             _clinicResolver.Object, NullLogger<GetInvoicePdfQueryHandler>.Instance);
 
         var result = await handler.Handle(new GetInvoicePdfQuery { Id = invoice.Id }, CancellationToken.None);

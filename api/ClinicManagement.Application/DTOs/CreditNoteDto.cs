@@ -11,10 +11,4 @@ public class CreditNoteDto
     public string Reason { get; set; } = string.Empty;
     public string? Method { get; set; }
     public DateTime RefundedOn { get; set; }
-
-    /// <summary>
-    /// True when the corrected invoice is registered with TTN « El Fatoora ». The avoir is NOT transmitted to
-    /// TTN, so both the screen and the PDF have to say so rather than let the clinic assume it was declared.
-    /// </summary>
-    public bool CorrectedInvoiceIsTtnRegistered { get; set; }
 }

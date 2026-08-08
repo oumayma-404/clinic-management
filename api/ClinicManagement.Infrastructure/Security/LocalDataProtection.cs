@@ -30,7 +30,7 @@ namespace ClinicManagement.Infrastructure.Security;
 /// on its own PC and is not survivable for a hosted backend: it works, and then the first redeploy replaces the
 /// ring, so every clinic's stored reminder credentials become undecryptable and each channel reports
 /// « non configuré » with nothing in any log tying that to a deployment. This also gates US-4, which protects
-/// per-clinic TTN secrets the same way — a rotated ring would silently stop e-invoice signing for every clinic.
+/// per-clinic reminder secrets the same way — a rotated ring would silently stop every clinic's channels.
 /// A path with no durable volume behind it produces exactly the same symptom, which no code can detect; that
 /// half is stated in <c>deploy/docker-compose.hosted.yml</c> beside the volume.</para>
 /// </summary>
@@ -69,7 +69,7 @@ public static class LocalDataProtection
             throw new InvalidOperationException(
                 $"{KeyRingPathKey} is required in the {nameof(DeploymentKind.HostedMultiTenant)} deployment "
                 + "profile. Without it the Data Protection key ring is per-instance and ephemeral, so every "
-                + "clinic's encrypted reminder and e-invoicing credentials become unreadable after a redeploy "
+                + "clinic's encrypted reminder credentials become unreadable after a redeploy "
                 + "and each channel silently reports « non configuré ». Point it at a directory backed by a "
                 + "durable volume (see deploy/docker-compose.hosted.yml).");
         }

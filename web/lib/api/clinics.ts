@@ -49,9 +49,6 @@ export interface ClinicDto {
   vatRate?: number;
   stampDutyEnabled?: boolean;
   stampDutyAmount?: number;
-  // TTN « El Fatoora » e-invoicing settings.
-  ttnEInvoicingEnabled?: boolean;
-  ttnEnvironment?: string;
   // Working hours (AC-7). Null/absent = no saved hours (the UI falls back to a default).
   workingHours?: WorkingDay[] | null;
   createdAt: string;
@@ -219,8 +216,6 @@ export const clinicsApi = {
     vatRate?: number;
     stampDutyEnabled?: boolean;
     stampDutyAmount?: number;
-    ttnEInvoicingEnabled?: boolean;
-    ttnEnvironment?: string;
     // Working hours serialized as a JSON array (AC-7). Omit to leave the stored hours unchanged.
     workingHoursJson?: string;
     /**
@@ -246,9 +241,6 @@ export const clinicsApi = {
     if (data.vatRate !== undefined) formData.append('vatRate', String(data.vatRate));
     if (data.stampDutyEnabled !== undefined) formData.append('stampDutyEnabled', String(data.stampDutyEnabled));
     if (data.stampDutyAmount !== undefined) formData.append('stampDutyAmount', String(data.stampDutyAmount));
-    // TTN e-invoicing settings (optional).
-    if (data.ttnEInvoicingEnabled !== undefined) formData.append('ttnEInvoicingEnabled', String(data.ttnEInvoicingEnabled));
-    if (data.ttnEnvironment !== undefined) formData.append('ttnEnvironment', data.ttnEnvironment);
     // Working hours JSON (optional).
     if (data.workingHoursJson !== undefined) formData.append('workingHoursJson', data.workingHoursJson);
 

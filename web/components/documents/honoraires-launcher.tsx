@@ -49,7 +49,7 @@ type BillableSession = {
 /**
  * FR-1: the "Note d'honoraires" card no longer opens the document editor. It opens a patient-selection
  * step, then a **séance-selection** step, then the existing compliant InvoiceFormModal (draft).
- * Numbering / TVA / timbre / El Fatoora are applied later at the separate "issue" step in the Factures
+ * Numbering / TVA / timbre are applied later at the separate "issue" step in the Factures
  * module — this flow only creates the draft, it never auto-issues.
  *
  * <p>⚠️ The séance step is the point, and it replaced an automatic prefill of *every* not-yet-invoiced fiche.

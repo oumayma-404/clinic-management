@@ -68,7 +68,7 @@ public sealed record OverCreditedInvoiceFact(Guid InvoiceId, string? Number, dec
 /// A bridge invoice issued BEFORE the carry-over existed, so the money collected on its devis was never moved
 /// onto it — the patient is still being re-billed for a deposit they already paid.
 ///
-/// Reported, never repaired: these are numbered documents and some are filed with El Fatoora, so the
+/// Reported, never repaired: these are numbered fiscal documents, so the
 /// correction belongs to a human with the clinic's context (an avoir, or a payment recorded by hand).
 /// </summary>
 public sealed record UntransferredBridgeFact(

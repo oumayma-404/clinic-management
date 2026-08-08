@@ -1,4 +1,4 @@
-﻿using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Maintenance;
 using Moq;
 
@@ -52,7 +52,7 @@ public class SchemaVerificationServiceTests
         'x',
         "EXCLUDE USING gist (\"DoctorId\" WITH =, slot WITH &&) WHERE (\"Status\" <> ALL (ARRAY[5, 6]))");
 
-    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0);
 
     private static SchemaVerificationFinding Finding(SchemaVerificationReport report, string check) =>
         report.Findings.Single(f => f.Check == check);
@@ -449,7 +449,6 @@ public class SchemaVerificationServiceTests
             ProcedureTypesWithCategoryStillInDescription = null,
             PaymentsWithChequeDetailsOnNonCheque = null,
             PushDeliveriesWithMismatchedClinic = null,
-            ClinicsWithPartialTtnIdentity = null,
             ClinicSignupOrphans = null,
         });
 
@@ -691,30 +690,4 @@ public class SchemaVerificationServiceTests
         Assert.Contains("not applicable", finding.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
-    // ------------------------------------------------------------------ US-4: per-clinic TTN identity
-
-    // [US-4] Half an identity is drift. Clinic.SetTtnIdentity refuses it, but nothing in the product calls that
-    // method yet — an identity is installed by hand until the admin surface lands — so this check is not a
-    // backstop behind an application guard the way its siblings are. It is the only guard there is.
-    [Fact]
-    public async Task A_Clinic_Holding_Half_A_Ttn_Identity_Is_Drift()
-    {
-        Arrange(counts: CleanCounts with { ClinicsWithPartialTtnIdentity = 1 });
-
-        var report = await CreateService().RunAsync();
-
-        Assert.True(IsDrift(Finding(report, "ttn-identity-is-complete")));
-    }
-
-    [Fact]
-    public async Task Ttn_Identity_Reads_Not_Applicable_Before_The_Columns_Exist()
-    {
-        Arrange(counts: CleanCounts with { ClinicsWithPartialTtnIdentity = null });
-
-        var report = await CreateService().RunAsync();
-
-        var finding = Finding(report, "ttn-identity-is-complete");
-        Assert.False(IsDrift(finding));
-        Assert.Contains("not applicable", finding.Detail, StringComparison.OrdinalIgnoreCase);
-    }
 }

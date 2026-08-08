@@ -205,7 +205,7 @@ public class ClinicsController : ApiControllerBase
     /// Update clinic information for the current user's clinic
     /// </summary>
     [HttpPut]
-    // Clinic configuration, and specifically the billing settings — matricule fiscal, TVA, timbre, El Fatoora.
+    // Clinic configuration, and specifically the billing settings — matricule fiscal, TVA, timbre.
     // Every write on the tabs beside it was already admin-gated; this one was reachable by any authenticated user.
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> UpdateClinic([FromForm] UpdateClinicRequest request)
@@ -225,8 +225,6 @@ public class ClinicsController : ApiControllerBase
             VatRate = request.VatRate,
             StampDutyEnabled = request.StampDutyEnabled,
             StampDutyAmount = request.StampDutyAmount,
-            TtnEInvoicingEnabled = request.TtnEInvoicingEnabled,
-            TtnEnvironment = request.TtnEnvironment,
             WorkingHoursJson = request.WorkingHoursJson,
             Version = request.Version
         };

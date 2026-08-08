@@ -75,7 +75,7 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
     /// </summary>
     private static readonly HashSet<string> ValuedProperties = new(StringComparer.Ordinal)
     {
-        "Status", "IsActive", "IsArchived", "IsVoided", "IsDraft", "Role", "EInvoiceStatus", "IsFlagged"
+        "Status", "IsActive", "IsArchived", "IsVoided", "IsDraft", "Role", "IsFlagged"
     };
 
     /// <summary>

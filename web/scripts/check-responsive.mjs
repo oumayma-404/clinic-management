@@ -443,7 +443,7 @@ check(
   "A file is delivered through `lib/download.ts`, never a hand-rolled anchor or `saveAs`",
   "`<a download>` on a `blob:` URL is **ignored by iOS Safari** — the file never arrives and nothing raises an " +
     "error, so on an iPhone the button simply does nothing. Five call sites had each hand-rolled it (a patient " +
-    "file, an invoice PDF, an e-invoice XML, a document PDF) and a sixth used `file-saver` as a third mechanism, " +
+    "file, an invoice PDF, a document PDF, a CSV export) and a sixth used `file-saver` as a third mechanism, " +
     "so the shared helper's device-aware share/open path reached none of them. In a WebView it is worse: there is " +
     "no `blob:` download and no `navigator.share`, so every one of those paths delivers nothing at all.",
   () =>

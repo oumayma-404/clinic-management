@@ -450,12 +450,6 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                         </div>
                       </div>
                       <p className="text-xs text-muted-foreground">Motif : {creditNote.reason}</p>
-                      {creditNote.correctedInvoiceIsTtnRegistered && (
-                        <p className="text-xs text-warning-ink">
-                          Facture télétransmise à TTN : l&apos;avoir ne l&apos;est pas — la régularisation
-                          auprès d&apos;El Fatoora reste à faire.
-                        </p>
-                      )}
                     </li>
                   ))}
                 </ul>

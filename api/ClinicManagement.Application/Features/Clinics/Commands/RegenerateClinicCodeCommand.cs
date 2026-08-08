@@ -81,8 +81,6 @@ public class RegenerateClinicCodeCommandHandler : IRequestHandler<RegenerateClin
                 Email = clinic.Email,
                 Code = clinic.Code,
                 LogoUrl = clinic.LogoUrl,
-                TtnEInvoicingEnabled = clinic.TtnEInvoicingEnabled,
-                TtnEnvironment = clinic.TtnEnvironment,
                 CreatedAt = clinic.CreatedAt,
                 Version = clinic.Version,
             });

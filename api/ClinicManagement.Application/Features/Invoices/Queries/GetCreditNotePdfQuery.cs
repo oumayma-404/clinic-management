@@ -151,8 +151,7 @@ public class GetCreditNotePdfQueryHandler : IRequestHandler<GetCreditNotePdfQuer
             Reason = creditNote.Reason,
             Method = creditNote.Method.HasValue
                 ? PaymentMethodLabels.ToFrench(creditNote.Method.Value)
-                : null,
-            CorrectedInvoiceIsTtnRegistered = InvoiceMappingExtensions.IsTtnRegistered(invoice)
+                : null
         };
     }
 }

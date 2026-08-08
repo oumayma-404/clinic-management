@@ -191,31 +191,6 @@ public class InvoicePaymentVoidTests
         Assert.Contains("avoir", ex.Message);
     }
 
-    // [Edge case] An invoice TTN has registered can no longer be cancelled locally — the clinic's books and
-    // the national registry must not diverge silently.
-    [Theory]
-    [InlineData(EInvoiceStatus.Valid)]
-    [InlineData(EInvoiceStatus.Submitted)]
-    public void A_TTN_Registered_Invoice_Cannot_Be_Cancelled(EInvoiceStatus status)
-    {
-        var invoice = IssuedInvoice();
-        invoice.QueueForElFatoora();
-
-        if (status == EInvoiceStatus.Valid)
-        {
-            invoice.MarkEInvoiceValidated("TTN-1", "qr-payload", receiptStorageKey: null);
-        }
-        else
-        {
-            invoice.MarkEInvoiceSubmitted("TTN-1", receiptStorageKey: null);
-        }
-
-        Assert.Equal(status, invoice.EInvoiceStatus);
-        Assert.False(invoice.CanCancel);
-        var ex = Assert.Throws<InvalidOperationException>(() => invoice.Cancel("Erreur"));
-        Assert.Contains("El Fatoora", ex.Message);
-    }
-
     // [AC-29] A sub-millime amount is refused rather than silently stored as 0,000 — a zero-amount row would
     // count for nothing yet block cancellation forever.
     [Fact]
