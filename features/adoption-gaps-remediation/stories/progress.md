@@ -9,7 +9,7 @@
 | Part | Group | Name | Migration | Status |
 |------|-------|------|-----------|--------|
 | 1 | C | Remove El Fatoora / TTN | `RemoveEInvoicing` | **implemented** |
-| 2 | A | Money integrity | `AddDentalRecordPaymentMethod` | not-started |
+| 2 | A | Money integrity | `AddDentalRecordPaymentMethod` | **implemented** |
 | 3 | B | Cheque life-cycle | `AddChequeBankedStamp` | not-started |
 | 4 | D | Remaining defects | `NullableDobLabOrderAppointment` | not-started |
 
@@ -168,3 +168,94 @@ while SAC is blocking. That is how `RemoveEInvoicing` was created.
   since Part 2 rewrites files carrying 102 TTN references). Confirmed the dev database is disposable, so
   `RemoveEInvoicing`'s throwing `Down()` (R-2) is acceptable without a fresh backup. Resolved the staging
   conflict above. Captured all three baselines. Started Part 1.
+
+---
+
+## Part 2 — Group A, money integrity (2026-08-08, session 2)
+
+Owner's instruction: **implement the whole of phase A in one pass, no test authorship, report only when every
+step is done.** Tests were therefore not *written*, but the three existing classes this part's own changes break
+were repaired — leaving them asserting the replaced behaviour would have been a false green, not a deferral.
+
+### What landed, step by step
+
+| Plan step | Landed as |
+|-----------|-----------|
+| 1. Fiche payment fields | `DentalRecord.PaymentMethod` + the three cheque columns, written only through `SetPayment`, which runs them through the **existing** `ChequeDetails.For` (no new guard). Mapped in `DentalRecordConfiguration` with `Payment`'s own lengths (50 / 200) |
+| 2. Rename → `BillDentalRecordCommand` | Same namespace (so the realtime `invoices` key is untouched), returns `Result<DentalRecordBillingResult>`; `InvoicesController` unwraps `.Invoice`, so the route and body are unchanged |
+| 3. The pre-commit refusal | `UpdateDentalRecordCommand` loads the fiche's note **before** `SaveChangesAsync` and returns `Result.Failure` + `Code`. `CreateDentalRecordCommand` takes the four fields and no guard |
+| 4. The already-billed branch | `TopUpAsync`: higher → an additional `Payment` on the same note (`ToppedUp`), equal/absent → `AlreadyBilled`, lower / acts changed / spent note → refusals with codes |
+| 5. `DentalRecordAutoBilling` | The `Contains("déjà facturée")` match **deleted**; switches on the typed outcome; carries the fiche's method + cheque instead of the hard-coded `Cash` |
+| 6. Every outcome surfaced | `patient-record-modal` gained `ToppedUp` (success, naming the *increment*), `AlreadyBilled` (**`toast.info`**, no longer plain green) and `Refused` (warning, 10 s) |
+| 7. Fiche payment fields, client | « Mode » select beside « Payé » in the footer + `ChequeFields` above it, reusing `cheque-fields.tsx` and `chequePaymentFields()` |
+| 8. `CaissePeriod` | New; both caisse handlers delegate to it, `FromDay`/`ToDay` added; `BillingController` binds them on summary, ledger **and** export |
+| 9. `web/app/caisse/page.tsx` | Sends day keys; `rangeBounds` deleted, replaced by a comment saying why it must not come back |
+| 10. `ExpenseRepository` | `< to` → `<= to`, both sites |
+| 11. Plan-workspace void | `void-installment-payment.tsx` (in-place panel, required motif) + the affordance in the cards' menu and in the table, and voided rows are now **rendered struck through with motif and actor** |
+| 12. The bridge comment | Corrected in all three places, and `Invoice.Cancel`'s refusal now says the avoir is the only route and that a bridge's carried receipts do not travel back |
+
+### Gate results
+
+| Gate | Result |
+|------|--------|
+| `dotnet build --no-incremental` | **0 errors, 57 warnings** — the recorded baseline exactly, **0 new** |
+| Unit suite | **2168 passed, 0 failed** (Part 1 left 2162; +6 from the repaired classes' new cases) |
+| `verify-schema` before/after | **identical apart from the timestamp** — the four columns are diffed against the catalog for free, so no check changed |
+| `reconcile-money` before/after | **identical apart from the timestamp** — no closed month moved, no duplicate document |
+| `npx tsc --noEmit` | clean |
+| `npm run check:responsive` | **15/15 passed** |
+| `npm run build` | clean |
+| Device eye pass | ⚠️ **OWED** — see below |
+
+### Deviations
+
+#### DEV-5: `GetExpensesQuery` gained the day keys too, which the plan's file table does not list
+**Date:** 2026-08-08 · **Story:** 1, Part 2 · **Category:** Scope
+**Original Plan:** step 8 names the summary, the ledger and the export.
+**Actual Implementation:** `GetExpensesQuery` + `ExpensesController` take `FromDay`/`ToDay` as well.
+**Justification:** la caisse renders the dépenses table **inside the same window** as the totals and the extrait.
+Leaving that one call on client-composed instants would have meant either keeping `rangeBounds` (which step 9
+deletes) or composing the period twice in two conventions — with the money-out list free to answer for a
+different day from the money-out figure above it. ⚠️ It resolves a period **only when one was asked for**:
+« no dates » on `/expenses` means « toutes les dépenses », not « aujourd'hui », so applying `CaissePeriod`'s
+default unconditionally would silently turn the full list into one day's.
+**Impact:** one more endpoint; no behaviour change for any caller that sends nothing.
+
+#### DEV-6: `BillDentalRecordCommand.IsAutomatic` — A-1 needed a flag the plan did not name
+**Date:** 2026-08-08 · **Story:** 1, Part 2 · **Category:** Technical
+**Original Plan:** step 4 — « cancelled or fully credited → refuse and name the invoice, never a second document ».
+**Actual Implementation:** *fully credited* refuses on both doors. *Cancelled* refuses on the **automatic** door
+(saving the fiche) and raises a fresh note on the **manual** one (« Facturer cette intervention »).
+**Justification:** taken literally the rule makes a séance whose note was annulée permanently unbillable — the
+manual action is the only way back and it would refuse itself, with the refusal telling the user to press it.
+AC-A-1's own wording is « never **silently** create a second document », and a re-save is precisely the silent
+path while pressing the button is the deliberate one. The flag changes exactly that one decision and defaults to
+`false`, so a caller that forgets it gets the door that asks nothing of it.
+**Impact:** one boolean on the command, set in one place (`DentalRecordAutoBilling`).
+
+#### DEV-7: three existing test classes were repaired (no new suites written)
+**Date:** 2026-08-08 · **Story:** 1, Part 2 · **Category:** Scope
+**Original Plan:** the owner excluded test authorship from this pass; the plan's own file table lists two new
+test classes (`BillDentalRecordOutcomeTests`, `CaissePeriodTests`) as Part 2 deliverables.
+**Actual Implementation:** the two new classes are **not written**. `InvoiceFromDentalRecordTests`,
+`DentalRecordAutoBillingTests` and `DentalRecordActHandlerTests` were updated, because the rename, the typed
+result and the two new constructor dependencies break their compilation — and because two of their cases
+asserted the exact behaviour this part deliberately replaces (« an already-billed fiche is refused »).
+**Justification:** a suite that does not compile is not a deferral, it is a red build; and a case still asserting
+the replaced behaviour would be a false green rather than an absent test.
+**Impact:** `BillDentalRecordOutcomeTests` and `CaissePeriodTests` are **owed**. The behaviour they were to cover
+is partly covered by the repaired classes (the top-up, both refusal codes, the A-1 automatic/manual split), but
+`CaissePeriod` itself has **no test at all** — which matters more than it looks, since it is now the single
+authority on every caisse bound.
+
+### Owed, and deliberately not claimed
+
+- **The five-width device eye pass** (320 / 390 / 820 / 1180 / 1440 px + a landscape phone) on the fiche's
+  payment fields and on `/caisse`. `check:responsive` is a mechanical gate and passed 15/15; it does not look at
+  anything. Both surfaces this part touched **add controls**, so the pass is genuinely owed — the « Mode » select
+  beside « Payé » and the cheque panel in the dialog footer are exactly the kind of addition that reads fine in
+  source and crowds at 320 px.
+- **The two test classes above** (DEV-7).
+- **The manual passes the plan names**: la caisse with the workstation clock set to UTC−5 and to UTC+8 (AC-6),
+  and the fiche re-save flow end to end watching « Encaissé », the patient's solde and the dashboard (AC-1).
+  Nothing was exercised against a running server this session.

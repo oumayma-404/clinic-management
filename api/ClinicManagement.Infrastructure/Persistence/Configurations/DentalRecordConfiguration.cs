@@ -41,6 +41,24 @@ public class DentalRecordConfiguration : IEntityTypeConfiguration<DentalRecord>
         builder.Property(dr => dr.AmountPaid)
             .IsRequired();
 
+        // How the session was settled, and — for a cheque — which cheque. All four nullable: a null method is
+        // « not recorded », which every read takes as cash, and that is the truth about every row written before
+        // the column existed. Deliberately NOT backfilled.
+        //
+        // The lengths mirror PaymentConfiguration's / InstallmentPaymentConfiguration's, because these are the same
+        // three fields about the same piece of paper. `ChequeDueDate` is a calendar day stored with no zone
+        // conversion, exactly like an échéance's — see ChequeDetails.DueDate.
+        builder.Property(dr => dr.PaymentMethod)
+            .HasConversion<int?>();
+
+        builder.Property(dr => dr.ChequeNumber)
+            .HasMaxLength(50);
+
+        builder.Property(dr => dr.ChequeBankName)
+            .HasMaxLength(200);
+
+        builder.Property(dr => dr.ChequeDueDate);
+
         builder.Property(dr => dr.Notes)
             .HasConversion(
                 v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null!),

@@ -4,6 +4,19 @@ import type { DentalRecordDto, DentalActInput } from './types';
 export interface CreateDentalRecordRequest {
   interventionDate: string;
   amountPaid: number;
+  /**
+   * How `amountPaid` was settled — `Cash` | `Cheque` | `Card` | `Transfer`. Omit for cash.
+   *
+   * <p>It reaches the note d'honoraires this save raises: the payment used to be booked as cash unconditionally,
+   * so a séance settled by cheque never appeared in « Chèques à encaisser ». Build the three cheque fields with
+   * `chequePaymentFields()` — it clears them when the method is not a cheque, which is what makes the server's
+   * refusal of details on a cash payment unreachable rather than merely unlikely.</p>
+   */
+  paymentMethod?: string;
+  chequeNumber?: string;
+  chequeBankName?: string;
+  /** A bare `YYYY-MM-DD`. ⚠️ Never `toISOString()` — that would shift a cheque due on the 1st into last month. */
+  chequeDueDate?: string;
   isAdultTeeth: boolean;
   notes: string[];
   importantNotes: string[];

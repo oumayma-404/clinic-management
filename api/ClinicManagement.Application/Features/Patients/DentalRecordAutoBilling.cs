@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Application.Features.Invoices.Commands;
 using ClinicManagement.Domain.Entities;
 
@@ -24,11 +25,17 @@ namespace ClinicManagement.Application.Features.Patients;
 /// recorded when it was not, which is exactly the lesson the reminder work already paid for
 /// («&#160;report the real outcome, not a proxy for it&#160;»).</para>
 ///
-/// <para><b>Idempotent by delegation.</b> It sends <see cref="CreateInvoiceFromDentalRecordCommand"/> rather than
-/// re-implementing anything, so the already-billed guard, the tenant check, the numbering retry, the over-payment
-/// refusal and the single transaction are the <i>same</i> code the manual « Facturer cette intervention » action
-/// uses. That matters most on the update path: <b>a fiche is re-saved routinely</b> — a corrected note, one more
-/// tooth — and each re-save must not raise a second note d'honoraires.</para>
+/// <para><b>Idempotent by delegation.</b> It sends <see cref="BillDentalRecordCommand"/> rather than
+/// re-implementing anything, so the already-billed branch, the tenant check, the numbering retry, the
+/// over-payment refusal and the single transaction are the <i>same</i> code the manual « Facturer cette
+/// intervention » action uses. That matters most on the update path: <b>a fiche is re-saved routinely</b> — a
+/// corrected note, one more tooth, or the patient settling the rest — and a re-save must top the existing note up
+/// rather than raise a second one.</para>
+///
+/// <para>⚠️ <b>The outcome is read from a typed result, never from the message.</b> This helper used to recover
+/// « déjà facturée » by matching that substring against the error text, so rewording a French sentence anywhere in
+/// the billing command silently changed what the user was told here. The outcome and the refusal codes are data
+/// now, and the substring match is gone.</para>
 /// </summary>
 public static class DentalRecordAutoBilling
 {
@@ -36,9 +43,9 @@ public static class DentalRecordAutoBilling
     /// Bills <paramref name="record"/> when it carries a payment. Never throws.
     /// </summary>
     /// <param name="amountPaid">
-    /// What the patient handed over, as saved on the fiche. Zero or negative means "nothing was collected", which
-    /// is a legitimate outcome and not an error — the fiche is simply not billed, exactly as before this existed.
-    /// A fiche billed later still goes through « Facturer cette intervention ».
+    /// What the patient has handed over in total for this séance, as saved on the fiche. Zero or negative means
+    /// "nothing was collected", which is a legitimate outcome and not an error — the fiche is simply not billed,
+    /// exactly as before this existed. A fiche billed later still goes through « Facturer cette intervention ».
     /// </param>
     public static async Task<DentalRecordBillingDto> BillIfPaidAsync(
         ISender sender,
@@ -55,13 +62,23 @@ public static class DentalRecordAutoBilling
         try
         {
             var result = await sender.Send(
-                new CreateInvoiceFromDentalRecordCommand
+                new BillDentalRecordCommand
                 {
                     DentalRecordId = record.Id,
+                    // Saving the fiche is the *silent* path, and A-1 turns on exactly that: a séance whose note was
+                    // cancelled must not quietly acquire a second one behind a routine re-save.
+                    IsAutomatic = true,
                     PaidNow = new DentalRecordPaymentRequest
                     {
                         Amount = amountPaid,
-                        Method = nameof(Domain.Enums.PaymentMethod.Cash),
+                        // The fiche's own method (L8) — it used to be a hard-coded `Cash`, so a session settled by
+                        // cheque produced a payment indistinguishable from notes in the drawer: absent from
+                        // « Chèques à encaisser » and counted under « dont espèces ». A fiche with none recorded
+                        // is cash, which is what every historical row is.
+                        Method = (record.PaymentMethod ?? Domain.Enums.PaymentMethod.Cash).ToString(),
+                        ChequeNumber = record.ChequeNumber,
+                        ChequeBankName = record.ChequeBankName,
+                        ChequeDueDate = record.ChequeDueDate,
                         // The session's own date, not "now": a fiche recorded two days late was paid on the day it
                         // happened, and booking that cash to today puts it in the wrong day's caisse.
                         PaidOn = record.InterventionDate,
@@ -71,24 +88,26 @@ public static class DentalRecordAutoBilling
 
             if (result.IsSuccess)
             {
+                var billing = result.Value!;
                 return new DentalRecordBillingDto
                 {
-                    Outcome = nameof(DentalRecordBillingOutcome.Billed),
-                    InvoiceId = result.Value!.Id,
-                    InvoiceNumber = result.Value.Number,
-                    AmountCollected = result.Value.AmountCollected,
+                    Outcome = billing.Outcome.ToString(),
+                    InvoiceId = billing.Invoice.Id,
+                    InvoiceNumber = billing.Invoice.Number,
+                    AmountCollected = billing.AmountCollected,
+                    Message = billing.Message,
                 };
             }
 
-            // The commonest failure by far is « déjà facturée » on a re-save, and it is not an error the user
-            // needs to act on — the money is already in the till. It is reported as its own outcome so the UI can
-            // stay quiet about it instead of raising an alarm on every edit.
-            var alreadyBilled = result.Error?.Contains("déjà facturée", StringComparison.OrdinalIgnoreCase) == true;
-            if (alreadyBilled)
+            // A refusal is not a failure: a rule said no, the user has a defined next step, and the message names
+            // it. Told apart from a genuine failure by the code — never by the sentence.
+            if (IsRefusal(result.Code))
             {
+                logger.LogInformation(
+                    "Fiche {RecordId} saved; billing refused ({Code}): {Error}", record.Id, result.Code, result.Error);
                 return new DentalRecordBillingDto
                 {
-                    Outcome = nameof(DentalRecordBillingOutcome.AlreadyBilled),
+                    Outcome = nameof(DentalRecordBillingOutcome.Refused),
                     Message = result.Error,
                 };
             }
@@ -113,4 +132,9 @@ public static class DentalRecordAutoBilling
             };
         }
     }
+
+    private static bool IsRefusal(string? code) =>
+        code is DentalRecordBillingRefusals.PaymentLoweredCode
+            or DentalRecordBillingRefusals.ActsChangedCode
+            or DentalRecordBillingRefusals.InvoiceNotLiveCode;
 }

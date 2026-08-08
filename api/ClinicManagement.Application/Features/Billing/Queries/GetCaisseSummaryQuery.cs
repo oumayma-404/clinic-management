@@ -19,7 +19,23 @@ namespace ClinicManagement.Application.Features.Billing.Queries;
 /// </summary>
 public class GetCaisseSummaryQuery : IRequest<Result<CaisseSummaryDto>>
 {
+    /// <summary>
+    /// The window as bare clinic-local calendar days (<c>YYYY-MM-DD</c>) — what every screen sends, and what makes
+    /// « la caisse du 3 août » mean the <b>Tunisian</b> 3 August whatever timezone the workstation is set to
+    /// (AC-6). <see cref="CaissePeriod"/> resolves them; <c>ToDay</c> defaults to <c>FromDay</c>.
+    /// </summary>
+    public string? FromDay { get; set; }
+
+    /// <inheritdoc cref="FromDay"/>
+    public string? ToDay { get; set; }
+
+    /// <summary>
+    /// The window as explicit instants. Kept for callers that genuinely have one (a job, an export driven by
+    /// another read's bounds); the day keys above win when both are supplied.
+    /// </summary>
     public DateTime? From { get; set; }
+
+    /// <inheritdoc cref="From"/>
     public DateTime? To { get; set; }
 }
 
@@ -57,21 +73,13 @@ public class GetCaisseSummaryQueryHandler : IRequestHandler<GetCaisseSummaryQuer
                 return Result<CaisseSummaryDto>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             var clinicId = clinicResult.Value;
 
-            // Default to the current CLINIC-LOCAL day when no range is supplied (AC-P6.3). It used to default to
-            // `DateTime.UtcNow.Date`, which runs « aujourd'hui » from 01:00 to 01:00 Tunis (§ 4.1) — the browser
-            // callers always sent their own bounds, so the defect only ever bit a direct API caller, but it is a
-            // trap sitting in the one read the clinic reconciles its till against.
-            //
-            // The upper bound is the last tick of the local day, not the next midnight: the "between" queries are
-            // inclusive on both ends, so a payment recorded at exactly 00:00 the next day would otherwise be
-            // counted in BOTH days (#20). `ClinicClock.TodayRangeUtc` is the single authority for both bounds.
-            var (todayFrom, todayToInclusive) = ClinicClock.TodayRangeUtc();
-            var from = request.From ?? todayFrom;
-            // A supplied `From` with no `To` still means "the 24 hours from there", unchanged — only the
-            // no-arguments default moves off UTC.
-            var to = request.To ?? (request.From.HasValue ? from.AddDays(1).AddTicks(-1) : todayToInclusive);
-            if (to <= from)
-                return Result<CaisseSummaryDto>.Failure("La date de fin doit être postérieure à la date de début.");
+            // Every bound this read uses comes from CaissePeriod — the same type the « extrait » resolves with, so
+            // the statement can never describe a different period from the totals above it (they used to hold two
+            // byte-identical copies of this arithmetic, kept in step by a comment).
+            var period = CaissePeriod.Resolve(request.FromDay, request.ToDay, request.From, request.To);
+            if (period.IsFailure)
+                return Result<CaisseSummaryDto>.FailureFrom(period);
+            var (from, to) = (period.Value!.From, period.Value.To);
 
             // Encaissements = invoice payments + treatment-plan installment collections (both money tracks),
             // so the daily caisse agrees with the dashboard "encaissé" figure (which sums both). The plan

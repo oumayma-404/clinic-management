@@ -24,14 +24,20 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { EmptyState } from "@/components/ui/empty-state"
 import {
   ArrowLeft, Ban, CreditCard, FileDown, Loader2, ReceiptText, CheckCheck, ClipboardCheck, FilePen,
-  CalendarClock, CalendarPlus, Layers, ListChecks, MoreHorizontal, X, Mail,
+  CalendarClock, CalendarPlus, Layers, ListChecks, MoreHorizontal, X, Mail, Undo2,
 } from "lucide-react"
 import { toast } from "sonner"
 import { showErrorToast } from "@/lib/errors"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { invoicesApi } from "@/lib/api/invoices"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
-import type { InstallmentDto, ProcedureTypeDto, TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
+import type {
+  InstallmentDto,
+  InstallmentPaymentDto,
+  ProcedureTypeDto,
+  TreatmentPlanDto,
+  TreatmentPlanItemDto,
+} from "@/lib/api/types"
 import { formatDT, formatDateFr, isBeforeToday } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
 import { planStatusLabel, planStatusBadgeClass } from "./treatment-plan-labels"
@@ -44,6 +50,7 @@ import {
 import { PlanTimeline } from "./plan-timeline"
 import { InstallmentPaymentModal } from "./installment-payment-modal"
 import { ReviseInstallmentsModal } from "./revise-installments-modal"
+import { VoidInstallmentPayment } from "./void-installment-payment"
 import { TreatmentPlanFormModal } from "./treatment-plan-form-modal"
 import { CreateAppointmentDialog, type PresetPlanAct } from "@/components/create-appointment-dialog"
 import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
@@ -88,6 +95,42 @@ interface PlanWorkspaceProps {
 }
 
 /**
+ * One line per encaissement on an échéance — including the **voided** ones, struck through with their motif and
+ * the colleague who annulled them.
+ *
+ * <p>Before AC-5 the workspace rendered only live payments, as buttons. A void therefore made a row vanish, so an
+ * échéance that had visibly taken money could read « Encaissé 0,000 » with nothing on the screen explaining it.
+ * Keeping the row is the same rule the invoice detail follows and the same one la caisse's extrait follows: a
+ * correction is evidence, not an erasure.</p>
+ */
+function InstallmentPaymentLines({
+  payments,
+  className,
+}: {
+  payments: InstallmentPaymentDto[]
+  className?: string
+}) {
+  return (
+    <ul className={`space-y-0.5 text-xs text-muted-foreground ${className ?? ""}`}>
+      {payments.map((payment) => (
+        <li key={payment.id}>
+          <span className={payment.isVoided ? "line-through" : ""}>
+            {formatDT(payment.amount)} · {formatDateFr(payment.paidOn)}
+          </span>
+          {payment.isVoided && (
+            <span className="block">
+              Annulé{payment.voidedAt ? ` le ${formatDateFr(payment.voidedAt)}` : ""}
+              {payment.voidedByName ? ` par ${payment.voidedByName}` : ""}
+              {payment.voidReason ? ` — « ${payment.voidReason} »` : ""}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/**
  * The devis's home: header, actes, échéancier and parcours on one page. Replaces the plans-table "Gérer"
  * dialog, which was the only place a plan's contents were visible and offered every action on every row.
  */
@@ -95,6 +138,17 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [paymentTarget, setPaymentTarget] = useState<InstallmentDto | null>(null)
+  /**
+   * The échéance payment whose annulation is being confirmed; null = no panel (AC-5).
+   *
+   * <p>The void endpoint has existed, tested and reachable from the client module, with **no caller** — so a
+   * mis-keyed installment payment was permanent while the identical mistake on an invoice payment was two clicks
+   * from being corrected. Held as `{installmentId, payment}` because an `InstallmentPayment` is only addressable
+   * as (plan, échéance, paiement).</p>
+   */
+  const [voidTarget, setVoidTarget] = useState<{ installment: InstallmentDto; payment: InstallmentPaymentDto } | null>(
+    null,
+  )
   const [emailTarget, setEmailTarget] = useState<PlanEmailTarget | null>(null)
   /** Bookings still to make, each element being one appointment. Only ever empty or a single group now — the bar's
    * « séparément » split (N groups of one) was removed as a duplicate of each act's own « Planifier ». */
@@ -971,6 +1025,11 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                   { label: "Montant", value: formatDT(inst.amount) },
                   { label: "Encaissé", value: formatDT(inst.amountPaid) },
                   { label: "Reste", value: formatDT(inst.outstanding) },
+                  // Only rendered when there is something to render — `CardList` drops a field with no value, and
+                  // « Paiements : — » on the majority of échéances would cost a line for nothing.
+                  inst.payments.length > 0
+                    ? { label: "Paiements", value: <InstallmentPaymentLines payments={inst.payments} /> }
+                    : null,
                 ]}
                 actions={(inst) => {
                   const canCollect = !inst.isPaid && canCollectInstallments
@@ -1014,6 +1073,17 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                             Envoyer par email — {formatDT(payment.amount)}
                           </DropdownMenuItem>
                         ))}
+                        {/* AC-5 — the correction the échéancier never had. Offered per live payment, like the
+                            receipts: an échéance can hold several and only one of them is the mis-keyed one. */}
+                        {receipts.map((payment) => (
+                          <DropdownMenuItem
+                            key={`void-${payment.id}`}
+                            className="text-destructive focus:text-destructive"
+                            onSelect={() => setVoidTarget({ installment: inst, payment })}
+                          >
+                            Annuler l&apos;encaissement — {formatDT(payment.amount)}
+                          </DropdownMenuItem>
+                        ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )
@@ -1039,7 +1109,15 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                       <TableRow key={inst.id}>
                         <TableCell>{formatDateFr(inst.dueDate)}</TableCell>
                         <TableCell className="text-right">{formatDT(inst.amount)}</TableCell>
-                        <TableCell className="text-right">{formatDT(inst.amountPaid)}</TableCell>
+                        <TableCell className="text-right">
+                          {formatDT(inst.amountPaid)}
+                          {/* A voided encaissement is *kept and shown*, struck through with its motif and its
+                              actor — § 1's rule, and the only way « Encaissé 0,000 » on an échéance that clearly
+                              took money is explicable rather than alarming. */}
+                          {inst.payments.length > 0 && (
+                            <InstallmentPaymentLines payments={inst.payments} className="mt-1 text-right" />
+                          )}
+                        </TableCell>
                         <TableCell className="text-right">{formatDT(inst.outstanding)}</TableCell>
                         <TableCell>
                           {inst.isPaid ? (
@@ -1105,6 +1183,25 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                                   Email
                                 </Button>
                               ))}
+                            {/* AC-5. `text-destructive` rather than a `destructive` variant: it sits in a row of
+                                ghost/outline buttons and a filled red block there reads as the row's primary
+                                action, which annuler is not. */}
+                            {inst.payments
+                              .filter((p) => !p.isVoided)
+                              .map((payment) => (
+                                <Button
+                                  key={`void-${payment.id}`}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 gap-1 text-destructive hover:text-destructive"
+                                  disabled={busy}
+                                  title={`Annuler l'encaissement de ${formatDT(payment.amount)} du ${formatDateFr(payment.paidOn)}`}
+                                  onClick={() => setVoidTarget({ installment: inst, payment })}
+                                >
+                                  <Undo2 className="h-4 w-4" />
+                                  Annuler
+                                </Button>
+                              ))}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1113,6 +1210,25 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 </TableBody>
               </Table>
             </>
+          )}
+
+          {/*
+            AC-5 — an in-place confirm, following `invoice-detail-modal`'s idiom rather than a nested dialog:
+            nothing in this app nests Radix dialogs, and this workspace is itself often reached from one. It sits
+            below the échéancier so the row being annulled stays on screen beside its own confirmation.
+          */}
+          {voidTarget && (
+            <VoidInstallmentPayment
+              planId={plan.id}
+              installmentId={voidTarget.installment.id}
+              installmentDueDate={voidTarget.installment.dueDate}
+              payment={voidTarget.payment}
+              onCancel={() => setVoidTarget(null)}
+              onVoided={() => {
+                setVoidTarget(null)
+                onChanged()
+              }}
+            />
           )}
         </CardContent>
       </Card>

@@ -1,6 +1,7 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -80,6 +81,52 @@ public class DentalRecord : Entity<Guid>
     /// <summary>Derived total = sum of act costs (recomputed in <see cref="SetActs"/>).</summary>
     public decimal Cost { get; private set; }
     public decimal AmountPaid { get; private set; }
+
+    /// <summary>
+    /// How <see cref="AmountPaid"/> was settled at the chair — and, for a cheque, which cheque.
+    ///
+    /// <para><b>Why the fiche carries this at all.</b> Saving a fiche with a « Montant payé » raises the note
+    /// d'honoraires and records that payment, and the payment used to be booked as <b>cash, always</b> — a
+    /// hard-coded <c>PaymentMethod.Cash</c> at the one call site. A patient settling a session with a post-dated
+    /// cheque therefore produced a payment indistinguishable from notes in the drawer: it never reached
+    /// « Chèques à encaisser », and it was counted under « dont espèces » in the till's own breakdown.</para>
+    ///
+    /// <para>⚠️ <b>Null means cash, by read-side convention and not by backfill.</b> Every row written before this
+    /// column existed was booked as cash, so a historical null is not a missing answer — it is the answer. Filling
+    /// them in would be a migration that invents facts nobody recorded.</para>
+    /// </summary>
+    public PaymentMethod? PaymentMethod { get; private set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public string? ChequeNumber { get; private set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public string? ChequeBankName { get; private set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public DateTime? ChequeDueDate { get; private set; }
+
+    /// <summary>
+    /// Record how this session was settled. The cheque parts are validated by the <b>existing</b>
+    /// <see cref="ChequeDetails.For"/> — the single guard both payment ledgers already pass through — rather than
+    /// by a second copy of « des détails de chèque n'ont de sens que sur un chèque » written here.
+    ///
+    /// <para>A null <paramref name="method"/> is « not recorded », which every read takes as cash (see
+    /// <see cref="PaymentMethod"/>); details supplied alongside it are refused exactly as they would be on a cash
+    /// payment, because that is what a null means.</para>
+    /// </summary>
+    /// <exception cref="ArgumentException">Cheque details supplied for a method that is not a cheque.</exception>
+    public void SetPayment(PaymentMethod? method, string? chequeNumber, string? chequeBankName, DateTime? chequeDueDate)
+    {
+        var cheque = ChequeDetails.For(
+            method ?? Enums.PaymentMethod.Cash, chequeNumber, chequeBankName, chequeDueDate);
+
+        PaymentMethod = method;
+        ChequeNumber = cheque?.Number;
+        ChequeBankName = cheque?.BankName;
+        ChequeDueDate = cheque?.DueDate;
+        UpdatedAt = DateTime.UtcNow;
+    }
 
     private readonly List<string> _notes = new();
     public IReadOnlyList<string> Notes => _notes.AsReadOnly();

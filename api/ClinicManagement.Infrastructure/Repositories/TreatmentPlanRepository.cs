@@ -214,8 +214,10 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         // This is the condition DEV-5 of treatment-plan-workspace anticipated: "if the carry-over fix ever
         // lands, a de-dup on the collected side becomes necessary AT THAT MOMENT".
         //
-        // The exclusion is purely read-side and self-correcting: a Draft bridge does not exclude (the money is
-        // still only on the plan), and cancelling the bridge hands the plan straight back.
+        // ⚠️ A Draft bridge does not exclude (the money is still only on the plan). But the exclusion is NOT
+        // undone by cancelling the bridge, which this comment used to claim: an invoice holding a non-voided
+        // payment cannot be cancelled at all, and a bridge that carried collections is in exactly that state.
+        // The avoir is the only correction. See PlanBillingRules for the full note.
         var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
         var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
 

@@ -106,22 +106,16 @@ const MONEY_HEADER_CHIP = `flex size-8 shrink-0 items-center justify-center roun
 
 const methodLabel = (value: string): string => PAYMENT_METHODS.find((m) => m.value === value)?.label ?? value
 
-/**
- * Local calendar day(s) → UTC ISO boundaries `[startOfFirstDay, nextDayAfterLast)` for a `from`/`to` query.
+/*
+ * ⚠️ `rangeBounds` used to live here, turning the two `<input type="date">` values into UTC instants with
+ * `new Date(`${day}T00:00:00`).toISOString()` — midnight in the **workstation's** timezone. On a machine set to
+ * anything but UTC+1 that made « la caisse du 3 août » a window offset by hours from the Tunisian day, so a
+ * payment taken at 23:30 landed in the wrong day's till and, on the 1st, the wrong month's revenue (AC-6).
  *
- * The upper bound is the midnight AFTER the last day, matching what this page has always sent: the caisse handler's
- * own default is `from.AddDays(1).AddTicks(-1)`, and both forms include the whole final day.
- *
- * `endDay` defaults to `startDay`, so the single-day case is unchanged — la caisse gained a range mode for the
- * dashboard's « Dépenses » / « Net » drill-through (a monthly KPI had nowhere truthful to land on a day-only screen),
- * and the daily till remains what it opens on.
+ * The page now sends the day keys themselves and the server resolves them through `CaissePeriod`/`ClinicClock`.
+ * The clinic's day is a fact about the clinic, not about whoever happens to be looking at it — and the browser is
+ * the one participant that cannot know it.
  */
-const rangeBounds = (startDay: string, endDay: string = startDay): { from: string; to: string } => {
-  const start = new Date(`${startDay}T00:00:00`)
-  const next = new Date(`${endDay}T00:00:00`)
-  next.setDate(next.getDate() + 1)
-  return { from: start.toISOString(), to: next.toISOString() }
-}
 
 // --- Page -----------------------------------------------------------------------------------------
 
@@ -194,10 +188,9 @@ function CaisseContent() {
   const [deleting, setDeleting] = useState(false)
 
   const isRange = Boolean(endDay) && endDay !== selectedDay
-  const { from, to } = useMemo(
-    () => rangeBounds(selectedDay, isRange ? endDay : selectedDay),
-    [selectedDay, endDay, isRange],
-  )
+  // Bare `YYYY-MM-DD`, exactly as the date inputs hold them — no conversion, which is the whole point.
+  const fromDay = selectedDay
+  const toDay = isRange ? endDay : selectedDay
 
   const loadData = useCallback(async () => {
     try {
@@ -206,18 +199,21 @@ function CaisseContent() {
       // The summary stays unpaged and unsearched on purpose: the four figures above are the totals for the whole
       // period, and narrowing them to a page (or to a search) would make them contradict the header they sit under.
       const [summaryData, ledgerData, expensesData] = await Promise.all([
-        expensesApi.caisseSummary(from, to),
+        expensesApi.caisseSummary(fromDay, toDay),
         expensesApi.caisseLedger({
-          from,
-          to,
+          fromDay,
+          toDay,
           page: ledgerPageNumber,
           pageSize,
           search: search.trim() || undefined,
           method: methodFilter ?? undefined,
         }),
+        // The dépenses table shares the window with the totals and the extrait, so it takes the same day keys —
+        // a second convention here would let the money-out list answer for a different day from the money-out
+        // figure above it.
         expensesApi.listPaged({
-          from,
-          to,
+          fromDay,
+          toDay,
           page: expensePageNumber,
           pageSize,
           search: search.trim() || undefined,
@@ -233,7 +229,7 @@ function CaisseContent() {
     } finally {
       setLoading(false)
     }
-  }, [from, to, ledgerPageNumber, expensePageNumber, pageSize, search, methodFilter])
+  }, [fromDay, toDay, ledgerPageNumber, expensePageNumber, pageSize, search, methodFilter])
 
   useEffect(() => {
     loadData()
@@ -245,7 +241,7 @@ function CaisseContent() {
   useEffect(() => {
     setLedgerPageNumber(1)
     setExpensePageNumber(1)
-  }, [search, from, to])
+  }, [search, fromDay, toDay])
 
   useEffect(() => {
     setLedgerPageNumber(1)
@@ -373,7 +369,7 @@ function CaisseContent() {
               <ExportButton
                 path="/billing/caisse/ledger/export"
                 label="mouvements"
-                params={{ from, to }}
+                params={{ fromDay, toDay }}
               />
             }
           />
@@ -575,7 +571,7 @@ function CaisseContent() {
                 path="/expenses/export"
                 label="dépenses"
                 compact
-                params={{ from, to, search: searchTerm || undefined }}
+                params={{ fromDay, toDay, search: searchTerm || undefined }}
               />
             </div>
           </CardHeader>

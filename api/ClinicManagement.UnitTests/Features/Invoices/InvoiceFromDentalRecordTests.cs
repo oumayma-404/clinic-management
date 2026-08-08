@@ -1,5 +1,6 @@
 ﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Application.Features.Invoices.Commands;
 using ClinicManagement.Domain.Entities;
@@ -35,6 +36,7 @@ public class InvoiceFromDentalRecordTests
     private readonly Mock<IDentalRecordRepository> _records = new();
     private readonly Mock<IPatientRepository> _patients = new();
     private readonly Mock<IClinicRepository> _clinics = new();
+    private readonly Mock<ICreditNoteRepository> _creditNotes = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
@@ -63,9 +65,9 @@ public class InvoiceFromDentalRecordTests
         return record;
     }
 
-    private CreateInvoiceFromDentalRecordCommandHandler CreateHandler() => new(
-        _invoices.Object, _records.Object, _patients.Object, _clinics.Object, _clinicResolver.Object,
-        _uow.Object, NullLogger<CreateInvoiceFromDentalRecordCommandHandler>.Instance);
+    private BillDentalRecordCommandHandler CreateHandler() => new(
+        _invoices.Object, _records.Object, _patients.Object, _clinics.Object, _creditNotes.Object,
+        _clinicResolver.Object, _uow.Object, NullLogger<BillDentalRecordCommandHandler>.Instance);
 
     private Invoice? _saved;
 
@@ -97,7 +99,7 @@ public class InvoiceFromDentalRecordTests
         Arrange(record);
 
         var result = await CreateHandler().Handle(
-            new CreateInvoiceFromDentalRecordCommand
+            new BillDentalRecordCommand
             {
                 DentalRecordId = record.Id,
                 PaidNow = new DentalRecordPaymentRequest { Amount = SessionTtc, Method = "Cash" },
@@ -131,7 +133,7 @@ public class InvoiceFromDentalRecordTests
         Arrange(record);
 
         await CreateHandler().Handle(
-            new CreateInvoiceFromDentalRecordCommand
+            new BillDentalRecordCommand
             {
                 DentalRecordId = record.Id,
                 PaidNow = new DentalRecordPaymentRequest { Amount = 100m, Method = "Card" },
@@ -150,7 +152,7 @@ public class InvoiceFromDentalRecordTests
         Arrange(record);
 
         var result = await CreateHandler().Handle(
-            new CreateInvoiceFromDentalRecordCommand { DentalRecordId = record.Id },
+            new BillDentalRecordCommand { DentalRecordId = record.Id },
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -168,7 +170,7 @@ public class InvoiceFromDentalRecordTests
         Arrange(record);
 
         await CreateHandler().Handle(
-            new CreateInvoiceFromDentalRecordCommand
+            new BillDentalRecordCommand
             {
                 DentalRecordId = record.Id,
                 PaidNow = new DentalRecordPaymentRequest { Amount = SessionTtc, Method = "Cash" },
@@ -192,7 +194,7 @@ public class InvoiceFromDentalRecordTests
             .ThrowsAsync(new InvalidOperationException("connexion perdue"));
 
         var result = await CreateHandler().Handle(
-            new CreateInvoiceFromDentalRecordCommand
+            new BillDentalRecordCommand
             {
                 DentalRecordId = record.Id,
                 PaidNow = new DentalRecordPaymentRequest { Amount = SessionTtc, Method = "Cash" },
@@ -215,7 +217,7 @@ public class InvoiceFromDentalRecordTests
         Arrange(record);
 
         var result = await CreateHandler().Handle(
-            new CreateInvoiceFromDentalRecordCommand
+            new BillDentalRecordCommand
             {
                 DentalRecordId = record.Id,
                 PaidNow = new DentalRecordPaymentRequest { Amount = amount, Method = method },
@@ -233,7 +235,7 @@ public class InvoiceFromDentalRecordTests
         Arrange(record);
 
         var result = await CreateHandler().Handle(
-            new CreateInvoiceFromDentalRecordCommand
+            new BillDentalRecordCommand
             {
                 DentalRecordId = record.Id,
                 PaidNow = new DentalRecordPaymentRequest { Amount = 100m, Method = "Bitcoin" },
@@ -252,7 +254,7 @@ public class InvoiceFromDentalRecordTests
         Arrange(record);
 
         var result = await CreateHandler().Handle(
-            new CreateInvoiceFromDentalRecordCommand
+            new BillDentalRecordCommand
             {
                 DentalRecordId = record.Id,
                 PaidNow = new DentalRecordPaymentRequest
@@ -275,7 +277,7 @@ public class InvoiceFromDentalRecordTests
         Arrange(record);
 
         var result = await CreateHandler().Handle(
-            new CreateInvoiceFromDentalRecordCommand
+            new BillDentalRecordCommand
             {
                 DentalRecordId = record.Id,
                 // The session settles at 354,100 DT (330 HT + 7 % TVA + timbre), so 500 over-pays it.
@@ -310,7 +312,7 @@ public class InvoiceFromDentalRecordTests
         Arrange(record, patientClinicId: OtherClinicId);
 
         var result = await CreateHandler().Handle(
-            new CreateInvoiceFromDentalRecordCommand { DentalRecordId = record.Id }, CancellationToken.None);
+            new BillDentalRecordCommand { DentalRecordId = record.Id }, CancellationToken.None);
 
         // A DentalRecord has no ClinicId — the check goes through its patient — and a cross-clinic id must not
         // disclose that the fiche exists somewhere else.
@@ -320,41 +322,171 @@ public class InvoiceFromDentalRecordTests
     }
 
     [Fact]
-    public async Task An_Already_Billed_Fiche_Is_Refused_And_Names_The_Invoice()
+    public async Task An_Already_Billed_Fiche_With_Nothing_To_Add_Names_Its_Note_And_Raises_No_Second_One()
     {
         var record = RecordFixture();
         Arrange(record);
+        ArrangeExistingNote(record, "2026-0042", collected: 0m);
+
+        var result = await CreateHandler().Handle(
+            new BillDentalRecordCommand { DentalRecordId = record.Id }, CancellationToken.None);
+
+        // ⚠️ A *success* now, not a refusal. « Déjà facturée » is the expected outcome of re-saving a fiche, and
+        // modelling it as an error is what made the whole thing recoverable only by matching a French substring.
+        Assert.True(result.IsSuccess);
+        Assert.Equal(DentalRecordBillingOutcome.AlreadyBilled, result.Value!.Outcome);
+        // Naming the number is the difference between a usable message and sending the user hunting /factures.
+        Assert.Contains("2026-0042", result.Value.Message);
+        Assert.Equal(0m, result.Value.AmountCollected);
+        AssertNothingWasIssued();
+    }
+
+    /// <summary>
+    /// A live note billing <paramref name="record"/>, priced exactly as the fiche is — which is what the acts-changed
+    /// guard compares against — and holding <paramref name="collected"/>.
+    /// </summary>
+    private Invoice ArrangeExistingNote(DentalRecord record, string number, decimal collected)
+    {
+        var invoice = new Invoice(Guid.NewGuid(), ClinicId, PatientId, dentalRecordId: record.Id);
+        invoice.SetLines(DentalRecordInvoiceLines.For(record)
+            .Select(l => (l.Designation, l.Quantity, l.UnitPriceHt, (Guid?)record.Id, (Guid?)null, (string?)null)));
+        invoice.Issue(number, vatApplicable: true, vatRate: 7m, stampDutyEnabled: true, stampDutyAmount: 1m);
+        if (collected > 0m)
+        {
+            invoice.RecordPayment(collected, PaymentMethod.Cash, InterventionDate);
+        }
+
         _invoices.Setup(r => r.GetDentalRecordLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<(Guid, Guid, string?, InvoiceStatus)>
             {
-                (record.Id, Guid.NewGuid(), "2026-0042", InvoiceStatus.Issued),
+                (record.Id, invoice.Id, number, invoice.Status),
             });
+        _invoices.Setup(r => r.GetByIdAsync(invoice.Id, It.IsAny<CancellationToken>())).ReturnsAsync(invoice);
+        _creditNotes.Setup(r => r.GetTotalForInvoiceAsync(invoice.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0m);
+
+        return invoice;
+    }
+
+    [Fact]
+    public async Task Raising_The_Amount_Tops_The_SAME_Note_Up_Rather_Than_Raising_A_Second() // AC-1
+    {
+        var record = RecordFixture();
+        Arrange(record);
+        var invoice = ArrangeExistingNote(record, "2026-0042", collected: 200m);
 
         var result = await CreateHandler().Handle(
-            new CreateInvoiceFromDentalRecordCommand { DentalRecordId = record.Id }, CancellationToken.None);
+            new BillDentalRecordCommand
+            {
+                DentalRecordId = record.Id,
+                // The fiche's « Montant payé » is CUMULATIVE — the séance is now fully settled — so the increment
+                // is arithmetic the command does, not something the user is asked to work out.
+                PaidNow = new DentalRecordPaymentRequest { Amount = SessionTtc, Method = "Cash" },
+            },
+            CancellationToken.None);
 
-        Assert.True(result.IsFailure);
-        // Naming the number is the difference between a usable refusal and sending the user hunting /factures.
-        Assert.Contains("2026-0042", result.Error);
+        Assert.True(result.IsSuccess);
+        Assert.Equal(DentalRecordBillingOutcome.ToppedUp, result.Value!.Outcome);
+        Assert.Equal(SessionTtc - 200m, result.Value.AmountCollected);
+        Assert.Equal(SessionTtc, invoice.AmountCollected);
+        Assert.Equal(2, invoice.Payments.Count);
+        // One document for one séance: no number was consumed and no transaction opened.
         AssertNothingWasIssued();
     }
 
     [Fact]
-    public async Task A_Fiche_Whose_Only_Invoice_Was_Cancelled_Can_Be_Billed_Again()
+    public async Task Lowering_The_Amount_Is_Refused_And_Names_The_Avoir() // AC-2
     {
         var record = RecordFixture();
         Arrange(record);
+        ArrangeExistingNote(record, "2026-0042", collected: 200m);
+
+        var result = await CreateHandler().Handle(
+            new BillDentalRecordCommand
+            {
+                DentalRecordId = record.Id,
+                PaidNow = new DentalRecordPaymentRequest { Amount = 50m, Method = "Cash" },
+            },
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.PaymentLoweredCode, result.Code);
+        Assert.Contains("avoir", result.Error);
+        AssertNothingWasIssued();
+    }
+
+    [Fact]
+    public async Task Changing_The_Acts_Of_A_Billed_Fiche_Is_Refused() // AC-3b
+    {
+        var record = RecordFixture();
+        Arrange(record);
+        ArrangeExistingNote(record, "2026-0042", collected: 0m);
+
+        // The note's lines were frozen at issue, so a fiche whose acts moved would stop describing what was
+        // billed. Compared on the money — `SetActs` regenerates every act id, so there is no identity to diff.
+        record.SetActs(new[]
+        {
+            new DentalRecordActInput(null, "Consultation", 60m, null, false, Array.Empty<int>(), null, null, null),
+        });
+
+        var result = await CreateHandler().Handle(
+            new BillDentalRecordCommand { DentalRecordId = record.Id }, CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.ActsChangedCode, result.Code);
+        AssertNothingWasIssued();
+    }
+
+    [Fact]
+    public async Task A_Fiche_Whose_Only_Invoice_Was_Cancelled_Can_Be_Billed_Again_MANUALLY()
+    {
+        var record = RecordFixture();
+        Arrange(record);
+        var cancelled = ArrangeExistingNote(record, "2026-0009", collected: 0m);
+        cancelled.Cancel("erreur de saisie");
         _invoices.Setup(r => r.GetDentalRecordLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<(Guid, Guid, string?, InvoiceStatus)>
             {
-                (record.Id, Guid.NewGuid(), "2026-0009", InvoiceStatus.Cancelled),
+                (record.Id, cancelled.Id, "2026-0009", InvoiceStatus.Cancelled),
             });
 
         var result = await CreateHandler().Handle(
-            new CreateInvoiceFromDentalRecordCommand { DentalRecordId = record.Id }, CancellationToken.None);
+            new BillDentalRecordCommand { DentalRecordId = record.Id }, CancellationToken.None);
 
-        // A cancelled note no longer represents the work — the same rule the money reads de-duplicate by.
+        // A cancelled note no longer represents the work — the same rule the money reads de-duplicate by — and
+        // pressing « Facturer cette intervention » is the deliberate act of re-billing it.
         Assert.True(result.IsSuccess);
+        Assert.Equal(DentalRecordBillingOutcome.Billed, result.Value!.Outcome);
+    }
+
+    [Fact]
+    public async Task But_A_Re_Save_Will_Not_Silently_Raise_A_Second_Note_Over_A_Cancelled_One() // A-1
+    {
+        var record = RecordFixture();
+        Arrange(record);
+        var cancelled = ArrangeExistingNote(record, "2026-0009", collected: 0m);
+        cancelled.Cancel("erreur de saisie");
+        _invoices.Setup(r => r.GetDentalRecordLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<(Guid, Guid, string?, InvoiceStatus)>
+            {
+                (record.Id, cancelled.Id, "2026-0009", InvoiceStatus.Cancelled),
+            });
+
+        var result = await CreateHandler().Handle(
+            new BillDentalRecordCommand
+            {
+                DentalRecordId = record.Id,
+                IsAutomatic = true,
+                PaidNow = new DentalRecordPaymentRequest { Amount = SessionTtc, Method = "Cash" },
+            },
+            CancellationToken.None);
+
+        // The acceptance criterion is « never *silently* create a second document », and saving the fiche is the
+        // silent path. It names the note so the user can decide, and consumes no number.
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.InvoiceNotLiveCode, result.Code);
+        Assert.Contains("2026-0009", result.Error);
+        AssertNothingWasIssued();
     }
 
     // ---- The pricing rule, now the server's only copy --------------------------
@@ -413,7 +545,7 @@ public class InvoiceFromDentalRecordTests
         Arrange(record);
 
         var result = await CreateHandler().Handle(
-            new CreateInvoiceFromDentalRecordCommand { DentalRecordId = record.Id }, CancellationToken.None);
+            new BillDentalRecordCommand { DentalRecordId = record.Id }, CancellationToken.None);
 
         Assert.True(result.IsFailure);
         Assert.Contains("aucun acte facturable", result.Error);

@@ -4,7 +4,9 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Application.Features.Patients;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Patients.Commands;
@@ -22,6 +24,23 @@ public class UpdateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public Guid PatientId { get; set; }
     public DateTime InterventionDate { get; set; }
     public decimal AmountPaid { get; set; }
+
+    /// <summary>
+    /// How <see cref="AmountPaid"/> was settled — <c>Cash</c>/<c>Cheque</c>/<c>Card</c>/<c>Transfer</c>. Omit for
+    /// cash, which is what every fiche written before this field existed recorded. The three cheque parts are
+    /// refused on any other method by <c>ChequeDetails.For</c>, the same single guard both payment ledgers use.
+    /// </summary>
+    public string? PaymentMethod { get; set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public string? ChequeNumber { get; set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public string? ChequeBankName { get; set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public DateTime? ChequeDueDate { get; set; }
+
     public bool IsAdultTeeth { get; set; }
     public List<DentalActInput> Acts { get; set; } = new();
     public List<string> Notes { get; set; } = new();
@@ -38,6 +57,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
     private readonly IPatientRepository _patientRepository;
     private readonly IToothStateRepository _toothStateRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
+    private readonly ICreditNoteRepository _creditNoteRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStockConsumptionService _stockConsumption;
@@ -49,6 +70,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         IPatientRepository patientRepository,
         IToothStateRepository toothStateRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
+        IInvoiceRepository invoiceRepository,
+        ICreditNoteRepository creditNoteRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         IStockConsumptionService stockConsumption,
@@ -59,6 +82,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         _patientRepository = patientRepository;
         _toothStateRepository = toothStateRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
+        _invoiceRepository = invoiceRepository;
+        _creditNoteRepository = creditNoteRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _stockConsumption = stockConsumption;
@@ -106,8 +131,40 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // counting occurrences also keeps "two composites" meaning two capsules.
             var consumedBefore = CountByProcedure(dentalRecord.Acts.Select(a => a.ProcedureTypeId));
 
+            if (!Enum.TryParse<PaymentMethod>(request.PaymentMethod ?? nameof(PaymentMethod.Cash), ignoreCase: true, out var method))
+            {
+                return Result<DentalRecordDto>.Failure("Mode de paiement invalide.");
+            }
+
             dentalRecord.Update(request.InterventionDate, request.AmountPaid, request.Notes, request.ImportantNotes);
             dentalRecord.SetActs(parsed.Value!);
+            // Null stays null — « non renseigné », which every read takes as cash. Storing an explicit `Cash` for a
+            // request that named no method would make a historical row and a deliberately-cash one indistinguishable.
+            dentalRecord.SetPayment(
+                request.PaymentMethod is null ? null : method,
+                request.ChequeNumber, request.ChequeBankName, request.ChequeDueDate);
+
+            // ── The AC-2 / AC-3b refusal, and it has to be HERE ────────────────────────────────────────────────
+            //
+            // The auto-billing below runs post-commit by design, so a refusal raised from there arrives *after* the
+            // lowered « Montant payé » or the changed act list has been saved: the user reads a French refusal and
+            // the edit sticks anyway, leaving the fiche permanently disagreeing with its own note d'honoraires.
+            // « Refusé » has to mean the save did not happen — so the check runs before SaveChangesAsync, against
+            // the aggregate as the user would have left it, and returns without writing anything.
+            //
+            // One extra read on the update path, and only for a fiche that is actually billed. The identical check
+            // is repeated inside BillDentalRecordCommand (the manual « Facturer cette intervention » door never
+            // passes through here), and both call the same guard so the two cannot drift.
+            var billedBy = await DentalRecordBillingGuard.LoadAsync(
+                _invoiceRepository, _creditNoteRepository, clinicResult.Value, dentalRecord.Id, cancellationToken);
+            if (billedBy is { } note)
+            {
+                var allowed = DentalRecordBillingGuard.Check(note, dentalRecord.Cost, request.AmountPaid);
+                if (allowed.IsFailure)
+                {
+                    return Result<DentalRecordDto>.FailureFrom(allowed);
+                }
+            }
 
             var addedProcedureIds = PositiveDelta(
                 consumedBefore, CountByProcedure(dentalRecord.Acts.Select(a => a.ProcedureTypeId)));
@@ -163,7 +220,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // Same auto-billing as on create — and this is the path where the already-billed guard earns its
             // keep: a fiche is re-saved routinely (a corrected note, one more tooth), and each re-save must not
             // raise a second note d'honoraires. The guard lives in
-            // CreateInvoiceFromDentalRecordCommand, which is why this delegates rather than re-deciding.
+            // BillDentalRecordCommand, which is why this delegates rather than re-deciding.
             var dto = dentalRecord!.ToDto();
             dto.Billing = await DentalRecordAutoBilling.BillIfPaidAsync(
                 _sender, dentalRecord, request.AmountPaid, _logger, cancellationToken);

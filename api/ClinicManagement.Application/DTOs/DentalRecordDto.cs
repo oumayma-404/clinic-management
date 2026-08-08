@@ -17,6 +17,22 @@ public class DentalRecordDto
     /// <summary>Derived total = sum of act costs (read-only).</summary>
     public decimal Cost { get; set; }
     public decimal AmountPaid { get; set; }
+
+    /// <summary>
+    /// How <see cref="AmountPaid"/> was settled — <c>Cash</c>/<c>Cheque</c>/<c>Card</c>/<c>Transfer</c>, or null
+    /// when nothing was recorded, which every read takes as cash. The cheque parts are null for any other method.
+    /// </summary>
+    public string? PaymentMethod { get; set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public string? ChequeNumber { get; set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public string? ChequeBankName { get; set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public DateTime? ChequeDueDate { get; set; }
+
     public decimal Balance { get; set; } // derived: Cost − AmountPaid
     public List<string> Notes { get; set; } = new();
     public List<string> ImportantNotes { get; set; } = new();
@@ -54,11 +70,28 @@ public enum DentalRecordBillingOutcome
     /// <summary>A note d'honoraires was issued and the payment recorded.</summary>
     Billed = 1,
 
-    /// <summary>The fiche was already on a live note — the expected outcome of re-saving one.</summary>
+    /// <summary>The fiche was already on a live note, with nothing to add — the expected outcome of re-saving one.</summary>
     AlreadyBilled = 2,
 
     /// <summary>The record saved, the billing did not. The user has to be told.</summary>
-    Failed = 3
+    Failed = 3,
+
+    /// <summary>
+    /// « Montant payé » was raised on an already-billed fiche and the difference was recorded as an additional
+    /// payment on the <b>same</b> note d'honoraires (AC-1).
+    ///
+    /// <para>This is the outcome the whole part exists for: re-saving a fiche with a higher amount used to be
+    /// refused as « déjà facturée » and the extra cash simply never reached the till — a silent money leak on the
+    /// most ordinary edit there is (« le patient a fini de payer »).</para>
+    /// </summary>
+    ToppedUp = 4,
+
+    /// <summary>
+    /// A rule said no: the amount was lowered, the acts changed after issue, or the note is cancelled/credited.
+    /// Distinct from <see cref="Failed"/> — nothing went wrong, and the user has a defined next step (an avoir),
+    /// which the message names.
+    /// </summary>
+    Refused = 5
 }
 
 /// <summary>The money outcome of a fiche save (see <see cref="DentalRecordDto.Billing"/>).</summary>

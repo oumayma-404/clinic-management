@@ -195,6 +195,12 @@ public class InvoicesController : ApiControllerBase
     /// <b>avoir</b>, not an edit — the client must confirm before calling.
     /// </para>
     /// </summary>
+    /// <remarks>
+    /// ⚠️ The command returns a typed <c>DentalRecordBillingResult</c> (which note, and what this call actually put
+    /// in the till), and this endpoint unwraps <c>.Invoice</c> — so the route, the body and every existing client
+    /// are unchanged. The outcome matters to the <b>fiche save</b> path, which reports it on
+    /// <c>DentalRecordDto.Billing</c>; a caller pressing « Facturer cette intervention » is looking at the note.
+    /// </remarks>
     [HttpPost("from-dental-record/{dentalRecordId:guid}")]
     public async Task<ActionResult<InvoiceDto>> CreateInvoiceFromDentalRecord(
         Guid dentalRecordId,
@@ -202,7 +208,7 @@ public class InvoicesController : ApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var result = await _mediator.Send(
-            new CreateInvoiceFromDentalRecordCommand { DentalRecordId = dentalRecordId, PaidNow = paidNow },
+            new BillDentalRecordCommand { DentalRecordId = dentalRecordId, PaidNow = paidNow },
             cancellationToken);
 
         if (result.IsFailure)
@@ -210,7 +216,7 @@ public class InvoicesController : ApiControllerBase
             return HandleFailure(result);
         }
 
-        return CreatedAtAction(nameof(GetInvoice), new { id = result.Value!.Id }, result.Value);
+        return CreatedAtAction(nameof(GetInvoice), new { id = result.Value!.Invoice.Id }, result.Value.Invoice);
     }
 
     /// <summary>Update a draft invoice (lines / patient).</summary>

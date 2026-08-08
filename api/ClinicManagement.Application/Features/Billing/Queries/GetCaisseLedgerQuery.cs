@@ -33,7 +33,16 @@ namespace ClinicManagement.Application.Features.Billing.Queries;
 /// </summary>
 public class GetCaisseLedgerQuery : IRequest<Result<CaisseLedgerDto>>
 {
+    /// <inheritdoc cref="GetCaisseSummaryQuery.FromDay"/>
+    public string? FromDay { get; set; }
+
+    /// <inheritdoc cref="GetCaisseSummaryQuery.FromDay"/>
+    public string? ToDay { get; set; }
+
+    /// <inheritdoc cref="GetCaisseSummaryQuery.From"/>
     public DateTime? From { get; set; }
+
+    /// <inheritdoc cref="GetCaisseSummaryQuery.From"/>
     public DateTime? To { get; set; }
 
     /// <summary>
@@ -109,12 +118,11 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
                 return Result<CaisseLedgerDto>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             var clinicId = clinicResult.Value;
 
-            // Bounds resolved exactly as GetCaisseSummaryQuery resolves them — see the type remarks.
-            var (todayFrom, todayToInclusive) = ClinicClock.TodayRangeUtc();
-            var from = request.From ?? todayFrom;
-            var to = request.To ?? (request.From.HasValue ? from.AddDays(1).AddTicks(-1) : todayToInclusive);
-            if (to <= from)
-                return Result<CaisseLedgerDto>.Failure("La date de fin doit être postérieure à la date de début.");
+            // Bounds resolved by the same CaissePeriod the summary uses — not « the same way », the same code.
+            var period = CaissePeriod.Resolve(request.FromDay, request.ToDay, request.From, request.To);
+            if (period.IsFailure)
+                return Result<CaisseLedgerDto>.FailureFrom(period);
+            var (from, to) = (period.Value!.From, period.Value.To);
 
             // The same de-duplication the totals apply: a devis bridged into an issued invoice has its collections
             // carried onto the invoice, so listing them on the plan side too would show the same money twice.

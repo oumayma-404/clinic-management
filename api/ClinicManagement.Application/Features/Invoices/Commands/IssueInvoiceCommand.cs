@@ -197,9 +197,16 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
             // Invoice.RecordPayment throw its over-payment guard mid-loop would strand a numbered invoice that
             // can then be neither issued nor rebuilt. Reachable when acts were removed from the plan after
             // money was taken, or when the clinic's VAT settings changed.
+            //
+            // ⚠️ Refusing here is the LAST cheap moment. Once this carry succeeds it is one-way and one-time: the
+            // plan stops being counted by every money read, and the invoice now holds non-voided payments, which
+            // makes it uncancellable — so the only correction left is an avoir. Nothing hands the receipts back to
+            // the devis.
             return Result.Failure(
                 $"Ce devis a déjà encaissé {total:0.000} DT, soit plus que le total de la facture "
-                + $"({invoice.TotalTtc:0.000} DT). Corrigez le devis ou les actes facturés avant d'émettre.");
+                + $"({invoice.TotalTtc:0.000} DT). Corrigez le devis ou les actes facturés avant d'émettre : "
+                + "une fois la facture émise, les encaissements y sont reportés et ne se corrigent plus que par "
+                + "un avoir.");
         }
 
         foreach (var payment in collected)

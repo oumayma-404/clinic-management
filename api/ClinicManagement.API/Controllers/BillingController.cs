@@ -92,12 +92,14 @@ public class BillingController : ApiControllerBase
     [HttpGet("billing/caisse/ledger/export")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult> ExportCaisseLedger(
+        [FromQuery] string? fromDay = null,
+        [FromQuery] string? toDay = null,
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
         CancellationToken cancellationToken = default)
     {
         var result = await _mediator.Send(
-            new GetCaisseLedgerQuery { From = from, To = to }, cancellationToken);
+            new GetCaisseLedgerQuery { FromDay = fromDay, ToDay = toDay, From = from, To = to }, cancellationToken);
 
         if (result.IsFailure)
         {
@@ -134,9 +136,24 @@ public class BillingController : ApiControllerBase
     [HttpGet("billing/caisse")]
     // The till's totals for a whole window — clinic-wide money.
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
-    public async Task<ActionResult<CaisseSummaryDto>> GetCaisseSummary([FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null, CancellationToken cancellationToken = default)
+    /// <param name="fromDay">
+    /// The window's first day as a bare <c>YYYY-MM-DD</c>, read as a <b>clinic-local</b> calendar day (AC-6). This
+    /// is what the screens send: an instant composed in the browser is midnight in the <i>workstation's</i>
+    /// timezone, so on a machine set to anything but UTC+1 « la caisse du 3 août » covered a window offset by hours
+    /// from the Tunisian day. <paramref name="toDay"/> defaults to it, so one day is one day.
+    /// </param>
+    /// <param name="toDay">The window's last day, inclusive. See <paramref name="fromDay"/>.</param>
+    /// <param name="from">Explicit instants, kept for callers that genuinely have them; the day keys win.</param>
+    /// <param name="to"><inheritdoc cref="from"/></param>
+    public async Task<ActionResult<CaisseSummaryDto>> GetCaisseSummary(
+        [FromQuery] string? fromDay = null,
+        [FromQuery] string? toDay = null,
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        CancellationToken cancellationToken = default)
     {
-        var result = await _mediator.Send(new GetCaisseSummaryQuery { From = from, To = to }, cancellationToken);
+        var result = await _mediator.Send(
+            new GetCaisseSummaryQuery { FromDay = fromDay, ToDay = toDay, From = from, To = to }, cancellationToken);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
@@ -161,7 +178,11 @@ public class BillingController : ApiControllerBase
     /// « ne montre que les chèques ». Applied after the running balance for the same reason as
     /// <paramref name="search"/>; an unrecognised value is ignored rather than refused.
     /// </param>
+    /// <param name="fromDay">See <c>billing/caisse</c>'s — the same window, resolved by the same code.</param>
+    /// <param name="toDay">See <paramref name="fromDay"/>.</param>
     public async Task<ActionResult<CaisseLedgerDto>> GetCaisseLedger(
+        [FromQuery] string? fromDay = null,
+        [FromQuery] string? toDay = null,
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
         [FromQuery] int? page = null,
@@ -173,6 +194,8 @@ public class BillingController : ApiControllerBase
         var result = await _mediator.Send(
             new GetCaisseLedgerQuery
             {
+                FromDay = fromDay,
+                ToDay = toDay,
                 From = from,
                 To = to,
                 Page = page,

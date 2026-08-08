@@ -1,7 +1,7 @@
 # Story 1: [Full] Close the adoption gaps — the till tells the truth, cheques have a life-cycle, El Fatoora is gone
 
 **Status:** APPROVED
-**Story Status:** in-progress (Part 1 of 4 implemented)
+**Story Status:** in-progress (Parts 1 and 2 of 4 implemented)
 **Layer:** Full — *deliberate departure from the BE/FE separation rule; see "Structure" below*
 **Depends On:** None
 **Blocks:** None
@@ -27,7 +27,7 @@ boundary is the split point, and each part carries its own entry criteria, steps
 | Part | Group | Name | Migration | Status |
 |------|-------|------|-----------|--------|
 | 1 | C | Remove El Fatoora / TTN | `RemoveEInvoicing` (**irreversible**) | **implemented** |
-| 2 | A | Money integrity | `AddDentalRecordPaymentMethod` | not-started |
+| 2 | A | Money integrity | `AddDentalRecordPaymentMethod` | **implemented** |
 | 3 | B | Cheque life-cycle | `AddChequeBankedStamp` | not-started |
 | 4 | D | Remaining defects | `NullableDobLabOrderAppointment` | not-started |
 

@@ -210,7 +210,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `ICnamCatalogRepository` | `CnamCatalogRepository` (nomenclature + lettre-clé values) |
 | `IMedicationCatalogRepository` | `MedicationCatalogRepository` |
 | `IDentalActCodeRepository` | `DentalActCodeRepository` |
-| `IExpenseRepository` | `ExpenseRepository` (caisse) |
+| `IExpenseRepository` | `ExpenseRepository` (caisse). ⚠️ Its date bound is **inclusive on both ends** (`adoption-gaps-remediation` Part 2, AC-7): it was `ExpenseDate < to` while the three sibling money ledgers are `<=`, so an expense dated on the window's own last tick fell out of the extrait while the payments beside it stayed in — and `Σ movements == cashIn − refunds − cashOut` stopped holding at a period boundary. Every caller now passes `ClinicClock.LastTickOfLocalDayUtc` through `CaissePeriod`, so inclusive is what the value means. |
 | `IWaitingListRepository` | `WaitingListRepository` (salle d'attente) |
 | `ILabWorkOrderRepository` | `LabWorkOrderRepository` (dental-lab) |
 | `IRecurringAppointmentRepository` | `RecurringAppointmentRepository` |

@@ -41,6 +41,29 @@ import { ActDetailFields } from "@/components/record/act-detail-fields"
 import { RecordSection } from "@/components/record/record-section"
 import { SessionActsList } from "@/components/record/session-acts-list"
 import { hasInvalidPrice, resolveActCost, useSessionActs, type SessionAct } from "@/components/record/use-session-acts"
+import {
+  CHEQUE_METHOD,
+  ChequeFields,
+  EMPTY_CHEQUE_FIELDS,
+  chequePaymentFields,
+  type ChequeFieldsValue,
+} from "@/components/factures/cheque-fields"
+
+/**
+ * The methods a séance can be settled with, and their French labels — the same four `PaymentMethod` storage keys
+ * the till and the échéancier offer, because a payment recorded at the chair is the same kind of row as one
+ * recorded at the desk and lands in the same ledger.
+ *
+ * <p>`Cash` is the default rather than an empty « choisir… »: it is overwhelmingly the common case in a Tunisian
+ * cabinet, and a required extra tap on every fiche is how a field gets ignored.</p>
+ */
+const CASH_METHOD = "Cash"
+const FICHE_PAYMENT_METHODS: { value: string; label: string }[] = [
+  { value: CASH_METHOD, label: "Espèces" },
+  { value: CHEQUE_METHOD, label: "Chèque" },
+  { value: "Card", label: "Carte" },
+  { value: "Transfer", label: "Virement" },
+]
 
 // Sentinel for "not linked to a treatment-plan step".
 const NO_PLAN_ITEM = "__none__"
@@ -141,6 +164,16 @@ export function PatientRecordModal({
   const dentitionView = chosenView ?? seededView
   const [amountPaid, setAmountPaid] = useState("")
   const [paidDirty, setPaidDirty] = useState(false)
+  /**
+   * How the séance was settled, and — for a cheque — which cheque.
+   *
+   * <p>The payment this save produces used to be booked as cash unconditionally, so a patient handing over a
+   * post-dated cheque at the end of a session produced a payment indistinguishable from notes in the drawer:
+   * absent from « Chèques à encaisser », counted under « dont espèces ». A cheque at the chair is exactly as
+   * common here as at the till.</p>
+   */
+  const [paymentMethod, setPaymentMethod] = useState<string>(CASH_METHOD)
+  const [cheque, setCheque] = useState<ChequeFieldsValue>(EMPTY_CHEQUE_FIELDS)
   const [notes, setNotes] = useState<string[]>([])
   const [importantNotes, setImportantNotes] = useState<string[]>([])
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
@@ -236,6 +269,15 @@ export function PatientRecordModal({
       // `formatAmount`, never `String(...)` (J8) — the field accepts the comma form the product prints with.
       setAmountPaid(formatAmount(record.amountPaid))
       setPaidDirty(true) // a saved amount is the user's, never re-mirrored from the total
+      // A fiche with no method recorded is cash — that is what every row written before the field existed is,
+      // and the server reads a null the same way.
+      setPaymentMethod(record.paymentMethod ?? CASH_METHOD)
+      setCheque({
+        number: record.chequeNumber ?? "",
+        bankName: record.chequeBankName ?? "",
+        // The stored value is a calendar day; slice rather than re-parse, so no timezone touches it.
+        dueDate: record.chequeDueDate ? record.chequeDueDate.slice(0, 10) : "",
+      })
       setNotes([...record.notes])
       setImportantNotes([...record.importantNotes])
       // A section holding a value opens itself, so editing can never look like it lost data.
@@ -248,6 +290,8 @@ export function PatientRecordModal({
       setInterventionDate(todayLocalIso())
       setAmountPaid("")
       setPaidDirty(false)
+      setPaymentMethod(CASH_METHOD)
+      setCheque(EMPTY_CHEQUE_FIELDS)
       setNotes([])
       setImportantNotes([])
       setOpenSections({ details: false, acts: false, notes: false })
@@ -484,6 +528,11 @@ export function PatientRecordModal({
       const recordData = {
         interventionDate,
         amountPaid: parseAmountInput(amountPaid) || 0,
+        paymentMethod,
+        // The one builder, shared with the till and the échéancier: it clears the three fields when the method is
+        // not a cheque, so « the server refuses cheque details on a cash payment » is unreachable rather than
+        // merely unlikely.
+        ...chequePaymentFields(paymentMethod, cheque),
         isAdultTeeth,
         notes: notes.filter((n) => n.trim()).map((n) => n.trim()),
         importantNotes: importantNotes.filter((n) => n.trim()).map((n) => n.trim()),
@@ -502,12 +551,41 @@ export function PatientRecordModal({
       // save. Say which, and say it plainly: the whole reason that field was a trap is that it looked like a
       // receipt while nothing downstream read it, so the one thing this must never do is stay quiet.
       const base = record ? "Fiche dentaire mise à jour" : "Fiche dentaire enregistrée"
+      // Every outcome is surfaced, and each one gets the tone it deserves (AC-3). The old version had three
+      // branches and let AlreadyBilled fall into a plain green « enregistrée » — indistinguishable from a fiche
+      // that had just put money in the till, on the one screen whose whole history is money silently not moving.
       switch (saved.billing?.outcome) {
         case "Billed":
           toast.success(base, {
             description: `Note n° ${saved.billing.invoiceNumber} émise — ${formatDT(
               saved.billing.amountCollected ?? 0,
             )} encaissé`,
+          })
+          break
+        case "ToppedUp":
+          // The edit this part exists for. It names the *increment*, not the note's new total: the dentist typed
+          // a cumulative figure, and what they need confirmed is what this save moved.
+          toast.success(base, {
+            description: `${formatDT(saved.billing.amountCollected ?? 0)} encaissé en plus sur la note n° ${
+              saved.billing.invoiceNumber
+            }`,
+          })
+          break
+        case "AlreadyBilled":
+          // Informational, not plain green: nothing moved, and « enregistrée » on its own would let a dentist
+          // believe an amount they just changed had reached the till.
+          toast.info(base, {
+            description:
+              saved.billing.message ?? "Aucun encaissement supplémentaire — la fiche est déjà facturée.",
+          })
+          break
+        case "Refused":
+          // A rule said no and the message names the next step (an avoir). ⚠️ The *record* is saved either way on
+          // this path — the refusals that would leave the fiche disagreeing with its note are raised pre-commit
+          // by the server and arrive as a thrown error, not here.
+          toast.warning(base, {
+            description: saved.billing.message ?? "La facturation a été refusée.",
+            duration: 10000,
           })
           break
         case "Failed":
@@ -520,8 +598,7 @@ export function PatientRecordModal({
             duration: 10000,
           })
           break
-        // AlreadyBilled is the expected outcome of re-saving a billed fiche, and NotCollected of a fiche with no
-        // payment. Neither is news, so neither gets its own line.
+        // NotCollected — a fiche with no payment. Not news: nothing was supposed to move.
         default:
           toast.success(base)
       }
@@ -1052,6 +1129,25 @@ export function PatientRecordModal({
           bands (figures, then actions) rather than one row of buttons.
         */}
         <DialogFooter className="flex-col gap-3 sm:flex-col sm:justify-start">
+          {/*
+            The cheque's identity, above the figures rather than beside « Payé »: it is three fields, and three
+            more controls on the figures row is two columns at 320 px. Rendered only for a cheque — `ChequeFields`
+            deliberately does not self-hide, so the decision is visible here.
+
+            Placed in the FOOTER with « Payé » for the same reason the totals are: this is chairside, the dentist
+            is on a phone or a tablet at the unit, and the payment is the last thing entered before saving.
+          */}
+          {paymentMethod === CHEQUE_METHOD && !isInvoiced && (
+            <div className="w-full">
+              <ChequeFields
+                idPrefix="fiche"
+                value={cheque}
+                onChange={setCheque}
+                disabled={loading}
+              />
+            </div>
+          )}
+
           <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/30 p-3">
             <div className="flex min-w-[9rem] flex-1 items-center gap-2">
               <Label htmlFor="paid" className="shrink-0 text-xs text-muted-foreground">
@@ -1073,6 +1169,29 @@ export function PatientRecordModal({
                 placeholder="0,000"
                 disabled={loading || isInvoiced}
               />
+            </div>
+            {/* Beside the amount, because « combien » and « comment » are one answer. `min-w` + `flex-1` so it
+                wraps to its own full-width line below ~360 px instead of squeezing the amount field. */}
+            <div className="flex min-w-[9rem] flex-1 items-center gap-2">
+              <Label htmlFor="paid-method" className="shrink-0 text-xs text-muted-foreground">
+                Mode
+              </Label>
+              <Select
+                value={paymentMethod}
+                onValueChange={setPaymentMethod}
+                disabled={loading || isInvoiced}
+              >
+                <SelectTrigger id="paid-method" className="h-8 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FICHE_PAYMENT_METHODS.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex shrink-0 items-center gap-1.5 text-sm">
               <span className="text-muted-foreground">Total</span>

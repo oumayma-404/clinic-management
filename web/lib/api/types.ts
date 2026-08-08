@@ -681,6 +681,17 @@ export interface DentalRecordDto {
   /** Derived sum of act costs (read-only). */
   cost: number;
   amountPaid: number;
+  /**
+   * How `amountPaid` was settled — `Cash` | `Cheque` | `Card` | `Transfer`, or null/absent when nothing was
+   * recorded, which every read takes as cash. The payment this fiche produces carries it, so a séance settled by
+   * cheque finally reaches « Chèques à encaisser » instead of being counted under « dont espèces ».
+   */
+  paymentMethod?: string | null;
+  /** The cheque's identity — null for any other method (the server refuses details on one). */
+  chequeNumber?: string | null;
+  chequeBankName?: string | null;
+  /** A bare `YYYY-MM-DD` calendar day. Never round-trip it through `toISOString()`. */
+  chequeDueDate?: string | null;
   balance: number;
   notes: string[];
   importantNotes: string[];
@@ -706,8 +717,18 @@ export type DentalRecordBillingOutcome =
   | 'NotCollected'
   /** A note d'honoraires was issued and the payment recorded. */
   | 'Billed'
-  /** The fiche was already on a live note — the expected outcome of re-saving one. */
+  /** The fiche was already on a live note with nothing to add — the expected outcome of re-saving one. */
   | 'AlreadyBilled'
+  /**
+   * « Montant payé » was raised on an already-billed fiche, and the difference was recorded as an additional
+   * payment on the **same** note. `amountCollected` is what this save put in the till, not the note's new total.
+   */
+  | 'ToppedUp'
+  /**
+   * A rule said no — the amount was lowered, the acts changed after issue, or the note is annulée/créditée.
+   * Distinct from `Failed`: nothing went wrong, and `message` names the next step (an avoir).
+   */
+  | 'Refused'
   /** The record saved, the billing did not. The user has to be told. */
   | 'Failed';
 
@@ -716,7 +737,7 @@ export interface DentalRecordBillingDto {
   invoiceId?: string | null;
   invoiceNumber?: string | null;
   amountCollected?: number | null;
-  /** French reason, for `Failed` and `AlreadyBilled`. */
+  /** French reason, for `Failed`, `Refused` and `AlreadyBilled`. */
   message?: string | null;
 }
 

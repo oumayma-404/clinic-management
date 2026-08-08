@@ -28,9 +28,13 @@ namespace ClinicManagement.Domain.Services;
 /// condition DEV-5 of <c>treatment-plan-workspace</c> anticipated.
 /// </para>
 /// <para>
-/// The exclusion is read-side only and self-correcting: a <c>Draft</c> bridge does not exclude (the money is
-/// still only on the plan, and nothing has been carried yet), and cancelling the bridge hands the plan
-/// straight back to both reads.
+/// ⚠️ <b>The exclusion is read-side, but it is NOT freely reversible — an earlier note here said it was.</b> A
+/// <c>Draft</c> bridge genuinely does not exclude (nothing has been carried yet, so the money is still only on
+/// the plan). But « cancelling the bridge hands the plan straight back » is false the moment the bridge has done
+/// its job: an invoice carrying a non-voided payment <b>cannot be cancelled</b> at all
+/// (<see cref="Entities.Invoice.CanCancel"/>), and that is exactly the state a bridge that carried collections is
+/// in. Correcting that money is an <b>avoir</b>, and only an avoir. Reading the old note as an escape hatch is how
+/// somebody ends up expecting receipts to travel back to the devis, which nothing in this product does.
 /// </para>
 /// </summary>
 public static class PlanBillingRules

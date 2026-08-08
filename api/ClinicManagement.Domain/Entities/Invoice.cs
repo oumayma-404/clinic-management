@@ -349,7 +349,13 @@ public class Invoice : AggregateRoot<Guid>
         // caisse with no trail. Corrections go through an avoir. Voided payments do not count: a note whose
         // only payments were data-entry errors was never really paid, so cancelling it is legitimate.
         if (_payments.Any(p => !p.IsVoided))
-            throw new InvalidOperationException("Une facture avec des paiements enregistrés ne peut pas être annulée. Établissez un avoir.");
+            // The avoir is not *a* route, it is the only one — worth saying, because on a devis→facture bridge the
+            // plan's collections were carried onto this invoice at issue, so users reach for « annuler » expecting
+            // the money to go back to the devis. It cannot: the carry is one-way and one-time.
+            throw new InvalidOperationException(
+                "Une facture avec des paiements enregistrés ne peut pas être annulée : établissez un avoir, "
+                + "seul moyen de rendre l'argent. Pour une facture issue d'un devis, les encaissements du devis "
+                + "y ont été reportés à l'émission et ne repartent pas en arrière.");
 
         if (string.IsNullOrWhiteSpace(reason))
             throw new ArgumentException("Le motif d'annulation est requis.", nameof(reason));

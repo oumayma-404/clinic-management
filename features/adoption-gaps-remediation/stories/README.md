@@ -58,14 +58,14 @@ better after Part 2 makes the bridge refusal say what it means, but does not req
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | Close the adoption gaps | in-progress (1/4 parts) | - |
+| 1 | Full | Close the adoption gaps | in-progress (2/4 parts) | - |
 
 ### Part tracker (the real unit of work — one part per session)
 
 | Part | Group | Name | ACs | Migration | Status | Depends On |
 |------|-------|------|-----|-----------|--------|------------|
 | 1 | C | Remove El Fatoora / TTN | AC-13, 14, 15, 16, 16b, 16c, 17, C-1, C-2 | `RemoveEInvoicing` (irreversible) | **implemented** | - |
-| 2 | A | Money integrity | AC-1, 2, 3, 3b, 4, 5, 6, 7, A-1, A-2 | `AddDentalRecordPaymentMethod` | not-started | Part 1 |
+| 2 | A | Money integrity | AC-1, 2, 3, 3b, 4, 5, 6, 7, A-1, A-2 | `AddDentalRecordPaymentMethod` | **implemented** | Part 1 |
 | 3 | B | Cheque life-cycle | AC-8, 9, 10, 11, 12, B-1, B-2 | `AddChequeBankedStamp` | not-started | - |
 | 4 | D | Remaining defects | AC-18…AC-26, D-1, D-2, D-3 | `NullableDobLabOrderAppointment` | not-started | - |
 

@@ -38,7 +38,13 @@ public class ExpenseRepository : IExpenseRepository
         }
         if (to.HasValue)
         {
-            query = query.Where(e => e.ExpenseDate < to.Value);
+            // INCLUSIVE, like the three sibling ledgers (AC-7). It was `<` while `GetPaymentsBetweenAsync`,
+            // `GetInstallmentPaymentsBetweenAsync` and the avoirs' read are all `<=`, so an expense dated on the
+            // window's own last tick fell out of the extrait while the payments beside it stayed in — and
+            // « Σ movements == cashIn − refunds − cashOut » stopped holding at a period boundary. Every caller now
+            // passes `ClinicClock.LastTickOfLocalDayUtc` through `CaissePeriod`, so an inclusive bound is what the
+            // value means.
+            query = query.Where(e => e.ExpenseDate <= to.Value);
         }
 
         var pattern = SearchTerm.ToLikePattern(searchTerm);
@@ -60,8 +66,10 @@ public class ExpenseRepository : IExpenseRepository
 
     public async Task<decimal> GetTotalBetweenAsync(Guid clinicId, DateTime from, DateTime to, CancellationToken cancellationToken = default)
     {
+        // Inclusive on both ends, predicate-for-predicate with the list above it and with the three other money
+        // ledgers — the totals and the statement must sum the same rows or the caisse contradicts itself (AC-7).
         return await _context.Expenses
-            .Where(e => e.ClinicId == clinicId && e.ExpenseDate >= from && e.ExpenseDate < to)
+            .Where(e => e.ClinicId == clinicId && e.ExpenseDate >= from && e.ExpenseDate <= to)
             .SumAsync(e => (decimal?)e.Amount, cancellationToken) ?? 0m;
     }
 

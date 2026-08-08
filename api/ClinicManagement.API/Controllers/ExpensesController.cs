@@ -45,11 +45,14 @@ public class ExpensesController : ApiControllerBase
     /// </summary>
     [HttpGet("export")]
     public async Task<ActionResult> ExportExpenses(
+        [FromQuery] string? fromDay = null,
+        [FromQuery] string? toDay = null,
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
         [FromQuery] string? search = null)
     {
-        var result = await _mediator.Send(new GetExpensesQuery { From = from, To = to, SearchTerm = search });
+        var result = await _mediator.Send(
+            new GetExpensesQuery { FromDay = fromDay, ToDay = toDay, From = from, To = to, SearchTerm = search });
 
         if (result.IsFailure)
         {
@@ -60,7 +63,15 @@ public class ExpensesController : ApiControllerBase
     }
 
     [HttpGet]
+    /// <param name="fromDay">
+    /// Bare <c>YYYY-MM-DD</c> clinic-local days, the form la caisse sends so its dépenses table covers the same
+    /// Tunisian window as the totals and the extrait above it (AC-6). Omit every date for the whole list — unlike
+    /// the caisse reads, « no window » here means « toutes les dépenses », not « aujourd'hui ».
+    /// </param>
+    /// <param name="toDay">See <paramref name="fromDay"/>; defaults to it.</param>
     public async Task<ActionResult<PagedResult<ExpenseDto>>> GetExpenses(
+        [FromQuery] string? fromDay = null,
+        [FromQuery] string? toDay = null,
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
         [FromQuery] int? page = null,
@@ -69,6 +80,8 @@ public class ExpensesController : ApiControllerBase
     {
         var result = await _mediator.Send(new GetExpensesQuery
         {
+            FromDay = fromDay,
+            ToDay = toDay,
             From = from,
             To = to,
             Page = page,

@@ -54,6 +54,13 @@ public class DentalRecordActHandlerTests
         public Mock<IDentalRecordRepository> Records { get; } = new();
         public Mock<IToothStateRepository> ToothStates { get; } = new();
         public Mock<ITreatmentPlanRepository> Plans { get; } = new();
+
+        // The update handler asks these two, pre-commit, whether a note d'honoraires already bills this fiche
+        // (AC-2 / AC-3b). Stubbed to « rien ne la facture », which is every fixture in this class — and stubbed
+        // rather than left bare because Moq's default for a collection-returning task is **null**, which the guard
+        // would dereference into this project's catch → French-Result convention (see UnitTests/CLAUDE.md).
+        public Mock<IInvoiceRepository> Invoices { get; } = new();
+        public Mock<ICreditNoteRepository> CreditNotes { get; } = new();
         public Mock<IAppointmentRepository> Appointments { get; } = new();
         public Mock<ICurrentClinicResolver> Resolver { get; } = new();
         public Mock<IUnitOfWork> Uow { get; } = new();
@@ -74,6 +81,8 @@ public class DentalRecordActHandlerTests
             Resolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(Result<Guid>.Success(ClinicId));
             Uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+            Invoices.Setup(r => r.GetDentalRecordLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
 
             ToothStates.Setup(r => r.GetByPatientIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(existingForPatient ?? Array.Empty<ToothState>());
@@ -118,8 +127,9 @@ public class DentalRecordActHandlerTests
             Realtime.Object, Sender.Object, NullLogger<CreateDentalRecordCommandHandler>.Instance);
 
         public UpdateDentalRecordCommandHandler UpdateHandler() => new(
-            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Resolver.Object, Uow.Object,
-            StockConsumption.Object, Sender.Object, NullLogger<UpdateDentalRecordCommandHandler>.Instance);
+            Records.Object, Patients.Object, ToothStates.Object, Plans.Object, Invoices.Object,
+            CreditNotes.Object, Resolver.Object, Uow.Object, StockConsumption.Object, Sender.Object,
+            NullLogger<UpdateDentalRecordCommandHandler>.Instance);
 
         public CreateDentalRecordCommand CreateCommand(params DentalActInput[] acts) => new()
         {

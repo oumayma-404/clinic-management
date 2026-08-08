@@ -48,18 +48,30 @@ public class DentalRecordAutoBillingTests
         DentalRecordAutoBilling.BillIfPaidAsync(
             _sender.Object, record, amountPaid, NullLogger.Instance, CancellationToken.None);
 
-    private void SenderReturns(Result<InvoiceDto> result) =>
-        _sender.Setup(s => s.Send(It.IsAny<CreateInvoiceFromDentalRecordCommand>(), It.IsAny<CancellationToken>()))
+    /// <summary>
+    /// A successful billing outcome. The command returns a <b>typed</b> result now — outcome, note and what this
+    /// call actually collected — which is what let the helper stop recovering « déjà facturée » by matching a
+    /// French substring against the error message.
+    /// </summary>
+    private static Result<DentalRecordBillingResult> Billed(
+        DentalRecordBillingOutcome outcome, string number, decimal collected = 0m, string? message = null) =>
+        Result<DentalRecordBillingResult>.Success(new DentalRecordBillingResult
+        {
+            Outcome = outcome,
+            Invoice = new InvoiceDto { Id = Guid.NewGuid(), Number = number, AmountCollected = collected },
+            AmountCollected = collected,
+            Message = message,
+        });
+
+    private void SenderReturns(Result<DentalRecordBillingResult> result) =>
+        _sender.Setup(s => s.Send(It.IsAny<BillDentalRecordCommand>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(result);
 
     [Fact]
     public async Task A_Paid_Fiche_Is_Billed_And_The_Note_Is_Reported()
     {
         var record = RecordFixture();
-        SenderReturns(Result<InvoiceDto>.Success(new InvoiceDto
-        {
-            Id = Guid.NewGuid(), Number = "2026-0007", AmountCollected = 400m,
-        }));
+        SenderReturns(Billed(DentalRecordBillingOutcome.Billed, "2026-0007", 400m));
 
         var billing = await BillAsync(record, 400m);
 
@@ -72,11 +84,11 @@ public class DentalRecordAutoBillingTests
     public async Task The_Payment_Is_Dated_To_The_Session_Not_Today()
     {
         var record = RecordFixture();
-        CreateInvoiceFromDentalRecordCommand? sent = null;
-        _sender.Setup(s => s.Send(It.IsAny<CreateInvoiceFromDentalRecordCommand>(), It.IsAny<CancellationToken>()))
-            .Callback((IRequest<Result<InvoiceDto>> c, CancellationToken _) =>
-                sent = (CreateInvoiceFromDentalRecordCommand)c)
-            .ReturnsAsync(Result<InvoiceDto>.Success(new InvoiceDto { Id = Guid.NewGuid(), Number = "2026-0008" }));
+        BillDentalRecordCommand? sent = null;
+        _sender.Setup(s => s.Send(It.IsAny<BillDentalRecordCommand>(), It.IsAny<CancellationToken>()))
+            .Callback((IRequest<Result<DentalRecordBillingResult>> c, CancellationToken _) =>
+                sent = (BillDentalRecordCommand)c)
+            .ReturnsAsync(Billed(DentalRecordBillingOutcome.Billed, "2026-0008"));
 
         await BillAsync(record, 400m);
 
@@ -97,7 +109,7 @@ public class DentalRecordAutoBillingTests
         // existed before auto-billing. Billing on a zero would consume a number for no money.
         Assert.Equal(nameof(DentalRecordBillingOutcome.NotCollected), billing.Outcome);
         _sender.Verify(
-            s => s.Send(It.IsAny<CreateInvoiceFromDentalRecordCommand>(), It.IsAny<CancellationToken>()),
+            s => s.Send(It.IsAny<BillDentalRecordCommand>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -105,14 +117,49 @@ public class DentalRecordAutoBillingTests
     public async Task Re_Saving_A_Billed_Fiche_Does_Not_Raise_A_Second_Note() // the load-bearing case
     {
         var record = RecordFixture();
-        SenderReturns(Result<InvoiceDto>.Failure(
-            "Cette fiche de soins est déjà facturée sur la note n° 2026-0007."));
+        SenderReturns(Billed(
+            DentalRecordBillingOutcome.AlreadyBilled, "2026-0007",
+            message: "Cette fiche de soins est déjà facturée sur la note n° 2026-0007."));
 
         var billing = await BillAsync(record, 400m);
 
-        // Reported as its own outcome, distinct from Failed: the money IS in the till, so the UI must stay quiet
-        // rather than raise an alarm on every edit of an already-billed session.
+        // Reported as its own outcome, distinct from Failed: the money IS in the till, so the UI says so quietly
+        // rather than raising an alarm on every edit of an already-billed session. ⚠️ It is a *success* now — the
+        // command's already-billed branch decides between topping the note up and having nothing to add, and only
+        // the second is this outcome. A flat refusal was how the extra cash used to be lost.
         Assert.Equal(nameof(DentalRecordBillingOutcome.AlreadyBilled), billing.Outcome);
+        Assert.Contains("2026-0007", billing.Message);
+    }
+
+    [Fact]
+    public async Task Raising_The_Amount_On_A_Billed_Fiche_Tops_The_Same_Note_Up()
+    {
+        var record = RecordFixture();
+        // 200,000 already collected on note 2026-0007; the fiche is re-saved at 400,000, so 200,000 more reaches
+        // the till on the SAME document (AC-1). What is reported is the increment, not the note's new total.
+        SenderReturns(Billed(DentalRecordBillingOutcome.ToppedUp, "2026-0007", 200m));
+
+        var billing = await BillAsync(record, 400m);
+
+        Assert.Equal(nameof(DentalRecordBillingOutcome.ToppedUp), billing.Outcome);
+        Assert.Equal("2026-0007", billing.InvoiceNumber);
+        Assert.Equal(200m, billing.AmountCollected);
+    }
+
+    [Fact]
+    public async Task A_Refusal_Is_Told_Apart_From_A_Failure_By_Its_Code()
+    {
+        var record = RecordFixture();
+        SenderReturns(Result<DentalRecordBillingResult>.Failure(
+            "Cette fiche est facturée sur la note n° 2026-0007, qui a déjà encaissé 400,000 DT. …",
+            ClinicManagement.Application.Features.Invoices.DentalRecordBillingRefusals.PaymentLoweredCode));
+
+        var billing = await BillAsync(record, 100m);
+
+        // A rule said no and the user has a defined next step (an avoir), which is not the same event as the
+        // billing having gone wrong. Told apart by the code — never by the sentence, which is exactly the match
+        // this part deleted.
+        Assert.Equal(nameof(DentalRecordBillingOutcome.Refused), billing.Outcome);
         Assert.Contains("2026-0007", billing.Message);
     }
 
@@ -120,7 +167,8 @@ public class DentalRecordAutoBillingTests
     public async Task A_Refused_Billing_Is_Reported_As_Failed_With_Its_Reason()
     {
         var record = RecordFixture();
-        SenderReturns(Result<InvoiceDto>.Failure("Le montant encaissé dépasse le total de la note d'honoraires."));
+        SenderReturns(Result<DentalRecordBillingResult>.Failure(
+            "Le montant encaissé dépasse le total de la note d'honoraires."));
 
         var billing = await BillAsync(record, 5000m);
 
@@ -132,7 +180,7 @@ public class DentalRecordAutoBillingTests
     public async Task A_Thrown_Billing_Is_Reported_And_Never_Propagates()
     {
         var record = RecordFixture();
-        _sender.Setup(s => s.Send(It.IsAny<CreateInvoiceFromDentalRecordCommand>(), It.IsAny<CancellationToken>()))
+        _sender.Setup(s => s.Send(It.IsAny<BillDentalRecordCommand>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("connexion perdue"));
 
         // The clinical record is already committed when this runs, so a throw must not surface as a failed save —
@@ -152,7 +200,7 @@ public class DentalRecordAutoBillingTests
 
         Assert.Equal(nameof(DentalRecordBillingOutcome.NotCollected), billing.Outcome);
         _sender.Verify(
-            s => s.Send(It.IsAny<CreateInvoiceFromDentalRecordCommand>(), It.IsAny<CancellationToken>()),
+            s => s.Send(It.IsAny<BillDentalRecordCommand>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 }

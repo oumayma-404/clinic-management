@@ -14,9 +14,15 @@ export const expensesApi = {
   list: async (from?: string, to?: string): Promise<ExpenseDto[]> =>
     unwrapPaged(await apiGet<PagedResponse<ExpenseDto>>('/expenses', { from, to })),
 
-  /** One page of expenses. `search` matches catégorie / description server-side over the whole window. */
+  /**
+   * One page of expenses. `search` matches catégorie / description server-side over the whole window.
+   *
+   * @param params.fromDay Bare `YYYY-MM-DD` clinic-local days — the form la caisse sends so its dépenses table
+   *   covers the same **Tunisian** window as the totals above it (AC-6). Omit every date for the whole list;
+   *   unlike the caisse reads, « no window » here means « toutes les dépenses », not « aujourd'hui ».
+   */
   listPaged: async (
-    params: PageParams & { from?: string; to?: string },
+    params: PageParams & { fromDay?: string; toDay?: string; from?: string; to?: string },
   ): Promise<PagedResponse<ExpenseDto>> =>
     apiGet<PagedResponse<ExpenseDto>>('/expenses', params),
 
@@ -28,8 +34,14 @@ export const expensesApi = {
 
   // Caisse (daily cash): net = cashIn − refunds − cashOut over the window (defaults to the clinic-local day
   // server-side). `cashIn` is gross; refunds are their own figure.
-  caisseSummary: async (from?: string, to?: string): Promise<CaisseSummaryDto> =>
-    apiGet<CaisseSummaryDto>('/billing/caisse', { from, to }),
+  /**
+   * @param fromDay The window's first day as a bare `YYYY-MM-DD`, resolved server-side as a **clinic-local**
+   *   calendar day. ⚠️ Never compose an instant here: `new Date(day).toISOString()` is midnight in the
+   *   *workstation's* timezone, which is how « la caisse du 3 août » used to cover a window offset by hours from
+   *   the Tunisian day. `toDay` defaults to it.
+   */
+  caisseSummary: async (fromDay?: string, toDay?: string): Promise<CaisseSummaryDto> =>
+    apiGet<CaisseSummaryDto>('/billing/caisse', { fromDay, toDay }),
 
   // The « extrait de caisse » — every movement behind those totals, oldest first, with a running period balance.
   // Same window as `caisseSummary`, so the lines and the totals always describe the same period.
@@ -44,7 +56,7 @@ export const expensesApi = {
    *   `search`. A movement with no method at all (a legacy avoir) leaves the list under any filter.
    */
   caisseLedger: async (
-    params: PageParams & { from?: string; to?: string; method?: string } = {},
+    params: PageParams & { fromDay?: string; toDay?: string; method?: string } = {},
   ): Promise<CaisseLedgerDto> =>
     apiGet<CaisseLedgerDto>('/billing/caisse/ledger', params),
 };

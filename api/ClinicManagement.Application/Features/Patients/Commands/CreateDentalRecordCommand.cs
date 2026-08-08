@@ -17,6 +17,27 @@ public class CreateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     public Guid PatientId { get; set; }
     public DateTime InterventionDate { get; set; }
     public decimal AmountPaid { get; set; }
+
+    /// <summary>
+    /// How <see cref="AmountPaid"/> was settled — <c>Cash</c>/<c>Cheque</c>/<c>Card</c>/<c>Transfer</c>. Omit for
+    /// cash. It reaches the note d'honoraires this save raises, which is the point: the payment used to be booked
+    /// as cash unconditionally, so a séance settled by cheque never reached « Chèques à encaisser ».
+    /// <para>
+    /// A new fiche needs no billing guard — it has no note d'honoraires to contradict. The AC-2 / AC-3b refusals
+    /// live on the <b>update</b> path only.
+    /// </para>
+    /// </summary>
+    public string? PaymentMethod { get; set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public string? ChequeNumber { get; set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public string? ChequeBankName { get; set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public DateTime? ChequeDueDate { get; set; }
+
     public bool IsAdultTeeth { get; set; }
     /// <summary>The acts performed this session — the record's procedure summary + cost are derived from these.</summary>
     public List<DentalActInput> Acts { get; set; } = new();
@@ -127,7 +148,18 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 request.ImportantNotes,
                 request.AppointmentId);
 
+            if (!Enum.TryParse<PaymentMethod>(request.PaymentMethod ?? nameof(PaymentMethod.Cash), ignoreCase: true, out var method))
+            {
+                return Result<DentalRecordDto>.Failure("Mode de paiement invalide.");
+            }
+
             record.SetActs(parsed.Value!);
+            // Null stays null — « non renseigné », read as cash everywhere. `SetPayment` runs the cheque details
+            // through the existing `ChequeDetails.For`, so details on a non-cheque method are refused there rather
+            // than by a second copy of the rule here.
+            record.SetPayment(
+                request.PaymentMethod is null ? null : method,
+                request.ChequeNumber, request.ChequeBankName, request.ChequeDueDate);
 
             // L9 — who performed the séance. Derived from the documented appointment when there is one (that is the
             // most reliable source: the visit was booked with a practitioner), else the caller's own Doctor record.
