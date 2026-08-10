@@ -534,12 +534,65 @@ Candidate resolutions, none yet chosen:
 Option **3** looks right and option **1** is the one to avoid, but it is a change to the companion's schema and so
 is the user's call. **No code was written against any of them.**
 
+### Q-1 — RESOLVED (2026-08-10): denormalise, but **not** the field the option named
+
+**Decision: option 3.** A kind is denormalised onto `ClinicSubscription`, written by `RecomputeFrom` — already the
+only writer of `EndsOn`, so there is one write path and `verify-schema` can hold it the way it holds
+`clinical-child-clinic-matches-patient`.
+
+⚠️ **The obvious column is unstorable, and this is the trap to write down.** « En essai » as
+`GetSubscriptionQuery.IsOnTrial` defines it is *« is the cover in force **today** the trial? »* — the **last
+covering span**, which is a function of the ledger **and of today**. `RecomputeFrom` is deliberately **clock-free**
+(`SubscriptionLedger`'s own remarks say why: a fold that reads a clock makes a lapsed entry restart from today and
+flaps `subscription-end-date-matches-ledger` daily). So a stored « what covers today » would be correct only until
+the next midnight, and would need a daily pass to stay true — reintroducing exactly the staleness the fold was
+designed to avoid.
+
+**The storable form is `LatestCoverKind`** — the `SubscriptionPeriodKind` of the **last non-cancelled entry in fold
+order**. That is a pure function of the ledger with no clock in it, so `RecomputeFrom` can write it and
+`verify-schema` can re-derive it.
+
+It answers the filter because the filter **ANDs with the state SQL already computes** from `EndsOn`/`IsSuspended`:
+
+| Ledger | `IsOnTrial` (today) | `LatestCoverKind` | State | « en essai » filter |
+|---|---|---|---|---|
+| trial only, in force | true | `Trial` | Trial/Active | ✅ both |
+| trial only, lapsed | false (no covering span) | `Trial` | **Expired** | ✅ excluded by the state term |
+| trial then paid | false | `Paid` | Active | ✅ both |
+| grandfathered then paid | false | `Paid` | Active | ✅ both |
+
+So the two agree everywhere the filter can select, and the disagreement (a lapsed trial) is excluded by the state
+term regardless.
+
+**Implementation shape, so the ordering has one authority:** add `Kind` to `SubscriptionLedgerEntry` and let
+`FoldWithSpans` return the latest cover kind alongside `EndsOn`, rather than re-ordering the entities inside
+`RecomputeFrom` — the fold's `OrderBy(RecordedAtUtc).ThenBy(Id)` must not exist twice. That also means
+`SchemaVerificationReader`'s raw ADO projection gains the column, which is what lets `verify-schema` check the
+denormalisation rather than trust it.
+
+⚠️ **`IsOnTrial` must MOVE, not be copied.** It is a private static on `GetSubscriptionQuery` today; the console is
+its second caller, and this repo's dominant defect shape is a correct helper wired to one call site. It goes beside
+`SubscriptionStateReader` — whose `isTrial` parameter exists for it — and `GetSubscriptionQuery` becomes a caller.
+
+**Scope note:** this edits `features/clinic-subscription/`'s table (a migration + a backfill + a `verify-schema`
+check), not just this feature. That is the cost the option was chosen with.
+
+### DEV-12 — RESOLVED: AC-4.4a dropped
+
+**Approved 2026-08-10.** Recorded out of scope with the reasoning above; AC-4.4 is unaffected. No realtime key is
+added and `Subscriptions` stays on `ExcludedAreas`.
+
 ## Next
 
-**Part 4, resuming at step 32.** The merge and the pre-flight are done and committed; the write half (steps 33–39)
-is unblocked and independent of Q-1. Order to resume in:
+**Part 4, resuming at step 32.** The merge and the pre-flight are done and committed, and **Q-1 and DEV-12 are both
+settled** (above) — no open questions remain. Order to resume in:
 
-1. Settle **Q-1** (above) — it decides how the placeholder is deleted.
+1. **Q-1's implementation** (companion-side, do it first — the console read half depends on it):
+   `SubscriptionLedgerEntry` gains `Kind`; `FoldWithSpans` returns the latest cover kind; `ClinicSubscription`
+   gains `LatestCoverKind` written by `RecomputeFrom`; migration + backfill; `SchemaVerificationReader` projects
+   the column and `verify-schema` gains `subscription-cover-kind-matches-ledger`; `IsOnTrial` **moves** out of
+   `GetSubscriptionQuery` beside `SubscriptionStateReader`. Then delete `PlatformSubscriptionPlaceholder` and let
+   the compiler list its nine callers.
 2. Steps 33–34 — `RecordSubscriptionPeriodCommand` + idempotency. ⚠️ `PlatformPortfolioController` must **never
    name** `GrantSubscriptionPeriodCommand` (or the other two): Part F shipped
    `SubscriptionVendorCommandReachabilityTests`, which **source-scans every `Controllers/` file** for those type
