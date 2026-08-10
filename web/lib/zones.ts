@@ -11,7 +11,7 @@ import { buildNavSections } from "@/lib/nav"
  *
  * <p>A zone hue is <b>orientation, not decoration</b>, and that is the whole justification for adding colour to a
  * product whose design notes deliberately reserved the accent. It answers « where am I? » before a word is read —
- * the money screens are amber, the clinical screens violet, the everyday screens teal — and it answers it in the
+ * the money screens are amber, the clinical screens violet, the everyday screens azure — and it answers it in the
  * rail and on the page with the <i>same</i> colour, so the two are visibly the same place.</p>
  *
  * <p><b>Where a zone hue is allowed to appear</b>, exhaustively — this list is the restraint:</p>

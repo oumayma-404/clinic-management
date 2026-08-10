@@ -46,26 +46,26 @@ internal static class WindowTheme
         string NoticeForeground);
 
     private static readonly Palette Light = new(
-        Background: "#F1F8FA",        // --background        oklch(0.975 0.008 215)
+        Background: "#F0F9FE",        // --background        oklch(0.977 0.011 230)
         Card: "#FFFFFF",              // --card              oklch(1 0 0)
-        Foreground: "#0F171C",        // --foreground        oklch(0.20 0.015 235)
-        MutedForeground: "#59666B",   // --muted-foreground  oklch(0.50 0.018 225)
-        Border: "#DDE4E6",            // --border            oklch(0.915 0.008 215)
-        Primary: "#00736B",           // --primary           oklch(0.49 0.105 188)
-        PrimaryForeground: "#F8FDFC", // --primary-foreground
+        Foreground: "#0E191F",        // --foreground        oklch(0.205 0.020 236)
+        MutedForeground: "#58666E",   // --muted-foreground  oklch(0.50 0.021 234)
+        Border: "#D9E3E8",            // --border            oklch(0.91 0.013 230)
+        Primary: "#02678F",           // --primary           oklch(0.485 0.101 234)
+        PrimaryForeground: "#F9FCFF", // --primary-foreground
         Destructive: "#C92F33",       // --destructive       oklch(0.55 0.19 25)
         NoticeBackground: "#FFF4CE",
         NoticeBorder: "#E1C65B",
         NoticeForeground: "#5C4813");
 
     private static readonly Palette Dark = new(
-        Background: "#06090B",        // .dark --background        oklch(0.135 0.008 230)
-        Card: "#0D1417",              // .dark --card              oklch(0.185 0.012 232)
-        Foreground: "#EFF4F6",        // .dark --foreground        oklch(0.965 0.006 225)
-        MutedForeground: "#889398",   // .dark --muted-foreground  oklch(0.655 0.015 228)
-        Border: "#1F262A",            // .dark --border            oklch(0.265 0.012 228)
-        Primary: "#007C74",           // .dark --primary           oklch(0.52 0.105 188)
-        PrimaryForeground: "#F5FAF9",
+        Background: "#050A0E",        // .dark --background        oklch(0.14 0.014 238)
+        Card: "#0D161C",              // .dark --card              oklch(0.193 0.018 238)
+        Foreground: "#EEF4F8",        // .dark --foreground        oklch(0.964 0.008 232)
+        MutedForeground: "#87949C",   // .dark --muted-foreground  oklch(0.658 0.019 234)
+        Border: "#1E292F",            // .dark --border            oklch(0.273 0.019 236)
+        Primary: "#017EAE",           // .dark --primary           oklch(0.56 0.117 234)
+        PrimaryForeground: "#F9FCFF",
         Destructive: "#C92F33",
         // The update strip's own trio, lifted onto a dark ground rather than inverted: a #FFF4CE band over
         // near-black is a flashbang, and the app's own `--warning-wash` is what a warning looks like here.

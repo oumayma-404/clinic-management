@@ -21,10 +21,11 @@ import { PRODUCT_NAME } from "@/lib/brand"
  * in-app back affordance is part of the same AC and not a nicety.
  *
  * `theme_color` matches the light `--background` rather than the accent: it tints the status bar, which sits
- * directly above the app's own ground, and a teal bar over a near-white header reads as a rendering seam.
- * ⚠️ The value tracks `app/globals.css`'s `--background` and must be re-derived when that token moves — it was
- * `#fdfdfe` from an older `oklch(0.995 0.002 225)` and had been left behind by the « menthe clinique » palette,
- * which is `oklch(0.975 0.008 215)` ≈ `#f1f8fa`. A stale value here is a visible seam, not a rounding error.
+ * directly above the app's own ground, and an azure bar over a near-white header reads as a rendering seam.
+ * ⚠️ The value tracks `app/globals.css`'s `--background` and must be re-derived when that token moves. It has now
+ * been left behind twice — `#fdfdfe` from an older `oklch(0.995 0.002 225)`, then `#f1f8fa` from « menthe
+ * clinique » — and is currently « bleu céruléen »'s `oklch(0.977 0.011 230)` ≈ `#f0f9fe`. A stale value here is a
+ * visible seam, not a rounding error.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -36,8 +37,8 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     display: "standalone",
     orientation: "any",
-    background_color: "#f1f8fa",
-    theme_color: "#f1f8fa",
+    background_color: "#f0f9fe",
+    theme_color: "#f0f9fe",
     lang: "fr",
     dir: "ltr",
     icons: [

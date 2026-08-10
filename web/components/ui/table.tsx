@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
  *
  * <p>It used to paint nothing, which was invisible while `--background` and `--card` were 1 % apart: a table inside
  * a `Card` looked identical to one inside a bare `rounded-md border` div. Tinting the page ground made the
- * difference real, and the six tables wrapped in a plain bordered div started showing the teal through — legible
+ * difference real, and the six tables wrapped in a plain bordered div started showing the ground through — legible
  * enough to notice, not legible enough to read. Fixing it here rather than adding `bg-card` to each wrapper means a
  * seventh table cannot be added wrong.</p>
  *

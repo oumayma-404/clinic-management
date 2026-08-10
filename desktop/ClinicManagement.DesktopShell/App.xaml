@@ -11,13 +11,13 @@
           These are here rather than only in WindowTheme.cs so the XAML designer and a first frame drawn before any
           code runs are never a flash of unstyled window.
         -->
-        <SolidColorBrush x:Key="ShellBackground" Color="#F1F8FA"/>
+        <SolidColorBrush x:Key="ShellBackground" Color="#F0F9FE"/>
         <SolidColorBrush x:Key="ShellCard" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="ShellInk" Color="#0F171C"/>
-        <SolidColorBrush x:Key="ShellInkMuted" Color="#59666B"/>
-        <SolidColorBrush x:Key="ShellBorder" Color="#DDE4E6"/>
-        <SolidColorBrush x:Key="ShellAccent" Color="#00736B"/>
-        <SolidColorBrush x:Key="ShellAccentInk" Color="#F8FDFC"/>
+        <SolidColorBrush x:Key="ShellInk" Color="#0E191F"/>
+        <SolidColorBrush x:Key="ShellInkMuted" Color="#58666E"/>
+        <SolidColorBrush x:Key="ShellBorder" Color="#D9E3E8"/>
+        <SolidColorBrush x:Key="ShellAccent" Color="#02678F"/>
+        <SolidColorBrush x:Key="ShellAccentInk" Color="#F9FCFF"/>
         <SolidColorBrush x:Key="ShellDanger" Color="#C92F33"/>
         <SolidColorBrush x:Key="ShellNoticeBackground" Color="#FFF4CE"/>
         <SolidColorBrush x:Key="ShellNoticeBorder" Color="#E1C65B"/>
