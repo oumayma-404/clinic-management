@@ -3,7 +3,20 @@
 **Status:** APPROVED
 **Plan:** [../plan.md](../plan.md)
 **Spec:** [../spec.md](../spec.md)
-**Depends on:** [`features/clinic-subscription/`](../../clinic-subscription/spec.md) — ⚠️ **spec only, not implemented**
+**Depends on:** [`features/clinic-subscription/`](../../clinic-subscription/spec.md) — Parts 4–7 only
+**Branch:** `feature/platform-console`, **local only** — no remote, nothing pushed
+**Worktree:** `.claude/worktrees/platform-console/` — the main checkout stays on its own branch
+**Progress:** [progress.md](./progress.md) — gate results, deviations, and what is owed
+
+> ⚠️ **The work is not on the branch you are probably standing on.** It was branched from `50b6f1c` into the
+> worktree above because a **second session was writing `features/clinic-subscription/` into the main working
+> tree at the same time** — that tree did not compile, so no gate could be run, and five files are needed by both
+> features. `progress.md` lists the merge points; all of them are mechanical.
+>
+> ⚠️ **The companion's status has moved and this line used to overstate it.** It is no longer « spec only »: it
+> is being implemented right now, in the main tree, uncommitted. From *this* branch it is still absent — that is
+> why Parts 4–7 remain blocked here — but « nobody has started it » is no longer true and should not be planned
+> around.
 
 ## Summary
 
