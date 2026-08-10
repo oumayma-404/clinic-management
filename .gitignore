@@ -6,6 +6,10 @@ out/
 # .NET build output
 [Bb]in/
 [Oo]bj/
+# Scratch OutDir for `dotnet vstest`. Smart App Control refuses freshly-built assemblies under %TEMP%, so the
+# suite is built INSIDE the repo instead (see ClinicManagement.UnitTests/CLAUDE.md) — which puts real build
+# output in a path `[Bb]in/` does not cover.
+.testrun/
 
 # .NET / Rider / VS
 *.user
