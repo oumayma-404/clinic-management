@@ -337,6 +337,26 @@ public class TreatmentPlan : AggregateRoot<Guid>
         Touch();
     }
 
+    /// <inheritdoc cref="Invoice.SetPaymentBanked"/>
+    /// <remarks>
+    /// Reachable on a <b>cancelled</b> devis too, unlike <see cref="VoidInstallmentPayment"/>: cancelling a plan
+    /// does not hand back a cheque the patient already wrote, and a cheque that still has to be banked — or has
+    /// just bounced — is exactly the row that must stay correctable.
+    /// </remarks>
+    public void SetInstallmentPaymentBanked(
+        Guid installmentId,
+        Guid paymentId,
+        bool banked,
+        string? actorUserId = null,
+        string? actorName = null)
+    {
+        var installment = _installments.FirstOrDefault(i => i.Id == installmentId)
+            ?? throw new InvalidOperationException("Échéance introuvable.");
+
+        installment.SetPaymentBanked(paymentId, banked, actorUserId, actorName);
+        Touch();
+    }
+
     /// <summary>
     /// Mark a planned act as carried out, optionally linking the dental record that recorded it. When this was
     /// the last outstanding act the plan closes itself.

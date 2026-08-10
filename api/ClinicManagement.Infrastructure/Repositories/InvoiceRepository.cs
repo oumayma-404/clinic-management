@@ -314,6 +314,10 @@ public class InvoiceRepository : IInvoiceRepository
         // A voided cheque is excluded here (unlike the statement, which shows it struck through): the list is a
         // to-do, and a payment that was never really received is not something to go and bank.
         //
+        // ⚠️ A **banked** cheque IS returned, and the caller filters. Two reasons it cannot be excluded in SQL:
+        // the « Encaissés » view has to be able to show them, and the four bucket counts are over outstanding
+        // cheques only (AC-11) — a count derived from an already-filtered set could not tell the two apart.
+        //
         // ⚠️ A row with NO due date passes whatever the bounds are. The due date stays optional even for a
         // cheque — refusing money genuinely received to enforce a field is the wrong trade — so the undated
         // cheque is exactly the one nobody will ever chase, and a bounded window that dropped it would hide the
@@ -337,7 +341,9 @@ public class InvoiceRepository : IInvoiceRepository
                     p.PaidOn,
                     p.ChequeNumber,
                     p.ChequeBankName,
-                    p.ChequeDueDate
+                    p.ChequeDueDate,
+                    p.ChequeBankedOn,
+                    p.ChequeBankedByName
                 }))
             .ToListAsync(cancellationToken);
 
@@ -345,7 +351,8 @@ public class InvoiceRepository : IInvoiceRepository
             .Select(r => new CaissePaymentRow(
                 r.PaymentId, r.InvoiceId, r.InvoiceNumber, r.PatientId,
                 r.Amount, r.Method, r.PaidOn, IsVoided: false, VoidReason: null, VoidedByName: null,
-                r.ChequeNumber, r.ChequeBankName, r.ChequeDueDate))
+                r.ChequeNumber, r.ChequeBankName, r.ChequeDueDate,
+                r.ChequeBankedOn, r.ChequeBankedByName))
             .ToList();
     }
 

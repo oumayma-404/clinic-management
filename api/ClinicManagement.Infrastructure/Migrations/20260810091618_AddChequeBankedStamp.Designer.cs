@@ -3,6 +3,7 @@ using System;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ClinicManagement.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260810091618_AddChequeBankedStamp")]
+    partial class AddChequeBankedStamp
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -3425,11 +3428,13 @@ namespace ClinicManagement.Infrastructure.Migrations
                                 .HasColumnName("InsuranceGroupNumber");
 
                             b1.Property<string>("PolicyNumber")
+                                .IsRequired()
                                 .HasMaxLength(100)
                                 .HasColumnType("character varying(100)")
                                 .HasColumnName("InsurancePolicyNumber");
 
                             b1.Property<string>("Provider")
+                                .IsRequired()
                                 .HasMaxLength(200)
                                 .HasColumnType("character varying(200)")
                                 .HasColumnName("InsuranceProvider");

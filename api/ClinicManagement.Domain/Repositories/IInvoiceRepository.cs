@@ -28,7 +28,11 @@ public sealed record CaissePaymentRow(
     // anything — and a line naming the cheque somebody still has to take to the bank.
     string? ChequeNumber = null,
     string? ChequeBankName = null,
-    DateTime? ChequeDueDate = null);
+    DateTime? ChequeDueDate = null,
+    // The banked mark (Group B). Only « chèques à encaisser » reads it — the statement lists a cheque by when it
+    // was received, which banking does not change — but it rides the same projection because it is the same row.
+    DateTime? ChequeBankedOn = null,
+    string? ChequeBankedByName = null);
 
 public interface IInvoiceRepository
 {

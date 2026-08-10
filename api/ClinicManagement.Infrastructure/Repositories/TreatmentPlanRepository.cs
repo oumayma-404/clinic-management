@@ -267,6 +267,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                     {
                         PaymentId = pay.Id,
                         TreatmentPlanId = plan.Id,
+                        InstallmentId = i.Id,
                         PlanNumber = plan.Number,
                         plan.PatientId,
                         pay.Amount,
@@ -283,7 +284,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
 
         return rows
             .Select(r => new CaisseInstallmentPaymentRow(
-                r.PaymentId, r.TreatmentPlanId, r.PlanNumber, r.PatientId,
+                r.PaymentId, r.TreatmentPlanId, r.InstallmentId, r.PlanNumber, r.PatientId,
                 r.Amount, r.Method, r.PaidOn, r.IsVoided, r.VoidReason, r.VoidedByName,
                 r.ChequeNumber, r.ChequeBankName, r.ChequeDueDate))
             .ToList();
@@ -328,7 +329,10 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
         //
         // The bridged-plan exclusion is not cosmetic here. IssueInvoiceCommand carries a bridged plan's cheque
         // across onto the invoice payment, so without it one physical cheque would be listed twice — and the two
-        // rows would look exactly like two genuine cheques of the same amount from the same bank.
+        // rows would look exactly like two genuine cheques of the same amount from the same bank. It is also what
+        // makes a cheque un-markable twice (B-1): once the plan is bridged only the invoice-side row is reachable.
+        //
+        // ⚠️ Banked cheques are returned and the caller filters — see the invoice-side twin for why.
         var debtStatuses = PlanBillingRules.DebtBearingPlanStatuses;
         var excluded = excludedPlanIds as ICollection<Guid> ?? excludedPlanIds.ToList();
 
@@ -347,6 +351,7 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                     {
                         PaymentId = pay.Id,
                         TreatmentPlanId = plan.Id,
+                        InstallmentId = i.Id,
                         PlanNumber = plan.Number,
                         plan.PatientId,
                         pay.Amount,
@@ -354,15 +359,18 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                         pay.PaidOn,
                         pay.ChequeNumber,
                         pay.ChequeBankName,
-                        pay.ChequeDueDate
+                        pay.ChequeDueDate,
+                        pay.ChequeBankedOn,
+                        pay.ChequeBankedByName
                     })))
             .ToListAsync(cancellationToken);
 
         return rows
             .Select(r => new CaisseInstallmentPaymentRow(
-                r.PaymentId, r.TreatmentPlanId, r.PlanNumber, r.PatientId,
+                r.PaymentId, r.TreatmentPlanId, r.InstallmentId, r.PlanNumber, r.PatientId,
                 r.Amount, r.Method, r.PaidOn, IsVoided: false, VoidReason: null, VoidedByName: null,
-                r.ChequeNumber, r.ChequeBankName, r.ChequeDueDate))
+                r.ChequeNumber, r.ChequeBankName, r.ChequeDueDate,
+                r.ChequeBankedOn, r.ChequeBankedByName))
             .ToList();
     }
 

@@ -115,6 +115,26 @@ public class Installment : Entity<Guid>
         RecomputeFromLedger();
     }
 
+    /// <inheritdoc cref="Invoice.SetPaymentBanked"/>
+    public void SetPaymentBanked(Guid paymentId, bool banked, string? actorUserId, string? actorName)
+    {
+        var payment = _payments.FirstOrDefault(p => p.Id == paymentId)
+            ?? throw new InvalidOperationException("Paiement introuvable sur cette échéance.");
+
+        if (payment.IsVoided)
+            throw new InvalidOperationException("Ce paiement est annulé : il ne détient plus de chèque à encaisser.");
+
+        if (payment.ChequeBankedOn.HasValue == banked)
+            throw new InvalidOperationException(
+                banked
+                    ? "Ce chèque est déjà marqué comme encaissé en banque."
+                    : "Ce chèque n'est pas marqué comme encaissé en banque.");
+
+        // Deliberately no `RecomputeFromLedger()`: banking moves no money, so `AmountPaid`, `LastMethod` and
+        // `LastPaidOn` must all stay exactly where they are.
+        payment.SetBanked(banked, actorUserId, actorName);
+    }
+
     /// <summary>
     /// Re-derive the stored denormalizations from the live ledger rows. Called after every mutation so the
     /// two can never drift — the ledger is the truth, these are a cache of it.

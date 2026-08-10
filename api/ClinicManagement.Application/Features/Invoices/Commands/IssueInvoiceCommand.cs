@@ -216,8 +216,14 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
             // encaisser » entirely — the row that still has to be banked becoming the one row nothing lists.
             // `ToChequeDetails()` rebuilds it through `ChequeDetails.For`, so the method/details invariant is
             // re-checked on the way across rather than trusted.
+            //
+            // ⚠️ The banked mark travels with it, for the same reason and with the same consequence if it does
+            // not: a cheque banked in September and billed in October would reappear under « à encaisser » the
+            // moment the plan side stopped being counted, and re-marking it would record today instead of the day
+            // it was actually deposited.
             invoice.RecordPayment(
-                payment.Amount, payment.Method, payment.PaidOn, payment.Id, payment.ToChequeDetails());
+                payment.Amount, payment.Method, payment.PaidOn, payment.Id,
+                payment.ToChequeDetails(), payment.ToBankedStamp());
         }
 
         _logger.LogInformation(

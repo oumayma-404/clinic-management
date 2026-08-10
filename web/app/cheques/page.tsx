@@ -31,7 +31,7 @@ export default function ChequesPage() {
           <>
             <PageHeader
               title="Chèques à encaisser"
-              subtitle="Les chèques que le cabinet détient, du plus urgent au plus lointain — factures et échéanciers confondus. Un chèque déjà porté en banque reste listé : l'encaissement bancaire n'est pas encore enregistré dans le logiciel."
+              subtitle="Les chèques que le cabinet détient, du plus urgent au plus lointain — factures et échéanciers confondus. Marquez un chèque « encaissé » une fois porté en banque : il quitte la liste sans qu'aucun montant ne bouge, et reste consultable sous « Encaissés »."
             />
 
             <ChequesTable />

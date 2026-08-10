@@ -164,7 +164,7 @@ public static class ExportTables
     {
         var table = CsvTable.Create(
             "Encaissable le", "Échéance", "N° de chèque", "Banque",
-            "Montant", "Patient", "Référence", "Reçu le");
+            "Montant", "Patient", "Référence", "Reçu le", "Porté en banque le");
 
         foreach (var c in cheques)
         {
@@ -176,7 +176,10 @@ public static class ExportTables
                 CsvCell.Money(c.Amount),
                 CsvCell.Text(c.PatientName),
                 CsvCell.Text(c.Reference),
-                CsvCell.Date(c.ReceivedOn));
+                CsvCell.Date(c.ReceivedOn),
+                // Blank for a cheque still held — the column carries the distinction the file would otherwise
+                // lose, since a « Encaissés » export and a « À encaisser » one are byte-identical without it.
+                CsvCell.Date(c.BankedOn));
         }
 
         return table;

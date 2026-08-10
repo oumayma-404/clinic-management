@@ -52,7 +52,7 @@ public class SchemaVerificationServiceTests
         'x',
         "EXCLUDE USING gist (\"DoctorId\" WITH =, slot WITH &&) WHERE (\"Status\" <> ALL (ARRAY[5, 6]))");
 
-    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0);
+    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
     private static SchemaVerificationFinding Finding(SchemaVerificationReport report, string check) =>
         report.Findings.Single(f => f.Check == check);
@@ -448,6 +448,7 @@ public class SchemaVerificationServiceTests
             AppointmentsWithActScalarLackingRow = null,
             ProcedureTypesWithCategoryStillInDescription = null,
             PaymentsWithChequeDetailsOnNonCheque = null,
+            PaymentsWithBankedStampOnNonCheque = null,
             PushDeliveriesWithMismatchedClinic = null,
             ClinicSignupOrphans = null,
         });
@@ -458,6 +459,42 @@ public class SchemaVerificationServiceTests
         Assert.Contains("not applicable", Finding(report, "stock-batch-backfill").Detail);
         Assert.Contains("not applicable", Finding(report, "every-stocked-item-has-a-batch").Detail);
         Assert.Contains("not applicable", Finding(report, "normalized-name-populated").Detail);
+    }
+
+    /// <summary>
+    /// Group B's stamp columns, before its migration has run. The guard is on <c>ChequeBankedOn</c> and NOT on
+    /// L8's <c>ChequeNumber</c>, which is the whole reason this case is worth pinning: a database carrying L8 and
+    /// not Group B must read « not applicable », because a reassuring <c>0</c> there would claim an invariant was
+    /// verified over columns that do not exist.
+    /// </summary>
+    [Fact]
+    public async Task The_Banked_Stamp_Invariant_Is_Not_Applicable_Before_Its_Own_Migration()
+    {
+        // L8 present (its own count is a real 0), Group B absent.
+        Arrange(counts: CleanCounts with { PaymentsWithBankedStampOnNonCheque = null });
+
+        var report = await CreateService().RunAsync();
+
+        Assert.False(report.HasDrift);
+        Assert.Contains("not applicable", Finding(report, "cheque-banked-only-on-cheques").Detail);
+        Assert.DoesNotContain("not applicable", Finding(report, "cheque-details-only-on-cheques").Detail);
+    }
+
+    /// <summary>
+    /// A banked stamp on a cash payment means a write path reached the columns without passing
+    /// <c>ChequeBankedStamp.For</c> — the one thing about these columns the EF model cannot state, and the reason
+    /// the invariant is verified here instead of being duplicated as a CHECK constraint.
+    /// </summary>
+    [Fact]
+    public async Task A_Banked_Stamp_On_A_Non_Cheque_Payment_Is_Drift()
+    {
+        Arrange(counts: CleanCounts with { PaymentsWithBankedStampOnNonCheque = 2 });
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "cheque-banked-only-on-cheques");
+        Assert.True(IsDrift(finding));
+        Assert.Contains("ChequeBankedStamp.For", finding.Detail);
     }
 
     /// <summary>

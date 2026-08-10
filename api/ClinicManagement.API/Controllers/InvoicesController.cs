@@ -295,6 +295,36 @@ public class InvoicesController : ApiControllerBase
         return Ok(result.Value);
     }
 
+    /// <summary>
+    /// Mark a cheque payment as taken to the bank, or clear that mark (Group B). Body <c>{ banked: bool }</c>.
+    ///
+    /// <para>
+    /// AdminOrDoctor, mirroring the void route one for one — the two are the same shape and the same audience.
+    /// It moves no money: la caisse counts a cheque on the day it was received, so this changes only whether the
+    /// row is still on the « à encaisser » to-do list. Reversible, because a cheque can bounce.
+    /// </para>
+    /// </summary>
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [HttpPost("{id}/payments/{paymentId}/banked")]
+    public async Task<ActionResult<InvoiceDto>> SetPaymentBanked(
+        Guid id,
+        Guid paymentId,
+        [FromBody] SetPaymentBankedCommand command,
+        CancellationToken cancellationToken)
+    {
+        command.InvoiceId = id;
+        command.PaymentId = paymentId;
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
     [HttpPost("{id}/cancel")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult<InvoiceDto>> CancelInvoice(Guid id, [FromBody] CancelInvoiceCommand command, CancellationToken cancellationToken = default)

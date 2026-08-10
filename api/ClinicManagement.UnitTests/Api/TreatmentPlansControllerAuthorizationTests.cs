@@ -62,6 +62,11 @@ public class TreatmentPlansControllerAuthorizationTests
         // Voiding an installment payment alters what the patient has paid on a numbered devis — the same
         // class as cancelling an invoice or establishing an avoir, not everyday collection.
         nameof(TreatmentPlansController.VoidInstallmentPayment),
+        // Group B — marking an échéance cheque encaissé en banque. It moves no money, so it is NOT here for the
+        // fiscal reason its neighbours are: « quels chèques ai-je portés en banque ? » is the clinic's uncashed
+        // exposure viewed one row at a time, the same clinic-wide money read as `/cheques` itself, which is
+        // AdminOrDoctor. Reception collects a cheque; reconciling the drawer against the bank is the owner's.
+        nameof(TreatmentPlansController.SetInstallmentPaymentBanked),
         // Marking an act réalisé auto-completes the devis once it is the last one, and it is the clinical
         // assertion the invoice is built from. It carried NO policy at all before (adjacent defect A-13), so a
         // secretary could close a devis. Moved out of AnyAuthenticatedActions deliberately.

@@ -233,7 +233,8 @@ public class Invoice : AggregateRoot<Guid>
         PaymentMethod method,
         DateTime paidOn,
         Guid? sourceInstallmentPaymentId = null,
-        ChequeDetails? cheque = null)
+        ChequeDetails? cheque = null,
+        ChequeBankedStamp? banked = null)
     {
         if (Status != InvoiceStatus.Issued && Status != InvoiceStatus.PartiallyPaid)
             throw new InvalidOperationException("Un paiement ne peut être enregistré que sur une facture émise.");
@@ -248,7 +249,8 @@ public class Invoice : AggregateRoot<Guid>
         if (InvoiceCalculator.RoundMoney(AmountCollected + rounded) > TotalTtc)
             throw new InvalidOperationException("Le paiement dépasse le montant restant dû.");
 
-        _payments.Add(new Payment(Guid.NewGuid(), Id, rounded, method, paidOn, sourceInstallmentPaymentId, cheque));
+        _payments.Add(new Payment(
+            Guid.NewGuid(), Id, rounded, method, paidOn, sourceInstallmentPaymentId, cheque, banked));
         RecomputeCollected();
         Touch();
     }
@@ -290,6 +292,40 @@ public class Invoice : AggregateRoot<Guid>
 
         payment.Void(reason, actorUserId, actorName);
         RecomputeCollected();
+        Touch();
+    }
+
+    /// <summary>
+    /// Mark one of this invoice's cheque payments as banked, or take the mark back (Group B).
+    ///
+    /// <para>⚠️ <b>No figure moves.</b> Unlike <see cref="VoidPayment"/> there is no <c>RecomputeCollected()</c>
+    /// here and there must never be one: banking is a tracking state, la caisse counts a cheque on the day it was
+    /// received, and re-dating collected cash on clearing would move every historical figure the practice has
+    /// already read and reconciled. <see cref="Touch"/> is called all the same — the audit interceptor records
+    /// <b>aggregate roots</b>, so without it a mark and an un-mark would leave no trail at all.</para>
+    /// </summary>
+    /// <param name="banked">True to stamp it, false to clear the stamp — a cheque returned unpaid by the bank.</param>
+    public void SetPaymentBanked(
+        Guid paymentId,
+        bool banked,
+        string? actorUserId = null,
+        string? actorName = null)
+    {
+        var payment = _payments.FirstOrDefault(p => p.Id == paymentId)
+            ?? throw new InvalidOperationException("Paiement introuvable sur cette facture.");
+
+        // A voided payment was never received, so there is no cheque to take anywhere — and AC-12 requires it gone
+        // from every cheque view whatever its banked state, which a stamp applied afterwards would contradict.
+        if (payment.IsVoided)
+            throw new InvalidOperationException("Ce paiement est annulé : il ne détient plus de chèque à encaisser.");
+
+        if (payment.ChequeBankedOn.HasValue == banked)
+            throw new InvalidOperationException(
+                banked
+                    ? "Ce chèque est déjà marqué comme encaissé en banque."
+                    : "Ce chèque n'est pas marqué comme encaissé en banque.");
+
+        payment.SetBanked(banked, actorUserId, actorName);
         Touch();
     }
 

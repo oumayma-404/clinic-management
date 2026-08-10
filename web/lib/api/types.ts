@@ -496,7 +496,12 @@ export interface PatientDto {
   id: string;
   firstName: string;
   lastName: string;
-  dateOfBirth: string;
+  /**
+   * Optional — a walk-in registered with nothing but a name has none, and the server no longer substitutes
+   * « thirty years ago » to keep a NOT NULL column happy. Every age helper already returns null for a falsy value;
+   * render « âge inconnu » rather than an age computed from a date nobody gave us.
+   */
+  dateOfBirth?: string | null;
   gender: string;
   /**
    * Which teeth this patient is charted on — `"Child"` or `"Adult"`. Asked once here instead of by a toggle on the
@@ -545,9 +550,10 @@ export interface PatientDto {
     zipCode: string;
     country: string;
   } | null;
+  /** Either side may be absent (AC-21): a patient can name their insurer without the card, or the reverse. */
   insuranceInfo?: {
-    provider: string;
-    policyNumber: string;
+    provider?: string;
+    policyNumber?: string;
     groupNumber?: string;
     expiryDate?: string;
   };
@@ -1069,8 +1075,23 @@ export interface ChequeDto {
   reference?: string | null;
   patientId?: string | null;
   patientName?: string | null;
-  /** The aggregate to open — the invoice, or the devis for an échéance. */
+  /**
+   * The aggregate to open — the invoice, or the devis for an échéance. Also the id the « encaissé » routes are
+   * addressed by, which is why an échéance additionally carries `installmentId`.
+   */
   targetId: string;
+  /**
+   * The échéance this payment sits on, for an `InstallmentPayment`; null for an invoice payment.
+   *
+   * An installment payment is only addressable as {plan, installment, payment}, so this is what lets the plan
+   * half of the list be acted on at all — and it is how the client picks which of the two routes to call.
+   */
+  installmentId?: string | null;
+  /** Whether this cheque has been taken to the bank. False = still held by the clinic. */
+  banked: boolean;
+  /** When it was marked, and by whom — null while the cheque is still held. */
+  bankedOn?: string | null;
+  bankedByName?: string | null;
 }
 
 export interface ChequeBucketDto {
@@ -1096,9 +1117,13 @@ export interface ChequeGroupsDto {
  * « Chèques à encaisser » (L8 slice B) — every cheque the clinic holds, over both payment ledgers, soonest-due
  * first with undated ones last.
  *
- * ⚠️ **A cheque leaves this list only by being voided.** The product records the *receipt* of a cheque, not its
- * clearing at the bank, so one presented last year is still listed. That is why the buckets above the list carry
- * the counts and why the order is by due date: the actionable set is « en retard », not « exists ».
+ * ⚠️ **The default view is what the clinic still holds.** A cheque marked « encaissé en banque » leaves it unless
+ * `banked` asks for the other side; the other exit is a void, which removes it from both. Marking moves **no**
+ * figure — la caisse still counts a cheque on the day it was received — and is reversible, because a cheque
+ * returned unpaid is the ordinary case.
+ *
+ * ⚠️ `groups` always describes the **outstanding** set, whichever side is being viewed: « combien me reste-t-il à
+ * encaisser ? » is one question, and a header that changed meaning with the filter would be unreadable.
  */
 export interface ChequesDueDto {
   items: ChequeDto[];

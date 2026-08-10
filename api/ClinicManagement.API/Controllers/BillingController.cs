@@ -219,6 +219,10 @@ public class BillingController : ApiControllerBase
     /// <param name="page">1-based page. Omit both paging parameters for every cheque held.</param>
     /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
     /// <param name="search">Free-text filter over the cheque number, the bank, the patient and the document reference.</param>
+    /// <param name="banked">
+    /// Which side of the life-cycle to list: omit (or <c>false</c>) for the cheques still held, <c>true</c> for
+    /// those already taken to the bank. The bucket counts always describe the outstanding set.
+    /// </param>
     [HttpGet("billing/cheques")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult<ChequesDueDto>> GetChequesDue(
@@ -227,6 +231,7 @@ public class BillingController : ApiControllerBase
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null,
         [FromQuery] string? search = null,
+        [FromQuery] bool? banked = null,
         CancellationToken cancellationToken = default)
     {
         var result = await _mediator.Send(
@@ -236,7 +241,8 @@ public class BillingController : ApiControllerBase
                 DueTo = dueTo,
                 Page = page,
                 PageSize = pageSize,
-                SearchTerm = search
+                SearchTerm = search,
+                Banked = banked
             },
             cancellationToken);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
@@ -252,10 +258,13 @@ public class BillingController : ApiControllerBase
         [FromQuery] DateTime? dueFrom = null,
         [FromQuery] DateTime? dueTo = null,
         [FromQuery] string? search = null,
+        [FromQuery] bool? banked = null,
         CancellationToken cancellationToken = default)
     {
+        // `banked` rides along with the rest: the export re-sends the screen's own query, so a file taken from
+        // « Encaissés » must hold the banked cheques and not the to-do list the default would produce.
         var result = await _mediator.Send(
-            new GetChequesDueQuery { DueFrom = dueFrom, DueTo = dueTo, SearchTerm = search },
+            new GetChequesDueQuery { DueFrom = dueFrom, DueTo = dueTo, SearchTerm = search, Banked = banked },
             cancellationToken);
 
         if (result.IsFailure)

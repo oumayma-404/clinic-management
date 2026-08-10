@@ -303,4 +303,32 @@ public class TreatmentPlansController : ApiControllerBase
         }
         return Ok(result.Value);
     }
+
+    /// <summary>
+    /// Mark a cheque received against an échéance as taken to the bank, or clear that mark (Group B). Body
+    /// <c>{ banked: bool }</c>. Mirrors the invoice-side route; see it for why this moves no figure.
+    ///
+    /// <para>Three ids because an échéance payment is only addressable as {plan, installment, payment} — the
+    /// same shape the void route above already takes.</para>
+    /// </summary>
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [HttpPost("{id:guid}/installments/{installmentId:guid}/payments/{paymentId:guid}/banked")]
+    public async Task<ActionResult<TreatmentPlanDto>> SetInstallmentPaymentBanked(
+        Guid id,
+        Guid installmentId,
+        Guid paymentId,
+        [FromBody] SetInstallmentPaymentBankedCommand command,
+        CancellationToken cancellationToken)
+    {
+        command.PlanId = id;
+        command.InstallmentId = installmentId;
+        command.PaymentId = paymentId;
+
+        var result = await _mediator.Send(command, cancellationToken);
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+        return Ok(result.Value);
+    }
 }

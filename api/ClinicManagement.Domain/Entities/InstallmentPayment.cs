@@ -53,6 +53,15 @@ public class InstallmentPayment : Entity<Guid>
     /// <inheritdoc cref="ChequeDetails.DueDate"/>
     public DateTime? ChequeDueDate { get; private set; }
 
+    /// <inheritdoc cref="Payment.ChequeBankedOn"/>
+    public DateTime? ChequeBankedOn { get; private set; }
+
+    /// <inheritdoc cref="Payment.ChequeBankedByUserId"/>
+    public string? ChequeBankedByUserId { get; private set; }
+
+    /// <inheritdoc cref="Payment.ChequeBankedByName"/>
+    public string? ChequeBankedByName { get; private set; }
+
     private InstallmentPayment() { } // For EF Core
 
     public InstallmentPayment(
@@ -90,6 +99,17 @@ public class InstallmentPayment : Entity<Guid>
     public ChequeDetails? ToChequeDetails() =>
         ChequeDetails.For(Method, ChequeNumber, ChequeBankName, ChequeDueDate);
 
+    /// <summary>
+    /// The banked mark as a value object again — for the same one caller, and for the same reason one field over.
+    ///
+    /// <para>⚠️ Once the bridge invoice is issued the plan side stops being counted, so a stamp left behind here
+    /// does not merely go missing: the cheque <b>reappears</b> under « à encaisser » although it is physically at
+    /// the bank, and re-marking it would record today rather than the day it was actually deposited. Rebuilt
+    /// through <see cref="ChequeBankedStamp.For"/> so the method invariant is re-checked on the way across.</para>
+    /// </summary>
+    public ChequeBankedStamp? ToBankedStamp() =>
+        ChequeBankedStamp.For(Method, ChequeBankedOn, ChequeBankedByUserId, ChequeBankedByName);
+
     /// <summary>Mark this payment as never received. The caller refuses a second void, so it cannot be rewritten.</summary>
     internal void Void(string reason, string? actorUserId, string? actorName)
     {
@@ -101,5 +121,16 @@ public class InstallmentPayment : Entity<Guid>
         VoidReason = reason.Trim();
         VoidedByUserId = actorUserId;
         VoidedByName = actorName;
+    }
+
+    /// <inheritdoc cref="Payment.SetBanked"/>
+    internal void SetBanked(bool banked, string? actorUserId, string? actorName)
+    {
+        if (Method != PaymentMethod.Cheque)
+            throw new InvalidOperationException("Seul un règlement par chèque peut être marqué comme encaissé en banque.");
+
+        ChequeBankedOn = banked ? DateTime.UtcNow : null;
+        ChequeBankedByUserId = banked ? actorUserId : null;
+        ChequeBankedByName = banked ? actorName : null;
     }
 }

@@ -6,11 +6,16 @@ namespace ClinicManagement.Application.DTOs;
 /// bank and the due date existed on the rows with no screen anywhere that listed them.
 ///
 /// <para>
-/// ⚠️ <b>A cheque leaves this list only by being voided.</b> The product records no « encaissé en banque » event,
-/// so a cheque banked last year is still listed — which is why the groups below are the load-bearing part of the
-/// shape and the list is ordered by due date: what an owner needs is « which are due now », not « which exist ».
-/// Recording the banking is its own feature (a column, a command and a write path); pretending otherwise by
-/// silently dropping old rows would lose exactly the forgotten cheque the screen is for.
+/// ⚠️ <b>The default view is what the clinic still holds.</b> Since Group B a cheque can be marked
+/// <see cref="ChequeDto.Banked"/> — taken to the bank — and it then leaves this list unless « Encaissés » is asked
+/// for explicitly. Marking is <b>reversible</b> (a cheque returned unpaid is the ordinary case) and moves <b>no</b>
+/// figure anywhere: la caisse still counts a cheque on the day it was received, so the totals a practice has
+/// already read and reconciled cannot move. The other exit is a void, which removes it from every view regardless.
+/// </para>
+/// <para>
+/// The groups below are still the load-bearing part of the shape, and they count <b>outstanding cheques only</b>:
+/// « il me reste 4 200 DT à encaisser » is the question, and a total that quietly included cheques already at the
+/// bank would answer a different one.
 /// </para>
 /// </summary>
 public class ChequesDueDto
@@ -94,6 +99,27 @@ public class ChequeDto
     public Guid? PatientId { get; set; }
     public string? PatientName { get; set; }
 
-    /// <summary>The aggregate to open — the invoice, or the devis for an échéance.</summary>
+    /// <summary>
+    /// The aggregate to open — the invoice, or the devis for an échéance. Also the id the two « banked » routes
+    /// are addressed by, which is why an échéance additionally carries <see cref="InstallmentId"/>.
+    /// </summary>
     public Guid TargetId { get; set; }
+
+    /// <summary>
+    /// The échéance this payment sits on, for a <c>InstallmentPayment</c> row; null for an invoice payment.
+    ///
+    /// <para>An <c>InstallmentPayment</c> sits two levels inside the <c>TreatmentPlan</c> aggregate and is only
+    /// addressable as {plan, installment, payment} — exactly the shape the void route already takes — so without
+    /// this the plan half of the list could be shown and never acted on.</para>
+    /// </summary>
+    public Guid? InstallmentId { get; set; }
+
+    /// <summary>Whether this cheque has been marked as taken to the bank. False = still held.</summary>
+    public bool Banked { get; set; }
+
+    /// <summary>When it was marked, and by whom — null while the cheque is still held.</summary>
+    public DateTime? BankedOn { get; set; }
+
+    /// <inheritdoc cref="BankedOn"/>
+    public string? BankedByName { get; set; }
 }

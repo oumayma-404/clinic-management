@@ -373,6 +373,17 @@ public class SchemaVerificationService
                   + "ChequeDetails.For",
             n => n == 0);
 
+        // Group B's stamp, and the same reasoning one migration later: three more columns per ledger whose shape
+        // the model diff already covers, and one invariant it cannot state — only a cheque can be taken to the
+        // bank. A non-zero count means some write path set the stamp without passing `ChequeBankedStamp.For`,
+        // which would let « chèques à encaisser » move a cash payment between its two views.
+        Add("cheque-banked-only-on-cheques", counts.PaymentsWithBankedStampOnNonCheque,
+            n => n == 0
+                ? "0 payment(s) carry a banked stamp on a non-cheque method, across both ledgers"
+                : $"{n} payment(s) carry a banked stamp on a NON-cheque method — some write path bypassed "
+                  + "ChequeBankedStamp.For",
+            n => n == 0);
+
         // L9's backfill. A non-zero count means a row whose practitioner was knowable from its own visit was left
         // unattributed — which renders as « non attribué » and is indistinguishable on every screen from a row that
         // genuinely has none. That is exactly the class of drift only this verb can see: the columns, the indexes and

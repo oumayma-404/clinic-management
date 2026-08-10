@@ -157,6 +157,19 @@ public sealed record DataMigrationCounts(
     /// </summary>
     int? PaymentsWithChequeDetailsOnNonCheque,
     /// <summary>
+    /// Payment rows carrying a <b>banked stamp</b> on a method that is not <c>Cheque</c> (Group B), across both
+    /// ledgers — <see cref="PaymentsWithChequeDetailsOnNonCheque"/>'s sibling, and here for the same reason.
+    /// <para>
+    /// The three columns per ledger, their widths and their nullability are diffed against the catalog for free by
+    /// reading the EF model, so none of that is repeated in the service. What the model cannot express is the
+    /// invariant: « only a cheque can be taken to the bank », enforced once in <c>ChequeBankedStamp.For</c> and
+    /// deliberately not duplicated as a CHECK constraint, whose failure would be a 500 instead of the French
+    /// refusal. A non-zero count means a write path reached the columns without passing the guard — which would
+    /// make « chèques à encaisser » filter espèces in and out of a list of cheques. Null before the columns exist.
+    /// </para>
+    /// </summary>
+    int? PaymentsWithBankedStampOnNonCheque,
+    /// <summary>
     /// L9 — money and clinical rows whose linked visit names a practitioner while the row itself was left
     /// unattributed, i.e. rows the <c>AddPractitionerAttribution</c> backfill was supposed to reach and did not.
     /// <para>

@@ -463,6 +463,31 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                        AND ("ChequeNumber" IS NOT NULL OR "ChequeBankName" IS NOT NULL OR "ChequeDueDate" IS NOT NULL))
                 """);
 
+        // Group B's invariant, over BOTH ledgers in one figure for the same reason as its sibling above: the
+        // answer that matters is « did any write path bypass ChequeBankedStamp.For? », not which table it was in.
+        //
+        // ⚠️ Guarded on `ChequeBankedOn`, not on `ChequeNumber`: the two migrations are separate, so keying this on
+        // L8's column would report a reassuring 0 on a database that has L8 and not Group B — the exact
+        // « not applicable vs. 0 » confusion the guard exists to prevent.
+        //
+        // ⚠️ `"Method" <> 1` is PaymentMethod.Cheque's ordinal, spelled out here for the reason the sibling states:
+        // this check has to reach into the stored representation, because its whole point is a row the domain
+        // never validated.
+        var bankedStampOnNonCheque = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "Payments",
+            requiredColumn: "ChequeBankedOn",
+            sql: """
+                SELECT
+                    (SELECT COUNT(*) FROM "Payments"
+                     WHERE "Method" <> 1
+                       AND ("ChequeBankedOn" IS NOT NULL OR "ChequeBankedByUserId" IS NOT NULL
+                            OR "ChequeBankedByName" IS NOT NULL))
+                  + (SELECT COUNT(*) FROM "InstallmentPayments"
+                     WHERE "Method" <> 1
+                       AND ("ChequeBankedOn" IS NOT NULL OR "ChequeBankedByUserId" IS NOT NULL
+                            OR "ChequeBankedByName" IS NOT NULL))
+                """);
+
         // L9's backfill, measured as an OUTCOME rather than as a row count: whatever the migration did, no invoice
         // and no fiche whose visit names a practitioner may be left unattributed. Guarded on `Invoices.DoctorId`, so
         // before the migration this reads « not applicable » rather than a reassuring 0.
@@ -537,7 +562,8 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
-            unsetBackupSchedule, chequeDetailsOnNonCheque, attributableButUnattributed, pushClinicMismatch,
+            unsetBackupSchedule, chequeDetailsOnNonCheque, bankedStampOnNonCheque,
+            attributableButUnattributed, pushClinicMismatch,
             signupOrphans, clinicalChildrenWrongClinic);
     }
 

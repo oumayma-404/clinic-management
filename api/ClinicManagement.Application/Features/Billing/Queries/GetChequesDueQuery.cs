@@ -27,10 +27,11 @@ namespace ClinicManagement.Application.Features.Billing.Queries;
 /// so counting the plan side as well would list one physical cheque twice — and the duplicate would be
 /// indistinguishable from a second genuine cheque of the same amount from the same bank.</para>
 ///
-/// <para>⚠️ <b>There is no « banked » state to filter on.</b> The product records the receipt of a cheque, not its
-/// clearing, so a cheque presented last year is still in this list. That is why the ordering is by due date and
-/// why the response leads with per-bucket counts: « en retard » is the actionable set. Silently dropping old rows
-/// to make the list look tidy would discard precisely the forgotten cheque the screen exists to surface.</para>
+/// <para>⚠️ <b>Outstanding by default</b> (Group B). A cheque marked as taken to the bank leaves this list unless
+/// <see cref="Banked"/> asks for the other side; the ordering is by due date and the response leads with
+/// per-bucket counts because « en retard » is the actionable set. What the screen must never do is silently drop
+/// old rows to look tidy — that would discard precisely the forgotten cheque it exists to surface, which is why a
+/// cheque leaves only by being banked <i>on purpose</i> or by being voided.</para>
 /// </summary>
 public class GetChequesDueQuery : IRequest<Result<ChequesDueDto>>
 {
@@ -53,6 +54,17 @@ public class GetChequesDueQuery : IRequest<Result<ChequesDueDto>>
 
     /// <summary>Free-text filter over the cheque number, the bank, the patient and the document reference.</summary>
     public string? SearchTerm { get; set; }
+
+    /// <summary>
+    /// Which side of the life-cycle to list: <c>false</c> (and <b>null</b>, the default) = still held,
+    /// <c>true</c> = already taken to the bank.
+    ///
+    /// <para>Outstanding is the default because this screen is a to-do list: it is opened to answer « what do I
+    /// still have to bank? », and a list that led with cheques already deposited would bury that answer. The
+    /// banked side stays one click away rather than being unreachable — « ai-je déjà porté celui-ci ? » is the
+    /// second question, and it is the one a paper drawer could never answer.</para>
+    /// </summary>
+    public bool? Banked { get; set; }
 }
 
 public class GetChequesDueQueryHandler : IRequestHandler<GetChequesDueQuery, Result<ChequesDueDto>>
@@ -139,14 +151,22 @@ public class GetChequesDueQueryHandler : IRequestHandler<GetChequesDueQuery, Res
 
             // Groups are computed over the whole matching set, BEFORE the search filter and the page. The header
             // answers « how much am I holding », which is a fact about the clinic and not about the current page.
-            var groups = BuildGroups(ordered);
+            //
+            // ⚠️ And over OUTSTANDING cheques only, whichever side the caller asked for (AC-11): the four figures
+            // answer « combien me reste-t-il à encaisser ? », so a cheque already at the bank is not part of that
+            // number — and the header must not change meaning depending on which filter happens to be selected.
+            var groups = BuildGroups(ordered.Where(c => !c.Banked).ToList());
 
-            var visible = string.IsNullOrWhiteSpace(request.SearchTerm)
-                ? (IReadOnlyList<ChequeDto>)ordered
-                : ordered
-                    .Where(c => SearchTerm.Matches(
-                        request.SearchTerm, c.ChequeNumber, c.BankName, c.PatientName, c.Reference))
-                    .ToList();
+            // Outstanding unless « Encaissés » is asked for explicitly. Null and false are the same request, so a
+            // client that omits the parameter gets the to-do list rather than everything.
+            var side = request.Banked ?? false;
+
+            var visible = ordered
+                .Where(c => c.Banked == side)
+                .Where(c => string.IsNullOrWhiteSpace(request.SearchTerm)
+                            || SearchTerm.Matches(
+                                request.SearchTerm, c.ChequeNumber, c.BankName, c.PatientName, c.Reference))
+                .ToList();
 
             var page = PagedResult<ChequeDto>.FromSource(visible, PageRequest.From(request.Page, request.PageSize));
 
@@ -187,7 +207,10 @@ public class GetChequesDueQueryHandler : IRequestHandler<GetChequesDueQuery, Res
             Reference = row.InvoiceNumber,
             PatientId = row.PatientId,
             PatientName = PatientName(patients, row.PatientId),
-            TargetId = row.InvoiceId
+            TargetId = row.InvoiceId,
+            Banked = row.ChequeBankedOn.HasValue,
+            BankedOn = row.ChequeBankedOn,
+            BankedByName = row.ChequeBankedByName
         };
 
     private static ChequeDto FromInstallmentPayment(
@@ -207,7 +230,11 @@ public class GetChequesDueQueryHandler : IRequestHandler<GetChequesDueQuery, Res
             Reference = row.PlanNumber,
             PatientId = row.PatientId,
             PatientName = PatientName(patients, row.PatientId),
-            TargetId = row.TreatmentPlanId
+            TargetId = row.TreatmentPlanId,
+            InstallmentId = row.InstallmentId,
+            Banked = row.ChequeBankedOn.HasValue,
+            BankedOn = row.ChequeBankedOn,
+            BankedByName = row.ChequeBankedByName
         };
 
     /// <summary>

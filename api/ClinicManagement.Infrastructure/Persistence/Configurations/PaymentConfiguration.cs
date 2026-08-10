@@ -62,6 +62,18 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
 
         builder.Property(p => p.ChequeDueDate);
 
+        // Banked mark (Group B). Same three shapes and the same widths as the void trail above, because it is the
+        // same kind of record: a moment, a soft actor link, and a name snapshot. Null for every held cheque and
+        // for every payment that is not one — the invariant lives in `ChequeBankedStamp.For`, verified by
+        // `verify-schema` rather than restated as a CHECK constraint, exactly like its sibling.
+        builder.Property(p => p.ChequeBankedOn);
+
+        builder.Property(p => p.ChequeBankedByUserId)
+            .HasMaxLength(200);
+
+        builder.Property(p => p.ChequeBankedByName)
+            .HasMaxLength(200);
+
         builder.HasIndex(p => p.InvoiceId);
 
         // The caisse sums payments by date and must skip voided rows; a partial index keeps that read cheap

@@ -28,6 +28,10 @@ public sealed record RecallPlanFact(
 public sealed record CaisseInstallmentPaymentRow(
     Guid PaymentId,
     Guid TreatmentPlanId,
+    // ⚠️ Required, and it is what makes a banked mark writable at all: an `InstallmentPayment` sits two levels
+    // inside the plan and is only addressable as {plan, installment, payment}, so a row that projected the plan
+    // alone could be listed and never acted on.
+    Guid InstallmentId,
     string? PlanNumber,
     Guid PatientId,
     decimal Amount,
@@ -40,7 +44,10 @@ public sealed record CaisseInstallmentPaymentRow(
     // paid with a book of post-dated cheques is the archetypal case.
     string? ChequeNumber = null,
     string? ChequeBankName = null,
-    DateTime? ChequeDueDate = null);
+    DateTime? ChequeDueDate = null,
+    // The banked mark (Group B) — see the sibling on `CaissePaymentRow`.
+    DateTime? ChequeBankedOn = null,
+    string? ChequeBankedByName = null);
 
 public interface ITreatmentPlanRepository
 {

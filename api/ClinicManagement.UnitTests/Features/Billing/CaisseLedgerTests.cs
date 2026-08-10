@@ -34,6 +34,7 @@ public class CaisseLedgerTests
     private static readonly Guid PatientId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
     private static readonly Guid PlanId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
     private static readonly Guid InvoiceId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private static readonly Guid InstallmentId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
 
     // A window comfortably around every fixture date below, passed explicitly so no test depends on "now".
     private static readonly DateTime From = new(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -142,7 +143,7 @@ public class CaisseLedgerTests
             voided, voided ? "Erreur de saisie" : null, voided ? "Dr Ben Ali" : null);
 
     private static CaisseInstallmentPaymentRow Installment(decimal amount, int day, bool voided = false) =>
-        new(Guid.NewGuid(), PlanId, "2026-0007", PatientId, amount, PaymentMethod.Cheque, Day(day),
+        new(Guid.NewGuid(), PlanId, InstallmentId, "2026-0007", PatientId, amount, PaymentMethod.Cheque, Day(day),
             voided, voided ? "Chèque sans provision" : null, voided ? "Dr Ben Ali" : null);
 
     private static CreditNote Refund(decimal amount, int day) =>

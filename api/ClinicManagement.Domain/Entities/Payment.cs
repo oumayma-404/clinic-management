@@ -67,6 +67,26 @@ public class Payment : Entity<Guid>
     /// <inheritdoc cref="ChequeDetails.DueDate"/>
     public DateTime? ChequeDueDate { get; private set; }
 
+    /// <summary>
+    /// When this cheque was taken to the bank, or null while it is still held (Group B). The product records the
+    /// <b>receipt</b> of a cheque and, until now, nothing else — so « chèques à encaisser » could not distinguish a
+    /// cheque banked last year from one still sitting in the drawer, and the screen said so out loud.
+    ///
+    /// <para>
+    /// ⚠️ <b>This is a tracking state, not a money movement.</b> Nothing here touches <c>Amount</c>, and la caisse
+    /// still counts a cheque on <see cref="PaidOn"/> — changing that would be a change to what « Encaissé » means
+    /// and would move every historical figure. Marking is reversible, because a cheque returned unpaid by the bank
+    /// is the ordinary case.
+    /// </para>
+    /// </summary>
+    public DateTime? ChequeBankedOn { get; private set; }
+
+    /// <summary>Who marked it. A soft link — no foreign key — for the same reason as <see cref="VoidedByUserId"/>.</summary>
+    public string? ChequeBankedByUserId { get; private set; }
+
+    /// <summary>Name snapshot of the actor, so reading the trail needs no user lookup.</summary>
+    public string? ChequeBankedByName { get; private set; }
+
     private Payment() { } // For EF Core
 
     public Payment(
@@ -76,7 +96,8 @@ public class Payment : Entity<Guid>
         PaymentMethod method,
         DateTime paidOn,
         Guid? sourceInstallmentPaymentId = null,
-        ChequeDetails? cheque = null)
+        ChequeDetails? cheque = null,
+        ChequeBankedStamp? banked = null)
     {
         if (amount <= 0)
             throw new ArgumentException("Le montant du paiement doit être supérieur à 0.", nameof(amount));
@@ -92,6 +113,12 @@ public class Payment : Entity<Guid>
         ChequeNumber = cheque?.Number;
         ChequeBankName = cheque?.BankName;
         ChequeDueDate = cheque?.DueDate;
+        // Carried by the devis→facture bridge, and only by it: a cheque banked in September and billed in October
+        // would otherwise reappear under « à encaisser » the moment the plan side stopped being counted, which is
+        // the same loss `ToChequeDetails()` exists to prevent one field over.
+        ChequeBankedOn = banked?.BankedOn;
+        ChequeBankedByUserId = banked?.ByUserId;
+        ChequeBankedByName = banked?.ByName;
         CreatedAt = DateTime.UtcNow;
     }
 
@@ -109,5 +136,23 @@ public class Payment : Entity<Guid>
         VoidReason = reason.Trim();
         VoidedByUserId = actorUserId;
         VoidedByName = actorName;
+    }
+
+    /// <summary>
+    /// Mark this cheque as banked, or take the mark back. Refuses any method but
+    /// <see cref="PaymentMethod.Cheque"/>: espèces are already in the drawer and a card or a transfer settles
+    /// itself, so a banked stamp on one of them describes nothing — and it would put a row in a « chèques »
+    /// view that is not a cheque.
+    /// </summary>
+    internal void SetBanked(bool banked, string? actorUserId, string? actorName)
+    {
+        if (Method != PaymentMethod.Cheque)
+            throw new InvalidOperationException("Seul un règlement par chèque peut être marqué comme encaissé en banque.");
+
+        // Un-marking clears the whole stamp rather than keeping a stale actor beside a null date: the trail of who
+        // did what lives in the audit ledger, which records both directions.
+        ChequeBankedOn = banked ? DateTime.UtcNow : null;
+        ChequeBankedByUserId = banked ? actorUserId : null;
+        ChequeBankedByName = banked ? actorName : null;
     }
 }

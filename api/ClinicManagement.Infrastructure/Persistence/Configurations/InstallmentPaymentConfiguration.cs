@@ -63,6 +63,15 @@ public class InstallmentPaymentConfiguration : IEntityTypeConfiguration<Installm
 
         builder.Property(p => p.ChequeDueDate);
 
+        // Banked mark (Group B) — same three columns, same widths and same reasoning as `PaymentConfiguration`.
+        builder.Property(p => p.ChequeBankedOn);
+
+        builder.Property(p => p.ChequeBankedByUserId)
+            .HasMaxLength(200);
+
+        builder.Property(p => p.ChequeBankedByName)
+            .HasMaxLength(200);
+
         builder.HasIndex(p => p.InstallmentId);
 
         // The index that makes the fixed monthly cash read cheap. Installments previously had no date index

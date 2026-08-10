@@ -117,6 +117,13 @@ export const invoicesApi = {
   voidPayment: async (id: string, paymentId: string, reason: string): Promise<InvoiceDto> =>
     apiPost<InvoiceDto>(`/invoices/${id}/payments/${paymentId}/void`, { reason }),
 
+  /**
+   * Mark a cheque payment as taken to the bank, or clear the mark. Moves no money — it is a tracking state, so
+   * the invoice's collected total and status are unchanged — and is reversible, for a cheque that bounced.
+   */
+  setPaymentBanked: async (id: string, paymentId: string, banked: boolean): Promise<InvoiceDto> =>
+    apiPost<InvoiceDto>(`/invoices/${id}/payments/${paymentId}/banked`, { banked }),
+
   cancel: async (id: string, reason: string): Promise<InvoiceDto> =>
     apiPost<InvoiceDto>(`/invoices/${id}/cancel`, { reason }),
 

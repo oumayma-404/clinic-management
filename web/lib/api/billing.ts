@@ -37,8 +37,12 @@ export const billingApi = {
    * @param params.dueTo Inclusive upper bound on the due date. ⚠️ A cheque with **no** due date is returned
    *   whatever the bounds say: it satisfies no date filter and it is the row most likely to be forgotten.
    */
+  /**
+   * « Chèques à encaisser ». `banked` omitted (or false) lists what the clinic still holds; true lists the ones
+   * already taken to the bank. The bucket figures describe the outstanding set either way.
+   */
   getChequesDue: async (
-    params: PageParams & { dueFrom?: string; dueTo?: string } = {},
+    params: PageParams & { dueFrom?: string; dueTo?: string; banked?: boolean } = {},
   ): Promise<ChequesDueDto> => apiGet<ChequesDueDto>('/billing/cheques', params),
 
   /** The receipt (reçu) PDF for a single invoice payment. */

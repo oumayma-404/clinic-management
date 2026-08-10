@@ -203,6 +203,21 @@ export const treatmentPlansApi = {
     ),
 
   /**
+   * The échéancier's half of « marquer un chèque encaissé » — see `invoicesApi.setPaymentBanked`. Three ids
+   * because an échéance payment is only addressable as {plan, installment, payment}.
+   */
+  setInstallmentPaymentBanked: async (
+    id: string,
+    installmentId: string,
+    paymentId: string,
+    banked: boolean,
+  ): Promise<TreatmentPlanDto> =>
+    apiPost<TreatmentPlanDto>(
+      `/treatment-plans/${id}/installments/${installmentId}/payments/${paymentId}/banked`,
+      { banked },
+    ),
+
+  /**
    * Download the receipt for ONE installment payment. The payment id is required: an échéance can hold
    * several payments, and the receipt used to print the cumulative total rather than the money handed over.
    * A voided payment still renders, over-stamped « REÇU ANNULÉ ».
