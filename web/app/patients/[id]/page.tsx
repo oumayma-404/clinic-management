@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
+import Link from "next/link"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -1715,7 +1716,24 @@ export default function PatientDetailsPage() {
                       getKey={(doc) => doc.id}
                       title={(doc) => documentTypeLabel(doc.documentType)}
                       onSelect={(doc) => openMedicalDocument(doc)}
-                      fields={(doc) => [{ label: "Date", value: formatDate(doc.documentDate) }]}
+                      fields={(doc) => [
+                        { label: "Date", value: formatDate(doc.documentDate) },
+                        // AC-25: which visit produced this document. `MedicalDocument.AppointmentId` has always
+                        // been written (creating a document marks that appointment Completed) and returned by the
+                        // DTO — it simply had no UI consumer, so « de quelle séance vient cette ordonnance ? »
+                        // had no answer on any screen. A field with no value is omitted, never « — ».
+                        {
+                          label: "Séance",
+                          value: doc.appointmentId ? (
+                            <Link
+                              href={`/appointments?appointmentId=${doc.appointmentId}`}
+                              className="underline-offset-4 hover:underline"
+                            >
+                              Voir le rendez-vous
+                            </Link>
+                          ) : null,
+                        },
+                      ]}
                       // ⚠️ The role gate is on the **delete item**, not on the menu. It used to wrap the whole
                       // `DropdownMenu`, so a secretary lost « Ouvrir le document » along with it — on the phone
                       // tree only; the table below gates just its delete button (§ 0: no capability removed by a
@@ -1748,6 +1766,7 @@ export default function PatientDetailsPage() {
                         <TableRow>
                           <TableHead>Type</TableHead>
                           <TableHead>Date</TableHead>
+                          <TableHead>Séance</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -1756,6 +1775,20 @@ export default function PatientDetailsPage() {
                           <TableRow key={doc.id}>
                             <TableCell className="font-medium">{documentTypeLabel(doc.documentType)}</TableCell>
                             <TableCell className="text-muted-foreground">{formatDate(doc.documentDate)}</TableCell>
+                            {/* AC-25 — the visit that produced it. Written since the document feature shipped,
+                                displayed by nothing until now. */}
+                            <TableCell className="text-muted-foreground">
+                              {doc.appointmentId ? (
+                                <Link
+                                  href={`/appointments?appointmentId=${doc.appointmentId}`}
+                                  className="underline-offset-4 hover:underline"
+                                >
+                                  Voir le rendez-vous
+                                </Link>
+                              ) : (
+                                "—"
+                              )}
+                            </TableCell>
                             <TableCell className="text-right">
                               <Button
                                 variant="ghost"

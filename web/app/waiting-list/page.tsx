@@ -50,6 +50,7 @@ import {
   Pencil,
   Plus,
   Trash2,
+  UserMinus,
   UserPlus,
 } from "lucide-react"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
@@ -74,6 +75,7 @@ import { cn } from "@/lib/utils"
 import { waitingListApi, type WaitingListPayload } from "@/lib/api/waiting-list"
 import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
+import { showErrorToast } from "@/lib/errors"
 import type { WaitingListEntryDto, PatientDto } from "@/lib/api/types"
 
 // ── Priority helpers (backend values Low|Normal|High ↔ French labels + Badge styling) ──────────────
@@ -346,6 +348,25 @@ export default function WaitingListPage() {
       />
     )
 
+  /**
+   * « Retirer de la liste » — AC-25, the first caller `WaitingListEntry.Cancel()` has ever had.
+   *
+   * ⚠️ Not the same action as « Supprimer » beside it, and the distinction is the point: cancelling keeps the row
+   * and records that the patient stopped waiting, while deleting destroys the evidence they ever did. Until now
+   * only the destructive one existed, so « elle a trouvé un rendez-vous ailleurs » and « je me suis trompé de
+   * patient » were the same button. No confirm dialog: it is reversible in substance (the row survives) and the
+   * default view is « en attente » only, which is what makes the entry disappear.
+   */
+  const handleCancel = async (entry: WaitingListEntryDto) => {
+    try {
+      await waitingListApi.cancel(entry.id)
+      toast.success(`${entry.patientName ?? "Le patient"} retiré de la liste d'attente`)
+      await loadEntries()
+    } catch (err) {
+      showErrorToast(err)
+    }
+  }
+
   const confirmDelete = async () => {
     if (!entryToDelete) return
     try {
@@ -452,14 +473,18 @@ export default function WaitingListPage() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onSelect={() => handleEdit(e)}>Modifier</DropdownMenuItem>
+                        {/* AC-25: the outcome, not the deletion. Ordinary weight — the row survives. */}
+                        <DropdownMenuItem onSelect={() => void handleCancel(e)}>
+                          Retirer de la liste
+                        </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
                           /* `handleDelete`, not `setEntryToDelete`: the confirm dialog is gated on
-                             `deleteDialogOpen`, which only `handleDelete` sets — so on a phone « Retirer »
+                             `deleteDialogOpen`, which only `handleDelete` sets — so on a phone « Supprimer »
                              silently did nothing. */
                           onSelect={() => handleDelete(e)}
                         >
-                          Retirer
+                          Supprimer
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -559,6 +584,17 @@ export default function WaitingListPage() {
                                 <Pencil className="h-3 w-3" />
                                 Modifier
                               </Button>
+                              {/* AC-25 — « Retirer » records the outcome and keeps the row; « Supprimer » is for
+                                  an entry made by mistake. They used to be one button, doing the second. */}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => void handleCancel(entry)}
+                                className="h-8 gap-1"
+                              >
+                                <UserMinus className="h-3 w-3" />
+                                Retirer
+                              </Button>
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -566,7 +602,7 @@ export default function WaitingListPage() {
                                 className="h-8 gap-1 text-destructive hover:text-destructive"
                               >
                                 <Trash2 className="h-3 w-3" />
-                                Retirer
+                                Supprimer
                               </Button>
                             </div>
                           </TableCell>

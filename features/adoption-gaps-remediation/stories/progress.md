@@ -11,7 +11,7 @@
 | 1 | C | Remove El Fatoora / TTN | `RemoveEInvoicing` | **implemented** |
 | 2 | A | Money integrity | `AddDentalRecordPaymentMethod` | **implemented** |
 | 3 | B | Cheque life-cycle | `AddChequeBankedStamp` | **implemented** |
-| 4 | D | Remaining defects | `NullablePatientDateOfBirth` (renamed, DEV-9) | **partial, uncommitted** — AC-18/20(be)/21/22/25(part)/26 done; AC-19/23/24 not started |
+| 4 | D | Remaining defects | `NullablePatientDateOfBirth` + `LabOrderAppointmentLink` (DEV-9) | **implemented** — all of AC-18…AC-26 + D-1/D-2/D-3; eye pass owed |
 
 ## Working tree note (start of session, 2026-08-08)
 
@@ -530,3 +530,73 @@ product question deliberately left unanswered here.
 The API (`:5000`) and frontend (`:3000`) were running at session start and were stopped — they lock
 `api/**/bin` and `web/.next`. **Restart with `/start-clinic`.** Smart App Control did not interfere this session;
 `dotnet test -p:BaseOutputPath=$TEMP/…` ran clean throughout.
+
+---
+
+## Part 4, second pass (2026-08-10, session 3 cont.) — the remaining ACs
+
+Part 3 landed as `e2e525f` while the first pass was paused, which cleared the shared-snapshot blocker described
+above; Part 4's first slice then committed as **`eb74954`**. This pass closes the tail.
+
+### What landed
+
+| AC | Landed as |
+|----|-----------|
+| **AC-24** | **`components/appointment-quick-status.tsx`** — a Popover offering exactly `AppointmentDto.allowedNextStatuses`, mounted on the agenda's appointment block. The options are full-width rows at `coarse:min-h-11`; an empty list renders **nothing** rather than a disabled control. Only `{ status }` is sent, so the tri-state update leaves the acts, the praticien and the notes alone |
+| **AC-25**, remainder | `MedicalDocument.AppointmentId` surfaced in the patient's documents tab (**both** trees — a « Séance » column and a card field); `WaitingListEntry.Cancel()` reachable as « Retirer de la liste », with the old « Retirer » (which *deleted*) renamed « Supprimer » |
+| **`NullableDateOfBirthTests`** | 13 cases over the construction path and the dentition rule, including the regression guard proper (`No_Date_Is_Manufactured_From_Todays_Date`) and a fixed-`now` theory so the age cases cannot pass or fail depending on when the suite runs |
+
+### Deviations
+
+#### DEV-13: AC-24's trigger is gated on block height, not on the pointer
+**Date:** 2026-08-10 · **Story:** 1, Part 4 · **Category:** Technical
+**Original Plan:** « an inline control on the appointment … **44 px on a coarse pointer**, never hover-revealed ».
+**Actual Implementation:** the popover **options** carry `coarse:min-h-11`; the **trigger** is a 20 px chevron
+inside the block, rendered only when the block is **≥ 36 px tall**, and not at all on the phone branch.
+**Justification:** an agenda block is sized by **duration** — a 15-minute visit is 12 px at `HOUR_HEIGHT`, a
+30-minute one 24 px — so a 44 px trigger inside it is not representable at all, and the block's own
+`overflow-hidden` clips anything that overhangs (the trap `frontend-web.md` § 2 names for `.touch-target`). The
+phone branch is additionally a `<button>`, so nesting the popover trigger inside it would be invalid HTML, and at
+28–32 px its second line is already clipped. What a finger must not miss is the **choice** — picking « Absent »
+when you meant « Arrivé » is a wrong-action bug on a patient's record — so the floor is on the options.
+⚠️ **This removes no capability (§ 0):** the block still opens the edit dialog on click, which is where the statut
+has always been changed, and nothing is hover-revealed. A short block and a phone keep the path they had.
+**Impact:** the quick action is available on desktop and tablet agenda blocks of ≥ 36 px. Making it universal
+needs the block itself redesigned (a taller minimum, or the statut moved out of the grid), which is a design
+change rather than a wiring one.
+
+#### DEV-14: « Retirer » changed meaning, and delete was renamed
+**Date:** 2026-08-10 · **Story:** 1, Part 4 · **Category:** Scope
+**Original Plan:** « make `Cancel()` / `WaitingListStatus.Cancelled` reachable with a « Retirer » action ».
+**Actual Implementation:** the **existing** « Retirer » — which called `DELETE` — now calls the new cancel route,
+and the destructive one is relabelled « Supprimer » (still behind its confirm dialog).
+**Justification:** adding a second control called « Retirer » beside one that already said « Retirer » would have
+been two buttons with one label and opposite consequences. The wording now matches what each does: cancelling
+keeps the row and records that the patient stopped waiting; deleting destroys the evidence they ever did. Until
+now only the destructive one existed, so « elle a trouvé un rendez-vous ailleurs » and « je me suis trompé de
+patient » were the same button.
+**Impact:** a label change on an existing control. The default list is `activeOnly`, so a cancelled entry leaves
+the view either way — which is what the AC asks for.
+
+### Gate results (second pass)
+
+| Gate | Result |
+|------|--------|
+| `dotnet build --no-incremental` | **0 errors, 55 warnings** — the same 55 as the first pass, and **zero in any file this pass added**. (The six `CS8602`s `NullableDateOfBirthTests` first introduced on `result.Value` were fixed with the null-forgiving operator before the gate was recorded.) |
+| Unit suite | **2203 passed, 0 failed** (2190 + the 13 new cases) |
+| `verify-schema` | **schema matches the model** |
+| `npx tsc --noEmit` | clean |
+| `npm run check:responsive` | **15/15 passed** |
+| `npm run build` | **compiled successfully**; `/journal` emitted at 6.18 kB |
+| Device eye pass | ⚠️ still **OWED** — see below |
+
+### Still owed
+
+- **The five-width eye pass** (320 / 390 / 820 / 1180 / 1440 px + a landscape phone) on the four surfaces this
+  part added or changed: `/journal`, the stock expiry card, the odontogram's « Quelle dentition charter ? »
+  prompt, and the agenda's quick-status popover. `check:responsive` passed 15/15 but it is a grep, not an eye —
+  and the popover is exactly the kind of thing that reads fine in source and lands off-screen at 320 px.
+- **The manual passes**: a walk-in created from the appointment dialog's inline form storing no DOB; `0`
+  disabling the expiry alert in the job, the dashboard **and** the list; the quick-status advancing a visit and
+  the agenda refetching; and a bon de prothèse attached to a séance appearing on the patient's file.
+- Nothing else. **All nine of Group D's ACs (AC-18 … AC-26) plus D-1/D-2/D-3 are implemented.**
