@@ -13,6 +13,18 @@ public class LabWorkOrder : AggregateRoot<Guid>
 {
     public Guid ClinicId { get; private set; }
     public Guid PatientId { get; private set; }
+
+    /// <summary>
+    /// The séance this prothèse belongs to — the visit at which the impression was taken or the piece fitted
+    /// (AC-23). Optional: plenty of lab work is ordered between visits, and a bon with no appointment is ordinary.
+    ///
+    /// <para>⚠️ <b>Nullable with a real FK, and the FK is <c>SetNull</c> (D-3).</b> Cancelling or deleting the
+    /// appointment must leave the bon standing with its link *cleared*, not pointing at a row that no longer
+    /// exists: the prothèse is at the laboratory either way, and losing the bon because the visit was rescheduled
+    /// would lose the money and the patient's crown with it.</para>
+    /// </summary>
+    public Guid? AppointmentId { get; private set; }
+
     public int? ToothNumber { get; private set; }
     public string Prosthetist { get; private set; }
     public string WorkDescription { get; private set; }
@@ -40,7 +52,8 @@ public class LabWorkOrder : AggregateRoot<Guid>
         DateTime? sentDate = null,
         DateTime? expectedDate = null,
         decimal? cost = null,
-        string? notes = null)
+        string? notes = null,
+        Guid? appointmentId = null)
     {
         if (string.IsNullOrWhiteSpace(prosthetist))
             throw new ArgumentException("Le prothésiste est requis.", nameof(prosthetist));
@@ -59,6 +72,7 @@ public class LabWorkOrder : AggregateRoot<Guid>
         ExpectedDate = expectedDate;
         Cost = cost;
         Notes = notes;
+        AppointmentId = appointmentId;
         Status = LabOrderStatus.Sent;
         CreatedAt = DateTime.UtcNow;
     }
@@ -70,7 +84,8 @@ public class LabWorkOrder : AggregateRoot<Guid>
         DateTime? sentDate,
         DateTime? expectedDate,
         decimal? cost,
-        string? notes)
+        string? notes,
+        Guid? appointmentId = null)
     {
         if (string.IsNullOrWhiteSpace(prosthetist))
             throw new ArgumentException("Le prothésiste est requis.", nameof(prosthetist));
@@ -86,6 +101,7 @@ public class LabWorkOrder : AggregateRoot<Guid>
         ExpectedDate = expectedDate;
         Cost = cost;
         Notes = notes;
+        AppointmentId = appointmentId;
         UpdatedAt = DateTime.UtcNow;
     }
 

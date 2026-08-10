@@ -27,7 +27,15 @@ public static class DentitionRules
     public const int AdultFromAgeYears = 13;
 
     /// <summary>
-    /// The dentition to assume for someone born on <paramref name="dateOfBirth"/>.
+    /// The dentition to assume for someone born on <paramref name="dateOfBirth"/>, or <c>null</c> when there is no
+    /// date of birth to reason from — « demandez, n'assumez pas ».
+    ///
+    /// <para>
+    /// ⚠️ <b>Null is the answer, not a failure to produce one.</b> A walk-in registered with nothing but a name has no
+    /// recorded birthday, and this used to receive a fabricated « thirty years ago » instead — so every such patient
+    /// was silently charted on adult teeth, which is exactly wrong for the paediatric case the field exists for. The
+    /// client mirror (<c>dentitionFromBirthdate</c>) has always returned null here for the same reason.
+    /// </para>
     ///
     /// <para>
     /// Age is computed against the <b>clinic-local</b> calendar day, not UTC: a patient whose thirteenth birthday is
@@ -35,11 +43,16 @@ public static class DentitionRules
     /// calendar comparison in this layer goes through <see cref="ClinicClock"/>.
     /// </para>
     /// </summary>
-    public static DentitionType FromDateOfBirth(DateTime dateOfBirth, DateTime? nowUtc = null)
+    public static DentitionType? FromDateOfBirth(DateTime? dateOfBirth, DateTime? nowUtc = null)
     {
+        if (dateOfBirth is not { } born)
+        {
+            return null;
+        }
+
         var today = ClinicClock.ClinicToday(nowUtc);
         var dob = ClinicClock.ToClinicLocal(
-            dateOfBirth.Kind == DateTimeKind.Utc ? dateOfBirth : DateTime.SpecifyKind(dateOfBirth, DateTimeKind.Utc)).Date;
+            born.Kind == DateTimeKind.Utc ? born : DateTime.SpecifyKind(born, DateTimeKind.Utc)).Date;
 
         // Whole years elapsed: subtract one when this year's birthday has not arrived yet.
         var age = today.Year - dob.Year;

@@ -619,7 +619,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           lastName: lastName.trim(),
           gender,
           dentition: dentition ?? undefined,
-          dateOfBirth: birthdate,
+          // Undefined, not "": the update command reads null-means-unchanged, and an empty string is not a date.
+          dateOfBirth: birthdate || undefined,
           // Explicit null, not undefined: the command is tri-state, so undefined would be read as
           // "leave it alone" and clearing the box would silently do nothing.
           phoneNumber: phone.trim() || null,
@@ -652,9 +653,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
            */
           medicalHistory: chronicDiseases.trim(),
           allergies: allergies.trim(),
+          // Exactly what was typed (AC-21). The two `|| "Unknown"` paddings existed because the server demanded
+          // both halves; it now accepts either, so a patient who named their insurer with the card at home no
+          // longer acquires a policy number literally reading « Unknown » — indistinguishable, in every later
+          // read, from a real one.
           insuranceInfo: (insuranceProvider.trim() || insuranceNumber.trim()) ? {
-            provider: insuranceProvider.trim() || "Unknown",
-            policyNumber: insuranceNumber.trim() || "Unknown",
+            provider: insuranceProvider.trim() || undefined,
+            policyNumber: insuranceNumber.trim() || undefined,
             groupNumber: policyHolder.trim() || undefined,
           } : undefined,
           cnamInfo: {
@@ -754,7 +759,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         savedPatient = await patientsApi.create({
           firstName: firstName.trim(),
           lastName: lastName.trim(),
-          dateOfBirth: birthdate || new Date().toISOString(),
+          // Blank means blank: a walk-in registered with nothing but a name stores no date of birth. This used to
+          // send *today* so the column would take the row, which is the client half of the same fabrication.
+          dateOfBirth: birthdate || null,
           gender: gender || "Unknown",
           dentition: dentition ?? undefined,
           email: email.trim() || null,
@@ -767,9 +774,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           referredBy: referredBy.trim() || undefined,
           notes: patientNotes.trim() || undefined,
           importantNotes: patientImportantNotes.trim() || undefined,
+          // Exactly what was typed (AC-21). The two `|| "Unknown"` paddings existed because the server demanded
+          // both halves; it now accepts either, so a patient who named their insurer with the card at home no
+          // longer acquires a policy number literally reading « Unknown » — indistinguishable, in every later
+          // read, from a real one.
           insuranceInfo: (insuranceProvider.trim() || insuranceNumber.trim()) ? {
-            provider: insuranceProvider.trim() || "Unknown",
-            policyNumber: insuranceNumber.trim() || "Unknown",
+            provider: insuranceProvider.trim() || undefined,
+            policyNumber: insuranceNumber.trim() || undefined,
             groupNumber: policyHolder.trim() || undefined,
           } : undefined,
           cnamInfo: {

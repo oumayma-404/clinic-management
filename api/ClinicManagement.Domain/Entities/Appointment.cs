@@ -67,27 +67,16 @@ public class Appointment : AggregateRoot<Guid>
         _procedures.Sum(p => p.DurationMinutes ?? 0);
 
     /// <summary>
-    /// True when this appointment was booked <b>outside</b> the practitioner's resolved working hours and the
-    /// booker explicitly confirmed the override (AC-P1.31).
-    /// <para>
-    /// Recorded rather than silently allowed, and available to <b>any role that can book</b> — a secretary
-    /// handling an emergency Sunday call must have a path, or the guard simply gets worked around by
-    /// falsifying the time, which is worse than an audited exception.
-    /// </para>
-    /// </summary>
-    public bool BookedOutsideWorkingHours { get; private set; }
-
-    /// <summary>Record that this booking was an explicitly-confirmed out-of-hours exception.</summary>
-    public void MarkBookedOutsideWorkingHours()
-    {
-        BookedOutsideWorkingHours = true;
-        UpdatedAt = DateTime.UtcNow;
-    }
-
-    /// <summary>
     /// This booking deliberately overlaps another for the same practitioner, confirmed by the user.
     ///
-    /// <para>The sibling of <see cref="BookedOutsideWorkingHours"/>, and it exists for the same reason: a
+    /// <para>⚠️ It once had an out-of-hours twin, deleted by <c>adoption-gaps-remediation</c> (AC-25): that flag
+    /// was written by four call sites and read by <b>nothing</b> — no query, no DTO, no screen, no constraint —
+    /// for its entire life, so the « audited exception » it claimed to record was unauditable. The out-of-hours
+    /// <i>permission</i> is unaffected and still travels on the commands as <c>AllowOutsideWorkingHours</c>; only
+    /// the write-only column went. This flag is genuinely different, and the paragraph below is the difference:
+    /// the database reads it.</para>
+    ///
+    /// <para>It exists because a
     /// double-booking is sometimes real work, not a mistake. A second chair, an assistant taking the impression
     /// while the dentist starts next door, an emergency squeezed into an occupied slot — a clinic does all three,
     /// and a hard refusal makes the software describe a day the practice is not having.</para>

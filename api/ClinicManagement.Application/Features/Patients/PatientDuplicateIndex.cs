@@ -72,7 +72,7 @@ public sealed class PatientDuplicateIndex
     /// </summary>
     public const string RefusalCode = "patient_duplicate";
 
-    private readonly record struct Entry(Guid? PatientId, string Label, DateTime DateOfBirth);
+    private readonly record struct Entry(Guid? PatientId, string Label, DateTime? DateOfBirth);
 
     private readonly Dictionary<string, List<Entry>> _byName = new();
     private readonly Dictionary<string, Entry> _byPhone = new();
@@ -97,12 +97,12 @@ public sealed class PatientDuplicateIndex
     public void Add(
         string lastName,
         string firstName,
-        DateTime dateOfBirth,
+        DateTime? dateOfBirth,
         string? phoneNumber,
         Guid? patientId,
         string label)
     {
-        var entry = new Entry(patientId, label, dateOfBirth.Date);
+        var entry = new Entry(patientId, label, dateOfBirth?.Date);
 
         var nameKey = NameKey(lastName, firstName);
         if (nameKey.Length > 0)
@@ -128,20 +128,19 @@ public sealed class PatientDuplicateIndex
     public PatientDuplicateMatch Match(
         string lastName,
         string firstName,
-        DateTime dateOfBirth,
+        DateTime? dateOfBirth,
         string? phoneNumber)
     {
         var nameKey = NameKey(lastName, firstName);
         if (nameKey.Length > 0 && _byName.TryGetValue(nameKey, out var namesakes))
         {
-            // `default` is what a caller passes for « no date of birth supplied », and it must never be compared as a
-            // real date: PatientFromRequest replaces it with « 30 years ago », so comparing it would match anyone
-            // whose stored date happens to be that day.
-            var suppliedDob = dateOfBirth != default;
-
-            if (suppliedDob)
+            // ⚠️ Null is « no date of birth supplied » and must never be compared as a real date — which is also why
+            // the stored side is nullable now rather than a sentinel: an undated patient on file and an undated
+            // candidate must not match each other *on the date*, they match on the name-alone rule below, exactly as
+            // they did when the sentinel existed (D-2 — neither wider nor narrower).
+            if (dateOfBirth is { } born)
             {
-                var sameDay = namesakes.FirstOrDefault(e => e.DateOfBirth == dateOfBirth.Date);
+                var sameDay = namesakes.FirstOrDefault(e => e.DateOfBirth == born.Date);
                 if (sameDay != default)
                 {
                     return new PatientDuplicateMatch(

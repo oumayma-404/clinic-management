@@ -156,9 +156,9 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
             // client download builder and this stored snapshot — must show the date of birth, not the age.
             // Store it formatted dd/MM/yyyy so the background/stored PDF matches the downloaded PDF.
             string? patientBirthDate = null;
-            if (patient.DateOfBirth != default)
+            if (patient.DateOfBirth.HasValue)
             {
-                patientBirthDate = patient.DateOfBirth.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+                patientBirthDate = patient.DateOfBirth.Value.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
             }
 
             var patientName = $"{patient.FirstName} {patient.LastName}".Trim();

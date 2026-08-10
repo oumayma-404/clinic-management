@@ -165,12 +165,18 @@ export function PatientsTable({
     setPage,
     setPageSize,
     isSearching,
-  } = usePagedList<PatientDto>({ fetchPage, search: searchQuery, refreshKey })
+  } = usePagedList<PatientDto>({
+    fetchPage,
+    search: searchQuery,
+    // Ticking « signalés » or arriving on a date-bounded drill-through returns to page 1 (AC-22).
+    filters: [showFlaggedOnly, createdFrom, createdTo],
+    refreshKey,
+  })
 
   const refreshList = () => setRefreshKey((key) => key + 1)
 
   // Calculate age from date of birth
-  const calculateAge = (dob: string | undefined) => {
+  const calculateAge = (dob: string | null | undefined) => {
     if (!dob) return null
     try {
       const birthDate = new Date(dob)
@@ -354,7 +360,9 @@ export function PatientsTable({
             title={(p) => getPatientName(p)}
             subtitle={(p) => {
               const age = calculateAge(p.dateOfBirth)
-              return age !== null ? `${age} ans` : null
+              // « âge inconnu » rather than nothing: an absent line reads as a rendering gap, while the patient
+              // genuinely has no date of birth on file (AC-18).
+              return age !== null ? `${age} ans` : "âge inconnu"
             }}
             status={(p) =>
               hasActiveFlags(p) ? (
@@ -450,9 +458,9 @@ export function PatientsTable({
                       <TableCell className="font-medium">
                         <div>
                           <p className="text-foreground">{getPatientName(patient)}</p>
-                          {age !== null && (
-                            <p className="text-xs text-muted-foreground">{age} ans</p>
-                          )}
+                          <p className="text-xs text-muted-foreground">
+                            {age !== null ? `${age} ans` : "âge inconnu"}
+                          </p>
                         </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground">

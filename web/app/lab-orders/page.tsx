@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+import Link from "next/link"
 
 import { useCallback, useEffect, useState } from "react"
 import { Input } from "@/components/ui/input"
@@ -704,6 +705,7 @@ export default function LabOrdersPage() {
                   loading={loading}
                   getKey={(o) => o.id}
                   title={(o) => o.patientName ?? "Patient inconnu"}
+                  href={(o) => `/patients/${o.patientId}`}
                   subtitle={(o) => o.workDescription}
                   status={(o) => <Badge variant={statusVariant(o.status)}>{statusLabel(o.status)}</Badge>}
                   fields={(o) => [
@@ -795,8 +797,23 @@ export default function LabOrdersPage() {
                     ) : (
                       orders.map((order) => (
                         <TableRow key={order.id}>
-                          <TableCell className="font-medium text-foreground">
-                            {order.patientName ?? "—"}
+                          <TableCell className="font-medium">
+                            {/* AC-23: the bon names a patient and, until now, offered no way to reach them —
+                                the one thing a prothésiste's call always needs. */}
+                            <Link
+                              href={`/patients/${order.patientId}`}
+                              className="text-foreground underline-offset-4 hover:underline"
+                            >
+                              {order.patientName ?? "Patient inconnu"}
+                            </Link>
+                            {order.appointmentId && (
+                              <Link
+                                href={`/appointments?appointmentId=${order.appointmentId}`}
+                                className="ms-2 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                              >
+                                Voir le RDV
+                              </Link>
+                            )}
                           </TableCell>
                           <TableCell>{order.workDescription}</TableCell>
                           <TableCell className="text-muted-foreground">{order.prosthetist}</TableCell>

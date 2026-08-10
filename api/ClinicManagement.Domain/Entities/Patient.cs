@@ -9,7 +9,13 @@ public class Patient : AggregateRoot<Guid>
     public Guid ClinicId { get; private set; }
     public string FirstName { get; private set; }
     public string LastName { get; private set; }
-    public DateTime DateOfBirth { get; private set; }
+    /// <summary>
+    /// Optional. A walk-in registered at the desk with nothing but a name has no date of birth, and the app used to
+    /// substitute « thirty years ago » so this column could stay NOT NULL — which made « we never asked » look
+    /// exactly like a recorded birthday, and charted the patient on adult teeth on the strength of it.
+    /// <see cref="Email"/> below is the shape this now follows.
+    /// </summary>
+    public DateTime? DateOfBirth { get; private set; }
     public string Gender { get; private set; }
 
     /// <summary>
@@ -101,7 +107,7 @@ public class Patient : AggregateRoot<Guid>
         Guid clinicId,
         string firstName,
         string lastName,
-        DateTime dateOfBirth,
+        DateTime? dateOfBirth,
         string gender,
         Email? email = null,
         PhoneNumber? phoneNumber = null,
@@ -124,7 +130,7 @@ public class Patient : AggregateRoot<Guid>
     public void UpdatePersonalInfo(
         string firstName,
         string lastName,
-        DateTime dateOfBirth,
+        DateTime? dateOfBirth,
         string gender,
         Email? email,
         PhoneNumber? phoneNumber,

@@ -68,11 +68,14 @@ public static class PatientFromRequest
                 request.Address.Country);
         }
 
-        // Convert InsuranceInfoDto to InsuranceInfo value object if provided and valid
+        // Build the insurance block when **either** side was given (AC-21). It used to require both and otherwise
+        // leave it null — a *silent drop*, not a refusal: a patient who named their insurer with the card at home
+        // had that thrown away with no message, on the door most patients are created through. Both sides blank
+        // still stores nothing, so an untouched form behaves exactly as before.
         InsuranceInfo? insuranceInfo = null;
         if (request.InsuranceInfo != null &&
-            !string.IsNullOrWhiteSpace(request.InsuranceInfo.Provider) &&
-            !string.IsNullOrWhiteSpace(request.InsuranceInfo.PolicyNumber))
+            (!string.IsNullOrWhiteSpace(request.InsuranceInfo.Provider) ||
+             !string.IsNullOrWhiteSpace(request.InsuranceInfo.PolicyNumber)))
         {
             insuranceInfo = new InsuranceInfo(
                 request.InsuranceInfo.Provider,
@@ -81,10 +84,9 @@ public static class PatientFromRequest
                 request.InsuranceInfo.ExpiryDate);
         }
 
-        // Provide defaults for required fields if not provided
-        var dateOfBirth = request.DateOfBirth == default(DateTime)
-            ? DateTime.UtcNow.AddYears(-30) // Default to 30 years ago if not provided
-            : request.DateOfBirth;
+        // Blank means blank here too. This used to substitute « thirty years ago » so a NOT NULL column would take
+        // the row — which stored a birthday nobody gave us and, through DentitionRules below, charted every
+        // undated walk-in on adult teeth.
         var gender = string.IsNullOrWhiteSpace(request.Gender)
             ? PatientGender.Unknown
             : request.Gender;
@@ -94,7 +96,7 @@ public static class PatientFromRequest
             clinicId,
             request.FirstName,
             request.LastName,
-            dateOfBirth,
+            request.DateOfBirth,
             gender,
             email,
             phoneNumber,
@@ -121,11 +123,13 @@ public static class PatientFromRequest
                 emergencyPhone);
         }
 
-        // Dentition: what the form chose, else what this patient's age implies. Applied after construction so the
-        // age fallback reads the SAME date of birth the entity was built with (defaults included) rather than the
-        // raw request, which may have been empty.
-        patient.SetDentition(
-            DentitionRules.Parse(request.Dentition) ?? DentitionRules.FromDateOfBirth(patient.DateOfBirth));
+        // Dentition: what the form chose, else what this patient's age implies. With neither — an undated walk-in
+        // created by a server-internal caller — nothing is asserted and the entity keeps its own default, which the
+        // odontogram no longer trusts blindly: with no date of birth it asks (AC-18).
+        if ((DentitionRules.Parse(request.Dentition) ?? DentitionRules.FromDateOfBirth(patient.DateOfBirth)) is { } dentition)
+        {
+            patient.SetDentition(dentition);
+        }
 
         // Optional « adressé par » — blank/omitted leaves it null (the patient came on their own).
         patient.SetReferredBy(request.ReferredBy);

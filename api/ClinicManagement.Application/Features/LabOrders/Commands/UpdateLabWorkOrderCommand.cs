@@ -17,20 +17,31 @@ public class UpdateLabWorkOrderCommand : IRequest<Result<LabWorkOrderDto>>
     public DateTime? ExpectedDate { get; set; }
     public decimal? Cost { get; set; }
     public string? Notes { get; set; }
+
+    /// <summary>
+    /// The séance this prothèse belongs to (AC-23). ⚠️ <b>Not tri-state</b> — this command already replaces every
+    /// other field wholesale, so sending null detaches the bon, which is the « ce n'était pas cette séance »
+    /// correction. Making one field of a replace-semantics command behave as patch-semantics is how a link gets
+    /// silently kept when the user meant to clear it.
+    /// </summary>
+    public Guid? AppointmentId { get; set; }
 }
 
 public class UpdateLabWorkOrderCommandHandler : IRequestHandler<UpdateLabWorkOrderCommand, Result<LabWorkOrderDto>>
 {
     private readonly ILabWorkOrderRepository _labWorkOrderRepository;
+    private readonly IAppointmentRepository _appointmentRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
     public UpdateLabWorkOrderCommandHandler(
         ILabWorkOrderRepository labWorkOrderRepository,
+        IAppointmentRepository appointmentRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork)
     {
         _labWorkOrderRepository = labWorkOrderRepository;
+        _appointmentRepository = appointmentRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
@@ -54,6 +65,13 @@ public class UpdateLabWorkOrderCommandHandler : IRequestHandler<UpdateLabWorkOrd
             if (order == null || order.ClinicId != clinic.Value)
                 return Result<LabWorkOrderDto>.Failure("Bon de laboratoire introuvable.");
 
+            // The bon's OWN patient, not one from the request: this command cannot move a bon between patients,
+            // so the appointment must belong to the patient the bon already names.
+            var link = await LabOrderAppointmentLink.ValidateAsync(
+                _appointmentRepository, request.AppointmentId, clinic.Value, order.PatientId, cancellationToken);
+            if (link.IsFailure)
+                return Result<LabWorkOrderDto>.Failure(link.Error!);
+
             order.UpdateDetails(
                 request.Prosthetist.Trim(),
                 request.WorkDescription.Trim(),
@@ -61,7 +79,8 @@ public class UpdateLabWorkOrderCommandHandler : IRequestHandler<UpdateLabWorkOrd
                 request.SentDate,
                 request.ExpectedDate,
                 request.Cost,
-                string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim());
+                string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
+                request.AppointmentId);
 
             await _labWorkOrderRepository.UpdateAsync(order, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

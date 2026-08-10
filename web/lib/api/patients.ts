@@ -43,9 +43,13 @@ export const patientsApi = {
   create: async (data: {
     firstName: string;
     lastName: string;
-    dateOfBirth?: string;
+    /** Omit or send null for a walk-in registered with nothing but a name — no placeholder is substituted. */
+    dateOfBirth?: string | null;
     gender?: string;
-    /** `"Child"` | `"Adult"`. Omitted ⇒ the server derives it from the date of birth. */
+    /**
+     * `"Child"` | `"Adult"`. Omitted ⇒ the server derives it from the date of birth — and derives *nothing* when
+     * there is none, leaving the odontogram to ask.
+     */
     dentition?: string;
     /** Omit or send null when the patient gave none — the API no longer substitutes a placeholder. */
     email?: string | null;
@@ -60,9 +64,13 @@ export const patientsApi = {
       zipCode: string;
       country?: string;
     } | null;
+    /**
+     * Either side is enough (AC-21) — omit the block entirely to store no insurance. The two fields used to be
+     * required, which is why the dialog padded a missing half with the literal `"Unknown"`.
+     */
     insuranceInfo?: {
-      provider: string;
-      policyNumber: string;
+      provider?: string;
+      policyNumber?: string;
       groupNumber?: string;
       expiryDate?: string;
     };

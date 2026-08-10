@@ -8,6 +8,10 @@ public class LabWorkOrderDto
     public Guid ClinicId { get; set; }
     public Guid PatientId { get; set; }
     public string? PatientName { get; set; }
+
+    /// <summary>The séance this prothèse belongs to, or null (AC-23). Drives the « Voir le RDV » link.</summary>
+    public Guid? AppointmentId { get; set; }
+
     public int? ToothNumber { get; set; }
     public string Prosthetist { get; set; } = string.Empty;
     public string WorkDescription { get; set; } = string.Empty;
@@ -35,6 +39,7 @@ public static class LabWorkOrderMappingExtensions
         ClinicId = order.ClinicId,
         PatientId = order.PatientId,
         PatientName = patientName ?? order.Patient?.GetFullName(),
+        AppointmentId = order.AppointmentId,
         ToothNumber = order.ToothNumber,
         Prosthetist = order.Prosthetist,
         WorkDescription = order.WorkDescription,

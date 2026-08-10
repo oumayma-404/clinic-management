@@ -17,6 +17,7 @@ import {
   Settings,
   Stethoscope,
   UserCog,
+  FileClock,
   Users,
   Wallet,
 } from "lucide-react"
@@ -98,7 +99,14 @@ export function buildConfigItems(isAdmin: boolean): NavItem[] {
           { name: "Actes dentaires", href: "/dental-acts", icon: ScrollText },
         ]
       : []),
-    ...(isAdmin ? [{ name: "Utilisateurs", href: "/users", icon: UserCog }] : []),
+    ...(isAdmin
+      ? [
+          { name: "Utilisateurs", href: "/users", icon: UserCog },
+          // AC-19. The endpoint behind it is `AdminOnly` and the page carries its own `role === "admin"` gate;
+          // this only stops reception being shown a door that does not open.
+          { name: "Journal d'activité", href: "/journal", icon: FileClock },
+        ]
+      : []),
     { name: "Paramètres", href: "/settings", icon: Settings },
   ]
 }

@@ -637,7 +637,7 @@ export function DocumentEditorContent() {
   }
 
   // Helper functions
-  const calculateAge = (dob: string | undefined) => {
+  const calculateAge = (dob: string | null | undefined) => {
     if (!dob) return null
     try {
       const birthDate = new Date(dob)

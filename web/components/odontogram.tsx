@@ -23,7 +23,13 @@ import { cn } from "@/lib/utils"
 import { odontogramApi } from "@/lib/api/odontogram"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
-import { dentitionViewFor, dentitionViewForTeeth, type DentitionView } from "@/lib/dentition"
+import {
+  DENTITION_VIEWS,
+  DENTITION_VIEW_LABELS_FR,
+  dentitionViewFor,
+  dentitionViewForTeeth,
+  type DentitionView,
+} from "@/lib/dentition"
 import type { ToothStateDto, ProcedureTypeDto, DentalRecordDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
@@ -88,11 +94,21 @@ interface OdontogramProps {
    * seeded view widens the seed on its own, so an existing diagnosis can never be hidden by the default.
    */
   dentition: string
+  /**
+   * The patient's date of birth, or null when none was recorded (AC-18).
+   *
+   * ⚠️ It is here to answer « is the seeded arch based on anything? ». `dentition` is never absent — the column is
+   * NOT NULL and its entity default is `Adult` — so with no date of birth behind it, opening on the adult chart is
+   * a guess wearing the clothes of a stored decision. That guess used to be manufactured server-side, where a
+   * missing birthday became « thirty years ago » and every undated walk-in, child or not, was charted on permanent
+   * teeth. With nothing charted yet either, this asks instead.
+   */
+  dateOfBirth?: string | null
   /** Called with one seed per tooth carrying an open diagnosis, to pre-fill a new treatment plan. */
   onCreatePlan?: (seeds: OdontogramPlanSeed[]) => void
 }
 
-export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramProps) {
+export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: OdontogramProps) {
   const [chosenView, setChosenView] = useState<DentitionView | null>(null)
   const [byTooth, setByTooth] = useState<Map<number, ToothStateDto[]>>(new Map())
   // The patient's fiches, joined to the treatment-sourced states for the act names.
@@ -186,6 +202,14 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
 
   const teeth = TEETH_BY_VIEW[dentitionView]
 
+  /**
+   * Nothing tells us which arch to open on: no date of birth, nothing charted, and no choice made this session.
+   * The chart asks rather than opening on the adult set (AC-18) — a six-year-old's deciduous teeth are simply
+   * absent from that arch, so the wrong default is not a cosmetic default.
+   */
+  const mustAskDentition =
+    !dateOfBirth && chosenView === null && byTooth.size === 0
+
   // A charted diagnosis names the desired end-state (e.g. "Couronne"); a procedure whose ResultingCondition
   // is that state is its treatment, so its default cost is the planned cost. Pathology diagnoses (Carie…)
   // have no such procedure and fall back to no prefill (0) — as allowed by the spec.
@@ -260,6 +284,31 @@ export function Odontogram({ patientId, dentition, onCreatePlan }: OdontogramPro
 
       {loading ? (
         <p className="py-8 text-center text-muted-foreground">Chargement de l'odontogramme…</p>
+      ) : mustAskDentition ? (
+        <div
+          role="status"
+          className="flex flex-col items-center gap-4 rounded-lg border border-dashed bg-muted/40 px-4 py-8 text-center"
+        >
+          <div>
+            <p className="text-sm font-medium text-foreground">Quelle dentition charter ?</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Ce patient n&apos;a pas de date de naissance enregistrée, donc l&apos;arcade ne peut pas être déduite.
+              Choisissez-la — vous pourrez en changer à tout moment.
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
+            {DENTITION_VIEWS.map((view) => (
+              <Button
+                key={view}
+                variant="outline"
+                onClick={() => setChosenView(view)}
+                className="coarse:h-11 coarse:px-5"
+              >
+                {DENTITION_VIEW_LABELS_FR[view]}
+              </Button>
+            ))}
+          </div>
+        </div>
       ) : (
         /* Two views over the same mouth. « Diagnostics » is the chart that has always been here and stays the
            default — it is where charting happens. « Actes réalisés » is read-only and reflects what the fiches

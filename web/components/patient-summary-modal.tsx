@@ -148,7 +148,9 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
 
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Date de naissance</p>
-                  <p className="text-base">{formatDate(patient.dateOfBirth)}</p>
+                  <p className="text-base">
+                    {formatDate(patient.dateOfBirth)} {age !== null ? `(${age} ans)` : "(âge inconnu)"}
+                  </p>
                 </div>
               </div>
 

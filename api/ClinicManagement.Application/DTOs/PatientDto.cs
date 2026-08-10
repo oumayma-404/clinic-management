@@ -6,7 +6,8 @@ public class PatientDto
     public Guid ClinicId { get; set; }
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
-    public DateTime DateOfBirth { get; set; }
+    /// <summary>Null when the patient was registered without one — the client renders « âge inconnu » (AC-18).</summary>
+    public DateTime? DateOfBirth { get; set; }
     public string Gender { get; set; } = string.Empty;
 
     /// <summary>

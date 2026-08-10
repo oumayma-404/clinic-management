@@ -143,6 +143,8 @@ export function InvoicesTable({
   } = usePagedList<InvoiceDto>({
     fetchPage,
     search,
+    // Statut, période and praticien each return to page 1 (AC-22).
+    filters: [patientId, from, to, status, doctorId],
     refreshKey: `${reloadKey}:${localRefresh}`,
   })
 

@@ -81,7 +81,7 @@ public sealed record PatientIdentity(
     Guid Id,
     string FirstName,
     string LastName,
-    DateTime DateOfBirth,
+    DateTime? DateOfBirth,
     string? PhoneNumber);
 
 public interface IPatientRepository

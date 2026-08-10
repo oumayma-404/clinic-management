@@ -18,23 +18,29 @@ public class CreateLabWorkOrderCommand : IRequest<Result<LabWorkOrderDto>>
     public DateTime? ExpectedDate { get; set; }
     public decimal? Cost { get; set; }
     public string? Notes { get; set; }
+
+    /// <summary>Optional — the séance this prothèse belongs to (AC-23). Validated clinic- and patient-side.</summary>
+    public Guid? AppointmentId { get; set; }
 }
 
 public class CreateLabWorkOrderCommandHandler : IRequestHandler<CreateLabWorkOrderCommand, Result<LabWorkOrderDto>>
 {
     private readonly ILabWorkOrderRepository _labWorkOrderRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IAppointmentRepository _appointmentRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
     public CreateLabWorkOrderCommandHandler(
         ILabWorkOrderRepository labWorkOrderRepository,
         IPatientRepository patientRepository,
+        IAppointmentRepository appointmentRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork)
     {
         _labWorkOrderRepository = labWorkOrderRepository;
         _patientRepository = patientRepository;
+        _appointmentRepository = appointmentRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
@@ -60,6 +66,11 @@ public class CreateLabWorkOrderCommandHandler : IRequestHandler<CreateLabWorkOrd
             if (patient == null || patient.ClinicId != clinic.Value)
                 return Result<LabWorkOrderDto>.Failure("Patient introuvable.");
 
+            var link = await LabOrderAppointmentLink.ValidateAsync(
+                _appointmentRepository, request.AppointmentId, clinic.Value, request.PatientId, cancellationToken);
+            if (link.IsFailure)
+                return Result<LabWorkOrderDto>.Failure(link.Error!);
+
             var order = new LabWorkOrder(
                 Guid.NewGuid(),
                 clinic.Value,
@@ -70,7 +81,8 @@ public class CreateLabWorkOrderCommandHandler : IRequestHandler<CreateLabWorkOrd
                 request.SentDate,
                 request.ExpectedDate,
                 request.Cost,
-                string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim());
+                string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
+                request.AppointmentId);
 
             await _labWorkOrderRepository.AddAsync(order, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

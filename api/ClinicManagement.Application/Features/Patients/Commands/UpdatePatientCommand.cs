@@ -177,15 +177,18 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
             {
                 var firstName = request.FirstName ?? patient.FirstName;
                 var lastName = request.LastName ?? patient.LastName;
+                // Null-means-unchanged, as before — this field has no « effacer » on the wire, so an undated patient
+                // stays undated and a stored date is never cleared by an omitted key.
                 var dateOfBirth = request.DateOfBirth ?? patient.DateOfBirth;
-                
-                if (dateOfBirth.Kind == DateTimeKind.Unspecified)
+
+                if (dateOfBirth is { } born)
                 {
-                    dateOfBirth = DateTime.SpecifyKind(dateOfBirth, DateTimeKind.Utc);
-                }
-                else if (dateOfBirth.Kind == DateTimeKind.Local)
-                {
-                    dateOfBirth = dateOfBirth.ToUniversalTime();
+                    dateOfBirth = born.Kind switch
+                    {
+                        DateTimeKind.Unspecified => DateTime.SpecifyKind(born, DateTimeKind.Utc),
+                        DateTimeKind.Local => born.ToUniversalTime(),
+                        _ => born,
+                    };
                 }
 
                 var gender = request.Gender ?? patient.Gender;
@@ -234,12 +237,19 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
             // (the edit dialog sends undefined when both insurance fields are emptied).
             if (request.InsuranceInfo != null)
             {
-                var insuranceInfo = new InsuranceInfo(
-                    request.InsuranceInfo.Provider,
-                    request.InsuranceInfo.PolicyNumber,
-                    request.InsuranceInfo.GroupNumber,
-                    request.InsuranceInfo.ExpiryDate);
-                patient.UpdateInsuranceInfo(insuranceInfo);
+                // Either side is enough (AC-21) — but a block with *neither* is how the dialog says « clear it »,
+                // and the value object refuses that, so it is turned into a clear here rather than a 500.
+                var hasAnySide =
+                    !string.IsNullOrWhiteSpace(request.InsuranceInfo.Provider) ||
+                    !string.IsNullOrWhiteSpace(request.InsuranceInfo.PolicyNumber);
+
+                patient.UpdateInsuranceInfo(hasAnySide
+                    ? new InsuranceInfo(
+                        request.InsuranceInfo.Provider,
+                        request.InsuranceInfo.PolicyNumber,
+                        request.InsuranceInfo.GroupNumber,
+                        request.InsuranceInfo.ExpiryDate)
+                    : null);
             }
             else
             {

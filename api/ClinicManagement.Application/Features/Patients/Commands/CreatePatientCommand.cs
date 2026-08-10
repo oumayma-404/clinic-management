@@ -14,13 +14,15 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
 {
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
-    public DateTime DateOfBirth { get; set; }
+    /// <summary>Optional — a walk-in registered with nothing but a name has none (AC-18).</summary>
+    public DateTime? DateOfBirth { get; set; }
     public string Gender { get; set; } = string.Empty;
     /// <summary>
     /// <c>"Child"</c> or <c>"Adult"</c>. Required by the form, but **optional on the wire**: omitted or unrecognised
-    /// falls back to <see cref="DentitionRules.FromDateOfBirth"/>. The fallback is what keeps the server-internal
-    /// creators working — the AI dispatcher and the Google→App sync's placeholder patient know nothing about teeth,
-    /// and hard-rejecting them would break appointment sync to make a form field mandatory.
+    /// falls back to <see cref="DentitionRules.FromDateOfBirth"/>, which itself answers null with no date of birth —
+    /// so an undated patient is left unasserted rather than charted on adult teeth. The fallback is what keeps the
+    /// server-internal creators working — the AI dispatcher and the Google→App sync's placeholder patient know
+    /// nothing about teeth, and hard-rejecting them would break appointment sync to make a form field mandatory.
     /// </summary>
     public string? Dentition { get; set; }
     public string Email { get; set; } = string.Empty;
@@ -137,9 +139,8 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                 var match = PatientDuplicateIndex.Build(identities).Match(
                     request.LastName,
                     request.FirstName,
-                    // The RAW date of birth: `default` means "not supplied", and PatientFromRequest below is about to
-                    // replace it with « 30 years ago ». Passing the substituted value would match every patient whose
-                    // stored date happens to be that day.
+                    // Null means "not supplied", and the index reads it as such — the name-alone rule fires instead
+                    // of a date comparison.
                     request.DateOfBirth,
                     request.PhoneNumber);
 

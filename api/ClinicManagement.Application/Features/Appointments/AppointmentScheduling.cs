@@ -164,9 +164,10 @@ public static class AppointmentScheduling
     ///
     /// <para>Out-of-hours is <b>advisory, not a prohibition</b>: clinics genuinely see patients outside their
     /// posted hours (an emergency, a favour, a Saturday morning that is not in the settings yet). The override has
-    /// existed on all three commands since the rule shipped, and <c>Appointment.MarkBookedOutsideWorkingHours</c>
-    /// records that it was a deliberate exception — but no client ever sent the flag, so in practice the check
-    /// read as a hard block. This code is what lets the UI complete that half-built path.</para>
+    /// existed on all three commands since the rule shipped, but no client ever sent it, so in practice the check
+    /// read as a hard block. This code is what lets the UI complete that half-built path. (The companion column
+    /// on <c>Appointment</c> that recorded the exception was deleted by AC-25 — four write sites, zero readers;
+    /// the override itself is unaffected.)</para>
     ///
     /// <para>A code rather than the French message, because the message names the practitioner and the closed
     /// period and is reworded freely; matching on it would make the confirm dialog silently revert to a hard block

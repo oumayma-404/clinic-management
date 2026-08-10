@@ -105,7 +105,7 @@ import { FilePreviewDialog } from "@/components/patients/files/file-preview-dial
 import { useFilePreview } from "@/components/patients/files/use-file-preview"
 import { isImageFile, isPdfFile, isPreviewableFile } from "@/components/patients/files/file-kind"
 
-const calculateAge = (dob: string | undefined) => {
+const calculateAge = (dob: string | null | undefined) => {
   if (!dob) return null
   try {
     const birthDate = new Date(dob)
@@ -1203,6 +1203,7 @@ export default function PatientDetailsPage() {
             <Odontogram
               patientId={patientId}
               dentition={patient.dentition}
+              dateOfBirth={patient.dateOfBirth}
               onCreatePlan={(seeds) => {
                 setPlanSeeds(seeds)
                 setSeededPlanOpen(true)
@@ -2294,7 +2295,7 @@ export default function PatientDetailsPage() {
               <div>
                 <p className="text-xs font-medium text-muted-foreground">Date de naissance</p>
                 <p className="text-sm text-foreground">
-                  {formatDate(patient.dateOfBirth)} {age !== null && `(${age} ans)`}
+                  {formatDate(patient.dateOfBirth)} {age !== null ? `(${age} ans)` : "(âge inconnu)"}
                 </p>
               </div>
               <Separator />

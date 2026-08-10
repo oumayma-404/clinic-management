@@ -521,10 +521,8 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                     return Result<AppointmentDto>.FailureFrom(hoursCheck);
                     }
                 }
-                else
-                {
-                    appointment.MarkBookedOutsideWorkingHours();
-                }
+                // No `else`: the override is a permission, and the flag that used to be stamped for it was read by
+                // nothing anywhere in the product (AC-25).
             }
 
             // Validate the save against the version the USER was editing, not the one this

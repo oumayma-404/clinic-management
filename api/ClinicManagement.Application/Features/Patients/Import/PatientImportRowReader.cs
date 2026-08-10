@@ -187,14 +187,12 @@ public static class PatientImportRowReader
         // ---- Insurance (provider + policy, or none) ----------------------------------------------------------
         var insurer = Value(PatientImportField.InsuranceProvider);
         var policy = Value(PatientImportField.InsurancePolicyNumber);
+        // Either side is enough (AC-21). A one-sided row used to be dropped with a warning nobody could act on —
+        // and on a 3 000-row file a silent drop is unrecoverable without re-importing the whole thing.
         InsuranceInfoDto? insurance = null;
-        if (insurer.Length > 0 && policy.Length > 0)
+        if (insurer.Length > 0 || policy.Length > 0)
         {
             insurance = new InsuranceInfoDto { Provider = insurer, PolicyNumber = policy };
-        }
-        else if (insurer.Length > 0 || policy.Length > 0)
-        {
-            warnings.Add("Assurance incomplète (assureur et n° de police sont requis) : non importée.");
         }
 
         // ---- CNAM --------------------------------------------------------------------------------------------
@@ -241,8 +239,8 @@ public static class PatientImportRowReader
         {
             FirstName = firstName,
             LastName = lastName,
-            // `default` is what the command reads as « not supplied » and replaces with its own default.
-            DateOfBirth = dateOfBirth ?? default,
+            // Carried through as-is: a row with no date of birth stores none (AC-18, D-1).
+            DateOfBirth = dateOfBirth,
             Gender = gender ?? string.Empty,
             Email = email ?? string.Empty,
             PhoneNumber = phone ?? string.Empty,

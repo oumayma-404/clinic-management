@@ -73,17 +73,41 @@ public class PatientDuplicateGuardTests
     }
 
     // The appointment dialog's quick-add form collects a name and a phone and nothing else, so this — not the case
-    // above — is the shape the reported defect actually had. `DateOfBirth` arrives as `default`, which must be read
+    // above — is the shape the reported defect actually had. `DateOfBirth` arrives as **null**, which must be read
     // as « not supplied » rather than compared as a real date.
+    //
+    // ⚠️ It used to arrive as `default(DateTime)`, because the column was NOT NULL and the command could not
+    // express "none". AC-18 retired that sentinel: `null` is now the only way to say it, and the name-alone rule
+    // it fires is unchanged — D-2's requirement that a null date match neither more nor fewer rows than the
+    // sentinel did.
     [Fact]
     public async Task Same_Name_With_No_Birth_Date_Supplied_Is_Refused()
     {
         OnFile(Identity("Sonia", "Bel Hadj", Dob));
 
-        var result = await CreateAsync(Command("Sonia", "Bel Hadj", dateOfBirth: default));
+        var result = await CreateAsync(Command("Sonia", "Bel Hadj", dateOfBirth: null));
 
         Assert.True(result.IsFailure);
         Assert.Equal(PatientDuplicateIndex.RefusalCode, result.Code);
+    }
+
+    // D-2, the other direction, and the case that pins « neither wider nor narrower »: the patient ON FILE has no
+    // date of birth and the candidate supplies one. That is **not** flagged — and it was not flagged before AC-18
+    // either, for a different reason. The undated record used to carry the fabricated « thirty years ago », so the
+    // date comparison ran and simply did not match; now the stored value is null and the comparison cannot match.
+    // Same outcome by a more honest route, which is exactly what D-2 requires.
+    //
+    // ⚠️ Whether it *should* warn is a real product question — the index is deliberately eager elsewhere, and two
+    // namesakes are plausibly one person — but answering it would widen matching, which this change is explicitly
+    // forbidden from doing. Left as it was, deliberately, rather than improved in passing.
+    [Fact]
+    public async Task An_Undated_Patient_On_File_Does_Not_Match_A_Dated_Candidate()
+    {
+        OnFile(Identity("Sonia", "Bel Hadj", dateOfBirth: null));
+
+        var result = await CreateAsync(Command("Sonia", "Bel Hadj", Dob));
+
+        Assert.True(result.IsSuccess);
     }
 
     // ⚠️ The refusal must land BEFORE the write, not as a post-hoc complaint. A guard that refuses after
@@ -208,11 +232,11 @@ public class PatientDuplicateGuardTests
     private static PatientIdentity Identity(
         string firstName,
         string lastName,
-        DateTime dateOfBirth,
+        DateTime? dateOfBirth,
         string? phoneNumber = null) =>
         new(Guid.NewGuid(), firstName, lastName, dateOfBirth, phoneNumber);
 
-    private static CreatePatientCommand Command(string firstName, string lastName, DateTime dateOfBirth) =>
+    private static CreatePatientCommand Command(string firstName, string lastName, DateTime? dateOfBirth) =>
         new()
         {
             FirstName = firstName,

@@ -773,14 +773,13 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             // typed into their own calendar — the inner catch here only logs — which is worse than importing
             // it, because the clinic would believe Google and the app agreed when they did not.
             //
-            // So the event is always imported and flagged as an out-of-hours exception when it is one, which is
-            // exactly the same record an in-app override leaves. `doctorId` is null on this path, so only the
-            // clinic-wide hours can ever apply.
+            // So the event is always imported, and an out-of-hours one is logged rather than refused.
+            // `doctorId` is null on this path, so only the clinic-wide hours can ever apply.
             var clinic = await _clinicRepository.GetByIdAsync(patient.ClinicId, cancellationToken);
             var hours = WorkingHoursResolver.Resolve(null, clinic?.WorkingHoursJson);
             if (!WorkingHoursResolver.IsWithin(hours, appointmentDateTime, duration, out var outsideReason))
             {
-                appointment.MarkBookedOutsideWorkingHours();
+                // The log is now the whole record: the column this also used to stamp was read by nothing (AC-25).
                 _logger.LogWarning(
                     "Google event {EventId} imported outside working hours for clinic {ClinicId}: {Reason}",
                     googleEvent.Id, patient.ClinicId, outsideReason);

@@ -75,7 +75,18 @@ public class WaitingListController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
-    /// <summary>Remove a waiting-list entry.</summary>
+    /// <summary>
+    /// « Retirer de la liste » — the patient stopped waiting (AC-25). Keeps the row and records the outcome,
+    /// unlike the delete below, which destroys the evidence that they ever waited.
+    /// </summary>
+    [HttpPost("{id:guid}/cancel")]
+    public async Task<ActionResult<WaitingListEntryDto>> CancelWaitingListEntry(Guid id)
+    {
+        var result = await _mediator.Send(new CancelWaitingListEntryCommand { Id = id });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Remove a waiting-list entry — for a mistaken row. To record that a patient stopped waiting, cancel.</summary>
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteWaitingListEntry(Guid id)
     {

@@ -95,7 +95,13 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
     setPage,
     setPageSize,
     isSearching,
-  } = usePagedList<ProcedureTypeDto>({ fetchPage, search, refreshKey: reloadToken })
+  } = usePagedList<ProcedureTypeDto>({
+    fetchPage,
+    search,
+    // Changing the catégorie returns to page 1 (AC-22).
+    filters: [category],
+    refreshKey: reloadToken,
+  })
 
   const loadProcedures = async () => setReloadToken((t) => t + 1)
 

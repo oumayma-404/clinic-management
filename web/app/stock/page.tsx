@@ -6,6 +6,8 @@ import { ClinicGuard } from "@/components/clinic-guard"
 import { PageHeader } from "@/components/ui/page-header"
 import { StockTable } from "@/components/stock-table"
 import { StockItemFormModal } from "@/components/stock-item-form-modal"
+import { StockExpirySettingsCard } from "@/components/stock-expiry-settings-card"
+import { useSession } from "@/lib/auth/session"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import type { StockItemDto } from "@/lib/api/types"
@@ -13,6 +15,7 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
 export default function StockPage() {
+  const { user } = useSession()
   const [modalOpen, setModalOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<StockItemDto | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -103,6 +106,14 @@ export default function StockPage() {
           // Remount when the arriving filter resolves, so StockTable's initial filter state actually takes
           // effect — it seeds useState, which a re-render alone would not revisit.
           key={initialFilter ?? "all"}
+        />
+
+        {/* Below the list, not above it: the list is what this page is for, and the window is set once and then
+            left alone for months. Bumping `refreshKey` on save is what makes the « expire bientôt » column and
+            the header counts re-read against the new window immediately (AC-20). */}
+        <StockExpirySettingsCard
+          isAdmin={user?.role === "admin"}
+          onChanged={() => setRefreshKey((k) => k + 1)}
         />
 
         <StockItemFormModal

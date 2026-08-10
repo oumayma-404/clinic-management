@@ -15,6 +15,17 @@ interface UsePagedListOptions<T> {
   fetchPage: (params: { page: number; pageSize: number; search?: string }) => Promise<PagedResponse<T>>
   /** The free-text term as typed. Debounced here; do not debounce it again upstream. */
   search?: string
+  /**
+   * Every **other** filter narrowing this list — a statut, a category, a date bound, a praticien (AC-22).
+   * Changing any of them returns to page 1, for the same reason a new search does: page 4 of a 2-page result is
+   * an empty table over data that matched.
+   *
+   * ⚠️ **Values must be JSON-serialisable primitives** (string / number / boolean / null / undefined, or arrays of
+   * those). The reset keys on `JSON.stringify`, **never** on the array's identity: callers pass an inline literal,
+   * which is a new reference on every render — an identity-keyed effect would fire constantly and `setPage(1)`
+   * would undo the user's own page click, breaking paging on every list instead of fixing their filters.
+   */
+  filters?: readonly unknown[]
   pageSize?: number
   /** Bump to force a refetch of the current page (after a create/delete, or on a realtime signal). */
   refreshKey?: unknown
@@ -37,6 +48,7 @@ interface UsePagedListOptions<T> {
 export function usePagedList<T>({
   fetchPage,
   search = "",
+  filters,
   pageSize: initialPageSize = DEFAULT_PAGE_SIZE,
   refreshKey,
   onError,
@@ -69,6 +81,21 @@ export function usePagedList<T>({
   useEffect(() => {
     setPage(1)
   }, [debouncedSearch])
+
+  // Same reset for every other filter (AC-22). `filters` is stringified on purpose — see the option's doc comment:
+  // an inline array literal is a new reference each render, so keying on identity would call setPage(1) forever.
+  // Only the search term is debounced; a statut or a date is chosen in one gesture and should act immediately.
+  const filterSignature = JSON.stringify(filters ?? [])
+  const hasAppliedFiltersRef = useRef(false)
+  useEffect(() => {
+    // Skip the first run: the list already opens on page 1, and resetting here would fight a caller that
+    // legitimately restores a page from the URL on mount.
+    if (!hasAppliedFiltersRef.current) {
+      hasAppliedFiltersRef.current = true
+      return
+    }
+    setPage(1)
+  }, [filterSignature])
 
   useEffect(() => {
     const requestId = ++requestIdRef.current

@@ -25,8 +25,8 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
             .IsRequired()
             .HasMaxLength(100);
 
-        builder.Property(p => p.DateOfBirth)
-            .IsRequired();
+        // Nullable: « aucune date de naissance » is an ordinary walk-in, not a data-quality problem (AC-18).
+        builder.Property(p => p.DateOfBirth);
 
         builder.Property(p => p.Gender)
             .IsRequired()

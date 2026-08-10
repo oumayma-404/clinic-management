@@ -289,10 +289,6 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                     // stays the single authority and the two cannot drift.
                     null, null, null, null);
                 appointment.SetProcedures(seriesProcedures);
-                if (request.AllowOutsideWorkingHours)
-                {
-                    appointment.MarkBookedOutsideWorkingHours();
-                }
                 if (collides)
                 {
                     appointment.MarkBookedWithOverlap();

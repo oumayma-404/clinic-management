@@ -246,14 +246,20 @@ public class Clinic : AggregateRoot<Guid>
     public const int DefaultStockExpiryLeadDays = 30;
 
     /// <summary>
-    /// Sets the approaching-expiry window in days (1–365). Drives which stock items are flagged as expiring
+    /// Sets the approaching-expiry window in days (<b>0–365</b>). Drives which stock items are flagged as expiring
     /// soon and which generate the approaching-expiry notification (AC-P4.6).
+    ///
+    /// <para>⚠️ <b>Zero means « alerte désactivée », and the guard used to refuse it while both readers implemented
+    /// it.</b> <c>StockExpiryJob</c> and <c>DashboardAlertsReader</c> have always treated a non-positive lead time as
+    /// "off", so the only thing standing between a clinic and switching the alert off was this range check — which
+    /// no caller could reach anyway, since the setter shipped with none. A clinic that stocks nothing perishable
+    /// gets a daily notification it cannot silence otherwise (AC-20).</para>
     /// </summary>
     public void SetStockExpiryLeadDays(int days)
     {
-        if (days < 1 || days > 365)
+        if (days < 0 || days > 365)
         {
-            throw new ArgumentException("Le délai d'alerte de péremption doit être compris entre 1 et 365 jours.", nameof(days));
+            throw new ArgumentException("Le délai d'alerte de péremption doit être compris entre 0 et 365 jours (0 = alerte désactivée).", nameof(days));
         }
 
         StockExpiryLeadDays = days;

@@ -3,6 +3,7 @@ using System;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ClinicManagement.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260810103310_NullablePatientDateOfBirth")]
+    partial class NullablePatientDateOfBirth
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -29,6 +32,9 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<DateTime>("AppointmentDateTime")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("BookedOutsideWorkingHours")
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("BookedWithOverlap")
                         .HasColumnType("boolean");
@@ -1458,9 +1464,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("AppointmentId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid>("ClinicId")
                         .HasColumnType("uuid");
 
@@ -1513,8 +1516,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnType("character varying(500)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("AppointmentId");
 
                     b.HasIndex("PatientId");
 
@@ -3171,11 +3172,6 @@ namespace ClinicManagement.Infrastructure.Migrations
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.LabWorkOrder", b =>
                 {
-                    b.HasOne("ClinicManagement.Domain.Entities.Appointment", null)
-                        .WithMany()
-                        .HasForeignKey("AppointmentId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
                         .WithMany()
                         .HasForeignKey("ClinicId")

@@ -19,8 +19,10 @@ public class CreateAppointmentCommand : IRequest<Result<AppointmentDto>>
 
     /// <summary>
     /// Confirmed override for a booking outside the practitioner's working hours (AC-P1.31). Available to any
-    /// role that can book; the acceptance is recorded on the appointment via
-    /// <c>MarkBookedOutsideWorkingHours()</c>, never silently allowed.
+    /// role that can book — a secretary handling an emergency Sunday call must have a path, or the guard simply
+    /// gets worked around by falsifying the time.
+    /// <para>⚠️ Nothing is persisted about the override: the flag that used to record it had no reader anywhere
+    /// and was deleted (AC-25). This field is the permission, not a record of one.</para>
     /// </summary>
     public bool AllowOutsideWorkingHours { get; set; }
 
@@ -235,10 +237,8 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
             // drift, so the constructor is handed nulls on purpose.
             appointment.SetProcedures(procedureInputs);
 
-            if (request.AllowOutsideWorkingHours)
-            {
-                appointment.MarkBookedOutsideWorkingHours();
-            }
+            // Nothing is recorded for an out-of-hours booking: `AllowOutsideWorkingHours` above is what permits it,
+            // and the flag that used to be stamped here was read by nothing at all (AC-25).
 
             // Only when a collision was actually found: the flag exempts the row from the database's exclusion
             // constraint, so setting it on every booking that merely PASSED the flag would quietly disable the

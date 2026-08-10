@@ -683,7 +683,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
                     ShouldExecuteAction = true,
                     ActionType = "search_patient",
                     ResponseMessage = $"Patient trouvé : {patient.FirstName} {patient.LastName}\n" +
-                                    $"Date de naissance : {patient.DateOfBirth:yyyy-MM-dd}\n" +
+                                    $"Date de naissance : {BirthDateOrDash(patient.DateOfBirth)}\n" +
                                     $"E-mail : {ContactOrDash(patient.Email?.Value)}\n" +
                                     $"Téléphone : {ContactOrDash(patient.PhoneNumber?.Value)}"
                 };
@@ -763,7 +763,7 @@ If the user is just asking a question or chatting, set should_execute_action to 
 
             var details = $"Détails du patient :\n" +
                          $"Nom : {patient.FirstName} {patient.LastName}\n" +
-                         $"Date de naissance : {patient.DateOfBirth:yyyy-MM-dd}\n" +
+                         $"Date de naissance : {BirthDateOrDash(patient.DateOfBirth)}\n" +
                          $"Sexe : {patient.Gender ?? "Non précisé"}\n" +
                          $"E-mail : {ContactOrDash(patient.Email?.Value)}\n" +
                          $"Téléphone : {ContactOrDash(patient.PhoneNumber?.Value)}";
@@ -1053,4 +1053,8 @@ If the user is just asking a question or chatting, set should_execute_action to 
     /// </summary>
     private static string ContactOrDash(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "non renseigné" : value;
+
+    /// <summary>A patient registered with no date of birth says so, rather than rendering an empty field.</summary>
+    private static string BirthDateOrDash(DateTime? value) =>
+        value.HasValue ? value.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : "non renseignée";
 }

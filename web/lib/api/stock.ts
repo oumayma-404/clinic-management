@@ -83,4 +83,26 @@ export const stockApi = {
   delete: async (id: string): Promise<void> => {
     return apiDelete<void>(`/stock/${id}`);
   },
+
+  /**
+   * The clinic's approaching-expiry window, in days (AC-20).
+   *
+   * ⚠️ **`0` means the alert is switched off**, not « prévenez-moi le jour même ». Both server readers
+   * (`StockExpiryJob`, `DashboardAlertsReader`) have always treated a non-positive value that way; until this
+   * feature the domain guard refused `0`, so the one value meaning "off" was the one value unreachable — and the
+   * setter had no caller at all, so every clinic ran on the 30-day default for the life of the product.
+   */
+  getExpirySettings: async (): Promise<StockExpirySettingsDto> => {
+    return apiGet<StockExpirySettingsDto>(`/stock/expiry-settings`);
+  },
+
+  /** Admin-only server-side. Refuses anything outside 0–365 with a French message. */
+  setExpirySettings: async (leadDays: number): Promise<StockExpirySettingsDto> => {
+    return apiPut<StockExpirySettingsDto>(`/stock/expiry-settings`, { leadDays });
+  },
 };
+
+export interface StockExpirySettingsDto {
+  /** Days of warning before a lot expires. `0` = alerte désactivée. */
+  leadDays: number;
+}

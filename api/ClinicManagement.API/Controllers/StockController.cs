@@ -180,4 +180,25 @@ public class StockController : ApiControllerBase
 
         return NoContent();
     }
+
+    /// <summary>Read the clinic's approaching-expiry window (days; 0 = alerte désactivée).</summary>
+    // Open to any clinic role: it is what the stock list's own « expire bientôt » column is computed from, so a
+    // secretary looking at that column must be able to see the window behind it. Writing it is admin-only below,
+    // matching the recall interval one controller over — clinic-wide configuration, not day-to-day work.
+    [HttpGet("expiry-settings")]
+    public async Task<ActionResult<StockExpirySettingsDto>> GetExpirySettings()
+    {
+        var result = await _mediator.Send(new GetStockExpirySettingsQuery());
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Set the clinic's approaching-expiry window (0–365 days; 0 disables the alert). Admin-only.</summary>
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [HttpPut("expiry-settings")]
+    public async Task<ActionResult<StockExpirySettingsDto>> SetExpirySettings(
+        [FromBody] SetStockExpirySettingsCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
 }

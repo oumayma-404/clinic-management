@@ -1156,6 +1156,11 @@ export interface LabWorkOrderDto {
   clinicId: string;
   patientId: string;
   patientName?: string | null;
+  /**
+   * The séance this prothèse belongs to, or null (AC-23) — the visit at which the impression was taken or the
+   * piece fitted. Optional because plenty of lab work is ordered between visits.
+   */
+  appointmentId?: string | null;
   toothNumber?: number | null;
   prosthetist: string;
   workDescription: string;
