@@ -593,10 +593,32 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   **`[AllowsWithoutSubscription("<reason>")]`** — see `api/ClinicManagement.API/CLAUDE.md` for the exempt set, the
   ordering rationale and the two derived guards. **Part C ships the visibility**: `GET /api/subscription`
   (`AnyClinicRole`) + `GET /api/subscription/history` (`AdminOnly`), the **« Abonnement » screen** at
-  `web/app/abonnement/`, and `requiresSubscription` on `GET /api/auth/mode`. **Parts D–G are not built yet**: there is
-  no banner, no 402 plumbing in `client.ts`, no live re-read, no warning job and no vendor verb — so a lapsed cabinet
-  is refused correctly and can now read *why*, but is not warned in advance and can only be unlocked by editing the
+  `web/app/abonnement/`, and `requiresSubscription` on `GET /api/auth/mode`. **Part D ships the client half**: the three
+  402 codes + `onSubscriptionRequired` in `web/lib/api/client.ts`, **`SubscriptionProvider`** owning FR-15's three
+  re-read triggers, the **`SubscriptionBanner`** on every screen, and AC-1.3's trial sentence — served from
+  `Subscription:TrialDays` as `trialDays` on `GET /api/auth/mode`, never a literal. **Parts E–G are not built yet**:
+  no warning notifications, no vendor verb and no outbox parking — so a lapsed cabinet is refused correctly, can read
+  why and sees it coming seven days out, but is not *notified* in advance and can only be unlocked by editing the
   ledger directly.
+  ⚠️ **The banner mounts in `AppShell`, not in `app/layout.tsx`** where the plan put it: `AppShell` is `flex h-dvh`,
+  so a strip above it makes the document taller than the viewport — the page scrolls as a whole and the phone's
+  bottom bar goes off screen, which also makes the spec's « ≤ 15 % of a 380 px landscape viewport » budget
+  unmeetable. As a flex sibling of `<main>` it costs no height maths, exactly as `BottomNav` already does. It is
+  also what makes « no banner on `/login` or `/signup` » **structural**: the six routes that render no shell are
+  precisely those two plus `/setup`, `/join`, `/change-password` and `/signup/verifier`.
+  ⚠️ **The per-day dismissal is keyed on the server's own `endsOn|daysRemaining` pair, never on a date the browser
+  computes.** « The next clinic day » is a fact about Tunis, and a workstation on any other timezone would bring the
+  banner back hours early or late — the defect `todayLocalIso()` exists to prevent one layer over. `daysRemaining`
+  decrements at Tunisian midnight, so the pair changes exactly when it should and needs no clock at all.
+  ⚠️ **The 402 hook is the one that changes nothing about the failing call.** Unlike 426 (`<ClientVersionGate>` takes
+  the screen) and `must_change_password` (routed, and its English message replaced), a subscription refusal carries
+  the gate's own French sentence naming the date, so it travels on verbatim to `showErrorToast` and the form stays
+  open with everything typed still in it (AC-4.6). It must never touch `handleRequest`'s one-shot 401 retry — the
+  account is fine, and the refusal never signs anybody out (AC-4.5).
+  ⚠️ **Part C's interim rail row is closed here**: `buildConfigItems` now takes `showSubscription`, fed from the
+  provider, so `SelfHostedLan` and `CloudBrowser` show no « Abonnement » row at all (AC-7.1/7.2). `lib/zones.ts`
+  keeps the full set — it builds the route→icon map and needs every destination that can render — which is why the
+  parameter defaults to *showing* the row.
   ⚠️ **« Abonnement » is reachable by a secretary, and that is a deliberate exception** to the product's rule that a
   secretary sees no clinic-wide money screen (AC-2.2): the amounts are what the practice owes its software *vendor*,
   none of it appears in la caisse or a patient's balance (FR-2), and the person who meets the refused save chairside is

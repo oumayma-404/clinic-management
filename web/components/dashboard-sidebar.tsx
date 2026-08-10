@@ -10,6 +10,7 @@ import { zoneForSectionTitle, type Zone } from "@/lib/zones"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
+import { useSubscription } from "@/lib/subscription/subscription-context"
 import { PRODUCT_NAME } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -37,9 +38,19 @@ export function DashboardSidebar() {
 
   const isAdmin = user?.role === "admin"
 
+  /*
+   * ⚠️ The « Abonnement » row is gated on the DEPLOYMENT, not on a role (`clinic-subscription` AC-7.1/7.2). Part C
+   * shipped it unconditional on purpose — the client-side flag needed this provider, which is Part D's — so on a
+   * clinic's own PC the rail carried a row whose page said « cette installation ne fonctionne pas par abonnement ».
+   *
+   * `enforced` is `false` until the capability probe answers, so the row *appears* a moment after load rather than
+   * disappearing: the safe direction, and the same one `/join` and `/signup` take with their own probes.
+   */
+  const { enforced: subscriptionEnforced } = useSubscription()
+
   // The ROLE, not `isAdmin`: a secretary sees fewer destinations than a doctor (I1 — « Tableau de bord » and the
   // whole « Finances » group are `AdminOrDoctor` server-side), and an admin/not-admin boolean cannot say that.
-  const sections: NavSection[] = buildNavSections(user?.role)
+  const sections: NavSection[] = buildNavSections(user?.role, subscriptionEnforced)
 
   // `collapsed` is passed rather than read from context: inside the mobile drawer the rail is always
   // expanded (there is room, and a phone has no hover for the collapsed tooltips), while the desktop rail

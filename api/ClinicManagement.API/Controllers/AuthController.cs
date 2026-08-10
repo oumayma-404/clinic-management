@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
 using MediatR;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.API.Models;
@@ -35,12 +36,18 @@ public class AuthController : ApiControllerBase
     private readonly IConfiguration _configuration;
 
     private readonly DeploymentProfile _deployment;
+    private readonly ISubscriptionPolicy _subscriptionPolicy;
 
-    public AuthController(IMediator mediator, IConfiguration configuration, DeploymentProfile deployment)
+    public AuthController(
+        IMediator mediator,
+        IConfiguration configuration,
+        DeploymentProfile deployment,
+        ISubscriptionPolicy subscriptionPolicy)
     {
         _mediator = mediator;
         _configuration = configuration;
         _deployment = deployment;
+        _subscriptionPolicy = subscriptionPolicy;
     }
 
     // Injected, not re-resolved per request: AddInfrastructure already registers the resolved profile as a
@@ -82,6 +89,11 @@ public class AuthController : ApiControllerBase
             // to a probe, and EC-13 requires a failed read to be retryable rather than read as « aucun abonnement ».
             // The 404 on SubscriptionController stays as the server-side guarantee.
             requiresSubscription = deployment.RequiresSubscription,
+            // clinic-subscription Part D, AC-1.3. The signup form has to state the trial before the visitor submits
+            // anything, and `Subscription:TrialDays` is the one authority on how long it is — a literal « 30 jours »
+            // in the wizard would be a second one, and this product's own landing copy already says « 2 semaines ».
+            // Null where nothing expires, so no screen can quote a trial that deployment does not grant.
+            trialDays = deployment.RequiresSubscription ? _subscriptionPolicy.TrialDays : (int?)null,
         });
     }
 

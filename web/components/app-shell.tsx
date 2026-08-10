@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { BottomNav } from "@/components/bottom-nav"
+import { SubscriptionBanner } from "@/components/subscription/subscription-banner"
 
 /**
  * The app's one page shell: rail + header + `<main>`.
@@ -87,6 +88,18 @@ export function AppShell({
       <DashboardSidebar />
 
       <div className="flex flex-1 flex-col overflow-hidden">
+        {/*
+          `clinic-subscription` AC-3.1 — the one strip that appears on every screen of the app. A flex sibling of
+          `<main>`, exactly like `BottomNav` below, so `<main className="flex-1 …">` shrinks around it and no page
+          needs to know it exists. It renders `null` for every clinic that is up to date, and on every deployment
+          that does not work by subscription.
+
+          ⚠️ Here rather than in `app/layout.tsx`: this div's parent is `h-dvh`, so a strip *above* the shell would
+          push the document past the viewport — the page would scroll as a whole and the bottom bar would go with
+          it. Mounting it here also makes « absent on /login and /signup » structural, since those six routes are
+          precisely the ones that render no shell.
+        */}
+        <SubscriptionBanner />
         <DashboardHeader />
         {/*
           `animate-page-in` — one short fade per navigation.

@@ -5,6 +5,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Deployment;
+using ClinicManagement.Infrastructure.Services;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
@@ -28,9 +29,19 @@ namespace ClinicManagement.UnitTests.Api;
 public class SelfRegistrationGateTests
 {
     // The profile is now injected rather than re-resolved from configuration per request, so it is passed
-    // explicitly here. Built through DeploymentProfile.For so the capability matrix under test is the real one.
-    private static AuthController Controller(Mock<IMediator> mediator, DeploymentKind kind) =>
-        new(mediator.Object, new ConfigurationBuilder().Build(), DeploymentProfile.For(kind));
+    // explicitly here. Built through DeploymentProfile.For so the capability matrix under test is the real one —
+    // and so is the subscription policy: `trialDays` is read from `Subscription:TrialDays` through the very class
+    // production resolves, so a fake here could report a figure the deployment would never serve.
+    private static AuthController Controller(
+        Mock<IMediator> mediator, DeploymentKind kind, params (string Key, string Value)[] settings)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(settings.Select(s => new KeyValuePair<string, string?>(s.Key, s.Value)))
+            .Build();
+        var profile = DeploymentProfile.For(kind);
+
+        return new(mediator.Object, configuration, profile, new SubscriptionPolicy(profile, configuration));
+    }
 
     private static RegisterRequest AnyRegistration() => new()
     {
@@ -108,6 +119,59 @@ public class SelfRegistrationGateTests
 
         Assert.Equal(Read<string>(lan, "mode"), Read<string>(hosted, "mode"));
         Assert.NotEqual(Read<bool>(lan, "selfRegistrationEnabled"), Read<bool>(hosted, "selfRegistrationEnabled"));
+    }
+
+    /// <summary>
+    /// [clinic-subscription AC-1.3] The signup form has to state the trial <b>before</b> the visitor submits
+    /// anything, and this is where it learns how long one is. <c>null</c> where nothing expires: a deployment that
+    /// grants no trial must not be made to advertise one.
+    /// </summary>
+    [Theory]
+    [InlineData(DeploymentKind.SelfHostedLan, null)]
+    [InlineData(DeploymentKind.HostedMultiTenant, SubscriptionPolicy.DefaultTrialDays)]
+    [InlineData(DeploymentKind.CloudBrowser, null)]
+    public void GetMode_reports_the_trial_length_exactly_where_a_trial_exists(DeploymentKind kind, int? expected)
+    {
+        var payload = Assert.IsType<OkObjectResult>(Controller(new Mock<IMediator>(), kind).GetMode()).Value!;
+
+        Assert.Equal(expected, Read<int?>(payload, "trialDays"));
+    }
+
+    /// <summary>
+    /// [clinic-subscription AC-1.3] ⚠️ <b>It is the operator's configured figure, not a literal.</b> The wizard's
+    /// « N jours d'essai gratuit » and the verification e-mail both quote this, so a hardcoded 30 anywhere would be
+    /// a promise no code keeps the day somebody sets <c>Subscription:TrialDays</c> — and this product's own landing
+    /// copy already says « 2 semaines ». A test pinning only the default would pass on that literal.
+    /// </summary>
+    [Fact]
+    public void The_reported_trial_length_follows_the_configured_value()
+    {
+        var payload = Assert.IsType<OkObjectResult>(
+            Controller(new Mock<IMediator>(), DeploymentKind.HostedMultiTenant, ("Subscription:TrialDays", "14"))
+                .GetMode()).Value!;
+
+        Assert.Equal(14, Read<int?>(payload, "trialDays"));
+        Assert.NotEqual(SubscriptionPolicy.DefaultTrialDays, Read<int?>(payload, "trialDays"));
+    }
+
+    /// <summary>
+    /// [clinic-subscription AC-7.3] The companion of the row above, in the other direction: a
+    /// <c>Subscription:*</c> key sets the trial's <i>length</i> and can never turn enforcement on. A LAN install
+    /// one config edit away from refusing its own patient records is the failure this pins shut.
+    /// </summary>
+    [Fact]
+    public void No_subscription_setting_can_turn_enforcement_on()
+    {
+        var payload = Assert.IsType<OkObjectResult>(
+            Controller(
+                new Mock<IMediator>(),
+                DeploymentKind.SelfHostedLan,
+                ("Subscription:TrialDays", "14"),
+                ("Subscription:Enabled", "true"),
+                ("Subscription:RequiresSubscription", "true")).GetMode()).Value!;
+
+        Assert.False(Read<bool>(payload, "requiresSubscription"));
+        Assert.Null(Read<int?>(payload, "trialDays"));
     }
 
     // The action returns an anonymous type, so the wire names are only readable by reflection — which is the

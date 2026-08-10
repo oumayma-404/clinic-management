@@ -46,7 +46,7 @@ Parts outlined in red are **atomic** — see *Split points* below.
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | [Abonnement du cabinet — entitlement, enforcement, visibility and vendor control](./story-1-full-clinic-subscription.md) | in-progress (Parts A + B + C done) | - |
+| 1 | Full | [Abonnement du cabinet — entitlement, enforcement, visibility and vendor control](./story-1-full-clinic-subscription.md) | in-progress (Parts A + B + C + D done) | - |
 
 ### Parts inside Story 1
 
@@ -55,7 +55,7 @@ Parts outlined in red are **atomic** — see *Split points* below.
 | A | Every cabinet has an entitlement, at every door and for all of history | BE | — | — | **done** — Checkpoint A green; see [progress.md](./progress.md) |
 | B | An expired cabinet keeps its records and loses only recording | BE | — | A | **done** — Checkpoint B green; see [progress.md](./progress.md) |
 | C | The cabinet can see where it stands and how to pay | BE + FE | — | A, B | **done** — Checkpoint C green; the eye pass is owed (no browser here). See [progress.md](./progress.md) |
-| D | The banner, the refusal toast, and the live re-read | FE | — | C |
+| D | The banner, the refusal toast, and the live re-read | FE | — | C | **done** — Checkpoint D green; the eye pass is owed (no browser here). Also closes Part C's interim rail row (AC-7.1/7.2). See [progress.md](./progress.md) |
 | E | The cabinet is warned before it stops being able to work | BE | **yes** | A |
 | F | The vendor unlocks a cabinet that has paid | BE | — | A |
 | G | Background work parks rather than sends or vanishes | BE | **yes** | A, F |

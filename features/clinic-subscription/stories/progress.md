@@ -8,7 +8,7 @@
 
 | Story | Status |
 |---|---|
-| 1 — Abonnement du cabinet | in-progress (Parts A + B + C done) |
+| 1 — Abonnement du cabinet | in-progress (Parts A + B + C + D done) |
 
 ### Parts inside Story 1
 
@@ -17,7 +17,7 @@
 | A | Every cabinet has an entitlement, at every door and for all of history | **done** (Checkpoint A green) |
 | B | An expired cabinet keeps its records and loses only recording | **done** (Checkpoint B green) |
 | C | The cabinet can see where it stands and how to pay | **done** (Checkpoint C green; eye pass owed) |
-| D | The banner, the refusal toast, and the live re-read | not-started |
+| D | The banner, the refusal toast, and the live re-read | **done** (Checkpoint D green; eye pass owed) |
 | E | The cabinet is warned before it stops being able to work (⚠️ atomic) | not-started |
 | F | The vendor unlocks a cabinet that has paid | not-started |
 | G | Background work parks rather than sends or vanishes (⚠️ atomic) | not-started |
@@ -563,3 +563,230 @@ of the AC list does not record it as closed.
   so the widths are recorded as **owed**, with the mechanical gate and a rule-by-rule re-read named as what stands in
   for them — and that re-read found one real thing (an unconditional `min-h-11` that should have been `coarse:`),
   which is the argument for doing it rather than writing « responsive ✓ ».
+
+---
+
+# Part D — The banner, the refusal toast, and the live re-read
+
+**Working tree note (start of session 4).** Clean apart from the other author's untracked
+`features/platform-console/`, left untouched and excluded. `git status` reviewed before any edit and again before
+staging; every file below is staged by explicit path.
+
+## Session decisions
+
+**Session 4 — scope: Part D only.** Requested explicitly (`/implement-story clinic-subscription part D`). Same
+branch, same explicit-path staging. Part D is `web/`-only in the plan's own layer table; in practice it carries
+**three backend files**, all from the AC-1.3 decision below.
+
+**Two questions asked and answered before any code was written** — both changed what was built:
+
+1. **Where the banner mounts.** The plan says `app/layout.tsx`. `AppShell` is `flex h-dvh`, so a sibling above it
+   makes the document taller than the viewport: the page scrolls as a whole, the phone's bottom bar is pushed off,
+   and the spec's « ≤ 15 % of a 380 px-tall landscape viewport » budget becomes unmeetable. Answer: **mount it
+   inside `AppShell`** (DEV-5). The provider stays in `layout.tsx` as planned.
+2. **How the trial length is stated.** AC-1.3's sentence names « 30 jours » while the duration is
+   `Subscription:TrialDays`, and the plan's own closing note already records a landing page saying « 2 semaines ».
+   Answer: **serve the configured number** rather than write a literal in two places (DEV-6).
+
+## Part D — steps
+
+| # | Step | Status |
+|---|---|---|
+| D1 | `client.ts` — three codes, the 402 French fallback, `onSubscriptionRequired`; `errors.ts` | **done** |
+| D2 | `SubscriptionProvider` + FR-15's three triggers; mounted in `app/layout.tsx` | **done** |
+| D3 | `SubscriptionBanner` — one line, ≤ 15 % budget, dismissible only while valid | **done** |
+| D4 | Confirm every refused save leaves its form open with input intact (AC-4.6) | **done** — audited, no fix needed |
+| D5 | `HIDDEN_PATHS += /signup`; AC-1.3's sentence in the wizard **and** the verification e-mail | **done** |
+| D6 | *(not a plan step)* Close Part C's interim rail row — AC-7.1/7.2 | **done** |
+| D7 | *(not a plan step — the quality policy's)* Tests | **done** — 8 new tests |
+
+## Deviations
+
+### DEV-5: the banner mounts in `AppShell`, not `app/layout.tsx`
+**Date:** 2026-08-10
+**Story:** 1, Part D, step 3
+**Category:** Technical
+**Original Plan:** *Files to Create/Modify* — « `web/app/layout.tsx` | modify | `<SubscriptionProvider>` inside
+`<SessionProvider>`; `<SubscriptionBanner/>` ».
+**Actual Implementation:** The **provider** is in `app/layout.tsx` exactly as planned. The **banner** is one line in
+`components/app-shell.tsx`, a flex sibling of `<main>` above `<DashboardHeader/>`.
+**Justification:** `AppShell` is `flex h-dvh`. A banner sibling above it in the layout adds its height *on top of*
+a full dynamic viewport, so the document scrolls as a whole and `BottomNav` — a flex child of the shell — leaves
+the screen. It also makes the spec's « ≤ ~15 % of a 380 px-tall landscape viewport » budget meaningless, since the
+app below still claims 100 dvh. The alternative that keeps the plan's file list (layout owns `h-dvh`, `AppShell`
+drops to `h-full`) changes the height model **every** page inherits and puts the six chrome-less pages inside a
+fixed-height box they were not written for. As a flex sibling the banner costs no height maths at all and `<main>`
+shrinks around it, which is exactly what `BottomNav` already does and documents.
+**Impact:** One extra line in a shared component. A **structural** gain rather than a cost: `AppShell` is used by
+exactly the 27 chrome-ful pages and by **none** of `/login`, `/setup`, `/join`, `/change-password`, `/signup`,
+`/signup/verifier` (verified by scanning every `app/**/page.tsx`), so « the banner is absent on the auth pages »
+holds by construction instead of by a path list somebody has to remember to extend. The `isChromeLessPath` guard is
+kept inside the banner as a belt to that braces.
+**Approved:** Yes — asked with both options and their trade-offs before any code was written.
+
+### DEV-6: the trial length is served, not written into the copy twice
+**Date:** 2026-08-10
+**Story:** 1, Part D, step 5
+**Category:** Scope
+**Original Plan:** « AC-1.3's trial sentence in `setup-wizard.tsx` **and** in `SignUpClinicCommand`'s verification
+e-mail body » — i.e. the spec's literal « 30 jours d'essai gratuit, sans carte bancaire » in two places.
+**Actual Implementation:** `GET /api/auth/mode` gains **`trialDays`** (`ISubscriptionPolicy.TrialDays` where
+subscriptions are enforced, `null` otherwise) and the wizard renders `{trialDays} jours d'essai gratuit, sans carte
+bancaire.`; `SignUpClinicCommandHandler` takes `ISubscriptionPolicy` and composes the same sentence from
+`TrialDays`. The literal survives **only** as `DEFAULT_TRIAL_DAYS` in the wizard, for an API too old to answer.
+**Justification:** The duration is operator configuration and `ISubscriptionPolicy.TrialDays` is its one authority —
+a literal in the wizard and another in the e-mail would be a second and a third, and the plan's own *Deploy-time
+values* note records that this product's landing copy **already** says « Essai accompagné — 2 semaines ». So the
+drift is not hypothetical; it has happened once with nothing to catch it. This is the `fixes-dont-propagate` shape
+in its other direction: one authority, three readers.
+**Impact:** One optional DTO field (additive, read `?? 30`), one constructor parameter, and the two test fixtures it
+forces. Three backend files in a part the plan called `web/`-only. Closed by
+`The_email_quotes_the_configured_trial_length_not_a_literal` and
+`The_reported_trial_length_follows_the_configured_value`, both of which a literal fails — proven red for the first.
+**Approved:** Yes — asked with the alternative (hardcode + a go-live alignment note) before any code was written.
+
+### DEV-7: Part C's interim « Abonnement » rail row is closed here
+**Date:** 2026-08-10
+**Story:** 1, Part D, step 6
+**Category:** Scope
+**Original Plan:** Part D's step list and file table do not mention `lib/nav.ts`'s `buildConfigItems`.
+**Actual Implementation:** `buildConfigItems(isAdmin, showSubscription = true)` and
+`buildNavSections(role, showSubscription = true)`; `dashboard-sidebar.tsx` feeds it `useSubscription().enforced`.
+**Justification:** Not new scope — **deferred** scope, and this is the part it was deferred to. Part C's own
+*Known interim state* says: « the row itself disappears in **Part D**, the part that introduces the client-side
+`requiresSubscription` provider the rail would need. **AC-7.1/7.2 are therefore not tickable at Checkpoint C** ».
+That provider is D2. Leaving it would carry an AC the story's own list already marks `[x]` while a clinic's own PC
+still shows a rail row whose page says « cette installation ne fonctionne pas par abonnement », and would repeat the
+deferral loop `no-deferring-in-scope-work` exists to stop.
+**Impact:** Two default parameters, both defaulting to *showing* the row — deliberately, because the second caller
+is `lib/zones.ts`, which builds the route→icon map and needs every destination that can render. A row that appears a
+moment after load (the probe answering) rather than one that disappears is the safe direction, and the same one
+`/join` and `/signup` take with their own probes.
+**Approved:** Taken as closing a recorded deferral, not asked; stated here and in the session report.
+
+## Auto-Approved Deviations
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| The provider listens to `visibilitychange` as well as `focus` | Trivial | Internal to one new file, same trigger by another name. A native shell returning from the background does not reliably raise `focus`, and the `inFlight` guard makes the overlap free. FR-15 names « window focus »; this is that event on the devices the product is used on. |
+| The dismissal key is `endsOn\|daysRemaining`, not a computed date | Trivial | Internal storage detail, no API change. « The next clinic day » is a fact about Tunis and the browser is the one participant that cannot know it — the `todayLocalIso()` defect one layer over. `daysRemaining` decrements at Tunisian midnight, so the pair changes exactly when the banner should return, with no clock at all. |
+| `HIDDEN_PATHS` gains **one** entry, not the plan's two | Trivial | `isChromeLessPath` matches a prefix, so `/signup` already covers `/signup/verifier`. A redundant second entry invites the next reader to think the prefix rule does not exist. |
+| A failed subscription re-read keeps the last known state; only an explicit **404** turns the feature off | Trivial | Internal to the new provider, and EC-13's rule one layer down: a banner that vanishes on a network blip tells a cabinet three days from expiry that everything is fine. |
+| The banner's dismiss **grows its own box** (`coarse:size-11`) rather than using `.touch-target` | Trivial | Found by the rule-by-rule re-read below, not by the plan. § 2: the overlay is for an *isolated* control, and this one sits 12 px from « Renouveler » in the same row — the later sibling paints last, so a 44 px pseudo-element would steal taps aimed at the one control that leads somewhere. |
+| `countdown(null)` says « Abonnement bientôt à renouveler. » instead of `?? 0` | Trivial | Internal to one new function. `?? 0` renders « d'ici 0 jours » — « today is your last day » — to a cabinet the server declined to give a countdown for. The detail line carries the date either way. |
+| `SubscriptionRefusals`' three codes are held in a module-level `Set` in `client.ts` | Trivial | Internal to one file; it is read once per non-OK response and keeps the branch a membership test rather than three `\|\|`s. |
+
+## Part D gates — Checkpoint D
+
+| Gate | Result |
+|---|---|
+| `dotnet build api/ClinicManagement.sln --no-incremental` | ✅ **0 errors**, **55 warnings — the identical Checkpoint A/B/C baseline**, and **zero** name a file this part added or edited (grepped the full list for `AuthController`, `SignUpClinic`, `SelfRegistrationGate`, `Subscription` → no match) |
+| Unit suite | ✅ **2364 passed, 0 failed** (baseline 2356 → **8 new**) |
+| `SelfRegistrationGateTests` | ✅ 10 (5 new: 3 trial-length rows + the configured-value fact + the AC-7.3 fact) |
+| `SignUpClinicTrialCopyTests` | ✅ 3 — new class; the handler had **no** test before this |
+| `SubscriptionGateMiddlewareTests` · `SubscriptionExemptionCoverageTests` · `SubscriptionControllerTests` | ✅ green, **all three unedited** — Part D adds no endpoint and changes no exemption |
+| `ControllerAuthorizationCoverageTests` · `TenantScopeFilterTests` · `DeploymentProfileCoverageTests` · `MoneyReadConsistencyTests` | ✅ green, **all four unedited** (confirmed by name against `git status`) — the four derived guards that should have needed no edit needed none |
+| `RealtimeResourceResolverTests` | ✅ green, **unedited** — no frontend key was added; the state is learned by a re-read (FR-15) |
+| `verify-schema` | **not applicable — and the verb was re-confirmed to exist and run** (`Api/Maintenance/VerifySchemaCommand` + `SchemaVerificationService`, 49 passing tests). Part D adds no migration, column or index: `git status` shows nothing under `Infrastructure/` |
+| `npx tsc --noEmit` | ✅ clean |
+| `npm run check:responsive` | ✅ **15/15** |
+| `npm run build` | ✅ compiled; 33/33 static pages, `/abonnement` still in the route table |
+| Eye pass at 320 / 390 / 820 / 1180 / 1440 px + a 380 px-tall landscape | ⚠️ **not run — no browser automation on this machine.** `agent-browser` is not installed (`command -v` finds nothing; `npx` refuses to fetch it). See *The eye pass, and what stands in for it* |
+
+### The one red-proof
+
+`SignUpClinicTrialCopyTests.The_email_quotes_the_configured_trial_length_not_a_literal` was proven to fail. The
+e-mail's `{_subscriptionPolicy.TrialDays}` was replaced with a literal `30`, the class was run, and **exactly one of
+its three tests went red** — the other two (which assert the default figure) stayed green, which is precisely the
+point: they would have passed on the hardcoded sentence for ever. Probe reverted, file confirmed to hold the
+interpolation again, and the full suite re-run green (2364).
+
+The other new assertions are behavioural. The one worth naming as able to fail on a plausible wrong implementation
+is `No_subscription_setting_can_turn_enforcement_on` — it is the AC-7.3 guard in the direction nobody tests, and it
+fails the moment somebody "helpfully" adds a `Subscription:Enabled` key.
+
+### AC-4.6, audited rather than assumed
+
+The plan's step 4 says « verify rather than assume, and fix any site that closes on error ». Three derived scans
+over every `.tsx` under `app/` and `components/`, each walking the real brace depth of every `catch` block:
+
+| Scan | Result |
+|---|---|
+| A `catch` that closes a dialog or reports success (`onOpenChange(false)`, `setOpen(false)`, `onClose()`, `onSuccess()`) | **none** |
+| A `catch` that navigates away (`router.push/replace/refresh`, `window.location`) | **none** |
+| A `catch` that resets the form (`reset()`, `resetForm()`, `clearForm`) | **none** |
+| A `catch` following a **write** that reports nothing to the user | 8 candidates, **all false positives on inspection** — each sets a French error state (`setCustomError`, `setProcedureTypesError`, `setCreateError`, `setVoidError`, `setDeleteError`, `setCancelError`) and leaves its surface open; the ninth (`ai-chat.tsx:137`) is a **read**, not a write |
+
+A dialog closing in a `finally` was checked for separately and found nowhere. So AC-4.6 needed **no** fix: every
+refused write already leaves its dialog open with the typed input intact, and since each of those sites renders
+`err.message` for an `ApiError`, what a 402 puts on screen is the gate's own French sentence naming the end date.
+
+### The eye pass, and what stands in for it
+
+No browser again (Part C's finding, unchanged). The widths were **not** looked at; recorded as owed. What was run
+in its place: the mechanical gate (15/15) plus a deliberate re-read of both new surfaces against
+`DEVICE-CONTRACT.md` § 1 and `.claude/rules/frontend-web.md`, item by item — which **found two real defects**, which
+is the argument for doing it rather than writing « responsive ✓ »:
+
+1. **The dismiss control used `.touch-target` in a row** — § 2's named wrong-action bug. Changed to
+   `size-8 coarse:size-11`.
+2. **The 44 px floor broke the height budget.** With both controls at 44 px, `py-2` gives 60 px against a ~57 px
+   ceiling on a 380 px landscape viewport. `coarse:py-1` brings it to 52 px; a mouse keeps `py-2` and 48 px.
+
+| Rule | How it is held in `subscription-banner.tsx` (+ the wizard's trial badge) |
+|---|---|
+| § 1 hinge | No hinge needed — one wrapping flex row. `px-4 md:px-6` matches `AppShell`'s own gutter so the strip lines up with the content under it |
+| § 2 touch on the **pointer** | « Renouveler » `coarse:min-h-11` (`size="sm"` is 32 px); dismiss `size-8 coarse:size-11`, grown not overlaid — see above |
+| § 3 16 px fields | No field on either surface |
+| § 4 / § 5 dialogs & sheets | None — and the banner is deliberately **not** a modal (spec: it is met mid-consultation) |
+| § 6 a `<Table>` never ships alone | No table |
+| § 7 `dvh` / bottom inset | Nothing `fixed`. The banner is a flex sibling of `<main>`, so `AppShell`'s `h-dvh` keeps owning the viewport and the bottom bar keeps its edge — the whole reason for DEV-5 |
+| § 8 11 px floor, no `text-[Npx]` | `text-sm` only (`type-scale` passes) |
+| § 9 hover | `hover-hover:hover:opacity-100` on the dismiss — an opacity change, gated anyway, and the control is visible at `opacity-70` rather than hover-revealed |
+| § 10 ungated grids | None. `flex-wrap` with `gap-x-3 gap-y-1`; the wizard badge is `inline-flex flex-wrap` |
+| § 11 overflow | Nothing scrolls horizontally; long text wraps via `[overflow-wrap:anywhere]` |
+| § 12 logical utilities | `-me-1`; `px-*`/`gap-*` are symmetric |
+| § 13 UX floor | `role="status"` on the banner **and** on the wizard badge (an inline async result); `aria-label` on the icon-only dismiss; `aria-hidden` on every decorative glyph; no English string; the state's own French word is in the sentence, so « Expiré » is legible in greyscale and the tone only reinforces it |
+
+### Verification steps — what is proven and what is still owed
+
+| Step (story § *Verification Steps → Part D*) | Result |
+|---|---|
+| A grant reaches the browser within one interval, no sign-out, no reload (AC-5.8) | ✅ **structurally** — the 5-minute interval runs whenever `shouldWarn` or `!allowsWrites`, i.e. exactly while a cabinet is waiting to be unblocked, and nothing in the 402 path touches the session. The live walk needs Part F's grant verb — **owed, and blocked on Part F** |
+| A refused save raises a French toast, leaves the form populated, and the banner appears with no reload (EC-1) | ✅ toast + form: audited in all four directions above. Banner-without-reload: `onSubscriptionRequired` → re-read → provider state → banner, wired and typechecked; **the live walk is owed** |
+| The expired banner has no dismiss control and is not a modal; « Expiré » legible in greyscale | ✅ by construction — `dismissible: false` on both non-writable states, and the state's French word is in the text, not only in the colour |
+| Dismissing while valid hides it for the rest of the clinic day and it returns the next day (AC-3.2) | ✅ by construction on the `endsOn`+`daysRemaining` key; **not** exercised across a real midnight — owed with the operator walk |
+| Banner absent when `requiresSubscription` is not `true`, and on `/login` and `/signup` | ✅ **structurally, twice over**: the provider fetches nothing unless the flag is `=== true`, and `AppShell` — the only mount point — is used by none of the six chrome-less routes (verified by scanning every page file) |
+| Frontend gate clean; eye pass incl. a 380 px-tall landscape viewport for the ≤ 15 % budget | ✅ gate clean · ⚠️ **eye pass owed** (no browser here). The budget was computed rather than measured: 52 px at the coarse floor, 48 px on a mouse, against ~57 px |
+
+## Known interim state, deliberately
+
+**Part C's interim rail row is now closed** (DEV-7) — `SelfHostedLan` and `CloudBrowser` show no « Abonnement » row.
+What remains open after Part D:
+
+- **No warning notifications** (AC-3.4–3.7). The banner appears seven days out; the bell does not badge. Part E.
+- **No vendor verb** (US-5). A paid cabinet is still unlocked by editing the ledger directly, so AC-5.8's *live*
+  walk cannot be performed yet — the re-read that observes a grant is built and the grant is not.
+- **No outbox parking** (FR-8, EC-7). A reminder queued before expiry for a later appointment still sends. Part G.
+
+## Learnings
+
+- **A plan's file list can be right about the component and wrong about the parent.** « Put the banner in
+  `layout.tsx` » is the natural sentence, and it is unimplementable here for a reason visible only in
+  `app-shell.tsx`: that shell claims the whole dynamic viewport, so anything above it pushes the bottom bar off the
+  screen. Reading the parent before writing the child cost one file open and turned a layout bug into a one-line
+  mount — and the mount that works is also the one that makes an AC true by construction. Worth asking « what owns
+  the height here? » before adding any element to a root layout.
+- **« The spec's sentence, verbatim » and « one authority » can be the same instruction pointing two ways.** AC-1.3
+  words the trial as « 30 jours », and the plan's own closing note says the landing copy says « 2 semaines » — i.e.
+  the literal had already drifted before a line of this part was written. The tell was in the plan itself, in a
+  section headed *Deploy-time values* that reads as housekeeping.
+- **A rule-by-rule re-read is not a formality when it replaces an eye pass.** Part C's found one thing; this one
+  found two, and the second (`coarse:py-1`) is a defect **no width would have revealed on this machine anyway** —
+  it only appears on a coarse pointer, which a desktop browser at 380 px of height does not simulate. Where the eye
+  pass cannot run, the arithmetic has to be done explicitly rather than deferred to looking.
+- **A deferral recorded in `progress.md` is only closed if somebody re-reads `progress.md`.** Part C's *Known
+  interim state* named Part D as the place the rail row disappears, and nothing in Part D's own step list or file
+  table mentions `lib/nav.ts` — so following the plan alone would have shipped the whole feature with AC-7.1/7.2
+  ticked and a visible row contradicting it. The story file's AC list already had it as `[x]`, which is exactly how
+  such a gap survives a review.

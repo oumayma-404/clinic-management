@@ -1,9 +1,9 @@
 # Story 1: [Full] Abonnement du cabinet — entitlement, enforcement, visibility and vendor control
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts A and B complete** (both checkpoints green; Parts C–G not started). See
-[stories/progress.md](./progress.md) for the gate results, Part A's two logged deviations and four caught defects, and
-Part B's two executed red-proofs.
+**Story Status:** in-progress — **Parts A, B, C and D complete** (all four checkpoints green; Parts E–G not started).
+See [stories/progress.md](./progress.md) for the gate results, the seven logged deviations, the caught defects and each
+part's executed red-proofs. The eye pass is owed for C and D — no browser automation on this machine.
 **Layer:** Full (deliberate departure from the BE/FE rule — see *Notes*)
 **Depends On:** None
 **Blocks:** `features/platform-console/` (that feature depends on this one and must not be started before it)
@@ -60,13 +60,13 @@ _From spec:_
 - [x] **EC-13** A failed read of the screen is a retryable « Réessayer », never « aucun abonnement » — *only an explicit 404 is read as absence; a network drop is `ApiError(0)` and takes the retry path*
 
 **Part D — banner, toast, live re-read (US-3 banner half, US-4 client half)**
-- [ ] **AC-1.3** The signup form **and** the verification e-mail both state « 30 jours d'essai gratuit, sans carte bancaire » before anything is submitted
-- [ ] **AC-3.1** From **7 days** before the end date, a banner on every screen states the state and the date, linking to « Abonnement »
-- [ ] **AC-3.2** While still valid the banner is dismissible and returns the next clinic day; dismissal is **per browser**, never a server write
-- [ ] **AC-3.3** Once ended the banner is **not** dismissible
-- [ ] **AC-4.6** A refused save leaves the form open with the typed input intact
-- [ ] **AC-5.8** The cabinet's app reflects a grant with nobody signing out or restarting, within FR-15's stated delay
-- [ ] **EC-1** Midnight passes mid-consultation: reads keep working, the save is refused, the fiche stays populated, the banner appears with no reload
+- [x] **AC-1.3** The signup form **and** the verification e-mail both state « N jours d'essai gratuit, sans carte bancaire » before anything is submitted — *N is served from `Subscription:TrialDays` as `trialDays` on `GET /api/auth/mode`, never a literal (progress.md DEV-6)*
+- [x] **AC-3.1** From **7 days** before the end date, a banner on every screen states the state and the date, linking to « Abonnement » — *mounted in `AppShell`, which **is** the set of chrome-ful routes (DEV-5)*
+- [x] **AC-3.2** While still valid the banner is dismissible and returns the next clinic day; dismissal is **per browser**, never a server write — *keyed on the server's own `endsOn`+`daysRemaining` pair, so no browser clock is consulted*
+- [x] **AC-3.3** Once ended the banner is **not** dismissible — *the control is absent, not disabled*
+- [x] **AC-4.6** A refused save leaves the form open with the typed input intact — *audited by four derived scans over every `catch` in `app/` and `components/`; no site needed fixing*
+- [~] **AC-5.8** The cabinet's app reflects a grant with nobody signing out or restarting, within FR-15's stated delay — *the client half is built (5-minute interval while a warning or expiry is in force, window focus, and any 402). The live walk needs Part F's grant verb*
+- [x] **EC-1** Midnight passes mid-consultation: reads keep working, the save is refused, the fiche stays populated, the banner appears with no reload — *the refused save **is** the event: `onSubscriptionRequired` → re-read → banner. Live walk owed*
 
 **Part E — warnings (US-3 notification half)**
 - [ ] **AC-3.4** A notification at **7, 3 and 1 day(s)** before, and again on the day it ends — **four distinct** notifications, each genuinely new so it badges the bell
@@ -189,7 +189,7 @@ start a part before the previous one's checkpoint is green. **Parts E and G are 
 
 **Checkpoint C** — see *Verification Steps → Part C*. Commit.
 
-### Part D — The banner, the refusal toast, and the live re-read
+### Part D — The banner, the refusal toast, and the live re-read — ✅ DONE (Checkpoint D green)
 
 *Covers US-3 (banner half), US-4 (client half), US-5 (AC-5.8) · FR-15*
 
@@ -198,8 +198,12 @@ start a part before the previous one's checkpoint is green. **Parts E and G are 
 3. **`SubscriptionBanner`** — one line wrapping to at most two, ≤ ~15 % of a 380 px-tall landscape viewport, dismissible **only while valid**, dismissal keyed on the clinic day so it returns the next day with no server write
 4. **Confirm every refused save leaves its form open with input intact** (AC-4.6) — the dialogs already use `showErrorToast` and stay open; verify rather than assume, and fix any site that closes on error
 5. **`HIDDEN_PATHS` += `/signup`, `/signup/verifier`**; AC-1.3's trial sentence in `setup-wizard.tsx` **and** in `SignUpClinicCommand`'s verification e-mail body
+6. *(added during implementation)* **Close Part C's interim « Abonnement » rail row** — `buildConfigItems` takes
+   `showSubscription`, fed from the new provider, so `SelfHostedLan` and `CloudBrowser` show no row (AC-7.1/7.2).
+   Part C recorded this as deferred **to Part D** and Part D's own file table did not mention it (progress.md DEV-7)
 
-**Checkpoint D** — see *Verification Steps → Part D*. Commit.
+**Checkpoint D** — see *Verification Steps → Part D*. Commit. ✅ **Green** — 8 new tests, one executed red-proof;
+the eye pass is owed (no browser automation on this machine).
 
 ### Part E — The cabinet is warned before it stops being able to work — ⚠️ ATOMIC
 

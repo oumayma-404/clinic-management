@@ -56,6 +56,17 @@ export interface AuthModeDto {
    * and the safe direction is « no subscription », which is how the two unaffected deployment kinds already behave.
    */
   requiresSubscription?: boolean;
+  /**
+   * Free days a cabinet created here starts with, or `null`/absent where nothing expires (`clinic-subscription`
+   * AC-1.3).
+   *
+   * ⚠️ **Served rather than written into the wizard's copy.** The duration is operator configuration
+   * (`Subscription:TrialDays`) and `ISubscriptionPolicy.TrialDays` is its one authority; a literal « 30 jours » in
+   * the signup form would be a second one, and this product's own landing copy already says « 2 semaines ». The
+   * form falls back to the spec's figure when the field is absent, so an older API still states *something* true
+   * for a default deployment rather than nothing at all.
+   */
+  trialDays?: number | null;
 }
 
 /** What `POST /api/auth/signup` requests. Mirrors the backend `ClinicSignUpRequest`. */

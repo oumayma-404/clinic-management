@@ -94,6 +94,7 @@ public class SignUpClinicCommandHandler
     private readonly ITransactionalEmailSender _emailSender;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPublicAppUrlProvider _appUrl;
+    private readonly ISubscriptionPolicy _subscriptionPolicy;
     private readonly ILogger<SignUpClinicCommandHandler> _logger;
 
     public SignUpClinicCommandHandler(
@@ -103,6 +104,7 @@ public class SignUpClinicCommandHandler
         ITransactionalEmailSender emailSender,
         IUnitOfWork unitOfWork,
         IPublicAppUrlProvider appUrl,
+        ISubscriptionPolicy subscriptionPolicy,
         ILogger<SignUpClinicCommandHandler> logger)
     {
         _signupRepository = signupRepository;
@@ -111,6 +113,7 @@ public class SignUpClinicCommandHandler
         _emailSender = emailSender;
         _unitOfWork = unitOfWork;
         _appUrl = appUrl;
+        _subscriptionPolicy = subscriptionPolicy;
         _logger = logger;
     }
 
@@ -415,10 +418,28 @@ public class SignUpClinicCommandHandler
 
         Ce lien est valable 24 heures et ne peut servir qu'une seule fois. Votre cabinet ne sera créé
         qu'après cette vérification.
-
+        {TrialSentence()}
         Si vous n'êtes pas à l'origine de cette demande, ignorez simplement ce message : aucun compte
         n'a été créé.
         """;
+
+    /// <summary>
+    /// AC-1.3's half of the promise the signup form already makes, restated in the e-mail — the two are the only
+    /// things a visitor reads before committing, and one of them saying nothing about cost is where « on m'a
+    /// demandé ma carte ? » comes from.
+    ///
+    /// <para>⚠️ <b>The number comes from <see cref="ISubscriptionPolicy.TrialDays"/>, never a literal.</b> The
+    /// duration is operator configuration and this product's own landing copy has already drifted from it once
+    /// (« Essai accompagné — 2 semaines »); a hardcoded « 30 jours » here would be a promise no code keeps.</para>
+    ///
+    /// <para>Empty where nothing expires: this door only opens on the hosted profile today, but a deployment that
+    /// grants no trial must not be made to advertise one.</para>
+    /// </summary>
+    private string TrialSentence() =>
+        _subscriptionPolicy.RequiresSubscription
+            ? $"\nVotre cabinet démarre avec {_subscriptionPolicy.TrialDays} jours d'essai gratuit, "
+              + "sans carte bancaire.\n"
+            : "";
 
     /// <summary>
     /// Built from <see cref="IPublicAppUrlProvider"/>, i.e. from <c>FrontendUrl</c> — so no host is compiled in
