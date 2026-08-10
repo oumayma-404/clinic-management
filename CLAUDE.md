@@ -585,6 +585,89 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   `AddForeignKey` over such a row aborts the upgrade after the schema is half-applied. This is **attribution, not
   authorization**: per-practitioner data scoping is deliberately out of scope. `verify-schema` gained
   `practitioner-attribution-backfill`, because a backfill is the one thing invisible to every other layer.
+- **A cabinet's right to record work is a dated entitlement (`clinic-subscription`, Parts A+B+C of 7)**: on the
+  hosted deployment a clinic gets **30 free days**, and past its date it becomes **read-only** — every read, every
+  CSV export and every PDF keep working, and only writes are refused. Part A ships the foundation: one
+  **`ClinicSubscription`** per clinic whose `EndsOn` is a full re-fold of an append-only, cancellable
+  **`SubscriptionPeriod`** ledger, the 16th `DeploymentProfile` capability **`RequiresSubscription`**
+  (`HostedMultiTenant` only, decided by the **kind** and by nothing an operator can set — AC-7.3), and one migration
+  that grandfathers every pre-existing cabinet **open-ended** so no clinic anywhere can be refused for at least 30
+  days after deployment. **Part B ships the enforcement**: `API/Middleware/SubscriptionGateMiddleware` refuses every
+  non-GET request under `/api` with **402** + a code + a French sentence naming the date, unless the endpoint carries
+  **`[AllowsWithoutSubscription("<reason>")]`** — see `api/ClinicManagement.API/CLAUDE.md` for the exempt set, the
+  ordering rationale and the two derived guards. **Part C ships the visibility**: `GET /api/subscription`
+  (`AnyClinicRole`) + `GET /api/subscription/history` (`AdminOnly`), the **« Abonnement » screen** at
+  `web/app/abonnement/`, and `requiresSubscription` on `GET /api/auth/mode`. **Part D ships the client half**: the three
+  402 codes + `onSubscriptionRequired` in `web/lib/api/client.ts`, **`SubscriptionProvider`** owning FR-15's three
+  re-read triggers, the **`SubscriptionBanner`** on every screen, and AC-1.3's trial sentence — served from
+  `Subscription:TrialDays` as `trialDays` on `GET /api/auth/mode`, never a literal. **Parts E–G are not built yet**:
+  no warning notifications, no vendor verb and no outbox parking — so a lapsed cabinet is refused correctly, can read
+  why and sees it coming seven days out, but is not *notified* in advance and can only be unlocked by editing the
+  ledger directly.
+  ⚠️ **The banner mounts in `AppShell`, not in `app/layout.tsx`** where the plan put it: `AppShell` is `flex h-dvh`,
+  so a strip above it makes the document taller than the viewport — the page scrolls as a whole and the phone's
+  bottom bar goes off screen, which also makes the spec's « ≤ 15 % of a 380 px landscape viewport » budget
+  unmeetable. As a flex sibling of `<main>` it costs no height maths, exactly as `BottomNav` already does. It is
+  also what makes « no banner on `/login` or `/signup` » **structural**: the six routes that render no shell are
+  precisely those two plus `/setup`, `/join`, `/change-password` and `/signup/verifier`.
+  ⚠️ **The per-day dismissal is keyed on the server's own `endsOn|daysRemaining` pair, never on a date the browser
+  computes.** « The next clinic day » is a fact about Tunis, and a workstation on any other timezone would bring the
+  banner back hours early or late — the defect `todayLocalIso()` exists to prevent one layer over. `daysRemaining`
+  decrements at Tunisian midnight, so the pair changes exactly when it should and needs no clock at all.
+  ⚠️ **The 402 hook is the one that changes nothing about the failing call.** Unlike 426 (`<ClientVersionGate>` takes
+  the screen) and `must_change_password` (routed, and its English message replaced), a subscription refusal carries
+  the gate's own French sentence naming the date, so it travels on verbatim to `showErrorToast` and the form stays
+  open with everything typed still in it (AC-4.6). It must never touch `handleRequest`'s one-shot 401 retry — the
+  account is fine, and the refusal never signs anybody out (AC-4.5).
+  ⚠️ **Part C's interim rail row is closed here**: `buildConfigItems` now takes `showSubscription`, fed from the
+  provider, so `SelfHostedLan` and `CloudBrowser` show no « Abonnement » row at all (AC-7.1/7.2). `lib/zones.ts`
+  keeps the full set — it builds the route→icon map and needs every destination that can render — which is why the
+  parameter defaults to *showing* the row.
+  ⚠️ **« Abonnement » is reachable by a secretary, and that is a deliberate exception** to the product's rule that a
+  secretary sees no clinic-wide money screen (AC-2.2): the amounts are what the practice owes its software *vendor*,
+  none of it appears in la caisse or a patient's balance (FR-2), and the person who meets the refused save chairside is
+  usually not the person who pays. What stays `AdminOnly` is the payment **history**, not the screen.
+  ⚠️ **`GET /api/subscription` reads the ledger; the gate deliberately does not.** The entitlement row carries one date
+  and no memory of where it came from, so « is the cover in force the free **trial**? » needs the fold — which is
+  exactly why `SubscriptionStateReader.Read` takes `isTrial` as a parameter. The gate stays one indexed row.
+  ⚠️ **`Subscriptions` is on `RealtimeResourceResolver.ExcludedAreas`** (FR-15): the state is learned by a **re-read**,
+  never a broadcast, because neither moment that changes it can push one — a vendor grant runs in a separate process
+  with no caller's token to derive a clinic from, and an entitlement ending at midnight has no actor at all.
+  ⚠️ **Interim state until Part D**: `/abonnement` is in `buildConfigItems` unconditionally, so `SelfHostedLan` and
+  `CloudBrowser` show one rail row whose page says « cette installation ne fonctionne pas par abonnement ». Both
+  endpoints **404 before the mediator** there, so nothing behind them is resolved; Part D's provider removes the row.
+  ⚠️ **Reads are untouched by construction, not by a list**: the gate never inspects a GET/HEAD/OPTIONS, so « every
+  read, every CSV export and every PDF keep working » holds for every read that exists *and* every read added later.
+  An allow-list of readable endpoints would have to be kept complete, and the day it was not, an expired cabinet would
+  lose part of its own records.
+  ⚠️ **The gate goes after `LocalAuthEnforcementMiddleware`, not beside `TenantScopeMiddleware`** — one block earlier
+  and a **402 masks the 401** of a revoked token and the **403 `must_change_password`** of a forced password change,
+  so a deactivated colleague is told the subscription lapsed and a user owing a password change is sent to
+  « Abonnement » instead of to the screen that unblocks them. It is correct in isolation and wrong only in *position*,
+  which is why `SubscriptionGateMiddlewareTests` asserts the ordering against `Program.cs`'s own source.
+  ⚠️ **A caller who is not a cabinet passes**, rather than meeting `subscription_missing`: no clinic in scope means no
+  entitlement to find, and that fault code would otherwise land on precisely the vendor-console endpoints whose whole
+  purpose is to *end* a refusal.
+  ⚠️ **`SubscriptionLedger.Fold` takes no clock and folds on an EXCLUSIVE cursor**, and both halves are load-bearing.
+  Passing « today » in — the naive reading of « the later of the current end or today, plus the duration » — makes the
+  answer depend on when it is recomputed, so a lapsed entry restarts from today and `verify-schema` flaps daily. And
+  a recorded day is an inclusive *start* while a running end is an inclusive *end*, so a single `anchor + duration`
+  over both is wrong in one of the two cases whichever way it is written: a **31-day** trial (AC-1.1 says 10 Aug →
+  8 Sep) or a one-day grant on a lapsed cabinet. Consequently **the trial's own date is not written directly either**
+  — provisioning builds the entry and calls `ClinicSubscription.RecomputeFrom`, which is the *only* writer of
+  `EndsOn`; a hand-computed `creationDay.AddDays(trialDays - 1)` disagrees with its own fold by one day and turns
+  `subscription-end-date-matches-ledger` red on every new cabinet.
+  ⚠️ **Two construction doors, three callers of the helper.** `LocalClinicProvisioning.ProvisionAsync` is a `static`
+  taking its repositories as parameters, so the signature change breaks all three (`CreateClinicCommand`'s Local
+  branch, the **`provision-clinic`** verb — container = `AddInfrastructure` **only**, which is why the repository and
+  the policy are registered there — and **`VerifyClinicSignUpCommand`**, the public self-signup that will create most
+  trials). Door 2 of 2 is `CreateClinicCommand`'s **Auth0/Cloud** branch, which builds its own `Clinic`, never
+  reaches the helper, and always yields an **open-ended** entitlement — which is exactly why it is the door easiest
+  to forget, and why `ClinicCreationEntitlementTests` derives the door set by scanning for `new Clinic(` instead of
+  listing today's two.
+  ⚠️ **The vendor's money is never the clinic's** (FR-2): separate tables and a separate
+  `SubscriptionPaymentMethod` enum, and `MoneyReadConsistencyTests` is **unchanged** — a subscription payment reaches
+  neither la caisse, l'extrait, « Créances », the dashboard's Argent section nor any patient's balance.
 - **Multi-tenancy**: every request is scoped to a clinic. The **authoritative** check is per-request in the handlers — the clinic is resolved from the DB user record (`ICurrentClinicResolver`/`IClinicContext` → DB lookup of the `sub`, not purely from the JWT claim) and each loaded aggregate's `ClinicId` is re-verified. Since `cloud-security-and-tenant-isolation` (PR #11) there is **also** a second layer: EF Core **global query filters** on **21** clinic-owned aggregate roots. ⚠️ **They were fail-open — and therefore inert — until `multi-tenant-cloud` US-2 (Part B).** They are now fed by a three-valued **`ITenantScope`** (`Unset` | `Clinic(id)` | `SystemWide(reason)`) through `ICurrentClinicProvider`, and **only `Unset` refuses**: a path that never established a scope reads **nothing** instead of every clinic. The scope is set per request by `TenantScopeMiddleware` from the **DB-resolved** `User.ClinicId` — never from the JWT claim (amendment C3′: the Cloud claim is written by an Auth0 Action outside this repo, and a stale token used to be harmless under fail-open but would now mean zero rows with no error). Everything that reads with no HTTP context says so explicitly: the five recurring jobs, the startup scope and the three DB-touching console verbs call `UseSystemWide(reason)`; `PdfGenerationJob` and the App→Google dispatcher call `UseClinic(id)` because they handle exactly one record. Pinned by `TenantScopeFilterTests` (derived over every filtered root) and `SystemWideCallerCoverageTests` (derived over « reads a filtered entity with no HTTP context »). ⚠️ **The seven clinical children of `Patient` used to carry no `ClinicId` at all** (`MedicalDocument`, `DentalRecord`, `PatientMedicalHistory`, `PatientFamilyHistory`, `PatientFile`, `PatientFolder`, `ToothState`), so no filter was possible and the per-handler check was their **only** layer. They now each carry one, **denormalised from their patient**, and are filtered like every other clinic-owned table — which the derived `TenantScopeFilterTests.Every_Clinic_Owned_Table_Is_Either_Filtered_Or_A_Named_Decision` enrolled them into for free the moment the column appeared. `*TenantIsolationTests` + `ClinicalRecordTenantIsolationTests` still hold the per-handler layer. ⚠️ **Denormalised means the two can disagree, and nothing in the model can say they must not** — so `verify-schema` gained **`clinical-child-clinic-matches-patient`**, one figure over all seven tables catching both failure directions: a backfill that covered nothing (rows left at `Guid.Empty`, whose symptom is not an error but a patient record that reads as *empty*) and a write path that names the wrong clinic (the row is visible, to the wrong practice). The constructors take `clinicId` as a **required positional parameter** right after `patientId` for the same reason: a new write path that forgets it is a compile error, not a silent leak. Every caller passes the **patient's own** `ClinicId` — already tenant-checked one line above — never the caller's, so the invariant holds by construction rather than by discipline. It was **not** filtered through the `Patient` navigation: that puts a correlated subquery on the hottest reads in the product, and every other filtered entity states its clinic as a column. ⚠️ **SignalR hub methods run with no scope** (HTTP middleware does not run per invocation); `ClinicHub` is safe only because it reads `User`, which is unfiltered. See `Infrastructure/Persistence/ApplicationDbContext.cs`.
 - **Three deployment topologies, one capability per question (`multi-tenant-cloud` US-1 / Part A)**: `Deployment:Profile`
   resolves to a **`DeploymentProfile`** — a `DeploymentKind` plus **15** named capabilities — and every mode branch in

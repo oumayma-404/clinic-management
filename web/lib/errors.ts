@@ -33,6 +33,21 @@ export function isForbiddenError(err: unknown): boolean {
 }
 
 /**
+ * True when the cabinet's subscription is what refused this write (HTTP 402) — never a fault, never a rights
+ * denial, and never a lost session (`clinic-subscription` AC-4.5).
+ *
+ * <p>Keyed on the **status**, not on the three codes: a caller asking this question wants « was this the
+ * subscription? », and a 402 from our own front door can only be the gate. `ApiError.code` stays available for
+ * the caller that needs to tell expiry from suspension.</p>
+ *
+ * <p>⚠️ It deliberately offers no retry: paying is the remedy, and the same request will refuse identically a
+ * second later. `showErrorToast` already withholds « Réessayer » for anything but a transport failure.</p>
+ */
+export function isPaymentRequiredError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 402
+}
+
+/**
  * True when the request never reached the server — the one failure class where **retrying is the right
  * advice** (AC-43).
  *

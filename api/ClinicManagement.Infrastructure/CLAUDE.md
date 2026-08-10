@@ -9,6 +9,14 @@ rendering, Auth0 management (Cloud) / local JWT auth (Local), and — for offlin
 self-generated HTTPS trust material, and per-clinic reference-catalog seeding. All wiring lives in
 `Extensions.cs` (`AddInfrastructure`).
 
+> **16 capabilities now** — `clinic-subscription` Part A added **`RequiresSubscription`** (`HostedMultiTenant`
+> only), which decides whether a cabinet's right to record new work is a dated entitlement. ⚠️ It reads **no
+> configuration key at all** (AC-7.3): `SubscriptionPolicy.RequiresSubscription` returns `_profile.RequiresSubscription`
+> and there is deliberately no `Subscription:Enabled` to find, because a key able to flip it would put a clinic's own
+> Windows PC one config edit away from refusing its own patient records. `TrialDays` and the prices *are* operator
+> config and live beside it on `ISubscriptionPolicy`/`ISubscriptionPricing` — the same split as
+> `PermitsOsPush` vs `IOsPushAvailability`, and for the same reason.
+>
 > Behavior is gated by the resolved **deployment profile**, not by an auth-mode boolean:
 > `Deployment/DeploymentProfile.Resolve(config)` → `SelfHostedLan` (offline LAN, self-issued JWT, local-disk
 > storage) | `HostedMultiTenant` | `CloudBrowser` (Auth0, MinIO), each exposing **a capability per question**
@@ -138,7 +146,7 @@ Installment, TreatmentPlan, TreatmentPlanItem, ClinicReminderSettings, CnamNomen
 DentalActCode, Medication, MedicationActiveIngredient, Expense, WaitingListEntry, LabWorkOrder.
 
 ### Migrations (`Migrations/`)
-45 migrations, applied automatically at startup (`context.Database.Migrate()` in API `Program.cs`). Early ones
+46 migrations, applied automatically at startup (`context.Database.Migrate()` in API `Program.cs`). Early ones
 build the base schema, Google-event id, procedures, medical/dental records, notes, storage folders, medical
 documents, nullable-patient appointments, and the multi-tenant clinic/user/doctor model. Notable later ones:
 `AddLocalAuthUserFields` (Local-auth `User` columns + partial unique index on lowercased email filtered to
@@ -183,6 +191,25 @@ documents, nullable-patient appointments, and the multi-tenant clinic/user/docto
   stopped trimming visible. **Hand-written** (migration + `.Designer.cs` + snapshot) for the same reason as the
   two above, here because the running API held `ClinicManagement.API/bin`; the Designer was derived mechanically
   from the updated snapshot rather than retyped.
+- **`20260810175512_AddClinicSubscriptions`** (`clinic-subscription` Part A) — the two entitlement tables
+  (`ClinicSubscriptions`, unique on `ClinicId`; `SubscriptionPeriods`, indexed `(ClinicId, RecordedAtUtc)`; both FK
+  cascade to `Clinics`), the three nullable columns Parts E and G write to
+  (`StaffNotifications.SubscriptionThresholdDays`, `Notifications.BlockedReason`, `PushDeliveries.BlockedReason`),
+  and the **grandfathering backfill**. Purely additive — nothing altered, narrowed or dropped — so the
+  destructive-before-backfill hazard has nothing to bite on, though the backfill still sits below every DDL
+  statement so a future edit inherits that order.
+  ⚠️ **`dotnet ef` DID scaffold here** (unlike the three above) and got one thing wrong that PostgreSQL refuses:
+  it emitted an **`xmin` column** in both `CreateTable` blocks. EF maps `Entity<T>.Version` onto the *system*
+  column, so the differ writes it out as a real one and the migration fails with
+  `column name "xmin" conflicts with a system column name` — the same rejection that makes `AddConcurrencyToken`'s
+  `Up()` deliberately empty. Both lines were removed by hand; every row still gets its token from the system column.
+  ⚠️ **Both backfill inserts are gated on « this cabinet has no entitlement row »**, which makes `Up()` re-runnable
+  and, more to the point, **safe** to re-run on a populated database: a cabinet created *after* this migration
+  already has its own `Trial` entry, so gating on « no `Grandfathered` row » instead would hand a paying cabinet's
+  trial an open-ended entry and it would never expire again. `EndsOn` is left `NULL` rather than computed — which is
+  exactly what folding one open-ended entry yields, so `subscription-end-date-matches-ledger` reads clean the moment
+  it finishes. Verified end to end: applied to a live database, `verify-schema` went exit 2 → **exit 0**, and
+  `4 clinics = 4 entitlements = 4 grandfathered = 4 open-ended`.
 
 ## Repositories (`Repositories/`)
 Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `ApplicationDbContext`; `GetById*` uses
@@ -215,6 +242,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `ILabWorkOrderRepository` | `LabWorkOrderRepository` (dental-lab) |
 | `IRecurringAppointmentRepository` | `RecurringAppointmentRepository` |
 | `IDeviceRegistrationRepository` | `DeviceRegistrationRepository` (P6). Its `GetByTokenAcrossClinicsAsync` is the only deliberately `IgnoreQueryFilters()` read here besides the seeder's — see the Domain guide for why that is *required* rather than lax |
+| `IClinicSubscriptionRepository` | `ClinicSubscriptionRepository` (`clinic-subscription`). Both its tables carry a non-nullable `ClinicId` and are filtered, so there is **no `IgnoreQueryFilters()` anywhere in it** and none is needed: a caller with no clinic in scope has to declare `UseSystemWide` rather than have this class quietly read across cabinets. Guarded `UpdateAsync` (the detached-`xmin`-0 trap `ClinicSignupRepository` documents) |
 | `IClinicSignupRepository` | `ClinicSignupRepository` (`clinic-self-signup`). The one repository with **no** `IgnoreQueryFilters()` and no need of one: `ClinicSignup` carries no `ClinicId`, so no filter is configured for it. Its `PurgeSpentAsync` **stages** removals rather than `ExecuteDelete`, so the trim rides the caller's single `SaveChangesAsync` instead of committing even when the signup it accompanies is refused |
 | `IClinicActivityRepository` | `ClinicActivityRepository` (`platform-console` Part 2). The vendor console's counter tables and the one bounded portfolio JOIN. ⚠️ A **LEFT** join from `Clinics` onto the snapshot, so a cabinet the pass has never reached still appears with its counters stated as unknown rather than as zeros (EC-8/EC-15) — an inner join would hide exactly the cabinets whose absence is the thing worth seeing. ⚠️ The administrators'-address half of the search is an `EXISTS`, not a join: a cabinet with two admins must appear **once**, and joining would duplicate its row and corrupt every page boundary after it. ⚠️ `.ThenBy(clinic.Id)` on every sort branch, or `OFFSET` shows one cabinet twice and skips another. ⚠️ Since Part 3 the list and the **detail** (`GetClinicRowAsync`) pass the **same** projection expression over a named `PortfolioJoin` — AC-3.1 is « the same figures », and two expressions would drift into a cabinet reading one way in the portfolio and another when opened, the hardest kind of discrepancy to notice because both screens look right alone |
 | `IPlatformAccessEntryRepository` | `PlatformAccessEntryRepository` (`platform-console` Part 3). Add and one paged read; **no update and no delete**, which is the contract rather than an omission. `GetRecordedActorsAsync` is a plain `SELECT DISTINCT` over `(PlatformAccountId, AccountEmail)` and not a `GroupBy` picking one address per account: nothing renames a console account today, so it yields one row each — and if that changes, showing both addresses an account has acted under is the honest answer where `Max` would have chosen one by alphabet |
@@ -452,6 +480,11 @@ a call fails cleanly ("pg_dump introuvable").
 - **Not registered here:** `CertificateProvisioner` (constructed manually pre-Build in `Program.cs`);
   `AdminPasswordRecoveryService` (console-only). **Retired:** `IGoogleTokenStore`/`FileGoogleTokenStore` — Google
   refresh tokens now live per-clinic on the `Clinic` entity.
+- **Cabinet entitlements (`clinic-subscription`)** — `IClinicSubscriptionRepository` (scoped) plus
+  `ISubscriptionPolicy`/`ISubscriptionPricing` (**Singletons**, same lifetime reasoning as the profile they read:
+  immutable and derived from startup configuration). ⚠️ **Registered here and not in `AddApplication`, and that is
+  load-bearing**: `provision-clinic` builds its container from *this* method alone and it creates a cabinet — which
+  must not come into existence without an entitlement (FR-4) — so it has to resolve all three.
 - **Tenant scope (US-2)** — `AddScoped<ITenantScope, TenantScope>()` plus a `TryAddScoped` **floor** for
   `ICurrentClinicProvider`, both here rather than in `AddApplication` so the seven console verbs (container from
   this method alone) can declare their scope and have it honoured. `AuditSaveChangesInterceptor` now resolves the
@@ -461,6 +494,13 @@ a call fails cleanly ("pg_dump introuvable").
   `TenantScopeMiddleware` that sets the per-request scope.
 
 ## Config keys consumed (names only)
+**`Subscription:{TrialDays, Plans:<Cabinet|Clinique|SurMesure>:{PriceMonthlyDt,PriceAnnualDt}, PaymentInstructions,
+ContactEmail, ContactPhone}`** — ⚠️ there is deliberately **no `Subscription:Enabled`**; enforcement follows the
+deployment *kind*. Every value is parsed by hand rather than through `GetValue<T>`, which **throws** on a value it
+cannot convert: `TrialDays` is read while a cabinet is being provisioned (a typo would abort clinic creation) and a
+price feeds the one screen an expired cabinet opens. Anything unreadable, absent or out of range falls back —
+`TrialDays` to 30, a price to « non publié » rather than to 0,000 DT. Prices parse with **`InvariantCulture`**: a
+config file is not localised, and on an fr-TN host `"120.5"` would otherwise read as 1205. No secret-bearing key.
 `ConnectionStrings:DefaultConnection`; `FileStorage:BasePath`; `MinIO:{Endpoint,AccessKey,SecretKey,BucketName,
 UseSSL}`; `GoogleCalendar:{ClientId,ClientSecret}` (per-clinic refresh token/calendar id live on `Clinic`);
 `HuggingFace:{ApiKey,Model}`; `Auth0:{Domain,ManagementApi:ClientId,ManagementApi:ClientSecret}`;

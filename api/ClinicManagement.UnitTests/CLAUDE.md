@@ -50,6 +50,58 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   asking a reviewer to delete a call by hand. ⚠️ Exclude compiler-generated **nested** types when reflecting over a
   namespace: in a Debug build an async state machine is a *class*, so `<FlagExpiringStock>d__3` arrives as a
   candidate whose source file does not exist.
+- **`Domain/SubscriptionLedgerTests.cs`** + **`Features/Subscriptions/*`** + **`Common/ClinicCreationEntitlementTests.cs`**
+  (`clinic-subscription` Part A). The ledger class is the highest-value one in the feature: every screen, the gate, the
+  warning job and every vendor verb read the date it produces, so an off-by-one is wrong everywhere at once and
+  visible nowhere in particular. It pins the two properties that carry the risk — **clock-freedom** (identical entries
+  fold to the same date, and there is no clock to pass) and the **exclusive cursor**, via the two cases a single
+  `anchor + duration` gets wrong in opposite directions: a trial-only ledger ends on `creationDay.AddDays(29)`
+  (AC-1.1 — 30 days, not 31) and a **lapsed** cabinet's 12-month grant counts from its recorded day while EC-3's
+  still-valid one adds twelve months to the old end **with no −1**. Plus cancelling a *middle* entry moving the date
+  (the assertion an incremental `EndsOn += duration` cannot satisfy), `AddMonths` clamping, and open-ended collapse.
+  ⚠️ **Every date is a fixed literal and there is no `DateTime.UtcNow` in the file** — a test that reads the clock
+  agrees with a clock-dependent fold by construction, the same trap `ClinicClockTests` documents.
+  `ClinicCreationEntitlementTests` is the derived source scan that catches a **third** clinic-construction door,
+  scoped to Application + API because `new Clinic(` has ~19 matches of which 17 are test fixtures; it carries its own
+  red-proof rather than asking a reviewer to delete a call by hand.
+- **`Api/SubscriptionGateMiddlewareTests.cs`** + **`Api/SubscriptionExemptionCoverageTests.cs`**
+  (`clinic-subscription` Part B). **Most of the first class asserts what the gate must NOT refuse**, and that is where
+  its value is: it sits in front of every controller on the hosted deployment, so a wrong « refuse » verdict does not
+  degrade a feature — it takes a working cabinet's ability to record anything at all, mid-consultation. Hence the
+  over-refusal cases outnumbering the three refusals, and hence `RepositoryReads == 0` being asserted alongside
+  « passed »: a read, a non-`/api` path and a non-enforcing deployment must not even *look the entitlement up*, which
+  is what makes « an expired cabinet keeps all of its records » structural rather than an allow-list.
+  ⚠️ Its dates are decades away (2020 / 2099) **because the gate reads the real clock** — unlike
+  `SubscriptionStateReaderTests`, which takes today as a parameter and can pin the midnight boundary. A fixture near
+  today would pass or fail depending on when the suite runs.
+  ⚠️ **The load-bearing case is `The_Gate_Runs_After_Token_State_Enforcement_And_Before_The_Controllers`**, asserted
+  against **`Program.cs`'s own source** on `AccountStateEnforcementTests`' precedent: registered one block earlier the
+  gate answers 402 to a revoked token (401) and a pending forced password change (403), and the middleware is
+  perfectly correct in isolation — only its *position* is wrong, so no behavioural test can see it.
+  The coverage class derives FR-3's exempt set off the compiled controllers and asserts it equals the reviewed list in
+  **both** directions; the second is the one that matters, since a silently un-exempted `change-password` locks an
+  expired cabinet out of the action that unblocks it. ⚠️ **It classifies non-GET actions only, and says so**: the gate
+  never inspects a read, so it *cannot* go red when the attribute is removed from a GET-only row — a limitation made
+  executable by `The_Guard_Is_Deliberately_Blind_To_An_Exempted_Read`, beside the ordinary red-proof, so nobody reads
+  a green run as covering those rows. An action declaring **no** HTTP method counts as a write (it answers every verb).
+- **`Features/Subscriptions/GetSubscriptionQueryTests.cs`** + **`GetSubscriptionHistoryQueryTests.cs`** +
+  **`Api/SubscriptionControllerTests.cs`** (`clinic-subscription` Part C). The fold's arithmetic belongs to
+  `SubscriptionLedgerTests` and the state rule to `SubscriptionStateReaderTests`; what these three add is what neither
+  can see. The single highest-value case is
+  `GetSubscriptionQueryTests.A_Cabinet_On_Its_Free_Days_Reads_Essai_Gratuit`: it is the **only** assertion that fails if
+  the handler stops reading the ledger, because every other field would still be right and every cabinet would simply
+  read « Actif ». Its sibling is
+  `GetSubscriptionHistoryQueryTests.Page_Two_Continues_Page_Ones_Periods_Rather_Than_Restarting_Them` — hand the fold a
+  paged window and page 2's dates stay entirely plausible while describing periods the cabinet was never entitled to.
+  ⚠️ **`GetSubscriptionQueryTests` anchors its fixtures on `ClinicClock.ClinicToday()`, which is the OPPOSITE of what
+  `ClinicClockTests` and `SubscriptionGateMiddlewareTests` do**, and deliberately: the property under test is « which
+  ledger entry covers *today* », so a fixture decades away has no covering entry at all and the case ceases to exist.
+  The history class has no clock in it at all, because nothing in that read depends on today.
+  `SubscriptionControllerTests` holds the two facts that live in *composition*: the **404 is answered before the
+  mediator** (AC-7.1/7.2 is « byte for byte unchanged », not « unchanged plus two reads » — asserted as
+  `Assert.Empty(mediator.Invocations)`, not merely as a status), and the AC-2.2 policy split (`AnyClinicRole` on the
+  screen, `AdminOnly` on the history alone) with a **drift guard** carrying its own executed red-proof, so a later
+  action cannot widen the secretary exception by omission.
 - **`Api/MigrationLockTests.cs`** (`multi-tenant-cloud` US-6) — the startup advisory lock, and a worked example of asserting the two things a mistake would actually look like when the mechanism itself is out of reach (nothing here touches a database). Both statements must name the **same fixed** key — two instances naming different numbers serialise nothing, and the failure is invisible until two containers migrate at once — and the lock must be **session-level**, because `pg_advisory_xact_lock` releases at the first commit *inside* the migration, leaving the rest of it unprotected while looking correct. The third property is asserted against **`Program.cs`'s own source**: a lock the startup path forgot to wrap is exactly as broken as no lock, and nothing else in the build can see it.
 - **`Api/AuthAttemptAccountTests.cs`** + the US-6 half of **`Api/RateLimitingTests.cs`** — the login limiter's re-key onto the submitted account. Most of the file is about the cases that must produce **nothing**: a non-JSON body, a truncated one, an oversized one, `auth/refresh` (no email at all). Any of those throwing would take the login endpoint off the air, which is strictly worse than the lockout the re-key exists to prevent. The two partition cases that matter are the ones a naive fix gets wrong: **the same account shares one bucket regardless of address** (a compound `account+address` key would hand one attacker a fresh budget per address) and **an account key can never collide with an address key** (an email is caller-supplied text).
 - **`Api/HealthCheckTests.cs`** — the grading, which is the whole substance: storage down is **`Degraded`** (still 200) and the database is `Unhealthy` (503). Also that storage which cannot even be **resolved** degrades rather than 500s — where MinIO is unconfigured `AddInfrastructure` deliberately registers a factory that throws, so a constructor-injected `IFileStorage` would throw while the framework was *building* the check.
@@ -174,11 +226,23 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
 ## Gotchas
 
 - **`Features/Patients/DentalRecordPostVisitCompletionTests.cs.deferred`** — the `.deferred` extension deliberately excludes it from compilation (parked, not deleted). Don't rename it back without checking why it was parked.
-- **Running the suite on this machine — build the output INSIDE the repository.** Windows **Smart App Control** is ON and blocks freshly-built DLLs with `0x800711C7`, but its verdict turns out to depend on **where** they are: an output directory under `%TEMP%`/the scratchpad is refused, and the same assembly built into the repo tree loads fine. So:
+- **Running the suite on this machine — Smart App Control blocks freshly-built DLLs, and it is INTERMITTENT rather
+  than location-fixed.** SAC is enforcing (`HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy` →
+  `VerifiedAndReputablePolicyState = 1`) and refuses a new assembly with `0x800711C7`. ⚠️ **The « build into the repo
+  tree and it loads fine » rule below is not reliable** — `clinic-subscription` Part A saw three successful runs from
+  `%TEMP%\clinic-testrun\`, then the *same command* blocked, then the in-repo `api/.testrun/` blocked too, then
+  `%TEMP%` worked again. **Retrying is what works**; treat a block as transient and do not go rewriting the run
+  strategy around it (multi-tenant-cloud Part F already lost a round to that). Both output locations remain worth
+  trying:
   ```bash
   dotnet build api/ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj -p:OutDir=<repo>/api/.testrun/
   dotnet vstest api/.testrun/ClinicManagement.UnitTests.dll            # add --TestCaseFilter:"FullyQualifiedName~X"
   ```
+  ⚠️ **In PowerShell, never end an `OutDir`/`BaseOutputPath` argument with a backslash inside double quotes**:
+  `-p:OutDir="…\.testrun\"` has the trailing `\"` **escape the quote**, so the argument is mangled, MSBuild silently
+  builds to the default `bin/` and reports success — and `vstest` then runs the *stale* assembly and says « No test
+  matches the given testcase filter », which reads as a filter problem and is not one. Put the path in a variable
+  with no trailing separator.
   ⚠️ `dotnet test` **in place** is a separate, unrelated failure: when the user's `ClinicManagement.API` is running it holds `api/ClinicManagement.API/bin/Debug`, so the build dies on `MSB3021 — the file is locked by ClinicManagement.API (PID …)`. That is not SAC; read the error. A scratch `OutDir`/`BaseOutputPath` sidesteps the lock, which is why the two problems used to look like one. `multi-tenant-cloud` Part F spent a round on a throwaway reflection-based test runner before finding the location rule — do not repeat that; try the in-repo `OutDir` first.
 - **Nothing here touches a database — so migrations are outside this suite's reach entirely.** An index can be missing, an exclusion constraint can be non-partial, a data backfill can cover zero rows, and a model change can have no applied migration at all, while every test in this project passes. That class of change is gated by the **`verify-schema` console verb** instead (`Application/Common/Maintenance/SchemaVerificationService` + `Infrastructure/Persistence/SchemaVerificationReader`), run before and after a migration batch and diffed. `SchemaVerificationServiceTests` covers the assertions against a **mocked reader** — which is why the reader seam exists at all. Do **not** add a database-touching test here to cover a migration; extend `verify-schema` and its service tests.
 - **A handler test failing on `Assert.True(result.IsSuccess)` is almost always a fixture that has not kept up with

@@ -45,6 +45,8 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
     private readonly IFileStorage _fileStorage;
     private readonly ILocalAuthService _localAuthService;
     private readonly IClinicCatalogSeeder _clinicCatalogSeeder;
+    private readonly IClinicSubscriptionRepository _subscriptionRepository;
+    private readonly ISubscriptionPolicy _subscriptionPolicy;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<CreateClinicCommandHandler> _logger;
 
@@ -58,6 +60,8 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         IFileStorage fileStorage,
         ILocalAuthService localAuthService,
         IClinicCatalogSeeder clinicCatalogSeeder,
+        IClinicSubscriptionRepository subscriptionRepository,
+        ISubscriptionPolicy subscriptionPolicy,
         IUnitOfWork unitOfWork,
         ILogger<CreateClinicCommandHandler> logger)
     {
@@ -70,6 +74,8 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         _fileStorage = fileStorage;
         _localAuthService = localAuthService;
         _clinicCatalogSeeder = clinicCatalogSeeder;
+        _subscriptionRepository = subscriptionRepository;
+        _subscriptionPolicy = subscriptionPolicy;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -263,6 +269,13 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             await LocalClinicProvisioning.SeedDefaultProcedureTypesAsync(
                 clinic.Id, _procedureTypeRepository, cancellationToken);
 
+            // ⚠️ Construction door 2 of 2, and the one AC-1.2a exists to name. This branch builds its own Clinic
+            // and never reaches LocalClinicProvisioning.ProvisionAsync, so the entitlement has to be staged here
+            // too — which is exactly why it is the door easiest to forget. On CloudBrowser the policy answers
+            // « not enforced », so what lands is an OPEN-ENDED entitlement: FR-13 holds and nothing can expire.
+            await LocalClinicProvisioning.StageEntitlementAsync(
+                clinic.Id, _subscriptionRepository, _subscriptionPolicy, cancellationToken);
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             await LocalClinicProvisioning.TrySeedCatalogsAsync(
@@ -342,6 +355,8 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             _userRepository,
             _doctorRepository,
             _procedureTypeRepository,
+            _subscriptionRepository,
+            _subscriptionPolicy,
             _unitOfWork,
             _clinicCatalogSeeder,
             _logger,

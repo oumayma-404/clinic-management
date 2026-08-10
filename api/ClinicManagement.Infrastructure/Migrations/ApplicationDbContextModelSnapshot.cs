@@ -641,6 +641,54 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("ClinicSignups", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicSubscription", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("EndsOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsSuspended")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("Plan")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("SuspendedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SuspendedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SuspensionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId")
+                        .IsUnique();
+
+                    b.ToTable("ClinicSubscriptions", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.CnamLetterValue", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1802,6 +1850,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid?>("AppointmentId")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("BlockedReason")
+                        .HasColumnType("integer");
+
                     b.Property<Guid?>("ClinicId")
                         .HasColumnType("uuid");
 
@@ -2537,6 +2588,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<int>("AttemptCount")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("BlockedReason")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Category")
                         .HasColumnType("integer");
 
@@ -2687,6 +2741,9 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<Guid?>("StockItemId")
                         .HasColumnType("uuid");
+
+                    b.Property<int?>("SubscriptionThresholdDays")
+                        .HasColumnType("integer");
 
                     b.Property<int>("TargetKind")
                         .HasColumnType("integer");
@@ -2861,6 +2918,81 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasIndex("StockItemId", "CreatedAt");
 
                     b.ToTable("StockMovements", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.SubscriptionPeriod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("Amount")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<string>("CancelReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("CancelledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CancelledBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("DurationDays")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("DurationMonths")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ExplicitEndsOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsCancelled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("Method")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime>("RecordedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RecordedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("RecordedOnClinicDay")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId", "RecordedAtUtc");
+
+                    b.ToTable("SubscriptionPeriods", (string)null);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ToothState", b =>
@@ -3284,6 +3416,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
                         .WithOne()
                         .HasForeignKey("ClinicManagement.Domain.Entities.ClinicReminderSettings", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicSubscription", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -3912,6 +4053,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.StockMovement", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.SubscriptionPeriod", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
                         .WithMany()

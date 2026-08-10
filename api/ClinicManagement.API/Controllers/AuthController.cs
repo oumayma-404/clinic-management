@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
 using MediatR;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.API.Models;
@@ -24,18 +25,29 @@ namespace ClinicManagement.API.Controllers;
 // coverage guard's reviewed allow-list); the class policy is what makes a *future* action here fail closed
 // instead of inheriting the anonymity of its neighbours.
 [Authorize(Policy = AuthorizationPolicies.Authenticated)]
+// Signing in works on an expired cabinet, and so does changing a password — including one an administrator forced
+// (AC-4.7, EC-2). Class-level rather than seven copies because the reason is one reason: none of this is recording
+// clinical work. The bootstrap actions arrive with an Unset tenant scope and so pass the gate anyway; only
+// change-password is authenticated, clinic-scoped and non-GET, i.e. genuinely refused without this.
+[AllowsWithoutSubscription("AC-4.7, EC-2 — a cabinet locked out of its own account cannot even read its records.")]
 public class AuthController : ApiControllerBase
 {
     private readonly IMediator _mediator;
     private readonly IConfiguration _configuration;
 
     private readonly DeploymentProfile _deployment;
+    private readonly ISubscriptionPolicy _subscriptionPolicy;
 
-    public AuthController(IMediator mediator, IConfiguration configuration, DeploymentProfile deployment)
+    public AuthController(
+        IMediator mediator,
+        IConfiguration configuration,
+        DeploymentProfile deployment,
+        ISubscriptionPolicy subscriptionPolicy)
     {
         _mediator = mediator;
         _configuration = configuration;
         _deployment = deployment;
+        _subscriptionPolicy = subscriptionPolicy;
     }
 
     // Injected, not re-resolved per request: AddInfrastructure already registers the resolved profile as a
@@ -72,6 +84,16 @@ public class AuthController : ApiControllerBase
             // code? » (✗ here) and this is « may a visitor create their OWN clinic behind an emailed token? »
             // (✓ here). The `/signup` page reads it so it never offers a form the endpoint would 404.
             publicSignupEnabled = deployment.AllowsPublicClinicSignup,
+            // clinic-subscription Part C. The client mounts the « Abonnement » entry and (Part D) the banner from
+            // this flag, never from probing the endpoint: a network failure and a genuine 404 are indistinguishable
+            // to a probe, and EC-13 requires a failed read to be retryable rather than read as « aucun abonnement ».
+            // The 404 on SubscriptionController stays as the server-side guarantee.
+            requiresSubscription = deployment.RequiresSubscription,
+            // clinic-subscription Part D, AC-1.3. The signup form has to state the trial before the visitor submits
+            // anything, and `Subscription:TrialDays` is the one authority on how long it is — a literal « 30 jours »
+            // in the wizard would be a second one, and this product's own landing copy already says « 2 semaines ».
+            // Null where nothing expires, so no screen can quote a trial that deployment does not grant.
+            trialDays = deployment.RequiresSubscription ? _subscriptionPolicy.TrialDays : (int?)null,
         });
     }
 

@@ -112,6 +112,7 @@ public class UsersController : ApiControllerBase
     /// Deactivate or reactivate a user (AC-5.3). Historical records are retained.
     /// </summary>
     [HttpPut("{id}/status")]
+    [AllowsWithoutSubscription("FR-3 — offboarding must not wait on an invoice; a colleague who left keeps access otherwise.")]
     public async Task<ActionResult<ClinicUserDto>> SetStatus(string id, [FromBody] SetUserStatusRequest request)
     {
         var command = new SetUserActiveCommand { TargetUserId = id, IsActive = request.IsActive };

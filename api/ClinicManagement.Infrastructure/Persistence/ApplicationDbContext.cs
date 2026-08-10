@@ -134,6 +134,12 @@ public class ApplicationDbContext : DbContext
     // rows worth most are the ones about a cabinet that no longer exists.
     public DbSet<PlatformAccessEntry> PlatformAccessEntries { get; set; }
 
+    // A cabinet's dated right to record new work, and the append-only ledger EndsOn is a full re-fold of
+    // (clinic-subscription FR-1). Both clinic-owned with non-nullable ClinicIds, so both are filtered like the
+    // rest; the vendor's console verbs declare UseSystemWide to reach every cabinet.
+    public DbSet<ClinicSubscription> ClinicSubscriptions { get; set; }
+    public DbSet<SubscriptionPeriod> SubscriptionPeriods { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         // The clinic-scoping query filters are applied to the directly-clinic-owned AGGREGATE ROOTS — 19 of
@@ -263,6 +269,10 @@ public class ApplicationDbContext : DbContext
         // the rebind into a unique-index violation. Its own doc comment carries why that is not a leak.
         modelBuilder.Entity<DeviceRegistration>().HasQueryFilter(d => IsSystemWide || d.ClinicId == ScopedClinicId);
         modelBuilder.Entity<PushDelivery>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
+        // clinic-subscription — the entitlement and its ledger. Both are read on the write path of every request
+        // in the hosted deployment, so an unfiltered one would be the widest cross-clinic read in the product.
+        modelBuilder.Entity<ClinicSubscription>().HasQueryFilter(s => IsSystemWide || s.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<SubscriptionPeriod>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
 
         // Optimistic concurrency for every entity, with no schema change: map Entity<T>.Version onto
         // PostgreSQL's xmin system column. EF then appends it to the WHERE of each UPDATE/DELETE, so a row a

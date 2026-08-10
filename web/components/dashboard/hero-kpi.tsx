@@ -89,7 +89,7 @@ export function HeroKpi({
           {/* On a saturated ground the delta pill is translucent white rather than green/red: a semantic wash would
               fight the surface, and the arrow plus the signed number already carry the direction. The favourable /
               unfavourable reading is given to assistive tech below instead of being encoded in a colour nobody can
-              see against teal. */}
+              see against a saturated accent panel. */}
           {comparison && !loading && (
             <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/25 bg-white/20 px-2 py-0.5 text-xs font-semibold tabular-nums">
               {hasDelta ? (

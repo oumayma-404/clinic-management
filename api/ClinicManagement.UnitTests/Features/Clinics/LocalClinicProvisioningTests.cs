@@ -34,6 +34,8 @@ public class LocalClinicProvisioningTests
         public Mock<IUserRepository> Users { get; } = new();
         public Mock<IDoctorRepository> Doctors { get; } = new();
         public Mock<IProcedureTypeRepository> ProcedureTypes { get; } = new();
+        public Mock<IClinicSubscriptionRepository> Subscriptions { get; } = new();
+        public Mock<ISubscriptionPolicy> SubscriptionPolicy { get; } = new();
         public Mock<IUnitOfWork> UnitOfWork { get; } = new();
         public Mock<IClinicCatalogSeeder> CatalogSeeder { get; } = new();
 
@@ -41,9 +43,24 @@ public class LocalClinicProvisioningTests
         public List<User> AddedUsers { get; } = new();
         public List<Doctor> AddedDoctors { get; } = new();
         public List<ProcedureType> AddedProcedureTypes { get; } = new();
+        public List<ClinicSubscription> AddedSubscriptions { get; } = new();
+        public List<SubscriptionPeriod> AddedEntries { get; } = new();
 
-        public Harness()
+        /// <summary>Saves observed, so a test can pin that the entitlement rode the clinic's own save (FR-4).</summary>
+        public int SaveCount { get; private set; }
+
+        public Harness(bool requiresSubscription = true, int trialDays = 30)
         {
+            SubscriptionPolicy.SetupGet(p => p.RequiresSubscription).Returns(requiresSubscription);
+            SubscriptionPolicy.SetupGet(p => p.TrialDays).Returns(trialDays);
+
+            Subscriptions.Setup(r => r.AddAsync(It.IsAny<ClinicSubscription>(), It.IsAny<CancellationToken>()))
+                .Callback<ClinicSubscription, CancellationToken>((s, _) => AddedSubscriptions.Add(s))
+                .Returns(Task.CompletedTask);
+            Subscriptions.Setup(r => r.AddEntryAsync(It.IsAny<SubscriptionPeriod>(), It.IsAny<CancellationToken>()))
+                .Callback<SubscriptionPeriod, CancellationToken>((e, _) => AddedEntries.Add(e))
+                .Returns(Task.CompletedTask);
+
             Clinics.Setup(r => r.CodeExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(false);
             Clinics.Setup(r => r.AddAsync(It.IsAny<Clinic>(), It.IsAny<CancellationToken>()))
@@ -64,7 +81,9 @@ public class LocalClinicProvisioningTests
                 .Callback<ProcedureType, CancellationToken>((p, _) => AddedProcedureTypes.Add(p))
                 .ReturnsAsync((ProcedureType p, CancellationToken _) => p);
 
-            UnitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+            UnitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+                .Callback(() => SaveCount++)
+                .ReturnsAsync(1);
         }
 
         public Task<Application.Common.Models.Result<ProvisionedClinic>> Run(LocalClinicRequest request) =>
@@ -74,6 +93,8 @@ public class LocalClinicProvisioningTests
                 Users.Object,
                 Doctors.Object,
                 ProcedureTypes.Object,
+                Subscriptions.Object,
+                SubscriptionPolicy.Object,
                 UnitOfWork.Object,
                 CatalogSeeder.Object,
                 NullLogger.Instance);

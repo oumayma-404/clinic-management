@@ -707,6 +707,13 @@ try
         app.UseMiddleware<ClinicManagement.API.Middleware.LocalAuthEnforcementMiddleware>();
     }
 
+    // Last before the controllers, and AFTER the block above rather than beside TenantScopeMiddleware: a 402 must
+    // never mask a 401 (revoked token) or a 403 must_change_password, or an expired cabinet's deactivated colleague
+    // is told the subscription lapsed and a user owing a password change is routed to « Abonnement » instead of to
+    // the screen that unblocks them. It needs nothing the earlier position would have given it — the tenant scope is
+    // set, the account is cached, and routing has already run. Inert where RequiresSubscription is false.
+    app.UseMiddleware<ClinicManagement.API.Middleware.SubscriptionGateMiddleware>();
+
     app.MapControllers();
 
     // Anonymous and un-rate-limited, both deliberately — see HealthChecks.Register. Mapped before the YARP

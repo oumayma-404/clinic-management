@@ -89,6 +89,7 @@ public class CnamNomenclatureController : ApiControllerBase
     /// </para>
     /// </summary>
     [HttpPost("reimbursement-estimates")]
+    [AllowsWithoutSubscription("AC-4.9 — computes and persists nothing; a POST only because the acts are a list.")]
     public async Task<ActionResult<IEnumerable<ReimbursementEstimateDto>>> GetReimbursementEstimates(
         [FromBody] GetReimbursementEstimatesQuery query)
     {

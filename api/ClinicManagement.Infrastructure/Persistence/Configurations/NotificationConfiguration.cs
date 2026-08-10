@@ -46,6 +46,11 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
         builder.Property(n => n.ErrorMessage)
             .HasMaxLength(1000);
 
+        // The machine-readable half of ErrorMessage, so the un-park review can interrogate the reason instead of
+        // the French sentence (clinic-subscription FR-8). Nullable; no writer until Part G.
+        builder.Property(n => n.BlockedReason)
+            .HasConversion<int>();
+
         builder.Property(n => n.RetryCount)
             .IsRequired()
             .HasDefaultValue(0);

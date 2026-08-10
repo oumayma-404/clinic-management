@@ -5,6 +5,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Clock,
+  CreditCard,
   FileCheck,
   FlaskConical,
   HandCoins,
@@ -89,7 +90,7 @@ export const baseSections: NavSection[] = [
  * to revoke a departed colleague. The one genuinely Local-only action inside, « Réinitialiser le mot de
  * passe », is gated in `user-management.tsx` where it lives (AC-P2.29).
  */
-export function buildConfigItems(isAdmin: boolean): NavItem[] {
+export function buildConfigItems(isAdmin: boolean, showSubscription = true): NavItem[] {
   return [
     { name: "Types de procédures", href: "/procedure-types", icon: Stethoscope },
     ...(isAdmin
@@ -108,6 +109,17 @@ export function buildConfigItems(isAdmin: boolean): NavItem[] {
         ]
       : []),
     { name: "Paramètres", href: "/settings", icon: Settings },
+    // `clinic-subscription` AC-2.2 — **outside the `isAdmin` branch above, deliberately.** The person who meets
+    // « Votre abonnement a expiré … » on a save is usually reception, not whoever pays, and she has to be able to
+    // read why; hiding this row would point the refusal at a screen she cannot see (EC-10). It sits with the other
+    // clinic-administration destinations but outside their admin-only grouping, exactly as the spec words it.
+    // What stays admin-only is the payment *history* inside the page, not the page.
+    //
+    // ⚠️ Gated on the **deployment**, not on a role (AC-7.1/7.2, Part D): where nothing expires there is no
+    // subscription to show, and the page itself says so. `showSubscription` defaults to `true` because the one
+    // caller that must never lose the row is `lib/zones.ts`, which builds the route→icon map and needs every
+    // destination that can render — including this one, on the deployments where it does.
+    ...(showSubscription ? [{ name: "Abonnement", href: "/abonnement", icon: CreditCard }] : []),
   ]
 }
 
@@ -170,12 +182,19 @@ export function isNavItemVisible(href: string, role: string | null | undefined):
  * dropped rather than rendered empty — « Finances » with no rows under it advertises exactly the capability the
  * gate exists to withhold.</p>
  */
-export function buildNavSections(role: string | null | undefined): NavSection[] {
+export function buildNavSections(
+  role: string | null | undefined,
+  /** Whether this deployment works by subscription — see {@link buildConfigItems}. Defaults to showing the row. */
+  showSubscription = true,
+): NavSection[] {
   const visible = baseSections
     .map((section) => ({ ...section, items: section.items.filter((i) => isNavItemVisible(i.href, role)) }))
     .filter((section) => section.items.length > 0)
 
-  return [...visible, { title: "Configuration", items: buildConfigItems(role === "admin") }]
+  return [
+    ...visible,
+    { title: "Configuration", items: buildConfigItems(role === "admin", showSubscription) },
+  ]
 }
 
 /**
@@ -183,7 +202,17 @@ export function buildNavSections(role: string | null | undefined): NavSection[] 
  * /setup and /join a Cloud user IS authenticated (Auth0 session, no clinic yet), and /change-password is a
  * forced interstitial.
  */
-export const HIDDEN_PATHS = ["/login", "/setup", "/join", "/change-password"]
+export const HIDDEN_PATHS = [
+  "/login",
+  "/setup",
+  "/join",
+  "/change-password",
+  // `clinic-self-signup`'s two public routes, added by `clinic-subscription` Part D. They belong on this list on
+  // their own merits — a visitor with no clinic and no session must not be offered the AI assistant — and the
+  // subscription banner reads the same answer, so « no banner on /signup » needs no second list.
+  // ⚠️ One entry, not two: `isChromeLessPath` matches a prefix, so `/signup` already covers `/signup/verifier`.
+  "/signup",
+]
 
 /** True on a route that deliberately renders without the app chrome. */
 export function isChromeLessPath(pathname: string | null): boolean {

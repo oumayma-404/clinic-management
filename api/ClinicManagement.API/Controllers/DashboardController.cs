@@ -86,6 +86,7 @@ public class DashboardController : ApiControllerBase
     /// </para>
     /// </remarks>
     [HttpPut("preferences")]
+    [AllowsWithoutSubscription("FR-3 — personal interface state, not clinic work: which blocks this user hides.")]
     public async Task<ActionResult<DashboardPreferencesDto>> UpdatePreferences(
         [FromBody] UpdateDashboardPreferencesCommand command)
     {

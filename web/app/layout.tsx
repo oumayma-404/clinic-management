@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/next"
 import { resolveAuthMode } from "@/lib/auth/local-auth"
 import { CloudSessionProvider, LocalSessionProvider } from "@/lib/auth/session"
 import { ConnectivityProvider } from "@/lib/connectivity/connectivity"
+import { SubscriptionProvider } from "@/lib/subscription/subscription-context"
 import { SidebarProvider } from "@/contexts/sidebar-context"
 import { AppToaster } from "@/components/app-toaster"
 import { ClientVersionGate } from "@/components/client-version-gate"
@@ -77,7 +78,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
-  themeColor: "#f1f8fa",
+  themeColor: "#f0f9fe",
 }
 
 export default function RootLayout({
@@ -101,13 +102,19 @@ export default function RootLayout({
             including the toaster, which follows `resolvedTheme`. */}
         <ThemeProvider>
           <SessionProvider>
-            <ConnectivityProvider>
-              <SidebarProvider>
-                {children}
-              </SidebarProvider>
-              {/* Inside ConnectivityProvider so it can gate on internet reachability (Local mode). */}
-              <AIChat />
-            </ConnectivityProvider>
+            {/* Inside the session provider: every read it makes is authenticated, and it fetches nothing until a
+                user exists. It renders no UI of its own — `AppShell` mounts the banner, because a strip above a
+                `h-dvh` shell would make the document taller than the viewport. Where `requiresSubscription` is not
+                `true` it never fetches at all, which is what keeps the other two deployment kinds unchanged. */}
+            <SubscriptionProvider>
+              <ConnectivityProvider>
+                <SidebarProvider>
+                  {children}
+                </SidebarProvider>
+                {/* Inside ConnectivityProvider so it can gate on internet reachability (Local mode). */}
+                <AIChat />
+              </ConnectivityProvider>
+            </SubscriptionProvider>
           </SessionProvider>
           {/* Anchors bottom-centre and caps at 3 on a coarse pointer, clearing the bottom bar (AC-9). The
               rationale, and the toast duration, live in the component. */}

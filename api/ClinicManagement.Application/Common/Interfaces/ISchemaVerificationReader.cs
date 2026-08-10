@@ -1,3 +1,5 @@
+using ClinicManagement.Domain.Services;
+
 namespace ClinicManagement.Application.Common.Interfaces;
 
 /// <summary>
@@ -27,7 +29,24 @@ public sealed record SchemaFacts(
     SchemaSide Database,
     IReadOnlyList<MappedDecimalFact> MappedDecimals,
     DataMigrationCounts DataMigrations,
-    AuditLedgerFacts AuditLedger);
+    AuditLedgerFacts AuditLedger,
+    IReadOnlyList<ClinicSubscriptionLedgerFact>? SubscriptionLedgers);
+
+/// <summary>
+/// One cabinet's stored entitlement date beside the ledger it is supposed to be a fold of
+/// (<c>clinic-subscription</c> FR-9).
+///
+/// <para><b>⚠️ Why this is rows and not a count, unlike every other data-migration check here.</b> The comparison
+/// is « does the stored <c>EndsOn</c> equal <c>SubscriptionLedger.Fold(entries)</c>? », and answering it in SQL
+/// means re-expressing the fold's exclusive-cursor arithmetic as a recursive CTE — a second copy of exactly the
+/// arithmetic R-6 exists to prevent, in a language where no compiler checks it against the first. So the reader
+/// projects and <c>SchemaVerificationService</c> calls the <b>real</b> fold. The ledger is a handful of rows per
+/// cabinet on a read-only operator verb, and the check stays unit-testable against a mocked reader like the rest.</para>
+/// </summary>
+public sealed record ClinicSubscriptionLedgerFact(
+    Guid ClinicId,
+    DateTime? StoredEndsOn,
+    IReadOnlyList<SubscriptionLedgerEntry> Entries);
 
 /// <summary>
 /// The two things about <c>AuditEntries</c> the EF model cannot state, and whose violation is <b>silent</b> —
@@ -290,4 +309,26 @@ public sealed record DataMigrationCounts(
     /// at, which is the exact rot this verb exists to avoid.
     /// </para>
     /// </summary>
-    int? IncoherentActivitySnapshots);
+    int? IncoherentActivitySnapshots,
+    /// <summary>
+    /// Cabinets with <b>no entitlement row at all</b> (<c>clinic-subscription</c> AC-6.4, FR-13). Must be 0.
+    /// <para>
+    /// A <b>derived count over every cabinet</b>, deliberately — never a count qualified by which door created it,
+    /// and never a list of known doors. FR-13's whole point is that a *third* construction door added later is
+    /// caught, and a check that enumerates today's two would pass forever while the new one leaked. It is a flat
+    /// count and not « …on a deployment that enforces subscriptions » for the same reason: where enforcement is
+    /// off the entitlement is still created, open-ended, so 0 is the right answer in all three topologies and this
+    /// figure needs to know nothing about the deployment it is run on. Null before the table exists.
+    /// </para>
+    /// </summary>
+    int? ClinicsWithoutEntitlement,
+    /// <summary>
+    /// <c>Grandfathered</c> ledger entries — reported as <b>Info with its count</b>, not asserted (AC-6.2/AC-6.4).
+    /// <para>
+    /// ⚠️ It is deliberately not compared against the clinic count. AC-6.4's « equals the number of cabinets that
+    /// existed » is established by FR-9's prescribed before/after run and <b>diff</b>, because the moment the first
+    /// new cabinet arrives the two figures legitimately differ for ever — a check asserting equality would go red
+    /// on the deployment's first signup and be deleted as noisy. Null before the table exists.
+    /// </para>
+    /// </summary>
+    int? GrandfatheredEntitlementEntries);

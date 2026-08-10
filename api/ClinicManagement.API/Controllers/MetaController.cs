@@ -42,6 +42,10 @@ public class MetaController : ApiControllerBase
 
     [AllowAnonymous]
     [HttpGet(ClientRequirementsRoute)]
+    // Both actions here are GETs, so the subscription gate never inspects them — the attribute is documentation,
+    // stating the exempt set as *what* rather than leaving a reader to re-derive « is a GET refused? ». It is
+    // therefore NOT load-bearing, and SubscriptionExemptionCoverageTests (non-GET only) cannot fail on its removal.
+    [AllowsWithoutSubscription("Not clinic work — the shells' version floor, which a refused client must be able to read.")]
     public IActionResult ClientRequirements() => Ok(Models.ClientRequirements.Read(_configuration));
 
     /// <summary>
@@ -50,6 +54,7 @@ public class MetaController : ApiControllerBase
     /// client needs in order to stop being refused.
     /// </summary>
     [HttpGet("upload-policy")]
+    [AllowsWithoutSubscription("Not clinic work — what the file picker may offer, read on a screen an expired cabinet still opens.")]
     public async Task<ActionResult<Application.DTOs.UploadPolicyDto>> UploadPolicy(
         CancellationToken cancellationToken = default)
     {

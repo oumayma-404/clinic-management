@@ -51,6 +51,10 @@ public class StaffNotificationConfiguration : IEntityTypeConfiguration<StaffNoti
         builder.Property(n => n.AppointmentId);
         builder.Property(n => n.StockItemId);
 
+        // The (clinic, threshold) dedupe key for the four expiry warnings (clinic-subscription FR-5). A column
+        // rather than a French message prefix; no writer until Part E.
+        builder.Property(n => n.SubscriptionThresholdDays);
+
         builder.Property(n => n.CreatedAt)
             .IsRequired();
 

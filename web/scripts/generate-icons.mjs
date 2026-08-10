@@ -46,8 +46,8 @@ const DESKTOP_ASSETS = join(REPO_ROOT, "desktop", "ClinicManagement.DesktopShell
 const IOS_APPICON = join(REPO_ROOT, "mobile", "ios", "ClinicShell", "Assets.xcassets", "AppIcon.appiconset");
 
 /** The app's own tokens, converted from the oklch values in `app/globals.css`. */
-const PRIMARY = "#00736b"; //   --primary            oklch(0.49 0.105 188)
-const INK_ON_PRIMARY = "#f8fdfc"; // --primary-foreground oklch(0.99 0.005 190)
+const PRIMARY = "#02678f"; //   --primary            oklch(0.485 0.101 234)
+const INK_ON_PRIMARY = "#f9fcff"; // --primary-foreground oklch(0.99 0.005 234)
 
 /**
  * Extract the glyph from the master.

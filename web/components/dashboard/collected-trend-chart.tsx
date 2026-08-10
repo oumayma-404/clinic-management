@@ -22,7 +22,7 @@ import { formatMonthLong, formatMonthShort } from "./dashboard-labels"
 
 /**
  * The series colour. A single series, so it takes categorical slot 1 (`--chart-1`) — validated at 3:1+ against both
- * the light (`#ffffff`) and dark (`#0b0e11`) card surfaces, inside the lightness band and above the chroma floor in
+ * the light (`#ffffff`) and dark (`#0d161c`) card surfaces, inside the lightness band and above the chroma floor in
  * both modes. One hue for magnitude over time; no ramp, because a value-ramp on a time axis would double-encode the
  * height as colour and burn the only free channel on information the line already shows.
  *
@@ -103,7 +103,7 @@ export function CollectedTrendChart({ points, loading = false }: CollectedTrendC
                 <AreaChart data={points} margin={{ top: 8, right: 16, bottom: 4, left: 4 }}>
                   <defs>
                     {/* The wash: the series hue fading to nothing. A saturated block would out-weigh the line.
-                        Raised from 0.16 to 0.26 with the teal palette — at 0.16 against the new tinted ground the
+                        Raised from 0.16 to 0.26 when the ground became tinted — at 0.16 against a tinted ground the
                         fill was very nearly invisible, which left a bare stroke floating in an empty plot. */}
                     <linearGradient id="collectedWash" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={SERIES_COLOR} stopOpacity={0.26} />

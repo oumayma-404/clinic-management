@@ -130,6 +130,11 @@ public static class Extensions
         // clinic-self-signup — pending signups. Registered unconditionally like every other repository; the
         // capability gate lives on the endpoints, not on whether the table can be read.
         services.AddScoped<IClinicSignupRepository, ClinicSignupRepository>();
+        // clinic-subscription — the entitlement and its ledger. ⚠️ Registered by **AddInfrastructure** and not
+        // AddApplication, and that is load-bearing rather than conventional: `provision-clinic` builds its
+        // container from this method alone, and it creates a cabinet — which must not come into existence without
+        // an entitlement (FR-4), so it has to be able to resolve this and the policy below.
+        services.AddScoped<IClinicSubscriptionRepository, ClinicSubscriptionRepository>();
 
         // HttpClient for Auth0 Management API
         services.AddHttpClient();
@@ -281,6 +286,12 @@ public static class Extensions
         // Whether a clinic may aim an integration endpoint at a private address. Singleton for the same reason
         // the profile it reads is one: immutable, derived from startup configuration.
         services.AddSingleton<IOutboundEndpointPolicy, OutboundEndpointPolicy>();
+
+        // clinic-subscription — the two seams that carry a deployment fact and an operator setting into
+        // Application, which references Domain alone and so cannot name DeploymentProfile. Singletons for the same
+        // reason as the profile: both are derived from startup configuration and immutable.
+        services.AddSingleton<ISubscriptionPolicy, SubscriptionPolicy>();
+        services.AddSingleton<ISubscriptionPricing, SubscriptionPricing>();
         services.AddScoped<IReminderScheduler, ReminderScheduler>();
         services.AddScoped<IReminderChannelSender, HttpSmsSender>();
         services.AddScoped<IReminderChannelSender, WhatsAppSender>();

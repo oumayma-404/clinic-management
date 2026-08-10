@@ -49,6 +49,14 @@ public class PushDelivery : AggregateRoot<Guid>
     public int AttemptCount { get; private set; }
     public string? FailureReason { get; private set; }
 
+    /// <summary>
+    /// Why this row is parked, machine-readably — <see cref="FailureReason"/>'s French sentence is what an operator
+    /// reads, this is what the un-park review interrogates (<c>clinic-subscription</c> FR-8). Same shape and same
+    /// reason as <c>Notification.BlockedReason</c>; ⚠️ likewise written by nothing until Part G, the column landing
+    /// with Part A's migration only so the model and the schema stay in step in one migration.
+    /// </summary>
+    public OutboxBlockReason? BlockedReason { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? SentAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }

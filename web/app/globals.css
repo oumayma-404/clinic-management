@@ -38,9 +38,9 @@
 @custom-variant coarse (@media (pointer: coarse));
 
 /*
- * ── Palette: « menthe clinique » ──────────────────────────────────────────────────────────────────────────
+ * ── Palette: « bleu céruléen » ────────────────────────────────────────────────────────────────────────────
  *
- * The previous theme read as washed out, and the cause was structural rather than a matter of taste:
+ * The structural rules below are the ones that fixed a washed-out theme, and they still hold whatever the hue is:
  *
  *   • `--background` was oklch(0.99 0 0) against `--card` oklch(1 0 0) — **1 % apart**, so no surface ever lifted
  *     off the page and the whole app was one sheet with hairlines drawn on it.
@@ -48,17 +48,27 @@
  *   • `--primary` existed at a respectable chroma and **filled nothing** — it reached one small active button and
  *     the chart line, so the app had an accent on paper and none on screen.
  *
- * What changed, and why each is load-bearing:
+ * What is load-bearing now:
  *
- *   • The ground is tinted (0.975 at chroma 0.008) and cards stay pure white. A *visible* ground/card gap is what
+ *   • The ground is tinted (0.977 at chroma 0.011) and cards stay pure white. A *visible* ground/card gap is what
  *     makes a surface exist; without it, elevation has nothing to be measured against.
- *   • Neutrals carry a real hue bias at **215** — between the accent (188) and the old blue (250) — so grey reads
- *     as chosen rather than inherited.
- *   • The accent is a deep clinical teal. Teal because this is a dental practice: it is the hue of mouthwash,
- *     scrubs and hygiene, and it is *not* the institutional blue half of medical software already wears.
- *   • `--primary` is L 0.49, not the brighter 0.60 the accent reads as elsewhere: it is a **button fill with
+ *   • Neutrals carry a real hue bias at **230–236**, i.e. the accent's own family, so grey reads as chosen rather
+ *     than inherited. The shadow tokens in `@theme` below are cast at hue 235 — the middle of that range, which
+ *     is why they needed no change when the palette moved off teal.
+ *   • The accent is a clear azure at hue **234**. It replaced a deep teal (188) — see the gamut note below for
+ *     what that cost — and the teal is not gone: it lives on as `--chart-2` (192).
+ *   • `--primary` is L 0.485, not the brighter 0.60 the accent reads as elsewhere: it is a **button fill with
  *     near-white text**, and 0.60 lands around 3.3:1 — under the 4.5:1 floor. `--chart-1` carries the brighter
  *     step, where contrast with white type is not the constraint.
+ *
+ * ⚠️ **Every chroma here is the sRGB maximum for its own lightness, not a chosen number** — and that is the one
+ * thing to know before nudging a value. Blue is the narrowest part of the sRGB gamut: at L 0.485 / h 234 the
+ * ceiling is chroma **0.101**, so the 0.148 this palette was designed at simply does not exist on screen. A
+ * browser gamut-maps it silently, which means an out-of-gamut token renders as *something else* while reading as
+ * deliberate in the source — and a hex converted from the declared value (the icon master, the WPF shell, the
+ * Android `colors.xml`) would then not match the app it is supposed to match. Raising a chroma here does nothing
+ * visible; it only makes the source lie. Verified with `oklch → sRGB` against the five hexes already committed
+ * downstream.
  *   • Semantic state (`--success` / `--warning` / `--destructive` + their `-wash` pairs) is deliberately its own
  *     family, independent of the accent hue. A state that takes the brand colour stops being a state — and the
  *     washes are what let a delta be a tinted pill instead of bare coloured text.
@@ -76,25 +86,25 @@
  */
 :root,
 .light {
-  --background: oklch(0.975 0.008 215);
-  --foreground: oklch(0.20 0.015 235);
+  --background: oklch(0.977 0.011 230);
+  --foreground: oklch(0.205 0.020 236);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.20 0.015 235);
+  --card-foreground: oklch(0.205 0.020 236);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.20 0.015 235);
-  --primary: oklch(0.49 0.105 188);
-  --primary-foreground: oklch(0.99 0.005 190);
-  --secondary: oklch(0.965 0.008 215);
-  --secondary-foreground: oklch(0.20 0.015 235);
-  --muted: oklch(0.965 0.008 215);
-  --muted-foreground: oklch(0.50 0.018 225);
-  --accent: oklch(0.955 0.028 190);
-  --accent-foreground: oklch(0.38 0.09 190);
+  --popover-foreground: oklch(0.205 0.020 236);
+  --primary: oklch(0.485 0.101 234);
+  --primary-foreground: oklch(0.99 0.005 234);
+  --secondary: oklch(0.964 0.012 230);
+  --secondary-foreground: oklch(0.205 0.020 236);
+  --muted: oklch(0.964 0.012 230);
+  --muted-foreground: oklch(0.50 0.021 234);
+  --accent: oklch(0.948 0.031 230);
+  --accent-foreground: oklch(0.375 0.078 234);
   --destructive: oklch(0.55 0.19 25);
   --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(0.915 0.008 215);
-  --input: oklch(0.915 0.008 215);
-  --ring: oklch(0.49 0.105 188);
+  --border: oklch(0.91 0.013 230);
+  --input: oklch(0.91 0.013 230);
+  --ring: oklch(0.485 0.101 234);
 
   /* Semantic state + the tinted-pill backgrounds. Constant hues; never the accent. */
   --success: oklch(0.52 0.12 155);
@@ -107,10 +117,10 @@
   --destructive-wash: oklch(0.962 0.03 25);
 
   /* The hero surface: a filled accent panel — the one bold surface on the dashboard. */
-  --hero-from: oklch(0.455 0.095 190);
-  --hero-to: oklch(0.375 0.085 196);
-  --hero-glow: oklch(0.60 0.115 185);
-  --hero-foreground: oklch(0.99 0.005 190);
+  --hero-from: oklch(0.455 0.095 234);
+  --hero-to: oklch(0.345 0.088 246);
+  --hero-glow: oklch(0.60 0.122 232);
+  --hero-foreground: oklch(0.99 0.005 234);
 
   /*
    * ── Zone hues ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -124,59 +134,65 @@
    * (pure white). L 0.52 measures ~4.2:1 against white, under the 4.5:1 floor; L 0.48 measures ~4.8:1. A zone
    * hue chosen for how it looks in a swatch rather than for its lightness is a legend the reader cannot read.
    *
-   * `daily` is exactly `--primary`, not a near-miss: the everyday screens ARE the accent's home, and two teals
+   * `daily` is exactly `--primary`, not a near-miss: the everyday screens ARE the accent's home, and two azures
    * four hundredths apart is the kind of difference that reads as a mistake rather than as a distinction.
+   *
+   * ⚠️ `clinical` moved 295 → **308** when the accent became blue. At 295 it was 107° from a teal accent and only
+   * 61° from an azure one, and the rail stacks the two group headings a few rows apart — which is the one place
+   * two zone hues are compared directly.
    *
    * `config` is near-neutral (chroma 0.02) on purpose. A fifth saturated hue turns the rail into a paint chart,
    * and settings is the one group whose job is to stay out of the way until wanted.
    */
-  --zone-daily: oklch(0.49 0.105 188);
-  --zone-clinical: oklch(0.49 0.13 295);
-  --zone-money: oklch(0.48 0.105 68);
-  --zone-ops: oklch(0.48 0.11 155);
-  --zone-config: oklch(0.46 0.02 235);
+  --zone-daily: oklch(0.485 0.101 234);
+  --zone-clinical: oklch(0.48 0.135 308);
+  --zone-money: oklch(0.48 0.11 62);
+  --zone-ops: oklch(0.47 0.11 155);
+  --zone-config: oklch(0.46 0.02 234);
 
-  --chart-1: oklch(0.60 0.12 187);
-  --chart-2: oklch(0.58 0.14 240);
-  --chart-3: oklch(0.62 0.13 300);
-  --chart-4: oklch(0.66 0.13 45);
-  --chart-5: oklch(0.55 0.13 155);
+  /* ⚠️ `--chart-2` is the retired teal (192). The charts are the one surface where a second cool hue is a
+     distinction rather than a near-miss, so the previous accent keeps doing useful work here. */
+  --chart-1: oklch(0.615 0.128 234);
+  --chart-2: oklch(0.625 0.107 192);
+  --chart-3: oklch(0.61 0.13 308);
+  --chart-4: oklch(0.67 0.13 45);
+  --chart-5: oklch(0.56 0.12 155);
   --radius: 0.75rem;
   --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.20 0.015 235);
-  --sidebar-primary: oklch(0.49 0.105 188);
-  --sidebar-primary-foreground: oklch(0.99 0.005 190);
-  --sidebar-accent: oklch(0.955 0.028 190);
-  --sidebar-accent-foreground: oklch(0.38 0.09 190);
-  --sidebar-border: oklch(0.915 0.008 215);
-  --sidebar-ring: oklch(0.49 0.105 188);
+  --sidebar-foreground: oklch(0.205 0.020 236);
+  --sidebar-primary: oklch(0.485 0.101 234);
+  --sidebar-primary-foreground: oklch(0.99 0.005 234);
+  --sidebar-accent: oklch(0.948 0.031 230);
+  --sidebar-accent-foreground: oklch(0.375 0.078 234);
+  --sidebar-border: oklch(0.91 0.013 230);
+  --sidebar-ring: oklch(0.485 0.101 234);
 }
 
 /*
- * Dark is given the same care rather than an inversion. The ground/card gap is *widened* here (0.135 → 0.185, a
- * 5-point step) because elevation is harder to read on a dark ground, and `--primary` moves up to L 0.52 so a
- * teal button stays clearly above the surface while still carrying near-white type at an acceptable ratio.
+ * Dark is given the same care rather than an inversion. The ground/card gap is *widened* here (0.140 → 0.193, a
+ * 5-point step) because elevation is harder to read on a dark ground, and `--primary` moves up to L 0.56 so an
+ * azure button stays clearly above the surface while still carrying near-white type at an acceptable ratio.
  */
 .dark {
-  --background: oklch(0.135 0.008 230);
-  --foreground: oklch(0.965 0.006 225);
-  --card: oklch(0.185 0.012 232);
-  --card-foreground: oklch(0.965 0.006 225);
-  --popover: oklch(0.185 0.012 232);
-  --popover-foreground: oklch(0.965 0.006 225);
-  --primary: oklch(0.52 0.105 188);
-  --primary-foreground: oklch(0.98 0.005 190);
-  --secondary: oklch(0.235 0.012 228);
-  --secondary-foreground: oklch(0.965 0.006 225);
-  --muted: oklch(0.235 0.012 228);
-  --muted-foreground: oklch(0.655 0.015 228);
-  --accent: oklch(0.26 0.035 190);
-  --accent-foreground: oklch(0.80 0.10 188);
+  --background: oklch(0.14 0.014 238);
+  --foreground: oklch(0.964 0.008 232);
+  --card: oklch(0.193 0.018 238);
+  --card-foreground: oklch(0.964 0.008 232);
+  --popover: oklch(0.193 0.018 238);
+  --popover-foreground: oklch(0.964 0.008 232);
+  --primary: oklch(0.56 0.117 234);
+  --primary-foreground: oklch(0.99 0.005 234);
+  --secondary: oklch(0.243 0.019 236);
+  --secondary-foreground: oklch(0.964 0.008 232);
+  --muted: oklch(0.243 0.019 236);
+  --muted-foreground: oklch(0.658 0.019 234);
+  --accent: oklch(0.268 0.048 232);
+  --accent-foreground: oklch(0.80 0.115 234);
   --destructive: oklch(0.55 0.19 25);
   --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(0.265 0.012 228);
-  --input: oklch(0.265 0.012 228);
-  --ring: oklch(0.62 0.11 187);
+  --border: oklch(0.273 0.019 236);
+  --input: oklch(0.273 0.019 236);
+  --ring: oklch(0.64 0.133 234);
 
   --success: oklch(0.70 0.13 155);
   --success-wash: oklch(0.27 0.045 155);
@@ -185,35 +201,35 @@
   --warning-ink: oklch(0.86 0.11 80);
   --destructive-wash: oklch(0.28 0.05 25);
 
-  --hero-from: oklch(0.40 0.075 190);
-  --hero-to: oklch(0.295 0.06 197);
-  --hero-glow: oklch(0.55 0.10 186);
-  --hero-foreground: oklch(0.98 0.005 190);
+  --hero-from: oklch(0.40 0.083 234);
+  --hero-to: oklch(0.29 0.078 248);
+  --hero-glow: oklch(0.55 0.112 232);
+  --hero-foreground: oklch(0.99 0.005 234);
 
   /*
    * Zone hues, lifted for a dark ground. The card sits at L 0.185, and the 4.5:1 floor against it starts at
    * about L 0.61 — so these are not the light values with a tweak, they are a different step of the same hue.
    * Chroma comes down slightly as lightness rises, or a saturated pastel on near-black reads as neon.
    */
-  --zone-daily: oklch(0.74 0.095 188);
-  --zone-clinical: oklch(0.75 0.105 295);
+  --zone-daily: oklch(0.76 0.115 234);
+  --zone-clinical: oklch(0.755 0.11 308);
   --zone-money: oklch(0.78 0.10 75);
-  --zone-ops: oklch(0.74 0.10 155);
-  --zone-config: oklch(0.70 0.018 235);
+  --zone-ops: oklch(0.745 0.10 155);
+  --zone-config: oklch(0.70 0.02 234);
 
-  --chart-1: oklch(0.70 0.115 186);
-  --chart-2: oklch(0.66 0.14 245);
-  --chart-3: oklch(0.70 0.13 300);
-  --chart-4: oklch(0.74 0.13 50);
-  --chart-5: oklch(0.70 0.13 155);
-  --sidebar: oklch(0.185 0.012 232);
-  --sidebar-foreground: oklch(0.965 0.006 225);
-  --sidebar-primary: oklch(0.52 0.105 188);
-  --sidebar-primary-foreground: oklch(0.98 0.005 190);
-  --sidebar-accent: oklch(0.26 0.035 190);
-  --sidebar-accent-foreground: oklch(0.80 0.10 188);
-  --sidebar-border: oklch(0.265 0.012 228);
-  --sidebar-ring: oklch(0.62 0.11 187);
+  --chart-1: oklch(0.71 0.135 234);
+  --chart-2: oklch(0.72 0.105 192);
+  --chart-3: oklch(0.705 0.13 308);
+  --chart-4: oklch(0.745 0.13 50);
+  --chart-5: oklch(0.70 0.12 155);
+  --sidebar: oklch(0.193 0.018 238);
+  --sidebar-foreground: oklch(0.964 0.008 232);
+  --sidebar-primary: oklch(0.56 0.117 234);
+  --sidebar-primary-foreground: oklch(0.99 0.005 234);
+  --sidebar-accent: oklch(0.268 0.048 232);
+  --sidebar-accent-foreground: oklch(0.80 0.115 234);
+  --sidebar-border: oklch(0.273 0.019 236);
+  --sidebar-ring: oklch(0.64 0.133 234);
 }
 
 /*

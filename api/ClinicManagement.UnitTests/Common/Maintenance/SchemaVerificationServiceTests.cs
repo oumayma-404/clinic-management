@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Maintenance;
+using ClinicManagement.Domain.Services;
 using Moq;
 
 namespace ClinicManagement.UnitTests.Common.Maintenance;
@@ -27,7 +28,8 @@ public class SchemaVerificationServiceTests
         SchemaSide? database = null,
         IReadOnlyList<MappedDecimalFact>? mappedDecimals = null,
         DataMigrationCounts? counts = null,
-        AuditLedgerFacts? auditLedger = null)
+        AuditLedgerFacts? auditLedger = null,
+        IReadOnlyList<ClinicSubscriptionLedgerFact>? subscriptionLedgers = null)
     {
         _reader
             .Setup(r => r.ReadAsync(It.IsAny<CancellationToken>()))
@@ -40,8 +42,38 @@ public class SchemaVerificationServiceTests
                 counts ?? CleanCounts,
                 // Default: the ledger exists and ClinicId is nullable, so the audit checks pass and individual
                 // tests override just this facet — the same one-facet-at-a-time shape as every other parameter.
-                auditLedger ?? new AuditLedgerFacts(TableExists: true, ClinicIdIsNullable: true)));
+                auditLedger ?? new AuditLedgerFacts(TableExists: true, ClinicIdIsNullable: true),
+                // Default: one cabinet whose stored end date IS its ledger's fold, so the subscription checks
+                // pass and individual tests override just this facet.
+                subscriptionLedgers ?? new[] { AgreeingLedger }));
     }
+
+    /// <summary>
+    /// One cabinet on a 30-day trial recorded on 10 Aug 2026, whose stored <c>EndsOn</c> is what the real fold
+    /// returns. ⚠️ The expected date is <b>computed by the fold</b>, not retyped as 8 Sep: a literal here would be
+    /// a second copy of the arithmetic and could agree with a mistake — which is the whole reason this check folds
+    /// in the service rather than in SQL.
+    /// </summary>
+    private static ClinicSubscriptionLedgerFact AgreeingLedger
+    {
+        get
+        {
+            var entries = new[] { TrialEntry };
+            return new ClinicSubscriptionLedgerFact(
+                Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                SubscriptionLedger.Fold(entries),
+                entries);
+        }
+    }
+
+    private static SubscriptionLedgerEntry TrialEntry => new(
+        Guid.Parse("11111111-1111-1111-1111-111111111111"),
+        RecordedOnClinicDay: new DateTime(2026, 8, 10),
+        RecordedAtUtc: new DateTime(2026, 8, 10, 9, 0, 0, DateTimeKind.Utc),
+        DurationMonths: null,
+        DurationDays: 30,
+        ExplicitEndsOn: null,
+        IsCancelled: false);
 
     private static SchemaSide EmptySide => new(
         Array.Empty<IndexFact>(), Array.Empty<ForeignKeyFact>(), Array.Empty<DecimalColumnFact>());
@@ -53,9 +85,12 @@ public class SchemaVerificationServiceTests
         "EXCLUDE USING gist (\"DoctorId\" WITH =, slot WITH &&) WHERE (\"Status\" <> ALL (ARRAY[5, 6]))");
 
     // Positional because the record is: `PatientsTotal` (the 7th) is a population, not a defect count, so it is
-    // the one non-zero entry. The three trailing zeros are platform-console's checks.
+    // the one non-zero entry. The three positional zeros after it are platform-console's checks; the two
+    // clinic-subscription ones are NAMED, because a merge that appended them positionally is exactly how a
+    // twenty-first zero lands in the wrong slot and every assertion still passes.
     private static DataMigrationCounts CleanCounts =>
-        new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ClinicsWithoutEntitlement: 0, GrandfatheredEntitlementEntries: 3);
 
     private static SchemaVerificationFinding Finding(SchemaVerificationReport report, string check) =>
         report.Findings.Single(f => f.Check == check);
@@ -730,4 +765,105 @@ public class SchemaVerificationServiceTests
         Assert.Contains("not applicable", finding.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
+    // ------------------------------------------------------------------ cabinet entitlements
+
+    // [FR-13][AC-6.4] The check that catches a THIRD clinic-construction door, which is the whole reason it counts
+    // over every cabinet rather than over the doors we know about. Its symptom is not an error: such a cabinet
+    // works normally until the gate ships, and is then refused every write it attempts.
+    [Fact]
+    public async Task A_Cabinet_With_No_Entitlement_Is_Drift()
+    {
+        Arrange(counts: CleanCounts with { ClinicsWithoutEntitlement = 1 });
+
+        var report = await CreateService().RunAsync();
+
+        Assert.True(IsDrift(Finding(report, "every-clinic-has-an-entitlement")));
+    }
+
+    [Fact]
+    public async Task Entitlement_Coverage_Reads_Not_Applicable_Before_The_Tables_Exist()
+    {
+        Arrange(counts: CleanCounts with { ClinicsWithoutEntitlement = null });
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "every-clinic-has-an-entitlement");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("not applicable", finding.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // [R-6] The stored end date must equal its ledger's fold. This is the check that catches a write path setting
+    // EndsOn without going through ClinicSubscription.RecomputeFrom — including the tempting hand-computed trial
+    // date, which is off by one against the fold and would be red on every new cabinet.
+    [Fact]
+    public async Task A_Stored_End_Date_That_Is_Not_Its_Ledgers_Fold_Is_Drift()
+    {
+        var entries = new[] { TrialEntry };
+        Arrange(subscriptionLedgers: new[]
+        {
+            // The off-by-one a hand-written `creationDay.AddDays(trialDays - 1)` produces one way or the other:
+            // one day past what the exclusive cursor yields.
+            new ClinicSubscriptionLedgerFact(
+                Guid.NewGuid(), SubscriptionLedger.Fold(entries)!.Value.AddDays(1), entries)
+        });
+
+        var report = await CreateService().RunAsync();
+
+        Assert.True(IsDrift(Finding(report, "subscription-end-date-matches-ledger")));
+    }
+
+    // The satisfied direction, and the one that pins WHICH date is right: the trial folds to day 30 counting the
+    // recorded day as day 1 (AC-1.1 — 10 Aug → 8 Sep, not 9 Sep). Asserted here rather than only in
+    // SubscriptionLedgerTests because this is the pair `verify-schema` compares in production.
+    [Fact]
+    public async Task An_Entitlement_Ending_Where_Its_Ledger_Folds_Is_Not_Drift()
+    {
+        Arrange();
+
+        var report = await CreateService().RunAsync();
+
+        Assert.False(IsDrift(Finding(report, "subscription-end-date-matches-ledger")));
+        Assert.Equal(new DateTime(2026, 9, 8), SubscriptionLedger.Fold(new[] { TrialEntry }));
+    }
+
+    [Fact]
+    public async Task The_Ledger_Fold_Check_Reads_Not_Applicable_Before_The_Tables_Exist()
+    {
+        Arrange(subscriptionLedgers: null);
+        _reader
+            .Setup(r => r.ReadAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SchemaFacts(
+                new[] { "plpgsql", "btree_gist", "unaccent" },
+                new[] { PartialExclusionConstraint },
+                EmptySide,
+                EmptySide,
+                Array.Empty<MappedDecimalFact>(),
+                CleanCounts,
+                new AuditLedgerFacts(TableExists: true, ClinicIdIsNullable: true),
+                SubscriptionLedgers: null));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "subscription-end-date-matches-ledger");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("not applicable", finding.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // [AC-6.4] Reported with its count and NEVER drift, however many there are. Asserting « grandfathered entries
+    // == cabinets » would go red on the deployment's very first signup — the shape that gets a check deleted as
+    // noisy — so the equality belongs to FR-9's before/after diff instead.
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    [InlineData(4000)]
+    public async Task The_Grandfathered_Count_Is_Reported_And_Never_Drift(int count)
+    {
+        Arrange(counts: CleanCounts with { GrandfatheredEntitlementEntries = count });
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "subscription-grandfathered-entries");
+        Assert.False(IsDrift(finding));
+        Assert.Contains(count.ToString(), finding.Detail, StringComparison.Ordinal);
+    }
 }

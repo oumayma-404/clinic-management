@@ -1,8 +1,10 @@
 using System.Text;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.ProcedureTypes;
+using ClinicManagement.Application.Features.Subscriptions;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging;
@@ -90,6 +92,8 @@ public static class LocalClinicProvisioning
         IUserRepository userRepository,
         IDoctorRepository doctorRepository,
         IProcedureTypeRepository procedureTypeRepository,
+        IClinicSubscriptionRepository subscriptionRepository,
+        ISubscriptionPolicy subscriptionPolicy,
         IUnitOfWork unitOfWork,
         IClinicCatalogSeeder clinicCatalogSeeder,
         ILogger logger,
@@ -162,12 +166,46 @@ public static class LocalClinicProvisioning
 
         await SeedDefaultProcedureTypesAsync(clinic.Id, procedureTypeRepository, cancellationToken);
 
+        // The cabinet's entitlement, staged into the SAME save as the clinic and its admin — FR-4's « one
+        // indivisible operation ». Construction door 1 of 2 (AC-1.2a); the other is CreateClinicCommand's
+        // Auth0 branch, which builds its own Clinic and never reaches this helper.
+        await StageEntitlementAsync(
+            clinic.Id, subscriptionRepository, subscriptionPolicy, cancellationToken);
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         var catalogsSeeded = await TrySeedCatalogsAsync(
             clinic.Id, clinicCatalogSeeder, logger, cancellationToken);
 
         return Result<ProvisionedClinic>.Success(new ProvisionedClinic(clinic, admin, catalogsSeeded));
+    }
+
+    /// <summary>
+    /// Stages the cabinet's entitlement and its opening ledger entry (FR-4, FR-13).
+    ///
+    /// <para><b>Public because the Auth0 door cannot reach this helper</b> — <c>CreateClinicCommand</c>'s Cloud
+    /// branch builds its own <c>Clinic</c> and calls this directly (AC-1.2a). Sharing the body rather than copying
+    /// it is what stops « what entitlement does a new cabinet get » having two answers, which is this repo's
+    /// <c>fixes-dont-propagate</c> shape and the reason <see cref="SeedDefaultProcedureTypesAsync"/> below is
+    /// shared too.</para>
+    ///
+    /// <para>Stages only: the caller's existing single <c>SaveChangesAsync</c> commits it, so a cabinet and its
+    /// entitlement arrive in one transaction or neither does.</para>
+    /// </summary>
+    public static async Task StageEntitlementAsync(
+        Guid clinicId,
+        IClinicSubscriptionRepository subscriptionRepository,
+        ISubscriptionPolicy subscriptionPolicy,
+        CancellationToken cancellationToken = default)
+    {
+        var entitlement = SubscriptionProvisioning.CreateForNewClinic(
+            clinicId,
+            subscriptionPolicy.RequiresSubscription,
+            ClinicClock.ClinicToday(),
+            subscriptionPolicy.TrialDays);
+
+        await subscriptionRepository.AddAsync(entitlement.Subscription, cancellationToken);
+        await subscriptionRepository.AddEntryAsync(entitlement.OpeningEntry, cancellationToken);
     }
 
     /// <summary>

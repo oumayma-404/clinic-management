@@ -268,7 +268,7 @@ function appointmentAppearance(appointment: AppointmentDto): { className: string
     case "active":
       // En cours. A ring rather than a border, so it composes with the act's hue instead of overwriting it.
       // `--warning` and not `--accent`: `active` is the amber step of the shared tone scale (the tone that asks
-      // for attention), and this theme's `--accent` is a near-white teal that would be invisible as a ring.
+      // for attention), and this theme's `--accent` is a near-white tint of the accent hue — invisible as a ring.
       classes.push("ring-2 ring-inset ring-warning")
       break
     default:

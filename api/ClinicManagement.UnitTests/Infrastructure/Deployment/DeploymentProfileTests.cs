@@ -61,7 +61,10 @@ public class DeploymentProfileTests
             [nameof(DeploymentProfile.AllowsPublicClinicSignup)] = (false, true, false),
             // platform-console. The SECOND capability true of HostedMultiTenant alone, so it joins the
             // `hostedOnlyCapabilities` set below for the same reason AllowsPublicClinicSignup did.
-            [nameof(DeploymentProfile.ServesPlatformConsole)] = (false, true, false)
+            [nameof(DeploymentProfile.ServesPlatformConsole)] = (false, true, false),
+            // clinic-subscription AC-7.1–7.3. The THIRD hosted-only capability: the two other kinds are ✗ for
+            // their own reasons (the clinic's own disk; a topology that predates the arrangement), not by default.
+            [nameof(DeploymentProfile.RequiresSubscription)] = (false, true, false)
         };
 
     private static IEnumerable<PropertyInfo> Capabilities() =>
@@ -109,7 +112,8 @@ public class DeploymentProfileTests
         var hostedOnlyCapabilities = new[]
         {
             nameof(DeploymentProfile.AllowsPublicClinicSignup),
-            nameof(DeploymentProfile.ServesPlatformConsole)
+            nameof(DeploymentProfile.ServesPlatformConsole),
+            nameof(DeploymentProfile.RequiresSubscription)
         };
 
         foreach (var capability in Capabilities())

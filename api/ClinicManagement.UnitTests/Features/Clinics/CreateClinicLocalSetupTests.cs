@@ -24,6 +24,8 @@ public class CreateClinicLocalSetupTests
     private readonly Mock<IFileStorage> _fileStorage = new();
     private readonly Mock<ILocalAuthService> _localAuth = new();
     private readonly Mock<IClinicCatalogSeeder> _catalogSeeder = new();
+    private readonly Mock<IClinicSubscriptionRepository> _subscriptions = new();
+    private readonly Mock<ISubscriptionPolicy> _subscriptionPolicy = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
     private User? _capturedUser;
@@ -31,7 +33,8 @@ public class CreateClinicLocalSetupTests
 
     private CreateClinicCommandHandler Handler() => new(
         _clinics.Object, _procedureTypes.Object, _users.Object, _doctors.Object, _clinicContext.Object,
-        _auth0.Object, _fileStorage.Object, _localAuth.Object, _catalogSeeder.Object, _uow.Object,
+        _auth0.Object, _fileStorage.Object, _localAuth.Object, _catalogSeeder.Object, _subscriptions.Object,
+        _subscriptionPolicy.Object, _uow.Object,
         NullLogger<CreateClinicCommandHandler>.Instance);
 
     private void FreshInstall()
@@ -44,6 +47,11 @@ public class CreateClinicLocalSetupTests
         _users.Setup(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
             .Callback<User, CancellationToken>((u, _) => _capturedUser = u);
         _localAuth.Setup(a => a.HashPassword(It.IsAny<string>())).Returns("HASHED");
+        // clinic-subscription: the Local branch is a SelfHostedLan first run, so the policy answers « not
+        // enforced » and the cabinet gets an open-ended entitlement. TrialDays is still stubbed because the
+        // helper reads it either way.
+        _subscriptionPolicy.SetupGet(p => p.RequiresSubscription).Returns(false);
+        _subscriptionPolicy.SetupGet(p => p.TrialDays).Returns(30);
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
     }
 

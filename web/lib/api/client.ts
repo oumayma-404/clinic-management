@@ -75,7 +75,39 @@ export const ApiErrorCode = {
    * to the toast verbatim. Emitted by `LocalAuthEnforcementMiddleware`.
    */
   MustChangePassword: 'must_change_password',
+  /**
+   * The cabinet's entitlement has ended, so **writes** are refused with 402 until it is renewed
+   * (`clinic-subscription` AC-4.4). Every read, every CSV export and every PDF keep working — the gate never
+   * inspects a GET — so this is never a reason to take the screen.
+   *
+   * ⚠️ **It must never sign the user out** (AC-4.5). Nothing here touches {@link handleRequest}'s one-shot 401
+   * retry: the account is fine, the session is fine, and only *recording new work* is refused.
+   *
+   * ⚠️ The server's own French sentence names the end date and points at « Abonnement », so — unlike
+   * {@link MustChangePassword} — this code does **not** replace the message. It only tells
+   * {@link onSubscriptionRequired} to re-read the subscription, which is what raises the banner with no reload
+   * (EC-1). Emitted by `SubscriptionRefusals.RequiredCode`.
+   */
+  SubscriptionRequired: 'subscription_required',
+  /**
+   * The vendor has suspended this cabinet. Same 402 handling as {@link SubscriptionRequired} and deliberately a
+   * **distinct** code: a suspension is not fixed by paying, so the server's sentence carries no date and does not
+   * say « expiré ». Emitted by `SubscriptionRefusals.SuspendedCode`.
+   */
+  SubscriptionSuspended: 'subscription_suspended',
+  /**
+   * The cabinet has no entitlement row at all — our fault, not a lapse on theirs (EC-6), so the server's sentence
+   * asks them to contact us rather than to renew. Emitted by `SubscriptionRefusals.MissingCode`.
+   */
+  SubscriptionMissing: 'subscription_missing',
 } as const;
+
+/** The three 402 codes, as one set — see {@link onSubscriptionRequired}. */
+const SUBSCRIPTION_CODES: ReadonlySet<string> = new Set([
+  ApiErrorCode.SubscriptionRequired,
+  ApiErrorCode.SubscriptionSuspended,
+  ApiErrorCode.SubscriptionMissing,
+]);
 
 /** Whether the server has refused this client as too old at any point this session. See {@link onClientTooOld}. */
 let clientRefusedAsTooOld = false;
@@ -116,6 +148,30 @@ export function onMustChangePassword(listener: MustChangePasswordListener): () =
   mustChangePasswordListeners.add(listener);
   return () => {
     mustChangePasswordListeners.delete(listener);
+  };
+}
+
+type SubscriptionRequiredListener = () => void;
+const subscriptionRequiredListeners = new Set<SubscriptionRequiredListener>();
+
+/**
+ * Subscribe to « this cabinet may not record new work » (402 + one of the three subscription codes). Returns an
+ * unsubscribe function.
+ *
+ * <p>Same shape as {@link onClientTooOld} and {@link onMustChangePassword}: the data layer reports the refusal,
+ * and the one component that owns the state decides what happens. `SubscriptionProvider` is the subscriber, and
+ * what it does is **re-read the subscription** — FR-15's third trigger, and the only thing that raises the banner
+ * for a cabinet whose entitlement ended at midnight while a fiche was open (EC-1). Nothing pushes that: midnight
+ * has no actor to broadcast from, so the refused save is the event.</p>
+ *
+ * <p>⚠️ Unlike the two above it, this listener changes <b>nothing</b> about the failing call. The error still
+ * travels on to the caller carrying the server's own French sentence, the caller still shows it with
+ * `showErrorToast`, and the form stays open with everything typed still in it (AC-4.6).</p>
+ */
+export function onSubscriptionRequired(listener: SubscriptionRequiredListener): () => void {
+  subscriptionRequiredListeners.add(listener);
+  return () => {
+    subscriptionRequiredListeners.delete(listener);
   };
 }
 
@@ -179,6 +235,11 @@ const TOKEN_FALLBACK_TTL_MS = 30_000;
 const STATUS_FALLBACK_FR: Record<number, string> = {
   401: "Votre session a expiré. Reconnectez-vous.",
   403: "Vous n'avez pas les droits nécessaires pour cette action.",
+  // The subscription gate always sends its own `{ error, code }` — a full French sentence naming the end date —
+  // so this is the safety net for a 402 whose body is missing or unparseable (refused by an intermediary). It
+  // deliberately names no date: inventing one here would contradict the sentence the gate actually writes.
+  402: "Votre abonnement ne permet plus d'enregistrer de nouvelles données. "
+    + "Vos données restent consultables et exportables. Rendez-vous dans « Abonnement ».",
   404: "Élément introuvable.",
   409: "Cet enregistrement a été modifié par quelqu'un d'autre pendant votre saisie. "
     + "Rechargez pour voir la version à jour, puis appliquez à nouveau votre modification.",
@@ -345,6 +406,13 @@ async function throwIfNotOk(response: Response): Promise<void> {
     if (response.status === 426) {
       clientRefusedAsTooOld = true;
       clientTooOldListeners.forEach((listener) => listener());
+    }
+
+    // The refusal that changes the app's *state* rather than its screen: re-read the subscription so the banner
+    // appears without a reload (EC-1). Keyed on the code, not on the status, so a 402 from anything but our own
+    // gate cannot trigger a re-read — and the message travels on untouched.
+    if (errorCode && SUBSCRIPTION_CODES.has(errorCode)) {
+      subscriptionRequiredListeners.forEach((listener) => listener());
     }
 
     // The one refusal every screen can act on, in exactly one way: go and change the password.

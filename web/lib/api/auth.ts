@@ -42,6 +42,31 @@ export interface AuthModeDto {
    * have.
    */
   publicSignupEnabled?: boolean;
+  /**
+   * Whether a cabinet's right to record new work is a dated entitlement here (`clinic-subscription`, FR-11).
+   *
+   * ⚠️ **This is what the client mounts the « Abonnement » screen and the banner from — never a probe of
+   * `GET /api/subscription`.** That endpoint's 404 stays as the server-side guarantee, but a network failure and a
+   * genuine 404 are indistinguishable to a probe, and EC-13 requires a failed read to be *retryable* rather than
+   * read as « aucun abonnement ».
+   *
+   * ⚠️ **Optional, and read as `=== true`**, following `publicSignupEnabled`'s convention: `web` and `api` are
+   * separate containers in the hosted topology, so a rolling deploy legitimately serves this page from a build newer
+   * than the API answering it. A required `boolean` here would be `undefined` asserting a type it does not have —
+   * and the safe direction is « no subscription », which is how the two unaffected deployment kinds already behave.
+   */
+  requiresSubscription?: boolean;
+  /**
+   * Free days a cabinet created here starts with, or `null`/absent where nothing expires (`clinic-subscription`
+   * AC-1.3).
+   *
+   * ⚠️ **Served rather than written into the wizard's copy.** The duration is operator configuration
+   * (`Subscription:TrialDays`) and `ISubscriptionPolicy.TrialDays` is its one authority; a literal « 30 jours » in
+   * the signup form would be a second one, and this product's own landing copy already says « 2 semaines ». The
+   * form falls back to the spec's figure when the field is absent, so an older API still states *something* true
+   * for a default deployment rather than nothing at all.
+   */
+  trialDays?: number | null;
 }
 
 /** What `POST /api/auth/signup` requests. Mirrors the backend `ClinicSignUpRequest`. */

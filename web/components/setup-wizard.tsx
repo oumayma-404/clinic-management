@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -70,6 +70,13 @@ interface SetupWizardProps {
   flow?: SetupWizardFlow
 }
 
+/**
+ * What AC-1.3 promises when the deployment has not said otherwise. It is a **fallback**, not the source: the real
+ * figure is `Subscription:TrialDays`, served on `GET /api/auth/mode`. It exists so an older API — or a probe that
+ * could not answer — still states something true of a default deployment rather than leaving the promise unmade.
+ */
+const DEFAULT_TRIAL_DAYS = 30
+
 export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardProps) {
   const isSignup = flow === "signup"
   // The server's own neutral sentence, shown verbatim once a signup is accepted. Non-null IS the success state.
@@ -81,6 +88,30 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
   const { accessToken } = useAuthToken()
   const { mode } = useSession()
   const isLocalMode = mode === "local"
+
+  /*
+   * AC-1.3: the trial is stated **before the visitor submits anything**, so this is read on mount and shown in the
+   * header — visible on all three steps rather than tucked beside the final button.
+   *
+   * `null` until the probe answers and where the deployment grants no trial; `/setup` (first-run on a clinic's own
+   * PC) never asks, because nothing expires there and promising free days would be a sentence with no meaning.
+   */
+  const [trialDays, setTrialDays] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!isSignup) return
+    let cancelled = false
+    authApi
+      .getMode()
+      .then((m) => {
+        if (cancelled || m.requiresSubscription !== true) return
+        setTrialDays(m.trialDays ?? DEFAULT_TRIAL_DAYS)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [isSignup])
 
   // Local (offline) first-run: the first user is the clinic admin (email + password).
   const [adminFullName, setAdminFullName] = useState("")
@@ -349,6 +380,19 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
             {isSignup ? "Créez le cabinet de votre clinique" : "Bienvenue dans la gestion de votre clinique"}
           </h1>
           <p className="text-muted-foreground">Configurons votre clinique en 3 étapes simples</p>
+          {/* AC-1.3. `flex-wrap` + `[overflow-wrap:anywhere]` so it stays one readable line at 320 px instead of
+              pushing the first field below a second scroll on the product's first screen. */}
+          {trialDays !== null && (
+            <p
+              role="status"
+              className="inline-flex max-w-full flex-wrap items-center justify-center gap-2 rounded-full bg-success-wash px-4 py-1.5 text-sm text-foreground"
+            >
+              <CheckCircle2 className="size-4 shrink-0 text-success" aria-hidden="true" />
+              <span className="[overflow-wrap:anywhere]">
+                {trialDays} jours d&apos;essai gratuit, sans carte bancaire.
+              </span>
+            </p>
+          )}
           <div className="pt-2">
             {/*
               On the public door the way back is « I already have an account », not « join with a clinic code »:
