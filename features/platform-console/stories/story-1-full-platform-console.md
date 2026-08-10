@@ -1,7 +1,8 @@
 # Story 1: [Full] The vendor runs the practice portfolio from a private console
 
 **Status:** APPROVED
-**Story Status:** not-started
+**Story Status:** in-progress — **Part 1 implemented** (`0fafe42`); Parts 2–3 buildable next, Parts 4–7 blocked
+**Progress:** [progress.md](./progress.md) — gate results, deviations and what is owed
 **Layer:** Full — ⚠️ see *Notes* for why the BE/FE separation rule is deliberately overridden
 **Depends On:** `features/clinic-subscription/` — **Parts 4–7 only** (Parts 1–3 have no dependency on it)
 **Blocks:** None
