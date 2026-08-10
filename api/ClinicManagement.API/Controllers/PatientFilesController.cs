@@ -25,6 +25,7 @@ public class PatientFilesController : ApiControllerBase
     }
 
     [HttpPost("folders/initialize-defaults")]
+    [AllowsWithoutSubscription("FR-3 — fired on the first visit to the Files tab; a READ would fail without it (AC-4.1).")]
     public async Task<ActionResult<IEnumerable<Application.DTOs.PatientFolderDto>>> InitializeDefaultFolders(
         Guid patientId,
         CancellationToken cancellationToken = default)

@@ -1,9 +1,9 @@
 # Story 1: [Full] Abonnement du cabinet — entitlement, enforcement, visibility and vendor control
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Part A complete** (Checkpoint A green; Parts B–G not started). See
-[stories/progress.md](./progress.md) for the gate results, the two logged deviations and the four defects Part A's
-own tests and gates caught.
+**Story Status:** in-progress — **Parts A and B complete** (both checkpoints green; Parts C–G not started). See
+[stories/progress.md](./progress.md) for the gate results, Part A's two logged deviations and four caught defects, and
+Part B's two executed red-proofs.
 **Layer:** Full (deliberate departure from the BE/FE rule — see *Notes*)
 **Depends On:** None
 **Blocks:** `features/platform-console/` (that feature depends on this one and must not be started before it)
@@ -24,31 +24,31 @@ behave byte for byte as they do today.
 _From spec:_
 
 **Part A — the entitlement exists everywhere (US-1, US-6, US-7)**
-- [ ] **AC-1.1** A self-signup cabinet's entitlement runs to the end of its 30th clinic-local day, creation day = day 1 (10 Aug → 8 Sep, and it may work all of 8 Sep)
-- [ ] **AC-1.2** No door creates a cabinet without an entitlement; trial where subscriptions are enforced, **open-ended** where they are not
-- [ ] **AC-1.2a** **Both** construction sites produce one — the shared provisioning helper *and* the Auth0 branch that builds its own `Clinic`
-- [ ] **AC-1.4** During the trial every capability is available — a trial is not a reduced product (no work; assert nothing gates on `Trial`)
-- [ ] **AC-1.5** Changing the configured trial length later moves no existing cabinet's end date (**EC-12**)
-- [ ] **AC-6.1** Every pre-existing cabinet receives an entitlement with **no end date**
-- [ ] **AC-6.2** Each carries one entry recording that it was grandfathered, and why
-- [ ] **AC-6.3** No existing cabinet sees a banner, a warning, or a refusal as a result of the deployment
-- [ ] **AC-6.4** Verifiable afterwards, as **named checks in `verify-schema`**: cabinets without an entitlement = 0, and grandfathered entries = the pre-deployment cabinet count
-- [ ] **AC-7.1 / AC-7.2** Nothing enforced, no banner, no warning, no « Abonnement » screen on `SelfHostedLan` or `CloudBrowser`
-- [ ] **AC-7.3** Whether enforcement applies is decided by the deployment's **kind**; no configuration setting can flip it
+- [x] **AC-1.1** A self-signup cabinet's entitlement runs to the end of its 30th clinic-local day, creation day = day 1 (10 Aug → 8 Sep, and it may work all of 8 Sep)
+- [x] **AC-1.2** No door creates a cabinet without an entitlement; trial where subscriptions are enforced, **open-ended** where they are not
+- [x] **AC-1.2a** **Both** construction sites produce one — the shared provisioning helper *and* the Auth0 branch that builds its own `Clinic`
+- [x] **AC-1.4** During the trial every capability is available — a trial is not a reduced product (no work; assert nothing gates on `Trial`)
+- [x] **AC-1.5** Changing the configured trial length later moves no existing cabinet's end date (**EC-12**)
+- [x] **AC-6.1** Every pre-existing cabinet receives an entitlement with **no end date**
+- [x] **AC-6.2** Each carries one entry recording that it was grandfathered, and why
+- [x] **AC-6.3** No existing cabinet sees a banner, a warning, or a refusal as a result of the deployment
+- [x] **AC-6.4** Verifiable afterwards, as **named checks in `verify-schema`**: cabinets without an entitlement = 0, and grandfathered entries = the pre-deployment cabinet count
+- [x] **AC-7.1 / AC-7.2** Nothing enforced, no banner, no warning, no « Abonnement » screen on `SelfHostedLan` or `CloudBrowser`
+- [x] **AC-7.3** Whether enforcement applies is decided by the deployment's **kind**; no configuration setting can flip it
 
 **Part B — read-only, not locked out (US-4)**
-- [ ] **AC-4.1** Every read succeeds: agenda, patient list, every tab, odontogram, invoices, devis, la caisse, dashboard, documents, files, PDFs
-- [ ] **AC-4.2** Every CSV export succeeds (**EC-9**)
-- [ ] **AC-4.3** Printing or downloading a document the cabinet already holds succeeds
-- [ ] **AC-4.4** Create / modify / delete is refused with a French message naming the end date and pointing at « Abonnement »
-- [ ] **AC-4.5** The refusal is machine-recognisable and **never signs the user out**
-- [ ] **AC-4.7** Signing in works; changing a password works, including an administrator-forced change (**EC-2**)
-- [ ] **AC-4.8** Reading « Abonnement » works
-- [ ] **AC-4.9** Compute-only requests still succeed (CNAM estimate, CSV import dry run, render-for-download); **the AI assistant does not**
-- [ ] **AC-4.11** Screens experienced as reading keep working where they issue a write to do so (default file folders, push-token registration, clearing the bell)
-- [ ] **AC-4.10** Nothing about the refusal is silent — no case where a save appears to succeed and does not
-- [ ] **EC-6** A cabinet with no entitlement row is refused under the **distinct** `subscription_missing` code
-- [ ] **EC-10** A secretary meets the French refusal and a « Abonnement » screen she is allowed to open — never a rights error
+- [x] **AC-4.1** Every read succeeds: agenda, patient list, every tab, odontogram, invoices, devis, la caisse, dashboard, documents, files, PDFs
+- [x] **AC-4.2** Every CSV export succeeds (**EC-9**)
+- [x] **AC-4.3** Printing or downloading a document the cabinet already holds succeeds
+- [x] **AC-4.4** Create / modify / delete is refused with a French message naming the end date and pointing at « Abonnement »
+- [x] **AC-4.5** The refusal is machine-recognisable and **never signs the user out**
+- [x] **AC-4.7** Signing in works; changing a password works, including an administrator-forced change (**EC-2**)
+- [ ] **AC-4.8** Reading « Abonnement » works — *the gate half is done (both actions will be GETs, which it never inspects), but the screen and its endpoints arrive in **Part C**; not tickable yet*
+- [x] **AC-4.9** Compute-only requests still succeed (CNAM estimate, CSV import dry run, render-for-download); **the AI assistant does not**
+- [x] **AC-4.11** Screens experienced as reading keep working where they issue a write to do so (default file folders, push-token registration, clearing the bell)
+- [x] **AC-4.10** Nothing about the refusal is silent — no case where a save appears to succeed and does not
+- [x] **EC-6** A cabinet with no entitlement row is refused under the **distinct** `subscription_missing` code
+- [x] **EC-10** A secretary meets the French refusal — never a rights error (the gate reads no role at all, so « vous n'avez pas les droits » is unreachable here). *The « screen she is allowed to open » half belongs to Part C's `AnyClinicRole` route.*
 
 **Part C — visibility (US-2)**
 - [ ] **AC-2.1** « Abonnement » shows state, end date, days remaining, plan, price, payment instructions, contact details

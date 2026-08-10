@@ -83,6 +83,7 @@ public class PatientsController : ApiControllerBase
     /// </remarks>
     [HttpPost("import/preview")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [AllowsWithoutSubscription("AC-4.9 — a dry run: a Query by design, writing nothing. The commit below is refused.")]
     [RequestSizeLimit(MaxImportFileBytes)]
     public async Task<ActionResult<PatientImportPreviewDto>> PreviewPatientImport(
         [FromForm] Models.PatientImportRequest request,

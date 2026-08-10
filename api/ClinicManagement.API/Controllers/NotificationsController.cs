@@ -74,6 +74,7 @@ public class NotificationsController : ApiControllerBase
     /// Mark a single notification read for the current user.
     /// </summary>
     [HttpPut("{id}/read")]
+    [AllowsWithoutSubscription("FR-3 — otherwise the expiry notice itself could never be dismissed (AC-3.4).")]
     public async Task<IActionResult> MarkRead(Guid id)
     {
         var result = await _mediator.Send(new MarkNotificationReadCommand { Id = id });
@@ -92,6 +93,7 @@ public class NotificationsController : ApiControllerBase
     /// Mark all of the current user's unread notifications read.
     /// </summary>
     [HttpPut("read-all")]
+    [AllowsWithoutSubscription("FR-3 — clearing the bell is reading, and it is where the warnings arrive.")]
     public async Task<IActionResult> MarkAllRead()
     {
         var result = await _mediator.Send(new MarkAllNotificationsReadCommand());

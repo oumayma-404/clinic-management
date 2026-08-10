@@ -581,15 +581,31 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   `AddForeignKey` over such a row aborts the upgrade after the schema is half-applied. This is **attribution, not
   authorization**: per-practitioner data scoping is deliberately out of scope. `verify-schema` gained
   `practitioner-attribution-backfill`, because a backfill is the one thing invisible to every other layer.
-- **A cabinet's right to record work is a dated entitlement (`clinic-subscription`, Part A of 7 — A only)**: on the
+- **A cabinet's right to record work is a dated entitlement (`clinic-subscription`, Parts A+B of 7)**: on the
   hosted deployment a clinic gets **30 free days**, and past its date it becomes **read-only** — every read, every
   CSV export and every PDF keep working, and only writes are refused. Part A ships the foundation: one
   **`ClinicSubscription`** per clinic whose `EndsOn` is a full re-fold of an append-only, cancellable
   **`SubscriptionPeriod`** ledger, the 16th `DeploymentProfile` capability **`RequiresSubscription`**
   (`HostedMultiTenant` only, decided by the **kind** and by nothing an operator can set — AC-7.3), and one migration
   that grandfathers every pre-existing cabinet **open-ended** so no clinic anywhere can be refused for at least 30
-  days after deployment. **Parts B–G are not built yet**: there is no gate, no screen, no banner, no warning job and
-  no vendor verb, so nothing is enforced anywhere today.
+  days after deployment. **Part B ships the enforcement**: `API/Middleware/SubscriptionGateMiddleware` refuses every
+  non-GET request under `/api` with **402** + a code + a French sentence naming the date, unless the endpoint carries
+  **`[AllowsWithoutSubscription("<reason>")]`** — see `api/ClinicManagement.API/CLAUDE.md` for the exempt set, the
+  ordering rationale and the two derived guards. **Parts C–G are not built yet**: there is no screen, no banner, no
+  warning job and no vendor verb, so a lapsed cabinet is refused correctly but has nowhere to read *why* and no way to
+  be unlocked except by editing the ledger directly.
+  ⚠️ **Reads are untouched by construction, not by a list**: the gate never inspects a GET/HEAD/OPTIONS, so « every
+  read, every CSV export and every PDF keep working » holds for every read that exists *and* every read added later.
+  An allow-list of readable endpoints would have to be kept complete, and the day it was not, an expired cabinet would
+  lose part of its own records.
+  ⚠️ **The gate goes after `LocalAuthEnforcementMiddleware`, not beside `TenantScopeMiddleware`** — one block earlier
+  and a **402 masks the 401** of a revoked token and the **403 `must_change_password`** of a forced password change,
+  so a deactivated colleague is told the subscription lapsed and a user owing a password change is sent to
+  « Abonnement » instead of to the screen that unblocks them. It is correct in isolation and wrong only in *position*,
+  which is why `SubscriptionGateMiddlewareTests` asserts the ordering against `Program.cs`'s own source.
+  ⚠️ **A caller who is not a cabinet passes**, rather than meeting `subscription_missing`: no clinic in scope means no
+  entitlement to find, and that fault code would otherwise land on precisely the vendor-console endpoints whose whole
+  purpose is to *end* a refusal.
   ⚠️ **`SubscriptionLedger.Fold` takes no clock and folds on an EXCLUSIVE cursor**, and both halves are load-bearing.
   Passing « today » in — the naive reading of « the later of the current end or today, plus the duration » — makes the
   answer depend on when it is recomputed, so a lapsed entry restarts from today and `verify-schema` flaps daily. And

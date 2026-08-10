@@ -181,7 +181,7 @@ Service registration order:
 10. **YARP front door (Local only)** — `AddReverseProxy().LoadFromMemory(...)` registers one catch-all route (`/{**catch-all}`, least-specific) → the co-located Next server at `http://localhost:{Hosting:WebPort ?? 3000}`. Kestrel is the single browser-facing endpoint: `/api/*` controllers (more specific) run in-process; everything else proxies to Next. Cloud installs no proxy.
 11. **HTTPS / Kestrel bind — mode-branched.** **Local always serves HTTPS**: if `Https:CertPath` is set it must exist (else `StartupDiagnostics.ReportFatal` + `return 1` — no silent HTTP downgrade), otherwise `CertificateProvisioner.EnsureServerCertificate()` self-generates a CA + cert into `.local/`; HTTP binds **loopback-only** on `Hosting:HttpPort` (5000, sole consumer is the Next BFF), HTTPS `ListenAnyIP` on `Hosting:HttpsPort` (5001, the only LAN port). Cloud: opt-in HTTPS only if a cert file exists (`ListenAnyIP` both), else honor `Hosting:Urls`. Cert password comes from `.local/`/env, never committed. A `certSource` (`generated`|`configured`|`cloud`) is logged.
 
-Middleware order (after `Build()`): `UseSwagger`/`UI` (Dev only) → `UseHttpsRedirection` (**Cloud only** — Local must not redirect its loopback HTTP hop to the self-signed front door) → `UseCors` → `UseMiddleware<SecurityHeadersMiddleware>` → the trust-port gate (Local only) → **`UseAuthAttemptAccountCapture()`** → **`UseRateLimiter()`** → `UseMiddleware<ExceptionMiddleware>` (from Application; before auth) → **`ClientVersionMiddleware`** (every profile) → `UseAuthentication` → `UseAuthorization` → **`TenantScopeMiddleware`** (every profile) → **`LocalAuthEnforcementMiddleware`** (Local only) → `MapControllers` → **`HealthChecks.Register` (`/health`)** → **`MapHub<ClinicHub>("/hub/clinic")`** → `UseHangfireDashboard("/hangfire")` → **`MapReverseProxy().AllowAnonymous()`** (Local only — the proxied Next app does its own auth; anonymous or the fail-closed fallback would 401 the login page).
+Middleware order (after `Build()`): `UseSwagger`/`UI` (Dev only) → `UseHttpsRedirection` (**Cloud only** — Local must not redirect its loopback HTTP hop to the self-signed front door) → `UseCors` → `UseMiddleware<SecurityHeadersMiddleware>` → the trust-port gate (Local only) → **`UseAuthAttemptAccountCapture()`** → **`UseRateLimiter()`** → `UseMiddleware<ExceptionMiddleware>` (from Application; before auth) → **`ClientVersionMiddleware`** (every profile) → `UseAuthentication` → `UseAuthorization` → **`TenantScopeMiddleware`** (every profile) → **`LocalAuthEnforcementMiddleware`** (Local only) → **`SubscriptionGateMiddleware`** (every profile, inert unless `RequiresSubscription`) → `MapControllers` → **`HealthChecks.Register` (`/health`)** → **`MapHub<ClinicHub>("/hub/clinic")`** → `UseHangfireDashboard("/hangfire")` → **`MapReverseProxy().AllowAnonymous()`** (Local only — the proxied Next app does its own auth; anonymous or the fail-closed fallback would 401 the login page).
 
 **`UseAuthAttemptAccountCapture()`** (multi-tenant-cloud US-6) sits **immediately before** the limiter, because after it the partition has already been chosen. It lifts the submitted `email` out of a small JSON POST to `/api/auth/*` onto `HttpContext.Items` so the anonymous-auth window is spent **per account** rather than per client address — a whole practice reaches a hosted deployment through one NAT address, so one colleague mistyping their password used to spend everybody's budget. ⚠️ It buffers the body and rewinds it (`EnableBuffering`), and **anything it cannot read leaves no value behind**: a non-JSON body, a truncated one, one over 8 KB, `auth/refresh` (which carries no email at all) all fall back to the address, i.e. to exactly the behaviour that shipped before. Nothing about it can refuse a request — turning a JSON slip into a 500 at the limiter would make the login page unreachable. ⚠️ Re-keying alone would have been a hole, so `RateLimiting`'s **global** limiter now recognises the same path prefix and bounds it on the address with a separate, looser ceiling (`RateLimiting:Auth:AddressPermitLimit`, default 150 per the auth window): the account window is the brake, the address one is the ceiling, and both apply.
 
@@ -206,6 +206,40 @@ ordering.
 **`TenantScopeMiddleware`** (multi-tenant-cloud US-2, **unconditional in every profile**): sets `ITenantScope` from the caller's **DB-resolved** `User.ClinicId`, so the EF global query filters know whose rows the request may see. It must run before any controller, because those filters now **refuse** an unset scope. ⚠️ An unresolvable caller deliberately leaves the scope `Unset` — anonymous requests, the proxied web pages and a principal with no `User` row yet (Cloud onboarding) all land there and all still work, because `User`/`Clinic` carry no filter. Placed after `UseAuthorization` so a refused request never pays for the lookup, and before the middleware below so the two **share one** account query via `RequestAccount` (which also collapses the duplicated `sub`-claim reading).
 
 **`LocalAuthEnforcementMiddleware`** (Local only): the app-issued JWT is stateless, so per authenticated request it enforces **token-version revocation** (401) and forces a pending password change (403 `{ error, code: "must_change_password" }`) except on `/api/auth/change-password`. ⚠️ The **active-account** check moved out of here to `AccountStateMiddleware` above: it was skipped entirely on `CloudBrowser`, which is what made deactivation a no-op there. What remains are the two things only a self-issued JWT can have, which is what `EnforcesTokenState` now accurately means. It reads the account through `RequestAccount`, i.e. the row the tenant-scope middleware already loaded.
+
+**`SubscriptionGateMiddleware`** (`clinic-subscription` Part B, US-4 / FR-3): a cabinet past its entitlement becomes
+**read-only** — every read, every CSV export and every PDF keep working, and only writes are refused, with **402**,
+a code (`subscription_required` / `_suspended` / `_missing`) and a French sentence naming the date. The wording and
+the codes live in one place, `Application/Features/Subscriptions/SubscriptionRefusals`; the state itself comes from
+`SubscriptionStateReader`, the same rule the screen, the banner, the warning job and the vendor verbs read.
+⚠️ **Reads are untouched by construction, not by a list**: the gate never inspects a GET/HEAD/OPTIONS, so AC-4.1
+holds for every read that exists *and* every read added later — an allow-list of readable endpoints would have to be
+kept complete, and the day it was not, an expired cabinet would lose part of its own records. Exports need no
+exemption for the same reason: they are GETs.
+⚠️ **Registered after `LocalAuthEnforcementMiddleware`, last before `MapControllers`, and the four lines matter.**
+Placed before it the gate answers **402** for a **revoked token** (should be 401) and a **pending forced password
+change** (should be 403 `must_change_password`) — telling a deactivated colleague the subscription lapsed, and
+routing a user who must change their password to « Abonnement » instead of to the screen that unblocks them, stuck
+in both directions. Placed after, it still has everything it needs: the tenant scope is set, `RequestAccount` has
+the account cached, and endpoint metadata is available because the implicit `UseRouting` runs before *all* user
+middleware (the same reason `UseAuthorization` works here with no explicit call). `SubscriptionGateMiddlewareTests`
+asserts that ordering against **`Program.cs`'s own source** — the middleware is correct in isolation and only its
+*position* is wrong, so nothing else in the build can see it.
+⚠️ **A caller who is not a cabinet passes** (`ITenantScope.Kind != Clinic`) rather than meeting
+`subscription_missing`: they have no entitlement to find, and that fault code would otherwise land on precisely the
+vendor-console endpoints whose purpose is to *end* a refusal. Authentication already covers the anonymous case.
+⚠️ **FR-3's exempt set is declared per endpoint** with `[AllowsWithoutSubscription("<reason>")]` (mandatory reason,
+beside `AuthorizationPolicies` in Application) and is derived — not listed twice — by
+`SubscriptionExemptionCoverageTests`, which asserts the applied set equals the reviewed one **in both directions**.
+The writes on it: the whole of `AuthController` (class-level — AC-4.7/EC-2, of which only `change-password` is
+genuinely refused without it), the three compute-only POSTs (batch CNAM estimate · CSV import **preview** ·
+render-for-download), the four writes experienced as reading (mark-read / read-all · push register + deregister ·
+default file folders · the user's own dashboard layout), and `backup` + `users/{id}/status`. ⚠️ **The AI chat is
+deliberately not on it** — its action set books and cancels appointments — and the **Google OAuth callback is not
+exempted** either: it is a GET that writes, but the request that *starts* the flow is refused, so it is unreachable.
+⚠️ That guard classifies **non-GET actions only**, so it *cannot* fail when the attribute is removed from a GET-only
+row (`MetaController`'s two, and every action of the coming `SubscriptionController`): those carry it as
+documentation, and a green suite is not evidence they are load-bearing.
 
 **EF migrations — mode-branched.** Cloud runs `context.Database.Migrate()` synchronously in `Program.cs` + `IClinicCatalogSeeder.SeedAllClinicsAsync()` backfill. Local defers both to `Startup/DeferredStartupService` (an `IHostedService` that fire-and-forgets the work after the host reports "started"), because applying migrations synchronously as a Windows service blew past the SCM ~30s start timeout (killed mid-migration). `PublishReadyToRun` speeds cold start for that window. The deferred service surfaces a DB-unreachable failure via `StartupDiagnostics.ReportFatal` + `StopApplication()`.
 

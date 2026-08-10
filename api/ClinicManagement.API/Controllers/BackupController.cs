@@ -32,6 +32,8 @@ public class BackupController : ApiControllerBase
     /// subfolder of the destination (AC-8.1).
     /// </summary>
     [HttpPost]
+    [AllowsWithoutSubscription("FR-3 — the AC-4.2 argument: a cabinet must always be able to take its data out. "
+                               + "The scheduled backup keeps running for the same reason (FR-8).")]
     public async Task<ActionResult<BackupResultDto>> BackupNow([FromBody] BackupRequest request)
     {
         var command = new BackupNowCommand { DestinationFolder = request.DestinationFolder };

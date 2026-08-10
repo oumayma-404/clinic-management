@@ -8,14 +8,14 @@
 
 | Story | Status |
 |---|---|
-| 1 — Abonnement du cabinet | in-progress (Part A) |
+| 1 — Abonnement du cabinet | in-progress (Parts A + B done) |
 
 ### Parts inside Story 1
 
 | Part | Focus | Status |
 |---|---|---|
-| A | Every cabinet has an entitlement, at every door and for all of history | in-progress |
-| B | An expired cabinet keeps its records and loses only recording | not-started |
+| A | Every cabinet has an entitlement, at every door and for all of history | **done** (Checkpoint A green) |
+| B | An expired cabinet keeps its records and loses only recording | **done** (Checkpoint B green) |
 | C | The cabinet can see where it stands and how to pay | not-started |
 | D | The banner, the refusal toast, and the live re-read | not-started |
 | E | The cabinet is warned before it stops being able to work (⚠️ atomic) | not-started |
@@ -24,7 +24,11 @@
 
 ## Session decisions
 
-**Scope: Part A only.** Asked and answered at session start. Part A is the foundation every other part reads and
+**Session 2 — scope: Part B only.** Requested explicitly (`/implement-story clinic-subscription part B`). Same branch,
+same staging discipline. Part B is `api/`-only, so no `web/` file is touched and the frontend gate is genuinely not
+applicable (verified by `git status`, not assumed).
+
+**Session 1 — scope: Part A only.** Asked and answered at session start. Part A is the foundation every other part reads and
 carries the two highest risks (R-2 hand-written migration + snapshot, R-6 the exclusive-cursor fold). The plan's own
 R-1 names part boundaries as the split points.
 
@@ -77,7 +81,7 @@ C and D must **re-read them** rather than working from anything cached from befo
 | A1 | The 16th deployment capability, `RequiresSubscription` | **done** (+ its `DeploymentProfileTests` matrix row and `hostedOnlyCapabilities` entry) |
 | A2 | Domain: two aggregate roots, five enums, the fold, the repository interface | **done** — Domain builds, 0 errors, 0 new warnings |
 | A3 | EF configurations, two `DbSet`s, two `HasQueryFilter` lines, repository impl | **done** (unverified — Infrastructure will not build, see the blocker) |
-| A5 | `ISubscriptionPolicy` + `ISubscriptionPricing` + registrations | **done**; ⚠️ the `Subscription` **appsettings section is still outstanding** |
+| A5 | `ISubscriptionPolicy` + `ISubscriptionPricing` + registrations | **done** — *corrected in session 2:* the `Subscription` appsettings section is **present** (all six keys + their comments), so the « still outstanding » note here was stale |
 | A4 | `SubscriptionProvisioning` at both construction doors (3 helper callers) | **done** — Application half builds, 0 errors; the `provision-clinic` caller is unverified |
 | A6 | The migration, its `.Designer.cs` and the model snapshot | **done** — scaffolded, hand-corrected, **applied**, before/after diffed |
 | A7 | The three `verify-schema` checks | **done** — green against the real database |
@@ -269,6 +273,109 @@ quote**, so the argument is mangled, MSBuild silently builds to the default `bin
 `.testrun` then reports « No test matches the given testcase filter ». It looks exactly like a filter problem. Use a
 variable with no trailing separator. Two junk directories it created were removed.
 
+---
+
+# Part B — An expired cabinet keeps its records and loses only recording
+
+**Working tree note (start of session 2).** Clean apart from the other author's untracked `features/platform-console/`,
+left untouched and excluded. `git diff HEAD --numstat` reviewed: **every** Part B change is additive — `0` in the
+deletion column of all twelve modified files — and the four derived guards were confirmed **untouched** by name.
+
+## Part B — steps
+
+| # | Step | Status |
+|---|---|---|
+| B1 | `AllowsWithoutSubscriptionAttribute` (mandatory `Reason`) + `SubscriptionRefusals` | **done** |
+| B2 | `SubscriptionGateMiddleware` + its `Program.cs` registration | **done** |
+| B3 | The attribute applied to FR-3's fixed set (11 controllers) | **done** |
+| B4 | `SubscriptionGateMiddlewareTests` + derived `SubscriptionExemptionCoverageTests` | **done** — 35 new tests |
+
+### What the exempt set actually came out as
+
+**18 writes**, plus two GET-only documentation rows. `AuthController` carries the attribute **class-level** — one
+reason for all seven of its non-GET actions (AC-4.7, EC-2), and six of those are `[AllowAnonymous]` so they arrive
+with an `Unset` tenant scope and pass the gate anyway; **`change-password` is the only one of the group that genuinely
+needs it**. The other eleven are per-action: the three compute-only POSTs (batch CNAM estimate, CSV import *preview*,
+render-for-download), the six writes experienced as reading (mark-read, read-all, push register + deregister, default
+file folders, the user's own dashboard layout), and `backup` + `users/{id}/status`.
+
+⚠️ **Two rows of the plan's table could not be applied, and that is correct rather than deferred:**
+- **`SubscriptionController` (both actions)** does not exist until Part C. Both are GETs, so AC-4.8 holds structurally
+  the moment the controller lands and no attribute is *required*; Part C should still add it as documentation, matching
+  `MetaController`'s two.
+- **`/health`** is not a controller action and sits **outside `/api`** — the gate's path check already excludes it, so
+  there is nothing to annotate. Stated here so a reader of the plan's table does not go looking.
+
+## Deviations
+
+**None.** The plan's Part B was implementable as written; the only judgment calls were the two rows above (both facts
+about the codebase, not departures) and the extra ordering test below (an addition, not a change).
+
+## Auto-Approved Deviations
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| `AuthController`'s exemption is class-level, not seven per-action copies | Trivial | Same effective set; the plan states one shared reason for the whole row, and one attribute can carry only one reason. The derived guard still enumerates all seven actions, so a *future* `AuthController` action inheriting the exemption fails it rather than passing silently. |
+| The gate reuses `SubscriptionStateReader.Read` rather than comparing `EndsOn` itself | Trivial | Internal to one new file; that reader **is** the one FR-1 rule the plan names, and re-deriving « is this cabinet expired? » in the gate is the exact drift it exists to prevent. |
+| `SubscriptionGateMiddlewareTests` gained a source-level ordering assertion the plan did not list | Trivial | Additive test only. It is the one property in this part that compiles, passes every behavioural case, and is still catastrophically wrong — plan Notes call it trap 3 of 3, and the validation step (« a revoked token still gets 401 ») is otherwise unverifiable without a live hosted deployment. Follows `AccountStateEnforcementTests`' existing precedent for asserting against `Program.cs`. |
+| `IsWrite` treats an action declaring **no** HTTP method as a write | Trivial | Internal to the new guard. Such a route answers every verb, so reading it as a GET would exempt a POST nobody reviewed — the conservative direction. |
+| The `MetaController` GETs carry the attribute; `SubscriptionRefusals.DateFormat` is a public constant | Trivial | Documentation and one shared format string. The plan requires the exempt set stated as *what*; the constant stops the gate and the tests from spelling `dd/MM/yyyy` twice. |
+
+## Part B gates — Checkpoint B
+
+| Gate | Result |
+|---|---|
+| `dotnet build api/ClinicManagement.sln --no-incremental` | ✅ **0 errors**, **55 warnings — the identical Checkpoint A baseline**, every one at a pre-existing file, **0 in any file Part B added or edited** |
+| Warnings inside `ClinicManagement.UnitTests` itself | ✅ **none** (checked with a dedicated `--no-incremental` grep — the 13 reported by a bare test-project build all come from referenced projects) |
+| Unit suite | ✅ **2331 passed, 0 failed** (baseline 2296 → **35 new**) |
+| `SubscriptionGateMiddlewareTests` | ✅ 25 |
+| `SubscriptionExemptionCoverageTests` | ✅ 10 |
+| `ControllerAuthorizationCoverageTests` | ✅ green, **unedited** — Part B adds no endpoint and no `[AllowAnonymous]` |
+| `TenantScopeFilterTests` · `DeploymentProfileCoverageTests` · `MoneyReadConsistencyTests` | ✅ green, **all three unedited** (confirmed by name against `git diff --name-only`, not assumed) |
+| `verify-schema` | **not applicable — and the verb was confirmed to exist and run** (`Api/Maintenance/VerifySchemaCommand` + `SchemaVerificationService`, exercised by 49 passing tests). Part B adds no migration, no column and no index: `git diff` touches nothing under `Infrastructure/`. |
+| Frontend gate | **not applicable — verified, not assumed**: `git status` shows no `web/` file changed by this part |
+
+### The two red-proofs
+
+Both run for real rather than asserted in prose, because a coverage guard that cannot fail is the failure mode this
+feature's plan names three times.
+
+1. **The exempt set, second direction.** Removed `[AllowsWithoutSubscription]` from `Users.SetStatus`, rebuilt, ran the
+   class: `Every_Reviewed_Exempt_Write_Still_Carries_The_Attribute` **FAILED**, naming the endpoint —
+   « Approved exempt write(s) no longer exempt … : Users.SetStatus ». Restored; green.
+2. **The middleware ordering.** Inserted a duplicate gate registration *above* the `EnforcesTokenState` block:
+   `The_Gate_Runs_After_Token_State_Enforcement_And_Before_The_Controllers` **FAILED** with its own message. Reverted;
+   green. ⚠️ Worth knowing: it failed **without a rebuild**, because it reads `Program.cs` from disk — which is exactly
+   what makes it able to see a defect the compiled middleware cannot express.
+
+Plus the two executable proofs carried inside the coverage class itself (`The_Guard_Detects_A_Newly_Exempted_Write`,
+and `The_Guard_Is_Deliberately_Blind_To_An_Exempted_Read`, which pins the stated GET blindness so nobody reads a green
+run as covering the GET-only rows).
+
+### Verification steps — what is proven and what is still owed
+
+| Step | Result |
+|---|---|
+| Every read, CSV export and PDF download succeeds on an expired cabinet | ✅ **structurally**, and that is stronger than a walk: the gate never inspects a GET and the tests assert **zero repository reads** on one. The nine-list EC-9 walk stays a story-exit item |
+| `POST /api/appointments` → 402 `subscription_required` + French sentence naming the date | ✅ asserted over POST/PUT/PATCH/DELETE, including the literal `15/01/2020` and « Abonnement » |
+| `POST /api/ai/chat` → 402; the three compute-only POSTs → 200 | ✅ **structurally** (`The_AI_Chat_Is_Not_Exempt` + `The_Compute_Only_Posts_Are_Exempt`). The live HTTP walk needs a hosted profile with an expired cabinet — **operator step, owed** |
+| Sign-in + a forced password change succeed on an expired cabinet (EC-2) | ✅ pinned in both directions by the derived guard |
+| A revoked token still 401, `must_change_password` still 403 — not 402 | ✅ via the source-level ordering assertion + its red-proof. A live walk is **owed** with the operator step above |
+| `SubscriptionExemptionCoverageTests` fails red when the attribute is removed | ✅ done for real (above) |
+| `ControllerAuthorizationCoverageTests` still green with no edit | ✅ |
+
 ## Learnings
 
-*(captured as they arise)*
+- **A behavioural test suite cannot see a middleware's position.** Part B's whole risk is one `UseMiddleware` line
+  being four lines too early: the class is correct in isolation, every unit case passes, and the product is broken in a
+  way that reads as an auth bug. The repo already had the answer — `AccountStateEnforcementTests` asserts against
+  `Program.cs`'s own text for the identical reason — and reusing that precedent cost one test. Worth reaching for
+  whenever a fix's correctness lives in *composition* rather than in a type.
+- **« Not applicable » and « not implemented » look identical in a gate table.** Part A wrote `not applicable` for the
+  frontend gate and Part B does the same for both that and `verify-schema` — so each was checked rather than assumed:
+  `git status` for `web/`, and grepping for the verb's actual existence. The verb does exist and runs (49 tests), which
+  is the thing three consecutive parts of another feature failed to confirm while writing the same two words.
+- **Part A left one item recorded as outstanding that was in fact already done.** Step A5's note said « the
+  `Subscription` appsettings section is still outstanding »; it is present in `appsettings.json` with all six keys and
+  their explanatory comments, and `Infrastructure/CLAUDE.md` already documents them. Corrected below rather than
+  re-done. A carried-forward gap is worth re-reading before acting on it.

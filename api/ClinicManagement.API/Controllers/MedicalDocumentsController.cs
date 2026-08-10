@@ -288,6 +288,7 @@ public class MedicalDocumentsController : ApiControllerBase
     }
 
     [HttpPost("generate-pdf-download")]
+    [AllowsWithoutSubscription("AC-4.3, AC-4.9 — renders a document the cabinet already holds for immediate download.")]
     public async Task<ActionResult> GeneratePdfForDownload(
         [FromBody] Application.Common.Models.MedicalDocumentPdfData documentData,
         CancellationToken cancellationToken = default)

@@ -64,6 +64,26 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   `ClinicCreationEntitlementTests` is the derived source scan that catches a **third** clinic-construction door,
   scoped to Application + API because `new Clinic(` has ~19 matches of which 17 are test fixtures; it carries its own
   red-proof rather than asking a reviewer to delete a call by hand.
+- **`Api/SubscriptionGateMiddlewareTests.cs`** + **`Api/SubscriptionExemptionCoverageTests.cs`**
+  (`clinic-subscription` Part B). **Most of the first class asserts what the gate must NOT refuse**, and that is where
+  its value is: it sits in front of every controller on the hosted deployment, so a wrong « refuse » verdict does not
+  degrade a feature — it takes a working cabinet's ability to record anything at all, mid-consultation. Hence the
+  over-refusal cases outnumbering the three refusals, and hence `RepositoryReads == 0` being asserted alongside
+  « passed »: a read, a non-`/api` path and a non-enforcing deployment must not even *look the entitlement up*, which
+  is what makes « an expired cabinet keeps all of its records » structural rather than an allow-list.
+  ⚠️ Its dates are decades away (2020 / 2099) **because the gate reads the real clock** — unlike
+  `SubscriptionStateReaderTests`, which takes today as a parameter and can pin the midnight boundary. A fixture near
+  today would pass or fail depending on when the suite runs.
+  ⚠️ **The load-bearing case is `The_Gate_Runs_After_Token_State_Enforcement_And_Before_The_Controllers`**, asserted
+  against **`Program.cs`'s own source** on `AccountStateEnforcementTests`' precedent: registered one block earlier the
+  gate answers 402 to a revoked token (401) and a pending forced password change (403), and the middleware is
+  perfectly correct in isolation — only its *position* is wrong, so no behavioural test can see it.
+  The coverage class derives FR-3's exempt set off the compiled controllers and asserts it equals the reviewed list in
+  **both** directions; the second is the one that matters, since a silently un-exempted `change-password` locks an
+  expired cabinet out of the action that unblocks it. ⚠️ **It classifies non-GET actions only, and says so**: the gate
+  never inspects a read, so it *cannot* go red when the attribute is removed from a GET-only row — a limitation made
+  executable by `The_Guard_Is_Deliberately_Blind_To_An_Exempted_Read`, beside the ordinary red-proof, so nobody reads
+  a green run as covering those rows. An action declaring **no** HTTP method counts as a write (it answers every verb).
 - **`Api/MigrationLockTests.cs`** (`multi-tenant-cloud` US-6) — the startup advisory lock, and a worked example of asserting the two things a mistake would actually look like when the mechanism itself is out of reach (nothing here touches a database). Both statements must name the **same fixed** key — two instances naming different numbers serialise nothing, and the failure is invisible until two containers migrate at once — and the lock must be **session-level**, because `pg_advisory_xact_lock` releases at the first commit *inside* the migration, leaving the rest of it unprotected while looking correct. The third property is asserted against **`Program.cs`'s own source**: a lock the startup path forgot to wrap is exactly as broken as no lock, and nothing else in the build can see it.
 - **`Api/AuthAttemptAccountTests.cs`** + the US-6 half of **`Api/RateLimitingTests.cs`** — the login limiter's re-key onto the submitted account. Most of the file is about the cases that must produce **nothing**: a non-JSON body, a truncated one, an oversized one, `auth/refresh` (no email at all). Any of those throwing would take the login endpoint off the air, which is strictly worse than the lockout the re-key exists to prevent. The two partition cases that matter are the ones a naive fix gets wrong: **the same account shares one bucket regardless of address** (a compound `account+address` key would hand one attacker a fresh budget per address) and **an account key can never collide with an address key** (an email is caller-supplied text).
 - **`Api/HealthCheckTests.cs`** — the grading, which is the whole substance: storage down is **`Degraded`** (still 200) and the database is `Unhealthy` (503). Also that storage which cannot even be **resolved** degrades rather than 500s — where MinIO is unconfigured `AddInfrastructure` deliberately registers a factory that throws, so a constructor-injected `IFileStorage` would throw while the framework was *building* the check.

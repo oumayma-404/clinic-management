@@ -24,6 +24,11 @@ namespace ClinicManagement.API.Controllers;
 // coverage guard's reviewed allow-list); the class policy is what makes a *future* action here fail closed
 // instead of inheriting the anonymity of its neighbours.
 [Authorize(Policy = AuthorizationPolicies.Authenticated)]
+// Signing in works on an expired cabinet, and so does changing a password — including one an administrator forced
+// (AC-4.7, EC-2). Class-level rather than seven copies because the reason is one reason: none of this is recording
+// clinical work. The bootstrap actions arrive with an Unset tenant scope and so pass the gate anyway; only
+// change-password is authenticated, clinic-scoped and non-GET, i.e. genuinely refused without this.
+[AllowsWithoutSubscription("AC-4.7, EC-2 — a cabinet locked out of its own account cannot even read its records.")]
 public class AuthController : ApiControllerBase
 {
     private readonly IMediator _mediator;
