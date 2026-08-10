@@ -1,5 +1,6 @@
 using ClinicManagement.API.Startup;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Platform;
 
 namespace ClinicManagement.API.Middleware;
 

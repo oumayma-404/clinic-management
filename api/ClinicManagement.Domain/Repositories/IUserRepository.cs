@@ -30,8 +30,24 @@ public interface IUserRepository
     /// whenever the pending colleagues sort onto page 2.
     /// </summary>
     Task<int> CountPendingActivationAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How many staff accounts a clinic has and when any of them last signed in — the two figures the vendor
+    /// console's counter pass reports per cabinet (<c>platform-console</c> AC-2.1).
+    ///
+    /// <para>One aggregate rather than <c>GetByClinicIdAsync</c> with no paging: the pass runs for every cabinet
+    /// on every run and needs two scalars, not every colleague's row. Both are also the answer to « is anyone
+    /// still using this? », which is the question the portfolio exists to ask.</para>
+    /// </summary>
+    Task<ClinicStaffSummary> GetStaffSummaryAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
     Task AddAsync(User entity, CancellationToken cancellationToken = default);
     void Update(User entity);
     void Remove(User entity);
 }
+
+/// <summary>A clinic's staff, reduced to the two figures the portfolio reports. <paramref name="LastLoginAt"/> is
+/// null where nobody has ever signed in — which for a cabinet created weeks ago is the loudest churn signal there
+/// is, and is why it is nullable rather than defaulted to the creation date.</summary>
+public sealed record ClinicStaffSummary(int Count, DateTime? LastLoginAt);
 

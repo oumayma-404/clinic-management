@@ -163,6 +163,12 @@ public static class Extensions
         // deriving one per request would re-run the key derivation on every sign-in.
         services.AddSingleton<IPlatformSecretProtector, PlatformSecretProtector>();
 
+        // The console's activity counters (platform-console Part 2). Registered unconditionally for the reason
+        // above: the counter job runs on any deployment and its rows cost nothing where no console reads them,
+        // whereas a job registered behind a capability would leave a deployment that later switches the console on
+        // with a portfolio of « jamais mesuré » and no history to backfill from.
+        services.AddScoped<IClinicActivityRepository, ClinicActivityRepository>();
+
         // Auth0 Management Service — real where Auth0 owns identity, no-op where the product does (no Auth0 tenant).
         if (profile.UsesLocalAccounts)
         {

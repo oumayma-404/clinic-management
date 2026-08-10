@@ -240,4 +240,54 @@ public sealed record DataMigrationCounts(
     /// something to be told about, not something to crash on. Null before the columns exist.
     /// </para>
     /// </summary>
-    int? ClinicalChildrenWithWrongClinic);
+    int? ClinicalChildrenWithWrongClinic,
+    /// <summary>
+    /// Console accounts marked as having enrolled a second factor while carrying <b>no secret</b>
+    /// (<c>platform-console</c> AC-1.3a). Null before the table exists.
+    /// <para>
+    /// The table's shape is diffed against the catalog for free; what no constraint states is that
+    /// <c>TotpEnrolledAt</c> and <c>ProtectedTotpSecret</c> are two halves of one fact. An account in the broken
+    /// half is <b>unusable and says nothing about it</b>: sign-in demands a code, the enrolment path refuses
+    /// because the account already counts as enrolled, and the only way back is the <c>platform-account
+    /// --reset-totp</c> verb — which an operator has no reason to reach for, because every screen simply reports
+    /// « code invalide ». It is the vendor locking itself out of its own console with no error anywhere.
+    /// </para>
+    /// </summary>
+    int? PlatformAccountsEnrolledWithoutSecret,
+    /// <summary>
+    /// Cabinets with <b>no activity snapshot at all</b> (<c>platform-console</c> AC-2.4a, EC-15). Null before the
+    /// table exists.
+    /// <para>
+    /// The counter job's per-cabinet loop swallows one cabinet's failure so the other ninety-nine still get
+    /// measured — correct, and it means a cabinet can be skipped every night while the run logs clean. The
+    /// portfolio renders such a cabinet as « jamais mesuré » rather than as zeros, so nothing on screen is a lie;
+    /// but nothing on screen distinguishes « the pass has never run » from « this one cabinet has been failing
+    /// since June », and this figure is where that distinction lives.
+    /// </para>
+    /// <para>
+    /// ⚠️ A fresh deployment legitimately reports every cabinet here until the first nightly pass. That is not a
+    /// false positive — it is the same statement the console itself makes — which is why it is reported as drift
+    /// to be read rather than as a failure to be silenced.
+    /// </para>
+    /// </summary>
+    int? ClinicsWithoutActivitySnapshot,
+    /// <summary>
+    /// Activity snapshots whose own figures contradict each other (<c>platform-console</c> AC-2.1). Null before
+    /// the table exists.
+    /// <para>
+    /// Every figure on a snapshot is written by one <c>Restate</c> call over one window of one cabinet's audit
+    /// rows, which makes several relations between them true by construction: seven days cannot hold more saves
+    /// than thirty, thirty clinic-local days cannot contain thirty-one active ones, no active day exists without
+    /// a save, and a cabinet that saved something has a <c>LastWriteAt</c>. A violation therefore means the row
+    /// was written by something other than that one call — a half-applied refactor, a partial update, a second
+    /// writer — and the visible symptom would be a portfolio sorted or filtered on a figure that is quietly wrong
+    /// rather than an error.
+    /// </para>
+    /// <para>
+    /// ⚠️ This replaces the plan's <c>clinic-activity-day-unique-per-clinic-day</c>, which the unique index on
+    /// (cabinet, day) makes <b>unfalsifiable</b> — and that index is already diffed against the catalog for free.
+    /// A check that cannot fail is worse than no check: it reports « ✓ » for ever about something it never looked
+    /// at, which is the exact rot this verb exists to avoid.
+    /// </para>
+    /// </summary>
+    int? IncoherentActivitySnapshots);

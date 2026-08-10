@@ -559,12 +559,46 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                      JOIN "Patients" p ON p."Id" = c."PatientId" WHERE c."ClinicId" <> p."ClinicId")
                 """);
 
+        // platform-console Part 1. The two TOTP columns are halves of one fact and no constraint says so; an
+        // account in the broken half cannot sign in and reports only « code invalide ».
+        var enrolledWithoutSecret = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "PlatformAccounts",
+            requiredColumn: "TotpEnrolledAt",
+            sql: """
+                SELECT COUNT(*) FROM "PlatformAccounts"
+                WHERE "TotpEnrolledAt" IS NOT NULL
+                  AND ("ProtectedTotpSecret" IS NULL OR "ProtectedTotpSecret" = '')
+                """);
+
+        // platform-console Part 2. A cabinet the nightly pass has never reached — which the per-cabinet
+        // try/catch makes survivable and therefore silent.
+        var clinicsWithoutSnapshot = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "ClinicActivitySnapshots",
+            requiredColumn: "ClinicId",
+            sql: """
+                SELECT COUNT(*) FROM "Clinics" c
+                WHERE NOT EXISTS (SELECT 1 FROM "ClinicActivitySnapshots" s WHERE s."ClinicId" = c."Id")
+                """);
+
+        // The relations one Restate call makes true by construction. Any of them false means a second writer.
+        var incoherentSnapshots = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "ClinicActivitySnapshots",
+            requiredColumn: "Writes30d",
+            sql: """
+                SELECT COUNT(*) FROM "ClinicActivitySnapshots"
+                WHERE "Writes7d" > "Writes30d"
+                   OR "ActiveDays30d" > 30
+                   OR ("Writes30d" = 0 AND "ActiveDays30d" > 0)
+                   OR ("Writes30d" > 0 AND "LastWriteAt" IS NULL)
+                """);
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
             unsetBackupSchedule, chequeDetailsOnNonCheque, bankedStampOnNonCheque,
             attributableButUnattributed, pushClinicMismatch,
-            signupOrphans, clinicalChildrenWrongClinic);
+            signupOrphans, clinicalChildrenWrongClinic,
+            enrolledWithoutSecret, clinicsWithoutSnapshot, incoherentSnapshots);
     }
 
     /// <summary>

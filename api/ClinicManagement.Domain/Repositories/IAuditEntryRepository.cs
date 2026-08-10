@@ -40,4 +40,27 @@ public interface IAuditEntryRepository
     /// <c>AuditSaveChangesInterceptor</c> for why the ledger is written outside the business save's transaction.
     /// </summary>
     Task AddRangeAsync(IReadOnlyCollection<AuditEntry> entries, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The four columns the vendor console's counter pass measures a cabinet's activity from, over an inclusive
+    /// UTC window (<c>platform-console</c> AC-2.1/AC-2.2).
+    ///
+    /// <para><b>A projection and not <see cref="GetFilteredAsync"/> with no paging.</b> The pass runs for every
+    /// cabinet on every run and needs four scalars per row; materialising whole <see cref="AuditEntry"/>
+    /// instances would drag <c>ChangedFields</c> — unbounded text, up to 512 characters a row — through the job
+    /// for nothing.</para>
+    ///
+    /// <para>⚠️ <b>The actor exclusions are deliberately NOT applied here.</b> They are
+    /// <c>PlatformCounterPass</c>'s, matched on <c>AuditActor</c>'s own prefix constants, because that is the
+    /// only place they can be unit-tested — and a second copy of « what counts as a person at the cabinet » is
+    /// a filter that keeps passing while the writer moves.</para>
+    /// </summary>
+    Task<IReadOnlyList<ClinicActivityAuditRow>> GetActivityRowsAsync(
+        Guid clinicId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        CancellationToken cancellationToken = default);
 }
+
+/// <summary>One audit row, reduced to what an activity count depends on.</summary>
+public record ClinicActivityAuditRow(string UserId, string EntityType, AuditAction Action, DateTime OccurredAt);

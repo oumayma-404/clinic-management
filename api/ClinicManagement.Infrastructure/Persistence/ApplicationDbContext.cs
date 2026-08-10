@@ -120,6 +120,14 @@ public class ApplicationDbContext : DbContext
     public DbSet<PlatformAccount> PlatformAccounts { get; set; }
     public DbSet<PlatformRecoveryCode> PlatformRecoveryCodes { get; set; }
 
+    // The console's activity counters (platform-console Part 2). These DO carry a ClinicId, so unlike the two
+    // above they are named decisions in TenantScopeFilterTests rather than absent from it: they are the VENDOR's
+    // measurements about a cabinet, written by the counter job and read only by the console — no clinic-facing
+    // surface reads them, so a per-clinic filter would guard a door nobody uses while making the one legitimate
+    // reader depend on lifting it.
+    public DbSet<ClinicActivityDay> ClinicActivityDays { get; set; }
+    public DbSet<ClinicActivitySnapshot> ClinicActivitySnapshots { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         // The clinic-scoping query filters are applied to the directly-clinic-owned AGGREGATE ROOTS — 19 of

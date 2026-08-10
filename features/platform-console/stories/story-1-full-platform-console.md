@@ -136,7 +136,7 @@ Before starting this story, ensure:
 > Grouped by the plan's seven parts. Each part is a commit boundary; finish its validation checklist before
 > moving on. Full detail lives in [`../plan.md`](../plan.md) — these steps are the executable ordering.
 
-### Part 1 — Reach the console and sign in *(AC-1.x, AC-8.1/8.2/8.5/8.6, EC-1–EC-4)*
+### Part 1 — Reach the console and sign in *(AC-1.x, AC-8.1/8.2/8.5/8.6, EC-1–EC-4)* — **implemented**
 
 1. **Add the 16th capability**
    - `Infrastructure/Deployment/DeploymentProfile.cs` — `ServesPlatformConsole`: `HostedMultiTenant` ✓, the other two ✗
@@ -209,7 +209,7 @@ Before starting this story, ensure:
 15. **Tests**
     - `ConsolePortGateTests`, `PlatformTokenIsolationTests`, `PlatformRateLimitingTests`, `PlatformAuthTests`, `PlatformAccountStateTests`, `ControllerAuthorizationCoverageTests` (extended)
 
-### Part 2 — The portfolio, and the counters behind it *(AC-2.x, AC-7.2, AC-7.2a, EC-8–EC-12, EC-15)*
+### Part 2 — The portfolio, and the counters behind it *(AC-2.x, AC-7.2, AC-7.2a, EC-8–EC-12, EC-15)* — **implemented**
 
 16. **Create the two counter tables**
     - `ClinicActivityDay` (one cabinet, one clinic-local day) + `ClinicActivitySnapshot` (one cabinet, plus the point-in-time figures), configurations, indexes, migration

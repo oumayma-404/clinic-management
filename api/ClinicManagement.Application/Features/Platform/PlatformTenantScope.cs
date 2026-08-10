@@ -1,12 +1,17 @@
 using ClinicManagement.Application.Common.Interfaces;
 
-namespace ClinicManagement.API.Startup;
+namespace ClinicManagement.Application.Features.Platform;
 
 /// <summary>
 /// Declares a console request's tenant scope: <b>system-wide</b>, explicitly and with a reason
 /// (<c>platform-console</c> EC-12, risk R-4).
 ///
-/// <para><b>Why a console request cannot simply fall through <see cref="Middleware.TenantScopeMiddleware"/>.</b>
+/// <para>⚠️ <b>It lives in Application, not beside the middleware that calls <see cref="Declare"/>.</b> The
+/// backstop below is meant to run at « the console handlers' entry point », and those handlers are here — a copy
+/// in the API layer would be unreachable from them, and a second copy is how a guard keeps passing while the
+/// thing it guards moves.</para>
+///
+/// <para><b>Why a console request cannot simply fall through <c>TenantScopeMiddleware</c>.</b>
 /// That middleware resolves the clinic from the caller's own <c>User</c> row. A console principal has none, so
 /// the scope would land <c>Unset</c> — and since <c>multi-tenant-cloud</c> US-2 an unset scope makes every
 /// filtered table return <b>zero rows, with no error</b>. Every cabinet would then read as empty, which is

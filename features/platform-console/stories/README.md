@@ -90,7 +90,7 @@ graph TD
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | [The vendor runs the practice portfolio from a private console](./story-1-full-platform-console.md) | in-progress (Part 1 done) | `features/clinic-subscription/` (Parts 4–7 only) |
+| 1 | Full | [The vendor runs the practice portfolio from a private console](./story-1-full-platform-console.md) | in-progress (Parts 1-2 done) | `features/clinic-subscription/` (Parts 4–7 only) |
 
 ### Part-level progress (within Story 1)
 
@@ -99,7 +99,7 @@ The story's own commit boundaries. Tick a part when its validation checklist pas
 | Part | Increment | Blocked? | Status |
 |------|-----------|----------|--------|
 | 1 | Reach the console and sign in | No | **implemented** |
-| 2 | The portfolio, and the counters behind it | No | not-started |
+| 2 | The portfolio, and the counters behind it | No | **implemented** |
 | 3 | One cabinet's detail | No | not-started |
 | 4 | Record a payment and unlock the cabinet | **Yes** — companion feature | not-started |
 | 5 | Correct a mistake | **Yes** — companion feature | not-started |

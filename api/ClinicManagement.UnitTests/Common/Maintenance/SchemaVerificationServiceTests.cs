@@ -52,7 +52,10 @@ public class SchemaVerificationServiceTests
         'x',
         "EXCLUDE USING gist (\"DoctorId\" WITH =, slot WITH &&) WHERE (\"Status\" <> ALL (ARRAY[5, 6]))");
 
-    private static DataMigrationCounts CleanCounts => new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    // Positional because the record is: `PatientsTotal` (the 7th) is a population, not a defect count, so it is
+    // the one non-zero entry. The three trailing zeros are platform-console's checks.
+    private static DataMigrationCounts CleanCounts =>
+        new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
     private static SchemaVerificationFinding Finding(SchemaVerificationReport report, string check) =>
         report.Findings.Single(f => f.Check == check);

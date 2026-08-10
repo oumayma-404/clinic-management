@@ -830,6 +830,23 @@ try
         job => job.RunScheduledBackups(),
         Cron.Hourly);
 
+    // The vendor console's activity counters (platform-console FR-3) — daily, and deliberately NOT
+    // connectivity-gated: its output is a database row, exactly like the expiry scan above. Gating it on egress
+    // would freeze the counters through an outage and then report that silence as cabinets going dormant.
+    //
+    // ⚠️ Registered unconditionally rather than behind `ServesPlatformConsole`. The counters are HISTORY: a
+    // deployment that switches the console on later would otherwise open it to a portfolio of « jamais mesuré »
+    // with nothing to backfill from, since the pass reads a 30-day audit window and cannot reconstruct months it
+    // never ran for. The rows are small and nothing else reads them, so the cost of being wrong the other way is
+    // one table per deployment.
+    //
+    // 03:00 UTC = 04:00 in Tunis: after the day it measures has ended everywhere, and long before the vendor
+    // opens the console, so « countersAsOf » is this morning rather than the middle of the working day.
+    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.ClinicActivityCounterJob>(
+        "count-clinic-activity",
+        job => job.CountClinicActivity(),
+        Cron.Daily(3));
+
     // OS push dispatcher (mobile-native-shells Part 6) — minutely, connectivity-gated, and registered ONLY where
     // the deployment can actually push (AC-51). Unlike its three siblings above, which are safe to register
     // unconditionally because they no-op until configured, this one is registered conditionally on purpose: a

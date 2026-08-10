@@ -422,6 +422,35 @@ public class SchemaVerificationService
         // both are silent: a backfill that covered nothing (rows stuck at Guid.Empty, so a patient's whole
         // record reads as empty rather than as an error), or a write path that named a clinic other than the
         // patient's (the row is visible — to the wrong practice).
+        // platform-console Part 1. Two columns that are halves of one fact, with no constraint saying so — and
+        // the broken half locks the vendor out of its own console while every screen says « code invalide ».
+        Add("platform-account-has-totp-or-unenrolled", counts.PlatformAccountsEnrolledWithoutSecret,
+            n => n == 0
+                ? "0 console account(s) are marked enrolled without a second-factor secret"
+                : $"{n} console account(s) are marked as having enrolled a second factor but carry NO secret — "
+                  + "they cannot sign in and cannot re-enrol; `platform-account --reset-totp` is the only way back",
+            n => n == 0);
+
+        // platform-console Part 2. The counter job survives one cabinet's failure on purpose, so a cabinet
+        // skipped every night costs nothing visible — the run logs clean and the console says « jamais mesuré »,
+        // which on a fresh deployment is also the honest answer. Only this figure tells the two apart.
+        Add("clinic-activity-snapshot-covers-every-clinic", counts.ClinicsWithoutActivitySnapshot,
+            n => n == 0
+                ? "every cabinet has an activity snapshot"
+                : $"{n} cabinet(s) have no activity snapshot — either the nightly pass has not run yet on this "
+                  + "deployment, or it has been failing for those cabinets while logging a clean run",
+            n => n == 0);
+
+        // The relations one Restate call makes true by construction. A violation is a second writer, and its
+        // symptom is a portfolio filtered or sorted on a figure that is quietly wrong rather than an error.
+        Add("clinic-activity-snapshot-is-internally-consistent", counts.IncoherentActivitySnapshots,
+            n => n == 0
+                ? "every activity snapshot's figures agree with each other"
+                : $"{n} activity snapshot(s) contradict themselves (7 j above 30 j, more than 30 active days, "
+                  + "active days with no saves, or saves with no last-write instant) — they were not written by "
+                  + "one ClinicActivitySnapshot.Restate call",
+            n => n == 0);
+
         Add("clinical-child-clinic-matches-patient", counts.ClinicalChildrenWithWrongClinic,
             n => n == 0
                 ? "every fiche, document, file, folder, antécédent and tooth state names its patient's clinic"

@@ -89,4 +89,19 @@ public class AuditEntryRepository : IAuditEntryRepository
     {
         await _context.AuditEntries.AddRangeAsync(entries, cancellationToken);
     }
+
+    public async Task<IReadOnlyList<ClinicActivityAuditRow>> GetActivityRowsAsync(
+        Guid clinicId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        CancellationToken cancellationToken = default)
+    {
+        // Inclusive on both ends, like every other windowed read here; the caller derives the bounds from
+        // ClinicClock so the window is the cabinet's own days rather than UTC's.
+        return await _context.AuditEntries
+            .AsNoTracking()
+            .Where(a => a.ClinicId == clinicId && a.OccurredAt >= fromUtc && a.OccurredAt <= toUtc)
+            .Select(a => new ClinicActivityAuditRow(a.UserId, a.EntityType, a.Action, a.OccurredAt))
+            .ToListAsync(cancellationToken);
+    }
 }

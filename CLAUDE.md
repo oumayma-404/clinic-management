@@ -679,7 +679,8 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   mandatory TOTP second factor), a **second Kestrel listener** on an unpublished port reached over an SSH tunnel,
   and a second Next application (`console/`) that contains none of the clinic bundle. Gated on the 16th
   capability, **`DeploymentProfile.ServesPlatformConsole`** (`HostedMultiTenant` ✓ only). Part 1 delivers reaching
-  it and signing in; the portfolio and its activity counters are Part 2, and the three writes wait on
+  it and signing in; **Part 2 adds the portfolio and the counters behind it** (see the bullet below); the three
+  writes wait on
   `features/clinic-subscription/`.
   ⚠️ **Binding the console listener can take the whole product offline, and that is the trap this part is built
   around.** In `HostedMultiTenant` there is no cert file, so `Program.cs` never called `ConfigureKestrel` at all —
@@ -717,6 +718,53 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   shown **once**. The enrolment response carries the recovery codes, also once; a recovery code is **spent even
   when the sign-in it accompanied fails** (AC-1.3b), while a *wrong password* spends none, or knowing an address
   would be enough to burn all eight. Operator runbook in [`deploy/README.md`](deploy/README.md).
+
+- **The portfolio is a counter table, not a query over the ledger (`platform-console` Part 2)**:
+  `GET /api/platform/clinics` lists every cabinet with its **real activity** beside it — patients, staff accounts,
+  RDV pris (30 j), enregistrements (7 j / 30 j), jours actifs, dernier enregistrement, dernière connexion and what
+  the cabinet itself collected this month — filterable (« dormant »), searchable and paged, under a summary strip
+  (`GET /api/platform/summary`). Behind it: **`ClinicActivityDay`** (one cabinet, one clinic-local day — the durable
+  history Part 3's six-month trend reads) and **`ClinicActivitySnapshot`** (one cabinet, the row the list JOINs),
+  both written by the daily **`ClinicActivityCounterJob`**.
+  ⚠️ **Two tables rather than one, and the snapshot exists because of AC-2.4a**: the list filters and sorts *on
+  activity*, so every figure must exist for every cabinet **before** a page is cut — a figure folded after the page
+  was selected would sort a window rather than the portfolio, and « les cabinets dormants » would mean « ceux de
+  cette page ». It is one bounded `Clinics ⋈ snapshot` LEFT JOIN, so the read is bounded by the number of cabinets
+  rather than by the busiest practice's whole history (EC-11). A **LEFT** join because a cabinet the pass has never
+  reached must still appear — with its counters stated as **unknown**, never as zeros (EC-15).
+  ⚠️ **« Saves » counts only people at the cabinet, and both exclusions are silent failures otherwise** (AC-2.2):
+  `job|…` actors (backups, reminder dispatch, expiry passes — they write into *every* cabinet's ledger every day,
+  so counting them makes the emptiest practice read as active) **and the console's own `console|…` actor**, or
+  granting a dormant cabinet a subscription makes it read as active the next morning — on exactly the cabinet the
+  « dormant » filter just surfaced. `PlatformCounterPass` is pure and matches on **`AuditActor`'s own prefix
+  constants**, never a retyped literal.
+  ⚠️ **Not every figure is audit-derived, and one of them must not be.** `patients` is a `COUNT` over the cabinet's
+  patients — *never* audit `Insert` rows: the ledger only exists since `adoption-qa-i`, so an established practice
+  would read as nearly empty, which is wrong in the direction of « barely used », i.e. exactly the churn signal the
+  list exists to give. `users`/`lastLoginAt` come from `IUserRepository.GetStaffSummaryAsync`, and
+  `clinicCollectedThisMonthDt` from **`PlatformCollectedReader`** — the same repository predicates la caisse sums,
+  through `PlanBillingRules.BilledPlanIds`. That makes the console the **fifth** money read, and
+  `MoneyReadConsistencyTests` was extended to pin it equal to `caisse.CashIn − caisse.Refunds`: the vendor quoting
+  a practice a turnover its own caisse contradicts is the worst possible place for drift.
+  ⚠️ **`PlatformReadShape` is the whole of AC-7.2, and the tenant filter explicitly is not (AC-7.2a).** The filter
+  is *lifted* on this surface by design — a portfolio is a cross-cabinet read — so the guarantee is carried by a
+  **closed set of returned field names**, checked by `PlatformReadShapeTests`, which reflects over every
+  `Features.Platform` request's response type, recurses into nested DTOs and **fails the build** on any name
+  outside it. Names, not types: a type allow-list is satisfied by adding a field to a type already on it, which is
+  precisely how a patient's name would arrive. Asserted in **both** directions, so an unused allowance is a hole
+  that fails too.
+  ⚠️ **The counter job rewrites the whole 30-day window each night, not only yesterday** — the audit rows are
+  already in hand for the snapshot, so the day rows are nearly free, and it makes the history self-healing: a
+  container down for three days would otherwise leave permanent holes in a trend nothing can reconstruct, since
+  the window the pass reads is itself 30 days. Idempotent through the unique `(ClinicId, Day)` index.
+  ⚠️ **Subscriptions are deliberately absent, from one clearly-named place.** `PlatformSubscriptionPlaceholder`
+  keeps `plan`/`state`/`endsOn`/`daysRemaining` **null** and reports `subscriptionDataAvailable: false`, off which
+  the screen hides the state filters and says so; the « par date de fin » sort is not offered at all rather than
+  silently sorting by something else. Part 4 **deletes** that file — the compiler then lists every caller — rather
+  than widening it into a console-side entitlement fold, which is the FR-4 violation this feature is defined
+  around. ⚠️ `verify-schema` gained three checks; the plan's `clinic-activity-day-unique-per-clinic-day` was
+  **replaced**, because the unique index makes it unfalsifiable and the index is already diffed for free — see
+  `features/platform-console/stories/progress.md` DEV-4.
 
 - **A clinic can let itself in, and nothing exists until the email is answered (`clinic-self-signup`)**: a hosted
   clinic used to exist only because an operator ran `provision-clinic`. `POST /api/auth/signup` (anonymous) writes a

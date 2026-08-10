@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 /*
  * The vendor console's own stylesheet (platform-console FR-7).

@@ -70,6 +70,24 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   account and a cancelled appointment are all things no request-time guard can still catch. The isolation class
   states the deliberate **asymmetry** — registration crosses clinics (the token is globally unique, so a scoped
   lookup makes a rebind a 500) while deregistration must not.
+- **`Features/Platform/PlatformReadShapeTests.cs`** (`platform-console` Part 2) — the guard that *is* US-7. It reflects over
+  every `IRequest` in `Features.Platform`, unwraps `Result<T>`, recurses into nested DTOs and collections, and asserts every
+  property name at every depth is in `PlatformReadShape.AllowedLeafNames`. ⚠️ **Names, not types**: a type allow-list is
+  satisfied by adding a field to a type already on it, which is exactly how a patient's name would arrive — as one more
+  property on the row somebody was already editing, not as a new DTO. Asserted in **both** directions (an unused allowance is
+  a pre-approved hole), with a non-vacuity test naming three field names it must have reached — reflection tests fail *open*,
+  and a renamed namespace would leave this passing for ever while checking nothing — and a **red proof** that runs the real
+  collector over a `SmuggledPatientRow` carrying `PatientName`, which is the plan's own « verify by trying it » step.
+- **`Features/Platform/PlatformCounterPassTests.cs`** — mostly about the two AC-2.2 exclusions, because they are the only part
+  that fails *silently*: a miscounted total is visible to anyone who looks twice, while a background job counted as cabinet
+  activity makes an empty practice read as busy, and the vendor's response to that is to leave a churning cabinet alone. Also
+  pins that active days are bucketed in the **clinic's** day (23:30 UTC is already tomorrow in Tunis) — every fixture is a
+  fixed instant, for `ClinicClockTests`' reason.
+- **`Features/Platform/PlatformPortfolioQueryTests.cs`** — every filter reaching the repository **verbatim** (the matching
+  itself is SQL and out of this suite's reach), the sort fallback, `PageRequest` clamping, freshness as the **oldest**
+  measurement on the page, « jamais mesuré » kept distinct from zero (EC-15), the subscription placeholder returning four
+  nulls rather than a guessed « Actif », and — the load-bearing one — that a handler reached with **no declared cross-clinic
+  scope throws** instead of reading zero rows and reporting success (EC-12).
 - **`Hubs/ClinicHubTenantScopeTests.cs`** — asserts on the hub's **constructor**, because the defect it guards
   against cannot be caught behaviourally: HTTP middleware does not run per hub invocation, so a hub method reading
   a clinic-filtered entity returns an **empty result and reports success**.
