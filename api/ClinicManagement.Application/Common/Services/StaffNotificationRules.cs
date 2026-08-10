@@ -39,6 +39,9 @@ public static class StaffNotificationRules
         NotificationCategory.StockExpiringSoon => false,
         NotificationCategory.BackupStale => false,
         NotificationCategory.ReminderFailed => false,
+        // AC-3.6: an accounting reminder is not time-critical to a person, and spending the OS's single
+        // notification permission on one risks losing the five categories that are.
+        NotificationCategory.SubscriptionExpiring => false,
         // A new category does not silently start pushing. Deciding is the point — a default of `true` would put
         // an unreviewed message on a lock screen, and `false` would look like a decision nobody made.
         _ => throw new ArgumentOutOfRangeException(

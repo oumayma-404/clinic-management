@@ -67,6 +67,23 @@ public interface IStaffNotificationRepository
     Task<StaffNotification?> GetBackupStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The cabinet's warning row for one expiry threshold, if it has one (<c>clinic-subscription</c> FR-5).
+    /// Keyed on <b>(clinic, threshold)</b> and not on the clinic alone, which is the whole difference from
+    /// <see cref="GetBackupStaleAsync"/>: the daily pass must be idempotent <i>within</i> a threshold while still
+    /// writing a genuinely new, unread row when the next one is reached (AC-3.4, AC-3.5).
+    /// </summary>
+    Task<StaffNotification?> GetSubscriptionWarningAsync(
+        Guid clinicId, int thresholdDays, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every subscription-expiry warning the cabinet is carrying. Read only to withdraw them all once the
+    /// entitlement moves back beyond the warning window, which is what <b>re-arms</b> the thresholds so a cabinet
+    /// that renews and later approaches expiry again is warned again (FR-5).
+    /// </summary>
+    Task<IReadOnlyList<StaffNotification>> GetSubscriptionWarningsAsync(
+        Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The viewer's due, unread post-visit review notifications (same unread predicate as
     /// <see cref="CountUnreadAsync"/>, restricted to the <c>PostVisitReview</c> category). Drives the popup.
     /// </summary>

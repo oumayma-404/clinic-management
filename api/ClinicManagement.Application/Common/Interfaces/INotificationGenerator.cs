@@ -86,6 +86,31 @@ public interface INotificationGenerator
     Task ClearBackupStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Ensures the cabinet carries exactly one warning row for <paramref name="thresholdDays"/> — 7, 3, 1 or 0 days
+    /// before <paramref name="endsOn"/> (<c>clinic-subscription</c> AC-3.4). Visible to all staff (AC-3.7) and
+    /// deep-links to « Abonnement ».
+    ///
+    /// <para><b>⚠️ Deduped per (cabinet, threshold), not per cabinet</b> — which is the opposite of
+    /// <see cref="EnsureBackupStaleAsync"/> and <see cref="EnsureStockExpiringSoonAsync"/>, and deliberately so.
+    /// Those keep one row and reword it; rewording <b>does not clear who has read it</b>, so once the owner has read
+    /// « 7 jours », the « 3 jours », « 1 jour » and « aujourd'hui » restatements would stay read and never badge the
+    /// bell again. AC-3.4 needs four genuinely new unread rows, so each threshold gets its own.</para>
+    ///
+    /// <para>Idempotent within a threshold: the daily pass finds the row and writes nothing (AC-3.5). It restates
+    /// only when <paramref name="endsOn"/> itself has moved, since the message names that date.</para>
+    /// </summary>
+    Task EnsureSubscriptionWarningAsync(
+        Guid clinicId, int thresholdDays, DateTime endsOn, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Withdraws <b>every</b> subscription-expiry warning the cabinet is carrying — the entitlement has moved back
+    /// beyond the warning window, so the countdown is no longer true (FR-5). Clearing is also what <b>re-arms</b> the
+    /// thresholds: a cabinet that renews and later approaches expiry again is warned all four times again.
+    /// No-op when there is nothing to clear, which is the overwhelmingly common case on a daily pass.
+    /// </summary>
+    Task ClearSubscriptionWarningsAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ensures a "post-visit review" notification for an appointment matches its current state — created if
     /// missing, otherwise moved. It becomes visible at the appointment's end (<paramref name="appointmentEndUtc"/> =
     /// start + duration; deferred visibility). The target user is resolved from <paramref name="doctorId"/>

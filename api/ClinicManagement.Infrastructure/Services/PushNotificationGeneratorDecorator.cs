@@ -162,6 +162,16 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
     public Task ClearBackupStaleAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
         _inner.ClearBackupStaleAsync(clinicId, cancellationToken);
 
+    // AC-3.6 — never a lock-screen banner. Pass-through only, and `ReachesALockedPhone` says so a second time for
+    // the reader: an accounting reminder spending the OS's single notification permission is how the five
+    // time-critical categories lose it.
+    public Task EnsureSubscriptionWarningAsync(
+        Guid clinicId, int thresholdDays, DateTime endsOn, CancellationToken cancellationToken = default) =>
+        _inner.EnsureSubscriptionWarningAsync(clinicId, thresholdDays, endsOn, cancellationToken);
+
+    public Task ClearSubscriptionWarningsAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
+        _inner.ClearSubscriptionWarningsAsync(clinicId, cancellationToken);
+
     public Task CancelPostVisitReviewAsync(
         Guid clinicId, Guid appointmentId, CancellationToken cancellationToken = default) =>
         _inner.CancelPostVisitReviewAsync(clinicId, appointmentId, cancellationToken);

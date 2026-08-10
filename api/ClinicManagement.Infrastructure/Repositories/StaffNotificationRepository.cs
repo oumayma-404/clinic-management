@@ -146,6 +146,30 @@ public class StaffNotificationRepository : IStaffNotificationRepository
                 cancellationToken);
     }
 
+    public async Task<StaffNotification?> GetSubscriptionWarningAsync(
+        Guid clinicId, int thresholdDays, CancellationToken cancellationToken = default)
+    {
+        // IgnoreQueryFilters for GetBackupStaleAsync's reason: the daily job runs UseSystemWide, but a vendor
+        // command clearing a warning after a grant runs scoped to one cabinet. The clinicId parameter is the
+        // authoritative check either way, exactly as everywhere else here.
+        return await _context.StaffNotifications
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
+                n => n.ClinicId == clinicId
+                     && n.Category == NotificationCategory.SubscriptionExpiring
+                     && n.SubscriptionThresholdDays == thresholdDays,
+                cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<StaffNotification>> GetSubscriptionWarningsAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        return await _context.StaffNotifications
+            .IgnoreQueryFilters()
+            .Where(n => n.ClinicId == clinicId && n.Category == NotificationCategory.SubscriptionExpiring)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<StaffNotification>> GetPendingReviewsForUserAsync(
         Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default)
     {

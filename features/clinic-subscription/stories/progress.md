@@ -8,7 +8,7 @@
 
 | Story | Status |
 |---|---|
-| 1 — Abonnement du cabinet | in-progress (Parts A + B + C + D done) |
+| 1 — Abonnement du cabinet | in-progress (Parts A + B + C + D + E done) |
 
 ### Parts inside Story 1
 
@@ -18,7 +18,7 @@
 | B | An expired cabinet keeps its records and loses only recording | **done** (Checkpoint B green) |
 | C | The cabinet can see where it stands and how to pay | **done** (Checkpoint C green; eye pass owed) |
 | D | The banner, the refusal toast, and the live re-read | **done** (Checkpoint D green; eye pass owed) |
-| E | The cabinet is warned before it stops being able to work (⚠️ atomic) | not-started |
+| E | The cabinet is warned before it stops being able to work (⚠️ atomic) | **done** (Checkpoint E green; the operator's simulated-days walk is owed) |
 | F | The vendor unlocks a cabinet that has paid | not-started |
 | G | Background work parks rather than sends or vanishes (⚠️ atomic) | not-started |
 
@@ -790,3 +790,205 @@ What remains open after Part D:
   table mentions `lib/nav.ts` — so following the plan alone would have shipped the whole feature with AC-7.1/7.2
   ticked and a visible row contradicting it. The story file's AC list already had it as `[x]`, which is exactly how
   such a gap survives a review.
+
+---
+
+# Part E — The cabinet is warned before it stops being able to work (⚠️ atomic)
+
+**Working tree note (start of session 5).** Clean apart from the other author's untracked
+`features/platform-console/`, left untouched and excluded. `git status` reviewed before any edit and again before
+staging; every file below is staged by explicit path. `git diff HEAD --numstat` at the end: **5 deletions across
+14 files** — three are the stale « written by nothing until Part E » paragraph on
+`StaffNotification.SubscriptionThresholdDays`, now that Part E is what writes it, and two are the comma added after
+each enum's previous last member. Everything else is additive.
+
+## Session decisions
+
+**Session 5 — scope: Part E only.** Requested explicitly (`/implement-story clinic-subscription part E`). Same
+branch, same explicit-path staging. Part E is **atomic** by the plan's own split-point rule (R-9), so the four E1
+items land in one commit with everything else.
+
+**Two questions asked and answered before any code was written** — both changed what was built:
+
+1. **The client half.** AC-3.4 requires the row to deep-link to « Abonnement », while the plan's layer table calls
+   Part E `api/`-only. `dashboard-header.tsx`'s `handleNotificationClick` has no branch for a new `targetKind` and
+   `notification-panel.tsx`'s two maps are loose `Record<string, …>` with a fallback — so backend-only would have
+   shipped four rows that badge the bell, render a generic icon and **do nothing when clicked**. Answer: **include
+   the client half** (DEV-8).
+2. **What the daily pass does to an expired or suspended cabinet.** Answer: **leave both alone** — see DEV-9.
+
+## Part E — steps
+
+| # | Step | Status |
+|---|---|---|
+| E1 | The atomic four: `NotificationCategory.SubscriptionExpiring = 10`, `NotificationTargetKind.Subscription = 5`, `StaffNotification.ForSubscription(...)`, `StaffNotificationRules.ReachesALockedPhone → false` | **done** — one commit (R-9) |
+| E2 | `EnsureSubscriptionWarningAsync` / `ClearSubscriptionWarningsAsync` inside `SafelyAsync`, deduped on (clinic, threshold), + the two `GetBackupStaleAsync` siblings | **done** |
+| E3 | `SubscriptionWarningJob` (daily, `RequiresSubscription`-guarded, `UseSystemWide` + `RunAs`, try/catch per clinic, re-arm) + its `Program.cs` registration | **done** |
+| E4 | `SubscriptionWarningTests` | **done** — 22 new tests, three executed red-proofs |
+
+### What the wording came out as
+
+Four rows, distinguishable **in the title** so a reader of the bell can tell « 3 jours » from the « 7 jours » they
+read last week: « Abonnement — 7 jours restants » / « 3 jours restants » / « 1 jour restant » / « dernier jour ».
+The message is one sentence naming the end date and following `SubscriptionRefusals`' own rule — what still works
+before what will stop, because it is read chairside: « Votre abonnement se termine le JJ/MM/AAAA. Vous pourrez
+toujours consulter et exporter vos données, mais plus enregistrer de nouveaux actes. Rendez-vous dans
+« Abonnement » pour le renouveler. »
+
+⚠️ **The message is derived from the THRESHOLD, not from the live countdown**, and that is load-bearing rather than
+stylistic: a message rebuilt from « days remaining » differs every day, so the ensure would restate on every daily
+pass and make every open browser refetch — the churn the dedupe exists to prevent. It is also what lets the
+idempotency comparison be the whole message rather than a prefix, unlike its two ensure/clear neighbours which
+carry a countdown inside their text.
+
+## Deviations
+
+### DEV-8: Part E carries two frontend files, in a part the plan calls `api/`-only
+**Date:** 2026-08-10
+**Story:** 1, Part E, step 1
+**Category:** Scope
+**Original Plan:** The *Files to Create/Modify → Part E* table lists nine `api/` files and no `web/` file; the
+stories README's layer-weight table records Part E as `BE`.
+**Actual Implementation:** Plus two small edits in existing files — `web/components/dashboard-header.tsx` gains the
+`targetKind === "Subscription"` → `/abonnement` branch, and `web/components/notification-panel.tsx` gains one
+`CATEGORY_ICON` entry (`CreditCard`) and one `CATEGORY_TONE` entry (amber `-wash`/`-ink`).
+**Justification:** AC-3.4 says the notification « deep-links to « Abonnement » », and on this client that is not a
+property of the backend. Both maps are `Record<string, …>` with a neutral fallback and `handleNotificationClick` is
+an if/else chain over known `targetKind`s, so a backend-only Part E ships four rows that badge the bell, render an
+uncoloured chip with a fallback glyph, and are **inert on click** — the `fixes-dont-propagate` shape, and an AC that
+would have been ticked while being false. Neither file's `tsc` would have caught it: a loose `Record` accepts a
+missing key by design.
+**Impact:** Four added lines across two existing files, one new `lucide-react` import (already a dependency). No new
+screen and no new layout surface, so the frontend gate is the mechanical one plus a re-read; there is nothing new to
+eye-pass. The layer weight for Part E is `BE + FE` rather than `BE`.
+**Approved:** Yes — asked with the backend-only alternative before any code was written.
+
+### DEV-9: an expired or suspended cabinet is neither warned nor cleared
+**Date:** 2026-08-10
+**Story:** 1, Part E, step 3
+**Category:** Technical
+**Original Plan:** Step 3 says « an extension past the window clears outstanding warnings and **re-arms** the
+thresholds » and is silent on what the pass does once the date has actually passed, or while a cabinet is suspended.
+**Actual Implementation:** `SubscriptionWarningJob.ReviewClinicAsync` returns early for `SubscriptionState.Expired`
+and `SubscriptionState.Suspended` — neither ensuring a row nor clearing the existing ones. The clear-and-re-arm
+branch is reached only when no threshold is current, i.e. no end date or one beyond the window.
+**Justification:** Both fall out of `SubscriptionStateReader` returning `DaysRemaining: null` for each, so *some*
+decision was forced. **Expired:** clearing is the natural reading of « no threshold reached », and it is wrong — the
+day after expiry the cabinet is meeting a refused save, and those four rows are the only thing in the feed that
+explains it. Warning again is also wrong: AC-3.4's four warnings are the ones *before* it stops working, and a fifth
+contradicts AC-3.5. **Suspended:** the reader surfaces no countdown for a suspended cabinet on purpose (EC-11 — it
+reads « Suspendu », never « Expiré », because a payment will not fix it), so « votre abonnement se termine dans 3
+jours » would send a practice suspended for another reason to pay for something that will not unblock it.
+**Impact:** One early return in a new file, and both cases are pinned by named tests rather than left to read
+correctly — `An_Expired_Cabinet_Keeps_The_Warnings_It_Was_Already_Given` is the one that would stay green on the
+wrong implementation of the *other* branch, so it is asserted rather than assumed.
+**Approved:** Yes — asked with the two alternatives (clear on expiry; write a fifth « expiré » row) before any code
+was written.
+
+## Auto-Approved Deviations
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| `WarnExpiringSubscriptions()` gains a `(DateTime clinicToday)` overload; the parameterless one resolves `ClinicClock.ClinicToday()` and is the sole production caller | Trivial | Internal to one new file, same production behaviour. It is `SubscriptionStateReader`'s own stated reason: the four thresholds and the midnight they turn on are otherwise untestable, and midnight is the only boundary that matters for a date that arrives by itself. The Hangfire registration points at the parameterless one, which carries the two attributes. |
+| The warning wording lives as private members of `NotificationGenerator`, not in a new `Features/Subscriptions/` file | Trivial | Follows that file's own convention — all five existing categories' wording is private there. No second reader exists (Part F's report reads state, not the feed), and the tests assert through the generator, so no prose is retyped. |
+| `NotificationGenerator` now imports `Features.Subscriptions` for `SubscriptionRefusals.DateFormat` | Trivial | One shared format string, same project. « The end date as it is written to a cabinet » is one statement; a `"dd/MM/yyyy"` literal here would be a second copy of it. |
+| The whole message is compared for idempotency, not a prefix (unlike the stock-expiry and backup-stale ensures) | Trivial | Internal to the new method. Those two carry a countdown *inside* their message, so a whole-message comparison would differ daily; this one does not, which is what makes the simpler comparison correct here. |
+| Both new repository reads call `IgnoreQueryFilters()` | Trivial | `GetBackupStaleAsync`'s precedent verbatim, comment included. The daily pass runs `UseSystemWide` so the filter is satisfied anyway; the `clinicId` parameter is the authoritative check either way, and Part F's grant may clear from inside a scoped command. |
+| `StaffNotification.ForSubscription` is a static factory rather than a twelfth ctor parameter | Trivial | New member on an existing entity, no caller outside the generator. The threshold is meaningful for exactly one category; an optional ctor argument would let the other nine carry one. |
+| The stale « ⚠️ Written by nothing until Part E » paragraph on `SubscriptionThresholdDays` is replaced by one line | Trivial | Comment correction in a file this part edits — Part E *is* what writes it now, so the note had become false. |
+
+## Part E gates — Checkpoint E
+
+| Gate | Result |
+|---|---|
+| `dotnet build api/ClinicManagement.sln --no-incremental` | ✅ **0 errors**, **55 warnings — the identical Checkpoint A/B/C/D baseline**, and **zero** name a file this part added or edited (the full list was grepped for all nine touched type names; the single `Program.cs` hit is the pre-existing Hangfire `CS0618` at **line 331**, ~400 lines above this part's edit) |
+| Unit suite | ✅ **2386 passed, 0 failed** (baseline 2364 → **22 new**) |
+| `SubscriptionWarningTests` | ✅ 22 |
+| `SystemWideCallerCoverageTests` | ✅ green, **unedited** — its derived criterion **auto-enrolled the new job**, proven by probe (below) rather than assumed |
+| `RealtimeResourceResolverTests` | ✅ green, **unedited** — the job writes through `INotificationGenerator`, which broadcasts the existing `"notifications"` key; no new key on either side |
+| `SubscriptionGateMiddlewareTests` · `SubscriptionExemptionCoverageTests` · `SubscriptionControllerTests` | ✅ green, **all three unedited** — Part E adds no endpoint and changes no exemption |
+| `ControllerAuthorizationCoverageTests` · `TenantScopeFilterTests` · `DeploymentProfileCoverageTests` · `MoneyReadConsistencyTests` | ✅ green, **all four unedited** (confirmed by name against `git status`) — the four derived guards that should have needed no edit needed none |
+| `PushFanOutTests` | ✅ green, **unedited** — the new category is classified `false`, so the decorator passes it through and the fan-out never sees it |
+| `verify-schema` | **not applicable — and the verb was re-confirmed to exist and run** (`Api/Maintenance/VerifySchemaCommand` + `SchemaVerificationService`, 49 passing tests). **Part E adds no migration**: the `StaffNotifications.SubscriptionThresholdDays` column it writes to landed with Part A's migration, by that part's own one-migration decision. `git status` shows nothing under `Infrastructure/Migrations/` |
+| `npx tsc --noEmit` | ✅ clean |
+| `npm run check:responsive` | ✅ **15/15** |
+| `npm run build` | ✅ compiled; 33/33 static pages |
+| Eye pass at the five widths | **not applicable, for the first time in this feature** — and checked rather than assumed: the two frontend edits are one `router.push` branch and two entries in two `Record` maps. No element, no class and no layout is added, so there is no surface to look at. The panel and the bell were eye-passed when they were built |
+
+### The three red-proofs
+
+All executed, because two of them guard properties that pass on a plausible wrong implementation.
+
+1. **R-9, the split point.** Removed `NotificationCategory.SubscriptionExpiring => false` from
+   `StaffNotificationRules`: `Every_Other_Category_Is_Still_Classified` **and**
+   `The_Warning_Never_Reaches_A_Locked_Phone` both went **red**. Restored; green. This is the proof the part is
+   genuinely atomic — the switch throws, so shipping E1 without that line breaks every notification write in the
+   product, not only the new one.
+2. **The dedupe key.** Replaced `threshold.Value` with `status.DaysRemaining!.Value` in the job's ensure call — i.e.
+   keyed on the live countdown instead of the threshold. **Four** tests went red, including both headliners
+   (`Simulating_The_Countdown_Produces_Exactly_Four_Rows_One_Per_Threshold` and
+   `The_Wording_Does_Not_Change_While_The_Threshold_Holds`). Reverted; green. That defect compiles, produces
+   plausible French, and writes a row **every day** of the countdown while restating the wording daily.
+3. **The coverage guard's enrollment.** Removed the job's `_tenantScope.UseSystemWide(...)` declaration:
+   `SystemWideCallerCoverageTests.Every_Path_Without_An_Http_Context_Declares_Its_Tenant_Scope` went **red naming
+   `ClinicManagement.API\BackgroundJobs\SubscriptionWarningJob.cs`**. Restored; green. Worth doing rather than
+   trusting the green run: a job with no scope reads **nothing** and logs a clean pass, which is US-2's own R-1 and
+   is indistinguishable from « no cabinet is expiring ».
+
+### The defect this part's own tests caught
+
+**One, and it was in the test rather than the production code — but the failing run was still the finding.**
+`A_Grant_Inside_The_Window_Restates_The_Row_Rather_Than_Adding_One` was written expecting a restate, and failed
+with two rows. Moving the end date by two days while today stayed fixed moved the cabinet from threshold 1 to
+threshold **3**, so a new row is correct — and restating *across* thresholds is precisely what AC-3.5's ⚠️ forbids,
+since a restated row keeps the read markers of the warning already dismissed. It was replaced by the two cases that
+actually exist: `A_Grant_That_Keeps_The_Threshold_Restates_The_Row_In_Place` (same threshold, moved date → same id,
+new date) and `A_Grant_That_Moves_The_Threshold_Writes_A_New_Row_Rather_Than_Rewriting_The_Old_One`, which records
+the behaviour that **looks like a bug and is not**.
+
+### Verification steps — what is proven and what is still owed
+
+| Step (story § *Verification Steps → Part E*) | Result |
+|---|---|
+| Simulating days −8 → 0 produces exactly **four** rows, each unread and each badging the bell | ✅ `Simulating_The_Countdown_Produces_Exactly_Four_Rows_One_Per_Threshold` (day −8 asserted to produce **none**, so « from 7 days » is a boundary rather than « soon ») + `Every_Threshold_Gets_Its_Own_Row_Rather_Than_A_Restatement`, asserted as four **distinct ids** — the property that makes « badges the bell » true |
+| Running the job twice on the same day adds nothing (AC-3.5) | ✅ `Running_Twice_On_The_Same_Day_Adds_Nothing`, plus `A_Countdown_That_Sits_Inside_One_Threshold_For_Days_Yields_One_Row` (four consecutive days inside threshold 7 → one row) |
+| **No push is queued** for the category (AC-3.6) | ✅ `The_Warning_Never_Reaches_A_Locked_Phone`, asserted against `StaffNotificationRules` — the single decision point the fan-out actually reads, not against the decorator |
+| Extending past 7 days clears the rows; approaching again later warns again (FR-5) | ✅ `Extending_Past_The_Window_Clears_The_Rows_And_Re_Arms_Every_Threshold`, which walks the whole round trip: two rows → grant a year → empty → approach again → all four thresholds again |
+| Every role receives the warning (AC-3.7) | ✅ `The_Warning_Is_Addressed_To_The_Whole_Practice` — `ActorUserId` and `TargetUserId` both null, which *is* the mechanism (an actor id would hide the row from whoever « caused » it, and nobody causes a date arriving) |
+| Notification writes in **other** categories still work — proof the `StaffNotificationRules` half landed (R-9) | ✅ `Every_Other_Category_Is_Still_Classified`, with the executed red-proof above |
+| A cabinet's warning row deep-links to « Abonnement » | ✅ backend: `The_Warning_Deep_Links_To_The_Subscription_Screen`. Client: the `handleNotificationClick` branch, typechecked and built (DEV-8). **The live click is owed with the operator walk** |
+| The daily pass over simulated days (operator step, per the plan's *Manual verification*) | ⚠️ **owed** — done in the suite against a moving date, not against a real Hangfire schedule on a hosted deployment |
+
+## Known interim state, deliberately
+
+What remains open after Part E:
+
+- **No vendor verb** (US-5). A paid cabinet is still unlocked by editing the ledger directly, so AC-5.8's *live* walk
+  still cannot be performed. Part F.
+- **No outbox parking** (FR-8, EC-7). A reminder queued before expiry for a later appointment still sends. Part G.
+- **The `/hangfire` dashboard is loopback-only in both modes**, so on a hosted deployment the new job's runs are
+  observable through the log rather than a screen. `GET /api/outbox` has **no section for it** and gains none — it is
+  not a queue. Worth knowing before anyone goes looking for a « warnings sent » figure; there is none, deliberately
+  (the rows in the feed are the record).
+
+## Learnings
+
+- **A plan's layer table can be right about the code and wrong about the acceptance criterion.** « Part E is
+  `api/`-only » is true of every file the feature needs to *write* the notification, and false of AC-3.4, which says
+  the row deep-links. The tell was not in the plan at all — it was in `dashboard-header.tsx` being an if/else chain
+  over known `targetKind`s and both panel maps being loose `Record<string, …>` with a fallback, i.e. three places
+  that accept a missing key **by design** and therefore cannot fail a build. Worth reading the *consumer* of any new
+  enum value before believing a part is single-layer.
+- **Two alerts in the same feed can need opposite dedupe rules, and the reason is read state, not wording.**
+  `StockExpiringSoon` and `BackupStale` keep one row and reword it; this one must not, because rewording does not
+  clear who has read it — so the escalation would land silently on a bell the owner had already cleared. The
+  distinction is « is this the same fact restated, or a new fact? », and it is invisible if you only compare the two
+  implementations.
+- **Deriving a message from the live value is how an « ensure » becomes a daily broadcast.** Both existing ensures
+  document this and work around it with a prefix comparison; the cleaner fix available here was to make the message a
+  function of the **threshold**, so there is nothing volatile in it to compare. Same defect, one layer earlier — and
+  the red-proof shows a row count alone would not have caught it.
+- **A first-run test failure is worth diagnosing in both directions.** This part's one red was the *test* encoding a
+  wrong expectation (a restate across thresholds), not the code — but only checking it against AC-3.5's own stated
+  reasoning distinguished that from the opposite conclusion. The skill's guidance points at fixing the production
+  code; the check that matters is which of the two the spec actually says.

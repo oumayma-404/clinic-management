@@ -102,6 +102,25 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   `Assert.Empty(mediator.Invocations)`, not merely as a status), and the AC-2.2 policy split (`AnyClinicRole` on the
   screen, `AdminOnly` on the history alone) with a **drift guard** carrying its own executed red-proof, so a later
   action cannot widen the secretary exception by omission.
+- **`Features/Subscriptions/SubscriptionWarningTests.cs`** (`clinic-subscription` Part E). It runs the **real**
+  `NotificationGenerator` over an in-memory `IStaffNotificationRepository` rather than asserting the job called a
+  mock, because every AC here is about the **rows**: four of them, each with its own id so it badges the bell, none of
+  them a fifth, all withdrawn on an extension. A mocked generator would prove a method was invoked and nothing about
+  any of that. « Simulating days −8 → 0 » is done by running the same pass against a **moving** date, which the job's
+  `WarnExpiringSubscriptions(DateTime clinicToday)` overload exists for.
+  ⚠️ **The highest-value case is `The_Wording_Does_Not_Change_While_The_Threshold_Holds`**, and it is the one a row
+  count cannot replace: keying the dedupe on the live countdown instead of the threshold compiles, produces plausible
+  French, and writes a row **every day** of the countdown while restating the wording — proven by probe, which reddens
+  four cases including that one and the four-rows headline.
+  ⚠️ Its fake repository **throws** on every member the feature does not use, deliberately: a fake that quietly
+  answers an unrelated read would let a wrong implementation pass by taking another path.
+  ⚠️ `Every_Other_Category_Is_Still_Classified` is the **R-9 split-point guard** — `StaffNotificationRules`
+  *throws* on an unclassified category, so omitting `SubscriptionExpiring => false` breaks **every** notification
+  write in the product rather than only the new one. Proven red by removing that line.
+  ⚠️ And `A_Grant_That_Moves_The_Threshold_Writes_A_New_Row_Rather_Than_Rewriting_The_Old_One` records the case that
+  **looks like a bug and is not**: rewriting would carry the read markers of a warning already dismissed, so the
+  escalation would land on a bell that had been cleared. It was written the other way round first and the failing run
+  was the finding.
 - **`Api/MigrationLockTests.cs`** (`multi-tenant-cloud` US-6) — the startup advisory lock, and a worked example of asserting the two things a mistake would actually look like when the mechanism itself is out of reach (nothing here touches a database). Both statements must name the **same fixed** key — two instances naming different numbers serialise nothing, and the failure is invisible until two containers migrate at once — and the lock must be **session-level**, because `pg_advisory_xact_lock` releases at the first commit *inside* the migration, leaving the rest of it unprotected while looking correct. The third property is asserted against **`Program.cs`'s own source**: a lock the startup path forgot to wrap is exactly as broken as no lock, and nothing else in the build can see it.
 - **`Api/AuthAttemptAccountTests.cs`** + the US-6 half of **`Api/RateLimitingTests.cs`** — the login limiter's re-key onto the submitted account. Most of the file is about the cases that must produce **nothing**: a non-JSON body, a truncated one, an oversized one, `auth/refresh` (no email at all). Any of those throwing would take the login endpoint off the air, which is strictly worse than the lockout the re-key exists to prevent. The two partition cases that matter are the ones a naive fix gets wrong: **the same account shares one bucket regardless of address** (a compound `account+address` key would hand one attacker a fresh budget per address) and **an account key can never collide with an address key** (an email is caller-supplied text).
 - **`Api/HealthCheckTests.cs`** — the grading, which is the whole substance: storage down is **`Degraded`** (still 200) and the database is `Unhealthy` (503). Also that storage which cannot even be **resolved** degrades rather than 500s — where MinIO is unconfigured `AddInfrastructure` deliberately registers a factory that throws, so a constructor-injected `IFileStorage` would throw while the framework was *building* the check.

@@ -46,7 +46,7 @@ Parts outlined in red are **atomic** — see *Split points* below.
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | [Abonnement du cabinet — entitlement, enforcement, visibility and vendor control](./story-1-full-clinic-subscription.md) | in-progress (Parts A + B + C + D done) | - |
+| 1 | Full | [Abonnement du cabinet — entitlement, enforcement, visibility and vendor control](./story-1-full-clinic-subscription.md) | in-progress (Parts A + B + C + D + E done) | - |
 
 ### Parts inside Story 1
 
@@ -56,7 +56,7 @@ Parts outlined in red are **atomic** — see *Split points* below.
 | B | An expired cabinet keeps its records and loses only recording | BE | — | A | **done** — Checkpoint B green; see [progress.md](./progress.md) |
 | C | The cabinet can see where it stands and how to pay | BE + FE | — | A, B | **done** — Checkpoint C green; the eye pass is owed (no browser here). See [progress.md](./progress.md) |
 | D | The banner, the refusal toast, and the live re-read | FE | — | C | **done** — Checkpoint D green; the eye pass is owed (no browser here). Also closes Part C's interim rail row (AC-7.1/7.2). See [progress.md](./progress.md) |
-| E | The cabinet is warned before it stops being able to work | BE | **yes** | A |
+| E | The cabinet is warned before it stops being able to work | BE + FE | **yes** | A | **done** — Checkpoint E green, three executed red-proofs. Carries two `web/` edits the plan's table did not list, so AC-3.4's deep-link is real (progress.md DEV-8). See [progress.md](./progress.md) |
 | F | The vendor unlocks a cabinet that has paid | BE | — | A |
 | G | Background work parks rather than sends or vanishes | BE | **yes** | A, F |
 

@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Subscriptions;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -292,6 +293,60 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task EnsureSubscriptionWarningAsync(
+        Guid clinicId, int thresholdDays, DateTime endsOn, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var title = SubscriptionWarningTitle(thresholdDays);
+            var message = SubscriptionWarningMessage(endsOn);
+
+            var existing = await _notifications.GetSubscriptionWarningAsync(
+                clinicId, thresholdDays, cancellationToken);
+            if (existing != null)
+            {
+                // This threshold has already been announced, so no second row (AC-3.5). Unlike the two ensure
+                // pairs above, the whole message is compared rather than a prefix: it carries no countdown, only
+                // the end date, so it is stable day to day and differs exactly when a grant has moved the date.
+                if (string.Equals(existing.Message, message, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                existing.Restate(title, message);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+
+            var notification = StaffNotification.ForSubscription(
+                Guid.NewGuid(), clinicId, title, message, DateTime.UtcNow, thresholdDays);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // a genuinely new unread row → it badges the bell, which is the point (AC-3.4)
+        }, cancellationToken);
+    }
+
+    public async Task ClearSubscriptionWarningsAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var existing = await _notifications.GetSubscriptionWarningsAsync(clinicId, cancellationToken);
+            if (existing.Count == 0)
+            {
+                return false; // nothing outstanding — the common case for a cabinet nowhere near its date
+            }
+
+            foreach (var notification in existing)
+            {
+                await _notifications.RemoveAsync(notification, cancellationToken);
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // the rows left the feed → clients refetch
+        }, cancellationToken);
+    }
+
     public async Task EnsurePostVisitReviewAsync(
         Guid clinicId, Guid appointmentId, Guid? doctorId, string patientName, DateTime appointmentEndUtc,
         CancellationToken cancellationToken = default)
@@ -454,6 +509,30 @@ public class NotificationGenerator : INotificationGenerator
         lastSuccessUtc is DateTime last
             ? $"Dernière sauvegarde réussie le {FormatFr(last)}"
             : "Aucune sauvegarde n'a encore été effectuée.";
+
+    /// <summary>
+    /// The countdown is in the <b>title</b> so the four rows are distinguishable at a glance in the feed — with one
+    /// shared title, a cabinet reading the bell could not tell « 3 jours » from the « 7 jours » it read last week.
+    /// </summary>
+    private static string SubscriptionWarningTitle(int thresholdDays) => thresholdDays switch
+    {
+        0 => "Abonnement — dernier jour",
+        1 => "Abonnement — 1 jour restant",
+        _ => $"Abonnement — {thresholdDays} jours restants"
+    };
+
+    /// <summary>
+    /// Derived from the <b>threshold</b> and the end date, never from the live countdown: a message rebuilt from
+    /// « days remaining » would differ every day, so the ensure would restate — and make everyone refetch — on every
+    /// daily pass, which is the churn the dedupe exists to prevent.
+    ///
+    /// <para>It says what still works before what will stop, exactly as <see cref="SubscriptionRefusals"/> does: it
+    /// is read chairside and the fear it answers first is « am I about to lose the patients' files? ».</para>
+    /// </summary>
+    private static string SubscriptionWarningMessage(DateTime endsOn) =>
+        $"Votre abonnement se termine le {endsOn.ToString(SubscriptionRefusals.DateFormat, CultureInfo.InvariantCulture)}. "
+        + "Vous pourrez toujours consulter et exporter vos données, mais plus enregistrer de nouveaux actes. "
+        + "Rendez-vous dans « Abonnement » pour le renouveler.";
 
     private const string ReminderTitle = "Rappel de rendez-vous";
 

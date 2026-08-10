@@ -744,6 +744,25 @@ try
         RecurringJob.RemoveIfExists("dispatch-os-push");
     }
 
+    // Subscription-expiry warnings (clinic-subscription FR-5) — daily, and registered ONLY where a cabinet's right
+    // to record work is a dated entitlement (AC-7.1/7.2): on a clinic's own PC and on the Auth0 deployment every
+    // entitlement is open-ended, so the pass could only ever loop over cabinets it must not warn. Not
+    // connectivity-gated — the warning is in-app. 07:00 UTC, after the expiry scan and before the clinic opens, so
+    // the row is already in the feed when the first person looks at the bell.
+    if (profile.RequiresSubscription)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.SubscriptionWarningJob>(
+            "warn-subscription-expiry",
+            job => job.WarnExpiringSubscriptions(),
+            Cron.Daily(7));
+    }
+    else
+    {
+        // Defensively drop it, as the push dispatcher does: an install reprofiled away from the hosted kind would
+        // otherwise keep a registration pointing at work it must no longer do.
+        RecurringJob.RemoveIfExists("warn-subscription-expiry");
+    }
+
     // Google→App calendar sync never runs on a schedule: the recurring job and its GoogleCalendarSyncJob
     // class were removed as dead scaffolding. App→Google sync runs inline on appointment create/update, and
     // Google→App stays manual-only (GoogleCalendarController). Defensively drop any stale recurring

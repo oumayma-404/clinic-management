@@ -69,10 +69,10 @@ _From spec:_
 - [x] **EC-1** Midnight passes mid-consultation: reads keep working, the save is refused, the fiche stays populated, the banner appears with no reload — *the refused save **is** the event: `onSubscriptionRequired` → re-read → banner. Live walk owed*
 
 **Part E — warnings (US-3 notification half)**
-- [ ] **AC-3.4** A notification at **7, 3 and 1 day(s)** before, and again on the day it ends — **four distinct** notifications, each genuinely new so it badges the bell
-- [ ] **AC-3.5** Re-evaluated daily; a threshold already crossed produces **no** second row (no fifth notification, however long the countdown)
-- [ ] **AC-3.6** Never reaches a locked phone as a push banner
-- [ ] **AC-3.7** Addressed to the whole practice, not only the administrator
+- [x] **AC-3.4** A notification at **7, 3 and 1 day(s)** before, and again on the day it ends — **four distinct** notifications, each genuinely new so it badges the bell — *deduped on the real `SubscriptionThresholdDays` column, asserted as four distinct ids; the deep-link needed two `web/` edits the plan's table did not list (progress.md DEV-8)*
+- [x] **AC-3.5** Re-evaluated daily; a threshold already crossed produces **no** second row (no fifth notification, however long the countdown) — *and the wording does not churn either: it is derived from the threshold, not the live countdown*
+- [x] **AC-3.6** Never reaches a locked phone as a push banner — *`StaffNotificationRules.ReachesALockedPhone → false`, the single decision point the fan-out reads*
+- [x] **AC-3.7** Addressed to the whole practice, not only the administrator — *no actor and no target user, which is the mechanism rather than a policy*
 
 **Part F — the vendor unlocks (US-5)**
 - [ ] **AC-5.1** A command records a payment against one cabinet by id **or** administrator e-mail, with whole months (or an explicit end date), and optional plan / amount / method / reference / note
@@ -214,7 +214,13 @@ the eye pass is owed (no browser automation on this machine).
 3. **`SubscriptionWarningJob`** — daily, guarded on `RequiresSubscription`, `UseSystemWide` + `RunAs`, one bounded pass, try/catch per clinic. An extension past the window clears outstanding warnings and **re-arms** the thresholds
 4. **`SubscriptionWarningTests`**
 
-**Checkpoint E** — see *Verification Steps → Part E*. Commit (one commit for the whole part).
+5. *(added during implementation)* **The client half of AC-3.4's deep-link** — `dashboard-header.tsx`'s
+   `targetKind === "Subscription"` → `/abonnement` branch plus the panel's icon and tone entries. The plan calls
+   Part E `api/`-only; both maps are loose `Record<string, …>` with a fallback and the click handler is an if/else
+   over known kinds, so backend-only ships four rows that badge the bell and go nowhere (progress.md DEV-8)
+
+**Checkpoint E** — see *Verification Steps → Part E*. Commit (one commit for the whole part). ✅ **Green** — 22 new
+tests, three executed red-proofs; the operator's simulated-days walk on a real schedule is owed.
 
 ### Part F — The vendor unlocks a cabinet that has paid
 
@@ -338,6 +344,8 @@ Grouped **by part**, because that is the unit of work. The plan's own tables gro
 | `Domain/Repositories/IStaffNotificationRepository.cs` + impl | modify | The two `GetBackupStaleAsync` siblings |
 | `API/Program.cs` | modify | `RecurringJob.AddOrUpdate` guarded on `RequiresSubscription`, `RemoveIfExists` in the else |
 | `UnitTests/Features/Subscriptions/SubscriptionWarningTests.cs` | create | Four rows, idempotence, re-arm |
+| `web/components/dashboard-header.tsx` | modify | *(added during implementation — DEV-8)* `targetKind === "Subscription"` → `/abonnement`, or AC-3.4's deep-link is not true on this client |
+| `web/components/notification-panel.tsx` | modify | *(added during implementation — DEV-8)* one `CATEGORY_ICON` entry (`CreditCard`) + one `CATEGORY_TONE` entry (amber). Both maps fall back silently, so `tsc` cannot see the omission |
 
 ### Part F
 
