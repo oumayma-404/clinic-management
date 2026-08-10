@@ -87,6 +87,42 @@ public static class PlatformReadShape
         "Active",
         "ExpiringWithin14Days",
         "Expired",
-        "Suspended"
+        "Suspended",
+
+        // ── One cabinet, opened (Part 3, US-3). The row above, verbatim, plus what only the detail shows.
+        "Clinic",
+        "SubscriptionExplanation",
+
+        // Who to call at the cabinet (AC-3.3). ⚠️ These are the two names on this surface that identify a PERSON,
+        // so they are the ones to think hardest about — and they are admissible for a reason the field names carry:
+        // an `Admin*` is the cabinet's own **staff account**, the party the vendor bills and telephones, never
+        // somebody the practice treats. AC-7.1 forbids a patient, an appointment, a note, a document or a
+        // per-patient amount; it does not forbid the account that signed the contract. The prefix is what keeps
+        // that reviewable: a bare "Email" would be one careless reuse away from a patient's.
+        "AdminName",
+        "AdminEmail",
+        "AdminIsActive",
+
+        // The six-month trend (AC-3.1). Counts per month and how many days of it were measured — never a per-day
+        // list of what was done, which is a different and much sharper read.
+        "Trend",
+        "Year",
+        "Month",
+        "MonthLabel",
+        "Writes",
+        "Appointments",
+        "PatientsCreated",
+        "DaysMeasured",
+
+        // ── The console's own access ledger (Part 3, FR-5). Its subject is a CONSOLE ACCOUNT and a cabinet, so
+        // nothing here can name anyone at the practice at all.
+        "Actors",
+        "EntryId",
+        "PlatformAccountId",
+        "AccountEmail",
+        "ClinicName",
+        "Action",
+        "ActionLabel",
+        "OccurredAt"
     };
 }

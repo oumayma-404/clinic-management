@@ -88,6 +88,17 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   measurement on the page, « jamais mesuré » kept distinct from zero (EC-15), the subscription placeholder returning four
   nulls rather than a guessed « Actif », and — the load-bearing one — that a handler reached with **no declared cross-clinic
   scope throws** instead of reading zero rows and reporting success (EC-12).
+- **`Features/Platform/PlatformAccessLedgerTests.cs`** (`platform-console` Part 3) — the detail read and the console's
+  own access ledger. Its load-bearing case runs the **real** detail handler and the **real** journal handler over
+  **one** ledger, so the row the write produced is compared with the row the read serves rather than with a
+  hand-written expectation — a write-only ledger and a ledger nobody reads back look identical from outside.
+  ⚠️ Its second is `Loading_The_List_Cannot_Write_A_Ledger_Row`, asserted on the **constructor**
+  (`ClinicHubTenantScopeTests`' technique): AC-3.5 is a promise about something that does *not* happen, and « I ran
+  the list and no row appeared » passes just as well when the ledger is broken for every caller. Also pins that an
+  unattributable read **fails** rather than succeeding unrecorded, that a vanished cabinet is refused by **code**
+  and records nothing, and that the trend's six buckets keep « pas encore mesuré » (`DaysMeasured == 0`) distinct
+  from a measured zero — with the window derived from `ClinicClock` rather than hard-coded, deliberately, since
+  « what is today in Tunis » is `ClinicClockTests`' business and a literal would flake for one hour of every day.
 - **`Hubs/ClinicHubTenantScopeTests.cs`** — asserts on the hub's **constructor**, because the defect it guards
   against cannot be caught behaviourally: HTTP middleware does not run per hub invocation, so a hub method reading
   a clinic-filtered entity returns an **empty result and reports success**.

@@ -128,6 +128,12 @@ public class ApplicationDbContext : DbContext
     public DbSet<ClinicActivityDay> ClinicActivityDays { get; set; }
     public DbSet<ClinicActivitySnapshot> ClinicActivitySnapshots { get; set; }
 
+    // The console's own access ledger (platform-console Part 3, FR-5). Carries a ClinicId — the cabinet that was
+    // looked at — so it is a named decision in TenantScopeFilterTests like the two counter tables above. Filtering
+    // it per clinic would be doubly wrong here: the journal's whole purpose is to read ACROSS cabinets, and the
+    // rows worth most are the ones about a cabinet that no longer exists.
+    public DbSet<PlatformAccessEntry> PlatformAccessEntries { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         // The clinic-scoping query filters are applied to the directly-clinic-owned AGGREGATE ROOTS — 19 of

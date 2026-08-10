@@ -61,6 +61,35 @@ public class PlatformPortfolioController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 
+    /// <summary>
+    /// One cabinet, opened (AC-3.1–3.3): the list's own figures, a six-month trend and the administrator's
+    /// contact.
+    ///
+    /// <para>⚠️ <b>This read is recorded and the list read is not</b> (AC-3.5, AC-7.3). One list read touches
+    /// every cabinet, so a ledger row per cabinet per page load would drown the readings anyone wants.</para>
+    ///
+    /// <para>⚠️ A cabinet deleted since the list was drawn is <b>404 with a code</b>, not a 500 and not an empty
+    /// detail: the console renders « ce cabinet n'existe plus » with a way back (EC-13), and it branches on
+    /// <c>code</c> rather than on the French sentence.</para>
+    /// </summary>
+    [HttpGet("clinics/{clinicId:guid}")]
+    public async Task<ActionResult<PlatformClinicDetailDto>> GetClinic(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetPlatformClinicDetailQuery { ClinicId = clinicId }, cancellationToken);
+
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        return HandleFailure(
+            result,
+            result.Code == GetPlatformClinicDetailQuery.NotFoundCode
+                ? StatusCodes.Status404NotFound
+                : StatusCodes.Status400BadRequest);
+    }
+
     /// <summary>The counts above the list (AC-2.7), read over the whole portfolio rather than over a page.</summary>
     [HttpGet("summary")]
     public async Task<ActionResult<PlatformSummaryDto>> GetSummary(CancellationToken cancellationToken = default)

@@ -79,6 +79,11 @@ public class PlatformReadShapeTests
         Assert.Contains("ClinicCollectedThisMonthDt", encountered);
         Assert.Contains("Writes30d", encountered);
         Assert.Contains("Token", encountered);
+        // Part 3's two reads, and one name from each: the detail's trend is reached only by recursing THROUGH a
+        // nested DTO inside a collection, and the ledger's by recursing into a second nested one — so naming both
+        // here is what proves the recursion still descends rather than stopping at the top-level record.
+        Assert.Contains("DaysMeasured", encountered);
+        Assert.Contains("ActionLabel", encountered);
     }
 
     // [AC-7.2] The red proof. The plan's own validation step is « adding a patient name to any console DTO fails

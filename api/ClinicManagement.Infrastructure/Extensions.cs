@@ -169,6 +169,11 @@ public static class Extensions
         // with a portfolio of « jamais mesuré » and no history to backfill from.
         services.AddScoped<IClinicActivityRepository, ClinicActivityRepository>();
 
+        // The console's access ledger (platform-console Part 3). Unconditional for the same reason: the console
+        // controllers are unreachable without the listener, and a ledger registered behind a capability would fail
+        // to resolve on precisely the deployment where somebody switched the console on.
+        services.AddScoped<IPlatformAccessEntryRepository, PlatformAccessEntryRepository>();
+
         // Auth0 Management Service — real where Auth0 owns identity, no-op where the product does (no Auth0 tenant).
         if (profile.UsesLocalAccounts)
         {

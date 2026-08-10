@@ -86,6 +86,21 @@ public class UserRepository : IUserRepository
             : new ClinicStaffSummary(summary.Count, summary.LastLoginAt);
     }
 
+    public async Task<ClinicAdminContact?> GetPrimaryAdminContactAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // Active first, then the oldest account — the founder ahead of a later addition — and Id last so two
+        // consecutive loads of the detail cannot name two different people.
+        return await _context.Users
+            .AsNoTracking()
+            .Where(u => u.ClinicId == clinicId && u.Role == User.RoleAdmin)
+            .OrderByDescending(u => u.IsActive)
+            .ThenBy(u => u.CreatedAt)
+            .ThenBy(u => u.Id)
+            .Select(u => new ClinicAdminContact(u.FullName, u.Email, u.IsActive))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<User?> GetByAuth0SubAsync(string auth0Sub, CancellationToken cancellationToken = default)
     {
         return await _context.Users

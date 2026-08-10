@@ -766,6 +766,38 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   **replaced**, because the unique index makes it unfalsifiable and the index is already diffed for free — see
   `features/platform-console/stories/progress.md` DEV-4.
 
+- **The console records what it looked at, and the record is readable (`platform-console` Part 3)**:
+  `GET /api/platform/clinics/{id}` opens one cabinet — the list's own figures, a **six-month trend** off
+  `ClinicActivityDay`, and the administrator's name, address and whether that account is still active — and
+  `GET /api/platform/access-log` + `/journal` serve the console's own append-only **`PlatformAccessEntry`** ledger,
+  paged, newest first, filterable by console account and by cabinet.
+  ⚠️ **The detail read is recorded and the list read is deliberately not** (AC-3.5): one list read touches every
+  cabinet, so a row per cabinet per page load would drown every reading anyone wants — including this one. That
+  asymmetry is held by a test asserting on `ListPlatformClinicsQueryHandler`'s **constructor**, because « I ran the
+  list and no row appeared » passes just as happily when the ledger is broken for every caller.
+  ⚠️ **`GetPlatformClinicDetailQuery` is a query that writes, and its ledger row is *not* best-effort** — the one
+  place in this codebase where a failed side effect fails its operation. `INotificationGenerator` swallows because
+  the operation it follows has already committed; here the operation **is** what is being recorded, and « every
+  detail read is recorded » is false the moment an unrecorded read succeeds. A `Command` was rejected for a
+  mechanical reason too: `RealtimeBroadcastBehavior` derives its key from the namespace, so one under `.Commands`
+  would broadcast into a clinic group on every page load.
+  ⚠️ **`PlatformAccessEntry` has no FK to `Clinics` and none to `PlatformAccounts`** — the opposite of its two Part-2
+  siblings, which cascade on purpose. Those are measurements *of* a cabinet; this records what the **vendor** did,
+  and « who opened the file of the practice that has since been closed? » is the first row an audit would want. Hence
+  the denormalised `ClinicName`/`AccountEmail`, and hence its entries in `TenantScopeFilterTests.UnfilteredByDesign`
+  (its `ClinicId` is the cabinet *looked at*, not the row's owner) and in the audit interceptor's exclusion list
+  (auditing a ledger records the writing of a record, and a mere *read* would appear in the practice's own
+  « Journal d'activité » as a mutation of its data).
+  ⚠️ **AC-3.2's payment history is explicitly deferred, and the screen says so rather than showing an empty table** —
+  an empty « Historique des paiements » asserts that this cabinet has never paid, a claim about the cabinet, where
+  the truth is a claim about the console. Same for EC-14: no end date is shown at all, because until the entitlement
+  ledger exists « sans échéance » and « nous ne pouvons pas le lire » are indistinguishable and the second is what is
+  true. Both sentences come from `PlatformSubscriptionPlaceholder`, which Part 4 deletes.
+  ⚠️ On the client, the trend **states every value as text beside the bars** (reading a figure off a 40 px column is
+  guessing, and the vendor's next question is always « by how much? »), a month with `daysMeasured == 0` is hatched
+  and labelled « non mesuré » rather than drawn flat, and `components/ui/pager.tsx` was **extracted** so the journal
+  and the portfolio cannot drift on links-not-buttons and disabled-step-as-text.
+
 - **A clinic can let itself in, and nothing exists until the email is answered (`clinic-self-signup`)**: a hosted
   clinic used to exist only because an operator ran `provision-clinic`. `POST /api/auth/signup` (anonymous) writes a
   pending **`ClinicSignup`** and emails a link; `POST /api/auth/signup/verify` consumes it and provisions the clinic +

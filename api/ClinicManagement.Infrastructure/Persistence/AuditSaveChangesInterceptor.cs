@@ -71,7 +71,13 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
         // cabinet, so every such row would be unattributable noise nobody can see. What the console does *to* a
         // cabinet is still audited — that write touches the cabinet's own aggregates and carries `console|{id}`.
         nameof(PlatformAccount),
-        nameof(PlatformRecoveryCode)
+        nameof(PlatformRecoveryCode),
+        // The console's own access ledger (Part 3). It is already a ledger: auditing it would record « the vendor
+        // recorded that it looked at a cabinet » in that cabinet's « Journal d'activité » — a row about the writing
+        // of a row — and, because a mere READ produces one, opening a detail would appear in the practice's history
+        // as a mutation of its own data, which it is not. What the console does *to* a cabinet still audits itself,
+        // through the cabinet's own aggregates and under `console|{accountId}`.
+        nameof(PlatformAccessEntry)
     };
 
     /// <summary>

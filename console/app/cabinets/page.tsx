@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ClinicPortfolio } from "@/components/clinic-portfolio";
@@ -63,7 +64,17 @@ export default async function CabinetsPage({ searchParams }: PageProps) {
             Activité réelle de chaque cabinet. Aucun dossier patient n&apos;est accessible depuis cette console.
           </p>
         </div>
-        <SignOutButton />
+        {/* The console's whole navigation, deliberately two links rather than a rail (FR-7: no clinic chrome). It
+            wraps rather than collapsing behind a hamburger, because two items fit at 320 px. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/journal"
+            className="inline-flex min-h-11 items-center rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
+          >
+            Journal des accès
+          </Link>
+          <SignOutButton />
+        </div>
       </header>
 
       <div className="mt-6 space-y-6">

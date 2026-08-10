@@ -1,7 +1,7 @@
 # Story 1: [Full] The vendor runs the practice portfolio from a private console
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Part 1 implemented** (`0fafe42`); Parts 2–3 buildable next, Parts 4–7 blocked
+**Story Status:** in-progress — **Parts 1–3 implemented**; Parts 4–7 blocked on `features/clinic-subscription/`
 **Progress:** [progress.md](./progress.md) — gate results, deviations and what is owed
 **Layer:** Full — ⚠️ see *Notes* for why the BE/FE separation rule is deliberately overridden
 **Depends On:** `features/clinic-subscription/` — **Parts 4–7 only** (Parts 1–3 have no dependency on it)
@@ -46,11 +46,11 @@ _From spec:_
 - [ ] AC-2.8 — the screen says when the counters last ran
 
 **US-3 — one cabinet (Part 3)**
-- [ ] AC-3.1 — the same figures plus a six-month trend
-- [ ] AC-3.2 — the full payment history including cancelled entries, struck through with their reason
-- [ ] AC-3.3 — the administrator's name, e-mail and the staff count
-- [ ] AC-3.4 — no clinical or per-patient information of any kind
-- [ ] AC-3.5 — opening a detail is recorded; **listing cabinets is not**
+- [x] AC-3.1 — the same figures plus a six-month trend *(Part 3; the list's own projection is shared, not restated)*
+- [ ] AC-3.2 — the full payment history including cancelled entries, struck through with their reason — **deferred to Part 4** with the companion's ledger; the detail states the gap rather than rendering an empty history (progress.md DEV-9)
+- [x] AC-3.3 — the administrator's name, e-mail and the staff count *(Part 3; « désactivé » is a distinct answer from « aucun administrateur »)*
+- [x] AC-3.4 — no clinical or per-patient information of any kind *(Part 3; held by `PlatformReadShape`, proven red against a Part-3 DTO)*
+- [x] AC-3.5 — opening a detail is recorded; **listing cabinets is not** *(Part 3; the « not » half asserted on the list handler's constructor)*
 
 **US-4 — record a payment (Part 4)**
 - [ ] AC-4.1 — duration or explicit end date, plan, amount, method, reference, optional note
@@ -80,7 +80,7 @@ _From spec:_
 - [ ] AC-7.1 — no console screen, endpoint or export exposes a patient, appointment, note, document, file, diagnosis or per-patient amount
 - [ ] AC-7.2 — enforced structurally and **checked automatically** by a derived check over a closed declared shape
 - [ ] AC-7.2a — the tenant filter is **not** the mechanism, and the console says so
-- [ ] AC-7.3 — every detail read and every write is recorded — who, which cabinet, which action, when
+- [~] AC-7.3 — every detail read and every write is recorded — who, which cabinet, which action, when *(Part 3 covers every **read**; the three writes are Parts 4–6 and reuse `PlatformAccessLedger`)*
 - [ ] AC-7.4 — the promise is stated in plain French **including** what the vendor does see (the cabinet's own monthly collected total)
 
 **US-8 — bootstrap and recovery (Parts 1, 7)**
@@ -100,7 +100,8 @@ _From spec:_
 - [ ] EC-10 (Part 2) — activity is polluted by neither machine work **nor the vendor**
 - [ ] EC-11 (Part 2) — a large portfolio stays paged and bounded by the **number** of cabinets, not by any one cabinet's history
 - [ ] EC-12 (Parts 2, 7) — « je n'ai pas pu lire » and « zéro cabinet » never look the same; an unscoped read is a **fault**
-- [ ] EC-13 · EC-14 (Part 3) — a vanished cabinet renders a French state with a way back; a never-expiring cabinet says so in words
+- [x] EC-13 (Part 3) — a vanished cabinet renders a French state with a way back *(404 + `clinic_not_found`, branched on the code)*
+- [ ] EC-14 (Part 3) — a never-expiring cabinet says so in words — **deferred to Part 4**: with no entitlement ledger here, « sans échéance » and « nous ne pouvons pas le lire » are indistinguishable, so the detail says the second (progress.md DEV-9)
 - [ ] EC-15 (Parts 2, 7) — counters that never ran report their staleness, never a portfolio of dormant cabinets
 
 _Story-specific (added by the challenge pass):_
@@ -112,7 +113,7 @@ _Story-specific (added by the challenge pass):_
 - [ ] `patients` is a real count, not counted from audit `Insert` rows (which post-date most patients)
 - [ ] The console's « encaissé par le cabinet » equals that cabinet's own caisse figure — pinned by `MoneyReadConsistencyTests`
 - [ ] `PlatformConsole` is declared on `AuthorizationPolicies`, registered by `ConfigurePolicies`, and pins its authentication scheme
-- [ ] The access ledger is **readable** by console accounts, not write-only
+- [x] The access ledger is **readable** by console accounts, not write-only *(Part 3; `GET /api/platform/access-log` + `/journal`, and a test compares the row written with the row served)*
 
 ## Entry Criteria
 

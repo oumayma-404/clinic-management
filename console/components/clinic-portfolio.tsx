@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import type { PlatformClinicPage, PlatformClinicRow } from "@/lib/api/platform";
 import { CardList } from "@/components/ui/card-list";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -15,9 +17,15 @@ import { EM_DASH, formatCount, formatDate, formatDateTime, formatMoney } from "@
  * fourteen columns on a 768 px-wide screen; the plan says so explicitly, and it is the one place this app
  * departs from the clinic bundle's usual `md:` table boundary.
  *
- * ⚠️ **No row action and no clickable row, on purpose.** A cabinet's detail page is Part 3 and the three writes
- * are Part 4, so there is nothing to put in a menu today — and a menu that opens onto nothing, or a row that
- * looks clickable and is not, is a dead control. It arrives with its first action.
+ * ⚠️ **One row action, and it is an explicit link rather than a menu** (Part 3; the Part-2 note that said « no row
+ * action, it arrives with its first action » is now satisfied). The plan's step 23 asks for « row actions in an
+ * explicit menu on every width, nothing hover-only »; with exactly one action a dropdown would be a control whose
+ * only purpose is to hide a single link behind a tap. What the requirement is actually about — no affordance
+ * revealed by hover, and the same affordance at every width — is honoured: the link is always visible, in the table
+ * and in the card list. The menu arrives with Part 4's three writes, which is when there is a choice to present.
+ *
+ * ⚠️ **The row itself is still not clickable.** A `<tr>` with an onClick has no keyboard path and no accessible
+ * role; the named link does.
  */
 export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
   if (page.items.length === 0) {
@@ -61,6 +69,9 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                   Encaissé (cabinet)
                 </TableHead>
                 <TableHead scope="col">Créé le</TableHead>
+                {/* The action column's header is not empty: a blank `<th>` leaves a screen reader announcing
+                    « colonne 13 » for the one cell that does something. */}
+                <TableHead scope="col">Fiche</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -83,6 +94,17 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                     {clinic.countersComputedAt ? formatMoney(clinic.clinicCollectedThisMonthDt) : EM_DASH}
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{formatDate(clinic.createdAt)}</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    <Link
+                      href={`/cabinets/${clinic.clinicId}`}
+                      className="underline underline-offset-4"
+                      // Named for its row, so a screen reader reading the links of this table hears twelve distinct
+                      // destinations rather than « Ouvrir » twelve times.
+                      aria-label={`Ouvrir la fiche de ${clinic.name}`}
+                    >
+                      Ouvrir
+                    </Link>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -131,6 +153,20 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
             { label: "Dernier enreg.", value: formatDateTime(clinic.lastWriteAt) },
             { label: "Dernière connexion", value: formatDateTime(clinic.lastLoginAt) },
             { label: "Créé le", value: formatDate(clinic.createdAt) },
+            {
+              // Last, and always present: the same affordance the table has, at every width, never behind a hover
+              // or a long-press. The coarse-pointer 44 px floor in globals.css applies to it like every other link.
+              label: "Fiche",
+              value: (
+                <Link
+                  href={`/cabinets/${clinic.clinicId}`}
+                  className="underline underline-offset-4"
+                  aria-label={`Ouvrir la fiche de ${clinic.name}`}
+                >
+                  Ouvrir la fiche
+                </Link>
+              ),
+            },
           ]}
         />
       </div>

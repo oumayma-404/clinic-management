@@ -50,6 +50,17 @@ public interface IClinicActivityRepository
     /// The portfolio-wide counts behind the summary strip (AC-2.7), read once rather than by paging the list.
     /// </summary>
     Task<PlatformPortfolioTotals> GetPortfolioTotalsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One cabinet's row — the same figures the list shows, for the detail (Part 3, AC-3.1). Null where no such
+    /// cabinet exists, which the detail renders as « ce cabinet n'existe plus » rather than as an error (EC-13).
+    ///
+    /// <para>⚠️ <b>It shares the list's projection rather than restating it.</b> AC-3.1 is « the same figures »,
+    /// so a second expression here would be two answers to one question, and the drift would show as a cabinet
+    /// reading one way in the portfolio and another when opened — the hardest kind of discrepancy to notice,
+    /// because both screens look right on their own.</para>
+    /// </summary>
+    Task<PlatformClinicRow?> GetClinicRowAsync(Guid clinicId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>How the portfolio list is narrowed. Every field is optional; an omitted one narrows nothing.</summary>

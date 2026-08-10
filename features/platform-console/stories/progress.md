@@ -10,7 +10,7 @@
 |------|-----------|----------|--------|
 | 1 | Reach the console and sign in | No | **implemented** |
 | 2 | The portfolio, and the counters behind it | No | **implemented** |
-| 3 | One cabinet's detail | No | not-started |
+| 3 | One cabinet's detail | No | **implemented** |
 | 4 | Record a payment and unlock the cabinet | Companion feature | not-started |
 | 5 | Correct a mistake | Companion feature | not-started |
 | 6 | Suspend for abuse | Companion feature | not-started |
@@ -307,3 +307,168 @@ phone with removable active-filter chips, a link pager, and the freshness line o
 
 `/review-story`, then Part 3 (one cabinet's detail) — buildable now, and the last part before the companion
 feature gates the rest.
+
+---
+
+# Part 3 — One cabinet's detail
+
+**Session:** 2026-08-10 (third session on this branch) · steps 26–31 of the story.
+
+## Working-tree note (start of session)
+
+The worktree was **clean** (`git status` empty, `git diff HEAD --numstat` empty). The *main* checkout
+(`feature/windows-desktop-app`) has moved on again: it now carries `clinic-subscription` **Parts A + B + C
+committed** (`c541897`, `8545a4d`, `f92fb6e`) plus an untracked copy of `features/platform-console/`. None of it is
+on this branch, which is still based on `50b6f1c`. The merge points listed in Part 1's note are unchanged.
+
+⚠️ **The main checkout's untracked `features/platform-console/` is an older copy of this feature's own docs** (it has
+no `progress.md`). It was left untouched; the authoritative copy is the one on this branch.
+
+## Session decision — scope, and the one question the companion raised
+
+**Scope: Part 3 only**, as asked (`/implement-story feature/platform-console part 3`).
+
+**The companion feature has partly shipped since Part 2, and the decision was to ignore it here.** Asked and
+answered at session start (`AskUserQuestion`, « Keep the placeholder »). `features/clinic-subscription/` Parts A–C
+are now on the main checkout, so a merge would have made the state column and AC-3.2's payment history real inside
+Part 3 — at the cost of pulling Part 4's scope forward and merging `DeploymentProfile`, `Infrastructure/Extensions`,
+`ApplicationDbContext` and the EF model snapshot mid-part, with two hand-written migrations meeting one snapshot.
+Part 4's step 32 **is** the pre-flight for that work, and it is where it belongs.
+
+## What Part 3 delivers
+
+**Domain** — `PlatformAccessEntry` (append-only; no FK to `Clinics` or `PlatformAccounts`, with `ClinicName` and
+`AccountEmail` denormalised), `PlatformAccessAction` (`ViewedClinic` only — DEV-8), `IPlatformAccessEntryRepository`
++ `PlatformAccessActor`, `IClinicActivityRepository.GetClinicRowAsync`, and
+`IUserRepository.GetPrimaryAdminContactAsync` + `ClinicAdminContact`.
+
+**Application** — `GetPlatformClinicDetailQuery` (row + admin contact + six-month trend + the stated subscription
+gap), `GetPlatformAccessLogQuery`, `PlatformAccessLedger` (the shared writer Parts 4–6 will call),
+`PlatformAccessLabels`, the detail and access-log DTOs, `PlatformSubscriptionPlaceholder.DetailExplanation`, and
+the new names on `PlatformReadShape`.
+
+**Infrastructure** — `PlatformAccessEntryRepository`, `PlatformAccessEntryConfiguration`, the
+`AddPlatformAccessLedger` migration (scaffolded — `dotnet ef` works in this worktree), the shared portfolio
+projection now used by list *and* detail, DI, the `DbSet`, and the two derived-guard entries this table lands in.
+
+**API** — `GET /api/platform/clinics/{clinicId}` on `PlatformPortfolioController` (404 + `clinic_not_found`) and the
+new `PlatformAccessLogController` (`GET /api/platform/access-log`).
+
+**`console/`** — `app/cabinets/[clinicId]/page.tsx`, `app/journal/page.tsx`, `components/activity-trend.tsx`,
+`access-log-list.tsx`, `access-log-filters.tsx`, the extracted `components/ui/pager.tsx`, and the portfolio's first
+row action.
+
+## Gate results
+
+| Gate | Command | Result |
+|------|---------|--------|
+| Backend build | `dotnet build --no-incremental` | **0 errors, 55 warnings — the identical pre-existing baseline, 0 in any file this part touched.** ⚠️ It was **56** on the first full rebuild: `g.Max(e => e.AccountEmail)` in the new repository produced a genuine `CS8604`. Fixed by rewriting the read as `SELECT DISTINCT` (see the file), **not** by a `!` — a new file's warnings are fully in scope |
+| Backend unit suite | `OutDir=api/.testrun` + `dotnet vstest` | **2334 passed, 0 failed** (Part 2 left it at 2322; +12) |
+| Schema | `verify-schema` before/after, diffed | **before: 2 DRIFT — exactly the two indexes this migration creates, exit 2; after: « schema matches the model », exit 0.** The diff shows only those two lines and the timestamp. Run against a throwaway `clinic_p3_verify` database, dropped afterwards |
+| Read-shape guard proven able to fail | a `PatientName` added to `PlatformActivityMonthDto` | **yes** — `No_Console_Read_Returns_A_Field_Outside_The_Declared_Shape` went red naming `PatientName`, then green once reverted. This is the story's own exit criterion (« verified by trying it »), and it was verified against a **Part 3** DTO rather than only against the test's built-in `SmuggledPatientRow` |
+| Console typecheck | `npx tsc --noEmit` | clean |
+| Console device gate | `npm run check:responsive` | **14/14 pass**, and **proven able to fail**: a throwaway probe with `min-h-screen`, `text-[9px]`, `hover:scale-105` and a `<Table>` with no `<CardList>` turned **4** checks red, then green again once deleted. The `card-fallback` hit specifically confirms the journal's new table is visible to that rule |
+| Console build | `npm run build` | clean, **9 routes** (was 8); `/cabinets/[clinicId]` and `/journal` are both `ƒ` (server-rendered on demand), as token-bearing reads must be |
+| CI | `.github/workflows/ci.yml` | unchanged — the `console` job already runs all three console gates |
+| `web/` untouched | `git status` | verified: this part changes no file under `web/` |
+
+## Owed, and honestly outstanding
+
+- **The eye pass has not been done, for the third time.** There is still no browser tooling in this repository.
+  What was done instead: the mechanical gate (14/14, proven live) and a re-read of the diff against
+  `DEVICE-CONTRACT.md` § 1. The structural claims for the two new screens are: the detail is **one column up to
+  `lg:`** and two above it (a tablet in portrait is past `md:`, the same boundary the portfolio's table uses); every
+  figure grid is `1 → min-[380px]:2 → lg:3`, so a label never shares a line with a value that is not its own; the
+  trend scrolls in **its own** `overflow-x-auto` container with a `min-w-[20rem]` track and states every value as
+  text below the bars, so nothing is reachable only by reading a column's height; the journal is **two trees**
+  (`Table` above `lg:`, `CardList` below — never a reflow); every link carries `min-h-11` and the coarse-pointer
+  44 px floor from `globals.css` applies; and there is no hover-only affordance and no dead control (the pager's
+  disabled steps are text, and the journal's filters are links with no client state to desynchronise).
+  **Structurally sound is not looked at.** Widths still owed: 320 / 390 / 820 / 1180 / 1440 px + a landscape phone
+  + a keyboard walk.
+- **The counter job still has not been run against real data** (unchanged from Part 2), so the six-month trend has
+  not been seen with rows behind it. Its bucketing and its measured/unmeasured distinction are unit-tested; what is
+  unverified is how it looks when five of six months are genuinely empty on a young deployment, which is the
+  ordinary case for months after release.
+- **The tunnel walk** remains operator-verified rather than run here (unchanged from Part 1).
+
+## Deviations — Part 3
+
+### Auto-approved (trivial)
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| `PlatformAccessLabels` as its own file | Trivial | `AuditLabels`' shape. The French wording of an action and of a month bucket has to be server-side (the values are CLR enum names and month numbers), and Parts 4–6 add members to the same map |
+| `PlatformAccessLedger` as a shared static writer | Trivial | Parts 4–6 add three more callers, and « who was acting » must resolve identically in all four. A copy per write site is the shape in which the fourth one forgets — and it is where the « an unattributable action does not happen » decision lives, once |
+| `components/ui/pager.tsx` extracted out of `portfolio-pager.tsx` | Trivial | Part 3 adds a second paged screen. Two pagers with independently written disabled-step handling is this repo's dominant defect shape; `PortfolioPager` is now a thin wrapper and nothing else changed |
+| `PortfolioJoin` named class + a shared projection expression in `ClinicActivityRepository` | Trivial | The detail needs the list's row and AC-3.1 says « the same figures ». An anonymous type cannot be the parameter of a shared `Expression<Func<…>>`, so the join got a name |
+| `IUserRepository.GetPrimaryAdminContactAsync` + `ClinicAdminContact` | Trivial | AC-3.3 needs the admin's name and address. Extending `ClinicStaffSummary` would have made the nightly counter pass read two more fields it never stores; returning a `User` would hand a cross-cabinet surface the whole account row including its password hash |
+| `SELECT DISTINCT` instead of `GroupBy` in `GetRecordedActorsAsync` | Trivial | Forced, not chosen: `g.Max(e => e.AccountEmail)` is a real `CS8604` and the fix must not be a `!`. It is also the better answer — see the file |
+
+### DEV-8: `PlatformAccessAction` declares one member, not the plan's five
+
+**Date:** 2026-08-10 · **Category:** Scope · **Approved:** **yes — chosen by the user** (`AskUserQuestion`,
+« `ViewedClinic` only »)
+
+- **Plan:** the story's file table lists `ViewedClinic`, `GrantedPeriod`, `CancelledPeriod`, `Suspended`,
+  `Unsuspended`.
+- **Implemented:** `ViewedClinic` alone. Parts 4–6 add each member in the commit that adds the write producing it.
+- **Justification:** this feature's own Part-2 precedent (DEV-6): `PlatformPortfolioSort` omitted « par date de
+  fin » because « the member arrives with the data behind it ». A member nothing can produce is a value the journal
+  can never show, and a reader has no way to tell « jamais fait » from « pas encore possible ».
+- **Impact:** three one-line additions across Parts 4–6, each beside its own write. `PlatformAccessLabels.Action`
+  falls through to the CLR name for an unmapped member, so a member added without its label degrades rather than
+  disappearing.
+
+### DEV-9: AC-3.2's payment history is stated as unavailable rather than rendered empty
+
+**Date:** 2026-08-10 · **Category:** Scope · **Approved:** **yes — chosen by the user** (`AskUserQuestion`,
+« Keep the placeholder »)
+
+- **Plan:** step 26 — the detail includes « the payment ledger (cancelled entries included, with reason, canceller
+  and moment) ».
+- **Implemented:** `PlatformSubscriptionPlaceholder.DetailExplanation`, one French sentence saying that neither the
+  state, nor the end date, nor the payment history is readable from this console yet — and **no**
+  « Historique des paiements » section at all.
+- **Justification:** the subscription ledger is `features/clinic-subscription/`'s (FR-4) and is not on this branch.
+  An empty table asserts « ce cabinet n'a jamais payé » — a claim about the cabinet — where the truth is a claim
+  about the console. The same reasoning covers **EC-14**: no end date is shown, because until the entitlement ledger
+  exists « sans échéance » and « nous ne pouvons pas le lire » are indistinguishable and the second is what is true.
+- **Impact:** AC-3.2 and EC-14 are **not met by Part 3** and are recorded here as deferred to Part 4, which deletes
+  `PlatformSubscriptionPlaceholder` and gets the compiler to list every caller.
+
+### DEV-10: the portfolio's row action is a link, not a menu
+
+**Date:** 2026-08-10 · **Category:** Technical · **Approved:** yes (recorded)
+
+- **Plan:** step 23 — « row actions in an explicit menu on **every** width, nothing hover-only ». Part 2 deferred it
+  (DEV-7) because there was nothing to put in a menu; Part 3 is where that debt falls due.
+- **Implemented:** one always-visible « Ouvrir » link per row, in the table **and** in the card list, each with a
+  row-naming `aria-label`. No dropdown, and the row itself is still not clickable.
+- **Justification:** with exactly one action a dropdown is a control whose only purpose is to hide one link behind a
+  tap. What the requirement is about — nothing revealed by hover, the same affordance at every width — is honoured
+  in full. `@radix-ui/react-dropdown-menu` stays unadded (Part 2's trivial deviation holds), so the container image
+  gains nothing. A `<tr onClick>` was rejected outright: no keyboard path, no accessible role.
+- **Impact:** Part 4 adds the menu when there are three writes to present, and the link becomes its first item.
+
+### DEV-11: the detail read is a Query that writes, and its ledger row is not best-effort
+
+**Date:** 2026-08-10 · **Category:** Technical · **Approved:** yes (recorded — the plan asks for the write; this
+records the two decisions it does not settle)
+
+- **Plan:** step 27 — « Write a `PlatformAccessEntry` for the detail (AC-7.3) », placed on a **query** (step 26).
+- **Implemented:** as planned, plus two decisions the plan leaves open. (a) It stays a `Query` — a `Command` would
+  broadcast into a clinic group on every page load, because `RealtimeBroadcastBehavior` derives its key from the
+  namespace. (b) A failed or unattributable ledger write **fails the read** rather than being swallowed.
+- **Justification:** (b) departs from this codebase's otherwise-universal « post-commit side effects are
+  best-effort » rule, and deliberately: those swallow because the operation they follow has already committed and
+  must not be undone by a secondary failure, whereas here the operation *is* what is being recorded. « Every detail
+  read is recorded » is false the moment an unrecorded read succeeds.
+- **Impact:** Parts 4–6 inherit `PlatformAccessLedger`'s throw-on-unattributable behaviour, which is correct for a
+  write too. `PlatformAccessLedgerTests` pins both halves.
+
+## Next
+
+`/review-story`, then **Part 4 — blocked on the companion**. Its step 32 pre-flight now has real work to do:
+`features/clinic-subscription/` Parts A–C exist on `feature/windows-desktop-app`, so the six *Assumed dependency
+surface* names must be looked up **there** and this branch merged before Part 4 can start.

@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
@@ -58,7 +59,7 @@ public class ClinicActivityRepository : IClinicActivityRepository
             join snapshotRow in _context.ClinicActivitySnapshots.AsNoTracking()
                 on clinic.Id equals snapshotRow.ClinicId into snapshots
             from snapshot in snapshots.DefaultIfEmpty()
-            select new { clinic, snapshot };
+            select new PortfolioJoin { clinic = clinic, snapshot = snapshot };
 
         if (filter.SearchPattern is { } pattern)
         {
@@ -98,26 +99,57 @@ public class ClinicActivityRepository : IClinicActivityRepository
                 .ThenBy(x => x.clinic.Id)
         };
 
-        return await ordered
-            .Select(x => new PlatformClinicRow(
-                x.clinic.Id,
-                x.clinic.Name,
-                x.clinic.City,
-                x.clinic.CreatedAt,
-                x.snapshot != null ? x.snapshot.Users : 0,
-                x.snapshot != null ? x.snapshot.Patients : 0,
-                x.snapshot != null ? x.snapshot.Appointments30d : 0,
-                x.snapshot != null ? x.snapshot.Writes7d : 0,
-                x.snapshot != null ? x.snapshot.Writes30d : 0,
-                x.snapshot != null ? x.snapshot.ActiveDays30d : 0,
-                x.snapshot != null ? x.snapshot.LastWriteAt : null,
-                x.snapshot != null ? x.snapshot.LastLoginAt : null,
-                x.snapshot != null ? x.snapshot.CollectedThisMonth : 0m,
-                // Null, never a date: this is what tells the screen the zeros above it are « pas encore mesuré »
-                // rather than « rien fait ».
-                x.snapshot != null ? x.snapshot.ComputedAt : (DateTime?)null))
-            .ToPagedResultAsync(paging, cancellationToken);
+        return await ordered.Select(Projection).ToPagedResultAsync(paging, cancellationToken);
     }
+
+    public async Task<PlatformClinicRow?> GetClinicRowAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // The same LEFT JOIN and the same projection as the list — AC-3.1 is « the same figures », so the
+        // expression is shared rather than retyped.
+        var query =
+            from clinic in _context.Clinics.AsNoTracking().Where(c => c.Id == clinicId)
+            join snapshotRow in _context.ClinicActivitySnapshots.AsNoTracking()
+                on clinic.Id equals snapshotRow.ClinicId into snapshots
+            from snapshot in snapshots.DefaultIfEmpty()
+            select new PortfolioJoin { clinic = clinic, snapshot = snapshot };
+
+        return await query.Select(Projection).FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// A cabinet beside its snapshot, or beside nothing. A named type rather than an anonymous one so the list
+    /// and the detail can pass the <b>same</b> projection expression over it.
+    /// </summary>
+    private sealed class PortfolioJoin
+    {
+        public required Clinic clinic { get; init; }
+        public ClinicActivitySnapshot? snapshot { get; init; }
+    }
+
+    /// <summary>
+    /// The one place a cabinet becomes a portfolio row.
+    ///
+    /// <para>⚠️ Every activity figure is read off the snapshot or defaulted, and <c>CountersComputedAt</c> stays
+    /// <b>null</b> when there is no snapshot — that null is the only thing that can tell the screen the zeros
+    /// above it mean « pas encore mesuré » rather than « rien fait » (EC-15).</para>
+    /// </summary>
+    private static readonly Expression<Func<PortfolioJoin, PlatformClinicRow>> Projection = x =>
+        new PlatformClinicRow(
+            x.clinic.Id,
+            x.clinic.Name,
+            x.clinic.City,
+            x.clinic.CreatedAt,
+            x.snapshot != null ? x.snapshot.Users : 0,
+            x.snapshot != null ? x.snapshot.Patients : 0,
+            x.snapshot != null ? x.snapshot.Appointments30d : 0,
+            x.snapshot != null ? x.snapshot.Writes7d : 0,
+            x.snapshot != null ? x.snapshot.Writes30d : 0,
+            x.snapshot != null ? x.snapshot.ActiveDays30d : 0,
+            x.snapshot != null ? x.snapshot.LastWriteAt : null,
+            x.snapshot != null ? x.snapshot.LastLoginAt : null,
+            x.snapshot != null ? x.snapshot.CollectedThisMonth : 0m,
+            x.snapshot != null ? x.snapshot.ComputedAt : (DateTime?)null);
 
     public async Task<PlatformPortfolioTotals> GetPortfolioTotalsAsync(CancellationToken cancellationToken = default)
     {

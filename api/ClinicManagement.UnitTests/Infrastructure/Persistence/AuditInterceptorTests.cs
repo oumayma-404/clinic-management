@@ -431,11 +431,15 @@ public class AuditInterceptorTests
         //                   would be unattributable noise nobody can see. ⚠️ This excludes the console's own
         //                   ACCOUNT rows only — what the console does *to* a cabinet is still audited, because
         //                   that write touches the cabinet's own aggregates and carries `console|{accountId}`.
+        //   PlatformAccessEntry — the console's own access ledger (Part 3). Auditing a ledger records the writing
+        //                   of a record rather than a change to anything; and since a mere READ of a cabinet's
+        //                   detail produces one, the cabinet's « Journal d'activité » would show somebody looking
+        //                   at it as a mutation of its own data.
         Assert.True(
             excluded.SetEquals(new[]
             {
                 nameof(AuditEntry), nameof(Notification), nameof(ClinicSignup),
-                nameof(PlatformAccount), nameof(PlatformRecoveryCode)
+                nameof(PlatformAccount), nameof(PlatformRecoveryCode), nameof(PlatformAccessEntry)
             }),
             "The audit exclusion list changed to [" + string.Join(", ", excluded.OrderBy(x => x))
             + "]. Every entry here is structural — self-audit recursion, a minutely-rewritten outbox, and a row "

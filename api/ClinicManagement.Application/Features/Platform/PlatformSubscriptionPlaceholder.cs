@@ -41,4 +41,19 @@ public static class PlatformSubscriptionPlaceholder
     public const string Explanation =
         "Les abonnements ne sont pas encore gérés depuis cette console : la colonne « État » et les filtres "
         + "correspondants arriveront avec la gestion des abonnements. Les compteurs d'activité ci-dessous sont réels.";
+
+    /// <summary>
+    /// The same admission on one cabinet's detail, where the gap is wider: AC-3.2's payment history has nowhere to
+    /// come from either.
+    ///
+    /// <para>⚠️ <b>Saying it is the whole point; an empty « Historique des paiements » section is not the same
+    /// statement.</b> A table with no rows asserts that this cabinet has never paid — a claim about the cabinet —
+    /// whereas the truth is a claim about the console. It is also why no end date is shown here at all rather than
+    /// « n'expire jamais » (EC-14): until the entitlement ledger exists, « sans échéance » and « nous ne pouvons
+    /// pas le lire » are indistinguishable, and the second is the one that is true today.</para>
+    /// </summary>
+    public const string DetailExplanation =
+        "Les abonnements ne sont pas encore gérés depuis cette console : ni l'état, ni la date de fin, ni "
+        + "l'historique des paiements de ce cabinet ne sont lisibles ici pour l'instant. Ce n'est pas la même "
+        + "chose qu'un cabinet sans abonnement ou sans paiement. Les compteurs d'activité ci-dessous sont réels.";
 }
