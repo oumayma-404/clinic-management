@@ -102,6 +102,16 @@ public class ClinicSubscription : AggregateRoot<Guid>
     }
 
     /// <summary>
+    /// Records the forfait the vendor sells against (AC-5.1's optional plan). A label and a price; it gates
+    /// nothing (FR-10), so this never touches <see cref="EndsOn"/> and no grant depends on it being set.
+    /// </summary>
+    public void SetPlan(SubscriptionPlan plan, DateTime whenUtc)
+    {
+        Plan = plan;
+        UpdatedAt = whenUtc;
+    }
+
+    /// <summary>
     /// Stops the cabinet recording work regardless of its end date, for a stated reason (FR-7).
     ///
     /// <para>The reason is mandatory because <see cref="SubscriptionState.Suspended"/> deliberately outranks

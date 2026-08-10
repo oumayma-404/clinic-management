@@ -1,9 +1,10 @@
 # Story 1: [Full] Abonnement du cabinet — entitlement, enforcement, visibility and vendor control
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts A, B, C and D complete** (all four checkpoints green; Parts E–G not started).
-See [stories/progress.md](./progress.md) for the gate results, the seven logged deviations, the caught defects and each
-part's executed red-proofs. The eye pass is owed for C and D — no browser automation on this machine.
+**Story Status:** in-progress — **Parts A–F complete** (all six checkpoints green; **Part G** is the only one left).
+See [stories/progress.md](./progress.md) for the gate results, the eleven logged deviations, the caught defects and each
+part's executed red-proofs. The eye pass is owed for C and D — no browser automation on this machine — and the
+operator walk for Part F's five verbs.
 **Layer:** Full (deliberate departure from the BE/FE rule — see *Notes*)
 **Depends On:** None
 **Blocks:** `features/platform-console/` (that feature depends on this one and must not be started before it)
@@ -65,25 +66,25 @@ _From spec:_
 - [x] **AC-3.2** While still valid the banner is dismissible and returns the next clinic day; dismissal is **per browser**, never a server write — *keyed on the server's own `endsOn`+`daysRemaining` pair, so no browser clock is consulted*
 - [x] **AC-3.3** Once ended the banner is **not** dismissible — *the control is absent, not disabled*
 - [x] **AC-4.6** A refused save leaves the form open with the typed input intact — *audited by four derived scans over every `catch` in `app/` and `components/`; no site needed fixing*
-- [~] **AC-5.8** The cabinet's app reflects a grant with nobody signing out or restarting, within FR-15's stated delay — *the client half is built (5-minute interval while a warning or expiry is in force, window focus, and any 402). The live walk needs Part F's grant verb*
+- [~] **AC-5.8** The cabinet's app reflects a grant with nobody signing out or restarting, within FR-15's stated delay — *both halves now exist: the client re-read (Part D) and the grant verb (Part F). The **live** walk pairing them is owed with the operator step*
 - [x] **EC-1** Midnight passes mid-consultation: reads keep working, the save is refused, the fiche stays populated, the banner appears with no reload — *the refused save **is** the event: `onSubscriptionRequired` → re-read → banner. Live walk owed*
 
 **Part E — warnings (US-3 notification half)**
-- [ ] **AC-3.4** A notification at **7, 3 and 1 day(s)** before, and again on the day it ends — **four distinct** notifications, each genuinely new so it badges the bell
-- [ ] **AC-3.5** Re-evaluated daily; a threshold already crossed produces **no** second row (no fifth notification, however long the countdown)
-- [ ] **AC-3.6** Never reaches a locked phone as a push banner
-- [ ] **AC-3.7** Addressed to the whole practice, not only the administrator
+- [x] **AC-3.4** A notification at **7, 3 and 1 day(s)** before, and again on the day it ends — **four distinct** notifications, each genuinely new so it badges the bell — *deduped on the real `SubscriptionThresholdDays` column, asserted as four distinct ids; the deep-link needed two `web/` edits the plan's table did not list (progress.md DEV-8)*
+- [x] **AC-3.5** Re-evaluated daily; a threshold already crossed produces **no** second row (no fifth notification, however long the countdown) — *and the wording does not churn either: it is derived from the threshold, not the live countdown*
+- [x] **AC-3.6** Never reaches a locked phone as a push banner — *`StaffNotificationRules.ReachesALockedPhone → false`, the single decision point the fan-out reads*
+- [x] **AC-3.7** Addressed to the whole practice, not only the administrator — *no actor and no target user, which is the mechanism rather than a policy*
 
 **Part F — the vendor unlocks (US-5)**
-- [ ] **AC-5.1** A command records a payment against one cabinet by id **or** administrator e-mail, with whole months (or an explicit end date), and optional plan / amount / method / reference / note
-- [ ] **AC-5.2** The new end date is whichever is later — current end or today — plus the duration (**EC-3**: paying early never costs days)
-- [ ] **AC-5.3** Each payment is its own entry; entries accumulate and nothing overwrites an earlier one
-- [ ] **AC-5.4** The end date is always derived by folding the non-cancelled entries, so correcting **any** of them corrects the date
-- [ ] **AC-5.5** A mistaken entry is **cancelled with a written reason**, never edited or deleted; it stays visible struck through and the date recomputes, possibly into the past (**EC-4**)
-- [ ] **AC-5.6** Every grant and cancellation records who and when, and appears in the cabinet's activity journal
-- [ ] **AC-5.7** Refused for a non-positive duration and for a cabinet that does not exist, naming which
-- [ ] **AC-5.9** A read-only report lists cabinets by state and can be scheduled
-- [ ] **EC-5** Two simultaneous grants **both land and are both kept**
+- [x] **AC-5.1** A command records a payment against one cabinet by id **or** administrator e-mail, with whole months (or an explicit end date), and optional plan / amount / method / reference / note — *`--clinic` accepts either form; a grant with **no** duration is refused rather than recorded as permanent cover*
+- [x] **AC-5.2** The new end date is whichever is later — current end or today — plus the duration (**EC-3**: paying early never costs days) — *it falls out of the fold's exclusive cursor; nothing in Part F computes a date*
+- [x] **AC-5.3** Each payment is its own entry; entries accumulate and nothing overwrites an earlier one
+- [x] **AC-5.4** The end date is always derived by folding the non-cancelled entries, so correcting **any** of them corrects the date — *asserted against an independent fold, and on a **middle** entry*
+- [x] **AC-5.5** A mistaken entry is **cancelled with a written reason**, never edited or deleted; it stays visible struck through and the date recomputes, possibly into the past (**EC-4**)
+- [~] **AC-5.6** Every grant and cancellation records who and when, and appears in the cabinet's activity journal — *structurally: both are `AggregateRoot`s, the interceptor takes the clinic from the row itself, and each verb declares `RunAs(<verb>)`. The live `GET /api/audit` read is owed with the operator walk*
+- [x] **AC-5.7** Refused for a non-positive duration and for a cabinet that does not exist, naming which — *and an unknown **id** and an unknown **e-mail** refuse in different sentences*
+- [x] **AC-5.9** A read-only report lists cabinets by state and can be scheduled — *exit 0/1/2, sharing `reconcile-money`'s codes. A suspended cabinet is listed but is **not** a finding; a cabinet with no entitlement is*
+- [x] **EC-5** Two simultaneous grants **both land and are both kept** — *bounded re-fold retry rather than a surfaced 409 (progress.md DEV-10)*
 
 **Part G — background work (FR-8)**
 - [ ] **EC-7** A reminder queued before expiry for an appointment after it is **parked with a stated reason**, not sent and not deleted; extending before the visit sends it
@@ -92,12 +93,12 @@ _From spec:_
 
 _Story-specific:_
 
-- [ ] `SubscriptionLedger.Fold` takes **no clock** and is a pure function of the entries; the same entries fold to the same date on two different simulated days
-- [ ] `ClinicSubscription.RecomputeFrom` is the **only** writer of `EndsOn` — including the trial's, which is not hand-computed
-- [ ] Nothing under `Features/Subscriptions/` names `DeploymentProfile` (Application references Domain alone)
-- [ ] `MoneyReadConsistencyTests` is **unchanged**, proving the vendor's revenue never reaches la caisse, l'extrait, « Créances », the dashboard's Argent section or any patient's balance (FR-2)
-- [ ] `TenantScopeFilterTests` passes with **no edit** to its `UnfilteredByDesign` dictionary
-- [ ] No HTTP path can grant, cancel or suspend — granting oneself a subscription has no web-facing route (FR-6)
+- [x] `SubscriptionLedger.Fold` takes **no clock** and is a pure function of the entries; the same entries fold to the same date on two different simulated days
+- [x] `ClinicSubscription.RecomputeFrom` is the **only** writer of `EndsOn` — including the trial's, which is not hand-computed — *and Part F's three commands all reach it through the one `SubscriptionRefold` helper*
+- [x] Nothing under `Features/Subscriptions/` names `DeploymentProfile` (Application references Domain alone)
+- [x] `MoneyReadConsistencyTests` is **unchanged**, proving the vendor's revenue never reaches la caisse, l'extrait, « Créances », the dashboard's Argent section or any patient's balance (FR-2)
+- [x] `TenantScopeFilterTests` passes with **no edit** to its `UnfilteredByDesign` dictionary
+- [x] No HTTP path can grant, cancel or suspend — granting oneself a subscription has no web-facing route (FR-6) — *a derived guard over the commands found by reflection, with an executed red-proof*
 
 ## Entry Criteria
 
@@ -214,9 +215,15 @@ the eye pass is owed (no browser automation on this machine).
 3. **`SubscriptionWarningJob`** — daily, guarded on `RequiresSubscription`, `UseSystemWide` + `RunAs`, one bounded pass, try/catch per clinic. An extension past the window clears outstanding warnings and **re-arms** the thresholds
 4. **`SubscriptionWarningTests`**
 
-**Checkpoint E** — see *Verification Steps → Part E*. Commit (one commit for the whole part).
+5. *(added during implementation)* **The client half of AC-3.4's deep-link** — `dashboard-header.tsx`'s
+   `targetKind === "Subscription"` → `/abonnement` branch plus the panel's icon and tone entries. The plan calls
+   Part E `api/`-only; both maps are loose `Record<string, …>` with a fallback and the click handler is an if/else
+   over known kinds, so backend-only ships four rows that badge the bell and go nowhere (progress.md DEV-8)
 
-### Part F — The vendor unlocks a cabinet that has paid
+**Checkpoint E** — see *Verification Steps → Part E*. Commit (one commit for the whole part). ✅ **Green** — 22 new
+tests, three executed red-proofs; the operator's simulated-days walk on a real schedule is owed.
+
+### Part F — The vendor unlocks a cabinet that has paid — ✅ DONE (Checkpoint F green)
 
 *Covers US-5 · FR-6, FR-7, FR-12*
 
@@ -226,7 +233,10 @@ the eye pass is owed (no browser automation on this machine).
 4. **`SubscriptionReportCommand` exits 2** when it finds expiring/expired cabinets, 0 clean, 1 unable to run
 5. **Tests** — `GrantSubscriptionPeriodCommandHandlerTests`, `CancelSubscriptionPeriodCommandHandlerTests`
 
-**Checkpoint F** — see *Verification Steps → Part F*. Commit.
+**Checkpoint F** — see *Verification Steps → Part F*. Commit. ✅ **Green** — 53 new tests, two executed red-proofs;
+the operator's five-verb walk is owed. It also carries `SubscriptionCabinetLookup` and `SubscriptionRefold` (shared
+by the three commands) and a fix to `SystemWideCallerCoverageTests`, whose console-verb branch had never matched a
+single type (progress.md DEV-10, DEV-11).
 
 ### Part G — Background work parks rather than sends or vanishes — ⚠️ ATOMIC
 
@@ -338,6 +348,8 @@ Grouped **by part**, because that is the unit of work. The plan's own tables gro
 | `Domain/Repositories/IStaffNotificationRepository.cs` + impl | modify | The two `GetBackupStaleAsync` siblings |
 | `API/Program.cs` | modify | `RecurringJob.AddOrUpdate` guarded on `RequiresSubscription`, `RemoveIfExists` in the else |
 | `UnitTests/Features/Subscriptions/SubscriptionWarningTests.cs` | create | Four rows, idempotence, re-arm |
+| `web/components/dashboard-header.tsx` | modify | *(added during implementation — DEV-8)* `targetKind === "Subscription"` → `/abonnement`, or AC-3.4's deep-link is not true on this client |
+| `web/components/notification-panel.tsx` | modify | *(added during implementation — DEV-8)* one `CATEGORY_ICON` entry (`CreditCard`) + one `CATEGORY_TONE` entry (amber). Both maps fall back silently, so `tsc` cannot see the omission |
 
 ### Part F
 

@@ -20,5 +20,12 @@ public enum NotificationTargetKind
     /// the « Sauvegarder maintenant » button are. Like <see cref="Recall"/> it needs no id: the alert is about
     /// the clinic, and the action it demands is on one screen.
     /// </summary>
-    BackupSettings = 4
+    BackupSettings = 4,
+
+    /// <summary>
+    /// The « Abonnement » screen (<c>clinic-subscription</c> AC-3.4). Like <see cref="Recall"/> and
+    /// <see cref="BackupSettings"/> it needs no id: the warning is about the cabinet, and everything it asks for
+    /// — the end date, the tariff, how to pay and who to contact — is on that one screen.
+    /// </summary>
+    Subscription = 5
 }

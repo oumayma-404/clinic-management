@@ -47,9 +47,7 @@ public class StaffNotification : AggregateRoot<Guid>
     /// real column rather than a French message prefix, because recovering behaviour by matching prose is the
     /// defect this repo deleted in <c>adoption-gaps-remediation</c>.
     ///
-    /// <para>⚠️ <b>Written by nothing until Part E</b>, which adds the category and the
-    /// <c>ForSubscription(...)</c> path; the column lands with Part A's migration only so the model and the schema
-    /// agree in one step. Null on every other category, which is all of them today.</para>
+    /// <para>Written only by <see cref="ForSubscription"/>; null on every other category.</para>
     /// </summary>
     public int? SubscriptionThresholdDays { get; private set; }
 
@@ -82,6 +80,24 @@ public class StaffNotification : AggregateRoot<Guid>
         StockItemId = stockItemId;
         TargetUserId = targetUserId;
         CreatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// A subscription-expiry warning for one crossed threshold (<c>clinic-subscription</c> AC-3.4, AC-3.7).
+    /// Clinic-wide with no actor and no target user: it is addressed to the whole practice, because the more
+    /// likely the owner hears about it the better, and nobody « did » a date arriving.
+    ///
+    /// <para>A factory rather than a twelfth constructor parameter, because the threshold is meaningful for
+    /// exactly one category — an optional argument on the ctor would let any of the other nine carry one.</para>
+    /// </summary>
+    public static StaffNotification ForSubscription(
+        Guid id, Guid clinicId, string title, string message, DateTime effectiveFeedTimeUtc, int thresholdDays)
+    {
+        var notification = new StaffNotification(
+            id, clinicId, NotificationCategory.SubscriptionExpiring, title, message,
+            effectiveFeedTimeUtc, NotificationTargetKind.Subscription);
+        notification.SubscriptionThresholdDays = thresholdDays;
+        return notification;
     }
 
     /// <summary>

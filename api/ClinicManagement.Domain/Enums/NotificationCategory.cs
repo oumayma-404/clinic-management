@@ -36,5 +36,18 @@ public enum NotificationCategory
     /// every run and a fire-once call would write a duplicate row every day. It clears itself when a backup
     /// succeeds, which is what makes it a state rather than an accumulating pile of alerts.</para>
     /// </summary>
-    BackupStale = 9
+    BackupStale = 9,
+
+    /// <summary>
+    /// The cabinet's entitlement to record new work is about to end (<c>clinic-subscription</c> FR-5) — one row per
+    /// threshold crossed, at 7, 3 and 1 day(s) before the end date and again on the day itself.
+    ///
+    /// <para>⚠️ <b>Four genuinely new rows, not one restated row</b>, which is the opposite of
+    /// <see cref="StockExpiringSoon"/> and <see cref="BackupStale"/> beside it. Restating does not clear who has
+    /// read it, so once the owner has read « 7 jours » the later three would stay read and never badge the bell
+    /// again — i.e. AC-3.4's last three warnings would be invisible to exactly the person paying attention. The
+    /// dedupe key is therefore <see cref="Entities.StaffNotification.SubscriptionThresholdDays"/>, a real column
+    /// rather than a message prefix.</para>
+    /// </summary>
+    SubscriptionExpiring = 10
 }

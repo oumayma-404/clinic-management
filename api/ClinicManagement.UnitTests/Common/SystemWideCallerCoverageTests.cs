@@ -66,7 +66,11 @@ public class SystemWideCallerCoverageTests
         var api = typeof(NotificationJob).Assembly;
 
         return api.GetTypes()
-            .Where(t => t is { IsClass: true, IsAbstract: false })
+            // ⚠️ `IsAbstract: false` alone silently excluded EVERY console verb: a `static class` is abstract AND
+            // sealed in metadata, so the Maintenance branch below matched nothing for this guard's whole life and
+            // the verbs were covered only incidentally, by the CreateScope() source scan. Found by
+            // `clinic-subscription` Part F writing the same filter and getting an empty set.
+            .Where(t => t is { IsClass: true } && (!t.IsAbstract || t.IsSealed))
             // Async state machines and lambda closures are nested classes of the job that declares them, and in a
             // Debug build they are classes rather than structs — so without this they arrive as candidates whose
             // "source file" is `<FlagExpiringStock>d__3.cs`.

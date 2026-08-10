@@ -10,6 +10,7 @@ import {
   CalendarX,
   ClipboardPlus,
   Clock,
+  CreditCard,
   Loader2,
   MessageSquareX,
   Hourglass,
@@ -45,6 +46,10 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
   // warning triangle: this is the only alert in the feed that is about the data itself rather than about a
   // patient, a visit or a shelf.
   BackupStale: DatabaseBackup,
+  // clinic-subscription AC-3.4 — the cabinet's entitlement to record new work is running out. `CreditCard` rather
+  // than a clock or a triangle: what it asks for is a payment, and it is the only row in the feed about money owed
+  // to the software vendor rather than about the practice's own work.
+  SubscriptionExpiring: CreditCard,
 }
 
 /**
@@ -76,6 +81,9 @@ const CATEGORY_TONE: Record<string, string> = {
   // L4d - a stale backup is the highest-consequence amber in the feed: everything else costs a visit or a
   // box of consumables, this one costs the practice its records.
   BackupStale: "bg-warning-wash text-warning-ink",
+  // clinic-subscription — a deadline with a countdown, so amber like the two above. Deliberately not red even on
+  // the last day: nothing has gone wrong, and the record is never at risk (reads and exports keep working).
+  SubscriptionExpiring: "bg-warning-wash text-warning-ink",
   // Something the user is asked to complete. Teal — the app's "do this" colour.
   PostVisitReview: "bg-primary/10 text-primary",
   // Something simply happened. Teal at lower weight; it is information, not a task.
