@@ -41,6 +41,18 @@ public class StaffNotification : AggregateRoot<Guid>
     /// </summary>
     public string? TargetUserId { get; private set; }
 
+    /// <summary>
+    /// Which subscription-expiry threshold this row announces — 7, 3, 1 or 0 days
+    /// (<c>clinic-subscription</c> FR-5). The dedupe key for « one genuinely new unread row per threshold », and a
+    /// real column rather than a French message prefix, because recovering behaviour by matching prose is the
+    /// defect this repo deleted in <c>adoption-gaps-remediation</c>.
+    ///
+    /// <para>⚠️ <b>Written by nothing until Part E</b>, which adds the category and the
+    /// <c>ForSubscription(...)</c> path; the column lands with Part A's migration only so the model and the schema
+    /// agree in one step. Null on every other category, which is all of them today.</para>
+    /// </summary>
+    public int? SubscriptionThresholdDays { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
 
     private StaffNotification() { } // For EF Core

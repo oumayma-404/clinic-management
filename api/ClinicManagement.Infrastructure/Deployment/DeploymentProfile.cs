@@ -58,7 +58,8 @@ public sealed class DeploymentProfile
         bool hasLocalDbTooling,
         bool exposesMetaOnboarding,
         bool allowsSelfRegistration,
-        bool allowsPublicClinicSignup)
+        bool allowsPublicClinicSignup,
+        bool requiresSubscription)
     {
         Kind = kind;
         UsesLocalAccounts = usesLocalAccounts;
@@ -75,6 +76,7 @@ public sealed class DeploymentProfile
         ExposesMetaOnboarding = exposesMetaOnboarding;
         AllowsSelfRegistration = allowsSelfRegistration;
         AllowsPublicClinicSignup = allowsPublicClinicSignup;
+        RequiresSubscription = requiresSubscription;
     }
 
     /// <summary>Which topology this install is.</summary>
@@ -148,6 +150,26 @@ public sealed class DeploymentProfile
     /// full of patient records.</para>
     /// </summary>
     public bool AllowsPublicClinicSignup { get; }
+
+    /// <summary>
+    /// A cabinet's right to <b>record new work</b> is a dated entitlement here: 30 free days, then read-only until
+    /// the vendor records a payment (<c>clinic-subscription</c> FR-11, AC-7.1–7.3).
+    ///
+    /// <para><b>True only for <see cref="DeploymentKind.HostedMultiTenant"/></b> — the one topology we host, bill
+    /// and can be owed money for. On <see cref="DeploymentKind.SelfHostedLan"/> the data is on the clinic's own PC
+    /// and refusing writes would hold their patient records hostage on hardware we do not own;
+    /// <see cref="DeploymentKind.CloudBrowser"/> predates this arrangement and its clinics are not on it.</para>
+    ///
+    /// <para>⚠️ <b>Decided by the kind and by nothing an operator can set</b> (AC-7.3), which is why it is a
+    /// capability here rather than a <c>Subscription:Enabled</c> key. <c>TrialDays</c> and the prices <i>are</i>
+    /// configuration and live on <c>ISubscriptionPolicy</c>/<c>ISubscriptionPricing</c>; the split is
+    /// <see cref="PermitsOsPush"/>'s, and for the same reason — a flag config can flip is the
+    /// <c>httpsConfigured</c> trap the class note above says every capability here avoids.</para>
+    ///
+    /// <para>Where this is false the entitlement still <i>exists</i> — created <b>open-ended</b>, so FR-13's « no
+    /// cabinet without one » holds in all three topologies while nothing can ever expire in two of them.</para>
+    /// </summary>
+    public bool RequiresSubscription { get; }
 
     /// <summary>
     /// May this topology deliver OS push to <paramref name="platform"/> at all? (spec FR-10, AC-51/AC-52.)
@@ -233,7 +255,10 @@ public sealed class DeploymentProfile
             allowsSelfRegistration: true,
             // One clinic per install too, so there is no clinic #2 for a public door to create; first-run
             // `setup` (loopback-gated, once) is how the one clinic comes into being.
-            allowsPublicClinicSignup: false),
+            allowsPublicClinicSignup: false,
+            // The data is on the practice's own PC. Refusing writes there would hold their patient records
+            // hostage on hardware we neither own nor host.
+            requiresSubscription: false),
 
         DeploymentKind.HostedMultiTenant => new DeploymentProfile(
             kind,
@@ -255,7 +280,9 @@ public sealed class DeploymentProfile
             allowsSelfRegistration: false,
             // The one profile this door exists for: many clinics, our own accounts, and no operator standing by
             // to run `provision-clinic` for each arrival.
-            allowsPublicClinicSignup: true),
+            allowsPublicClinicSignup: true,
+            // The only topology we host and bill: 30 free days, then read-only until a payment is recorded.
+            requiresSubscription: true),
 
         DeploymentKind.CloudBrowser => new DeploymentProfile(
             kind,
@@ -274,7 +301,9 @@ public sealed class DeploymentProfile
             allowsSelfRegistration: false,
             // Multi-clinic, but Auth0 issues its identities: a signup here would mint a password-backed local
             // account that this profile's login path cannot authenticate.
-            allowsPublicClinicSignup: false),
+            allowsPublicClinicSignup: false,
+            // Predates the arrangement; its clinics are not on it.
+            requiresSubscription: false),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled deployment kind.")
     };

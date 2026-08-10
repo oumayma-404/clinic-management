@@ -57,6 +57,10 @@ public class PushDeliveryConfiguration : IEntityTypeConfiguration<PushDelivery>
         builder.Property(p => p.FailureReason)
             .HasMaxLength(500);
 
+        // FailureReason's machine-readable half — the same pair, and the same reason, as Notification's.
+        builder.Property(p => p.BlockedReason)
+            .HasConversion<int>();
+
         builder.Property(p => p.CreatedAt)
             .IsRequired();
 

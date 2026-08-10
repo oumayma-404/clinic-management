@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Common.Maintenance;
 
@@ -95,6 +96,7 @@ public class SchemaVerificationService
         VerifyDecimalPrecision(facts, findings);
         VerifyAuditLedger(facts, findings);
         VerifyDataMigrations(facts, findings);
+        VerifySubscriptions(facts, findings);
 
         return new SchemaVerificationReport(findings);
     }
@@ -504,6 +506,83 @@ public class SchemaVerificationService
                 ok(count.Value) ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
         }
     }
+
+    // ------------------------------------------------------------------ cabinet entitlements
+
+    /// <summary>
+    /// The three <c>clinic-subscription</c> checks (FR-9, FR-13, AC-6.4). Each is a shape no other layer can see:
+    /// nothing in the test project touches a database, so « every cabinet has an entitlement » and « the stored date
+    /// is its ledger's fold » are structurally invisible until here.
+    ///
+    /// <para>⚠️ <c>subscription-end-date-matches-ledger</c> calls the <b>real</b>
+    /// <see cref="SubscriptionLedger.Fold"/> over rows the reader projected, rather than comparing against a count
+    /// SQL computed. A recursive CTE reproducing the exclusive-cursor arithmetic would be a second implementation of
+    /// the one thing R-6 exists to keep single — and the copy nothing type-checks.</para>
+    /// </summary>
+    private static void VerifySubscriptions(SchemaFacts facts, List<SchemaVerificationFinding> findings)
+    {
+        var counts = facts.DataMigrations;
+
+        AddSubscription("every-clinic-has-an-entitlement", counts.ClinicsWithoutEntitlement,
+            n => n == 0
+                ? "every cabinet has an entitlement"
+                : $"{n} cabinet(s) have NO entitlement — some construction door creates a clinic without one, so "
+                  + "they will be refused every write the moment the gate ships",
+            n => n == 0);
+
+        if (facts.SubscriptionLedgers is not { } ledgers)
+        {
+            findings.Add(NotApplicableIn(
+                "Cabinet entitlements",
+                "subscription-end-date-matches-ledger",
+                "the entitlement tables do not exist yet"));
+        }
+        else
+        {
+            var drifted = ledgers
+                .Where(l => l.StoredEndsOn != SubscriptionLedger.Fold(l.Entries))
+                .ToList();
+
+            findings.Add(new SchemaVerificationFinding(
+                "Cabinet entitlements",
+                "subscription-end-date-matches-ledger",
+                drifted.Count == 0
+                    ? $"{ledgers.Count} entitlement(s), each ending exactly where its ledger folds to"
+                    : $"{drifted.Count} of {ledgers.Count} entitlement(s) store an end date that is NOT their "
+                      + "ledger's fold — some write path set EndsOn without going through "
+                      + "ClinicSubscription.RecomputeFrom",
+                drifted.Count == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+        }
+
+        // Info with its count, never asserted — see the DTO's own note on why AC-6.4's equality belongs to FR-9's
+        // before/after diff and not to a figure this command can know once new cabinets start arriving.
+        AddSubscription("subscription-grandfathered-entries", counts.GrandfatheredEntitlementEntries,
+            n => $"{n} cabinet(s) were grandfathered open-ended; compare against the pre-deployment cabinet count",
+            _ => true);
+
+        void AddSubscription(string check, int? count, Func<int, string> detail, Func<int, bool> ok)
+        {
+            if (count is null)
+            {
+                findings.Add(NotApplicableIn(
+                    "Cabinet entitlements", check, "the entitlement tables do not exist yet"));
+                return;
+            }
+
+            findings.Add(new SchemaVerificationFinding(
+                "Cabinet entitlements",
+                check,
+                detail(count.Value),
+                ok(count.Value) ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+        }
+    }
+
+    /// <summary>
+    /// <see cref="NotApplicable"/> for a section other than « Data migrations ». Its sibling hardcodes that scope,
+    /// which is why the audit ledger builds its own inline — this is that need, named once.
+    /// </summary>
+    private static SchemaVerificationFinding NotApplicableIn(string scope, string check, string why) =>
+        new(scope, check, $"not applicable — {why}", SchemaVerificationSeverity.Info);
 
     /// <summary>
     /// A check that cannot run yet. Info, not Drift, on purpose: a part that has not been implemented is not a

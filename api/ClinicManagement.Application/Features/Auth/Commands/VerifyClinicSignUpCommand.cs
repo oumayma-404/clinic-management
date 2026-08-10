@@ -56,6 +56,8 @@ public class VerifyClinicSignUpCommandHandler
     private readonly IDoctorRepository _doctorRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly IClinicCatalogSeeder _clinicCatalogSeeder;
+    private readonly IClinicSubscriptionRepository _subscriptionRepository;
+    private readonly ISubscriptionPolicy _subscriptionPolicy;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<VerifyClinicSignUpCommandHandler> _logger;
 
@@ -66,6 +68,8 @@ public class VerifyClinicSignUpCommandHandler
         IDoctorRepository doctorRepository,
         IProcedureTypeRepository procedureTypeRepository,
         IClinicCatalogSeeder clinicCatalogSeeder,
+        IClinicSubscriptionRepository subscriptionRepository,
+        ISubscriptionPolicy subscriptionPolicy,
         IUnitOfWork unitOfWork,
         ILogger<VerifyClinicSignUpCommandHandler> logger)
     {
@@ -75,6 +79,8 @@ public class VerifyClinicSignUpCommandHandler
         _doctorRepository = doctorRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _clinicCatalogSeeder = clinicCatalogSeeder;
+        _subscriptionRepository = subscriptionRepository;
+        _subscriptionPolicy = subscriptionPolicy;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -150,6 +156,10 @@ public class VerifyClinicSignUpCommandHandler
                 _userRepository,
                 _doctorRepository,
                 _procedureTypeRepository,
+                // The door that will create most trials — a hosted cabinet signing itself up gets its 30 free
+                // days from the same helper first-run `setup` and `provision-clinic` use.
+                _subscriptionRepository,
+                _subscriptionPolicy,
                 _unitOfWork,
                 _clinicCatalogSeeder,
                 _logger,

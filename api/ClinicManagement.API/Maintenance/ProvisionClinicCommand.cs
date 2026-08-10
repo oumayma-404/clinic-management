@@ -109,6 +109,13 @@ public static class ProvisionClinicCommand
                 scope.ServiceProvider.GetRequiredService<IUserRepository>(),
                 scope.ServiceProvider.GetRequiredService<IDoctorRepository>(),
                 scope.ServiceProvider.GetRequiredService<IProcedureTypeRepository>(),
+                // clinic-subscription FR-4: no door creates a cabinet without an entitlement. ⚠️ Both of these are
+                // registered by `AddInfrastructure`, which is this verb's whole container — registering them in
+                // `AddApplication` instead would resolve nowhere here and take the hosted deployment's only
+                // clinic-creation door with it. The entitlement write is already inside the `UseClinic(clinicId)`
+                // scope declared above, so there is nothing extra to declare.
+                scope.ServiceProvider.GetRequiredService<IClinicSubscriptionRepository>(),
+                scope.ServiceProvider.GetRequiredService<ISubscriptionPolicy>(),
                 scope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
                 scope.ServiceProvider.GetRequiredService<IClinicCatalogSeeder>(),
                 scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(CommandName),

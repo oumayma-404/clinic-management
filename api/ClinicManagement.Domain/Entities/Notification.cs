@@ -23,6 +23,20 @@ public class Notification : Entity<Guid>
     public int RetryCount { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
+    /// <summary>
+    /// Why this row is parked, machine-readably — the counterpart to <see cref="ErrorMessage"/>'s French sentence
+    /// (<c>clinic-subscription</c> FR-8). It exists so the un-park review can interrogate the <i>reason</i> rather
+    /// than the prose: a row parked because the cabinet's entitlement lapsed otherwise passes all three of the
+    /// channel checks and is released on the next tick.
+    ///
+    /// <para>⚠️ <b>Written by nothing yet, and that is deliberate.</b> The column lands with Part A's migration
+    /// because the model and the schema have to agree in one step — a column the snapshot does not know about
+    /// makes every later migration re-add it. <c>MarkAsBlocked</c> starts writing it in Part G, together with the
+    /// review term that reads it; shipping the parking without the un-park releases every parked reminder within
+    /// a minute on a cabinet that has not paid.</para>
+    /// </summary>
+    public OutboxBlockReason? BlockedReason { get; private set; }
+
     // Navigation properties
     public Appointment? Appointment { get; private set; }
     public Patient? Patient { get; private set; }

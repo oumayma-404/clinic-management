@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Domain.Services;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -41,9 +42,11 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         var mappedDecimals = ReadMappedDecimals();
         var dataMigrations = await ReadDataMigrationCountsAsync(connection, cancellationToken);
         var auditLedger = await ReadAuditLedgerFactsAsync(connection, cancellationToken);
+        var subscriptionLedgers = await ReadSubscriptionLedgersAsync(connection, cancellationToken);
 
         return new SchemaFacts(
-            extensions, constraints, model, database, mappedDecimals, dataMigrations, auditLedger);
+            extensions, constraints, model, database, mappedDecimals, dataMigrations, auditLedger,
+            subscriptionLedgers);
     }
 
     // ------------------------------------------------------------------ the EF model side
@@ -559,12 +562,107 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                      JOIN "Patients" p ON p."Id" = c."PatientId" WHERE c."ClinicId" <> p."ClinicId")
                 """);
 
+        // clinic-subscription FR-13. A flat count over EVERY cabinet — never one qualified by which door created
+        // it, and never a list of known doors, because the failure this exists to catch is a *third* door added
+        // later. Guarded on the entitlement table, so a pre-migration run reads « not applicable » rather than a
+        // reassuring 0.
+        var clinicsWithoutEntitlement = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "ClinicSubscriptions",
+            requiredColumn: "ClinicId",
+            sql: """
+                SELECT COUNT(*)
+                FROM "Clinics" c
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM "ClinicSubscriptions" s WHERE s."ClinicId" = c."Id")
+                """);
+
+        // AC-6.2/AC-6.4, reported rather than asserted. ⚠️ `"Kind" = 3` is SubscriptionPeriodKind.Grandfathered's
+        // ordinal, spelled out for the reason `"Method" <> 1` above is: this reaches into the stored representation
+        // on purpose, because it is counting what a *migration* wrote, and the migration could not name the enum
+        // either. Both spell the same constant; if the enum is ever reordered, this line and the data both need
+        // revisiting.
+        var grandfatheredEntries = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "SubscriptionPeriods",
+            requiredColumn: "Kind",
+            sql: """SELECT COUNT(*) FROM "SubscriptionPeriods" WHERE "Kind" = 3""");
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
             unsetBackupSchedule, chequeDetailsOnNonCheque, bankedStampOnNonCheque,
             attributableButUnattributed, pushClinicMismatch,
-            signupOrphans, clinicalChildrenWrongClinic);
+            signupOrphans, clinicalChildrenWrongClinic,
+            clinicsWithoutEntitlement, grandfatheredEntries);
+    }
+
+    /// <summary>
+    /// Every cabinet's stored <c>EndsOn</c> beside its whole ledger, so the service can fold it with the <b>real</b>
+    /// <c>SubscriptionLedger</c> instead of a SQL re-implementation of the exclusive-cursor arithmetic (FR-9, R-6).
+    ///
+    /// <para>Returns <c>null</c> before the tables exist, which the service reports as « not applicable » rather
+    /// than as a clean fold of nothing.</para>
+    ///
+    /// <para>Ordered <c>RecordedAtUtc</c> then <c>Id</c> — the same order <c>ClinicSubscriptionRepository</c> reads
+    /// in, and which <c>SubscriptionLedger</c> re-applies anyway, so this side cannot silently become the one the
+    /// answer depends on.</para>
+    /// </summary>
+    private static async Task<IReadOnlyList<ClinicSubscriptionLedgerFact>?> ReadSubscriptionLedgersAsync(
+        NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        if (!await ColumnExistsAsync(connection, "ClinicSubscriptions", "EndsOn", cancellationToken)
+            || !await ColumnExistsAsync(connection, "SubscriptionPeriods", "RecordedOnClinicDay", cancellationToken))
+        {
+            return null;
+        }
+
+        var storedEndDates = new Dictionary<Guid, DateTime?>();
+
+        const string subscriptionsSql = """SELECT "ClinicId", "EndsOn" FROM "ClinicSubscriptions" """;
+        await using (var command = new NpgsqlCommand(subscriptionsSql, connection))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                storedEndDates[reader.GetGuid(0)] = reader.IsDBNull(1) ? null : reader.GetDateTime(1);
+            }
+        }
+
+        var entriesByClinic = storedEndDates.Keys.ToDictionary(id => id, _ => new List<SubscriptionLedgerEntry>());
+
+        const string entriesSql = """
+            SELECT "Id", "ClinicId", "RecordedOnClinicDay", "RecordedAtUtc", "DurationMonths", "DurationDays",
+                   "ExplicitEndsOn", "IsCancelled"
+            FROM "SubscriptionPeriods"
+            ORDER BY "ClinicId", "RecordedAtUtc", "Id"
+            """;
+        await using (var command = new NpgsqlCommand(entriesSql, connection))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var clinicId = reader.GetGuid(1);
+                if (!entriesByClinic.TryGetValue(clinicId, out var entries))
+                {
+                    // A ledger entry whose cabinet has no entitlement row. Not silently dropped from the world:
+                    // `every-clinic-has-an-entitlement` is the check that reports it, and folding it here would
+                    // need an entitlement to compare against.
+                    continue;
+                }
+
+                entries.Add(new SubscriptionLedgerEntry(
+                    reader.GetGuid(0),
+                    reader.GetDateTime(2),
+                    reader.GetDateTime(3),
+                    reader.IsDBNull(4) ? null : reader.GetInt32(4),
+                    reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                    reader.IsDBNull(6) ? null : reader.GetDateTime(6),
+                    reader.GetBoolean(7)));
+            }
+        }
+
+        return storedEndDates
+            .Select(pair => new ClinicSubscriptionLedgerFact(pair.Key, pair.Value, entriesByClinic[pair.Key]))
+            .ToList();
     }
 
     /// <summary>
