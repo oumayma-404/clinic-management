@@ -37,6 +37,9 @@ clinic-management/
 │                                                      so .github/workflows/ios-shell.yml (free macos-latest) is
 │                                                      the first compiler it will meet. Read mobile/ios/README.md
 ├── packaging/                    Local/offline-LAN publish + installers (PowerShell + Inno Setup) → CLAUDE.md (+ README.md operator guide)
+├── console/                      The VENDOR's private back-office (Next 15) — `platform-console`, HostedMultiTenant
+│                                   only, served on its own loopback-published Caddy site behind an SSH tunnel.
+│                                   Contains NO clinic surfaces: that is FR-2, not a packaging choice.
 ├── deploy/                       Hosted deployments (Docker + Caddy) → README.md operator guide
 │                                   docker-compose.prod.yml   = CloudBrowser  (Auth0)
 │                                   docker-compose.hosted.yml = HostedMultiTenant (own accounts) — `extends` prod's infra
@@ -80,7 +83,8 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
 ## Key architectural notes (verified, may surprise you)
 
 - **There is a CI gate now, and before it there was none for `api/` or `web/`**: `.github/workflows/ci.yml` runs
-  four independent jobs on every push — **api** (`dotnet build` + the unit suite), **web** (`tsc --noEmit` +
+  five independent jobs on every push (the fifth, **console**, is `platform-console`'s and runs `web`'s exact gate
+  against the second Next application) — **api** (`dotnet build` + the unit suite), **web** (`tsc --noEmit` +
   `npm run check:responsive` + `npm run build`, which *is* that project's whole gate since it has no test runner
   and no working ESLint), **desktop** (`dotnet build` on `windows-latest`; WPF/net8.0-windows cannot build
   elsewhere and cannot be *run* there either) and **android** (`./gradlew lint assembleDebug`; Lint runs with
@@ -670,6 +674,50 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   ⚠️ One consequence worth knowing: the logo and cachet keys were **deterministic**, so a re-upload used to
   overwrite in place. It now lands on a new key, which is why `UpdateDoctorProfileCommand` gained a post-commit
   best-effort delete of the superseded blob (the logo path already deleted the old key before uploading).
+- **The vendor has a private console, and it cannot read a patient record (`platform-console` Part 1)**: a
+  **fourth surface** on this product — a second identity population (`PlatformAccount`, its own tokens, a
+  mandatory TOTP second factor), a **second Kestrel listener** on an unpublished port reached over an SSH tunnel,
+  and a second Next application (`console/`) that contains none of the clinic bundle. Gated on the 16th
+  capability, **`DeploymentProfile.ServesPlatformConsole`** (`HostedMultiTenant` ✓ only). Part 1 delivers reaching
+  it and signing in; the portfolio and its activity counters are Part 2, and the three writes wait on
+  `features/clinic-subscription/`.
+  ⚠️ **Binding the console listener can take the whole product offline, and that is the trap this part is built
+  around.** In `HostedMultiTenant` there is no cert file, so `Program.cs` never called `ConfigureKestrel` at all —
+  `ASPNETCORE_URLS` alone binds 5000 — and an explicit Kestrel endpoint **overrides that configuration
+  wholesale**. A bare `ListenAnyIP(consolePort)` would unbind 5000, Caddy's `/api/*` would stop resolving, and the
+  entire product would go dark while the console worked perfectly. `ConsoleListenerPlanning` resolves **both**
+  ports and they are bound in **one** call; EC-4's collision check is derived from the ports *actually resolved*,
+  never from `Hosting:HttpPort`/`HttpsPort`/`WebPort` — none of those three is set in the hosted compose file, so
+  a check written against them cannot fire in the one profile the console exists on.
+  ⚠️ **A port bind is not a scoped surface**: every mapped route answers on every bound port, so `ConsolePortGate`
+  is what does the work — and unlike `TrustPortGate` it refuses **both** directions (a console path anywhere but
+  the console port, and anything but a console path on it), matched with `StartsWithSegments` so
+  `/api/platform-ish` cannot slip through. It is registered **unconditionally**: with the console off the port is
+  `0` and every console path 404s everywhere, which is what AC-1.8's « absent, not present-and-refusing » means.
+  ⚠️ **AC-1.4 is a property of the signature, not of a policy.** The console's tokens carry their own key, issuer
+  and audience (`PlatformAuthConfig`, which **throws** rather than borrowing `Auth:Local:SigningKey`), so each
+  scheme fails the other's validation and a token on the wrong surface is **401, not 403**. The
+  `AuthorizationPolicies.PlatformConsole` policy **pins its scheme** — without that it authenticates against the
+  default (clinic) one and rejects every console token — while the four clinic policies keep **no** explicit
+  scheme, and that asymmetry is what makes the refusal true in both directions.
+  ⚠️ **Console requests skip `AccountStateMiddleware`, `LocalAuthEnforcementMiddleware` and
+  `TenantScopeMiddleware`** (a console principal has no `User` row), so two middlewares fill the holes that
+  creates: **`PlatformAccountStateMiddleware`** re-reads the account and refuses a deactivation or a stale
+  `TokenVersion` on the **next** request (AC-1.6) — without it the deactivation verb would leave a revoked account
+  with full cross-cabinet access until its token expired — and **`PlatformTenantScopeMiddleware`** declares
+  `UseSystemWide("platform console")`, because an `Unset` scope reads **zero rows with no error**, which is
+  indistinguishable from a portfolio where every cabinet is idle (EC-12).
+  ⚠️ **`AuditActor.Console(accountId)` lands here rather than with the first console write.** `AuditActorProvider`
+  returns the token's `sub` first, so consulting `IPlatformSessionContext` *before* `IClinicContext` is what stops
+  a console write being recorded as a bare GUID — indistinguishable from a clinic user in that cabinet's journal,
+  and invisible to Part 2's `console|` counter exclusion, which would then match nothing. Both failures are
+  silent, and both later parts consume a seam that is already correct.
+  ⚠️ Accounts are created **only** by `platform-account create` (AC-8.5) — no MediatR command, because a handler
+  is one attribute away from being callable over HTTP — and it prints a one-time password plus an enrolment secret
+  shown **once**. The enrolment response carries the recovery codes, also once; a recovery code is **spent even
+  when the sign-in it accompanied fails** (AC-1.3b), while a *wrong password* spends none, or knowing an address
+  would be enough to burn all eight. Operator runbook in [`deploy/README.md`](deploy/README.md).
+
 - **A clinic can let itself in, and nothing exists until the email is answered (`clinic-self-signup`)**: a hosted
   clinic used to exist only because an operator ran `provision-clinic`. `POST /api/auth/signup` (anonymous) writes a
   pending **`ClinicSignup`** and emails a link; `POST /api/auth/signup/verify` consumes it and provisions the clinic +

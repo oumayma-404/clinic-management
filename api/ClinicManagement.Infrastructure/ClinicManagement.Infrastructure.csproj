@@ -25,6 +25,9 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.1.2" />
     <PackageReference Include="Minio" Version="5.0.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
+    <!-- RFC 6238 one-time codes for the console's second factor (platform-console FR-1). Used only by
+         Auth/TotpService, so Domain keeps its zero package references. -->
+    <PackageReference Include="Otp.NET" Version="1.4.1" />
     <PackageReference Include="PdfSharp" Version="6.1.1" />
     <PackageReference Include="QRCoder" Version="1.6.0" />
     <PackageReference Include="QuestPDF" Version="2024.10.0" />

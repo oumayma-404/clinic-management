@@ -58,7 +58,8 @@ public sealed class DeploymentProfile
         bool hasLocalDbTooling,
         bool exposesMetaOnboarding,
         bool allowsSelfRegistration,
-        bool allowsPublicClinicSignup)
+        bool allowsPublicClinicSignup,
+        bool servesPlatformConsole)
     {
         Kind = kind;
         UsesLocalAccounts = usesLocalAccounts;
@@ -75,6 +76,7 @@ public sealed class DeploymentProfile
         ExposesMetaOnboarding = exposesMetaOnboarding;
         AllowsSelfRegistration = allowsSelfRegistration;
         AllowsPublicClinicSignup = allowsPublicClinicSignup;
+        ServesPlatformConsole = servesPlatformConsole;
     }
 
     /// <summary>Which topology this install is.</summary>
@@ -148,6 +150,23 @@ public sealed class DeploymentProfile
     /// full of patient records.</para>
     /// </summary>
     public bool AllowsPublicClinicSignup { get; }
+
+    /// <summary>
+    /// The vendor's private back-office exists on this deployment — a second identity population, a second Kestrel
+    /// listener and exactly one cross-cabinet read (<c>platform-console</c> FR-2).
+    ///
+    /// <para><b>True for <see cref="DeploymentKind.HostedMultiTenant"/> alone</b>, and each ✗ is its own reason
+    /// rather than a default. <see cref="DeploymentKind.SelfHostedLan"/> serves <b>one</b> cabinet from a PC in that
+    /// cabinet's own surgery: there is no portfolio to run, and the vendor is not on that network.
+    /// <see cref="DeploymentKind.CloudBrowser"/> is multi-clinic, but Auth0 owns its identities and its clinics are
+    /// not on the subscription arrangement this console administers.</para>
+    ///
+    /// <para>⚠️ <b>This decides whether the console <i>may</i> exist; <c>Console:Port</c> decides whether it is
+    /// bound.</b> Off means <b>absent</b> — no listener, no reachable route, 404 — never present-and-refusing
+    /// (AC-1.8), the same shape <c>Hosting:TrustPort = 0</c> already has. Keeping the port out of the capability is
+    /// what preserves this class's own invariant that no operator setting can flip one.</para>
+    /// </summary>
+    public bool ServesPlatformConsole { get; }
 
     /// <summary>
     /// May this topology deliver OS push to <paramref name="platform"/> at all? (spec FR-10, AC-51/AC-52.)
@@ -233,7 +252,9 @@ public sealed class DeploymentProfile
             allowsSelfRegistration: true,
             // One clinic per install too, so there is no clinic #2 for a public door to create; first-run
             // `setup` (loopback-gated, once) is how the one clinic comes into being.
-            allowsPublicClinicSignup: false),
+            allowsPublicClinicSignup: false,
+            // No portfolio to run — one cabinet per install — and the vendor is not on that surgery's network.
+            servesPlatformConsole: false),
 
         DeploymentKind.HostedMultiTenant => new DeploymentProfile(
             kind,
@@ -255,7 +276,9 @@ public sealed class DeploymentProfile
             allowsSelfRegistration: false,
             // The one profile this door exists for: many clinics, our own accounts, and no operator standing by
             // to run `provision-clinic` for each arrival.
-            allowsPublicClinicSignup: true),
+            allowsPublicClinicSignup: true,
+            // The one topology with a portfolio to administer: many cabinets, one backend, one vendor behind it.
+            servesPlatformConsole: true),
 
         DeploymentKind.CloudBrowser => new DeploymentProfile(
             kind,
@@ -274,7 +297,10 @@ public sealed class DeploymentProfile
             allowsSelfRegistration: false,
             // Multi-clinic, but Auth0 issues its identities: a signup here would mint a password-backed local
             // account that this profile's login path cannot authenticate.
-            allowsPublicClinicSignup: false),
+            allowsPublicClinicSignup: false,
+            // Multi-clinic, but Auth0 owns the identities and these clinics are not on the arrangement the
+            // console administers.
+            servesPlatformConsole: false),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled deployment kind.")
     };

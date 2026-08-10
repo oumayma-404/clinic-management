@@ -58,7 +58,10 @@ public class DeploymentProfileTests
             // The three values are read off `For(kind)` itself, not chosen here.
             // clinic-self-signup. The first capability true of HostedMultiTenant ALONE, which is what forced the
             // `hostedOnlyCapabilities` set in the R-2 test below — see the comment there.
-            [nameof(DeploymentProfile.AllowsPublicClinicSignup)] = (false, true, false)
+            [nameof(DeploymentProfile.AllowsPublicClinicSignup)] = (false, true, false),
+            // platform-console. The SECOND capability true of HostedMultiTenant alone, so it joins the
+            // `hostedOnlyCapabilities` set below for the same reason AllowsPublicClinicSignup did.
+            [nameof(DeploymentProfile.ServesPlatformConsole)] = (false, true, false)
         };
 
     private static IEnumerable<PropertyInfo> Capabilities() =>
@@ -105,7 +108,8 @@ public class DeploymentProfileTests
         // would be changing a profile to satisfy a test.
         var hostedOnlyCapabilities = new[]
         {
-            nameof(DeploymentProfile.AllowsPublicClinicSignup)
+            nameof(DeploymentProfile.AllowsPublicClinicSignup),
+            nameof(DeploymentProfile.ServesPlatformConsole)
         };
 
         foreach (var capability in Capabilities())

@@ -65,7 +65,13 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
         nameof(Notification),
         // Written by the ANONYMOUS signup endpoint: no actor, no clinic to resolve, so no reading of GET /api/audit
         // can ever show them — and a purge row would record the abandoned visitor's name and address for ever.
-        nameof(ClinicSignup)
+        nameof(ClinicSignup),
+        // The vendor's console identity (platform-console). « Journal d'activité » is a CLINIC's history, read by
+        // that clinic's admin; a console sign-in, a lockout counter or a recovery code being spent belongs to no
+        // cabinet, so every such row would be unattributable noise nobody can see. What the console does *to* a
+        // cabinet is still audited — that write touches the cabinet's own aggregates and carries `console|{id}`.
+        nameof(PlatformAccount),
+        nameof(PlatformRecoveryCode)
     };
 
     /// <summary>

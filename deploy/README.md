@@ -141,6 +141,85 @@ Nobody is looking at the console in a datacentre, and two of this product's fail
 
 ---
 
+## The vendor console
+
+A private back-office where you see how much each cabinet actually uses the product and record its payments. It
+exists **only on this profile**, and it is **off until you set `CONSOLE_PORT`** — absent, there is no second
+listener, no reachable route, and every `/api/platform/*` path 404s. Off means absent, not present-and-refusing.
+
+### Opening it
+
+It is published on **loopback only**, so there is no address to reach from the internet and no DNS name for one.
+
+```bash
+ssh -L 9443:127.0.0.1:9443 <host>
+# then, on your own machine:
+open https://127.0.0.1:9443
+```
+
+Expect a **certificate warning**. That site uses Caddy's internal CA, because `127.0.0.1` has no public name for
+Let's Encrypt to issue a certificate against. A warning on `{DOMAIN}` is a different event entirely and should
+never be dismissed.
+
+### Bootstrapping the first account
+
+There is no sign-up screen, and no screen anywhere in the console that lists, creates or deactivates an account.
+All three are this command:
+
+```bash
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll   platform-account create --email ops@editeur.tn --name "Nom Prénom"
+```
+
+It prints **a one-time password** and **an enrolment secret**, each shown once and unrecoverable afterwards.
+
+1. Put the enrolment secret into an authenticator app (Google Authenticator, Aegis, 1Password — any RFC 6238 one).
+2. Open the console and sign in with the address and the printed password. It refuses with « ce compte doit
+   d'abord enrôler son second facteur » and takes you to the enrolment step — that is the expected path, not an
+   error.
+3. Enter a code from the app. The response is your **recovery codes**, shown once. Write them down somewhere that
+   is not the same laptop.
+4. Sign in properly. The console then requires you to change the one-time password before it will do anything
+   else.
+
+### Losing the second factor
+
+Use a recovery code on the sign-in screen. Each works **once**, and is spent even if that sign-in then fails for
+another reason — so a code you typed is a code you have used.
+
+Out of recovery codes, or the authenticator is gone with them:
+
+```bash
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll   platform-account --reset-totp --email ops@editeur.tn
+```
+
+⚠️ This **invalidates the old authenticator and every remaining recovery code**, and signs the account's live
+sessions out. That is what makes it safe: a re-issue that merely added a second factor would leave a lost phone
+working for ever.
+
+### Removing an account
+
+```bash
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll   platform-account --deactivate --email ops@editeur.tn
+```
+
+Its live sessions are refused on their **next request**, not when the token would have expired.
+
+### What the console can and cannot see
+
+Worth being able to say out loud to a clinic that asks. It reads **counts, dates, the subscription state, and the
+cabinet's own monthly collected total**. It cannot read a patient, an appointment, a note, a document, a
+diagnosis or any per-patient amount — and that is enforced by a check that fails the build, not by a policy
+somebody could edit.
+
+### Two failures worth recognising
+
+- **The API stopped answering after enabling the console.** Should be impossible — `Program.cs` binds the public
+  port and the console port in one call, and logs both at startup (« Bound the public API on port … and the
+  vendor console on port … »). If that line names only one, that is the bug.
+- **Startup refuses with a message naming `Console:Port`.** The console port collides with the port the API
+  already answers on. Pick another, or set `CONSOLE_PORT=0` to switch the console off. It refuses to start rather
+  than silently making either the console or the whole product unreachable.
+
 ## Two things this topology does not solve
 
 - **Per-clinic backup and restore.** `backup`/`pitr` protect the whole cluster; restoring one clinic's data without

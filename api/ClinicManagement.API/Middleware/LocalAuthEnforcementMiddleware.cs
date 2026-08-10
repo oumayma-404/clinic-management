@@ -26,6 +26,14 @@ public class LocalAuthEnforcementMiddleware
 
     public async Task InvokeAsync(HttpContext context, IUserRepository users)
     {
+        // Console requests carry their own token version and forced-password-change rules, enforced by
+        // PlatformAccountStateMiddleware against PlatformAccount rather than User. See that class.
+        if (ClinicManagement.API.Startup.ConsolePortGate.IsConsolePath(context.Request.Path))
+        {
+            await _next(context);
+            return;
+        }
+
         // Shared with TenantScopeMiddleware, which needs the same row for the clinic it scopes to — one lookup
         // per request rather than two.
         var account = await RequestAccount.ResolveAsync(context, users);

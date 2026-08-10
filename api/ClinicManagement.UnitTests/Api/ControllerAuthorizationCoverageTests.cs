@@ -65,6 +65,18 @@ public class ControllerAuthorizationCoverageTests
                                      // exempts this one route from the floor for the same reason (AC-29).
         "GoogleCalendar.Callback",   // OAuth browser redirect back from Google — cannot carry a bearer
 
+        // --- The vendor console's sign-in surface (platform-console AC-1.2, AC-1.3a, AC-1.3b). ---
+        // Anonymous by necessity, not by concession: all three are performed by a caller who has no console
+        // session, that being the point of each. What bounds them is not authentication but (a) the listener —
+        // ConsolePortGate 404s /api/platform/* on the public port and 404s it everywhere when the console is off,
+        // so these are unreachable from the internet at all — and (b) the anonymous-auth rate limits, per
+        // submitted account and per address, which RateLimiting.IsAnonymousAuthPath was widened to cover.
+        // ⚠️ PlatformAuth.ChangePassword is deliberately NOT here: it requires a console session (AC-8.6), and it
+        // is the one route a bootstrapped account may reach before changing its one-time password.
+        "PlatformAuth.Login",        // e-mail + password + a one-time code
+        "PlatformAuth.EnrolTotp",    // binds the secret the bootstrap verb issued; returns the recovery codes once
+        "PlatformAuth.Recovery",     // single-use recovery code when the authenticator is gone
+
         // --- LAN device trust (P8, AC-44). Local-only; all four 404 in Cloud. ---
         // Anonymous by necessity, not by concession: a device cannot obtain a token until it trusts the
         // server's certificate, and it cannot trust that certificate until it has fetched these — requiring

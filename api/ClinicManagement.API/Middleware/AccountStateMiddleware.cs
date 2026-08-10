@@ -41,6 +41,15 @@ public class AccountStateMiddleware
 
     public async Task InvokeAsync(HttpContext context, IUserRepository users)
     {
+        // A console request has no `User` row at all, so this would resolve nothing and pass through anyway —
+        // but skipping it explicitly is what makes the omission a decision rather than a coincidence, and what
+        // keeps PlatformAccountStateMiddleware's ownership of console state unambiguous.
+        if (ClinicManagement.API.Startup.ConsolePortGate.IsConsolePath(context.Request.Path))
+        {
+            await _next(context);
+            return;
+        }
+
         var account = await RequestAccount.ResolveAsync(context, users);
 
         // No row is not a refusal: a Cloud principal who has not joined a clinic yet legitimately has none, and

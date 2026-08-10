@@ -33,6 +33,14 @@ public class TenantScopeMiddleware
 
     public async Task InvokeAsync(HttpContext context, ITenantScope scope, IUserRepository users)
     {
+        // A console request declared UseSystemWide upstream (PlatformTenantScopeMiddleware), and ITenantScope is
+        // single-assignment — narrowing it to a clinic here would throw. It has no `User` row to narrow to either.
+        if (ClinicManagement.API.Startup.ConsolePortGate.IsConsolePath(context.Request.Path))
+        {
+            await _next(context);
+            return;
+        }
+
         var account = await RequestAccount.ResolveAsync(context, users);
 
         if (account is not null)

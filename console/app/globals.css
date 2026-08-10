@@ -1,0 +1,133 @@
+@import "tailwindcss";
+
+/*
+ * The vendor console's own stylesheet (platform-console FR-7).
+ *
+ * It is deliberately a SMALL subset of `web/app/globals.css` rather than a copy of it: this application has no
+ * clinic chrome, no zones, no print surfaces, no document previews and no odontogram, so importing that file's
+ * palette and its `.light` island machinery would carry rules nothing here can use — and a token nobody reads is
+ * a token that drifts silently. What IS copied is the part the device contract depends on: the two custom
+ * variants and the 44 px touch floor, whose reasoning is stated at each site below because a rule copied without
+ * its reason is the first one somebody deletes.
+ */
+
+/*
+ * `hover-hover:` — only on devices with a real pointer.
+ *
+ * A touch tap fires `:hover` and leaves it applied until the next tap elsewhere, so any hover effect that MOVES
+ * becomes a stuck state on a tablet. Gate movement hovers behind this; a plain colour hover may stay ungated,
+ * since a lingering tint reads as « selected » rather than as broken.
+ */
+@custom-variant hover-hover (@media (hover: hover) and (pointer: fine));
+
+/*
+ * `coarse:` — a finger, not a mouse, and the gate for the 44 px touch floor.
+ *
+ * ⚠️ A POINTER question, never a width one. An iPad landscape is 1180 px and is still operated with a finger,
+ * while a 1440 px desk machine with a mouse must keep its density — so a breakpoint gets both backwards.
+ */
+@custom-variant coarse (@media (pointer: coarse));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+/*
+ * A deliberately sober slate palette, and NOT the clinic's brand. The console is the vendor's back-office: an
+ * operator with both applications open must be able to tell at a glance which one they are about to act in, and
+ * « looks like the clinic app » is how a write lands in the wrong place.
+ */
+:root {
+  --background: oklch(0.99 0 0);
+  --foreground: oklch(0.22 0.02 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.02 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.02 260);
+  --primary: oklch(0.38 0.06 260);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.96 0.01 260);
+  --secondary-foreground: oklch(0.28 0.03 260);
+  --muted: oklch(0.96 0.01 260);
+  --muted-foreground: oklch(0.51 0.02 260);
+  --accent: oklch(0.95 0.02 260);
+  --accent-foreground: oklch(0.28 0.03 260);
+  --destructive: oklch(0.58 0.21 27);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.91 0.01 260);
+  --input: oklch(0.91 0.01 260);
+  --ring: oklch(0.55 0.04 260);
+  --radius: 0.625rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    /*
+     * ⚠️ `dvh`, never `vh`. On iOS Safari `100vh` is the LARGE viewport, so the bottom of the page sits under
+     * the URL bar and is unreachable — which on the sign-in screen means the « Se connecter » button.
+     */
+    min-height: 100dvh;
+  }
+
+  /*
+   * A 44 px floor for data-entry controls on a finger. A floor, not an override: a control's own larger height
+   * still wins. It is applied here rather than on each component so a field added later cannot miss it.
+   */
+  @media (pointer: coarse) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+    textarea,
+    select,
+    button {
+      min-height: 44px;
+    }
+  }
+}
+
+@layer utilities {
+  /*
+   * Raises an element's TAPPABLE area to 44×44 px without repainting it — for an isolated small control only.
+   * ⚠️ Never on siblings a few pixels apart: the pseudo-element overhangs its neighbours and, since the later
+   * sibling paints last, it STEALS their taps. For anything in a row or a stack, grow the box itself.
+   */
+  .touch-target {
+    position: relative;
+  }
+
+  @media (pointer: coarse) {
+    .touch-target::after {
+      content: "";
+      position: absolute;
+      inset: 50% auto auto 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
+  }
+}

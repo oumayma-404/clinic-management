@@ -39,6 +39,23 @@ public readonly record struct AuditActor(string UserId, string? Email)
     public const string ProcessPrefix = "job|";
 
     /// <summary>
+    /// The prefix that distinguishes the <b>vendor's console</b> from both a clinic user and a background job
+    /// (<c>platform-console</c> AC-4.7, AC-2.2/EC-10).
+    ///
+    /// <para><b>A third kind, not a flavour of <see cref="ProcessPrefix"/>.</b> A console write has a real human
+    /// behind it and must be attributable to that account in the affected cabinet's own « Journal d'activité » —
+    /// <c>job|…</c> would say « une tâche automatique » about something a person did. And it must be <i>excluded</i>
+    /// from that cabinet's activity counters, which a clinic user id would not be: granting a dormant cabinet a
+    /// subscription would otherwise make it read as active the next morning, on exactly the cabinet the « dormant »
+    /// filter surfaced.</para>
+    ///
+    /// <para>⚠️ <b>Both the writer and the counter pass's exclusion read this constant</b>, never a retyped
+    /// <c>"console|"</c> literal. A second copy of a prefix is a filter that keeps passing while the writer moves —
+    /// the <c>fixes-dont-propagate</c> shape.</para>
+    /// </summary>
+    public const string ConsolePrefix = "console|";
+
+    /// <summary>
     /// What a mutation with neither a token nor a declared process name is recorded as. Deliberately a value and
     /// not a null: the row exists either way, and « we do not know » is information, whereas a missing row is
     /// indistinguishable from nothing having happened.
@@ -48,6 +65,13 @@ public readonly record struct AuditActor(string UserId, string? Email)
     public static AuditActor Process(string processName) =>
         new($"{ProcessPrefix}{(string.IsNullOrWhiteSpace(processName) ? "unknown" : processName.Trim())}", null);
 
+    /// <summary>The vendor's console acting as <paramref name="accountId"/>. See <see cref="ConsolePrefix"/>.</summary>
+    public static AuditActor Console(Guid accountId, string? email = null) =>
+        new($"{ConsolePrefix}{accountId}", email);
+
     /// <summary>True when this is a process rather than a person — what lets the read side label the row.</summary>
     public bool IsProcess => UserId.StartsWith(ProcessPrefix, StringComparison.Ordinal);
+
+    /// <summary>True when the vendor's console wrote this row, rather than anyone at the cabinet.</summary>
+    public bool IsConsole => UserId.StartsWith(ConsolePrefix, StringComparison.Ordinal);
 }

@@ -40,6 +40,16 @@ if (args.Length > 0 && string.Equals(args[0], ProvisionClinicCommand.CommandName
 // touching the DB. The installer runs this BEFORE starting the API service so the service's first boot
 // reuses the cert instead of generating it under the ~30s SCM start timeout. Usage:
 //   ClinicManagement.API.exe provision-cert
+// Create / deactivate / re-secret a vendor CONSOLE account (platform-console AC-8.1/8.2/8.5). There is
+// deliberately no web path to any of the three: the account it mints can read every cabinet in the deployment.
+// Gated on a configured connection string, NOT on ServesPlatformConsole — the first account has to be creatable
+// before the listener is switched on. Usage:
+//   ClinicManagement.API.exe platform-account create --email … --name …
+if (args.Length > 0 && string.Equals(args[0], PlatformAccountCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await PlatformAccountCommand.RunAsync(args);
+}
+
 if (args.Length > 0 && string.Equals(args[0], ProvisionCertCommand.CommandName, StringComparison.OrdinalIgnoreCase))
 {
     return ProvisionCertCommand.Run(args);
@@ -231,6 +241,13 @@ try
     // Resolved from builder.Configuration rather than reused from startupProfile: CreateBuilder(args) adds
     // command-line arguments, so this is the host's authoritative view of the same key.
     var profile = DeploymentProfile.Resolve(builder.Configuration);
+    // The vendor console (platform-console). TWO questions, deliberately separate: may it exist here at all
+    // (the capability, derived from the deployment kind), and is it bound (the port, an operator setting). Off
+    // means ABSENT — no listener, no reachable route, 404 — never present-and-refusing (AC-1.8).
+    var consolePort = profile.ServesPlatformConsole
+        ? ClinicManagement.Infrastructure.Auth.PlatformAuthConfig.Port(builder.Configuration)
+        : 0;
+
     var auth0Domain = builder.Configuration["Auth0:Domain"];
     var auth0Audience = builder.Configuration["Auth0:Audience"];
 
@@ -282,6 +299,41 @@ try
             options.Events = CreateHubJwtEvents();
         });
         authConfigured = true;
+    }
+
+    // The console's own bearer scheme, added to the SAME authentication builder as the clinic's. Its issuer,
+    // audience and signing key are all distinct (PlatformAuthConfig), which is what makes AC-1.4 true by
+    // construction: each scheme fails the other's validation, so a token presented to the wrong surface is
+    // refused as UNAUTHENTICATED rather than merely unauthorised.
+    // ⚠️ Registered only when the console is actually bound. Where it is not, ConsolePortGate 404s every console
+    // route before authentication runs, so the scheme is unreachable and its absence costs nothing — while
+    // requiring Console:SigningKey on every deployment would break two profiles that have no console.
+    if (authConfigured && consolePort > 0)
+    {
+        // Throws with an operator sentence when Console:SigningKey is absent or too short. Loud on purpose: a
+        // console bound with no key of its own would have to borrow the clinic's, and the isolation above is the
+        // entire security property of this surface.
+        var consoleSigningKey = ClinicManagement.Infrastructure.Auth.PlatformAuthConfig
+            .SecurityKey(builder.Configuration);
+
+        builder.Services
+            .AddAuthentication()
+            .AddJwtBearer(PlatformConsoleScheme.Name, options =>
+            {
+                options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = ClinicManagement.Infrastructure.Auth.PlatformAuthConfig
+                        .Issuer(builder.Configuration),
+                    ValidateAudience = true,
+                    ValidAudience = ClinicManagement.Infrastructure.Auth.PlatformAuthConfig
+                        .Audience(builder.Configuration),
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = consoleSigningKey,
+                    ClockSkew = TimeSpan.Zero
+                };
+            });
     }
 
     if (authConfigured)
@@ -500,10 +552,42 @@ try
         }
         else
         {
-            var hostingUrls = builder.Configuration["Hosting:Urls"];
-            if (!string.IsNullOrWhiteSpace(hostingUrls))
+            // ⚠️ THE CONSOLE LISTENER CANNOT BE ADDED AS ONE MORE LINE HERE (platform-console risk R-3a).
+            // In HostedMultiTenant there is no certificate file, so this branch runs and — until now — never
+            // called ConfigureKestrel at all: the only thing binding port 5000 is ASPNETCORE_URLS from the compose
+            // file. Kestrel's explicit endpoints OVERRIDE the URLs configuration wholesale, so a bare
+            // ConfigureKestrel(k => k.ListenAnyIP(consolePort)) would unbind 5000, Caddy's /api/* → api:5000 would
+            // stop resolving, and the entire product would go dark while the console itself worked perfectly.
+            // The failure is one line in Kestrel's log ("Overriding address(es)…") and silent everywhere else.
+            // So both ports are resolved together and bound in ONE call — see ConsoleListenerPlanning.
+            var listenerPlan = ConsoleListenerPlanning.Resolve(
+                builder.Configuration, profile.ServesPlatformConsole, consolePort);
+
+            if (listenerPlan is not null)
             {
-                builder.WebHost.UseUrls(hostingUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                builder.WebHost.ConfigureKestrel(kestrel =>
+                {
+                    kestrel.ListenAnyIP(listenerPlan.PublicPort);
+                    // A Kestrel listener is not scoped to a subset of routes: EVERY endpoint answers on this port
+                    // too. ConsolePortGate is what makes it the console's, in both directions.
+                    kestrel.ListenAnyIP(listenerPlan.ConsolePort);
+                });
+
+                // Answerable from the log rather than from `ss -ltnp` inside a container — and the line an
+                // operator checks first when « the API stopped answering after we enabled the console ».
+                Log.Information(
+                    "Bound the public API on port {PublicPort} and the vendor console on port {ConsolePort}.",
+                    listenerPlan.PublicPort, listenerPlan.ConsolePort);
+            }
+            else
+            {
+                // Console off ⇒ touch none of this, so CloudBrowser and a console-less hosted deployment keep
+                // their current UseUrls/ASPNETCORE_URLS behaviour byte for byte.
+                var hostingUrls = builder.Configuration["Hosting:Urls"];
+                if (!string.IsNullOrWhiteSpace(hostingUrls))
+                {
+                    builder.WebHost.UseUrls(hostingUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                }
             }
         }
     }
@@ -553,6 +637,22 @@ try
         });
     }
 
+    // The console's two-way boundary (platform-console FR-2, AC-1.7). Placed here — after the security headers so
+    // a refusal still gets them, before everything else — so a console path on the public port, or any other path
+    // on the console port, dies before rate limiting, authentication, the controllers and the Next proxy have had
+    // any chance to answer it. Registered UNCONDITIONALLY: with the console off, consolePort is 0 and the gate's
+    // job is to 404 every /api/platform route everywhere, which is what « absent » means (AC-1.8).
+    app.Use(async (context, next) =>
+    {
+        if (ConsolePortGate.ShouldRefuse(context.Connection.LocalPort, consolePort, context.Request.Path))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        await next();
+    });
+
     // Immediately before the limiter, because after it the partition has already been chosen: lifts the submitted
     // email out of an auth request's body so the tight window is spent per ACCOUNT instead of per address. See
     // AuthAttemptAccount — it can neither refuse a request nor consume the body.
@@ -579,7 +679,20 @@ try
     // request authorization then refuses, and RequestAccount caches it for everything downstream.
     app.UseMiddleware<ClinicManagement.API.Middleware.AccountStateMiddleware>();
 
+    // The console's own live-state check (AC-1.6). It exists because console requests skip AccountStateMiddleware
+    // above AND LocalAuthEnforcementMiddleware below — the product's only two per-request readers of account state
+    // — so without it a deactivated console account would keep full cross-cabinet access until its token expired.
+    // ⚠️ After UseAuthentication, because before it there is no principal to read and the check would silently
+    // pass everything; pinned against this file's own source by PlatformAccountStateTests.
+    app.UseMiddleware<ClinicManagement.API.Middleware.PlatformAccountStateMiddleware>();
+
     app.UseAuthorization();
+
+    // A console request reads across every cabinet, so it declares UseSystemWide explicitly. ⚠️ Before
+    // TenantScopeMiddleware, which skips console paths: ITenantScope is single-assignment, and a console request
+    // that reached a handler Unset would read ZERO ROWS WITH NO ERROR — a portfolio indistinguishable from one
+    // where every cabinet is idle (EC-12).
+    app.UseMiddleware<ClinicManagement.API.Middleware.PlatformTenantScopeMiddleware>();
 
     // Whose rows this request may read. Unconditional and in EVERY profile: the global query filters refuse an
     // unset scope, so a request that reached a controller without passing here would read nothing at all. It

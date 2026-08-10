@@ -425,8 +425,18 @@ public class AuditInterceptorTests
         //   ClinicSignup  — written by the ANONYMOUS signup endpoint, so there is no actor and no clinic to
         //                   attribute it to, no reading of GET /api/audit could ever surface it, and a purge row
         //                   would preserve an abandoned visitor's name and address for ever.
+        //   PlatformAccount / PlatformRecoveryCode — the VENDOR's console identity (platform-console). « Journal
+        //                   d'activité » is a CLINIC's history, read by that clinic's admin; a console sign-in, a
+        //                   lockout counter or a spent recovery code belongs to no cabinet, so every such row
+        //                   would be unattributable noise nobody can see. ⚠️ This excludes the console's own
+        //                   ACCOUNT rows only — what the console does *to* a cabinet is still audited, because
+        //                   that write touches the cabinet's own aggregates and carries `console|{accountId}`.
         Assert.True(
-            excluded.SetEquals(new[] { nameof(AuditEntry), nameof(Notification), nameof(ClinicSignup) }),
+            excluded.SetEquals(new[]
+            {
+                nameof(AuditEntry), nameof(Notification), nameof(ClinicSignup),
+                nameof(PlatformAccount), nameof(PlatformRecoveryCode)
+            }),
             "The audit exclusion list changed to [" + string.Join(", ", excluded.OrderBy(x => x))
             + "]. Every entry here is structural — self-audit recursion, a minutely-rewritten outbox, and a row "
             + "with no actor or clinic to attribute. Anything else excluded is a mutation an owner can no longer "

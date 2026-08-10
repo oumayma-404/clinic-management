@@ -113,6 +113,13 @@ public class ApplicationDbContext : DbContext
     // clinic-owned set from that column never sees it.
     public DbSet<ClinicSignup> ClinicSignups { get; set; }
 
+    // The vendor's console identity population (platform-console FR-1). Like ClinicSignup above and for the same
+    // structural reason, these carry **no ClinicId**: a console account belongs to no cabinet, which is the whole
+    // point of it, so they sit outside the tenant filter by construction and need no named exemption in
+    // TenantScopeFilterTests — that guard derives its clinic-owned set from the column neither of them has.
+    public DbSet<PlatformAccount> PlatformAccounts { get; set; }
+    public DbSet<PlatformRecoveryCode> PlatformRecoveryCodes { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         // The clinic-scoping query filters are applied to the directly-clinic-owned AGGREGATE ROOTS — 19 of

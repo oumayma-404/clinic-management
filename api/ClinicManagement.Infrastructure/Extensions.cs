@@ -151,6 +151,18 @@ public static class Extensions
         // shared IMemoryCache registered above, so lockout state is transient by design — see the class.
         services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
 
+        // The vendor's console identity population (platform-console Part 1). Registered UNCONDITIONALLY, not
+        // behind ServesPlatformConsole: `platform-account` is a console verb that builds its container from this
+        // method alone, and an operator has to be able to bootstrap the first account on a deployment whose
+        // listener is not bound yet. Nothing here is reachable without that listener — ConsolePortGate 404s every
+        // console route — so registering the services costs a few objects and buys a working verb.
+        services.AddScoped<IPlatformAccountRepository, PlatformAccountRepository>();
+        services.AddScoped<IPlatformAuthService, PlatformAuthService>();
+        services.AddSingleton<ITotpService, TotpService>();
+        // Singleton like IReminderSecretProtector, and for the same reason: an IDataProtector is thread-safe and
+        // deriving one per request would re-run the key derivation on every sign-in.
+        services.AddSingleton<IPlatformSecretProtector, PlatformSecretProtector>();
+
         // Auth0 Management Service — real where Auth0 owns identity, no-op where the product does (no Auth0 tenant).
         if (profile.UsesLocalAccounts)
         {
