@@ -467,8 +467,84 @@ records the two decisions it does not settle)
 - **Impact:** Parts 4–6 inherit `PlatformAccessLedger`'s throw-on-unattributable behaviour, which is correct for a
   write too. `PlatformAccessLedgerTests` pins both halves.
 
+## Part 4 — step 32 pre-flight (run 2026-08-10) · **Part 4 is UNBLOCKED**
+
+`features/clinic-subscription/` Parts **A–F** have now shipped. `feature/windows-desktop-app` was merged into this
+branch at **`25b252d`** (bringing Parts E–F; A–D came in at `3553396`). Two doc-only conflicts
+(`api/ClinicManagement.API/CLAUDE.md`, `api/ClinicManagement.Domain/CLAUDE.md`), both resolved by keeping **both**
+sides — the verb lists and the entity rows are additive. `Program.cs` auto-merged. **Gate after the merge:
+`dotnet build` 0 errors / 55 pre-existing baseline warnings, `dotnet test` 2570 passed / 0 failed.**
+
+### The six *Assumed dependency surface* rows
+
+| # | Assumed | Result |
+|---|---|---|
+| 1 | `ClinicSubscription` (plan, derived end date, suspension flag) + `SubscriptionPeriod` ledger, both aggregate roots | ✅ **verbatim** — `EndsOn`, `IsSuspended`, `RecomputeFrom`, `SetPlan`, `Suspend`/`Unsuspend`; `SubscriptionPeriod.Create`/`Trial`/`OpenEnded`/`Cancel` |
+| 2 | One authority for Essai/Actif/Expiré/Suspendu + `EndsOn` + `DaysRemaining` | ✅ `SubscriptionStateReader.Read(entitlement, clinicToday, isTrial)` + `SubscriptionState` + `Domain/Services/SubscriptionLedger.Fold` |
+| 3 | `GrantSubscriptionPeriodCommand`, `CancelSubscriptionPeriodCommand`, `SuspendClinicCommand`, `UnsuspendClinicCommand` | ✅ **two verbatim, one adaptation.** `GrantSubscriptionPeriodCommand` → `Result<SubscriptionGrantResult>` and `CancelSubscriptionPeriodCommand` → `Result<SubscriptionCancelResult>` exist as named. Suspend + unsuspend arrived as **one** `SetSubscriptionSuspensionCommand` (`bool Suspend` + `Reason` + `ActedBy`), so per **R-2** steps 44/45 adapt the call site — nothing is re-implemented. ⚠️ Each carries its own actor string (`RecordedBy`/`CancelledBy`/`ActedBy`): that is where `console\|{accountId}` goes |
+| 4 | The write-refusal gate with an explicit allow-list (FR-3) | ✅ **adapt.** It is the `[AllowsWithoutSubscription("<reason>")]` **endpoint attribute**, not a path list, so step 35 becomes « carry the attribute on the console's write endpoints ». ⚠️ `SubscriptionGateMiddleware.cs:58` already passes a caller whose `ITenantScope` is not `Clinic`, which a console account never is — so the endpoint is not refused today either way, and step 35's test pins that pass-through rather than adding an entry |
+| 5 | The subscription re-read (FR-15) — how a clinic learns of a console write | ✅ `web/lib/subscription/subscription-context.tsx` + `subscription-banner.tsx`, three re-read triggers |
+| 6 | A declared realtime resource key for subscription | ❌ **absent, and deliberately.** `Subscriptions` is on `RealtimeResourceResolver.ExcludedAreas` — the companion decided state is learned by **re-read, never broadcast**, because neither moment that changes it can push one. See DEV-12 |
+
+Nothing was improvised: no console-side grant handler, end-date computation, state fold or period entity was
+written as a stand-in. That is the FR-4 violation this feature is defined around.
+
+### DEV-12: AC-4.4a cannot be implemented as written — there is no realtime key to reuse
+
+**Date:** 2026-08-10 · **Category:** Scope · **Approved:** pending
+
+- **Plan:** step 37 — « Optionally (AC-4.4a) notify the **target** cabinet via `IRealtimeNotifier` with the
+  companion's **existing** declared key. »
+- **Reality:** the companion declared **no** key. `Subscriptions` is on `RealtimeResourceResolver.ExcludedAreas`,
+  and its stated reason is the same one AC-4.4a would have to defeat: a vendor grant runs in a process with no
+  caller's token to derive a clinic from, and an entitlement ending at midnight has no actor at all.
+- **Proposal:** **drop AC-4.4a.** AC-4.4 (« the clinic's app reflects it without signing out ») is satisfied by
+  FR-15's re-read, which the companion states clears the banner within one 5-minute cycle. Inventing a key here
+  would fail `RealtimeResourceResolverTests` in both directions *and* re-open the decision the companion made.
+- **Impact:** AC-4.4a is recorded as out of scope with a reason (the story's own exit criteria permit that);
+  AC-4.4 is unaffected.
+
+### OPEN QUESTION — Q-1: how the portfolio filters and sorts on a state that needs the ledger
+
+**Raised 2026-08-10, before any Part 4 code was written. This blocks the read half of step 32 (deleting
+`PlatformSubscriptionPlaceholder`), not the write half.**
+
+Deleting the placeholder means the list, the summary and the detail must carry real `Plan`/`State`/`EndsOn`/
+`DaysRemaining`, and AC-2.3/AC-2.4 want the portfolio **filterable** by « en essai · expire sous N jours · expiré ·
+suspendu » and **sortable** by end date. AC-2.4a and EC-11 require every such figure to exist **before a page is
+cut**, in one bounded query.
+
+Three of the four filters are plain SQL over the entitlement row — `suspendu` is `IsSuspended`, `expiré` is
+`EndsOn < today`, `expire sous N` is a `BETWEEN`. **« En essai » is not.** `SubscriptionStateReader.Read` takes
+`isTrial` as a *parameter* precisely because Trial-vs-Active is a fact about the **ledger**, not about the
+entitlement row — and folding N cabinets' ledgers before paging is exactly the unbounded read EC-11 forbids.
+
+Candidate resolutions, none yet chosen:
+
+1. **Express « en essai » as a SQL predicate over the ledger** — a cabinet is on its trial iff it has no
+   non-cancelled entry whose `Kind != Trial` and its cover is still in force. Bounded, joinable, no fold. Risk: it
+   is a *second* statement of what a trial is, in SQL, where no compiler checks it against `SubscriptionLedger` —
+   the FR-4 shape this feature exists to avoid, in miniature.
+2. **Offer the other three filters and not « en essai »**, the way Part 2 already declines to offer a sort it
+   cannot honour. Honest and cheap; leaves an AC-2.3 filter unshipped.
+3. **Denormalise a `CoverKind` onto `ClinicSubscription`**, written by the same `RecomputeFrom` that is already the
+   only writer of `EndsOn`. One authority, one write path, filterable and sortable. Costs a migration and a
+   backfill in the companion's table — i.e. an edit to `features/clinic-subscription/`, not to this feature.
+
+Option **3** looks right and option **1** is the one to avoid, but it is a change to the companion's schema and so
+is the user's call. **No code was written against any of them.**
+
 ## Next
 
-`/review-story`, then **Part 4 — blocked on the companion**. Its step 32 pre-flight now has real work to do:
-`features/clinic-subscription/` Parts A–C exist on `feature/windows-desktop-app`, so the six *Assumed dependency
-surface* names must be looked up **there** and this branch merged before Part 4 can start.
+**Part 4, resuming at step 32.** The merge and the pre-flight are done and committed; the write half (steps 33–39)
+is unblocked and independent of Q-1. Order to resume in:
+
+1. Settle **Q-1** (above) — it decides how the placeholder is deleted.
+2. Steps 33–34 — `RecordSubscriptionPeriodCommand` + idempotency. ⚠️ `PlatformPortfolioController` must **never
+   name** `GrantSubscriptionPeriodCommand` (or the other two): Part F shipped
+   `SubscriptionVendorCommandReachabilityTests`, which **source-scans every `Controllers/` file** for those type
+   names and fails on a substring hit — a `using` or a comment is enough. The plan's own
+   `RecordSubscriptionPeriodCommand` indirection is what keeps this green, and it is load-bearing now rather than
+   stylistic. Verified green at `25b252d` with `Controllers/Platform/` present.
+3. Steps 35–37 — the `[AllowsWithoutSubscription]` attribute + its test, the `PlatformAccessEntry`, and DEV-12.
+4. Step 38 — the payment sheet. 5. Step 39 — tests and the two gates.
