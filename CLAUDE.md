@@ -581,7 +581,7 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   `AddForeignKey` over such a row aborts the upgrade after the schema is half-applied. This is **attribution, not
   authorization**: per-practitioner data scoping is deliberately out of scope. `verify-schema` gained
   `practitioner-attribution-backfill`, because a backfill is the one thing invisible to every other layer.
-- **A cabinet's right to record work is a dated entitlement (`clinic-subscription`, Parts A+B of 7)**: on the
+- **A cabinet's right to record work is a dated entitlement (`clinic-subscription`, Parts A+B+C of 7)**: on the
   hosted deployment a clinic gets **30 free days**, and past its date it becomes **read-only** — every read, every
   CSV export and every PDF keep working, and only writes are refused. Part A ships the foundation: one
   **`ClinicSubscription`** per clinic whose `EndsOn` is a full re-fold of an append-only, cancellable
@@ -591,9 +591,25 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   days after deployment. **Part B ships the enforcement**: `API/Middleware/SubscriptionGateMiddleware` refuses every
   non-GET request under `/api` with **402** + a code + a French sentence naming the date, unless the endpoint carries
   **`[AllowsWithoutSubscription("<reason>")]`** — see `api/ClinicManagement.API/CLAUDE.md` for the exempt set, the
-  ordering rationale and the two derived guards. **Parts C–G are not built yet**: there is no screen, no banner, no
-  warning job and no vendor verb, so a lapsed cabinet is refused correctly but has nowhere to read *why* and no way to
-  be unlocked except by editing the ledger directly.
+  ordering rationale and the two derived guards. **Part C ships the visibility**: `GET /api/subscription`
+  (`AnyClinicRole`) + `GET /api/subscription/history` (`AdminOnly`), the **« Abonnement » screen** at
+  `web/app/abonnement/`, and `requiresSubscription` on `GET /api/auth/mode`. **Parts D–G are not built yet**: there is
+  no banner, no 402 plumbing in `client.ts`, no live re-read, no warning job and no vendor verb — so a lapsed cabinet
+  is refused correctly and can now read *why*, but is not warned in advance and can only be unlocked by editing the
+  ledger directly.
+  ⚠️ **« Abonnement » is reachable by a secretary, and that is a deliberate exception** to the product's rule that a
+  secretary sees no clinic-wide money screen (AC-2.2): the amounts are what the practice owes its software *vendor*,
+  none of it appears in la caisse or a patient's balance (FR-2), and the person who meets the refused save chairside is
+  usually not the person who pays. What stays `AdminOnly` is the payment **history**, not the screen.
+  ⚠️ **`GET /api/subscription` reads the ledger; the gate deliberately does not.** The entitlement row carries one date
+  and no memory of where it came from, so « is the cover in force the free **trial**? » needs the fold — which is
+  exactly why `SubscriptionStateReader.Read` takes `isTrial` as a parameter. The gate stays one indexed row.
+  ⚠️ **`Subscriptions` is on `RealtimeResourceResolver.ExcludedAreas`** (FR-15): the state is learned by a **re-read**,
+  never a broadcast, because neither moment that changes it can push one — a vendor grant runs in a separate process
+  with no caller's token to derive a clinic from, and an entitlement ending at midnight has no actor at all.
+  ⚠️ **Interim state until Part D**: `/abonnement` is in `buildConfigItems` unconditionally, so `SelfHostedLan` and
+  `CloudBrowser` show one rail row whose page says « cette installation ne fonctionne pas par abonnement ». Both
+  endpoints **404 before the mediator** there, so nothing behind them is resolved; Part D's provider removes the row.
   ⚠️ **Reads are untouched by construction, not by a list**: the gate never inspects a GET/HEAD/OPTIONS, so « every
   read, every CSV export and every PDF keep working » holds for every read that exists *and* every read added later.
   An allow-list of readable endpoints would have to be kept complete, and the day it was not, an expired cabinet would

@@ -122,6 +122,9 @@ const ROUTE_ZONES: Array<[string, ZoneKey]> = [
   ["/users", "config"],
   ["/settings", "config"],
   ["/mon-profil", "config"],
+  // « Abonnement » is what the practice pays its *software vendor*, so it is deliberately `config` and not `money`:
+  // the money zone is the clinic's own till, and FR-2 keeps the two apart everywhere else in the product too.
+  ["/abonnement", "config"],
 ]
 
 /**

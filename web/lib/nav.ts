@@ -5,6 +5,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Clock,
+  CreditCard,
   FileCheck,
   FlaskConical,
   HandCoins,
@@ -108,6 +109,12 @@ export function buildConfigItems(isAdmin: boolean): NavItem[] {
         ]
       : []),
     { name: "Paramètres", href: "/settings", icon: Settings },
+    // `clinic-subscription` AC-2.2 — **outside the `isAdmin` branch above, deliberately.** The person who meets
+    // « Votre abonnement a expiré … » on a save is usually reception, not whoever pays, and she has to be able to
+    // read why; hiding this row would point the refusal at a screen she cannot see (EC-10). It sits with the other
+    // clinic-administration destinations but outside their admin-only grouping, exactly as the spec words it.
+    // What stays admin-only is the payment *history* inside the page, not the page.
+    { name: "Abonnement", href: "/abonnement", icon: CreditCard },
   ]
 }
 

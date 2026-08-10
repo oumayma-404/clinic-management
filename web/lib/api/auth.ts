@@ -42,6 +42,20 @@ export interface AuthModeDto {
    * have.
    */
   publicSignupEnabled?: boolean;
+  /**
+   * Whether a cabinet's right to record new work is a dated entitlement here (`clinic-subscription`, FR-11).
+   *
+   * ⚠️ **This is what the client mounts the « Abonnement » screen and the banner from — never a probe of
+   * `GET /api/subscription`.** That endpoint's 404 stays as the server-side guarantee, but a network failure and a
+   * genuine 404 are indistinguishable to a probe, and EC-13 requires a failed read to be *retryable* rather than
+   * read as « aucun abonnement ».
+   *
+   * ⚠️ **Optional, and read as `=== true`**, following `publicSignupEnabled`'s convention: `web` and `api` are
+   * separate containers in the hosted topology, so a rolling deploy legitimately serves this page from a build newer
+   * than the API answering it. A required `boolean` here would be `undefined` asserting a type it does not have —
+   * and the safe direction is « no subscription », which is how the two unaffected deployment kinds already behave.
+   */
+  requiresSubscription?: boolean;
 }
 
 /** What `POST /api/auth/signup` requests. Mirrors the backend `ClinicSignUpRequest`. */

@@ -43,21 +43,21 @@ _From spec:_
 - [x] **AC-4.4** Create / modify / delete is refused with a French message naming the end date and pointing at « Abonnement »
 - [x] **AC-4.5** The refusal is machine-recognisable and **never signs the user out**
 - [x] **AC-4.7** Signing in works; changing a password works, including an administrator-forced change (**EC-2**)
-- [ ] **AC-4.8** Reading « Abonnement » works — *the gate half is done (both actions will be GETs, which it never inspects), but the screen and its endpoints arrive in **Part C**; not tickable yet*
+- [x] **AC-4.8** Reading « Abonnement » works — *both halves now: the gate never inspects a GET, and Part C's two endpoints are GETs carrying `[AllowsWithoutSubscription]` as documentation of that*
 - [x] **AC-4.9** Compute-only requests still succeed (CNAM estimate, CSV import dry run, render-for-download); **the AI assistant does not**
 - [x] **AC-4.11** Screens experienced as reading keep working where they issue a write to do so (default file folders, push-token registration, clearing the bell)
 - [x] **AC-4.10** Nothing about the refusal is silent — no case where a save appears to succeed and does not
 - [x] **EC-6** A cabinet with no entitlement row is refused under the **distinct** `subscription_missing` code
-- [x] **EC-10** A secretary meets the French refusal — never a rights error (the gate reads no role at all, so « vous n'avez pas les droits » is unreachable here). *The « screen she is allowed to open » half belongs to Part C's `AnyClinicRole` route.*
+- [x] **EC-10** A secretary meets the French refusal — never a rights error (the gate reads no role at all, so « vous n'avez pas les droits » is unreachable here). *The « screen she is allowed to open » half landed with Part C: `/api/subscription` is `AnyClinicRole` and `/abonnement` sits outside `buildConfigItems`' admin branch and outside `SECRETARY_HIDDEN_HREFS`.*
 
 **Part C — visibility (US-2)**
-- [ ] **AC-2.1** « Abonnement » shows state, end date, days remaining, plan, price, payment instructions, contact details
-- [ ] **AC-2.2** Reachable by **every** role including a secretary, outside the admin-only grouping
-- [ ] **AC-2.3** An administrator additionally sees the payment history (date, period covered, amount, method, reference); a corrected entry struck through with its reason
-- [ ] **AC-2.4** Price and payment instructions are per-deployment configuration, not compiled in
-- [ ] **AC-2.5** An entitlement with no end date says so **in words**, not as a far-future date
-- [ ] **EC-11** A suspended cabinet reads « Suspendu », not « Expiré »
-- [ ] **EC-13** A failed read of the screen is a retryable « Réessayer », never « aucun abonnement »
+- [x] **AC-2.1** « Abonnement » shows state, end date, days remaining, plan, price, payment instructions, contact details — *the price is the cabinet's own forfait's **plus** the deployment's published tariff for all three, since a trial cabinet has chosen no forfait (progress.md DEV-3)*
+- [x] **AC-2.2** Reachable by **every** role including a secretary, outside the admin-only grouping
+- [x] **AC-2.3** An administrator additionally sees the payment history (date, period covered, amount, method, reference); a corrected entry struck through with its reason — *and « Annulé » in words beside the strike-through*
+- [x] **AC-2.4** Price and payment instructions are per-deployment configuration, not compiled in
+- [x] **AC-2.5** An entitlement with no end date says so **in words**, not as a far-future date
+- [x] **EC-11** A suspended cabinet reads « Suspendu », not « Expiré » — *including when its end date is still in the future*
+- [x] **EC-13** A failed read of the screen is a retryable « Réessayer », never « aucun abonnement » — *only an explicit 404 is read as absence; a network drop is `ApiError(0)` and takes the retry path*
 
 **Part D — banner, toast, live re-read (US-3 banner half, US-4 client half)**
 - [ ] **AC-1.3** The signup form **and** the verification e-mail both state « 30 jours d'essai gratuit, sans carte bancaire » before anything is submitted

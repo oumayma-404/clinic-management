@@ -84,6 +84,24 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   never inspects a read, so it *cannot* go red when the attribute is removed from a GET-only row — a limitation made
   executable by `The_Guard_Is_Deliberately_Blind_To_An_Exempted_Read`, beside the ordinary red-proof, so nobody reads
   a green run as covering those rows. An action declaring **no** HTTP method counts as a write (it answers every verb).
+- **`Features/Subscriptions/GetSubscriptionQueryTests.cs`** + **`GetSubscriptionHistoryQueryTests.cs`** +
+  **`Api/SubscriptionControllerTests.cs`** (`clinic-subscription` Part C). The fold's arithmetic belongs to
+  `SubscriptionLedgerTests` and the state rule to `SubscriptionStateReaderTests`; what these three add is what neither
+  can see. The single highest-value case is
+  `GetSubscriptionQueryTests.A_Cabinet_On_Its_Free_Days_Reads_Essai_Gratuit`: it is the **only** assertion that fails if
+  the handler stops reading the ledger, because every other field would still be right and every cabinet would simply
+  read « Actif ». Its sibling is
+  `GetSubscriptionHistoryQueryTests.Page_Two_Continues_Page_Ones_Periods_Rather_Than_Restarting_Them` — hand the fold a
+  paged window and page 2's dates stay entirely plausible while describing periods the cabinet was never entitled to.
+  ⚠️ **`GetSubscriptionQueryTests` anchors its fixtures on `ClinicClock.ClinicToday()`, which is the OPPOSITE of what
+  `ClinicClockTests` and `SubscriptionGateMiddlewareTests` do**, and deliberately: the property under test is « which
+  ledger entry covers *today* », so a fixture decades away has no covering entry at all and the case ceases to exist.
+  The history class has no clock in it at all, because nothing in that read depends on today.
+  `SubscriptionControllerTests` holds the two facts that live in *composition*: the **404 is answered before the
+  mediator** (AC-7.1/7.2 is « byte for byte unchanged », not « unchanged plus two reads » — asserted as
+  `Assert.Empty(mediator.Invocations)`, not merely as a status), and the AC-2.2 policy split (`AnyClinicRole` on the
+  screen, `AdminOnly` on the history alone) with a **drift guard** carrying its own executed red-proof, so a later
+  action cannot widen the secretary exception by omission.
 - **`Api/MigrationLockTests.cs`** (`multi-tenant-cloud` US-6) — the startup advisory lock, and a worked example of asserting the two things a mistake would actually look like when the mechanism itself is out of reach (nothing here touches a database). Both statements must name the **same fixed** key — two instances naming different numbers serialise nothing, and the failure is invisible until two containers migrate at once — and the lock must be **session-level**, because `pg_advisory_xact_lock` releases at the first commit *inside* the migration, leaving the rest of it unprotected while looking correct. The third property is asserted against **`Program.cs`'s own source**: a lock the startup path forgot to wrap is exactly as broken as no lock, and nothing else in the build can see it.
 - **`Api/AuthAttemptAccountTests.cs`** + the US-6 half of **`Api/RateLimitingTests.cs`** — the login limiter's re-key onto the submitted account. Most of the file is about the cases that must produce **nothing**: a non-JSON body, a truncated one, an oversized one, `auth/refresh` (no email at all). Any of those throwing would take the login endpoint off the air, which is strictly worse than the lockout the re-key exists to prevent. The two partition cases that matter are the ones a naive fix gets wrong: **the same account shares one bucket regardless of address** (a compound `account+address` key would hand one attacker a fresh budget per address) and **an account key can never collide with an address key** (an email is caller-supplied text).
 - **`Api/HealthCheckTests.cs`** — the grading, which is the whole substance: storage down is **`Degraded`** (still 200) and the database is `Unhealthy` (503). Also that storage which cannot even be **resolved** degrades rather than 500s — where MinIO is unconfigured `AddInfrastructure` deliberately registers a factory that throws, so a constructor-injected `IFileStorage` would throw while the framework was *building* the check.

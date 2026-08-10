@@ -77,6 +77,11 @@ public class AuthController : ApiControllerBase
             // code? » (✗ here) and this is « may a visitor create their OWN clinic behind an emailed token? »
             // (✓ here). The `/signup` page reads it so it never offers a form the endpoint would 404.
             publicSignupEnabled = deployment.AllowsPublicClinicSignup,
+            // clinic-subscription Part C. The client mounts the « Abonnement » entry and (Part D) the banner from
+            // this flag, never from probing the endpoint: a network failure and a genuine 404 are indistinguishable
+            // to a probe, and EC-13 requires a failed read to be retryable rather than read as « aucun abonnement ».
+            // The 404 on SubscriptionController stays as the server-side guarantee.
+            requiresSubscription = deployment.RequiresSubscription,
         });
     }
 

@@ -27,9 +27,14 @@ public static class RealtimeResourceResolver
     // signed in on. A colleague registering their handset changes nothing on anybody's screen, so a broadcast
     // would tell every browser in the clinic to refetch over a fact none of them render — and would additionally
     // announce, clinic-wide, that somebody just signed in on a device.
+    //
+    // "Subscriptions" is excluded because FR-15 says the state is learned by a **re-read**, not by a broadcast, and
+    // the two moments that change it cannot push one: a vendor grant runs in a separate process whose container does
+    // not even resolve the notifier and which has no caller's token to derive a clinic from, and an entitlement
+    // ending at midnight has no actor at all. A key here would advertise a live channel that covers neither.
     private static readonly HashSet<string> ExcludedAreas = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Auth", "AI", "Backup", "Connectivity", "Dashboard", "PushDevices"
+        "Auth", "AI", "Backup", "Connectivity", "Dashboard", "PushDevices", "Subscriptions"
     };
 
     public static string? Resolve(Type requestType)

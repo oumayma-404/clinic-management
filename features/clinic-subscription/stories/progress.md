@@ -8,7 +8,7 @@
 
 | Story | Status |
 |---|---|
-| 1 — Abonnement du cabinet | in-progress (Parts A + B done) |
+| 1 — Abonnement du cabinet | in-progress (Parts A + B + C done) |
 
 ### Parts inside Story 1
 
@@ -16,7 +16,7 @@
 |---|---|---|
 | A | Every cabinet has an entitlement, at every door and for all of history | **done** (Checkpoint A green) |
 | B | An expired cabinet keeps its records and loses only recording | **done** (Checkpoint B green) |
-| C | The cabinet can see where it stands and how to pay | not-started |
+| C | The cabinet can see where it stands and how to pay | **done** (Checkpoint C green; eye pass owed) |
 | D | The banner, the refusal toast, and the live re-read | not-started |
 | E | The cabinet is warned before it stops being able to work (⚠️ atomic) | not-started |
 | F | The vendor unlocks a cabinet that has paid | not-started |
@@ -379,3 +379,187 @@ run as covering the GET-only rows).
   `Subscription` appsettings section is still outstanding »; it is present in `appsettings.json` with all six keys and
   their explanatory comments, and `Infrastructure/CLAUDE.md` already documents them. Corrected below rather than
   re-done. A carried-forward gap is worth re-reading before acting on it.
+
+---
+
+# Part C — The cabinet can see where it stands and how to pay
+
+**Working tree note (start of session 3).** Clean apart from the other author's untracked `features/platform-console/`,
+left untouched and excluded. `git diff HEAD --numstat` reviewed at the end: **one** deletion across all five modified
+files (the `ExcludedAreas` line, replaced by the same line plus `"Subscriptions"`); everything else is additive.
+⚠️ Part A's warning about `web/app/layout.tsx` and `web/lib/zones.ts` applies: both were **re-read** from disk before
+editing, not worked from anything cached from before `b79a4f4`. `layout.tsx` is untouched by this part (it is Part D's).
+
+## Part C — steps
+
+| # | Step | Status |
+|---|---|---|
+| C1 | `GetSubscriptionQuery` + `GetSubscriptionHistoryQuery`, the DTOs, `SubscriptionController` | **done** |
+| C2 | `requiresSubscription` on `GET /api/auth/mode` + `AuthModeDto`, read `=== true` | **done** |
+| C3 | `web/lib/api/subscription.ts`, `app/abonnement/page.tsx`, `subscription-history-table.tsx` | **done** |
+| C4 | Nav — `/abonnement` in `buildConfigItems`; `ROUTE_ZONES` row | **done** |
+| C5 | `Subscriptions` → `RealtimeResourceResolver.ExcludedAreas` | **done** |
+| C6 | Tests (not a numbered plan step — the quality policy's) | **done** — 25 new tests |
+
+## Session decisions
+
+**Session 3 — scope: Part C only.** Requested explicitly (`/implement-story clinic-subscription part C`). Same branch,
+same explicit-path staging. Part C is the one genuinely mixed part (two read endpoints plus the screen).
+
+**Two questions asked and answered before any code was written** — both changed what was built:
+
+1. **The price on the wire.** AC-2.1 requires the screen to show the price, but a cabinet on its free days and every
+   grandfathered one has `Plan = null`, so the spec's single `priceMonthlyDt`/`priceAnnualDt` pair is null for exactly
+   the readers deciding whether to pay. Answer: **add a `plans` array** carrying the published tariff (DEV-3).
+2. **Nav gating vs. AC-7.1/7.2.** The plan says the `/abonnement` entry is unconditional, while AC-7.1/7.2 say a
+   deployment that does not enforce subscriptions has no « Abonnement » screen — and the client-side flag that would
+   gate the rail only gets its provider in Part D. Answer: **follow the plan** (unconditional) and have the page itself
+   state « Cette installation ne fonctionne pas par abonnement » where the door is shut. Part D's provider then removes
+   the rail row. Recorded as a known interim state below rather than as a closed AC.
+
+## Deviations
+
+### DEV-3: `SubscriptionDto` carries a `plans` array beyond the spec's wire shape
+**Date:** 2026-08-10
+**Story:** 1, Part C, step 1
+**Category:** Scope
+**Original Plan:** *Files to Create/Modify* — « `SubscriptionDto.cs`, `SubscriptionPeriodDto.cs` — the spec's two wire
+shapes, **verbatim** ».
+**Actual Implementation:** Both shapes are present field for field, **plus** `plans: [{ plan, label, priceMonthlyDt,
+priceAnnualDt }]` — the deployment's published tariff, one row per forfait in enum order, unpublished figures left
+`null`. `priceMonthlyDt`/`priceAnnualDt` keep their spec meaning: the **cabinet's own** forfait's price.
+**Justification:** The two halves of the requirement contradict each other for the majority case. `Plan` is nullable by
+Part A's own recorded decision (« a cabinet on its free days and every grandfathered one has chosen no forfait; a
+default would read as a commercial choice nobody made »), so the spec's two price fields are null for every trial and
+every grandfathered cabinet — i.e. AC-2.1's « the price » is absent on precisely the screen a cabinet opens while
+deciding whether to pay, which is what US-2 exists for (« paying is never blocked on not knowing what to do »). The
+three alternatives are worse: defaulting to the `Cabinet` tier quotes a five-practitioner clinic the single-dentist
+price, deriving a plan from the ledger invents one, and leaving the section empty makes the payment instructions carry
+AC-2.1 alone.
+**Impact:** One added response field, additive — no existing consumer changes and the spec's fields keep their meaning.
+Still per-deployment configuration (AC-2.4), so an unconfigured deployment sends an empty array and the screen says the
+tariff is not published. `SubscriptionLabels` gains one method for the forfait's French name.
+**Approved:** Yes — asked with the three alternatives before any code was written.
+
+### DEV-4: the DTOs live in `Application/DTOs/`, not `Application/Common/Models/`
+**Date:** 2026-08-10
+**Story:** 1, Part C, step 1
+**Category:** Technical
+**Original Plan:** « `Application/Common/Models/SubscriptionDto.cs`, `SubscriptionPeriodDto.cs` ».
+**Actual Implementation:** `Application/DTOs/SubscriptionDto.cs` and `Application/DTOs/SubscriptionPeriodDto.cs`.
+**Justification:** The project rule disagrees with the plan and has already been settled by the whole layer:
+`Application/DTOs/` holds every request/response record in the product (~40, including the three sibling page shapes
+`AuditPageDto`, `ClinicUsersPageDto`, `ReceivablesPageDto`), while `Common/Models/` holds `Result`, the five PDF input
+models and `ResolvedReminderSettings` — none of which is a wire shape. `Application/CLAUDE.md` states both roles
+explicitly. A DTO in `Common/Models/` would be the first one there.
+**Impact:** None observable. Same kind of call as Part A's DEV-2: a project-rule decision, stated rather than asked.
+**Approved:** Taken as a project-rule call (skill step 6.7); recorded here and in the session report.
+
+## Auto-Approved Deviations
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| `SubscriptionHistoryPageDto` carries the full page envelope, not the spec's `{ items, totalCount }` | Trivial | Strict superset; both spec fields present. It makes the DTO structurally a `PagedResponse<T>`, which is what lets the shared `DataTablePagination` consume it unchanged — the shape `AuditPageDto` and `ClinicUsersPageDto` already have. |
+| `SubscriptionDto` carries `stateLabel`/`planLabel`, `SubscriptionPeriodDto` `kindLabel`/`methodLabel` | Trivial | Four closed enums decided server-side, on `AuditLabels`' and the caisse statement's precedent: a client-side map would be a second list to extend, and the one that forgets a new member renders a raw `SurMesure` to a dentist. The stable key travels beside every label. |
+| `SubscriptionLabels` is a new file rather than labels inline in the queries | Trivial | Internal scope, one new type. Both queries need the same maps; Part F's report will be the third caller. |
+| `GetSubscriptionQuery` reads the **ledger**, not just the entitlement row | Trivial | No API change; it is what `SubscriptionStateReader`'s own `isTrial` parameter was written for (« the screen reads the ledger anyway, so it can say »). The gate still reads one indexed row. |
+| A missing entitlement row is a `Result.Failure` carrying `subscription_missing`, rendered **400** | Trivial | Internal to one new handler. Not 404 (reserved for « this deployment has no subscriptions »), and deliberately **not 409** — that status is taken by optimistic concurrency, and `client.ts` maps it to a sentence about a concurrent edit that would be actively wrong here. The client shows the server's own French sentence whatever the status. |
+| `ROUTE_ZONES` files `/abonnement` under **`config`**, not `money` | Trivial | One row in an existing table. The money zone is the clinic's own till; this is what the practice pays its software vendor, and FR-2 keeps the two apart everywhere else. |
+| `SubscriptionControllerTests` exists, and the plan named no test file for Part C | Trivial | Additive tests only. Two properties nothing else in the build can see: the **404 before the mediator** (AC-7.1/7.2 is « byte for byte unchanged », not « unchanged plus two reads ») and the AC-2.2 policy split, with a drift guard so a later action cannot widen the secretary exception by omission. |
+
+## Part C gates — Checkpoint C
+
+| Gate | Result |
+|---|---|
+| `dotnet build api/ClinicManagement.sln --no-incremental` | ✅ **0 errors**, **55 warnings — the identical Checkpoint A/B baseline**, and **zero** of them name a file this part added or edited (checked by grepping the full warning list for `Subscription`/`abonnement`) |
+| `dotnet build` of `ClinicManagement.UnitTests` alone | ✅ 0 errors, **0 warnings** |
+| Unit suite | ✅ **2356 passed, 0 failed** (baseline 2331 → **25 new**) |
+| `GetSubscriptionQueryTests` | ✅ 11 |
+| `GetSubscriptionHistoryQueryTests` | ✅ 8 |
+| `SubscriptionControllerTests` | ✅ 6 |
+| `RealtimeResourceResolverTests` | ✅ green, **unedited** — `Subscriptions` is excluded server-side and **no** frontend key was added; both new reads are `Queries`, so they emit nothing either way (the exclusion is for Part F's commands) |
+| `SubscriptionExemptionCoverageTests` | ✅ green, **unedited** — both new actions are GETs, and the guard classifies non-GET actions only (its own stated blindness, pinned by `The_Guard_Is_Deliberately_Blind_To_An_Exempted_Read`). They carry `[AllowsWithoutSubscription]` as documentation, which Part B's note asked Part C to add |
+| `ControllerAuthorizationCoverageTests` · `AdminSurfaceCoverageTests` | ✅ green, **both unedited** — the new controller adds no `[AllowAnonymous]` and no mutating verb |
+| `TenantScopeFilterTests` · `DeploymentProfileCoverageTests` · `MoneyReadConsistencyTests` | ✅ green, **all three unedited** (confirmed by name against `git status`, not assumed) — the vendor's revenue still reaches no clinic money read (FR-2) |
+| `verify-schema` | **not applicable — and the verb was re-confirmed to exist and run** (`Api/Maintenance/VerifySchemaCommand` + `SchemaVerificationService`, 49 passing tests). Part C adds no migration, column or index: `git status` shows nothing under `Infrastructure/` |
+| `npx tsc --noEmit` | ✅ clean |
+| `npm run check:responsive` | ✅ **15/15**, including `card-fallback` (the new history table has its card list) and `failed-read-as-empty` |
+| `npm run build` | ✅ compiled; `/abonnement` present in the route table (7.92 kB) |
+| Eye pass at 320 / 390 / 820 / 1180 / 1440 px | ⚠️ **not run — no browser automation on this machine.** `agent-browser` is not installed (`command -v` finds nothing) and neither the API nor the web server was running. See *The eye pass, and what stands in for it* |
+
+### The one red-proof
+
+`SubscriptionControllerTests.Every_Action_Is_Classified_By_This_Test` was proven to fail: a throwaway
+`[HttpGet("probe")] Probe()` action was added to `SubscriptionController`, the class was run, and it went **red**
+naming the endpoint — « New action(s) on SubscriptionController with no policy decision recorded here: Probe ».
+Reverted, re-run green (6/6), and the file confirmed to contain no `Probe` afterwards.
+
+The other new assertions are behavioural rather than derived, so a red-proof would only restate the test. The two
+worth naming as the ones that can genuinely fail on a plausible wrong implementation:
+`A_Cabinet_On_Its_Free_Days_Reads_Essai_Gratuit` (fails the moment the handler stops reading the ledger — every other
+field stays right) and `Page_Two_Continues_Page_Ones_Periods_Rather_Than_Restarting_Them` (fails if the fold is ever
+handed a paged window; the dates would stay entirely plausible).
+
+### The eye pass, and what stands in for it
+
+No browser was available, so the widths were **not** looked at and this is recorded as owed rather than done. What was
+run in its place: the mechanical gate (15/15 — the only automated check that can see a layout defect at all) plus a
+deliberate re-read of both new frontend files against `DEVICE-CONTRACT.md` § 1 and `.claude/rules/frontend-web.md`,
+item by item:
+
+| Rule | How it is held in `app/abonnement/page.tsx` + `subscription-history-table.tsx` |
+|---|---|
+| § 1 hinge choice | The screen's two columns hinge at **`lg:`**, not `md:`, because the spec asks for a single column at a readable measure on a tablet portrait (« do not stretch to two just because the width allows it ») and 820 px is already past `md:`. The history table uses **`CARDS_ONLY_LG`/`TABLE_ONLY_LG`** for the same reason: seven columns beside the 256 px rail leaves ~532 px, and every cell in `ui/table.tsx` is `whitespace-nowrap` |
+| § 2 touch on the **pointer** | The two contact links carry `coarse:min-h-11` — changed from an unconditional `min-h-11` **during this re-read**, since § 2's rule is that the painted control may stay smaller on a mouse. The « Retour à l'agenda » CTA keeps an unconditional `min-h-11`, following `AccessDeniedCard`'s precedent for a screen's single control. Nothing sits in a tight row or stack, so no `.touch-target` overlay is used and the overhang trap does not arise |
+| § 3 16 px fields | No text input on either surface |
+| § 4 / § 5 dialogs & sheets | None — this part adds no dialog |
+| § 6 a `<Table>` never ships alone | Two trees, real `<dl>` cards below the hinge (`card-fallback` passes). « Annulé » is in **words** as well as struck through, and the cancel motif is its own card field |
+| § 7 `dvh` / bottom inset | Owned by `AppShell`; nothing here is `fixed` |
+| § 8 11 px floor, no `text-[Npx]` | `text-sm`/`text-2xs` only (`type-scale` passes) |
+| § 9 hover | The only hover is `hover-hover:hover:no-underline` on the two links — a decoration change, and gated anyway. No affordance is hover-revealed |
+| § 10 ungated grids | `grid gap-6 lg:grid-cols-2`; the tariff row is `flex flex-wrap`; no popovers |
+| § 11 overflow | The table's own container scrolls (`ui/table.tsx`); nothing centres inside a scroller |
+| § 12 logical utilities | `text-end` and `gap-*` only; no `left-*`/`pl-*` written here |
+| § 13 UX floor | Four distinct states — skeleton, empty (`EmptyState`), **failed** (`LoadFailureNotice` + « Réessayer », EC-13) and content — plus `role="status"` on both inline notices, `aria-labelledby` on the history section, `aria-hidden` on every decorative glyph, and no English string. No `.catch(() => [])` anywhere (`failed-read-as-empty` passes) |
+
+### Verification steps — what is proven and what is still owed
+
+| Step (story § *Verification Steps → Part C*) | Result |
+|---|---|
+| A secretary can open « Abonnement » and read state, date, price and payment instructions (AC-2.2, EC-10) | ✅ **structurally**: the class policy is `AnyClinicRole`, pinned by `The_Screen_Is_Open_To_Every_Clinic_Role`, and `/abonnement` is outside `buildConfigItems`' `isAdmin` branch **and** outside `SECRETARY_HIDDEN_HREFS`. The live walk needs a hosted profile — **operator step, owed** |
+| A secretary cannot see the payment history; the non-admin path renders `AccessDeniedCard` with **no 403 toast storm** | ✅ `Only_The_Payment_History_Is_Admin_Only`, and the page's history effect is guarded on `isAdmin` so the request is never issued |
+| An open-ended entitlement says so **in words**, not as a far-future date (AC-2.5) | ✅ `An_Open_Ended_Entitlement_Carries_No_Date_And_No_Countdown` (null on the wire) plus the screen's « Sans échéance — cet abonnement n'expire pas. » |
+| A suspended cabinet reads « Suspendu », not « Expiré » (EC-11) | ✅ `A_Suspended_Cabinet_Reads_Suspendu_And_Carries_Its_Motif`, including with a **future** end date |
+| A dropped network yields a retryable « Réessayer », never « aucun abonnement » (EC-13) | ✅ by construction: only an explicit **404** is read as absence; `ApiError(0)` and every other status take the `LoadFailureNotice` path. **Not** exercised against a real dropped connection — owed with the operator walk |
+| Page 2 of a long history continues page 1's periods | ✅ `Page_Two_Continues_Page_Ones_Periods_Rather_Than_Restarting_Them`, asserted against the unpaged fold |
+| `RealtimeResourceResolverTests` green with `Subscriptions` excluded and **no** frontend key added | ✅ green, unedited |
+| Frontend gate clean; eye pass at the five widths | ✅ gate clean · ⚠️ **eye pass owed** (no browser here — see above) |
+
+## Known interim state, deliberately
+
+**On `SelfHostedLan` and `CloudBrowser` the rail now shows an « Abonnement » row** that opens a page saying « Cette
+installation ne fonctionne pas par abonnement. Votre licence est permanente. » with a way back. That is the plan's own
+Part C step 4 (« `/abonnement` unconditional in `buildConfigItems` ») plus the user's recorded decision above; the row
+itself disappears in **Part D**, the part that introduces the client-side `requiresSubscription` provider the rail
+would need. **AC-7.1/7.2 are therefore not tickable at Checkpoint C** — no banner, no warning and no *data* on those
+profiles (the endpoints 404 before the mediator, asserted), but one self-explaining rail row. Stated here so a reader
+of the AC list does not record it as closed.
+
+## Learnings
+
+- **« The spec's wire shape, verbatim » can be self-contradictory once an earlier part's own decision lands.** Part A
+  made `ClinicSubscription.Plan` nullable on purpose, and that is what turned the spec's two price fields into « null
+  for every trial cabinet » — AC-2.1 unmet for the majority case, by two decisions that are each right. Worth
+  re-reading a wire shape against the *entities as built* rather than as specified before treating « verbatim » as an
+  instruction.
+- **The status code for « this should be impossible » is a real design choice, and 409 is already spoken for.** A
+  missing entitlement row wanted a status meaning « our fault, not your request »; 409 would have been the semantic
+  fit, and `client.ts` maps 409 to « Cet enregistrement a été modifié par quelqu'un d'autre pendant votre saisie » — a
+  confidently wrong sentence. Checking the client's status map before choosing a status cost one grep.
+- **A « not applicable » gate is worth re-confirming every part, not once per feature.** Part B's own learning said so;
+  doing it again here took one grep, and it is the difference between « Part C added no migration » and « nobody has
+  looked at `verify-schema` since Part A ».
+- **An eye pass that cannot run is a gap to state, not one to paper over.** `agent-browser` is absent on this machine,
+  so the widths are recorded as **owed**, with the mechanical gate and a rule-by-rule re-read named as what stands in
+  for them — and that re-read found one real thing (an unconditional `min-h-11` that should have been `coarse:`),
+  which is the argument for doing it rather than writing « responsive ✓ ».
