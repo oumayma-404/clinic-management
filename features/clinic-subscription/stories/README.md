@@ -46,7 +46,7 @@ Parts outlined in red are **atomic** — see *Split points* below.
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | [Abonnement du cabinet — entitlement, enforcement, visibility and vendor control](./story-1-full-clinic-subscription.md) | in-progress (Parts A + B + C + D + E + F done) | - |
+| 1 | Full | [Abonnement du cabinet — entitlement, enforcement, visibility and vendor control](./story-1-full-clinic-subscription.md) | **implemented** (all seven parts done) | - |
 
 ### Parts inside Story 1
 
@@ -58,7 +58,7 @@ Parts outlined in red are **atomic** — see *Split points* below.
 | D | The banner, the refusal toast, and the live re-read | FE | — | C | **done** — Checkpoint D green; the eye pass is owed (no browser here). Also closes Part C's interim rail row (AC-7.1/7.2). See [progress.md](./progress.md) |
 | E | The cabinet is warned before it stops being able to work | BE + FE | **yes** | A | **done** — Checkpoint E green, three executed red-proofs. Carries two `web/` edits the plan's table did not list, so AC-3.4's deep-link is real (progress.md DEV-8). See [progress.md](./progress.md) |
 | F | The vendor unlocks a cabinet that has paid | BE | — | A | **done** — Checkpoint F green, two executed red-proofs. It also fixed a derived guard that had never checked a console verb (progress.md DEV-11). See [progress.md](./progress.md) |
-| G | Background work parks rather than sends or vanishes | BE | **yes** | A, F | not-started — the only part left |
+| G | Background work parks rather than sends or vanishes | BE | **yes** | A, F | **done** — Checkpoint G green, three executed red-proofs (one per half that fails silently). Adds one shared `OutboxSubscriptionGate` the plan's four-file table did not list, so the decision is not written four times (progress.md DEV-12), and sends for a cabinet with **no** entitlement row where the HTTP gate refuses (DEV-13). See [progress.md](./progress.md) |
 
 ## Departure from the BE/FE separation rule
 

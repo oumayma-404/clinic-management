@@ -581,7 +581,7 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   `AddForeignKey` over such a row aborts the upgrade after the schema is half-applied. This is **attribution, not
   authorization**: per-practitioner data scoping is deliberately out of scope. `verify-schema` gained
   `practitioner-attribution-backfill`, because a backfill is the one thing invisible to every other layer.
-- **A cabinet's right to record work is a dated entitlement (`clinic-subscription`, Parts A–E of 7)**: on the
+- **A cabinet's right to record work is a dated entitlement (`clinic-subscription`, all 7 parts)**: on the
   hosted deployment a clinic gets **30 free days**, and past its date it becomes **read-only** — every read, every
   CSV export and every PDF keep working, and only writes are refused. Part A ships the foundation: one
   **`ClinicSubscription`** per clinic whose `EndsOn` is a full re-fold of an append-only, cancellable
@@ -601,8 +601,28 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   0 days** out, four genuinely new unread rows deduped on the new `StaffNotification.SubscriptionThresholdDays`
   column, deep-linking to « Abonnement » and **never** reaching a locked phone (AC-3.6). **Part F ships the vendor's side**: three commands
   (`Grant` / `Cancel` / `SetSuspension`) reached only by **five console verbs** — `subscription-grant`, `-cancel`,
-  `-suspend`, `-unsuspend`, `-report` — plus `SubscriptionReportService`. **Part G is the one part left**: no outbox
-  parking, so a reminder queued before expiry for a later appointment still sends.
+  `-suspend`, `-unsuspend`, `-report` — plus `SubscriptionReportService`. **Part G ships the background half**: SMS,
+  WhatsApp and OS push all stop, and a queued row is **parked with a stated reason** rather than sent or discarded, so
+  extending the entitlement before the visit still gets the reminder out (EC-7).
+  ⚠️ **Part G's load-bearing half is the *un-park*, not the park.** Both outboxes already had a non-terminal
+  `Blocked` status that survives the purge and carries a French sentence — but the pass that returns rows to the queue
+  asks only whether the **channel** can send (is there a sender · is it enabled for this clinic · are its credentials
+  present), and a row parked for expiry passes all three, so it would be released and dispatched **within a minute**
+  on a cabinet that has not paid. Hence the machine-readable **`OutboxBlockReason`** beside the prose (recovering an
+  outcome by matching French text is the defect this repo deleted in `adoption-gaps-remediation`) and hence the two
+  halves shipping in **one commit**. One **`OutboxSubscriptionGate`** is consulted from all four places — dispatch and
+  review, in each queue — rather than a condition written twice per queue, and it is asked for *every* parked row so a
+  channel-parked row is not released into a queue about to park it again.
+  ⚠️ **A cabinet with no entitlement row keeps sending, unlike at the HTTP gate.** Fail-closed is right there — a
+  missing row must not become a way to write for ever — but nothing in the outbox is an authorization decision: the
+  work was recorded legitimately while the cabinet could write, and silencing a practice's reminders over our own
+  bookkeeping fault is invisible to the practice and unfixable by it. That fault is surfaced where it can be acted on
+  (`verify-schema`'s `every-clinic-has-an-entitlement`, `subscription-report`).
+  ⚠️ **The scheduled backup and the daily stock-expiry alert are untouched, deliberately** (FR-8): an unbacked-up
+  medical record is a liability regardless of who has paid, and it is the one consequence paying late cannot undo. The
+  **manual** backup carries `[AllowsWithoutSubscription]` for the same reason — refusing it while the automatic one
+  runs would be incoherent. And **nothing is ever deleted** however long a cabinet stays expired (FR-14): both purges
+  drop terminal rows only, so `Blocked` was out of scope the moment it existed.
   ⚠️ **Part E's four rows are the opposite of the two ensure/clear alerts beside them, and deliberately.**
   `StockExpiringSoon` and `BackupStale` keep **one** row and reword it; rewording **does not clear who has read it**,
   so once the owner has read « 7 jours » the « 3 jours », « 1 jour » and « dernier jour » restatements would stay read

@@ -101,11 +101,24 @@ public class NotificationJobTests
         return new NotificationJob(
             notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object, settingsProvider.Object, config, senders,
             new Mock<INotificationGenerator>().Object,
+            SubscriptionsNotEnforced(), new Mock<IClinicSubscriptionRepository>().Object,
             // I6 wired an audit actor into every job. A permissive mock keeps these scenarios exactly as they
             // were: the job declares itself, nothing here observes it.
             new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
             NullLogger<NotificationJob>.Instance);
+    }
+
+    /// <summary>
+    /// The deployment kind these scenarios run on: subscriptions are not enforced, so Part G's outbox gate reads no
+    /// entitlement at all and every case below behaves exactly as it did before it existed (AC-7.1/7.2). The parking
+    /// itself is covered by <c>OutboxParkingTests</c>.
+    /// </summary>
+    private static ISubscriptionPolicy SubscriptionsNotEnforced()
+    {
+        var policy = new Mock<ISubscriptionPolicy>();
+        policy.Setup(p => p.RequiresSubscription).Returns(false);
+        return policy.Object;
     }
 
     // [AC-5] Offline: send nothing, leave the row Pending, and do NOT increment the retry count.
@@ -321,6 +334,7 @@ public class NotificationJobTests
         var job = new NotificationJob(
             notifications.Object, patients.Object, appointments.Object, new Mock<IUnitOfWork>().Object, probe.Object, provider.Object,
             config, new IReminderChannelSender[] { sender }, new Mock<INotificationGenerator>().Object,
+            SubscriptionsNotEnforced(), new Mock<IClinicSubscriptionRepository>().Object,
             // I6: permissive audit-actor mock — see the shared builder above.
             new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
@@ -372,6 +386,7 @@ public class NotificationJobTests
         var job = new NotificationJob(
             notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object, provider.Object,
             config, new IReminderChannelSender[] { sender }, new Mock<INotificationGenerator>().Object,
+            SubscriptionsNotEnforced(), new Mock<IClinicSubscriptionRepository>().Object,
             // I6: permissive audit-actor mock — see the shared builder above.
             new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
@@ -429,6 +444,7 @@ public class NotificationJobTests
             notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object,
             settingsProvider.Object, config, new IReminderChannelSender[] { sender },
             new Mock<INotificationGenerator>().Object,
+            SubscriptionsNotEnforced(), new Mock<IClinicSubscriptionRepository>().Object,
             // I6 wired an audit actor into every job. A permissive mock keeps these scenarios exactly as they
             // were: the job declares itself, nothing here observes it.
             new Mock<IAuditActorProvider>().Object,
@@ -520,7 +536,7 @@ public class NotificationJobTests
     public async Task A_Blocked_Row_Is_Returned_To_The_Queue_When_Its_Channel_Becomes_Sendable()
     {
         var blocked = Reminder(NotificationType.SMS, Guid.NewGuid());
-        blocked.MarkAsBlocked("Canal non configure");
+        blocked.MarkAsBlocked(OutboxBlockReason.ChannelUnconfigured, "Canal non configure");
 
         var notifications = new Mock<INotificationRepository>();
         notifications.Setup(r => r.GetDueForDispatchAsync(
@@ -554,6 +570,7 @@ public class NotificationJobTests
         // the row through the sender inside a housekeeping loop.
         Assert.Equal(NotificationStatus.Pending, blocked.Status);
         Assert.Null(blocked.ErrorMessage);
+        Assert.Null(blocked.BlockedReason);
     }
 
     // L3a - a parked row whose channel is STILL unsendable stays parked, so the review pass cannot turn into a
@@ -562,7 +579,7 @@ public class NotificationJobTests
     public async Task A_Blocked_Row_Stays_Blocked_While_Its_Channel_Cannot_Send()
     {
         var blocked = Reminder(NotificationType.SMS, Guid.NewGuid());
-        blocked.MarkAsBlocked("Canal non configure");
+        blocked.MarkAsBlocked(OutboxBlockReason.ChannelUnconfigured, "Canal non configure");
 
         var notifications = new Mock<INotificationRepository>();
         notifications.Setup(r => r.GetDueForDispatchAsync(
@@ -637,6 +654,7 @@ public class NotificationJobTests
         return new NotificationJob(
             notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object,
             settingsProvider.Object, config, senders, new Mock<INotificationGenerator>().Object,
+            SubscriptionsNotEnforced(), new Mock<IClinicSubscriptionRepository>().Object,
             new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
             NullLogger<NotificationJob>.Instance);
     }

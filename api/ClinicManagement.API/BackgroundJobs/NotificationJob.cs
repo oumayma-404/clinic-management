@@ -1,5 +1,7 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.Subscriptions;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -15,6 +17,9 @@ namespace ClinicManagement.API.BackgroundJobs;
 /// server has internet it sends every due <c>Pending</c> reminder via the sender matching its channel, with
 /// the patient phone normalized to +216 E.164 and a bounded retry budget. Offline ⇒ it sends nothing and
 /// leaves rows <c>Pending</c> without consuming any retry budget (mirrors the Google "non synchronisé" model).
+///
+/// <para>A cabinet that may not record new work sends nothing either: its rows are <b>parked</b> through
+/// <see cref="OutboxSubscriptionGate"/> and released only once the entitlement is (<c>clinic-subscription</c> FR-8).</para>
 /// </summary>
 public class NotificationJob
 {
@@ -27,6 +32,8 @@ public class NotificationJob
     private readonly IConfiguration _configuration;
     private readonly IReadOnlyDictionary<NotificationType, IReminderChannelSender> _senders;
     private readonly INotificationGenerator _notificationGenerator;
+    private readonly ISubscriptionPolicy _subscriptionPolicy;
+    private readonly IClinicSubscriptionRepository _subscriptions;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
     private readonly ILogger<NotificationJob> _logger;
@@ -41,6 +48,8 @@ public class NotificationJob
         IConfiguration configuration,
         IEnumerable<IReminderChannelSender> senders,
         INotificationGenerator notificationGenerator,
+        ISubscriptionPolicy subscriptionPolicy,
+        IClinicSubscriptionRepository subscriptions,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
         ILogger<NotificationJob> logger)
@@ -54,6 +63,8 @@ public class NotificationJob
         _configuration = configuration;
         _senders = senders.ToDictionary(s => s.Channel);
         _notificationGenerator = notificationGenerator;
+        _subscriptionPolicy = subscriptionPolicy;
+        _subscriptions = subscriptions;
         _auditActor = auditActor;
         _tenantScope = tenantScope;
         _logger = logger;
@@ -92,11 +103,16 @@ public class NotificationJob
         var pendingNotifications = await _notificationRepository.GetDueForDispatchAsync(batchSize, perClinicBound);
         var maxRetries = RemindersConfig.MaxRetries(_configuration);
 
+        // FR-8 — one gate for the whole tick, dispatch and review alike, so a cabinet's entitlement is read once
+        // however many of its rows are in the batch and two of them cannot be measured against different days.
+        var entitlements = new OutboxSubscriptionGate(
+            _subscriptionPolicy, _subscriptions, ClinicClock.ClinicToday());
+
         foreach (var notification in pendingNotifications)
         {
             try
             {
-                await DispatchAsync(notification, maxRetries);
+                await DispatchAsync(notification, maxRetries, entitlements);
             }
             catch (Exception ex)
             {
@@ -105,7 +121,7 @@ public class NotificationJob
             }
         }
 
-        await ReviewBlockedRowsAsync(batchSize);
+        await ReviewBlockedRowsAsync(batchSize, entitlements);
         await PurgeExpiredRowsAsync();
     }
 
@@ -121,8 +137,14 @@ public class NotificationJob
     ///
     /// <para>A failure here is swallowed for the same reason the purge's is: losing a housekeeping pass must not
     /// stop reminders going out.</para>
+    ///
+    /// <para>⚠️ <b>The entitlement term is asked first, and it is FR-8's named gap.</b> The three channel checks below
+    /// are all a row parked for an expired cabinet would have to pass, so without this it would be released and sent
+    /// within a minute on a cabinet that has not paid (EC-7). It is asked for <i>every</i> parked row rather than only
+    /// for a <c>SubscriptionExpired</c> one, so a channel-parked row is not released into a queue that is about to
+    /// park it again for the other reason.</para>
     /// </summary>
-    private async Task ReviewBlockedRowsAsync(int batchSize)
+    private async Task ReviewBlockedRowsAsync(int batchSize, OutboxSubscriptionGate entitlements)
     {
         try
         {
@@ -131,6 +153,11 @@ public class NotificationJob
 
             foreach (var notification in blocked)
             {
+                if (await entitlements.ReviewAsync(notification.ClinicId) is not null)
+                {
+                    continue;
+                }
+
                 if (!_senders.ContainsKey(notification.Type))
                 {
                     // No sender implements this channel at all (a legacy Email row): nothing an operator can
@@ -205,14 +232,18 @@ public class NotificationJob
         }
     }
 
-    private async Task DispatchAsync(Notification notification, int maxRetries)
+    private async Task DispatchAsync(
+        Notification notification, int maxRetries, OutboxSubscriptionGate entitlements)
     {
         if (!_senders.TryGetValue(notification.Type, out var sender))
         {
             // No sender for this channel (e.g. a legacy Email row). L3a — **park it, don't leave it Pending.**
             // Nothing an operator does makes this row sendable, and while Pending it sat at the front of an
             // oldest-first, batch-capped scan consuming a slot on every tick for ever.
-            await BlockAsync(notification, $"Canal « {ChannelLabel(notification.Type)} » non pris en charge");
+            await BlockAsync(
+                notification,
+                OutboxBlockReason.ChannelUnsupported,
+                $"Canal « {ChannelLabel(notification.Type)} » non pris en charge");
             return;
         }
 
@@ -273,7 +304,18 @@ public class NotificationJob
         if (!settings.EnabledChannels.Contains(notification.Type))
         {
             await BlockAsync(
-                notification, $"Canal « {ChannelLabel(notification.Type)} » désactivé pour cette clinique");
+                notification,
+                OutboxBlockReason.ChannelDisabled,
+                $"Canal « {ChannelLabel(notification.Type)} » désactivé pour cette clinique");
+            return;
+        }
+
+        // FR-8, EC-7 — the cabinet may not record new work, so its reminders wait: parked with a stated reason
+        // rather than sent or dropped, and released by the review pass the moment the entitlement is extended.
+        // Asked here, immediately before the sender, so a row that could never send parks for its own reason.
+        if (await entitlements.ReviewAsync(notification.ClinicId) is { } parked)
+        {
+            await BlockAsync(notification, parked.Reason, parked.Sentence);
             return;
         }
 
@@ -314,6 +356,7 @@ public class NotificationJob
                 // stops occupying a slot in every dispatch batch until then.
                 await BlockAsync(
                     notification,
+                    OutboxBlockReason.ChannelUnconfigured,
                     $"Canal « {ChannelLabel(notification.Type)} » non configuré — identifiants manquants");
                 break;
         }
@@ -331,11 +374,11 @@ public class NotificationJob
     /// « Rappels » page shows. Non-terminal: never purged, and returned to the queue by
     /// <see cref="ReviewBlockedRowsAsync"/>.
     /// </summary>
-    private async Task BlockAsync(Notification notification, string reason)
+    private async Task BlockAsync(Notification notification, OutboxBlockReason reason, string sentence)
     {
         _logger.LogInformation(
-            "Reminder {NotificationId} blocked: {Reason}", notification.Id, reason);
-        notification.MarkAsBlocked(reason);
+            "Reminder {NotificationId} blocked ({Reason}): {Sentence}", notification.Id, reason, sentence);
+        notification.MarkAsBlocked(reason, sentence);
         await SaveAsync(notification);
     }
 
