@@ -112,6 +112,8 @@ Supporting: `Models/` (request DTOs: `UploadFileRequest`, `LoginRequest`, `Setup
 ## Background Jobs (`BackgroundJobs/`) — Hangfire
 PostgreSQL storage (same `DefaultConnection`) + a Hangfire server. Dashboard at **`/hangfire`**, gated by `HangfireAuthorizationFilter` (defined in `Program.cs`): **loopback-only in BOTH modes** (`LocalRequest.IsLoopback` — server PC yes, LAN clients / proxied requests no; changed from the prior Cloud `return true;`). Jobs are plain classes resolved from DI when enqueued.
 
+⚠️ **`SystemWideCallerCoverageTests`' console-verb branch had never matched a single type until `clinic-subscription` Part F** — its filter was `IsAbstract: false`, and every verb here is a `static class`, which is abstract *and* sealed in metadata. The verbs were covered only incidentally, by that test's sibling `CreateScope()` source scan. Fixed there; worth knowing before writing another reflection guard over this folder.
+
 ⚠️ **Every job declares its tenant scope as its first act** (multi-tenant-cloud US-2), beside the `IAuditActorProvider.RunAs` declaration it already made. The clinic query filters refuse an unset scope, so a job that omits it reads **nothing and logs a clean run** — reminders and document emails would simply stop, which is the story's own R-1. The five scanning jobs call `UseSystemWide(reason)`; **`PdfGenerationJob` calls `UseClinic`** instead, because it renders one document — and it resolves that document's owning clinic through `IMedicalDocumentRepository.GetOwningClinicIdAsync`, the one deliberately `IgnoreQueryFilters()` read in the repositories, since a `MedicalDocument` has no `ClinicId` and its `Patient` is filtered (the answer is needed *in order to* set the scope). Pinned by `SystemWideCallerCoverageTests`, which derives its candidate set by reflection rather than from a folder list, so a **new** job that forgets fails on the day it is written.
 
 | Job | Does | Trigger |
@@ -152,6 +154,24 @@ Reads the auth mode from an early `ConfigurationBuilder` **before** `WebApplicat
   → `pg_restore --clean --if-exists --no-owner` → copy `files/` back (refused into a non-empty target without
   `--force`) → **bump every `User.TokenVersion`** so no token minted against the newer state stays live. Every
   refusal happens before anything is destroyed. Exit `0` restored / `1` refused or failed.
+- **The five `subscription-*` vendor verbs** (`clinic-subscription` Part F, US-5 / FR-6) —
+  `subscription-grant --clinic <id|email> (--months N | --days N | --until AAAA-MM-JJ) [--plan …] [--amount …]
+  [--method …] [--reference …] [--note …] [--complimentary]`, `subscription-cancel … --entry <id> --reason "…"`,
+  `subscription-suspend … --reason "…"`, `subscription-unsuspend …` and `subscription-report [--within 7]
+  [--clinic <id|email>]`. **Verbs and not endpoints, deliberately**: a cabinet able to extend its own entitlement
+  over HTTP would not have one, so no controller references the three commands behind them and a derived guard
+  (`SubscriptionVendorCommandReachabilityTests`) holds that in both directions — including that every verb is
+  actually *dispatched* here, since a missing branch boots the **web host** instead and reads to an operator as
+  « the command did nothing ». All five gate on `MaintenanceDatabase.HasConnectionString`, never on a capability
+  (amendment M3): they run no PostgreSQL binary and the hosted deployment they exist for above all has no local DB
+  tooling. The four mutating ones declare **`UseClinic(id)`** (`provision-clinic`'s precedent — the narrowest scope
+  for the narrowest work) after resolving the cabinet through `SubscriptionCabinetLookup`, which is safe *before*
+  the scope only because `Clinics` and `Users` are the two unfiltered tables; the report declares `UseSystemWide`.
+  Each also calls `IAuditActorProvider.RunAs(<verb>)`, so FR-12's journal reads `job|subscription-grant` rather
+  than « unknown ». ⚠️ `subscription-report --clinic <id|email>` is the **only** thing that prints a period id, and
+  `subscription-cancel` takes one — so without that mode a mistaken grant older than the current session would be
+  uncorrectable from the console. It shares `reconcile-money`'s exit codes (0 / 1 / **2**), and a *suspended*
+  cabinet is listed without counting as a finding: an alarm that is always on is one nobody reads.
 - **The two read-only report verbs**, which share exit codes (`0` clean / `1` couldn't run / `2` **ran and found drift**) so they can be scripted identically, and are both meant to be run **before and after a migration batch and diffed**:
   - `reconcile-money [months]` → `Maintenance/ReconcileMoneyCommand` (wraps `MoneyReconciliationService`).
   - `verify-schema` → `Maintenance/VerifySchemaCommand` (wraps `SchemaVerificationService`). The **only** gate for a schema-level change — nothing in the test project touches a database. Both build their container from `AddInfrastructure` **only**, never `AddApplication` — which since US-2 is what makes their `UseSystemWide(reason)` declaration *work* rather than what makes it unnecessary: that method registers `ITenantScope` plus a floor `ICurrentClinicProvider`, so a verb that failed to declare itself would report a clean, empty database. (Before US-2 they had no provider at all and read every clinic by accident.) `reset-admin-password` declares it too; the other four verbs are named exemptions in `SystemWideCallerCoverageTests` — three touch no database and `restore-backup` works over raw ADO, so no query filter is in play.

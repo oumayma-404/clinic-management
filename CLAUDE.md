@@ -599,9 +599,10 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   `Subscription:TrialDays` as `trialDays` on `GET /api/auth/mode`, never a literal. **Part E ships the warnings**:
   the daily **`SubscriptionWarningJob`** writes one in-app `StaffNotification` per threshold crossed — **7, 3, 1 and
   0 days** out, four genuinely new unread rows deduped on the new `StaffNotification.SubscriptionThresholdDays`
-  column, deep-linking to « Abonnement » and **never** reaching a locked phone (AC-3.6). **Parts F–G are not built
-  yet**: no vendor verb and no outbox parking — so a lapsed cabinet is refused correctly, is warned four times, can
-  read why, and can still only be unlocked by editing the ledger directly.
+  column, deep-linking to « Abonnement » and **never** reaching a locked phone (AC-3.6). **Part F ships the vendor's side**: three commands
+  (`Grant` / `Cancel` / `SetSuspension`) reached only by **five console verbs** — `subscription-grant`, `-cancel`,
+  `-suspend`, `-unsuspend`, `-report` — plus `SubscriptionReportService`. **Part G is the one part left**: no outbox
+  parking, so a reminder queued before expiry for a later appointment still sends.
   ⚠️ **Part E's four rows are the opposite of the two ensure/clear alerts beside them, and deliberately.**
   `StockExpiringSoon` and `BackupStale` keep **one** row and reword it; rewording **does not clear who has read it**,
   so once the owner has read « 7 jours » the « 3 jours », « 1 jour » and « dernier jour » restatements would stay read
@@ -647,6 +648,28 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   ⚠️ **`Subscriptions` is on `RealtimeResourceResolver.ExcludedAreas`** (FR-15): the state is learned by a **re-read**,
   never a broadcast, because neither moment that changes it can push one — a vendor grant runs in a separate process
   with no caller's token to derive a clinic from, and an entitlement ending at midnight has no actor at all.
+  ⚠️ **The vendor's verbs are verbs and not endpoints, and FR-6 is held by a derived guard.** A cabinet able to
+  extend its own entitlement over HTTP would not have one, so no controller references the three commands —
+  `SubscriptionVendorCommandReachabilityTests` asserts that over the commands it finds by *reflection*, and also
+  that every verb is actually dispatched by `Program.cs`, since a missing branch boots the **web host** instead and
+  reads to an operator as « the command did nothing ». All five gate on `MaintenanceDatabase.HasConnectionString`
+  rather than on a capability (amendment M3), and each declares its own tenant scope — `UseClinic(id)` for the four
+  that act on one cabinet, `UseSystemWide` for the report.
+  ⚠️ **EC-5's race is resolved by a bounded re-fold retry, not by surfacing the 409.** « Two simultaneous grants both
+  land and are both kept », and yet `ClinicSubscription.Version` is mapped onto `xmin`, so the second writer's UPDATE
+  matches nothing and raises `ConflictException`. `SubscriptionRefold` retries the whole fold up to five times
+  (`IssueInvoiceCommand`'s precedent) — correct **only because `EndsOn` is derived**, so whoever saves last computes
+  the same date from every entry. The suspension command deliberately does *not* use it: it touches no ledger, so a
+  lost update there is an ordinary conflict and 409 is right.
+  ⚠️ **`subscription-report --clinic <id|email>` is the only thing in the product that prints a period id**, and
+  `subscription-cancel` takes one — without that mode a mis-keyed grant older than the current session would be
+  uncorrectable. It shares `reconcile-money`'s exit codes; a **suspended** cabinet is listed but is not a *finding*
+  (an alarm that is always on is one nobody reads) while a cabinet with **no entitlement** is, because that is
+  FR-13's failure state rather than a state anyone chose.
+  ⚠️ **A granted cabinet keeps its four expiry notifications for up to 24 h**, deliberately: the banner clears within
+  one 5-minute re-read because it reads the entitlement directly (AC-5.8), and the bell rows are withdrawn by Part
+  E's daily pass. Clearing them from the grant would force every verb to register a no-op `IRealtimeNotifier`, since
+  `INotificationGenerator`'s only implementation of that seam is the API's SignalR notifier.
   ⚠️ **Interim state until Part D**: `/abonnement` is in `buildConfigItems` unconditionally, so `SelfHostedLan` and
   `CloudBrowser` show one rail row whose page says « cette installation ne fonctionne pas par abonnement ». Both
   endpoints **404 before the mediator** there, so nothing behind them is resolved; Part D's provider removes the row.

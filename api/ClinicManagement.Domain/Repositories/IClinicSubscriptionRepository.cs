@@ -21,9 +21,35 @@ public interface IClinicSubscriptionRepository
     Task<IReadOnlyList<SubscriptionPeriod>> GetEntriesAsync(
         Guid clinicId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Every cabinet of the deployment beside its entitlement, or beside <c>null</c> where it has none — the
+    /// vendor report's one read (AC-5.9).
+    ///
+    /// <para>⚠️ <b>A cabinet with no entitlement is a row here, not an omission.</b> Keying the report off the
+    /// entitlement table would make FR-13's failure — a cabinet that somehow has none — the one state the report
+    /// cannot show, which is the opposite of what a safety net is for.</para>
+    ///
+    /// <para>⚠️ <b>Only meaningful under <c>UseSystemWide</c>.</b> <c>Clinics</c> carries no query filter while
+    /// <c>ClinicSubscriptions</c> does, so under a <c>UseClinic(x)</c> scope every <i>other</i> cabinet would come
+    /// back looking as though its entitlement were missing.</para>
+    /// </summary>
+    Task<IReadOnlyList<ClinicSubscriptionReportRow>> GetForReportAsync(
+        CancellationToken cancellationToken = default);
+
     Task AddAsync(ClinicSubscription subscription, CancellationToken cancellationToken = default);
 
     Task AddEntryAsync(SubscriptionPeriod entry, CancellationToken cancellationToken = default);
 
     Task UpdateAsync(ClinicSubscription subscription, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// One cabinet as the vendor report sees it. It carries the <b>entity</b> rather than flattened columns so the
+/// report can apply the real <c>SubscriptionStateReader</c> — the one FR-1 rule the gate, the screen, the banner and
+/// the warning job also read — instead of re-deriving « is this cabinet expired? » from a projection.
+/// </summary>
+/// <param name="Subscription">Null where the cabinet has no entitlement at all (FR-13's failure state).</param>
+public sealed record ClinicSubscriptionReportRow(
+    Guid ClinicId,
+    string ClinicName,
+    ClinicSubscription? Subscription);

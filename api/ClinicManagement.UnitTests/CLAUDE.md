@@ -47,7 +47,12 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   — by reflecting over the API assembly for background jobs, `IHostedService`s and `Maintenance/*Command`s plus a
   source scan for `CreateScope()`; reading it off « is it a job? » produced a wrong list in both directions during
   planning. It carries its own red-proof (`The_Guard_Rejects_A_Job_Whose_Declaration_Is_Removed`) rather than
-  asking a reviewer to delete a call by hand. ⚠️ Exclude compiler-generated **nested** types when reflecting over a
+  asking a reviewer to delete a call by hand. ⚠️ **Its console-verb branch matched NOTHING until
+  `clinic-subscription` Part F**: the candidate filter was `IsAbstract: false`, and a `static class` — which every
+  verb in this product is — is abstract *and* sealed in metadata, so the nine `Maintenance/*Command` types were
+  covered only incidentally by the `CreateScope()` scan. Found by a new guard writing the same filter and asserting
+  a count, which came back **0**. Worth asserting a **non-zero candidate count** in any derived guard, so « found
+  nothing » cannot read as « nothing was wrong ». ⚠️ Exclude compiler-generated **nested** types when reflecting over a
   namespace: in a Debug build an async state machine is a *class*, so `<FlagExpiringStock>d__3` arrives as a
   candidate whose source file does not exist.
 - **`Domain/SubscriptionLedgerTests.cs`** + **`Features/Subscriptions/*`** + **`Common/ClinicCreationEntitlementTests.cs`**
@@ -121,6 +126,23 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   **looks like a bug and is not**: rewriting would carry the read markers of a warning already dismissed, so the
   escalation would land on a bell that had been cleared. It was written the other way round first and the failing run
   was the finding.
+- **`Features/Subscriptions/{Grant,Cancel}SubscriptionPeriodCommandHandlerTests.cs`** +
+  **`SetSubscriptionSuspensionCommandHandlerTests.cs`** + **`Common/SubscriptionReportServiceTests.cs`** +
+  **`Api/SubscriptionVendorCommandReachabilityTests.cs`** (`clinic-subscription` Part F). They run the real
+  commands over an **in-memory ledger** (`SubscriptionVendorHarness`) rather than asserting a mock was called,
+  because every AC here is about what the ledger ends up holding: entries accumulating (AC-5.3), a cancelled row
+  staying (AC-5.5), a date moving because a *middle* entry went (AC-5.4). ⚠️ **The highest-value cases are
+  `Paying_Ten_Days_Early_Never_Costs_Days`** (EC-3 — it fails on `today + duration`, which is exactly how AC-5.2
+  reads in prose, and the failure is silent money) and **`Two_Simultaneous_Grants_Both_Land_And_Both_Are_Kept`**
+  (EC-5 — the entitlement carries an `xmin` token, so the natural implementation 409s the second writer, which the
+  spec forbids in both halves). ⚠️ **The command fixtures anchor on `ClinicClock.ClinicToday()`**, the opposite of
+  `SubscriptionGateMiddlewareTests`' decades-away dates, because the handler stamps the entry's recorded day from
+  the real clock and that day *is* the fold's anchor; `SubscriptionReportServiceTests` uses fixed literals, since
+  that service takes today as a parameter. ⚠️ And an **exact** date expectation on a cancelled entry
+  (`endBefore.AddMonths(-12)`) is *not* the inverse of the fold when `AddMonths` clamps to a shorter month — it was
+  written that way first and would have flaked; it is a range plus an independent-fold assertion now.
+  The reachability class is the FR-6 guard, derived over the commands by reflection so a *fourth* is covered for
+  free, with an executed red-proof.
 - **`Api/MigrationLockTests.cs`** (`multi-tenant-cloud` US-6) — the startup advisory lock, and a worked example of asserting the two things a mistake would actually look like when the mechanism itself is out of reach (nothing here touches a database). Both statements must name the **same fixed** key — two instances naming different numbers serialise nothing, and the failure is invisible until two containers migrate at once — and the lock must be **session-level**, because `pg_advisory_xact_lock` releases at the first commit *inside* the migration, leaving the rest of it unprotected while looking correct. The third property is asserted against **`Program.cs`'s own source**: a lock the startup path forgot to wrap is exactly as broken as no lock, and nothing else in the build can see it.
 - **`Api/AuthAttemptAccountTests.cs`** + the US-6 half of **`Api/RateLimitingTests.cs`** — the login limiter's re-key onto the submitted account. Most of the file is about the cases that must produce **nothing**: a non-JSON body, a truncated one, an oversized one, `auth/refresh` (no email at all). Any of those throwing would take the login endpoint off the air, which is strictly worse than the lockout the re-key exists to prevent. The two partition cases that matter are the ones a naive fix gets wrong: **the same account shares one bucket regardless of address** (a compound `account+address` key would hand one attacker a fresh budget per address) and **an account key can never collide with an address key** (an email is caller-supplied text).
 - **`Api/HealthCheckTests.cs`** — the grading, which is the whole substance: storage down is **`Degraded`** (still 200) and the database is `Unhealthy` (503). Also that storage which cannot even be **resolved** degrades rather than 500s — where MinIO is unconfigured `AddInfrastructure` deliberately registers a factory that throws, so a constructor-injected `IFileStorage` would throw while the framework was *building* the check.

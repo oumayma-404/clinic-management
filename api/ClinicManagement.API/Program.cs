@@ -79,6 +79,43 @@ if (args.Length > 0 && string.Equals(args[0], RestoreBackupCommand.CommandName, 
     return await RestoreBackupCommand.RunAsync(args);
 }
 
+// The vendor's entitlement verbs (clinic-subscription Part F, US-5 / FR-6). Records a received payment, corrects a
+// mis-keyed one, suspends for abuse, lifts a suspension, and reports where every cabinet stands. Console verbs and
+// NOT endpoints, deliberately: a cabinet able to extend its own entitlement over HTTP would not have one — so no
+// controller anywhere references the three commands behind these. All five are gated on the connection string
+// (amendment M3), never on a deployment capability: they run no PostgreSQL binary, and the hosted deployment they
+// exist for above all has no local DB tooling. Usage:
+//   ClinicManagement.API.exe subscription-grant --clinic <id|email> --months 12 [--plan …] [--amount …] [--method …]
+//   ClinicManagement.API.exe subscription-cancel --clinic <id|email> --entry <id> --reason "<motif>"
+//   ClinicManagement.API.exe subscription-suspend --clinic <id|email> --reason "<motif>"
+//   ClinicManagement.API.exe subscription-unsuspend --clinic <id|email>
+//   ClinicManagement.API.exe subscription-report [--within 7] [--clinic <id|email>]
+// The report shares reconcile-money's exit codes: 0 = nothing to do, 1 = could not run, 2 = cabinets found.
+if (args.Length > 0 && string.Equals(args[0], SubscriptionGrantCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await SubscriptionGrantCommand.RunAsync(args);
+}
+
+if (args.Length > 0 && string.Equals(args[0], SubscriptionCancelCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await SubscriptionCancelCommand.RunAsync(args);
+}
+
+if (args.Length > 0 && string.Equals(args[0], SubscriptionSuspendCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await SubscriptionSuspendCommand.RunAsync(args);
+}
+
+if (args.Length > 0 && string.Equals(args[0], SubscriptionUnsuspendCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await SubscriptionUnsuspendCommand.RunAsync(args);
+}
+
+if (args.Length > 0 && string.Equals(args[0], SubscriptionReportCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await SubscriptionReportCommand.RunAsync(args);
+}
+
 // Install-time permission hardening (security-hardening, audit § 2 findings 1–3): tightens NTFS ACLs on the
 // install's data directories so no other local account can read the patient database, the uploaded files,
 // the logs, or the .local/ trust store. The installer calls this instead of running icacls itself, so the

@@ -8,7 +8,7 @@
 
 | Story | Status |
 |---|---|
-| 1 — Abonnement du cabinet | in-progress (Parts A + B + C + D + E done) |
+| 1 — Abonnement du cabinet | in-progress (Parts A + B + C + D + E + F done) |
 
 ### Parts inside Story 1
 
@@ -19,7 +19,7 @@
 | C | The cabinet can see where it stands and how to pay | **done** (Checkpoint C green; eye pass owed) |
 | D | The banner, the refusal toast, and the live re-read | **done** (Checkpoint D green; eye pass owed) |
 | E | The cabinet is warned before it stops being able to work (⚠️ atomic) | **done** (Checkpoint E green; the operator's simulated-days walk is owed) |
-| F | The vendor unlocks a cabinet that has paid | not-started |
+| F | The vendor unlocks a cabinet that has paid | **done** (Checkpoint F green; the operator's five-verb walk is owed) |
 | G | Background work parks rather than sends or vanishes (⚠️ atomic) | not-started |
 
 ## Session decisions
@@ -992,3 +992,209 @@ What remains open after Part E:
   wrong expectation (a restate across thresholds), not the code — but only checking it against AC-3.5's own stated
   reasoning distinguished that from the opposite conclusion. The skill's guidance points at fixing the production
   code; the check that matters is which of the two the spec actually says.
+
+---
+
+# Part F — The vendor unlocks a cabinet that has paid
+
+**Working tree note (start of session 6).** Clean apart from the other author's untracked
+`features/platform-console/`, left untouched and excluded. `git status` reviewed before any edit and again before
+staging; every file below is staged by explicit path. `git diff HEAD --numstat` at the end: **1 deletion across 14
+files** — the `IsAbstract: false` line in `SystemWideCallerCoverageTests`, replaced by the corrected predicate plus
+its comment. Everything else is additive.
+
+## Session decisions
+
+**Session 6 — scope: Part F only.** Requested explicitly (`/implement-story clinic-subscription part F`). Same
+branch, same explicit-path staging.
+
+**Two questions asked and answered before any code was written** — both changed what was built:
+
+1. **EC-5's race.** « Two simultaneous grants both land and are both kept », and « reporting a conflict here would
+   promise an outcome this ledger cannot produce » — but `Entity.Version` is mapped onto `xmin`, so the second
+   writer's `UPDATE … WHERE xmin = <loaded>` matches nothing and raises `ConflictException` → 409. Answer:
+   **bounded re-fold retry** (DEV-10).
+2. **Stale expiry warnings after a grant.** Answer: **leave them to the daily job** — the banner clears within one
+   5-minute re-read (AC-5.8) and the four bell rows on the next daily pass. Recorded as a known lag below.
+
+## Part F — steps
+
+| # | Step | Status |
+|---|---|---|
+| F1 | The three commands (`Grant` / `Cancel` / `SetSuspension`) + `SubscriptionCabinetLookup` + `SubscriptionRefold` | **done** |
+| F2 | `SubscriptionReportService` + `IClinicSubscriptionRepository.GetForReportAsync` + `ClinicSubscription.SetPlan` | **done** |
+| F3 | The five verb wrappers + their five `Program.cs` branches, gated on `MaintenanceDatabase.HasConnectionString` | **done** |
+| F4 | Tests | **done** — 53 new tests, two executed red-proofs |
+
+### What the verbs came out as
+
+```
+subscription-grant     --clinic <id|email> (--months N | --days N | --until AAAA-MM-JJ)
+                       [--plan …] [--amount …] [--method …] [--reference …] [--note …] [--complimentary]
+subscription-cancel    --clinic <id|email> --entry <id> --reason "<motif>"
+subscription-suspend   --clinic <id|email> --reason "<motif>"
+subscription-unsuspend --clinic <id|email>
+subscription-report    [--within 7] [--clinic <id|email>]
+```
+
+⚠️ **`--clinic` takes an id *or* an e-mail**, which is the form the plan's own validation line uses
+(`subscription-grant --clinic <admin-email> --months 12`). Refusing an address because the flag is called
+`--clinic` would be pedantry about our own vocabulary; `--email` remains as the explicit alias.
+
+⚠️ **`subscription-report --clinic <id|email>` prints that cabinet's ledger with its period ids**, and it is the
+only thing in the product that does. `subscription-cancel` takes one, so without this mode a mistaken grant older
+than the current session would be uncorrectable from the console — the exact gap FR-6 says the verbs exist to close.
+
+## Deviations
+
+### DEV-10: EC-5's race is resolved by a bounded re-fold retry, not by surfacing the conflict
+**Date:** 2026-08-10
+**Story:** 1, Part F, step 1
+**Category:** Technical
+**Original Plan:** Silent. Step 3 says only « every grant/cancel/suspend re-folds through
+`ClinicSubscription.RecomputeFrom` ».
+**Actual Implementation:** `Features/Subscriptions/SubscriptionRefold.SaveAsync` — up to **5** attempts, on
+`IssueInvoiceCommand`'s recompute-and-retry precedent. On `ConflictException` it stops tracking the entitlement,
+reloads it, re-reads the ledger and folds again; the final attempt returns a French sentence rather than letting a
+409 escape. Each attempt is still **one** save, so nothing is half-applied.
+**Justification:** EC-5 requires both grants to land and forbids showing a conflict — « no caller is shown a
+conflict it could not act on anyway ». The natural implementation does the opposite in both halves, because the
+entitlement carries an `xmin` concurrency token. Retrying is correct **specifically because `EndsOn` is derived**:
+whoever saves last recomputes the same date from every entry, so the loop converges rather than papering over a lost
+update. On an ordinary aggregate this would be exactly the wrong thing to do, which is why the reasoning is on the
+type rather than in a commit message.
+**Impact:** One new shared file, two callers. The suspension command deliberately does **not** use it — the ledger is
+untouched there, so a lost update is an ordinary conflict and 409 is the right answer.
+**Approved:** Yes — asked with the two alternatives (surface the 409; two saves) before any code was written.
+
+### DEV-11: `SystemWideCallerCoverageTests`' console-verb branch never matched anything, and is fixed here
+**Date:** 2026-08-10
+**Story:** 1, Part F, step 4
+**Category:** Technical
+**Original Plan:** Part F's step 2 says « `SystemWideCallerCoverageTests` enforces this by reflection », i.e. the
+guard was expected to enrol the five new verbs for free.
+**Actual Implementation:** It could not have. Its candidate filter is `t is { IsClass: true, IsAbstract: false }`,
+and **every console verb in this product is a `static class` — which is abstract *and* sealed in metadata** — so the
+`Maintenance` branch had matched **zero** types for the guard's whole life. The filter is now
+`t is { IsClass: true } && (!t.IsAbstract || t.IsSealed)`.
+**Justification:** Found by writing the same filter in `SubscriptionVendorCommandReachabilityTests` and getting an
+empty set (`Assert.Equal(5, verbs.Count)` → actual **0**). The verbs were covered only *incidentally*, by the
+sibling `CreateScope()` source scan — so a verb that opened a `DbContext` without `CreateScope()` was invisible to
+the one guard whose whole purpose is « a path that reads nothing and reports success ». Left alone, Part F would
+have added five files to a branch that cannot fail.
+**Impact:** One line plus its comment, in a test. No production behaviour. The guard now enrols all 13
+`Maintenance/*Command` types; four are already named in `Exempt` with structural reasons and the other nine all
+declare a scope, so it stays green — verified, and then proven able to fail (below).
+**Approved:** Taken as fixing a guard this part's own work exposed, not asked; stated here and in the session report.
+
+## Auto-Approved Deviations
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| The three commands are MediatR `IRequest`s whose handlers the verbs construct **directly** | Trivial | The plan names them Commands with `…CommandHandlerTests`, and Part C added `Subscriptions` to `ExcludedAreas` « for Part F's commands ». A verb's container is `AddInfrastructure` alone, so there is no mediator to send them with — but the shape is what the companion vendor console will send unchanged, and it is what the tests already build. |
+| `SubscriptionCabinetLookup` is a new shared file rather than the resolution living in each command | Trivial | Internal scope, no behaviour change. Three commands and the five verbs must agree on what identifies a practice *and* on how they refuse when it does not exist (AC-5.7) — three copies is the `fixes-dont-propagate` shape. |
+| An e-mail resolves through **any** user of the cabinet, not only an administrator | Trivial | Internal to the lookup. The question is « which cabinet », and whose address it is does not change the answer; refusing a secretary's address would be a puzzling refusal about the wrong subject. |
+| The two lookup refusals are **different sentences** (« aucun cabinet avec l'identifiant … » vs « aucun compte avec l'adresse … ») | Trivial | Wording only. A shared « cabinet introuvable » would hide a typo in the e-mail as an unknown practice, sending the operator to look in the wrong place. |
+| A grant with **no** duration form is refused rather than recorded open-ended | Trivial | One added guard on a new command. `SubscriptionPeriod` models « no duration » as *permanent* cover; that is reachable by forgetting one flag and unnoticeable afterwards, and a cabinet that should never expire is grandfathered by the migration, never granted from a console. |
+| `SubscriptionRefold` appends the pending entry only when the read did not already return it | Trivial | Internal to the new helper, and **found by a failing test**: an EF query never returns a staged entity, but a fold that counted the new grant twice would double exactly the duration somebody paid for and be indistinguishable from generosity. The dedupe makes the helper correct under either repository behaviour. |
+| `ClinicSubscription.SetPlan` is a new mutator | Trivial | AC-5.1's optional forfait had no write path — `Plan` could only be set at construction. It is a label and a price and gates nothing (FR-10), so it touches no date. |
+| `IClinicSubscriptionRepository.GetForReportAsync` returns **every** cabinet, including those with no entitlement | Trivial | The plan's own Part A repository list names `GetClinicsWithoutSubscriptionAsync`; this is the two reads as one. Keying the report off the entitlement table would make FR-13's failure the one state the report cannot show. |
+| A **suspended** cabinet is listed by the report but does not make it exit 2 | Trivial | Internal to a new service. Suspension is a decision the vendor already made, so counting it leaves a scheduled report permanently at exit 2 with nothing to do — and an alarm that is always on is one nobody reads. A cabinet with *no* entitlement does count: that is a defect. |
+| `SubscriptionVerbs` holds the container/lookup/formatting the five verbs share — but **not** the tenant-scope declaration | Trivial | Internal helper. The declaration is deliberately left in each verb file because `SystemWideCallerCoverageTests` reads it out of `Maintenance/*Command.cs`; hidden in a helper, all five would look silent to the one guard that can see this class of defect. |
+| The four mutating verbs declare `UseClinic(id)`, the report `UseSystemWide` | Trivial | `ProvisionClinicCommand`'s precedent. The narrowest scope for the narrowest work; the report genuinely reads every cabinet, in both of its modes. |
+
+## Part F gates — Checkpoint F
+
+| Gate | Result |
+|---|---|
+| `dotnet build api/ClinicManagement.sln --no-incremental` | ✅ **0 errors**, **55 warnings — the identical Checkpoint A/B/C/D/E baseline**, and **zero** name a file this part added or edited (the full list was grepped for `Subscription`/`abonnement`/`Program.cs`; the single `Program.cs` hit is the pre-existing Hangfire `CS0618`, now at line **368** because this part's five branches pushed it down 37 lines) |
+| Unit suite | ✅ **2439 passed, 0 failed** (baseline 2386 → **53 new**) |
+| `GrantSubscriptionPeriodCommandHandlerTests` | ✅ 15 |
+| `CancelSubscriptionPeriodCommandHandlerTests` | ✅ 12 |
+| `SetSubscriptionSuspensionCommandHandlerTests` | ✅ 11 |
+| `SubscriptionReportServiceTests` | ✅ 11 |
+| `SubscriptionVendorCommandReachabilityTests` | ✅ 4 |
+| `SystemWideCallerCoverageTests` | ✅ 3 — **edited** (DEV-11), and it now genuinely enrols all five verbs rather than passing on an empty set |
+| `TenantScopeFilterTests` · `DeploymentProfileCoverageTests` · `ControllerAuthorizationCoverageTests` · `MoneyReadConsistencyTests` | ✅ green, **all four unedited** (confirmed by name against `git status`) — Part F adds no endpoint, no filtered table and no clinic money read, so the vendor's revenue still reaches none of them (FR-2) |
+| `RealtimeResourceResolverTests` | ✅ green, **unedited** — the three new commands live under `Features.Subscriptions.Commands`, which Part C put on `ExcludedAreas` for exactly this moment, so the emitted set is unchanged and no frontend key was added |
+| `SubscriptionGateMiddlewareTests` · `SubscriptionExemptionCoverageTests` · `SubscriptionControllerTests` | ✅ green, **all three unedited** — Part F adds no endpoint and changes no exemption |
+| `verify-schema` | **not applicable — and the verb was re-confirmed to exist and run** (`Api/Maintenance/VerifySchemaCommand` + `SchemaVerificationService`, 49 passing tests). Part F adds **no migration, no column and no index**: `git status` shows nothing under `Infrastructure/Migrations/`, and the only Infrastructure edit is one new repository method over existing tables |
+| Frontend gate | **not applicable — verified, not assumed**: `git status` shows no `web/` file changed by this part. Part F is `api/`-only in fact as well as in the plan's table |
+
+### The two red-proofs
+
+Both executed against the real predicates, because a derived guard that has never gone red is not yet a guard.
+
+1. **FR-6, « no HTTP path can grant ».** A `// probe: GrantSubscriptionPeriodCommand` line was added to
+   `SubscriptionController.cs`: `No_Controller_Reaches_A_Vendor_Subscription_Command` went **red** naming the file
+   and the command. Reverted; green, and the file confirmed to contain no such reference afterwards.
+2. **The tenant-scope guard, after DEV-11's fix.** `SubscriptionReportCommand`'s `UseSystemWide(…)` call was
+   replaced by a bare `GetRequiredService<ITenantScope>()` — compiles, resolves, declares nothing:
+   `SystemWideCallerCoverageTests.Every_Path_Without_An_Http_Context_Declares_Its_Tenant_Scope` went **red**.
+   Reverted; green. ⚠️ **Before the fix this probe would have passed**, which is the whole point of DEV-11.
+
+Plus the guard's own third proof, `The_Dispatch_Guard_Rejects_A_Verb_Whose_Branch_Is_Removed`, and the *unplanned*
+one: `Every_Vendor_Verb_Is_Dispatched_By_Program` failed on its first run with **0 verbs found**, which is how
+DEV-11 was discovered at all.
+
+### The defects this part's own tests caught
+
+1. **The fold counted the new grant twice.** Three grant tests failed with dates exactly one duration too far out
+   (`2028-08-09` where `2027-08-09` was expected). `SubscriptionRefold` appended the pending entry to what
+   `GetEntriesAsync` returned — correct against EF, which never returns a staged entity, and wrong against any
+   repository that does. Fixed by appending only when the read did not already carry it, so the helper is right
+   under either behaviour rather than right by luck. ⚠️ Worth knowing: in production this was **not** a live bug,
+   which is exactly why it would have survived review.
+2. **`SystemWideCallerCoverageTests` had never checked a console verb** — DEV-11, found by the new guard's own
+   first run.
+3. **An exact-date assertion on a cancelled middle entry was fragile.** `endBefore.AddMonths(-12)` is not the
+   inverse of the fold when `AddMonths` clamps to a shorter month, so it would have gone red on ~1 day in 12
+   depending on when the suite ran. Replaced by a range plus the independent-fold assertion beside it — the same
+   trap `ClinicClockTests` documents, arriving through arithmetic rather than through a clock.
+
+### Verification steps — what is proven and what is still owed
+
+| Step (story § *Verification Steps → Part F*) | Result |
+|---|---|
+| `subscription-grant --clinic <admin-email> --months 12` on a cabinet expiring in 10 days lands on the old end date + 12 months (EC-3) | ✅ `Paying_Ten_Days_Early_Never_Costs_Days`, plus its opposite branch `A_Lapsed_Cabinet_Restarts_From_The_Day_It_Paid` — the two a single `anchor + duration` gets wrong in opposite directions. **The live verb run is owed** (operator step) |
+| `subscription-cancel` on a **middle** entry moves the end date (AC-5.4) and may push it into the past (EC-4) | ✅ `Cancelling_A_Middle_Entry_Moves_The_End_Date` + `A_Cancellation_Can_Push_The_Date_Into_The_Past`, the second asserting the cabinet reads `Expired` afterwards |
+| Two grants both land and are both kept (EC-5) | ✅ `Two_Simultaneous_Grants_Both_Land_And_Both_Are_Kept` — three entries kept, the date folding over all of them, no conflict surfaced. Its sibling pins that an unclearable conflict still refuses **in French** rather than escaping as a 409 |
+| Non-positive duration and unknown cabinet each refuse naming which (AC-5.7) | ✅ four cases, each asserted alongside `Times.Never` on the save; the id and e-mail refusals are asserted to be **different sentences** |
+| Every grant, cancellation and suspension appears in `GET /api/audit` **for that cabinet** (AC-5.6, FR-12) | ✅ **structurally**: both entities are `AggregateRoot`s (Part A), `AuditSaveChangesInterceptor` resolves the row's clinic from the aggregate's own `ClinicId`, and each verb calls `IAuditActorProvider.RunAs(CommandName)` so the actor reads `job\|subscription-grant`. **The live read of `/api/audit` is owed** with the operator walk |
+| `subscription-report` exits **2** with cabinets found, **0** clean, **1** unable to run | ✅ the `NeedsAttention` rule is pinned in both directions, including the two cases that decide it (suspended ⇒ no, no-entitlement ⇒ yes). **The live exit codes are owed** |
+| No HTTP path can grant — a controller reference to the three commands returns nothing | ✅ derived guard + its executed red-proof, over commands found by **reflection** so a fourth is covered for free |
+| `SystemWideCallerCoverageTests` green, having auto-enrolled the new job and the five verbs | ⚠️ **green — but only after DEV-11.** It had never enrolled a verb at all. Now it does, proven by probe |
+
+## Known interim state, deliberately
+
+- **A granted cabinet keeps its four expiry notifications for up to 24 h.** The banner clears within one 5-minute
+  re-read because it reads the entitlement directly (AC-5.8); the bell rows are withdrawn by Part E's daily pass,
+  which is the clear-and-re-arm branch FR-5 describes. Asked and answered at session start; the alternative would
+  have forced every verb to register a no-op `IRealtimeNotifier`, since `INotificationGenerator`'s only
+  implementation of that seam is the API's SignalR notifier.
+- **No outbox parking** (FR-8, EC-7). A reminder queued before expiry for a later appointment still sends. **Part G**
+  — now the only part left.
+- **The operator walk is owed for all five verbs**, as it is for every console verb in this product (R-1, not
+  CI-runnable): the exit codes, the audit rows and the EC-3 arithmetic are proven in the suite against the real
+  types, never against a live hosted deployment.
+
+## Learnings
+
+- **A `static class` is abstract in metadata, and a reflection guard filtering `IsAbstract: false` silently excludes
+  every one of them.** That is how `SystemWideCallerCoverageTests` came to have a branch that had never matched a
+  single type — while its own docstring explains at length why the candidates are *derived* rather than listed. The
+  tell was not in the guard: it was a brand-new test writing the same filter and asserting a count, which came back
+  **0**. Worth asserting a non-zero candidate count in any derived guard, so « found nothing » can never read as
+  « nothing was wrong ».
+- **A test failure caused by a fake diverging from the real infrastructure is still worth fixing in production
+  code.** The double-counted grant was not a live bug — EF never returns a staged entity — so the tempting fix was
+  to change the fake. Making the *helper* immune instead cost one clause and removed a defect whose symptom would
+  have been « the cabinet got twice what it paid for », indistinguishable from generosity in every log.
+- **« Reporting a conflict » can be the wrong answer even when a conflict genuinely occurred.** EC-5 says so
+  outright, and the reason is structural rather than a UX preference: the value being contended is *derived*, so
+  re-deriving it converges. Recognising which values those are is what tells a legitimate retry from a lost update
+  wearing one's coat.
+- **A safety net that always alarms is one nobody reads.** The report's exit code is only useful if a healthy
+  deployment can actually return 0 — which is why a deliberately suspended cabinet is listed but not counted, while
+  a cabinet with no entitlement is counted even though it is rarer. The question is not « is this notable? » but
+  « is there an action, and did somebody already take it? ».

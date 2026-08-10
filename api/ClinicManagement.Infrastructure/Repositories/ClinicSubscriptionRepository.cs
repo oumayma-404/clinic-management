@@ -38,6 +38,31 @@ public class ClinicSubscriptionRepository : IClinicSubscriptionRepository
             .ThenBy(p => p.Id)
             .ToListAsync(cancellationToken);
 
+    /// <summary>
+    /// Every cabinet beside its entitlement, name-ordered. Two reads joined here rather than a LINQ left join:
+    /// one row per clinic on a read-only operator verb, and the two tables answer to different query filters
+    /// (see the interface's warning), so keeping them visibly separate is what makes that asymmetry readable.
+    /// </summary>
+    public async Task<IReadOnlyList<ClinicSubscriptionReportRow>> GetForReportAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var clinics = await _context.Clinics
+            .AsNoTracking()
+            .Select(c => new { c.Id, c.Name })
+            .OrderBy(c => c.Name)
+            .ThenBy(c => c.Id)
+            .ToListAsync(cancellationToken);
+
+        var subscriptions = await _context.ClinicSubscriptions
+            .AsNoTracking()
+            .ToDictionaryAsync(s => s.ClinicId, cancellationToken);
+
+        return clinics
+            .Select(c => new ClinicSubscriptionReportRow(
+                c.Id, c.Name, subscriptions.TryGetValue(c.Id, out var s) ? s : null))
+            .ToList();
+    }
+
     public async Task AddAsync(ClinicSubscription subscription, CancellationToken cancellationToken = default) =>
         await _context.ClinicSubscriptions.AddAsync(subscription, cancellationToken);
 
