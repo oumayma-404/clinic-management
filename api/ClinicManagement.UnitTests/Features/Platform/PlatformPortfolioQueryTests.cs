@@ -27,7 +27,17 @@ public class PlatformPortfolioQueryTests
 {
     private readonly Mock<IClinicActivityRepository> _activity = new();
     private readonly Mock<IClinicSubscriptionRepository> _subscriptions = new();
+    private readonly Mock<IUserRepository> _users = new();
     private readonly ITenantScope _scope = SystemWideScope();
+
+    public PlatformPortfolioQueryTests()
+    {
+        // Moq's default for an unstubbed collection-returning read is null, and this handler dereferences it — see
+        // the suite guide's note on fixtures that fail on `IsSuccess` for a reason unrelated to behaviour.
+        _users.Setup(r => r.GetPrimaryAdminContactsAsync(
+                It.IsAny<IEnumerable<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, ClinicAdminContact>());
+    }
 
     private static ITenantScope SystemWideScope()
     {
@@ -37,7 +47,7 @@ public class PlatformPortfolioQueryTests
     }
 
     private ListPlatformClinicsQueryHandler ListHandler() =>
-        new(_activity.Object, _scope, NullLogger<ListPlatformClinicsQueryHandler>.Instance);
+        new(_activity.Object, _users.Object, _scope, NullLogger<ListPlatformClinicsQueryHandler>.Instance);
 
     private GetPlatformSummaryQueryHandler SummaryHandler() =>
         new(_activity.Object, _subscriptions.Object, _scope,
@@ -91,12 +101,15 @@ public class PlatformPortfolioQueryTests
         Assert.Equal("%bechir%", captured.SearchPattern);
     }
 
-    // [AC-2.4] An unrecognised sort falls back to `name` rather than refusing — the same tolerance the lab-order
-    // stage filter and the audit action filter apply, so a stale bookmark shows rows instead of a French error.
+    // [AC-2.4] An unrecognised sort falls back rather than refusing — the same tolerance the lab-order stage filter
+    // and the audit action filter apply, so a stale bookmark shows rows instead of a French error. The fallback is
+    // `createdAt`, the NEWEST cabinet first: the portfolio is opened to see who has just arrived and who has stopped,
+    // and the console's own default is the same value, which is why it sends no `sort` at all by default.
     [Theory]
-    [InlineData(null, PlatformPortfolioSort.Name)]
-    [InlineData("", PlatformPortfolioSort.Name)]
-    [InlineData("par date de fin", PlatformPortfolioSort.Name)]
+    [InlineData(null, PlatformPortfolioSort.CreatedAt)]
+    [InlineData("", PlatformPortfolioSort.CreatedAt)]
+    [InlineData("par date de fin", PlatformPortfolioSort.CreatedAt)]
+    [InlineData("name", PlatformPortfolioSort.Name)]
     [InlineData("ACTIVITY", PlatformPortfolioSort.Activity)]
     [InlineData("createdAt", PlatformPortfolioSort.CreatedAt)]
     [InlineData("endsOn", PlatformPortfolioSort.EndsOn)]
@@ -220,6 +233,33 @@ public class PlatformPortfolioQueryTests
         var row = Assert.Single(result.Value!.Items);
         Assert.Equal(nameof(SubscriptionState.Trial), row.State);
         Assert.Equal(12, row.DaysRemaining);
+    }
+
+    // [AC-3.3] Each row names its administrator, resolved in ONE batched read for the whole page rather than a
+    // query per row — and a cabinet the batch has no answer for reads null, not another cabinet's address, which is
+    // the failure a dictionary lookup keyed on the wrong id would produce.
+    [Fact]
+    public async Task Each_Row_Carries_Its_Own_Administrators_Address()
+    {
+        var withAdmin = Row(name: "Cabinet Ben Ali");
+        var withoutAdmin = Row(name: "Cabinet Trabelsi");
+        WirePage(withAdmin, withoutAdmin);
+
+        _users.Setup(r => r.GetPrimaryAdminContactsAsync(
+                It.IsAny<IEnumerable<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, ClinicAdminContact>
+            {
+                [withAdmin.ClinicId] = new("Amine Ben Ali", "amine@benali.tn", IsActive: true)
+            });
+
+        var result = await ListHandler().Handle(new ListPlatformClinicsQuery(), CancellationToken.None);
+
+        Assert.Equal("amine@benali.tn", result.Value!.Items[0].AdminEmail);
+        Assert.Null(result.Value.Items[1].AdminEmail);
+
+        _users.Verify(
+            r => r.GetPrimaryAdminContactsAsync(It.IsAny<IEnumerable<Guid>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     // [FR-13] A cabinet with NO entitlement row is its own answer, in words. It is not « Expiré » — nobody chose
@@ -379,7 +419,7 @@ public class PlatformPortfolioQueryTests
     public async Task A_Read_Without_A_Declared_Scope_Refuses_Instead_Of_Reading_Nothing()
     {
         var handler = new ListPlatformClinicsQueryHandler(
-            _activity.Object, new TenantScope(NullLogger<TenantScope>.Instance),
+            _activity.Object, _users.Object, new TenantScope(NullLogger<TenantScope>.Instance),
             NullLogger<ListPlatformClinicsQueryHandler>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(

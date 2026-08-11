@@ -29,7 +29,13 @@ public static class PlatformClinicRowMapper
     /// </summary>
     public const string NoEntitlementLabel = "Aucun abonnement";
 
-    public static PlatformClinicRowDto ToDto(PlatformClinicRow row, DateTime clinicToday)
+    /// <param name="adminEmail">
+    /// The cabinet's administrator, resolved by its caller — batched over the page in the list, singly in the fiche.
+    /// It is a parameter rather than a member of <see cref="PlatformClinicRow"/> because that record is the one
+    /// bounded portfolio JOIN (EC-11), and « which admin is the contact? » is a precedence rule that belongs to
+    /// <c>IUserRepository</c> and must not be written a second time in SQL here.
+    /// </param>
+    public static PlatformClinicRowDto ToDto(PlatformClinicRow row, DateTime clinicToday, string? adminEmail)
     {
         ArgumentNullException.ThrowIfNull(row);
 
@@ -48,6 +54,7 @@ public static class PlatformClinicRowMapper
             Name: row.Name,
             City: row.City,
             CreatedAt: row.CreatedAt,
+            AdminEmail: adminEmail,
             Plan: row.Plan?.ToString(),
             PlanLabel: row.Plan is { } plan ? SubscriptionLabels.Plan(plan) : null,
             State: status?.State.ToString(),

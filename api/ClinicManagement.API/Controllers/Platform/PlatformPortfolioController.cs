@@ -41,13 +41,17 @@ public class PlatformPortfolioController : ApiControllerBase
     /// </summary>
     /// <param name="dormant">« Rien enregistré depuis 30 jours ». A cabinet never covered by the counter pass is
     /// deliberately not matched — see <c>PlatformPortfolioFilter</c>.</param>
+    /// <param name="state">`trial` | `active` | `expiringSoon` | `expired` | `suspended` | `missing` (AC-2.3). An
+    /// unrecognised value narrows nothing rather than refusing.</param>
     /// <param name="q">Matches the cabinet's name, its city or an administrator's e-mail address (AC-2.5).</param>
-    /// <param name="sort">`name` | `activity` | `createdAt`. An unrecognised value falls back to `name`.</param>
+    /// <param name="sort">`name` | `activity` | `createdAt` | `endsOn`. An unrecognised value falls back to
+    /// `createdAt`, the newest cabinet first.</param>
     /// <param name="page">1-based. Omitting it gets the first page — this read is never unbounded.</param>
     /// <param name="pageSize">Clamped to <c>PageRequest.MaxPageSize</c>.</param>
     [HttpGet("clinics")]
     public async Task<ActionResult<PlatformClinicPageDto>> ListClinics(
         [FromQuery] bool dormant = false,
+        [FromQuery] string? state = null,
         [FromQuery] string? q = null,
         [FromQuery] string? sort = null,
         [FromQuery] int? page = null,
@@ -55,7 +59,15 @@ public class PlatformPortfolioController : ApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var result = await _mediator.Send(
-            new ListPlatformClinicsQuery { Dormant = dormant, Q = q, Sort = sort, Page = page, PageSize = pageSize },
+            new ListPlatformClinicsQuery
+            {
+                Dormant = dormant,
+                State = state,
+                Q = q,
+                Sort = sort,
+                Page = page,
+                PageSize = pageSize
+            },
             cancellationToken);
 
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);

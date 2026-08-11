@@ -16,13 +16,14 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { portfolioSearchParams, type PortfolioQuery } from "@/lib/api/platform";
+import { DEFAULT_PORTFOLIO_SORT, portfolioSearchParams, type PortfolioQuery } from "@/lib/api/platform";
 
+/** « Création » first, because it is the default — the order the list actually arrives in with nothing chosen. */
 const SORTS: Array<{ value: string; label: string }> = [
-  { value: "name", label: "Nom" },
-  { value: "activity", label: "Activité" },
   { value: "createdAt", label: "Création" },
+  { value: "activity", label: "Activité" },
   { value: "endsOn", label: "Date de fin" },
+  { value: "name", label: "Nom" },
 ];
 
 /** AC-2.3's entitlement filters. Every one is a SQL predicate over the whole portfolio, never over the page. */
@@ -42,7 +43,7 @@ const STATES: Array<{ value: string; label: string }> = [
  * the same query the server did.
  *
  * ⚠️ **One control set, two presentations.** Above `lg:` the controls sit inline; below it they move into a
- * bottom sheet behind a « Filtres » button, because at 320 px a search box, a toggle and three sort options in a
+ * bottom sheet behind a « Filtres » button, because at 320 px a search box, a toggle and four sort options in a
  * row are either unreadable or push the table off screen. The sheet is a real dialog (focus trapped, `Escape`
  * closes) rather than a disclosure, and the active filters stay visible **outside** it as removable chips — so a
  * narrowed list can never look like an empty portfolio, which is the EC-12 confusion in miniature.
@@ -91,7 +92,7 @@ export function PortfolioFilters({ query }: { query: PortfolioQuery }) {
         <legend className="mb-1.5 text-sm font-medium">Trier par</legend>
         <div className="flex flex-wrap gap-2">
           {SORTS.map((sort) => {
-            const active = (query.sort ?? "name") === sort.value;
+            const active = (query.sort ?? DEFAULT_PORTFOLIO_SORT) === sort.value;
             return (
               <Button
                 key={sort.value}
@@ -174,7 +175,7 @@ export function PortfolioFilters({ query }: { query: PortfolioQuery }) {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => apply({ q: "", dormant: false, state: "", sort: "name" })}
+                onClick={() => apply({ q: "", dormant: false, state: "", sort: DEFAULT_PORTFOLIO_SORT })}
               >
                 Tout réinitialiser
               </Button>

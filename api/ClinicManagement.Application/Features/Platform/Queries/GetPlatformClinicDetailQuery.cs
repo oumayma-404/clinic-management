@@ -113,7 +113,7 @@ public class GetPlatformClinicDetailQueryHandler
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Result<PlatformClinicDetailDto>.Success(new PlatformClinicDetailDto(
-                Clinic: PlatformClinicRowMapper.ToDto(row, ClinicClock.ClinicToday()),
+                Clinic: PlatformClinicRowMapper.ToDto(row, ClinicClock.ClinicToday(), admin?.Email),
                 AdminName: admin?.FullName,
                 AdminEmail: admin?.Email,
                 // No admin at all reads as « inactive » rather than as a reachable person: the screen shows a

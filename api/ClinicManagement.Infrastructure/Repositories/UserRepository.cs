@@ -86,19 +86,41 @@ public class UserRepository : IUserRepository
             : new ClinicStaffSummary(summary.Count, summary.LastLoginAt);
     }
 
+    // Delegates rather than repeating the precedence: one cabinet is the one-element case of a page, and a clinic's
+    // admins are a handful of rows.
     public async Task<ClinicAdminContact?> GetPrimaryAdminContactAsync(
         Guid clinicId, CancellationToken cancellationToken = default)
     {
+        var contacts = await GetPrimaryAdminContactsAsync([clinicId], cancellationToken);
+        return contacts.TryGetValue(clinicId, out var contact) ? contact : null;
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, ClinicAdminContact>> GetPrimaryAdminContactsAsync(
+        IEnumerable<Guid> clinicIds, CancellationToken cancellationToken = default)
+    {
+        var ids = clinicIds?.Distinct().ToList() ?? [];
+        if (ids.Count == 0)
+        {
+            return new Dictionary<Guid, ClinicAdminContact>();
+        }
+
         // Active first, then the oldest account — the founder ahead of a later addition — and Id last so two
-        // consecutive loads of the detail cannot name two different people.
-        return await _context.Users
+        // consecutive loads cannot name two different people. Ordered in SQL, so the pick below is « the first of
+        // this cabinet's rows » rather than a second precedence rule.
+        var admins = await _context.Users
             .AsNoTracking()
-            .Where(u => u.ClinicId == clinicId && u.Role == User.RoleAdmin)
+            .Where(u => ids.Contains(u.ClinicId) && u.Role == User.RoleAdmin)
             .OrderByDescending(u => u.IsActive)
             .ThenBy(u => u.CreatedAt)
             .ThenBy(u => u.Id)
-            .Select(u => new ClinicAdminContact(u.FullName, u.Email, u.IsActive))
-            .FirstOrDefaultAsync(cancellationToken);
+            .Select(u => new { u.ClinicId, u.FullName, u.Email, u.IsActive })
+            .ToListAsync(cancellationToken);
+
+        return admins
+            .GroupBy(a => a.ClinicId)
+            .ToDictionary(
+                group => group.Key,
+                group => new ClinicAdminContact(group.First().FullName, group.First().Email, group.First().IsActive));
     }
 
     public async Task<User?> GetByAuth0SubAsync(string auth0Sub, CancellationToken cancellationToken = default)

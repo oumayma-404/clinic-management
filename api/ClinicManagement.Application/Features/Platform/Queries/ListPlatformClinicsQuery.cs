@@ -39,9 +39,13 @@ public class ListPlatformClinicsQuery : IRequest<Result<PlatformClinicPageDto>>
     public string? Q { get; set; }
 
     /// <summary>
-    /// <c>name</c> | <c>activity</c> | <c>createdAt</c> | <c>endsOn</c>. An unrecognised value falls back to <c>name</c> rather
-    /// than refusing — the same tolerance the lab-order stage filter and the audit action filter apply, so a
-    /// stale bookmark shows rows instead of a French error.
+    /// <c>name</c> | <c>activity</c> | <c>createdAt</c> | <c>endsOn</c>. An unrecognised value falls back to
+    /// <c>createdAt</c> rather than refusing — the same tolerance the lab-order stage filter and the audit action
+    /// filter apply, so a stale bookmark shows rows instead of a French error.
+    ///
+    /// <para>⚠️ <b>The fallback is the newest cabinet first, and the console's own default matches it</b> — which is
+    /// what keeps the screen's URL clean, since a default it agreed with the server about needs no query parameter.
+    /// Moving one of the two alone would make « Création » look active while the list arrived alphabetically.</para>
     /// </summary>
     public string? Sort { get; set; }
 
@@ -54,15 +58,18 @@ public class ListPlatformClinicsQueryHandler
     : IRequestHandler<ListPlatformClinicsQuery, Result<PlatformClinicPageDto>>
 {
     private readonly IClinicActivityRepository _activityRepository;
+    private readonly IUserRepository _userRepository;
     private readonly ITenantScope _tenantScope;
     private readonly ILogger<ListPlatformClinicsQueryHandler> _logger;
 
     public ListPlatformClinicsQueryHandler(
         IClinicActivityRepository activityRepository,
+        IUserRepository userRepository,
         ITenantScope tenantScope,
         ILogger<ListPlatformClinicsQueryHandler> logger)
     {
         _activityRepository = activityRepository;
+        _userRepository = userRepository;
         _tenantScope = tenantScope;
         _logger = logger;
     }
@@ -94,7 +101,18 @@ public class ListPlatformClinicsQueryHandler
             var paging = PageRequest.From(request.Page, request.PageSize) ?? PageRequest.Of(1, PageRequest.DefaultPageSize);
 
             var page = await _activityRepository.GetPortfolioAsync(filter, paging, cancellationToken);
-            var items = page.Items.Select(row => PlatformClinicRowMapper.ToDto(row, today)).ToList();
+
+            // Bounded by the page, and one read for all of it: a contact per row would be 25 queries on the screen
+            // the vendor opens first. It is not part of the portfolio JOIN because « which admin is the contact? » is
+            // a precedence rule owned by IUserRepository, and expressing it here too is how the list and the fiche
+            // come to name two different people.
+            var admins = await _userRepository.GetPrimaryAdminContactsAsync(
+                page.Items.Select(row => row.ClinicId), cancellationToken);
+
+            var items = page.Items
+                .Select(row => PlatformClinicRowMapper.ToDto(
+                    row, today, admins.TryGetValue(row.ClinicId, out var admin) ? admin.Email : null))
+                .ToList();
 
             return Result<PlatformClinicPageDto>.Success(new PlatformClinicPageDto(
                 Items: items,
@@ -130,12 +148,16 @@ public class ListPlatformClinicsQueryHandler
         return measured.Count == 0 ? null : measured.Min();
     }
 
+    /// <summary>
+    /// An unrecognised value is the <b>newest cabinet first</b>, not the alphabet: the portfolio is opened to see who
+    /// has just arrived and who has stopped, and a name is only useful to somebody who already knows which name.
+    /// </summary>
     private static PlatformPortfolioSort ParseSort(string? sort) => sort?.Trim().ToLowerInvariant() switch
     {
+        "name" => PlatformPortfolioSort.Name,
         "activity" => PlatformPortfolioSort.Activity,
-        "createdat" => PlatformPortfolioSort.CreatedAt,
         "endson" => PlatformPortfolioSort.EndsOn,
-        _ => PlatformPortfolioSort.Name
+        _ => PlatformPortfolioSort.CreatedAt
     };
 
     /// <summary>

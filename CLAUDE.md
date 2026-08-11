@@ -933,6 +933,24 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   around. ⚠️ `verify-schema` gained three checks; the plan's `clinic-activity-day-unique-per-clinic-day` was
   **replaced**, because the unique index makes it unfalsifiable and the index is already diffed for free — see
   `features/platform-console/stories/progress.md` DEV-4.
+  ⚠️ **All four « Abonnement » filters were dead from Part 2 until a user reported it, and the defect was one missing
+  method parameter**: `PlatformPortfolioController.ListClinics` bound `dormant`/`q`/`sort`/`page`/`pageSize` and **not
+  `state`**, so the console sent `?state=expired`, model binding had nowhere to put it, `ListPlatformClinicsQuery.State`
+  stayed null and the list narrowed nothing. Every layer behind the hop was correct — the SQL predicate, `ParseState`,
+  the chips — and `PlatformPortfolioQueryTests` asserts the *handler* forwards every filter **it is given**, which it
+  did. A dropped filter also fails silently: the list still answers, with more cabinets than were asked for. The fix is
+  the parameter plus `PlatformPortfolioControllerTests`, whose second case is **derived** (every settable property of
+  the query must have a parameter to arrive on) so the next filter cannot be dropped the same way; both halves were
+  proven red. This is `fixes-dont-propagate`'s neighbour — a correct rule wired to one caller fewer than it has.
+  ⚠️ Three adjustments landed with it. The list now defaults to **the newest cabinet first** (`ParseSort`'s fallback and
+  the console's `DEFAULT_PORTFOLIO_SORT` are the *same* value, which is what keeps the default out of the URL), a table
+  row is **clickable** — as an *addition* to the « Ouvrir » link, which stays because a `<tr>` with an `onClick` has no
+  keyboard path and no accessible role — and the row carries the cabinet's **administrator's e-mail**
+  (`PlatformClinicRowDto.AdminEmail`, already an allowed `PlatformReadShape` name from the fiche). That last one is
+  resolved by **`IUserRepository.GetPrimaryAdminContactsAsync`**, one batched read over the page, and the single-cabinet
+  `GetPrimaryAdminContactAsync` the fiche uses now **delegates to it**: « which admin is the contact? » is a precedence
+  rule (active first, then the founder, then deterministic), and two expressions of it would drift into the list naming
+  one person and the fiche naming another, with both screens looking right on their own.
 
 - **The console records what it looked at, and the record is readable (`platform-console` Part 3)**:
   `GET /api/platform/clinics/{id}` opens one cabinet — the list's own figures, a **six-month trend** off

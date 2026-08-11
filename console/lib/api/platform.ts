@@ -15,6 +15,14 @@ export interface PlatformClinicRow {
   name: string;
   city: string | null;
   createdAt: string;
+  /**
+   * The cabinet's administrator — who set the practice up, and who the vendor writes to. Null where it has no admin
+   * account at all, which is a fact worth seeing in the list rather than only after opening a fiche.
+   *
+   * ⚠️ The only field on this row that names a **person**, and a *staff* account rather than anybody the practice
+   * treats — see `PlatformReadShape` on why the `admin` prefix is what keeps that reviewable.
+   */
+  adminEmail: string | null;
   plan: string | null;
   planLabel: string | null;
   /**
@@ -82,6 +90,15 @@ export interface PortfolioQuery {
 }
 
 /**
+ * The order the portfolio arrives in when nobody has chosen one: the **newest cabinet first**.
+ *
+ * ⚠️ It must stay equal to `ListPlatformClinicsQuery.ParseSort`'s own fallback. That agreement is what lets the
+ * default be *omitted* from the URL below — a clean « Cabinets » link — and moving one side alone would leave
+ * « Création » looking active on a list that arrived alphabetically.
+ */
+export const DEFAULT_PORTFOLIO_SORT = "createdAt";
+
+/**
  * Builds the query string. Only non-default values are written, so a plain « Cabinets » link stays a clean URL
  * and « is a filter active? » is answerable by reading the address bar — which is also what makes the removable
  * filter chips on the screen honest.
@@ -91,7 +108,7 @@ export function portfolioSearchParams(query: PortfolioQuery): URLSearchParams {
   if (query.q) params.set("q", query.q);
   if (query.dormant) params.set("dormant", "true");
   if (query.state) params.set("state", query.state);
-  if (query.sort && query.sort !== "name") params.set("sort", query.sort);
+  if (query.sort && query.sort !== DEFAULT_PORTFOLIO_SORT) params.set("sort", query.sort);
   if (query.page && query.page > 1) params.set("page", String(query.page));
   return params;
 }

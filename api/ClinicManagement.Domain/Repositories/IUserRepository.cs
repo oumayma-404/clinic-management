@@ -57,6 +57,22 @@ public interface IUserRepository
     Task<ClinicAdminContact?> GetPrimaryAdminContactAsync(
         Guid clinicId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The same answer as <see cref="GetPrimaryAdminContactAsync"/> for a whole page of cabinets, keyed by clinic —
+    /// what the portfolio list shows in its « Administrateur » column. A cabinet with no admin account is simply
+    /// absent from the dictionary.
+    ///
+    /// <para>⚠️ <b>This is the primary of the two, and the single-cabinet read delegates to it.</b> « Which admin is
+    /// the cabinet's contact? » is a precedence rule (active first, then the founder, then deterministic), and a
+    /// second expression of it would drift into the list naming one person and the fiche naming another — both
+    /// screens looking right on their own, which is the hardest kind of discrepancy to notice.</para>
+    ///
+    /// <para>Batched because the alternative is a query per row of every page load, on the read a vendor opens
+    /// first.</para>
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, ClinicAdminContact>> GetPrimaryAdminContactsAsync(
+        IEnumerable<Guid> clinicIds, CancellationToken cancellationToken = default);
+
     Task AddAsync(User entity, CancellationToken cancellationToken = default);
     void Update(User entity);
     void Remove(User entity);

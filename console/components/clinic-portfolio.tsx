@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import type { PlatformClinicPage, PlatformClinicRow } from "@/lib/api/platform";
 import { CardList } from "@/components/ui/card-list";
@@ -24,10 +27,15 @@ import { EM_DASH, formatCount, formatDate, formatDateTime, formatMoney } from "@
  * revealed by hover, and the same affordance at every width — is honoured: the link is always visible, in the table
  * and in the card list. The menu arrives with Part 4's three writes, which is when there is a choice to present.
  *
- * ⚠️ **The row itself is still not clickable.** A `<tr>` with an onClick has no keyboard path and no accessible
- * role; the named link does.
+ * ⚠️ **The row is clickable, and the « Ouvrir » link is what makes that acceptable.** A `<tr>` with an `onClick` has
+ * no keyboard path and no accessible role, so the click is an *addition* to the named link rather than a replacement
+ * for it: a mouse gets the whole row, a keyboard and a screen reader get the same link they always had. (This note
+ * used to say the row was deliberately not clickable — it was, and losing the link is what would have been wrong.)
+ * A click landing on a text selection is ignored, because the new « Administrateur » column is there to be copied.
  */
 export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
+  const router = useRouter();
+
   if (page.items.length === 0) {
     return (
       <p className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground" role="status">
@@ -44,6 +52,7 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
             <TableHeader>
               <TableRow>
                 <TableHead scope="col">Cabinet</TableHead>
+                <TableHead scope="col">Administrateur</TableHead>
                 <TableHead scope="col">État</TableHead>
                 <TableHead scope="col" className="text-right">
                   Patients
@@ -76,10 +85,23 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
             </TableHeader>
             <TableBody>
               {page.items.map((clinic) => (
-                <TableRow key={clinic.clinicId}>
+                <TableRow
+                  key={clinic.clinicId}
+                  className="cursor-pointer"
+                  onClick={() => {
+                    if (!window.getSelection()?.toString()) {
+                      router.push(`/cabinets/${clinic.clinicId}`);
+                    }
+                  }}
+                >
                   <TableCell>
                     <span className="font-medium">{clinic.name}</span>
                     <span className="block text-xs text-muted-foreground">{clinic.city ?? EM_DASH}</span>
+                  </TableCell>
+                  {/* An absent address is « aucun compte administrateur », not an unknown one — but that is a
+                      sentence for the fiche; here the em dash is the column's own convention. */}
+                  <TableCell className="max-w-[16rem] truncate" title={clinic.adminEmail ?? undefined}>
+                    {clinic.adminEmail ?? EM_DASH}
                   </TableCell>
                   <TableCell>
                     <StateBadge clinic={clinic} />
@@ -122,6 +144,9 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
           subtitle={(clinic) => clinic.city ?? undefined}
           status={(clinic) => <StateBadge clinic={clinic} />}
           fields={(clinic) => [
+            // First of the fields: on a phone the vendor is usually looking up who to write to. `CardList` drops a
+            // field with no value, so a cabinet with no admin account shows no line rather than a dash.
+            { label: "Administrateur", value: clinic.adminEmail ?? "" },
             // The two activity markers move into the field list below `lg:` — the status slot holds one badge and
             // the entitlement is what the vendor reads first. They are words, not colours (AC-6.3).
             clinic.countersComputedAt === null

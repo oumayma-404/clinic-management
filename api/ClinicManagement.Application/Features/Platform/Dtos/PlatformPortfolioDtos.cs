@@ -27,11 +27,22 @@ namespace ClinicManagement.Application.Features.Platform.Dtos;
 /// revenue; AC-2.7 requires the two to be labelled apart, and the field names carry that distinction here.</param>
 /// <param name="CountersComputedAt">When this row's activity figures were measured, or null where the pass has
 /// never covered this cabinet. Null is a distinct statement from zero (EC-15).</param>
+/// <param name="AdminEmail">
+/// Who to write to at the cabinet — the administrator <c>IUserRepository.GetPrimaryAdminContactsAsync</c> names, the
+/// same person the fiche shows (AC-3.3). Null where the cabinet has no admin account at all, which is a fact worth
+/// seeing in a list rather than only after opening one.
+///
+/// <para>⚠️ It is the one member of this row that identifies a <b>person</b>, and it is admissible for the reason
+/// <c>PlatformReadShape</c> states beside the name: an admin is the cabinet's own staff account — the party the
+/// vendor bills and telephones — never somebody the practice treats. The <c>Admin</c> prefix is what keeps that
+/// reviewable; a bare <c>Email</c> would be one careless reuse away from a patient's.</para>
+/// </param>
 public record PlatformClinicRowDto(
     Guid ClinicId,
     string Name,
     string? City,
     DateTime CreatedAt,
+    string? AdminEmail,
     string? Plan,
     string? PlanLabel,
     string? State,
