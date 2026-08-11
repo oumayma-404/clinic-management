@@ -50,6 +50,14 @@ if (args.Length > 0 && string.Equals(args[0], PlatformAccountCommand.CommandName
     return await PlatformAccountCommand.RunAsync(args);
 }
 
+// Runs the console's activity counter pass once, now, rather than at its 03:00 schedule. It calls the job itself,
+// so there is no second copy of the counter rules. Usage:
+//   ClinicManagement.API.exe count-activity
+if (args.Length > 0 && string.Equals(args[0], CountActivityCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await CountActivityCommand.RunAsync();
+}
+
 if (args.Length > 0 && string.Equals(args[0], ProvisionCertCommand.CommandName, StringComparison.OrdinalIgnoreCase))
 {
     return ProvisionCertCommand.Run(args);
@@ -240,6 +248,40 @@ try
             options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
             options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
         });
+
+    // Model-binding failures answer in the product's OWN error contract, in French.
+    //
+    // ⚠️ Without this, ASP.NET returns its RFC 9110 ProblemDetails — `{ title, status, errors: { Field: [...] } }`
+    // — whose `title` is the English « One or more validation errors occurred. » and whose details are English
+    // machine text naming a C# property. `web/lib/api/client.ts` reads `{ error }` and deliberately discards a
+    // detail that `looksTechnical`, so a binding refusal reached the user as **nothing at all**: the dialog simply
+    // did not save. Found on « Ajouter un patient », where a non-nullable `string PhoneNumber` made the binder
+    // require a field the form never marked required — two defects that only added up to silence.
+    // ⚠️ The field NAMES are kept (camelCased, so they match the JSON the client sent) because « which field »
+    // is the one thing the user needs and the one thing a generic sentence cannot carry. The framework's English
+    // explanations are dropped: they describe a type system, not a form.
+    builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var fields = context.ModelState
+                .Where(entry => entry.Value?.Errors.Count > 0)
+                .Select(entry => entry.Key.Split('.').Last())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => char.ToLowerInvariant(name[0]) + name[1..])
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            var message = fields.Count switch
+            {
+                0 => "Les données envoyées ne sont pas valides.",
+                1 => $"Le champ « {fields[0]} » n'est pas valide ou n'a pas été envoyé.",
+                _ => $"Ces champs ne sont pas valides ou n'ont pas été envoyés : {string.Join(", ", fields)}."
+            };
+
+            return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(new { error = message, code = "validation_failed" });
+        };
+    });
     // Rate limiting (security-hardening US-4): per-IP on the anonymous auth endpoints, generous per-user
     // elsewhere, with the connectivity poll / OAuth callback / SignalR hub / proxied Next traffic exempt.
     // Both auth modes — Cloud is internet-facing and needs it at least as much as a LAN install.
@@ -761,13 +803,22 @@ try
     // and wins endpoint selection (the WebSocket reaches the hub in-process, not the Next proxy).
     app.MapHub<ClinicHub>("/hub/clinic");
 
-    // Hangfire Dashboard — in Local mode, reachable only from the server PC itself (loopback);
-    // Cloud keeps the previous behavior (FR-E3). Mode is passed into the filter so the decision is
-    // per-request (the filter is a singleton attached to the dashboard middleware).
-    app.UseHangfireDashboard("/hangfire", new DashboardOptions
+    // Hangfire Dashboard — reachable only from the server machine itself (loopback), in every profile.
+    //
+    // ⚠️ MAPPED as an endpoint with .AllowAnonymous(), not `UseHangfireDashboard`, and that is a FIX rather
+    //    than a style choice. `AuthorizationMiddleware` applies the fail-closed `FallbackPolicy`
+    //    (RequireAuthenticatedUser) to a request that reaches it carrying no endpoint metadata — which is what
+    //    dashboard *middleware* is — so wherever FailClosedAuthz holds, /hangfire answered **401 with
+    //    `WWW-Authenticate: Bearer`** to everyone, loopback included, and `HangfireAuthorizationFilter` was
+    //    never consulted at all. The dashboard was documented as loopback-reachable in both modes and was in
+    //    fact reachable in neither. Found in Part 7 by trying to trigger a recurring job from the box.
+    // ⚠️ AllowAnonymous does NOT open it: the loopback filter below is the gate, and it now actually runs.
+    //    This is the same reason `MapReverseProxy().AllowAnonymous()` below carries that call — the fallback
+    //    policy would otherwise 401 the login page.
+    app.MapHangfireDashboard("/hangfire", new DashboardOptions
     {
         Authorization = new[] { new HangfireAuthorizationFilter() }
-    });
+    }).AllowAnonymous();
 
     // Same-origin front door: forward every non-/api route to the localhost Next server. The catch-all is the
     // least-specific endpoint, so /api/* controllers and the loopback-gated /hangfire middleware take

@@ -36,7 +36,16 @@ public class SystemWideCallerCoverageTests
         ["RestoreBackupCommand.cs"] = "runs pg_restore and bumps TokenVersion over raw ADO (NpgsqlCommand) — there "
                                       + "is no DbContext and therefore no query filter to satisfy",
         ["AuditSaveChangesInterceptor.cs"] = "its child scope writes only AuditEntry, which carries no query "
-                                            + "filter by design (nullable ClinicId)"
+                                            + "filter by design (nullable ClinicId)",
+        // ⚠️ The one exemption whose reason is « something else declares it », which is normally the excuse this
+        // guard exists to reject. It holds here because the verb's entire body is one call to
+        // ClinicActivityCounterJob.CountClinicActivity(), whose FIRST statement is UseSystemWide — and ITenantScope
+        // is single-assignment, so declaring it in the verb as well would throw. Reusing the job rather than
+        // copying the counter rules is the point of the verb; a second declaration would be the price of a second
+        // implementation.
+        ["CountActivityCommand.cs"] = "delegates wholly to ClinicActivityCounterJob, which declares UseSystemWide "
+                                      + "as its first act; ITenantScope is single-assignment so a second "
+                                      + "declaration here would throw"
     };
 
     /// <summary>

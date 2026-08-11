@@ -25,8 +25,28 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     /// nothing about teeth, and hard-rejecting them would break appointment sync to make a form field mandatory.
     /// </summary>
     public string? Dentition { get; set; }
-    public string Email { get; set; } = string.Empty;
-    public string PhoneNumber { get; set; } = string.Empty;
+    /// <summary>
+    /// Optional, like every other contact detail on a patient — and <b>nullable is what makes that true on the
+    /// wire</b>. Declared as a non-nullable <c>string</c> these two were <b>implicitly `[Required]`</b>: with
+    /// nullable reference types enabled, ASP.NET's model binder infers a required-ness the type is asserting, so
+    /// « Ajouter un patient » was answered with « The PhoneNumber field is required. » — a 400 before the handler,
+    /// on a field the form does not even mark with an asterisk.
+    ///
+    /// <para>Everything around them already said optional: <c>Patient.PhoneNumber</c> and <c>.Email</c> are
+    /// nullable, <c>PatientDto</c> reads <c>patient.PhoneNumber?.Value</c>, <c>PatientFromRequest.Build</c> guards
+    /// with <c>IsNullOrWhiteSpace</c> and maps blank to <c>null</c>, and <c>UpdatePatientCommand</c> has always
+    /// declared both <c>string?</c>. `data-and-money-integrity` retired four sentinel literals
+    /// (<c>noemail@example.com</c>, <c>0000000000</c>, …) specifically so a patient with no phone could be
+    /// recorded as having none. The create path was the one door still refusing.</para>
+    ///
+    /// <para>⚠️ A patient genuinely has no number to give — a child brought by a parent, a walk-in who does not
+    /// want to leave one — and refusing the record is the wrong trade. The <i>form</i> says « recommandé » and
+    /// names the consequence (no SMS/WhatsApp reminder); the API takes the patient either way.</para>
+    /// </summary>
+    public string? Email { get; set; }
+
+    /// <inheritdoc cref="Email"/>
+    public string? PhoneNumber { get; set; }
     public string? MedicalHistory { get; set; }
     public string? Allergies { get; set; }
     public AddressDto? Address { get; set; }
