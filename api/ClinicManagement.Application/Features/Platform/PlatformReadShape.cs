@@ -128,6 +128,19 @@ public static class PlatformReadShape
         "IfCancelled",
         "MakesReadOnly",
 
+        // ── Suspension (Part 6, AC-6.1/6.3/6.4). ⚠️ `SuspensionReason` is the only FREE TEXT this surface returns,
+        // so it is the name to think hardest about after the two `Admin*` ones below. It is admissible because of who
+        // writes it and about whom: the *vendor* types it about a *practice* (« facturation frauduleuse signalée »),
+        // it is refused unless a suspension is being recorded, and no clinic user can reach the field at all — the
+        // entitlement is written only by the five vendor verbs and by this console. It can no more name a patient
+        // than an invoice's `Reference` can. `SuspendedBy` is a console account id (`console|…`), never a person at
+        // the practice.
+        "Suspension",
+        "SuspensionReason",
+        "SuspendedAt",
+        "SuspendedBy",
+        "IsSuspended",
+
         // Who to call at the cabinet (AC-3.3). ⚠️ These are the two names on this surface that identify a PERSON,
         // so they are the ones to think hardest about — and they are admissible for a reason the field names carry:
         // an `Admin*` is the cabinet's own **staff account**, the party the vendor bills and telephones, never

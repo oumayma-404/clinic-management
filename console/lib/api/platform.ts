@@ -139,6 +139,46 @@ export interface PlatformClinicDetail {
   trend: PlatformActivityMonth[];
   /** The cabinet's subscription ledger, newest first — cancelled entries included and marked (AC-3.2, AC-5.2). */
   payments: PlatformSubscriptionEntry[];
+  /**
+   * Why this cabinet is suspended, by whom and since when — **null when it is not** (AC-6.1).
+   *
+   * ⚠️ Whether the cabinet *is* suspended is `clinic.state === "Suspended"`, the server's own FR-1 verdict. This
+   * only explains a suspension that state has already declared: branching the screen on `suspension !== null`
+   * instead would be a second authority on « suspendu ».
+   */
+  suspension: PlatformSuspension | null;
+}
+
+/**
+ * A live suspension's trail (AC-6.1).
+ *
+ * ⚠️ **It is cleared when the suspension is lifted**, by design on the server — so a cabinet suspended in March and
+ * released in April has none of this, and the durable record is the console's own « Journal » (« Cabinet suspendu » /
+ * « Suspension levée »). The fiche links there for exactly that reason.
+ */
+export interface PlatformSuspension {
+  /** Mandatory on the server, so this is never blank while a suspension stands. */
+  suspensionReason: string;
+  suspendedAt: string;
+  /** `console|{accountId}` — a console account, never anybody at the practice. Null for a verb that named none. */
+  suspendedBy: string | null;
+}
+
+/**
+ * What suspending or lifting answers with (AC-6.4).
+ *
+ * ⚠️ `endsOn` is echoed back although nothing in this write can move it — that is the point: no paid day is consumed
+ * while a cabinet is suspended, and the only way to see that on the screen that did it is for the date to be the same
+ * one. `makesReadOnly` can therefore stay **true** after a lift, on a cabinet whose cover ran out anyway.
+ */
+export interface PlatformSuspensionChanged {
+  clinicId: string;
+  isSuspended: boolean;
+  endsOn: string | null;
+  state: string;
+  stateLabel: string;
+  daysRemaining: number | null;
+  makesReadOnly: boolean;
 }
 
 /**
@@ -238,6 +278,17 @@ export const CLINIC_NOT_FOUND_CODE = "clinic_not_found";
  * sentence cannot silently change what the dialog does.
  */
 export const PERIOD_ALREADY_CANCELLED_CODE = "period_already_cancelled";
+
+/**
+ * The two refusals a suspension change can come back with (AC-6.1, AC-6.4) — both **states of the world**, not
+ * rejected requests, which is why each is a 409 and why the fiche re-reads on either.
+ *
+ * ⚠️ `clinic_not_suspended` is the one worth wording carefully on screen: a vendor reaching it was usually looking at
+ * a read-only cabinet and assumed a suspension. Its real problem is an end date, and the server's sentence says so.
+ */
+export const CLINIC_ALREADY_SUSPENDED_CODE = "clinic_already_suspended";
+
+export const CLINIC_NOT_SUSPENDED_CODE = "clinic_not_suspended";
 
 export async function fetchClinicDetail(token: string, clinicId: string): Promise<PlatformClinicDetail> {
   return consoleFetch<PlatformClinicDetail>(`/platform/clinics/${clinicId}`, { token });

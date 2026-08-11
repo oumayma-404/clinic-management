@@ -21,6 +21,10 @@ public static class PlatformAccessLabels
         PlatformAccessAction.ViewedClinic => "Fiche cabinet consultée",
         PlatformAccessAction.GrantedPeriod => "Paiement enregistré",
         PlatformAccessAction.CancelledPeriod => "Période annulée",
+        // « Cabinet suspendu », not « Abonnement suspendu »: AC-6.3 forbids presenting suspension as a payment
+        // state, and the journal is read by whoever asks why a practice cannot record work.
+        PlatformAccessAction.Suspended => "Cabinet suspendu",
+        PlatformAccessAction.Unsuspended => "Suspension levée",
         _ => action.ToString()
     };
 

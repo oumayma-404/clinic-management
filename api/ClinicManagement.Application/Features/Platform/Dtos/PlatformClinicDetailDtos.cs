@@ -18,13 +18,56 @@ namespace ClinicManagement.Application.Features.Platform.Dtos;
 /// « rien fait » stay distinguishable at the month level exactly as they are at the cabinet level (EC-15).</param>
 /// <param name="Payments">Newest first. Empty for a cabinet whose ledger genuinely holds nothing — which, since
 /// every cabinet is provisioned with an opening entry (FR-13), means only one that has none at all.</param>
+/// <param name="Suspension">Null unless the cabinet is suspended right now — see
+/// <see cref="PlatformSuspensionDto"/>.</param>
 public record PlatformClinicDetailDto(
     PlatformClinicRowDto Clinic,
     string? AdminName,
     string? AdminEmail,
     bool AdminIsActive,
     IReadOnlyList<PlatformActivityMonthDto> Trend,
-    IReadOnlyList<PlatformSubscriptionEntryDto> Payments);
+    IReadOnlyList<PlatformSubscriptionEntryDto> Payments,
+    PlatformSuspensionDto? Suspension);
+
+/// <summary>
+/// Why a cabinet is suspended, who suspended it and when (<c>platform-console</c> Part 6, AC-6.1) — <b>null when it
+/// is not</b>, which is what lets the screen distinguish « suspendu » from « expiré » with a section rather than
+/// with a colour (AC-6.3).
+///
+/// <para>⚠️ <b>A nullable object rather than three nullable fields</b>, on <see cref="PlatformCancellationPreviewDto"/>'s
+/// precedent: a bare null <see cref="SuspendedAt"/> cannot distinguish « ce cabinet n'est pas suspendu » from
+/// « il l'est, mais nous ne savons plus depuis quand », and only one of those is a state this product can produce.</para>
+///
+/// <para>⚠️ <b>It is the entitlement's current trail, not a history</b> — <c>ClinicSubscription.Unsuspend</c> clears
+/// all three fields, deliberately, so a lifted suspension stops reading as one. The durable record of a suspension
+/// that has since been lifted is the console's own access ledger
+/// (<c>PlatformAccessAction.Suspended</c>/<c>Unsuspended</c>), which is why the fiche links to it.</para>
+/// </summary>
+/// <param name="SuspendedBy">The acting console account as <c>console|{accountId}</c>, or null for a suspension
+/// recorded by a vendor verb that named no actor. Never a clinic user: nobody at the practice can suspend it.</param>
+public record PlatformSuspensionDto(
+    string SuspensionReason,
+    DateTime SuspendedAt,
+    string? SuspendedBy);
+
+/// <summary>
+/// What suspending or lifting answers with (<c>platform-console</c> AC-6.4): the flag, and the date the cabinet
+/// stands on <b>unchanged</b>.
+///
+/// <para>⚠️ <b><see cref="EndsOn"/> is deliberately reported back although nothing here can move it.</b> Suspension
+/// touches no ledger entry, so AC-6.4's « unsuspending restores whatever entitlement the cabinet had » is not a
+/// restore step this command performs — it is a property of not having consumed anything, and echoing the date is
+/// what makes that checkable on the screen that did it. A lifted suspension can therefore land on a cabinet that is
+/// still <c>Expired</c>, and <see cref="MakesReadOnly"/> then stays <c>true</c>.</para>
+/// </summary>
+public record PlatformSuspensionChangedDto(
+    Guid ClinicId,
+    bool IsSuspended,
+    DateTime? EndsOn,
+    string State,
+    string StateLabel,
+    int? DaysRemaining,
+    bool MakesReadOnly);
 
 /// <summary>
 /// One entry of a cabinet's subscription ledger, as the console shows it (AC-3.2).

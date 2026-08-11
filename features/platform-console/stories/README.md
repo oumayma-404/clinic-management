@@ -103,8 +103,8 @@ The story's own commit boundaries. Tick a part when its validation checklist pas
 | 3 | One cabinet's detail | No | **implemented** |
 | 4 | Record a payment and unlock the cabinet | No — merged at `25b252d` | **implemented** |
 | 5 | Correct a mistake | No — merged at `25b252d` | **implemented** |
-| 6 | Suspend for abuse | No — merged at `25b252d` | not-started |
-| 7 | Verification, operator runbook and the promise | Follows 5–6 | not-started |
+| 6 | Suspend for abuse | No — merged at `25b252d` | **implemented** |
+| 7 | Verification, operator runbook and the promise | No — 4–6 are done; needs the `clinic-subscription` merge first | not-started |
 
 ## Gates this story is held to
 

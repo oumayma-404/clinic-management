@@ -7,8 +7,7 @@ namespace ClinicManagement.Domain.Enums;
 /// <para>⚠️ <b>Each member arrives with the write that produces it</b>, never ahead of it — the decision
 /// <c>PlatformPortfolioSort</c> made in Part 2 for « par date de fin » (progress.md DEV-6): a member nothing can
 /// produce is a value the journal can never show and a filter can never match, and the reader has no way to tell
-/// « jamais fait » from « pas encore possible ». Part 6 adds <c>Suspended</c> and <c>Unsuspended</c> on the same
-/// terms.</para>
+/// « jamais fait » from « pas encore possible ». Part 6 closed the set with the last two.</para>
 /// </summary>
 public enum PlatformAccessAction
 {
@@ -32,5 +31,23 @@ public enum PlatformAccessAction
     /// <para>⚠️ The entry itself is <b>kept</b> — never edited, never deleted (AC-5.2) — so this row records who
     /// struck it through, while the motif and the moment live on the entry the cabinet's own screen shows.</para>
     /// </summary>
-    CancelledPeriod = 2
+    CancelledPeriod = 2,
+
+    /// <summary>
+    /// A console account stopped a cabinet recording new work, for a stated reason (Part 6, AC-6.1).
+    ///
+    /// <para>⚠️ <b>Not a payment state</b> (AC-6.3): suspension is for abuse or fraud and touches no ledger entry,
+    /// which is why this row carries no <c>SubscriptionPeriodId</c> — there is none to name.</para>
+    /// </summary>
+    Suspended = 3,
+
+    /// <summary>
+    /// A console account lifted a suspension (Part 6, AC-6.4).
+    ///
+    /// <para>⚠️ <b>These two rows are the only durable record of a suspension.</b>
+    /// <c>ClinicSubscription.Unsuspend</c> clears the motif, the moment and the author off the entitlement — by
+    /// design, since a lifted suspension must not keep reading as one — so « qui a suspendu ce cabinet en mars, et
+    /// pourquoi ? » is answerable here and nowhere else.</para>
+    /// </summary>
+    Unsuspended = 4
 }

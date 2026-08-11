@@ -1,7 +1,7 @@
 # Story 1: [Full] The vendor runs the practice portfolio from a private console
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts 1–4 implemented**. `features/clinic-subscription/` was merged in at `25b252d`, so Parts 5–7 are no longer blocked.
+**Story Status:** in-progress — **Parts 1–6 implemented**. `features/clinic-subscription/` was merged in at `25b252d`; Part 7 remains, and needs that companion merged again (its Part G + review pass landed afterwards).
 **Progress:** [progress.md](./progress.md) — gate results, deviations and what is owed
 **Layer:** Full — ⚠️ see *Notes* for why the BE/FE separation rule is deliberately overridden
 **Depends On:** `features/clinic-subscription/` — **Parts 4–7 only** (Parts 1–3 have no dependency on it)
@@ -307,7 +307,7 @@ Before starting this story, ensure:
 42. **Record it** — `PlatformAccessEntry` + the cabinet's journal row, as in Part 4
 43. **Build the confirmation** — bottom sheet on phone, dialog on desktop; the cancelled entry marked in words as well as struck through
 
-### Part 6 — Suspend for abuse *(AC-6.x)*
+### Part 6 — Suspend for abuse *(AC-6.x)* — **implemented**
 
 44. **Add the suspension commands** — `SuspendClinicFromConsoleCommand` / `UnsuspendClinicFromConsoleCommand`, mandatory reason on suspension (AC-6.1), delegating to the companion's handlers; unsuspending restores whatever entitlement the cabinet had (AC-6.4)
 45. **Keep suspension distinct from expiry throughout** — text and shape, never colour alone (AC-6.3), and never presented as a payment state

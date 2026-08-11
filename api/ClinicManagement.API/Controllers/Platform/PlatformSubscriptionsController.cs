@@ -9,8 +9,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace ClinicManagement.API.Controllers.Platform;
 
 /// <summary>
-/// The vendor records a payment and the cabinet is unlocked (<c>platform-console</c> US-4), and corrects one it
-/// recorded wrongly (US-5).
+/// The vendor records a payment and the cabinet is unlocked (<c>platform-console</c> US-4), corrects one it recorded
+/// wrongly (US-5), and stops a cabinet for abuse (US-6).
 ///
 /// <para>⚠️ <b>The console's only writes, and they are deliberately in their own controller.</b>
 /// <c>PlatformPortfolioController</c> is read-only by construction and says so — « it has no write path » is the
@@ -125,6 +125,82 @@ public class PlatformSubscriptionsController : ApiControllerBase
             CancelSubscriptionPeriodFromConsoleCommandHandler.UnknownClinicCode => StatusCodes.Status404NotFound,
             CancelSubscriptionPeriodFromConsoleCommandHandler.UnknownEntryCode => StatusCodes.Status404NotFound,
             CancelSubscriptionPeriodFromConsoleCommandHandler.AlreadyCancelledCode => StatusCodes.Status409Conflict,
+            _ => StatusCodes.Status400BadRequest,
+        });
+    }
+
+    /// <summary>
+    /// Stops a cabinet recording new work, for a stated reason (AC-6.1) — independently of what it has paid.
+    ///
+    /// <para>⚠️ <b>Two routes rather than one action with a flag</b>, although one command serves both: the direction
+    /// is then the URL, so no truncated or mis-serialised body can turn « suspendre » into « lever ». The decision of
+    /// which access-ledger action is recorded stays in the handler, once.</para>
+    ///
+    /// <para>⚠️ <b>Not a payment route</b> (AC-6.3). It shares this controller because it shares the cabinet lookup,
+    /// the access ledger and the entitlement — but it consumes no paid day, and a suspended cabinet is told it is
+    /// suspended and never that it has expired.</para>
+    /// </summary>
+    [HttpPost("clinics/{clinicId:guid}/suspension")]
+    [AllowsWithoutSubscription(
+        "Suspending a cabinet for abuse must not depend on whether that cabinet has paid — a fraudulent practice "
+        + "whose entitlement has lapsed is precisely one the vendor still needs to be able to stop.")]
+    public async Task<ActionResult<PlatformSuspensionChangedDto>> Suspend(
+        Guid clinicId,
+        [FromBody] SuspendClinicRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return await SetSuspension(clinicId, suspend: true, request.Reason, cancellationToken);
+    }
+
+    /// <summary>
+    /// Lifts a suspension (AC-6.4). The cabinet then stands on the end date it always had — no paid day was consumed
+    /// while it was stopped, so nothing is restored and nothing is granted.
+    ///
+    /// <para>⚠️ <b>A POST and not a DELETE.</b> What is cleared is a flag on a live entitlement, and the two rows
+    /// that record the suspension and its lifting stay in the console's access ledger for ever — <c>DELETE</c> would
+    /// advertise a removal to every future reader of this file.</para>
+    ///
+    /// <para>⚠️ It may well leave the cabinet read-only, and the response says so rather than implying the practice
+    /// can work again: lifting a suspension on a cabinet whose cover ran out in March fixes nothing about March.</para>
+    /// </summary>
+    [HttpPost("clinics/{clinicId:guid}/suspension/lifting")]
+    [AllowsWithoutSubscription(
+        "Undoing a suspension is the correction half of the action above, on the same cabinets — refusing it while "
+        + "the suspension itself is allowed would make a mistaken suspension uncorrectable from the console.")]
+    public async Task<ActionResult<PlatformSuspensionChangedDto>> LiftSuspension(
+        Guid clinicId,
+        CancellationToken cancellationToken = default)
+    {
+        return await SetSuspension(clinicId, suspend: false, reason: null, cancellationToken);
+    }
+
+    /// <summary>
+    /// The two routes' shared tail. ⚠️ The refusals a client acts on differently carry <b>codes</b> — an unknown
+    /// cabinet is a 404, and « déjà suspendu » / « pas suspendu » are states of the world (409) rather than rejected
+    /// requests. None of them is recovered by matching the French sentence.
+    /// </summary>
+    private async Task<ActionResult<PlatformSuspensionChangedDto>> SetSuspension(
+        Guid clinicId, bool suspend, string? reason, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new SetClinicSuspensionFromConsoleCommand
+            {
+                ClinicId = clinicId,
+                Suspend = suspend,
+                Reason = reason,
+            },
+            cancellationToken);
+
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        return HandleFailure(result, result.Code switch
+        {
+            SetClinicSuspensionFromConsoleCommandHandler.UnknownClinicCode => StatusCodes.Status404NotFound,
+            SetClinicSuspensionFromConsoleCommandHandler.AlreadySuspendedCode => StatusCodes.Status409Conflict,
+            SetClinicSuspensionFromConsoleCommandHandler.NotSuspendedCode => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest,
         });
     }

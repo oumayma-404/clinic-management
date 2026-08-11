@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { ActivityTrend } from "@/components/activity-trend";
 import { CancelPeriodDialog } from "@/components/cancel-period-dialog";
 import { RecordPaymentSheet } from "@/components/record-payment-sheet";
+import { SuspendDialog } from "@/components/suspend-dialog";
 import { ConsoleApiError } from "@/lib/api/client";
 import { CLINIC_NOT_FOUND_CODE, fetchClinicDetail, type PlatformClinicDetail } from "@/lib/api/platform";
 import { EM_DASH, formatCount, formatDate, formatDateTime, formatFreshness, formatMoney } from "@/lib/format";
@@ -70,6 +71,8 @@ export default async function CabinetDetailPage({ params }: PageProps) {
 
       <div className="mt-6 space-y-6">
         <Subscription detail={detail} />
+
+        <Suspension detail={detail} />
 
         <section aria-labelledby="activity-heading" className="rounded-lg border border-border bg-card p-4">
           <h2 id="activity-heading" className="text-base font-semibold">
@@ -197,6 +200,75 @@ function Subscription({ detail }: { detail: PlatformClinicDetail }) {
             </li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Suspension (US-6) — deliberately **its own section, not a control inside « Abonnement et paiements »**.
+ *
+ * ⚠️ That placement *is* AC-6.3. Suspension is a decision about conduct, it consumes no paid day, and paying does not
+ * lift it — so a « Suspendre » button sitting under the payment history would present it as a billing lever, which is
+ * exactly what the AC forbids. The heading and the sentence below it say so out loud, because a reader who takes
+ * suspension for a payment state will reach for a cancellation instead, and that one is not reversible.
+ *
+ * ⚠️ **Suspended and expired are distinguished by words and by structure, never by colour** — « Suspendu » is
+ * written, the motif is quoted, and the section carries a border only as a second signal. A greyscale printout, a
+ * screen reader and a colour-blind reader all get the same facts (AC-6.3).
+ *
+ * ⚠️ **The state comes from `clinic.state`, the server's own FR-1 verdict — not from `detail.suspension !== null`.**
+ * The two agree today, and keeping one authority is what stops them disagreeing later: the trail explains a
+ * suspension the state has declared, and never declares one itself.
+ */
+function Suspension({ detail }: { detail: PlatformClinicDetail }) {
+  const clinic = detail.clinic;
+  const suspended = clinic.state === "Suspended";
+
+  return (
+    <section aria-labelledby="suspension-heading" className="rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h2 id="suspension-heading" className="text-base font-semibold">
+          Suspension
+        </h2>
+        <SuspendDialog
+          clinicId={clinic.clinicId}
+          clinicName={clinic.name}
+          suspended={suspended}
+          endsOn={clinic.endsOn}
+        />
+      </div>
+
+      <p className="mt-1 text-sm text-muted-foreground">
+        Mesure indépendante du paiement : elle sert aux abus et aux fraudes, ne consomme aucun jour payé, et un
+        paiement ne la lève pas.
+      </p>
+
+      {suspended ? (
+        <div className="mt-4 rounded-md border border-destructive/40 p-3 text-sm">
+          {/* In words before anything else: « Suspendu » is the whole meaning of this block, and a border colour is
+              not a statement. */}
+          <p className="font-medium">Ce cabinet est suspendu — il ne peut plus enregistrer de nouveaux actes.</p>
+          {detail.suspension ? (
+            <dl className="mt-3 space-y-3">
+              <Figure label="Motif" value={detail.suspension.suspensionReason} />
+              <Figure label="Suspendu le" value={formatDateTime(detail.suspension.suspendedAt)} />
+              <Figure label="Par" value={detail.suspension.suspendedBy ?? EM_DASH} />
+            </dl>
+          ) : (
+            // Unreachable through this console — the server refuses a suspension with no motif — so this states a
+            // fault rather than a normal case, and never renders an empty « Motif » that would read as « aucun ».
+            <p className="mt-2 text-muted-foreground">
+              Aucun motif n&apos;est enregistré pour cette suspension. Elle est donc inexplicable au cabinet :
+              levez-la et, si elle est justifiée, reprenez-la avec un motif.
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-muted-foreground">
+          Ce cabinet n&apos;est pas suspendu. S&apos;il ne peut pas enregistrer de nouveaux actes, c&apos;est que sa
+          couverture est arrivée à échéance — ce qui se corrige par un paiement, pas ici.
+        </p>
       )}
     </section>
   );

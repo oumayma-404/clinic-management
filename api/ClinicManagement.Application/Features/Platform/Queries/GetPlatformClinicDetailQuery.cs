@@ -98,6 +98,7 @@ public class GetPlatformClinicDetailQueryHandler
             var admin = await _userRepository.GetPrimaryAdminContactAsync(request.ClinicId, cancellationToken);
             var trend = await ReadTrendAsync(request.ClinicId, cancellationToken);
             var payments = await ReadPaymentsAsync(row, cancellationToken);
+            var suspension = await ReadSuspensionAsync(row.ClinicId, cancellationToken);
 
             // AC-7.3. Staged before the save below, and its failure fails the read — see the class remarks.
             await PlatformAccessLedger.RecordAsync(
@@ -119,7 +120,8 @@ public class GetPlatformClinicDetailQueryHandler
                 // marker either way, and a missing contact must not look like a live one.
                 AdminIsActive: admin?.IsActive ?? false,
                 Trend: trend,
-                Payments: payments));
+                Payments: payments,
+                Suspension: suspension));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
@@ -164,6 +166,34 @@ public class GetPlatformClinicDetailQueryHandler
         Appointments: days.Sum(d => d.Appointments),
         PatientsCreated: days.Sum(d => d.PatientsCreated),
         DaysMeasured: days.Count);
+
+    /// <summary>
+    /// AC-6.1's suspension trail — why this cabinet is stopped, by whom and since when, or <b>null when it is not
+    /// suspended at all</b>.
+    ///
+    /// <para>⚠️ <b>Read off the entitlement rather than added to the portfolio JOIN</b>, deliberately: the JOIN is the
+    /// one bounded read the whole portfolio is cut from (EC-11), and three columns only the detail renders would ride
+    /// on every row of every page for nothing. One extra read on a screen a vendor opens by hand is the cheaper end
+    /// of that trade.</para>
+    ///
+    /// <para>⚠️ <b>The flag itself comes from the row, not from here.</b> Whether the cabinet reads « Suspendu » is
+    /// <c>SubscriptionStateReader</c>'s answer on <see cref="PlatformClinicRowMapper"/>'s side — this only explains a
+    /// suspension the state has already declared, which is what keeps « suspendu » having one authority.</para>
+    /// </summary>
+    private async Task<PlatformSuspensionDto?> ReadSuspensionAsync(
+        Guid clinicId, CancellationToken cancellationToken)
+    {
+        var entitlement = await _subscriptions.GetByClinicAsync(clinicId, cancellationToken);
+
+        // `Suspend` requires a motif and stamps the moment, so a suspended entitlement always has both. The guard is
+        // for a row written before those fields existed rather than for a state the domain can reach today.
+        if (entitlement is not { IsSuspended: true, SuspensionReason: { } reason, SuspendedAtUtc: { } at })
+        {
+            return null;
+        }
+
+        return new PlatformSuspensionDto(reason, at, entitlement.SuspendedBy);
+    }
 
     /// <summary>
     /// AC-3.2's payment history — <b>the companion's ledger, read</b>, never a console-side re-derivation (FR-4).

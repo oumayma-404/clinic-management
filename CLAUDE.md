@@ -981,6 +981,38 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   the vendor needs. So « déjà annulée » is a **refusal** carrying `period_already_cancelled` (409) and the dialog
   re-reads the fiche so that motif and author appear beside it. ⚠️ And it is a **POST, not a DELETE**: nothing is
   deleted, and `DELETE` would advertise the opposite to every reader of the controller.
+
+- **A cabinet is stopped for abuse, and never told it has expired (`platform-console` Part 6)**:
+  `POST /api/platform/clinics/{id}/suspension` (mandatory motif) and `…/suspension/lifting` make a cabinet read-only
+  **independently of what it has paid**, and `PlatformAccessAction` closes with `Suspended`/`Unsuspended`. No
+  migration and no model change: the action column is `HasConversion<int>()` and the entitlement already carried
+  `SuspensionReason`/`SuspendedAtUtc`/`SuspendedBy`.
+  ⚠️ **Nothing here touches the ledger, and that is the whole of AC-6.4.** « Unsuspending restores whatever
+  entitlement the cabinet had » is not a restore step — it is a property of never having spent anything, so
+  `SetClinicSuspensionFromConsoleCommand` deliberately does **not** use `SubscriptionRefold` (no entry changed ⇒ no
+  date to re-fold ⇒ a lost update is an ordinary 409, the companion's own reasoning). The response echoes the
+  unchanged `endsOn` precisely so that is checkable on the screen that did it.
+  ⚠️ **The load-bearing case is a lift landing on a cabinet that is still expired.** The outcome is read back through
+  `SubscriptionStateReader`, never asserted from the button pressed: a naive `MakesReadOnly = IsSuspended` passes
+  **16 of the 17** new tests and tells the vendor a practice can work again when its next save will be refused.
+  Proven by writing that exact line and watching one test — and only that one — go red.
+  ⚠️ **One command with a `bool Suspend`, two endpoints.** It mirrors the companion's own
+  `SetSubscriptionSuspensionCommand` rather than the story's planned suspend/unsuspend pair, because two handlers
+  would be two copies of « resolve · mutate · stage the access row · save » — the `fixes-dont-propagate` shape. The
+  direction stays in the **URL** so no truncated body can flip it, and which journal action is recorded is decided in
+  one place.
+  ⚠️ **Re-suspending is a 409, not a re-statement**: the entitlement holds exactly one motif, one author and one
+  moment, so a second `Suspend` would overwrite a colleague's reasoning with no trace of it anywhere — changing a
+  motif is lift-then-suspend, and both halves land in the journal. **Lifting a cabinet that is not suspended is a
+  409 too**, because `Unsuspend` clears nothing there: a silent success would record an action that never happened
+  and read on the fiche as having released a cabinet whose real problem is its end date, which the refusal names.
+  ⚠️ **The two journal rows are the only durable record.** `Unsuspend` clears the trail off the entitlement by
+  design, so `GET /api/platform/clinics/{id}`'s new `suspension` object explains a *live* suspension only, and
+  « qui a suspendu ce cabinet en mars ? » is answerable at `/journal` and nowhere else.
+  ⚠️ **On the client it is its own section, not a control under « Abonnement et paiements »** — that placement *is*
+  AC-6.3. A « Suspendre » button beside the payment history presents suspension as a billing lever, and a vendor who
+  reads it that way reaches for a **cancellation** instead, which is not reversible. « Suspendu » is stated in words
+  with the motif quoted, so a greyscale printout and a screen reader get the same facts as a colour.
 - **A clinic can let itself in, and nothing exists until the email is answered (`clinic-self-signup`)**: a hosted
   clinic used to exist only because an operator ran `provision-clinic`. `POST /api/auth/signup` (anonymous) writes a
   pending **`ClinicSignup`** and emails a link; `POST /api/auth/signup/verify` consumes it and provisions the clinic +

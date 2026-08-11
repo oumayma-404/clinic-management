@@ -71,6 +71,13 @@ public class SubscriptionExemptionCoverageTests
         // the cabinets likeliest to be lapsed — including where the mis-keyed entry is what caused the lapse, which
         // is the one case refusing it would make uncorrectable from the console.
         "PlatformSubscriptions.CancelPeriod",
+
+        // --- Stopping a cabinet for abuse, and undoing that (`platform-console` AC-6.1/6.4). Suspension is not a
+        // payment state (AC-6.3), so making it wait on the cabinet's own entitlement would be incoherent in both
+        // directions: a fraudulent practice that has stopped paying is exactly the one still to be stopped, and a
+        // mistaken suspension has to stay liftable on the same cabinet.
+        "PlatformSubscriptions.Suspend",
+        "PlatformSubscriptions.LiftSuspension",
     };
 
     /// <summary>

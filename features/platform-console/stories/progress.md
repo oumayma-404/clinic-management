@@ -13,8 +13,8 @@
 | 3 | One cabinet's detail | No | **implemented** |
 | 4 | Record a payment and unlock the cabinet | No | **implemented** |
 | 5 | Correct a mistake | No — the companion has shipped | **implemented** |
-| 6 | Suspend for abuse | No — the companion has shipped | not-started |
-| 7 | Verification, runbook and the promise | Follows 4–6 | not-started |
+| 6 | Suspend for abuse | No — the companion has shipped | **implemented** |
+| 7 | Verification, runbook and the promise | No — 4–6 are done; needs the `clinic-subscription` merge first | not-started |
 
 Part 1 was the agreed scope for this session; the user chose it over Parts 1–2 or 1–3 because each part is a
 commit boundary and a part boundary is the resumption point.
@@ -924,3 +924,216 @@ shipped suspension as **one** `SetSubscriptionSuspensionCommand` (`bool Suspend`
 lost update there is an ordinary 409). `PlatformAccessAction` gains its last two members, `Suspended` and
 `Unsuspended`, each with the write that produces it. AC-6.3's « text and shape, never colour alone » is the one to
 hold on the client, and the fiche's state badge already reads « Suspendu » distinctly.
+
+---
+
+# Part 6 — Suspend for abuse
+
+**Session:** 2026-08-11 (sixth session on this branch) · steps 44–47 of the story.
+**Status: implemented.**
+
+## Working-tree note (start of session)
+
+The worktree was **clean** (`git status` empty) at `20c221e`. The *main* checkout
+(`feature/windows-desktop-app`) carries `clinic-subscription` Part G plus its 52-finding review commit (`58e43ba`)
+and an untracked `features/platform-console/`. **None of it was merged in**, and nothing in Part 6 needs it: Part G
+is the outbox-parking half and the review pass corrected the fold, which this part reads through
+`SubscriptionStateReader` without folding anything. That merge belongs at Part 7's boundary — as Part 5 already
+recorded.
+
+⚠️ **A `dotnet run` API was live in the main checkout and was stopped at the user's instruction** partway through the
+gate run. It was not the cause of the test failures below (see the SAC note), but it would have been the cause of an
+`MSB3021` had the build gone to the default `bin/`.
+
+## Session decision — one command, and the fiche reads the trail back
+
+Two forks were settled by `AskUserQuestion` **before any code was written**, because each changes the shape of the
+deliverable rather than a detail:
+
+1. **One command with a `bool Suspend`** rather than the story's `SuspendClinicFromConsoleCommand` /
+   `UnsuspendClinicFromConsoleCommand` pair — see DEV-18.
+2. **The fiche shows the motif, the moment and the author** of a live suspension, which meant three new names on
+   `PlatformReadShape` — see DEV-19.
+
+## What Part 6 delivers
+
+**Domain** — `PlatformAccessAction.Suspended` and `.Unsuspended`, closing the enum on DEV-8's terms. **No migration
+and no model change**: the column is `HasConversion<int>()`, and the entitlement has carried
+`SuspensionReason`/`SuspendedAtUtc`/`SuspendedBy` since the companion's Part A.
+
+**Application** — **`SetClinicSuspensionFromConsoleCommand`**: mandatory motif when suspending (AC-6.1),
+`console|{accountId}` as the author through `AuditActor`'s own constant, the `PlatformAccessEntry` staged **before**
+the single save (Part 4's shape, DEV-14), and the outcome read back through `SubscriptionStateReader`. Three refusal
+**codes** (`clinic_not_found` · `clinic_already_suspended` · `clinic_not_suspended`). Plus
+**`PlatformSuspensionChangedDto`**, **`PlatformSuspensionDto`**, `Suspension` on `PlatformClinicDetailDto`, and
+`GetPlatformClinicDetailQuery.ReadSuspensionAsync`.
+
+**API** — `POST /api/platform/clinics/{clinicId}/suspension` and `…/suspension/lifting` on
+`PlatformSubscriptionsController`, each with its own `[AllowsWithoutSubscription]` reason, plus
+`Models/SuspendClinicRequest`.
+
+**`console/`** — `components/suspend-dialog.tsx` (one component, both directions), `app/bff/suspensions/route.ts`,
+and a **« Suspension » section of its own** on the fiche carrying the motif, the moment and the author.
+
+## Step 45 — where « distinct from expiry » actually lives
+
+AC-6.3 is carried in four places, and only the first is code the compiler sees:
+
+1. **`SubscriptionStateReader` already ranks suspension above expiry** (EC-11), so a cabinet that is both reads
+   « Suspendu ». Part 6 adds no arithmetic — it reads that rule and reports it.
+2. **The journal wording is « Cabinet suspendu » / « Suspension levée »**, never « Abonnement … ». A test asserts the
+   labels contain neither « abonnement » nor « paiement », because the failure mode is a plausible French sentence.
+3. **The fiche puts suspension in its own section**, below « Abonnement et paiements » — never as a control inside
+   it. A « Suspendre » button under the payment history presents the measure as a billing lever, and a vendor who
+   reads it that way reaches for a **cancellation**, which is not reversible.
+4. **Every statement is text.** « Ce cabinet est suspendu », the quoted motif, and the outcome sentence all say it in
+   words; the `border-destructive/40` beside them adds nothing a greyscale printout or a screen reader would miss.
+
+## ⚠️ The trap this part is built around: a lift is not a fix
+
+`Unsuspend` clears a flag. It grants nothing and restores nothing — AC-6.4's « unsuspending restores whatever
+entitlement the cabinet had » is a property of **never having spent anything**, not a step this command performs.
+So a cabinet suspended in March whose cover ran out in April is **still read-only** when released, for expiry.
+
+The naive handler reports the direction it was asked for (`MakesReadOnly = IsSuspended`). It compiles, it produces
+plausible French, and it passes **16 of the 17** new tests — the console then tells the vendor that a practice can
+work again when its very next save will be refused. Hence the read-back through `SubscriptionStateReader`, and hence
+`Lifting_A_Suspension_Off_A_Lapsed_Cabinet_Leaves_It_Read_Only_For_Expiry` being the class's load-bearing case. It
+was **proven red by writing that exact line**, and it was the only test that failed.
+
+## Decisions worth recording (not deviations — the plan is silent on all four)
+
+- **Re-suspending is a 409, not a re-statement.** The entitlement holds exactly one motif, one author and one moment,
+  so a second `Suspend` would overwrite a colleague's reasoning with no trace of it on the row. Changing a motif is
+  therefore lift-then-suspend, and both halves land in the journal. This is Part 5's « déjà annulée » argument, and
+  it lands the same way.
+- **Lifting a cabinet that is not suspended is also a 409.** `Unsuspend` clears nothing there, so a silent success
+  would write an `Unsuspended` journal row for an action that never happened — and on the fiche it would read as
+  having released a read-only cabinet whose real problem is its end date. The refusal says exactly that instead.
+- **A POST for the lift, not a DELETE.** What is cleared is a flag on a live entitlement, and the two journal rows
+  stay for ever; `DELETE` would advertise a removal to every future reader of the controller.
+- **Neither journal row names a `SubscriptionPeriodId`.** Suspension touches no entry, and pointing at one would
+  assert that a payment was involved — the same AC-6.3 line, in the data.
+
+## Gate results
+
+| Gate | Command | Result |
+|------|---------|--------|
+| Backend build | `dotnet build --no-incremental` | **0 errors, 55 warnings — the identical pre-existing baseline, and 0 in any file this part touched** (verified by extracting every warning's filename and grepping it for each of the ten new/changed files: no hit) |
+| Backend unit suite | `dotnet test -c Release` | **2644 passed, 0 failed** (Part 5 left it at 2627; +17) |
+| Load-bearing case proven able to fail | wrote the naive handler by hand | **yes, and precisely**: `MakesReadOnly: !status.AllowsWrites` → `MakesReadOnly: subscription.IsSuspended` turned **exactly one** test red — `Lifting_A_Suspension_Off_A_Lapsed_Cabinet_Leaves_It_Read_Only_For_Expiry`, 1 of 17 — then green once restored. That 16 of 17 pass over the naive version is the measurement that justifies the case existing |
+| Schema | — | **not applicable, and verified so rather than assumed**: no migration, no model change, no snapshot change (`git status`). `PlatformAccessEntryConfiguration` maps `Action` with `HasConversion<int>()` and `ClinicSubscription`'s three suspension columns have existed since the companion's Part A. ⚠️ `verify-schema` **exists** (`api/ClinicManagement.API/Maintenance/VerifySchemaCommand.cs`, dispatched by `Program.cs`) and was last run in Part 4 — this row is « nothing to verify », not « the verb is missing » |
+| Console typecheck | `npx tsc --noEmit` | clean |
+| Console device gate | `npm run check:responsive` | **14/14 pass**, and **proven able to fail**: a throwaway probe carrying `min-h-screen`, `max-h-[90vh]`, `text-[9px]` and `hover:scale-105` turned **4** checks red, then green again once deleted |
+| Console build | `npm run build` | clean, **12 routes** (was 11); `/bff/suspensions` is `ƒ`, as a token-bearing write must be |
+| CI | `.github/workflows/ci.yml` | unchanged — the `console` job already runs all three console gates |
+| `web/` untouched | `git status` | verified: this part changes no file under `web/` |
+
+### Derived guards that had something to say
+
+- **`SubscriptionExemptionCoverageTests`** — the two new writes needed their reviewed entries
+  (`PlatformSubscriptions.Suspend`, `PlatformSubscriptions.LiftSuspension`) with reasons, in **both** directions.
+  Resolved by adding them, not by an exemption.
+- **`SubscriptionVendorCommandReachabilityTests`** — green, and again the name to be careful about:
+  `SetClinicSuspensionFromConsoleCommand` does **not** contain the substring `SetSubscriptionSuspensionCommand`. A
+  wrapper named `SetSubscriptionSuspensionCommandForConsole` would have failed the source scan over `Controllers/`.
+- **`PlatformReadShapeTests`** — green with five new names, asserted in **both** directions, so `Suspension`,
+  `SuspensionReason`, `SuspendedAt`, `SuspendedBy` and `IsSuspended` all had to be genuinely reached.
+
+## ⚠️ Environment: Smart App Control blocked the suite, and Release-in-place is what cleared it
+
+Worth writing down, because it cost several rounds and the suite guide's advice was not sufficient this time.
+
+`dotnet vstest` over a Debug build **failed 841 of 2589 tests**, every one of them
+`FileLoadException … An Application Control policy has blocked this file (0x800711C7)` on
+`ClinicManagement.Infrastructure.dll` and `ClinicManagement.API.dll`. Three retries of the same command, a fresh
+`%TEMP%` path and the in-repo `api/.testrun/` path all reproduced it **identically** (841 every time) — so the
+guide's « treat a block as transient and retry » did not apply here, and neither did its location rule.
+
+**What worked: `dotnet test -c Release` in place** — 2644 passed, 0 failed, first attempt. A Release build emits
+different bytes, so SAC judges a different file; the blocked assemblies were the *Debug* ones. Also note the count:
+the Debug run reported `Total: 2589` against Release's `2644`, i.e. the block **suppresses discovery** too, so a
+blocked run under-reports the suite and « 2589 total » must not be read as the baseline.
+
+Stopping the user's running API was a separate matter (it would have locked `bin/` for an in-place Debug build) and
+changed nothing about the SAC failures.
+
+## Deviations — Part 6
+
+### Auto-approved (trivial)
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| `SetSuspension` private helper behind the two actions | Trivial | The two endpoints differ only in a boolean and a body; the mediator send, the success branch and the three-code status map would otherwise be written twice, and the second copy is where a new refusal code fails to be mapped |
+| `SuspendDialog` serves both directions rather than two components | Trivial | The panel, the confirm-before-discard, the refusal handling and the outcome are identical — only the question changes. Two components would be the same `fixes-dont-propagate` shape one layer up, and the direction is a **prop** off the server's own state, never a toggle |
+| One `/bff/suspensions` route with a required `suspend` boolean | Trivial | Part 5 split `/bff/annulations` off `/bff/paiements` because those are different actions with different **idempotency** semantics. These two are one decision with a sign, served by one command; the flag is `typeof === "boolean"`-checked rather than defaulted, so a truncated body is refused instead of silently suspending |
+| A native `<textarea>` with the `Input`'s classes | Trivial | The cancel dialog's own precedent, for its reason: keyboard-reachable for free, and `text-base` keeps it at 16 px so a phone does not zoom on focus |
+
+### DEV-18: one command with a flag, not the story's suspend/unsuspend pair
+
+**Date:** 2026-08-11 · **Category:** Technical · **Approved:** **yes — chosen by the user** (`AskUserQuestion`,
+« One command with a bool »)
+
+- **Plan:** step 44 and the story's file table name `SuspendClinicFromConsoleCommand` **and**
+  `UnsuspendClinicFromConsoleCommand`, « delegating to the companion's handlers ».
+- **Implemented:** one `SetClinicSuspensionFromConsoleCommand` with `bool Suspend`, reached by **two** endpoints.
+- **Justification:** the companion shipped suspension as one `SetSubscriptionSuspensionCommand` (the step-32
+  pre-flight recorded this under **R-2**: adapt the call site, never re-implement), and two console handlers would be
+  two copies of « resolve the cabinet · mutate · stage the access row · save » differing in one boolean — this
+  repository's dominant defect shape, and the place a later refusal gets added to one and not the other. Keeping
+  **two endpoints** preserves what a pair would have bought: the direction is in the URL, so no truncated or
+  mis-serialised body can flip « suspendre » into « lever », and which journal action is recorded is decided once.
+- **Impact:** the story's two file names do not exist; one does. Part 7's runbook names the endpoints, not the
+  commands, so nothing downstream refers to the pair.
+
+### DEV-19: the fiche shows the motif, which put free text on a closed read shape
+
+**Date:** 2026-08-11 · **Category:** Scope · **Approved:** **yes — chosen by the user** (`AskUserQuestion`,
+« Show motif, moment and author »)
+
+- **Plan:** AC-6.1 says a suspension « is recorded with its author and moment » and AC-6.3 that suspension is
+  distinct from expiry « throughout the console ». Neither says the console *reads* the trail back, and Part 3's
+  detail showed only `stateLabel`.
+- **Implemented:** `PlatformSuspensionDto` on the detail read, and five new names on `PlatformReadShape`.
+- **Justification:** without it the motif exists only in PostgreSQL and in `subscription-report`, so the screen that
+  can lift a suspension cannot say why it exists — and « suspendu pourquoi ? » is the question the companion made the
+  motif mandatory for. ⚠️ **`SuspensionReason` is the first free text this surface returns**, which is the reason this
+  is a recorded deviation and not a trivial one: it is admissible because of who writes it and about whom — the
+  *vendor* types it about a *practice*, no clinic user can reach the field, and the entitlement is written only by
+  the five vendor verbs and this console. `SuspendedBy` is a `console|…` account id, never a person at the practice.
+- **Impact:** `PlatformReadShapeTests` asserts in both directions, so all five names are genuinely reached. The trail
+  is **withdrawn** when the suspension is lifted (`Unsuspend` clears it, by design), which is why the fiche links to
+  `/journal` — and why the two new journal actions are the durable record rather than a convenience.
+
+## Owed, and honestly outstanding
+
+- **The eye pass has not been done, for the sixth time.** There is still no browser tooling in this repository. What
+  was done instead: the mechanical gate (14/14, proven live against a four-violation probe) and a re-read of the diff
+  against `DEVICE-CONTRACT.md` § 1. The structural claims for the new surface are: the confirmation is a **bottom
+  sheet below `lg:`** sized in `dvh` (never `vh`) with the body scrolling inside `flex-1` and the action a `shrink-0`
+  sibling, so it stays on screen with the keyboard open; it becomes a centred `lg:max-w-lg` dialog above that
+  boundary; it is dismissible by a visible control **and** `Escape` **and** the overlay, all three routed through one
+  handler that confirms before discarding a typed motif; every control is disabled in flight; the motif field is
+  `text-base` (16 px); the trigger is a real `<button>` carrying `touch-target`'s 44 px coarse-pointer floor and a
+  cabinet-naming `aria-label`, present at **every** width and never revealed by hover; the new section's figure list
+  is a single-column `<dl>`, so nothing reflows; and every state is carried by **text** rather than by the border
+  colour beside it. **Structurally sound is not looked at.** Widths still owed: 320 / 390 / 820 / 1180 / 1440 px + a
+  landscape phone + a keyboard walk.
+- **Neither write has been exercised over the wire**, exactly as Parts 4–5 have not: the command, its three refusals,
+  its attribution and the read-back are unit-tested, but no request has travelled `console/` → `/bff/suspensions` →
+  Kestrel's console listener → the handler on a running deployment.
+- **The counter job still has not been run against real data** (unchanged from Parts 2–5).
+- **AC-6.2's cabinet-side half is the companion's and was not re-verified here.** « A suspended cabinet is read-only
+  exactly as an expired one is, and is told it is suspended » is `SubscriptionGateMiddleware` +
+  `SubscriptionRefusals.Suspended` + the « Abonnement » screen, all shipped and tested in
+  `features/clinic-subscription/`. This part asserts the console's half — that the state it reports is `Suspended`
+  and never `Expired` — and takes the cabinet's on trust from those tests, which is what FR-4 asks for.
+
+## Next
+
+**Part 7 — verification, operator runbook and the promise** (steps 48–52). ⚠️ Three things this part leaves it:
+the `clinic-subscription` merge is now **due at that boundary** (Part G + the 52-finding review are on the main
+checkout and this branch is behind them); step 48's `verify-schema` before/after diff has had **no migration since
+Part 4**, so the batch to run it over is Parts 1–4's; and step 50's « what the vendor sees » sentence must now
+include the **suspension motif** — free text the vendor wrote about the practice, which is new since the sentence
+was drafted, and the one item on that list a cabinet might be surprised to learn is readable.
