@@ -42,7 +42,7 @@ public static class PlatformAccountCommand
     {
         try
         {
-            var email = ProvisionClinicCommand.ReadOption(args, "--email");
+            var email = ConsoleArgs.ReadOption(args, "--email");
             var deactivate = args.Contains("--deactivate", StringComparer.OrdinalIgnoreCase);
             var resetTotp = args.Contains("--reset-totp", StringComparer.OrdinalIgnoreCase);
             var create = args.Contains("create", StringComparer.OrdinalIgnoreCase);
@@ -52,7 +52,7 @@ public static class PlatformAccountCommand
                 return Usage();
             }
 
-            var name = ProvisionClinicCommand.ReadOption(args, "--name");
+            var name = ConsoleArgs.ReadOption(args, "--name");
             if (create && string.IsNullOrWhiteSpace(name))
             {
                 return Usage();

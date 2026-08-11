@@ -235,11 +235,12 @@ const TOKEN_FALLBACK_TTL_MS = 30_000;
 const STATUS_FALLBACK_FR: Record<number, string> = {
   401: "Votre session a expiré. Reconnectez-vous.",
   403: "Vous n'avez pas les droits nécessaires pour cette action.",
-  // The subscription gate always sends its own `{ error, code }` — a full French sentence naming the end date —
-  // so this is the safety net for a 402 whose body is missing or unparseable (refused by an intermediary). It
-  // deliberately names no date: inventing one here would contradict the sentence the gate actually writes.
-  402: "Votre abonnement ne permet plus d'enregistrer de nouvelles données. "
-    + "Vos données restent consultables et exportables. Rendez-vous dans « Abonnement ».",
+  // The safety net for a 402 whose body is missing or unparseable (refused by an intermediary). ⚠️ It names no date
+  // — inventing one would contradict the gate's own sentence — and, since this build, promises no banner either:
+  // the re-read dispatches on the CODE (deliberately, so a 402 from anything but our own gate cannot trigger one),
+  // and a bodyless 402 carries none. Telling the user to look at a strip that will not appear is worse than saying
+  // less. The screen is still named, because it is where the state can be read on demand.
+  402: "Cette action a été refusée. Vérifiez l'état de votre abonnement dans « Abonnement ».",
   404: "Élément introuvable.",
   409: "Cet enregistrement a été modifié par quelqu'un d'autre pendant votre saisie. "
     + "Rechargez pour voir la version à jour, puis appliquez à nouveau votre modification.",

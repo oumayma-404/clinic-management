@@ -288,7 +288,12 @@ public class MedicalDocumentsController : ApiControllerBase
     }
 
     [HttpPost("generate-pdf-download")]
-    [AllowsWithoutSubscription("AC-4.3, AC-4.9 — renders a document the cabinet already holds for immediate download.")]
+    [AllowsWithoutSubscription(
+        "AC-4.9 — a request that looks like a write but only renders: it takes the document in the BODY, loads "
+        + "nothing, and PERSISTS nothing. Stated that way rather than as « a document the cabinet already holds », "
+        + "which AC-4.3's wording invites but this action does not check: there is no document id and no ownership "
+        + "lookup, so an expired cabinet can render a brand-new ordonnance or bulletin. AC-4.9 exempts it anyway, "
+        + "and the commercial pressure is intact because nothing about that document is recorded.")]
     public async Task<ActionResult> GeneratePdfForDownload(
         [FromBody] Application.Common.Models.MedicalDocumentPdfData documentData,
         CancellationToken cancellationToken = default)

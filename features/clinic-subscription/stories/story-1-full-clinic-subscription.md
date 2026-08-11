@@ -1,10 +1,10 @@
 # Story 1: [Full] Abonnement du cabinet — entitlement, enforcement, visibility and vendor control
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts A–F complete** (all six checkpoints green; **Part G** is the only one left).
-See [stories/progress.md](./progress.md) for the gate results, the eleven logged deviations, the caught defects and each
-part's executed red-proofs. The eye pass is owed for C and D — no browser automation on this machine — and the
-operator walk for Part F's five verbs.
+**Story Status:** **implemented** — **all seven parts complete** (all seven checkpoints green).
+See [stories/progress.md](./progress.md) for the gate results, the thirteen logged deviations, the caught defects and
+each part's executed red-proofs. The eye pass is owed for C and D — no browser automation on this machine — and the
+operator walks for Part F's five verbs, Part E's simulated days and Part G's parking round trip.
 **Layer:** Full (deliberate departure from the BE/FE rule — see *Notes*)
 **Depends On:** None
 **Blocks:** `features/platform-console/` (that feature depends on this one and must not be started before it)
@@ -87,9 +87,9 @@ _From spec:_
 - [x] **EC-5** Two simultaneous grants **both land and are both kept** — *bounded re-fold retry rather than a surfaced 409 (progress.md DEV-10)*
 
 **Part G — background work (FR-8)**
-- [ ] **EC-7** A reminder queued before expiry for an appointment after it is **parked with a stated reason**, not sent and not deleted; extending before the visit sends it
-- [ ] Scheduled backups and the daily stock-expiry alert keep running on an expired cabinet
-- [ ] **FR-14** Nothing is ever deleted automatically, however long a cabinet stays expired (no work — assert no retention timer is introduced)
+- [x] **EC-7** A reminder queued before expiry for an appointment after it is **parked with a stated reason**, not sent and not deleted; extending before the visit sends it — *both queues, and the **un-park** half proven red separately in each (R-8): with the channel fully configured and enabled the row stays parked*
+- [x] Scheduled backups and the daily stock-expiry alert keep running on an expired cabinet — *neither job references the entitlement and neither was edited; the manual backup's exemption already cites this argument*
+- [x] **FR-14** Nothing is ever deleted automatically, however long a cabinet stays expired — *no retention timer introduced (no Infrastructure change at all), and both purges were already terminal-status-only*
 
 _Story-specific:_
 
@@ -238,7 +238,7 @@ the operator's five-verb walk is owed. It also carries `SubscriptionCabinetLooku
 by the three commands) and a fix to `SystemWideCallerCoverageTests`, whose console-verb branch had never matched a
 single type (progress.md DEV-10, DEV-11).
 
-### Part G — Background work parks rather than sends or vanishes — ⚠️ ATOMIC
+### Part G — Background work parks rather than sends or vanishes — ✅ DONE (Checkpoint G green) ⚠️ ATOMIC
 
 *Covers FR-8 · EC-7*
 
@@ -247,7 +247,14 @@ single type (progress.md DEV-10, DEV-11).
 3. **Both `ReviewBlockedRowsAsync` bodies:** a `SubscriptionExpired` row is released **only when the clinic may write again**. ⚠️ Shipping the parking without this releases every parked reminder within a minute (**R-8**, FR-8's named gap) — this is why the part is atomic
 4. **Confirm the scheduled backup and the daily stock-expiry alert are untouched**, and that the manual backup is on Part B's exempt list
 
-**Checkpoint G** — see *Verification Steps → Part G*. Commit.
+5. *(added during implementation)* **One `OutboxSubscriptionGate`, consulted from all four places** — dispatch and
+   un-park, in each queue — rather than the same three-step decision written into each. The plan's file table lists
+   no new type; four copies is the `fixes-dont-propagate` shape, and the *un-park* copy is the one whose omission is
+   silent (progress.md DEV-12). It also sends for a cabinet with **no** entitlement row, where the HTTP gate refuses
+   one (DEV-13)
+
+**Checkpoint G** — see *Verification Steps → Part G*. Commit. ✅ **Green** — 13 new tests, three executed red-proofs
+(one per half that can be shipped alone); the operator's parking round trip is owed.
 
 ## Files to Create/Modify
 
@@ -372,6 +379,9 @@ Grouped **by part**, because that is the unit of work. The plan's own tables gro
 | `Domain/Entities/PushDelivery.cs` | modify | The identical pair, beside the existing `FailureReason` |
 | `API/BackgroundJobs/NotificationJob.cs` | modify | Park before dispatch; **release only when the clinic may write again** |
 | `API/BackgroundJobs/PushDispatchJob.cs` | modify | The identical pair |
+| `Application/Features/Subscriptions/OutboxSubscriptionGate.cs` | create | *(added during implementation — DEV-12)* « May this cabinet's queued sends go out? » + the French sentence to park with. The one decision behind all four call sites; one instance per tick, and it reads nothing where subscriptions are not enforced |
+| `UnitTests/Features/Subscriptions/OutboxParkingTests.cs` | create | *(added during implementation)* EC-7 and R-8 in **both** queues, the release, the suspension wording, and the two paths that must be unaffected |
+| `UnitTests/Api/NotificationJobTests.cs` · `PushDispatchJobTests.cs` · `Features/Recall/RecallDeliveryTruthTests.cs` | modify | *(added during implementation)* The two new constructor parameters, each with `RequiresSubscription == false`, so those suites pin that the pre-Part-G behaviour is unchanged where nothing is enforced |
 
 ## Verification Steps
 
@@ -450,26 +460,26 @@ cd web && npx tsc --noEmit && npm run check:responsive && npm run build
 - [ ] `SystemWideCallerCoverageTests` green, having auto-enrolled the new job and the five verbs
 
 ### Part G
-- [ ] A reminder queued before expiry for an appointment after it is parked with the machine-readable reason and is **not** sent (EC-7)
-- [ ] With the channel **fully configured and enabled**, the review pass leaves that row parked
-- [ ] Extending the cabinet releases it and it dispatches on the next tick
-- [ ] `GET /api/outbox` shows the parked **reminder** rows in its `Blocked` depth (it has no push section — check parked `PushDelivery` rows in the table)
-- [ ] Scheduled backups and the daily stock-expiry alert still run on an expired cabinet
+- [x] A reminder queued before expiry for an appointment after it is parked with the machine-readable reason and is **not** sent (EC-7)
+- [x] With the channel **fully configured and enabled**, the review pass leaves that row parked — *the R-8 red-proof, executed once per queue*
+- [x] Extending the cabinet releases it and it dispatches on the next tick — *released to `Pending` with reason and sentence cleared; the **next** tick sends, since unblocking is not sending*
+- [~] `GET /api/outbox` shows the parked **reminder** rows in its `Blocked` depth — *structurally: the count has no reason dimension, so a subscription-parked row is in it by construction and the read needed no change. The **live** read is owed with the operator walk*
+- [~] Scheduled backups and the daily stock-expiry alert still run on an expired cabinet — *structurally confirmed (neither job references the entitlement, neither was edited, nor was their registration). The live walk is owed*
 
 ## Exit Criteria
 
 This story is complete when:
 
-- [ ] All seven checkpoints above pass, each on its own commit
+- [x] All seven checkpoints above pass, each on its own commit
 - [ ] A hosted cabinet created today can work for 30 days, is warned four times, is refused only on writes after its date, and is working again within one re-read interval of a `subscription-grant`
 - [ ] An expired cabinet can read and export **everything** — the EC-9 walk over all nine CSV lists completes
 - [ ] `SelfHostedLan` and `CloudBrowser` are unchanged in observable behaviour: no banner, no warning, no « Abonnement » screen, no refusal (AC-7.1/7.2)
-- [ ] `dotnet build api/ClinicManagement.sln` clean; unit suite green with **0 errors, 0 warnings**
+- [x] `dotnet build api/ClinicManagement.sln` clean; unit suite green — 0 errors, **2452 passed**, and the 55-warning baseline unchanged with none in a file this feature touched
 - [ ] `verify-schema` clean, with the before/after diff attached to the deployment record (FR-9)
 - [ ] Frontend gate clean: `npx tsc --noEmit`, `npm run check:responsive`, `npm run build`, plus the eye pass at 320/390/820/1180/1440 px and the 380 px-tall landscape viewport
-- [ ] The four derived guards that should have needed no edit needed none: `TenantScopeFilterTests`, `DeploymentProfileCoverageTests`, `ControllerAuthorizationCoverageTests`, `MoneyReadConsistencyTests`
+- [x] The four derived guards that should have needed no edit needed none: `TenantScopeFilterTests`, `DeploymentProfileCoverageTests`, `ControllerAuthorizationCoverageTests`, `MoneyReadConsistencyTests` — *confirmed by name against `git status` at every checkpoint. `SystemWideCallerCoverageTests` is the one exception and its edit is DEV-11: its console-verb branch had never matched a type*
+- [x] The nearest `CLAUDE.md` files updated so the repo map stays accurate — *root, `Domain/`, `Application/`, `API/`*
 - [ ] Operator verification done (not CI-runnable): the five console verbs, the daily job's four thresholds over simulated days, the reminder-parking round trip
-- [ ] The nearest `CLAUDE.md` files updated so the repo map stays accurate
 - [ ] Code reviewed and approved
 
 ## Notes

@@ -40,16 +40,22 @@ public class SubscriptionGateMiddlewareTests
 
     private static ClinicSubscription EndingOn(DateTime endsOn)
     {
-        var subscription = ClinicSubscription.For(ClinicId, new DateTime(2019, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        // ⚠️ The recorded day is derived from `endsOn` rather than pinned to one literal, so a fixture naming a date
+        // decades away (which these deliberately do — the gate reads the real clock) still describes a **reachable**
+        // entry: `SubscriptionPeriod.Create` refuses an end date before its own recorded day or more than
+        // `MaxExplicitEndYears` after it. A fixed 2019 anchor made the 2099 cases unrepresentable.
+        var recordedOn = endsOn.AddMonths(-1).Date;
+        var recordedAt = DateTime.SpecifyKind(recordedOn, DateTimeKind.Utc);
+        var subscription = ClinicSubscription.For(ClinicId, recordedAt);
         subscription.RecomputeFrom(new[]
         {
             SubscriptionPeriod.Create(
                 ClinicId,
                 SubscriptionPeriodKind.Paid,
-                recordedOnClinicDay: new DateTime(2019, 1, 1),
-                recordedAtUtc: new DateTime(2019, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                recordedOnClinicDay: recordedOn,
+                recordedAtUtc: recordedAt,
                 explicitEndsOn: endsOn)
-        });
+        }, recordedAt);
 
         return subscription;
     }
@@ -64,7 +70,7 @@ public class SubscriptionGateMiddlewareTests
                 SubscriptionPeriodKind.Grandfathered,
                 new DateTime(2019, 1, 1),
                 new DateTime(2019, 1, 1, 0, 0, 0, DateTimeKind.Utc))
-        });
+        }, DateTime.UtcNow);
 
         return subscription;
     }
@@ -86,18 +92,25 @@ public class SubscriptionGateMiddlewareTests
         string method = "POST",
         bool requiresSubscription = true,
         TenantScopeKind scopeKind = TenantScopeKind.Clinic,
-        bool exempt = false)
+        bool exempt = false,
+        bool routed = true)
     {
         var context = new DefaultHttpContext();
         context.Request.Path = path;
         context.Request.Method = method;
 
-        if (exempt)
+        // ⚠️ An endpoint is set by default because routing has already run by the time this middleware executes —
+        // and « no endpoint matched » is now a *distinct* case the gate must let through (an unroutable path is
+        // routing's 404 to answer, not a 402 naming the subscription). A harness that never set one was exercising
+        // the unrouted path while claiming to test ordinary writes.
+        if (routed)
         {
             context.SetEndpoint(new Endpoint(
                 _ => Task.CompletedTask,
-                new EndpointMetadataCollection(new AllowsWithoutSubscriptionAttribute("test")),
-                "exempt"));
+                exempt
+                    ? new EndpointMetadataCollection(new AllowsWithoutSubscriptionAttribute("test"))
+                    : EndpointMetadataCollection.Empty,
+                exempt ? "exempt" : "routed"));
         }
 
         var body = new MemoryStream();
@@ -266,6 +279,21 @@ public class SubscriptionGateMiddlewareTests
 
         Assert.False(outcome.ReachedNext);
         Assert.Contains(SubscriptionRefusals.SuspendedCode, outcome.Body);
+    }
+
+    // An `/api` path that ROUTES TO NOTHING must fall through to routing's own 404, even on an expired cabinet.
+    // `GetEndpoint()?.Metadata…is null` read « no endpoint matched » as « this endpoint declared no exemption », so a
+    // mistyped URL — or an old client calling a removed action — was answered with the loudest thing this gate can
+    // say, and `throwIfNotOk` fired `onSubscriptionRequired` on the strength of it. Nothing else in the suite can see
+    // this: the refusal is perfectly well-formed, it is simply about the wrong thing.
+    [Fact]
+    public async Task An_Unroutable_Api_Path_Is_Not_Refused_As_A_Subscription_Problem()
+    {
+        var outcome = await InvokeAsync(EndingOn(LongExpired), path: "/api/nothing-here", routed: false);
+
+        Assert.True(outcome.ReachedNext);
+        Assert.Equal(0, outcome.RepositoryReads);
+        Assert.DoesNotContain(SubscriptionRefusals.RequiredCode, outcome.Body);
     }
 
     // [EC-6] No entitlement row at all is a DISTINCT code: a fault on our side, not a lapse on theirs, so the

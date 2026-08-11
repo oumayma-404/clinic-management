@@ -102,7 +102,7 @@ public class PlatformCancelPeriodTests
             clinicId, SubscriptionPeriodKind.Paid, today.AddDays(-21), now.AddDays(-21),
             durationMonths: 12, amount: 1_200.000m, method: SubscriptionPaymentMethod.Transfer));
 
-        subscription.RecomputeFrom(new[] { trial, grant });
+        subscription.RecomputeFrom(new[] { trial, grant }, now);
         _harness.Subscriptions.Subscription = subscription;
 
         return (subscription, trial, grant);
@@ -226,7 +226,7 @@ public class PlatformCancelPeriodTests
     {
         var (subscription, _, grant) = GivenTrialThenGrant();
         grant.Cancel("Doublon", "console|op", DateTime.UtcNow);
-        subscription.RecomputeFrom(_harness.Subscriptions.Entries);
+        subscription.RecomputeFrom(_harness.Subscriptions.Entries, DateTime.UtcNow);
         WireCabinet();
 
         var detail = await DetailHandler().Handle(

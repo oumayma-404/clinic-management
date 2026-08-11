@@ -1,4 +1,6 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Subscriptions;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -18,6 +20,10 @@ namespace ClinicManagement.API.BackgroundJobs;
 /// it draws on a lock screen, on a device that may have changed hands, for an account that may have been
 /// deactivated, about an appointment that may have been cancelled since. So each row re-reads its device, compares
 /// the binding against the recipient it was queued for, and — for a reminder — re-reads the appointment.</para>
+///
+/// <para>And, on the identical terms as the reminder outbox, a cabinet that may not record new work pushes nothing:
+/// its rows are <b>parked</b> through <see cref="OutboxSubscriptionGate"/> and released only once the entitlement is
+/// (<c>clinic-subscription</c> FR-8).</para>
 /// </summary>
 public class PushDispatchJob
 {
@@ -29,6 +35,8 @@ public class PushDispatchJob
     private readonly IOsPushAvailability _availability;
     private readonly IConfiguration _configuration;
     private readonly IReadOnlyDictionary<DevicePlatform, IPushSender> _senders;
+    private readonly ISubscriptionPolicy _subscriptionPolicy;
+    private readonly IClinicSubscriptionRepository _subscriptions;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
     private readonly ILogger<PushDispatchJob> _logger;
@@ -42,6 +50,8 @@ public class PushDispatchJob
         IOsPushAvailability availability,
         IConfiguration configuration,
         IEnumerable<IPushSender> senders,
+        ISubscriptionPolicy subscriptionPolicy,
+        IClinicSubscriptionRepository subscriptions,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
         ILogger<PushDispatchJob> logger)
@@ -54,6 +64,8 @@ public class PushDispatchJob
         _availability = availability;
         _configuration = configuration;
         _senders = senders.ToDictionary(s => s.Platform);
+        _subscriptionPolicy = subscriptionPolicy;
+        _subscriptions = subscriptions;
         _auditActor = auditActor;
         _tenantScope = tenantScope;
         _logger = logger;
@@ -84,11 +96,15 @@ public class PushDispatchJob
         var maxAttempts = PushConfig.MaxAttempts(_configuration);
         var due = await _deliveries.GetDueForDispatchAsync(batchSize, perClinicBound, DateTime.UtcNow);
 
+        // FR-8 — one gate for the whole tick, dispatch and review alike; see NotificationJob's own.
+        var entitlements = new OutboxSubscriptionGate(
+            _subscriptionPolicy, _subscriptions, ClinicClock.ClinicToday());
+
         foreach (var delivery in due)
         {
             try
             {
-                await DispatchAsync(delivery, maxAttempts);
+                await DispatchAsync(delivery, maxAttempts, entitlements);
             }
             catch (Exception ex)
             {
@@ -97,11 +113,12 @@ public class PushDispatchJob
             }
         }
 
-        await ReviewBlockedRowsAsync(batchSize);
+        await ReviewBlockedRowsAsync(batchSize, perClinicBound, entitlements);
         await PurgeExpiredRowsAsync();
     }
 
-    private async Task DispatchAsync(PushDelivery delivery, int maxAttempts)
+    private async Task DispatchAsync(
+        PushDelivery delivery, int maxAttempts, OutboxSubscriptionGate entitlements)
     {
         var device = await _devices.GetByIdAsync(delivery.DeviceRegistrationId);
 
@@ -135,15 +152,29 @@ public class PushDispatchJob
         {
             // No sender implements this platform at all. Nothing an operator configures changes that, so it is
             // parked rather than left Pending at the front of an oldest-first scan.
-            await BlockAsync(delivery, $"Plateforme « {device.Platform} » non prise en charge");
+            await BlockAsync(
+                delivery,
+                OutboxBlockReason.ChannelUnsupported,
+                $"Plateforme « {device.Platform} » non prise en charge");
             return;
         }
 
         if (!_availability.SupportsPush(device.Platform))
         {
+            // The job only runs where at least one platform is sendable, so in practice this is the other
+            // platform of a two-platform install with its credentials missing — operator-fixable.
             await BlockAsync(
                 delivery,
+                OutboxBlockReason.ChannelUnconfigured,
                 _availability.UnavailableReason(device.Platform) ?? "Notifications système indisponibles");
+            return;
+        }
+
+        // FR-8, EC-7 — as in the reminder outbox: the cabinet may not record new work, so the banner waits rather
+        // than being sent or dropped, and the review pass releases it once the entitlement is extended.
+        if (await entitlements.ReviewAsync(delivery.ClinicId) is { } parked)
+        {
+            await BlockAsync(delivery, parked.Reason, parked.Sentence);
             return;
         }
 
@@ -174,7 +205,10 @@ public class PushDispatchJob
                 break;
 
             case PushSendOutcome.NotConfigured:
-                await BlockAsync(delivery, $"Notifications {device.Platform} non configurées");
+                await BlockAsync(
+                    delivery,
+                    OutboxBlockReason.ChannelUnconfigured,
+                    $"Notifications {device.Platform} non configurées");
                 break;
         }
     }
@@ -199,16 +233,26 @@ public class PushDispatchJob
     /// <para>Runs after the dispatch loop and is bounded by the same batch size, so recovering a large backlog
     /// costs a tick at a time. The rows it unblocks are sent by the <i>next</i> tick, which is what keeps this pass
     /// out of the sender.</para>
+    ///
+    /// <para>⚠️ <b>The entitlement term is asked first</b>, exactly as in the reminder outbox and for the same reason:
+    /// every platform check below is one a row parked for an expired cabinet would pass, so without it the banner
+    /// would go out within a minute on a cabinet that has not paid (FR-8's named gap).</para>
     /// </summary>
-    private async Task ReviewBlockedRowsAsync(int batchSize)
+    private async Task ReviewBlockedRowsAsync(
+        int batchSize, int perClinicBound, OutboxSubscriptionGate entitlements)
     {
         try
         {
-            var blocked = await _deliveries.GetBlockedForReviewAsync(batchSize);
+            var blocked = await _deliveries.GetBlockedForReviewAsync(batchSize, perClinicBound);
             var unblocked = 0;
 
             foreach (var delivery in blocked)
             {
+                if (await entitlements.ReviewAsync(delivery.ClinicId) is not null)
+                {
+                    continue;
+                }
+
                 var device = await _devices.GetByIdAsync(delivery.DeviceRegistrationId);
                 if (device == null
                     || !device.IsActive
@@ -270,10 +314,11 @@ public class PushDispatchJob
         await SaveAsync(delivery);
     }
 
-    private async Task BlockAsync(PushDelivery delivery, string reason)
+    private async Task BlockAsync(PushDelivery delivery, OutboxBlockReason reason, string sentence)
     {
-        _logger.LogInformation("Push {DeliveryId} blocked: {Reason}", delivery.Id, reason);
-        delivery.MarkAsBlocked(reason, DateTime.UtcNow);
+        _logger.LogInformation(
+            "Push {DeliveryId} blocked ({Reason}): {Sentence}", delivery.Id, reason, sentence);
+        delivery.MarkAsBlocked(reason, sentence, DateTime.UtcNow);
         await SaveAsync(delivery);
     }
 

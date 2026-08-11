@@ -89,6 +89,25 @@ services:
       MinIO__AccessKey: ${MINIO_ROOT_USER}
       MinIO__SecretKey: ${MINIO_ROOT_PASSWORD}
       MinIO__UseSSL: "false"
+      # ── Abonnements (clinic-subscription) ────────────────────────────────────────────────────────
+      # ⚠️ **This is the ONLY deployment kind where the subscription gate exists, and « Abonnement » is where a
+      # refused save sends the cabinet.** Left unset, `appsettings.json` ships every price at 0 — which that file's
+      # own comment says reads as « tarif non publié » — so the screen renders « Aucun tarif n'est publié », « Les
+      # modalités de paiement ne sont pas publiées… » and « Aucune coordonnée n'est publiée », to a practice that
+      # has just been made read-only. « Paying is never blocked on not knowing what to do » (US-2) needs these four.
+      #
+      # ⚠️ There is deliberately **no `Subscription__Enabled`** to find: enforcement follows `Deployment__Profile`
+      # above and nothing an operator can set (AC-7.3). A price left blank reads as « sur devis », not as 0,000 DT.
+      Subscription__TrialDays: ${SUBSCRIPTION_TRIAL_DAYS:-30}
+      Subscription__Plans__Cabinet__PriceMonthlyDt: ${SUBSCRIPTION_CABINET_MONTHLY_DT:-}
+      Subscription__Plans__Cabinet__PriceAnnualDt: ${SUBSCRIPTION_CABINET_ANNUAL_DT:-}
+      Subscription__Plans__Clinique__PriceMonthlyDt: ${SUBSCRIPTION_CLINIQUE_MONTHLY_DT:-}
+      Subscription__Plans__Clinique__PriceAnnualDt: ${SUBSCRIPTION_CLINIQUE_ANNUAL_DT:-}
+      Subscription__Plans__SurMesure__PriceMonthlyDt: ${SUBSCRIPTION_SURMESURE_MONTHLY_DT:-}
+      Subscription__Plans__SurMesure__PriceAnnualDt: ${SUBSCRIPTION_SURMESURE_ANNUAL_DT:-}
+      Subscription__PaymentInstructions: ${SUBSCRIPTION_PAYMENT_INSTRUCTIONS:-}
+      Subscription__ContactEmail: ${SUBSCRIPTION_CONTACT_EMAIL:-}
+      Subscription__ContactPhone: ${SUBSCRIPTION_CONTACT_PHONE:-}
     volumes:
       - dataprotection_keys:/keys
     networks: [internal]
@@ -107,6 +126,14 @@ services:
     #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll verify-schema
     #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll reconcile-money
     #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll provision-clinic --name … --admin-email … --admin-name …
+    #
+    # ⚠️ So do the five vendor subscription verbs — and on this profile they are the ONLY way to extend a cabinet's
+    # entitlement (FR-6: no HTTP endpoint grants one, deliberately). See deploy/README.md for the arguments:
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll subscription-report [--within 7] [--clinic <id|email>]
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll subscription-grant --clinic <id|email> --months 12 …
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll subscription-cancel --clinic <id|email> --entry <id> --reason "…"
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll subscription-suspend --clinic <id|email> --reason "…"
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll subscription-unsuspend --clinic <id|email>
 
   web:
     build:

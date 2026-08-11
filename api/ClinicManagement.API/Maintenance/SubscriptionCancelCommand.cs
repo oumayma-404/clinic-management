@@ -31,8 +31,8 @@ public static class SubscriptionCancelCommand
     {
         try
         {
-            var entryValue = ProvisionClinicCommand.ReadOption(args, "--entry");
-            var reason = ProvisionClinicCommand.ReadOption(args, "--reason");
+            var entryValue = SubscriptionVerbs.ReadOption(args, "--entry");
+            var reason = SubscriptionVerbs.ReadOption(args, "--reason");
 
             if (!Guid.TryParse(entryValue, out var entryId) || string.IsNullOrWhiteSpace(reason))
             {
@@ -93,7 +93,7 @@ public static class SubscriptionCancelCommand
             Console.WriteLine($"  Previous end:   {SubscriptionVerbs.Day(cancelled.PreviousEndsOn)}");
             Console.WriteLine($"  New end:        {SubscriptionVerbs.Day(cancelled.EndsOn)}");
 
-            if (cancelled.EndsOn is { } endsOn && endsOn.Date < DateTime.UtcNow.Date)
+            if (SubscriptionVerbs.IsInThePast(cancelled.EndsOn))
             {
                 Console.WriteLine();
                 Console.WriteLine("⚠️  This date is in the past: the cabinet can still read and export everything,");

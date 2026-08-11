@@ -28,12 +28,6 @@ public class Notification : Entity<Guid>
     /// (<c>clinic-subscription</c> FR-8). It exists so the un-park review can interrogate the <i>reason</i> rather
     /// than the prose: a row parked because the cabinet's entitlement lapsed otherwise passes all three of the
     /// channel checks and is released on the next tick.
-    ///
-    /// <para>⚠️ <b>Written by nothing yet, and that is deliberate.</b> The column lands with Part A's migration
-    /// because the model and the schema have to agree in one step — a column the snapshot does not know about
-    /// makes every later migration re-add it. <c>MarkAsBlocked</c> starts writing it in Part G, together with the
-    /// review term that reads it; shipping the parking without the un-park releases every parked reminder within
-    /// a minute on a cabinet that has not paid.</para>
     /// </summary>
     public OutboxBlockReason? BlockedReason { get; private set; }
 
@@ -100,15 +94,17 @@ public class Notification : Entity<Guid>
     /// instead of occupying the front of it for ever. <b>Not terminal</b> — retention never deletes it and
     /// <see cref="Unblock"/> puts it back.
     ///
-    /// <para><paramref name="reason"/> is the French sentence the « Rappels » page shows beside the row: the
-    /// whole defect this status fixes is that a starved queue said nothing at all. The retry count is
-    /// deliberately <b>not</b> incremented — no attempt was made, and consuming the budget here would let a
-    /// misconfiguration silently spend a reminder's retries.</para>
+    /// <para><paramref name="sentence"/> is the French text the « Rappels » page shows beside the row: the
+    /// whole defect this status fixes is that a starved queue said nothing at all. <paramref name="reason"/> is the
+    /// same fact machine-readably, because the un-park review has to interrogate the reason rather than the prose.
+    /// The retry count is deliberately <b>not</b> incremented — no attempt was made, and consuming the budget here
+    /// would let a misconfiguration silently spend a reminder's retries.</para>
     /// </summary>
-    public void MarkAsBlocked(string reason)
+    public void MarkAsBlocked(OutboxBlockReason reason, string sentence)
     {
         Status = NotificationStatus.Blocked;
-        ErrorMessage = reason;
+        BlockedReason = reason;
+        ErrorMessage = sentence;
     }
 
     /// <summary>
@@ -124,6 +120,7 @@ public class Notification : Entity<Guid>
         }
 
         Status = NotificationStatus.Pending;
+        BlockedReason = null;
         ErrorMessage = null;
         return true;
     }

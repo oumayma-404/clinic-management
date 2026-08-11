@@ -76,6 +76,13 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   over-refusal cases outnumbering the three refusals, and hence `RepositoryReads == 0` being asserted alongside
   « passed »: a read, a non-`/api` path and a non-enforcing deployment must not even *look the entitlement up*, which
   is what makes « an expired cabinet keeps all of its records » structural rather than an allow-list.
+  ⚠️ Its harness **sets an endpoint by default** (`routed: true`): routing has already run by the time this middleware
+  executes, and « no endpoint matched » is a *distinct* case the gate must let through — so a harness that never set
+  one was exercising the unrouted path while claiming to test ordinary writes, and
+  `An_Unroutable_Api_Path_Is_Not_Refused_As_A_Subscription_Problem` is the case that pins it.
+  ⚠️ Its fixtures derive each entry's *recorded day* from the end date it names, rather than pinning one literal:
+  `SubscriptionPeriod.Create` now refuses an explicit end before its own recorded day or beyond
+  `MaxExplicitEndYears`, so a 2099 fixture anchored at 2019 describes an entry the domain will not build.
   ⚠️ Its dates are decades away (2020 / 2099) **because the gate reads the real clock** — unlike
   `SubscriptionStateReaderTests`, which takes today as a parameter and can pin the midnight boundary. A fixture near
   today would pass or fail depending on when the suite runs.
@@ -122,10 +129,14 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   ⚠️ `Every_Other_Category_Is_Still_Classified` is the **R-9 split-point guard** — `StaffNotificationRules`
   *throws* on an unclassified category, so omitting `SubscriptionExpiring => false` breaks **every** notification
   write in the product rather than only the new one. Proven red by removing that line.
-  ⚠️ And `A_Grant_That_Moves_The_Threshold_Writes_A_New_Row_Rather_Than_Rewriting_The_Old_One` records the case that
+  ⚠️ `A_Grant_That_Moves_The_Threshold_Writes_A_New_Row_Rather_Than_Rewriting_The_Old_One` records the case that
   **looks like a bug and is not**: rewriting would carry the read markers of a warning already dismissed, so the
-  escalation would land on a bell that had been cleared. It was written the other way round first and the failing run
-  was the finding.
+  escalation would land on a bell that had been cleared. That half still holds. ⚠️ **The review pass reversed its
+  other half**: the superseded row used to be *kept* as feed history, so the bell showed « 1 jour … 21/08 » beside
+  « 3 jours … 22/08 » — two live claims about one date, one of them false — and its own sibling
+  (`…Restates_The_Row_In_Place`) already held that a row naming a superseded date must be corrected. It is now
+  withdrawn, with `A_Countdown_Advancing_With_The_Date_Unchanged_Keeps_Both_Rows` pinning the other direction so the
+  withdrawal cannot widen into « any threshold change ».
 - **`Features/Subscriptions/{Grant,Cancel}SubscriptionPeriodCommandHandlerTests.cs`** +
   **`SetSubscriptionSuspensionCommandHandlerTests.cs`** + **`Common/SubscriptionReportServiceTests.cs`** +
   **`Api/SubscriptionVendorCommandReachabilityTests.cs`** (`clinic-subscription` Part F). They run the real

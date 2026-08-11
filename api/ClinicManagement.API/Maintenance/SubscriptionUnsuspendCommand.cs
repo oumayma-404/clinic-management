@@ -78,7 +78,7 @@ public static class SubscriptionUnsuspendCommand
             Console.WriteLine($"  Clinic id:      {lifted.ClinicId}");
             Console.WriteLine($"  End date:       {SubscriptionVerbs.Day(lifted.EndsOn)}");
 
-            if (lifted.EndsOn is { } endsOn && endsOn.Date < DateTime.UtcNow.Date)
+            if (SubscriptionVerbs.IsInThePast(lifted.EndsOn))
             {
                 Console.WriteLine();
                 Console.WriteLine("⚠️  That date is in the past, so this cabinet is still read-only — lifting a");

@@ -34,9 +34,10 @@ public static class SubscriptionRefold
         + "Réessayez.";
 
     /// <param name="pendingEntry">
-    /// A grant's own entry, already staged through <c>AddEntryAsync</c> and therefore <b>not</b> yet visible to
-    /// <c>GetEntriesAsync</c> — so it is appended to what the fold sees. Null for a cancellation, whose entry is
-    /// already in the ledger.
+    /// <b>This command's own entry</b>: a grant's staged row (not yet visible to <c>GetEntriesAsync</c>, so it is
+    /// appended to what the fold sees) or a cancellation's already-persisted one (present in the read, so the
+    /// append is skipped). Naming it either way is what lets the retry below tell the row carrying <i>this</i>
+    /// command's unsaved change apart from the rest of the ledger, which it must re-read.
     /// </param>
     /// <param name="plan">
     /// AC-5.1's optional forfait, applied on every attempt because a reload replaces the instance it was set on.
@@ -63,12 +64,13 @@ public static class SubscriptionRefold
                 ? entries
                 : entries.Append(pendingEntry).ToList();
 
+            var now = DateTime.UtcNow;
             if (plan is { } chosen)
             {
-                subscription.SetPlan(chosen, DateTime.UtcNow);
+                subscription.SetPlan(chosen, now);
             }
 
-            subscription.RecomputeFrom(ledger);
+            subscription.RecomputeFrom(ledger, now);
             await subscriptions.UpdateAsync(subscription, cancellationToken);
 
             try
@@ -85,6 +87,17 @@ public static class SubscriptionRefold
                 // Detach before reloading, or EF's identity map hands back the same stale instance and the next
                 // attempt sends the same doomed WHERE clause.
                 unitOfWork.StopTracking(subscription);
+
+                // ⚠️ The LEDGER has to be detached too, and that is the half easily missed: the re-read below goes
+                // through the same identity map, so an already-tracked entry comes back with its attempt-1 values.
+                // A concurrent cancellation would then be invisible and this loop would commit an EndsOn that still
+                // counts the voided entry — the drift `subscription-end-date-matches-ledger` exists to catch,
+                // produced by the code meant to converge. This command's own entry is deliberately kept tracked:
+                // detaching it would discard the unsaved change the whole call is here to persist.
+                foreach (var stale in entries.Where(e => e.Id != pendingEntry?.Id))
+                {
+                    unitOfWork.StopTracking(stale);
+                }
 
                 var reloaded = await subscriptions.GetByClinicAsync(clinicId, cancellationToken);
                 if (reloaded is null)

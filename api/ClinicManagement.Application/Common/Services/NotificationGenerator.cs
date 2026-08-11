@@ -301,6 +301,14 @@ public class NotificationGenerator : INotificationGenerator
             var title = SubscriptionWarningTitle(thresholdDays);
             var message = SubscriptionWarningMessage(endsOn);
 
+            // ⚠️ Rows for the OTHER thresholds are withdrawn whenever they name a superseded date, and that is what
+            // keeps the bell coherent when EndsOn moves *within* the warning window rather than out of it: a grant
+            // of five days on a « 1 jour restant » cabinet writes a « 7 jours » row and used to leave the old one in
+            // place, so the feed asserted two different end dates at once. The mirror case is a cancellation moving
+            // the date closer. Message equality is date equality here — it carries the end date and nothing else.
+            var withdrawn = await WithdrawStaleSubscriptionWarningsAsync(
+                clinicId, thresholdDays, message, cancellationToken);
+
             var existing = await _notifications.GetSubscriptionWarningAsync(
                 clinicId, thresholdDays, cancellationToken);
             if (existing != null)
@@ -310,7 +318,7 @@ public class NotificationGenerator : INotificationGenerator
                 // the end date, so it is stable day to day and differs exactly when a grant has moved the date.
                 if (string.Equals(existing.Message, message, StringComparison.Ordinal))
                 {
-                    return false;
+                    return withdrawn;
                 }
 
                 existing.Restate(title, message);
@@ -325,6 +333,33 @@ public class NotificationGenerator : INotificationGenerator
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             return true; // a genuinely new unread row → it badges the bell, which is the point (AC-3.4)
         }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Removes this cabinet's outstanding warnings for <i>other</i> thresholds that name a different end date.
+    /// Returns whether anything left the feed, so the caller can broadcast even when its own row is unchanged.
+    /// </summary>
+    private async Task<bool> WithdrawStaleSubscriptionWarningsAsync(
+        Guid clinicId, int thresholdDays, string currentMessage, CancellationToken cancellationToken)
+    {
+        var outstanding = await _notifications.GetSubscriptionWarningsAsync(clinicId, cancellationToken);
+        var stale = outstanding
+            .Where(n => n.SubscriptionThresholdDays != thresholdDays
+                        && !string.Equals(n.Message, currentMessage, StringComparison.Ordinal))
+            .ToList();
+
+        if (stale.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var notification in stale)
+        {
+            await _notifications.RemoveAsync(notification, cancellationToken);
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return true;
     }
 
     public async Task ClearSubscriptionWarningsAsync(Guid clinicId, CancellationToken cancellationToken = default)

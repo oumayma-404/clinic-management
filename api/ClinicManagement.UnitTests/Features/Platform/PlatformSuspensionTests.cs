@@ -86,7 +86,7 @@ public class PlatformSuspensionTests
             clinicId, SubscriptionPeriodKind.Paid, today.AddDays(-21), now.AddDays(-21),
             durationMonths: 12, amount: 1_200.000m, method: SubscriptionPaymentMethod.Transfer));
 
-        subscription.RecomputeFrom(new[] { grant });
+        subscription.RecomputeFrom(new[] { grant }, now);
         _harness.Subscriptions.Subscription = subscription;
         return subscription;
     }
@@ -105,7 +105,7 @@ public class PlatformSuspensionTests
         var trial = _harness.Subscriptions.Seed(SubscriptionPeriod.Create(
             clinicId, SubscriptionPeriodKind.Trial, today.AddDays(-60), now.AddDays(-60), durationDays: 30));
 
-        subscription.RecomputeFrom(new[] { trial });
+        subscription.RecomputeFrom(new[] { trial }, now);
         _harness.Subscriptions.Subscription = subscription;
         return subscription;
     }

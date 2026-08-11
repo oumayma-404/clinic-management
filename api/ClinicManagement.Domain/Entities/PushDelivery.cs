@@ -52,8 +52,7 @@ public class PushDelivery : AggregateRoot<Guid>
     /// <summary>
     /// Why this row is parked, machine-readably — <see cref="FailureReason"/>'s French sentence is what an operator
     /// reads, this is what the un-park review interrogates (<c>clinic-subscription</c> FR-8). Same shape and same
-    /// reason as <c>Notification.BlockedReason</c>; ⚠️ likewise written by nothing until Part G, the column landing
-    /// with Part A's migration only so the model and the schema stay in step in one migration.
+    /// reason as <c>Notification.BlockedReason</c>.
     /// </summary>
     public OutboxBlockReason? BlockedReason { get; private set; }
 
@@ -138,13 +137,15 @@ public class PushDelivery : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// Parks a row that cannot be sent for a reason no retry changes, recording the French reason (AC-50).
+    /// Parks a row that cannot be sent for a reason no retry changes, recording the French sentence an operator
+    /// reads (AC-50) and the machine-readable <paramref name="reason"/> the un-park review interrogates (FR-8).
     /// Non-terminal: never purged, and <see cref="Unblock"/> returns it once the platform is sendable.
     /// </summary>
-    public void MarkAsBlocked(string reason, DateTime nowUtc)
+    public void MarkAsBlocked(OutboxBlockReason reason, string sentence, DateTime nowUtc)
     {
         Status = PushDeliveryStatus.Blocked;
-        FailureReason = reason;
+        BlockedReason = reason;
+        FailureReason = sentence;
         UpdatedAt = nowUtc;
     }
 
@@ -161,6 +162,7 @@ public class PushDelivery : AggregateRoot<Guid>
         }
 
         Status = PushDeliveryStatus.Pending;
+        BlockedReason = null;
         FailureReason = null;
         UpdatedAt = nowUtc;
         return true;

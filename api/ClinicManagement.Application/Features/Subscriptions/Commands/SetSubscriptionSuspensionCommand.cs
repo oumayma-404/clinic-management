@@ -111,8 +111,10 @@ public class SetSubscriptionSuspensionCommandHandler
             return Result<SubscriptionSuspensionResult>.Success(
                 new SubscriptionSuspensionResult(clinicId, subscription.IsSuspended, subscription.EndsOn));
         }
-        catch (ArgumentException ex)
+        catch (Exception ex) when (SubscriptionRefusals.IsDomainRefusal(ex))
         {
+            // Both kinds: the domain throws its French guards through ArgumentException AND
+            // InvalidOperationException, and a genuine programming fault falls through to the log below.
             return Result<SubscriptionSuspensionResult>.Failure(ex.Message);
         }
         catch (Exception ex) when (ex is not ConflictException)

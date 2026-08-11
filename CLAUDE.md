@@ -585,7 +585,7 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   `AddForeignKey` over such a row aborts the upgrade after the schema is half-applied. This is **attribution, not
   authorization**: per-practitioner data scoping is deliberately out of scope. `verify-schema` gained
   `practitioner-attribution-backfill`, because a backfill is the one thing invisible to every other layer.
-- **A cabinet's right to record work is a dated entitlement (`clinic-subscription`, Parts A–E of 7)**: on the
+- **A cabinet's right to record work is a dated entitlement (`clinic-subscription`, all 7 parts)**: on the
   hosted deployment a clinic gets **30 free days**, and past its date it becomes **read-only** — every read, every
   CSV export and every PDF keep working, and only writes are refused. Part A ships the foundation: one
   **`ClinicSubscription`** per clinic whose `EndsOn` is a full re-fold of an append-only, cancellable
@@ -605,8 +605,28 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   0 days** out, four genuinely new unread rows deduped on the new `StaffNotification.SubscriptionThresholdDays`
   column, deep-linking to « Abonnement » and **never** reaching a locked phone (AC-3.6). **Part F ships the vendor's side**: three commands
   (`Grant` / `Cancel` / `SetSuspension`) reached only by **five console verbs** — `subscription-grant`, `-cancel`,
-  `-suspend`, `-unsuspend`, `-report` — plus `SubscriptionReportService`. **Part G is the one part left**: no outbox
-  parking, so a reminder queued before expiry for a later appointment still sends.
+  `-suspend`, `-unsuspend`, `-report` — plus `SubscriptionReportService`. **Part G ships the background half**: SMS,
+  WhatsApp and OS push all stop, and a queued row is **parked with a stated reason** rather than sent or discarded, so
+  extending the entitlement before the visit still gets the reminder out (EC-7).
+  ⚠️ **Part G's load-bearing half is the *un-park*, not the park.** Both outboxes already had a non-terminal
+  `Blocked` status that survives the purge and carries a French sentence — but the pass that returns rows to the queue
+  asks only whether the **channel** can send (is there a sender · is it enabled for this clinic · are its credentials
+  present), and a row parked for expiry passes all three, so it would be released and dispatched **within a minute**
+  on a cabinet that has not paid. Hence the machine-readable **`OutboxBlockReason`** beside the prose (recovering an
+  outcome by matching French text is the defect this repo deleted in `adoption-gaps-remediation`) and hence the two
+  halves shipping in **one commit**. One **`OutboxSubscriptionGate`** is consulted from all four places — dispatch and
+  review, in each queue — rather than a condition written twice per queue, and it is asked for *every* parked row so a
+  channel-parked row is not released into a queue about to park it again.
+  ⚠️ **A cabinet with no entitlement row keeps sending, unlike at the HTTP gate.** Fail-closed is right there — a
+  missing row must not become a way to write for ever — but nothing in the outbox is an authorization decision: the
+  work was recorded legitimately while the cabinet could write, and silencing a practice's reminders over our own
+  bookkeeping fault is invisible to the practice and unfixable by it. That fault is surfaced where it can be acted on
+  (`verify-schema`'s `every-clinic-has-an-entitlement`, `subscription-report`).
+  ⚠️ **The scheduled backup and the daily stock-expiry alert are untouched, deliberately** (FR-8): an unbacked-up
+  medical record is a liability regardless of who has paid, and it is the one consequence paying late cannot undo. The
+  **manual** backup carries `[AllowsWithoutSubscription]` for the same reason — refusing it while the automatic one
+  runs would be incoherent. And **nothing is ever deleted** however long a cabinet stays expired (FR-14): both purges
+  drop terminal rows only, so `Blocked` was out of scope the moment it existed.
   ⚠️ **Part E's four rows are the opposite of the two ensure/clear alerts beside them, and deliberately.**
   `StockExpiringSoon` and `BackupStale` keep **one** row and reword it; rewording **does not clear who has read it**,
   so once the owner has read « 7 jours » the « 3 jours », « 1 jour » and « dernier jour » restatements would stay read
@@ -674,6 +694,29 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   one 5-minute re-read because it reads the entitlement directly (AC-5.8), and the bell rows are withdrawn by Part
   E's daily pass. Clearing them from the grant would force every verb to register a no-op `IRealtimeNotifier`, since
   `INotificationGenerator`'s only implementation of that seam is the API's SignalR notifier.
+  ⚠️ **A 52-finding review pass then corrected the feature in place, and four of its fixes changed behaviour rather
+  than tidying it.** (a) **The fold was wrong in two of its three branches**: a month duration clamped on the
+  *exclusive* cursor, so 31 Jan + 1 month ended **27** Feb where the spec, the Domain guide and the test's own comment
+  all say 28 — a day lost unpredictably, in the vendor's favour, with the test's expectations pinning the defect; and
+  an `--until` entry set the cursor **unconditionally**, so a mistyped year silently revoked months a cabinet had paid
+  for, with a success message. A recorded entry can now only ever *extend* cover, and `SubscriptionPeriod.Create`
+  refuses an end date before its own recorded day or beyond five years. (b) **Part G's un-park re-armed the very
+  starvation it was invented to fix**: the review scan had no per-clinic bound, and an expired cabinet's rows never
+  clear and are never purged, so past the batch size they occupied every review tick for ever and another practice's
+  channel-parked rows were never released. Both blocked scans now carry the due scan's fair-share loop. (c) **The gate
+  answered 402 to an unroutable `/api` path** — `GetEndpoint()?.…is null` read « nothing matched » as « declared no
+  exemption » — so a mistyped URL was answered with the loudest thing it can say. (d) **`users/{id}/reset-password` is
+  now exempt** (a forgotten password otherwise costs an expired cabinet the *reads* AC-4.1/4.2 guarantee, with no
+  other recovery on a hosted deployment) while **`users/{id}/status` is exempt in one direction only** — its recorded
+  reason is offboarding, but the action also re-activates, which the handler now refuses.
+  ⚠️ **One documented decision was deliberately reversed**: a warning row naming a **superseded** end date is now
+  withdrawn rather than kept as feed history, because the bell otherwise showed « 1 jour … 21/08 » beside
+  « 3 jours … 22/08 » — two live claims about one date. A pure countdown escalation with the date unchanged still
+  keeps both rows, and the new row is still genuinely new rather than a rewrite (which would carry read markers).
+  ⚠️ **`deploy/` now carries the ten `Subscription__*` variables**: on the only kind that enforces, « Abonnement » was
+  unconfigurable, so the screen a 402 points a chairside user at rendered « Aucun tarif n'est publié ». The five
+  vendor verbs are documented in `deploy/README.md` beside `verify-schema` — they are the only way to grant time.
+  Three findings were deferred with the remedy chosen: `follow-up/subscription-review-deferred.md`.
   ⚠️ **Interim state until Part D**: `/abonnement` is in `buildConfigItems` unconditionally, so `SelfHostedLan` and
   `CloudBrowser` show one rail row whose page says « cette installation ne fonctionne pas par abonnement ». Both
   endpoints **404 before the mediator** there, so nothing behind them is resolved; Part D's provider removes the row.

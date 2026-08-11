@@ -16,6 +16,14 @@ namespace ClinicManagement.Application.Features.Subscriptions;
 /// </summary>
 public static class SubscriptionLabels
 {
+    /// <summary>
+    /// The fifth state, for a cabinet with no entitlement row at all (FR-13's failure state). It has no
+    /// <see cref="SubscriptionState"/> member — the enum describes an entitlement and there is none — but the
+    /// vendor report, the console and any screen that ever shows it must still agree on the words, which is what
+    /// this class is for. It used to be a literal inlined in the report service and repeated in its tests.
+    /// </summary>
+    public const string NoSubscription = "Aucun abonnement";
+
     /// <summary>AC-2.1's four words, verbatim — the screen and the notification quote the same ones.</summary>
     public static string State(SubscriptionState state) => state switch
     {

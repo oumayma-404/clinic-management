@@ -77,14 +77,14 @@ public class SubscriptionGateMiddleware
             return;
         }
 
-        var (error, code) = status switch
+        // Which refusal this is comes from the one classifier the outbox gate also reads; only the wording below is
+        // this surface's own.
+        var (error, code) = SubscriptionStateReader.ClassifyRefusal(status) switch
         {
-            // Suspension outranks a date, including one already past — a suspended cabinet must never be told to renew.
-            { State: SubscriptionState.Suspended } => (SubscriptionRefusals.Suspended,
-                SubscriptionRefusals.SuspendedCode),
-            { EndsOn: { } endsOn } => (SubscriptionRefusals.Required(endsOn), SubscriptionRefusals.RequiredCode),
-            // Refused, not suspended, and unable to say since when: the reader cannot produce that, so it is a fault
-            // on our side rather than a lapse on theirs — and « renouvelez » would be advice the cabinet cannot act on.
+            SubscriptionRefusalKind.Suspended =>
+                (SubscriptionRefusals.Suspended, SubscriptionRefusals.SuspendedCode),
+            SubscriptionRefusalKind.Expired =>
+                (SubscriptionRefusals.Required(status.EndsOn!.Value), SubscriptionRefusals.RequiredCode),
             _ => (SubscriptionRefusals.Missing, SubscriptionRefusals.MissingCode),
         };
 
@@ -95,11 +95,18 @@ public class SubscriptionGateMiddleware
     /// The cheap predicates, in order: is enforcement on at all (FR-11), is this even an API route (the front door
     /// also serves the web app), is it a read, and has the endpoint declared itself exempt (FR-3).
     /// </summary>
+    /// <remarks>
+    /// ⚠️ <b>No endpoint matched is not the same as « this endpoint declared no exemption »</b>, and conflating them
+    /// answered <b>402</b> to a mistyped URL or to an old client calling a removed route. Naming the subscription is
+    /// the loudest thing this gate can say — it fires <c>onSubscriptionRequired</c> on the client — so an unroutable
+    /// path must fall through to routing's own 404.
+    /// </remarks>
     private static bool Applies(HttpContext context, ISubscriptionPolicy policy) =>
         policy.RequiresSubscription
         && context.Request.Path.StartsWithSegments(ApiPrefix)
         && !IsRead(context.Request.Method)
-        && context.GetEndpoint()?.Metadata.GetMetadata<AllowsWithoutSubscriptionAttribute>() is null;
+        && context.GetEndpoint() is { } endpoint
+        && endpoint.Metadata.GetMetadata<AllowsWithoutSubscriptionAttribute>() is null;
 
     private static bool IsRead(string method) =>
         HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method);

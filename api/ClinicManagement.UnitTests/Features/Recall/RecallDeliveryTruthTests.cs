@@ -217,7 +217,7 @@ public class RecallDeliveryTruthTests
                     It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new[] { due });
             // L3a — the dispatcher reviews parked rows after the batch; none here.
-            _notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            _notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(Array.Empty<Notification>());
             _notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);
@@ -253,6 +253,10 @@ public class RecallDeliveryTruthTests
                 probe.Object, settings.Object, config,
                 new IReminderChannelSender[] { new StubSender(_due.Type, result) },
                 Generator.Object,
+                // Part G's outbox gate: not enforced on this deployment, so it reads no entitlement and these
+                // recall-truth scenarios are untouched by it.
+                Mock.Of<ISubscriptionPolicy>(p => p.RequiresSubscription == false),
+                new Mock<IClinicSubscriptionRepository>().Object,
                 // I6: the job names itself as the audit actor. Permissive mock — unobserved here.
                 new Mock<IAuditActorProvider>().Object,
                 new Mock<ITenantScope>().Object,

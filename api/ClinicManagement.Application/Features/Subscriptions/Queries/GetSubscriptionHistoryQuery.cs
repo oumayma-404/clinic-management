@@ -68,23 +68,28 @@ public class GetSubscriptionHistoryQueryHandler
             var rows = entries
                 .OrderByDescending(e => e.RecordedAtUtc)
                 .ThenByDescending(e => e.Id)
-                .Select(e => new SubscriptionPeriodDto
+                // The span is resolved before the projection rather than through an out-variable declared inside it:
+                // the initializer only compiled because its elements evaluate top to bottom, so reordering two lines
+                // silently broke it. `SubscriptionReportService.RunForCabinetAsync` already reads this way.
+                .Select(e =>
                 {
-                    Id = e.Id,
-                    Kind = e.Kind.ToString(),
-                    KindLabel = SubscriptionLabels.PeriodKind(e.Kind),
-                    FromDay = spanById.TryGetValue(e.Id, out var span) ? span.FromDay : null,
-                    ThroughDay = span?.ThroughDay,
-                    Amount = e.Amount,
-                    Method = e.Method?.ToString(),
-                    MethodLabel = e.Method is { } method ? SubscriptionLabels.PaymentMethod(method) : null,
-                    Reference = e.Reference,
-                    Note = e.Note,
-                    RecordedAt = e.RecordedAtUtc,
-                    RecordedBy = e.RecordedBy,
-                    IsCancelled = e.IsCancelled,
-                    CancelledAt = e.CancelledAtUtc,
-                    CancelReason = e.CancelReason,
+                    var span = spanById.GetValueOrDefault(e.Id);
+                    return new SubscriptionPeriodDto
+                    {
+                        Id = e.Id,
+                        Kind = e.Kind.ToString(),
+                        KindLabel = SubscriptionLabels.PeriodKind(e.Kind),
+                        FromDay = span?.FromDay,
+                        ThroughDay = span?.ThroughDay,
+                        Amount = e.Amount,
+                        Method = e.Method?.ToString(),
+                        MethodLabel = e.Method is { } method ? SubscriptionLabels.PaymentMethod(method) : null,
+                        Reference = e.Reference,
+                        RecordedAt = e.RecordedAtUtc,
+                        IsCancelled = e.IsCancelled,
+                        CancelledAt = e.CancelledAtUtc,
+                        CancelReason = e.CancelReason,
+                    };
                 })
                 .ToList();
 

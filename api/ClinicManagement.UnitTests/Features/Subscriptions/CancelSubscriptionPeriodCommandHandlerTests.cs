@@ -59,7 +59,7 @@ public class CancelSubscriptionPeriodCommandHandlerTests
             SubscriptionVendorHarness.ClinicId, SubscriptionPeriodKind.Paid, Today, BaseUtc.AddMinutes(2),
             durationMonths: 1));
 
-        subscription.RecomputeFrom(new[] { first, middle, last });
+        subscription.RecomputeFrom(new[] { first, middle, last }, DateTime.UtcNow);
         harness.Subscriptions.Subscription = subscription;
         return (harness, first, middle, last);
     }
@@ -164,7 +164,7 @@ public class CancelSubscriptionPeriodCommandHandlerTests
             SubscriptionVendorHarness.ClinicId, SubscriptionPeriodKind.Paid, Today, BaseUtc.AddMinutes(1),
             durationMonths: 12));
 
-        subscription.RecomputeFrom(new[] { lapsed, mistake });
+        subscription.RecomputeFrom(new[] { lapsed, mistake }, DateTime.UtcNow);
         harness.Subscriptions.Subscription = subscription;
         Assert.True(subscription.EndsOn > Today);
 

@@ -74,6 +74,31 @@ public class ClinicSubscriptionRepository : IClinicSubscriptionRepository
             .Where(p => !p.IsCancelled && p.RecordedAtUtc >= fromUtc && p.RecordedAtUtc <= toUtc)
             .SumAsync(p => p.Amount ?? 0m, cancellationToken);
 
+    /// <summary>
+    /// One cabinet's report row. Same two-read shape as its deployment-wide sibling and for the same reason — the
+    /// two tables answer to different query filters — but bounded to the clinic asked about.
+    /// </summary>
+    public async Task<ClinicSubscriptionReportRow?> GetReportRowAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        var clinic = await _context.Clinics
+            .AsNoTracking()
+            .Where(c => c.Id == clinicId)
+            .Select(c => new { c.Id, c.Name })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (clinic is null)
+        {
+            return null;
+        }
+
+        var subscription = await _context.ClinicSubscriptions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.ClinicId == clinicId, cancellationToken);
+
+        return new ClinicSubscriptionReportRow(clinic.Id, clinic.Name, subscription);
+    }
+
     public async Task AddAsync(ClinicSubscription subscription, CancellationToken cancellationToken = default) =>
         await _context.ClinicSubscriptions.AddAsync(subscription, cancellationToken);
 

@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { statusToneClass } from "@/components/ui/status-tone"
-import { formatDate, formatDT } from "@/lib/format"
+import { formatCalendarDay, formatDate, formatDT } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { SubscriptionHistoryPageDto, SubscriptionPeriodDto } from "@/lib/api/subscription"
 
@@ -52,16 +52,33 @@ export function SubscriptionHistoryTable({
   }
 
   // A skeleton distinct from empty: a card list has no header row, so « vide » and « en cours » would otherwise be
-  // the same blank rectangle.
+  // the same blank rectangle. ⚠️ The card half goes through `CardList`'s own `loading`, which carries `role="status"`,
+  // an `aria-label` and `aria-busy` — a hand-rolled copy beside it gave a screen-reader user silence for the whole
+  // fetch, and would not receive the next fix made to the shared one.
   if (loading && !data) {
     return (
-      <Card>
-        <CardContent className="space-y-3 py-6">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-12 animate-pulse rounded-md bg-muted/60" />
-          ))}
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        <div className={TABLE_ONLY_LG}>
+          <Card>
+            <CardContent className="space-y-3 py-6">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-12 animate-pulse rounded-md bg-muted/60" />
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+        <div className={CARDS_ONLY_LG}>
+          <CardList
+            items={[] as SubscriptionPeriodDto[]}
+            loading
+            skeletonRows={3}
+            ariaLabel="Historique des paiements d'abonnement"
+            getKey={(e) => e.id}
+            title={(e) => e.id}
+            fields={() => []}
+          />
+        </div>
+      </div>
     )
   }
 
@@ -89,7 +106,8 @@ export function SubscriptionHistoryTable({
               <TableHead>Enregistré le</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Période couverte</TableHead>
-              <TableHead>Montant</TableHead>
+              {/* Right-aligned to match the cell: the amounts are the one column compared vertically. */}
+              <TableHead className="text-right">Montant</TableHead>
               <TableHead>Mode</TableHead>
               <TableHead>Référence</TableHead>
               <TableHead>État</TableHead>
@@ -101,7 +119,9 @@ export function SubscriptionHistoryTable({
                 <TableCell className="text-muted-foreground">{formatDate(entry.recordedAt)}</TableCell>
                 <TableCell>{entry.kindLabel}</TableCell>
                 <TableCell className={cn(entry.isCancelled && "line-through")}>{coveredPeriod(entry)}</TableCell>
-                <TableCell className={cn("tabular-nums", entry.isCancelled && "line-through")}>
+                {/* `numeric` rather than a hand-written `tabular-nums`: it also right-aligns, which is what makes
+                    the decimal commas line up — the same rule /factures and la caisse follow. */}
+                <TableCell numeric className={cn(entry.isCancelled && "line-through")}>
                   {entry.amount === null ? "—" : formatDT(entry.amount)}
                 </TableCell>
                 <TableCell>{entry.methodLabel ?? "—"}</TableCell>
@@ -181,6 +201,6 @@ function coveredPeriod(entry: SubscriptionPeriodDto): string {
   }
 
   return entry.throughDay === null
-    ? `Depuis le ${formatDate(entry.fromDay)} — sans échéance`
-    : `${formatDate(entry.fromDay)} → ${formatDate(entry.throughDay)}`
+    ? `Depuis le ${formatCalendarDay(entry.fromDay)} — sans échéance`
+    : `${formatCalendarDay(entry.fromDay)} → ${formatCalendarDay(entry.throughDay)}`
 }

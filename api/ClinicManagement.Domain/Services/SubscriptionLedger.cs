@@ -129,9 +129,14 @@ public static class SubscriptionLedger
                 ? entry.RecordedOnClinicDay.Date  // the first entry, or the cabinet had lapsed
                 : cursor.Value;                   // still covered: resume where the cover ran out
 
-            cursor = entry.DurationMonths is { } months ? start.AddMonths(months)
+            cursor = entry.DurationMonths is { } months
+                // Clamped on the INCLUSIVE end (31 Jan + 1 month ends 28/29 Feb — FR-2, EC-3), which advancing the
+                // exclusive cursor by AddMonths would land a day short of whenever the anchor outruns the target month.
+                ? start.AddDays(-1).AddMonths(months).AddDays(1)
                 : entry.DurationDays is { } days ? start.AddDays(days)
-                : entry.ExplicitEndsOn!.Value.Date.AddDays(1);
+                // AC-5.2: a recorded entry may only ever extend cover — shortening is a cancellation's business alone,
+                // so a mistyped `--until` can refuse or add nothing, never revoke months somebody has paid for.
+                : Later(entry.ExplicitEndsOn!.Value.Date.AddDays(1), start);
 
             endsOn = cursor.Value.AddDays(-1);
             spans.Add(new PeriodSpan(entry.Id, start, endsOn));
@@ -139,4 +144,6 @@ public static class SubscriptionLedger
 
         return new SubscriptionFold(openEnded ? null : endsOn, latestKind, spans);
     }
+
+    private static DateTime Later(DateTime left, DateTime right) => left >= right ? left : right;
 }

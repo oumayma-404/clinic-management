@@ -104,7 +104,7 @@ public class ClinicSubscription : AggregateRoot<Guid>
     /// date (AC-5.4), which is only true when every non-cancelled entry is present. Callers pass the cabinet's
     /// entire ledger, never a page of it.</para>
     /// </summary>
-    public void RecomputeFrom(IEnumerable<SubscriptionPeriod> wholeLedger)
+    public void RecomputeFrom(IEnumerable<SubscriptionPeriod> wholeLedger, DateTime whenUtc)
     {
         ArgumentNullException.ThrowIfNull(wholeLedger);
 
@@ -120,7 +120,7 @@ public class ClinicSubscription : AggregateRoot<Guid>
         var fold = SubscriptionLedger.FoldWithSpans(entries.Select(e => e.ToLedgerEntry()));
         EndsOn = fold.EndsOn;
         LatestCoverKind = fold.LatestCoverKind;
-        UpdatedAt = DateTime.UtcNow;
+        UpdatedAt = whenUtc;
     }
 
     /// <summary>
@@ -148,12 +148,14 @@ public class ClinicSubscription : AggregateRoot<Guid>
             throw new ArgumentException("Le motif de suspension est obligatoire.", nameof(reason));
         }
 
+        // Every refusal before the first assignment: an over-long value used to leave the cabinet suspended with a
+        // null motif — exactly the state the mandatory-reason rule exists to prevent.
+        var trimmedReason = Trimmed(reason, MaxSuspensionReasonLength, "Le motif de suspension", nameof(reason));
+        var trimmedActor = Trimmed(by, MaxActorLength, "L'auteur de la suspension", nameof(by));
+
         IsSuspended = true;
-        SuspensionReason = reason.Trim().Length > MaxSuspensionReasonLength
-            ? throw new ArgumentException(
-                $"Le motif de suspension dépasse {MaxSuspensionReasonLength} caractères.", nameof(reason))
-            : reason.Trim();
-        SuspendedBy = by?.Trim();
+        SuspensionReason = trimmedReason;
+        SuspendedBy = trimmedActor;
         SuspendedAtUtc = whenUtc;
         UpdatedAt = whenUtc;
     }
@@ -169,5 +171,19 @@ public class ClinicSubscription : AggregateRoot<Guid>
         SuspendedBy = null;
         SuspendedAtUtc = null;
         UpdatedAt = whenUtc;
+    }
+
+    /// <summary>Refuses in French what the column would otherwise refuse as a 500, `SubscriptionPeriod.Trimmed`'s job.</summary>
+    private static string? Trimmed(string? value, int maxLength, string subject, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        return trimmed.Length > maxLength
+            ? throw new ArgumentException($"{subject} dépasse {maxLength} caractères.", parameterName)
+            : trimmed;
     }
 }

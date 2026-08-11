@@ -170,19 +170,6 @@ public static class ProvisionClinicCommand
     /// swallowing the next flag, so <c>--name --admin-email x</c> fails the usage check instead of creating a
     /// clinic literally called « --admin-email ».
     /// </summary>
-    internal static string? ReadOption(string[] args, string flag)
-    {
-        for (var i = 0; i < args.Length - 1; i++)
-        {
-            if (!string.Equals(args[i], flag, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var value = args[i + 1];
-            return value.StartsWith("--", StringComparison.Ordinal) ? null : value;
-        }
-
-        return null;
-    }
+    /// <summary>This verb's own arguments, read by the shared <see cref="ConsoleArgs.ReadOption"/>.</summary>
+    private static string? ReadOption(string[] args, string flag) => ConsoleArgs.ReadOption(args, flag);
 }

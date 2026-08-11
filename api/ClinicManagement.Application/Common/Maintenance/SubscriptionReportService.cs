@@ -61,10 +61,32 @@ public sealed record SubscriptionReportEntry(
     string? CancelReason,
     string? RecordedBy);
 
-/// <summary>One cabinet in full: where it stands, and every entry behind that date.</summary>
+/// <summary>Which group of the deployment-wide report a cabinet falls in — the one classification, named.</summary>
+public enum SubscriptionReportBucket
+{
+    Missing,
+    Suspended,
+    Expired,
+    Expiring,
+    Healthy,
+}
+
+/// <summary>One cabinet in full: where it stands, which group it is in, and every entry behind that date.</summary>
 public sealed record SubscriptionCabinetReport(
     SubscriptionReportLine Cabinet,
-    IReadOnlyList<SubscriptionReportEntry> Ledger);
+    SubscriptionReportBucket Bucket,
+    IReadOnlyList<SubscriptionReportEntry> Ledger)
+{
+    /// <summary>
+    /// Whether <c>subscription-report --clinic &lt;id&gt;</c> exits <b>2</b>.
+    ///
+    /// <para>Computed here, from the same <see cref="SubscriptionReportBucket"/> the deployment-wide run buckets on,
+    /// rather than re-derived in the verb over <c>AllowsWrites</c>/<c>State</c>/<c>DaysRemaining</c>. Two
+    /// implementations of « which cabinets must the vendor act on? » agreed only by coincidence, and only one of
+    /// them was reachable by a test — an exit code that silently stops alarming reads exactly like a clean run.</para>
+    /// </summary>
+    public bool NeedsAttention => SubscriptionReportService.IsFinding(Bucket);
+}
 
 /// <summary>
 /// The core of the <c>subscription-report</c> console verb (AC-5.9): a read-only view of where every cabinet of the
@@ -110,12 +132,12 @@ public class SubscriptionReportService
         {
             var line = Describe(row, clinicToday);
 
-            var bucket = line.State switch
+            var bucket = Classify(line, withinDays) switch
             {
-                null => missing,
-                SubscriptionState.Suspended => suspended,
-                SubscriptionState.Expired => expired,
-                _ when line.DaysRemaining is { } days && days <= withinDays => expiring,
+                SubscriptionReportBucket.Missing => missing,
+                SubscriptionReportBucket.Suspended => suspended,
+                SubscriptionReportBucket.Expired => expired,
+                SubscriptionReportBucket.Expiring => expiring,
                 _ => healthy,
             };
 
@@ -135,10 +157,15 @@ public class SubscriptionReportService
     /// listing can answer because the entry ids are the thing being looked up.
     /// </summary>
     public async Task<SubscriptionCabinetReport?> RunForCabinetAsync(
-        Guid clinicId, DateTime clinicToday, CancellationToken cancellationToken = default)
+        Guid clinicId,
+        DateTime clinicToday,
+        int withinDays,
+        CancellationToken cancellationToken = default)
     {
-        var row = (await _subscriptions.GetForReportAsync(cancellationToken))
-            .FirstOrDefault(r => r.ClinicId == clinicId);
+        // Targeted, not `GetForReportAsync(...).FirstOrDefault(...)`: that materialised every cabinet of the
+        // deployment plus every entitlement row to select one, so the cost of asking about a single cabinet grew
+        // with the whole tenant list.
+        var row = await _subscriptions.GetReportRowAsync(clinicId, cancellationToken);
 
         if (row is null)
         {
@@ -170,8 +197,26 @@ public class SubscriptionReportService
             })
             .ToList();
 
-        return new SubscriptionCabinetReport(Describe(row, clinicToday), ledger);
+        var cabinet = Describe(row, clinicToday);
+        return new SubscriptionCabinetReport(cabinet, Classify(cabinet, withinDays), ledger);
     }
+
+    /// <summary>Which group this cabinet is in — the single classification both runs read.</summary>
+    private static SubscriptionReportBucket Classify(SubscriptionReportLine line, int withinDays) =>
+        line.State switch
+        {
+            null => SubscriptionReportBucket.Missing,
+            SubscriptionState.Suspended => SubscriptionReportBucket.Suspended,
+            SubscriptionState.Expired => SubscriptionReportBucket.Expired,
+            _ when line.DaysRemaining is { } days && days <= withinDays => SubscriptionReportBucket.Expiring,
+            _ => SubscriptionReportBucket.Healthy,
+        };
+
+    /// <summary>Which groups make the verb exit 2 — see <see cref="SubscriptionReport.NeedsAttention"/>.</summary>
+    internal static bool IsFinding(SubscriptionReportBucket bucket) =>
+        bucket is SubscriptionReportBucket.Missing
+            or SubscriptionReportBucket.Expired
+            or SubscriptionReportBucket.Expiring;
 
     private static SubscriptionReportLine Describe(ClinicSubscriptionReportRow row, DateTime clinicToday)
     {
@@ -180,7 +225,7 @@ public class SubscriptionReportService
             // Never « Actif » by omission: a cabinet with no entitlement is refused by the gate under
             // subscription_missing (EC-6), so the report has to say the same thing the cabinet is being told.
             return new SubscriptionReportLine(
-                row.ClinicId, row.ClinicName, null, "Aucun abonnement",
+                row.ClinicId, row.ClinicName, null, SubscriptionLabels.NoSubscription,
                 null, null, AllowsWrites: false, null, null);
         }
 

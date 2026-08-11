@@ -8,7 +8,7 @@
 
 | Story | Status |
 |---|---|
-| 1 — Abonnement du cabinet | in-progress (Parts A + B + C + D + E + F done) |
+| 1 — Abonnement du cabinet | **implemented** (all seven parts done; the operator walks and the eye pass are owed) |
 
 ### Parts inside Story 1
 
@@ -20,7 +20,7 @@
 | D | The banner, the refusal toast, and the live re-read | **done** (Checkpoint D green; eye pass owed) |
 | E | The cabinet is warned before it stops being able to work (⚠️ atomic) | **done** (Checkpoint E green; the operator's simulated-days walk is owed) |
 | F | The vendor unlocks a cabinet that has paid | **done** (Checkpoint F green; the operator's five-verb walk is owed) |
-| G | Background work parks rather than sends or vanishes (⚠️ atomic) | not-started |
+| G | Background work parks rather than sends or vanishes (⚠️ atomic) | **done** (Checkpoint G green, three executed red-proofs; the operator's parking round trip is owed) |
 
 ## Session decisions
 
@@ -1198,3 +1198,166 @@ DEV-11 was discovered at all.
   deployment can actually return 0 — which is why a deliberately suspended cabinet is listed but not counted, while
   a cabinet with no entitlement is counted even though it is rarer. The question is not « is this notable? » but
   « is there an action, and did somebody already take it? ».
+
+---
+
+# Part G — Background work parks rather than sends or vanishes (⚠️ atomic)
+
+**Status:** **done** — Checkpoint G green. 13 new tests, **three** executed red-proofs (one per half that can be
+forgotten). Nothing here is `web/`, nothing here is a migration, and nothing here touches the scheduled backup or the
+daily stock-expiry alert — all four confirmed rather than assumed, below.
+
+## Part G — steps
+
+| Step | What | Result |
+|---|---|---|
+| 1 | `OutboxBlockReason` on `Notification` and `PushDelivery` — the existing French sentences keep their wording and gain their matching enum value | ✅ `MarkAsBlocked(reason, sentence)` on both; `Unblock()` clears **both** fields. The three existing park sites in each dispatcher now name `ChannelUnsupported` / `ChannelDisabled` / `ChannelUnconfigured`, wording unchanged |
+| 2 | Both dispatchers park before calling a sender when the clinic may not write | ✅ `NotificationJob.DispatchAsync` and `PushDispatchJob.DispatchAsync`, each immediately before its `SendAsync` |
+| 3 | Both `ReviewBlockedRowsAsync` bodies release a `SubscriptionExpired` row **only** when the clinic may write again | ✅ and this is the half R-8 names — proven red twice, once per queue |
+| 4 | Confirm the scheduled backup and the daily stock-expiry alert are untouched, and the manual backup is on Part B's exempt list | ✅ all four confirmed — see *Checkpoint G* |
+
+## Session decisions
+
+- **Branch.** Continued on `feature/windows-desktop-app`, where Parts A–F's six commits already live. Not re-asked:
+  the branch is unambiguously this feature's, and the skill's prompt exists for an *unrelated* branch.
+- **Working tree at session start.** `api/.../SubscriptionController.cs` was listed as modified with an **empty**
+  diff (`git diff HEAD` and `--ignore-all-space` both empty — a stat-dirty file, not a change) and
+  `features/platform-console/` was untracked, as it was at Part F's start. Neither was staged.
+
+## Deviations
+
+### DEV-12: One `OutboxSubscriptionGate` rather than the condition written into each queue
+**Date:** 2026-08-10
+**Story:** 1, Part G, steps 2–3
+**Category:** Technical
+**Original Plan:** Part G's file table lists **four** files — the two entities and the two jobs — with no new type.
+**Actual Implementation:** A new `Application/Features/Subscriptions/OutboxSubscriptionGate.cs` (plus the
+`OutboxBlock` record it returns), consulted from **four** call sites: dispatch and un-park, in each of the two queues.
+Both jobs gained `ISubscriptionPolicy` + `IClinicSubscriptionRepository` and build one gate per tick.
+**Justification:** The literal reading puts the same three-step decision — is enforcement on · read the entitlement ·
+apply `SubscriptionStateReader` — in four places, and pairs the reason enum with its French sentence in four places
+too. That is the `fixes-dont-propagate` shape this repo is documented as losing to, and it is worse than usual here
+because the *un-park* copy is the one whose omission is silent: the row is released and the reminder sends, which
+looks like the feature working. The gate also earns two things a written-out condition would not have: a per-cabinet
+cache (a 50-row batch must not issue 50 identical queries) and an early return where `RequiresSubscription` is false,
+so the two other deployment kinds issue **not one** extra query (AC-7.1/7.2, asserted).
+**Impact:** One new Application file, two job constructors, five test files touched for the constructors. No DI
+registration needed — both dependencies are already registered by `AddInfrastructure`, and the gate is constructed
+per pass rather than injected, so nothing can hold a stale « today ». Precedent inside this very story: Part F's
+`SubscriptionCabinetLookup` and `SubscriptionRefold` (DEV-10) are the same call — a shared file over three copies.
+**Approved:** Taken as trivial-by-precedent and stated here rather than asked, on the two Part F entries above.
+
+### DEV-13: A cabinet with **no** entitlement row keeps sending, where the HTTP gate refuses it
+**Date:** 2026-08-10
+**Story:** 1, Part G, step 2
+**Category:** Technical
+**Original Plan:** « Park before calling a sender when the clinic may not write. » The HTTP gate answers **402
+`subscription_missing`** for a missing row (EC-6), so the literal reading of « may not write » parks it too.
+**Actual Implementation:** The outbox parks for an **expired** or **suspended** entitlement and sends for a missing
+one.
+**Justification:** Three reasons, and the first is Part A's own design: `OutboxBlockReason` has **no member** for a
+missing row — `SubscriptionExpired` is documented as « has ended or been suspended », exactly the two states
+`AllowsWrites: false` produces from a row that exists — so parking under it would record a reason that is not true,
+which is the prose-vs-reason confusion the enum was added to end. Second, the two decisions are not the same kind:
+fail-closed is right at the gate, because a deleted row must not become a way to write for ever, while nothing in the
+outbox is authorization — the work was already recorded, legitimately, while the cabinet could write. Third, the
+failure mode is asymmetric: a missing row is *our* bookkeeping fault, and a practice whose patient reminders silently
+stopped for it can neither see the cause nor fix it. FR-13's failure state is already surfaced where somebody can act
+on it — `verify-schema`'s `every-clinic-has-an-entitlement` and the `subscription-report` verb.
+**Impact:** One branch in the gate, one test, and a ⚠️ on the class saying so. Reachable essentially only through a
+defect: the migration grandfathers every existing cabinet and both construction doors provision one.
+**Approved:** Stated here as a deliberate reading rather than asked — it follows Part A's enum, which was reviewed.
+
+## Auto-Approved Deviations
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| The dispatch-side park sits **immediately before** `SendAsync`, after the channel/device checks, not first in the method | Trivial | Internal ordering, no API change. It is the plan's own wording (« park before calling a sender »), and it keeps the reasons accurate: a row that could *never* send parks for its own reason instead of parking for expiry, being released on renewal and re-parking one tick later. |
+| The un-park term is asked for **every** parked row, not only for a `SubscriptionExpired` one | Trivial | Internal to the review loop. Asking only about the matching reason would release a channel-parked row into a queue that is about to park it again for expiry — one pointless unblock/re-park cycle per tick, which is the churn the `Blocked` status exists to prevent. |
+| The parking sentences are **channel-neutral** and live on the gate, beside the reason they pair with | Trivial | Wording only. One sentence covers a parked SMS, a parked WhatsApp message and a parked push; putting it beside the enum value keeps « the reason » and « the sentence » one statement, as `SubscriptionRefusals` does for the 402s. |
+| `PushDispatchJob`'s `!SupportsPush` park is recorded as `ChannelUnconfigured` rather than `ChannelUnsupported` | Trivial | The job is registered only where `IOsPushAvailability.IsAvailableAtAll`, so in practice this branch means « the *other* platform of a two-platform install has no credentials » — operator-fixable. The enum value gates nothing on release: the reviewer re-checks `SupportsPush` itself. |
+| `OutboxSubscriptionGate.ReviewAsync` returns a **nullable** `OutboxBlock` rather than a two-field verdict | Trivial | Internal shape of a new type. `null` = send, so a caller cannot read the reason of a decision that was « send » — no `MaySend` flag to check and no null-forgiving operators at the four call sites. |
+| `A_Blocked_Row_Is_Returned_To_The_Queue_When_Its_Channel_Becomes_Sendable` gained one assertion (`BlockedReason` is null) | Trivial | Test-only strengthening of an existing L3a test, on the field this part started writing. |
+
+## Part G gates — Checkpoint G
+
+| Gate | Result |
+|---|---|
+| `dotnet build api/ClinicManagement.sln --no-incremental` | ✅ **0 errors**, **55 warnings — the identical Checkpoint A/B/C/D/E/F baseline**. The unique warning set was extracted and grepped for every file this part touched: the **only** hit is `Notification.cs(38,13)` `CS8618` on `Subject`/`Message`, which is the pre-existing private-EF-constructor warning that simply **moved from line 44 to 38** when a stale six-line Part A comment was deleted above it. Same construct, same two properties, not new |
+| Unit suite | ✅ **2452 passed, 0 failed** (baseline 2439 → **13 new**) |
+| `OutboxParkingTests` | ✅ 13 — EC-7 both queues, R-8 both queues, the release both queues, the suspension wording, no-entitlement, no-clinic, not-enforced, the per-tick cache, and the last-working-day boundary |
+| `NotificationJobTests` · `PushDispatchJobTests` · `RecallDeliveryTruthTests` | ✅ green — **edited for the constructors only**, each with a `RequiresSubscription == false` policy, so those suites assert the pre-Part-G behaviour is byte-identical where subscriptions are not enforced |
+| `TenantScopeFilterTests` · `DeploymentProfileCoverageTests` · `ControllerAuthorizationCoverageTests` · `MoneyReadConsistencyTests` | ✅ green, **all four unedited** (confirmed by name against `git status`) — Part G adds no endpoint, no filtered table and no money read |
+| `SystemWideCallerCoverageTests` | ✅ green, **unedited** — both jobs already declared `UseSystemWide`, and the new entitlement read is inside that scope (`ClinicSubscriptions` is a filtered table, so an unscoped read would have found nothing and parked nobody) |
+| `RealtimeResourceResolverTests` · `SubscriptionGateMiddlewareTests` · `SubscriptionExemptionCoverageTests` | ✅ green, **unedited** — no command, no endpoint and no exemption changed |
+| `verify-schema` | **not applicable — and the verb was re-confirmed to exist *and* to be dispatched** (`Api/Maintenance/VerifySchemaCommand.cs`, `Application/Common/Maintenance/SchemaVerificationService.cs`, and the `Program.cs` branch at line 65 calling `VerifySchemaCommand.RunAsync`). Part G adds **no migration, no table, no column and no index**: `git diff -- api/ClinicManagement.Infrastructure/` is **empty**. The two `BlockedReason` columns it starts writing landed with Part A's migration and are already in the snapshot |
+| Frontend gate | **not applicable — verified, not assumed**: `git status` lists no `web/` file. Part G is `api/`-only in fact as well as in the plan's table |
+
+### The three red-proofs
+
+Each half that could be shipped alone was removed, the suite run, and the removal reverted — because a guard that has
+never failed is not yet a guard, and here the whole point of the part is that two of the three halves fail *silently*.
+
+1. **The reminder queue's un-park term (R-8, FR-8's named gap).** Deleting the entitlement check from
+   `NotificationJob.ReviewBlockedRowsAsync` turned exactly
+   `The_Review_Pass_Leaves_It_Parked_Even_With_The_Channel_Fully_Configured` **red** (1 failed, 12 passed) — the row
+   was released with the channel enabled and credentialled, which is the production symptom: sent within a minute on
+   a cabinet that has not paid. Reverted; green.
+2. **The reminder queue's dispatch-side park.** Deleting the check from `DispatchAsync` turned **three** red —
+   `An_Expired_Cabinets_Queued_Reminder_Is_Parked_And_Not_Sent`, its suspension sibling, and the non-terminal/no-retry
+   assertion (the reminder *sent* instead). Reverted; green.
+3. **The push queue's un-park term.** The identical deletion in `PushDispatchJob.ReviewBlockedRowsAsync` turned
+   `The_Push_Review_Pass_Leaves_It_Parked_While_The_Cabinet_May_Not_Write` **red**. Reverted; green — and this is the
+   proof that « the push queue has the identical shape and the identical gap » is covered rather than asserted.
+
+After each revert the restored file was diffed against `HEAD` to confirm the probe left nothing behind (one probe was
+scripted and rewrote the file's line endings to LF; caught by `git diff`'s own warning and normalised back to CRLF
+before staging).
+
+### Step 4 — what had to stay untouched, confirmed rather than assumed
+
+| Claim (FR-8, FR-14) | How it was confirmed |
+|---|---|
+| Scheduled backups keep running on an expired cabinet | `grep -c Subscription BackupJob.cs` → **0**, and `git diff --stat` on `BackupJob.cs` → empty. It consults no entitlement and was not edited |
+| The daily stock-expiry alert keeps running | Same two checks on `StockExpiryJob.cs` → **0** and empty |
+| Neither job's registration changed | `git diff --stat -- api/ClinicManagement.API/Program.cs` → empty |
+| The **manual** backup is on Part B's exempt list | `BackupController.cs:35` carries `[AllowsWithoutSubscription(...)]`, and its reason string already cites FR-8's scheduled-backup argument |
+| **FR-14 — nothing is deleted, however long a cabinet stays expired** | No retention timer was introduced: `git diff -- api/ClinicManagement.Infrastructure/` is **empty**, so both `PurgeTerminalOlderThanAsync` predicates are untouched, and both are terminal-status-only — `Blocked` was out of scope the moment it existed (`NotificationRepository.cs:96`, `PushDeliveryRepository.cs:92`). Asserted from the domain side too, by `Parking_Spends_No_Retry_And_Leaves_The_Row_In_A_Non_Terminal_State` |
+
+### Verification steps — what is proven and what is still owed
+
+| Step (story § *Verification Steps → Part G*) | Result |
+|---|---|
+| A reminder queued before expiry for an appointment after it is parked with the machine-readable reason and is **not** sent (EC-7) | ✅ `An_Expired_Cabinets_Queued_Reminder_Is_Parked_And_Not_Sent` — asserts the sender was never called, the status, the enum **and** the sentence naming the date; the fixture's appointment is three days out, so the row is otherwise perfectly sendable |
+| With the channel **fully configured and enabled**, the review pass leaves that row parked | ✅ red-proof 1's test, and the fixture is deliberately enabled + credentialled: anything less and « it stayed parked » would prove only that the channel was still broken |
+| Extending the cabinet releases it and it dispatches on the next tick | ✅ `Extending_The_Cabinet_Releases_The_Parked_Reminder` (and its push twin) — back to `Pending` with reason *and* sentence cleared, and the sender **not** called in the releasing pass, since unblocking is not sending |
+| `GET /api/outbox` shows the parked **reminder** rows in its `Blocked` depth | ✅ **structurally, and it needed no change**: `NotificationRepository.SharedCountsAsync` counts `Status == Blocked` with no reason dimension, so a subscription-parked row is in that figure by construction. The **live** read is owed with the operator walk. As the plan notes, `GetOutboxDepthQuery` has no push section — a parked `PushDelivery` is checked in the table |
+| Scheduled backups and the daily stock-expiry alert still run on an expired cabinet | ✅ structurally, per the table above. **The live walk on a real expired cabinet is owed** with the operator step |
+
+## Known interim state, deliberately
+
+- **A cabinet's parked rows are released by the *next* tick, not by the pass that releases them.** Unblocking sets
+  `Pending` and stops; the following minute dispatches. That is the pre-existing L3a contract (a housekeeping pass
+  must not re-enter the sender) and it means « extending releases it » costs up to one extra minute.
+- **The operator walk is owed** — as it is for every job and verb in this product (R-1, not CI-runnable): a real
+  expired cabinet, a real parked reminder, a real `subscription-grant`, and the row going out on the next tick. The
+  arithmetic and both un-park terms are proven in the suite against the real types, never against a live deployment.
+
+## Learnings
+
+- **When a status can be *left* for two different reasons, the reason has to be a column before the second reason is
+  added — and the release path is where forgetting it is silent.** Both outboxes already recorded a French sentence
+  and both reviewers already asked « can the channel send? ». Adding a second cause of parking without a
+  machine-readable reason would not have produced a wrong sentence; it would have produced a **correct** sentence on
+  a row that gets released and sent anyway. Part A putting the enum in place « written by nothing yet » is what made
+  Part G a two-line-per-queue change instead of a migration plus a change.
+- **A red-proof per *half*, not per part.** Three halves could each be shipped alone here, and only one of the three
+  fails loudly (the dispatch park — the reminder simply sends). Removing each in turn and watching *which* test goes
+  red is also how one learns that the suite distinguishes them at all: two of the three probes turned exactly one
+  test red, which is the property that makes a failure diagnostic rather than a wall.
+- **« Fail closed » is a property of an authorization decision, not of a codebase.** The HTTP gate refuses a cabinet
+  with no entitlement row and the outbox sends for it, and the two are consistent once the question is separated: one
+  is « may this request record work? » (a missing row must not be a loophole) and the other is « should work already
+  recorded leave the building? » (a missing row is our fault, and the practice pays for it in unsent reminders it
+  cannot diagnose). Copying the gate's stance without asking which question was being answered would have been the
+  easy, defensible, wrong move.

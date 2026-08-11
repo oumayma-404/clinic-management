@@ -105,7 +105,7 @@ public class SubscriptionProvisioningTests
         Assert.Equal(new DateTime(2026, 8, 23), underFourteen.Subscription.EndsOn);
 
         // Re-folding the older cabinet's own ledger still yields its original date: the duration is in the row.
-        underThirty.Subscription.RecomputeFrom(new[] { underThirty.OpeningEntry });
+        underThirty.Subscription.RecomputeFrom(new[] { underThirty.OpeningEntry }, DateTime.UtcNow);
         Assert.Equal(new DateTime(2026, 9, 8), underThirty.Subscription.EndsOn);
     }
 

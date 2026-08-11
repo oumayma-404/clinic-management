@@ -7,7 +7,7 @@ import { AlertTriangle, ShieldAlert, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useSubscription } from "@/lib/subscription/subscription-context"
 import type { SubscriptionDto } from "@/lib/api/subscription"
-import { formatDate } from "@/lib/format"
+import { formatCalendarDay } from "@/lib/format"
 import { isChromeLessPath } from "@/lib/nav"
 import { cn } from "@/lib/utils"
 
@@ -48,27 +48,37 @@ export function SubscriptionBanner() {
     /*
      * The height budget is the constraint that shapes this element (spec § Device contract): at most ~15 % of a
      * 380 px-tall landscape phone, i.e. ~57 px — otherwise it eats the agenda on the device the agenda is read on.
-     * `flex-wrap` rather than truncation, because the date is the fact this exists to carry; the wrap only ever
-     * happens on a narrow *portrait* phone, where the budget is a much larger number of pixels.
+     *
+     * ⚠️ `flex-wrap` alone did NOT deliver that. `min-w-0 flex-1` is `flex: 1 1 0%`, so the paragraph's hypothetical
+     * main size is **zero** and it can never push the line to wrap: the icon and the `whitespace-nowrap` button hold
+     * their widths and the text takes whatever is left — ~146 px of a 288 px content box at 320 px, i.e. roughly
+     * eight lines and a ~160 px strip on *every screen of the app*. `basis-64` gives it a real basis so the controls
+     * are pushed onto their own row below `sm:`, and `state.detail` is hidden there so the title + date (the fact
+     * the strip exists to carry) are what remains.
      *
      * ⚠️ `coarse:py-1` is what keeps the budget met once the controls grow to their 44 px floor: 44 + 8 = 52 px,
      * where `py-2` around them would be 60 px and over. On a mouse the controls stay 32 px and `py-2` gives 48 px.
+     *
+     * ⚠️ No `role="status"`. `AppShell` remounts on every route change, so a live region here re-announces the whole
+     * strip — sentence, « Renouveler » and the dismiss control — on every navigation, dozens of times a day. This is
+     * standing chrome, not an inline async result; Part E's `StaffNotification` announces the change once.
      */
     <div
-      role="status"
       className={cn(
         "flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2 text-sm coarse:py-1 md:px-6",
+        "print:hidden",
         state.className,
       )}
     >
       <state.icon className="size-4 shrink-0" aria-hidden="true" />
-      <p className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-        <span className="font-medium">{state.title}</span> <span>{state.detail}</span>
+      <p className="min-w-0 flex-1 basis-64 sm:basis-0 [overflow-wrap:anywhere]">
+        <span className="font-medium">{state.title}</span>{" "}
+        <span className="hidden sm:inline">{state.detail}</span>
       </p>
 
       {!onSubscriptionScreen && (
         <Button asChild size="sm" variant="outline" className="coarse:min-h-11">
-          <Link href="/abonnement">Renouveler</Link>
+          <Link href="/abonnement">{state.cta}</Link>
         </Button>
       )}
 
@@ -101,6 +111,13 @@ interface BannerState {
   icon: typeof AlertTriangle
   className: string
   dismissible: boolean
+  /**
+   * ⚠️ Part of the state, not a constant. « Renouveler » is only true of an expiry: a **suspension** is not lifted by
+   * paying — the sentence beside it says so — and a missing entitlement is our fault, not a lapse. On a phone the
+   * strip is the only feedback channel, so a verb that contradicts the sentence next to it sends a practice to pay
+   * for something that will not unblock them.
+   */
+  cta: string
 }
 
 /**
@@ -120,19 +137,23 @@ function bannerState(subscription: SubscriptionDto): BannerState | null {
       icon: ShieldAlert,
       className: "border-destructive/30 bg-destructive-wash text-foreground",
       dismissible: false,
+      cta: "Voir les détails",
     }
   }
 
   if (!subscription.allowsWrites) {
     return {
       title: subscription.endsOn
-        ? `Abonnement expiré le ${formatDate(subscription.endsOn)}.`
+        ? `Abonnement expiré le ${formatCalendarDay(subscription.endsOn)}.`
         : "Abonnement expiré.",
       detail:
         "Vos données restent consultables, imprimables et exportables ; seul l'enregistrement de nouvelles informations est suspendu.",
       icon: AlertTriangle,
       className: "border-destructive/30 bg-destructive-wash text-foreground",
       dismissible: false,
+      // No end date means no lapse we can name — our own bookkeeping fault, so « renouveler » is advice they
+      // cannot act on. Same distinction the server draws between `subscription_required` and `subscription_missing`.
+      cta: subscription.endsOn ? "Renouveler" : "Voir les détails",
     }
   }
 
@@ -142,10 +163,15 @@ function bannerState(subscription: SubscriptionDto): BannerState | null {
 
   return {
     title: countdown(subscription.daysRemaining),
-    detail: `Valable jusqu'au ${formatDate(subscription.endsOn)} inclus.`,
+    detail: `Valable jusqu'au ${formatCalendarDay(subscription.endsOn)} inclus.`,
     icon: AlertTriangle,
     className: "border-warning/30 bg-warning-wash text-foreground",
-    dismissible: true,
+    // ⚠️ Not unconditionally true: `dismiss()` is a no-op without a countdown, because the per-day key is
+    // `endsOn|daysRemaining` and there is no key to store. The state that reaches here always has one today, so
+    // this aligns the two halves rather than fixing a live dead control — and keeps a future reader change from
+    // opening the gap silently.
+    dismissible: subscription.daysRemaining !== null,
+    cta: "Renouveler",
   }
 }
 

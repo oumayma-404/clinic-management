@@ -51,7 +51,7 @@ public class PushDispatchJobTests
             Deliveries.Setup(d => d.GetDueForDispatchAsync(
                     It.IsAny<int>(), It.IsAny<int>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((due ?? Array.Empty<PushDelivery>()).ToList());
-            Deliveries.Setup(d => d.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            Deliveries.Setup(d => d.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((blocked ?? Array.Empty<PushDelivery>()).ToList());
             Deliveries.Setup(d => d.UpdateAsync(It.IsAny<PushDelivery>(), It.IsAny<CancellationToken>()))
                 .Callback<PushDelivery, CancellationToken>((row, _) => Saved.Add(row))
@@ -79,10 +79,18 @@ public class PushDispatchJobTests
             var unitOfWork = new Mock<IUnitOfWork>();
             unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
+            // Part G's outbox gate: these scenarios run on a deployment that does not enforce subscriptions, so it
+            // reads no entitlement and every case below behaves as it did before it existed (AC-7.1/7.2). The
+            // parking itself is covered by OutboxParkingTests.
+            var policy = new Mock<ISubscriptionPolicy>();
+            policy.Setup(p => p.RequiresSubscription).Returns(false);
+
             Job = new PushDispatchJob(
                 Deliveries.Object, Devices.Object, Appointments.Object, unitOfWork.Object,
                 probe.Object, Availability.Object, new ConfigurationBuilder().Build(),
-                new[] { (IPushSender)Sender }, Mock.Of<IAuditActorProvider>(), TenantScope.Object,
+                new[] { (IPushSender)Sender }, policy.Object,
+                new Mock<IClinicSubscriptionRepository>().Object,
+                Mock.Of<IAuditActorProvider>(), TenantScope.Object,
                 NullLogger<PushDispatchJob>.Instance);
         }
     }
@@ -213,7 +221,8 @@ public class PushDispatchJobTests
     {
         var device = Device();
         var parked = Row(device);
-        parked.MarkAsBlocked("Notifications Android non configurées", DateTime.UtcNow);
+        parked.MarkAsBlocked(
+            OutboxBlockReason.ChannelUnconfigured, "Notifications Android non configurées", DateTime.UtcNow);
 
         var harness = new Harness(blocked: new[] { parked }, device: device);
 
@@ -230,7 +239,8 @@ public class PushDispatchJobTests
     {
         var device = Device();
         var parked = Row(device);
-        parked.MarkAsBlocked("Notifications Android non configurées", DateTime.UtcNow);
+        parked.MarkAsBlocked(
+            OutboxBlockReason.ChannelUnconfigured, "Notifications Android non configurées", DateTime.UtcNow);
 
         var harness = new Harness(blocked: new[] { parked }, device: device, pushSupported: false);
 

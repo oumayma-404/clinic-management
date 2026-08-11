@@ -41,18 +41,21 @@ public class SubscriptionReportServiceTests
 
             if (endsOn is { } day)
             {
+                // Recorded on the earlier of today and the end day: an entry may not name an end date before its
+                // own recorded day, so a *lapsed* cabinet is an entry recorded back then — which is what one is.
                 subscription.RecomputeFrom(new[]
                 {
                     SubscriptionPeriod.Create(
-                        clinicId, SubscriptionPeriodKind.Paid, Today, BaseUtc, explicitEndsOn: day),
-                });
+                        clinicId, SubscriptionPeriodKind.Paid, day < Today ? day : Today, BaseUtc,
+                        explicitEndsOn: day),
+                }, BaseUtc);
             }
             else
             {
                 subscription.RecomputeFrom(new[]
                 {
                     SubscriptionPeriod.OpenEnded(clinicId, SubscriptionPeriodKind.Grandfathered, Today, BaseUtc),
-                });
+                }, DateTime.UtcNow);
             }
 
             if (suspended)
@@ -207,7 +210,7 @@ public class SubscriptionReportServiceTests
             clinicId, SubscriptionPeriodKind.Paid, Today, BaseUtc, durationMonths: 12,
             amount: 1200.000m, method: SubscriptionPaymentMethod.Transfer, reference: "VIR-1"));
 
-        var cabinet = await deployment.Service().RunForCabinetAsync(clinicId, Today);
+        var cabinet = await deployment.Service().RunForCabinetAsync(clinicId, Today, SubscriptionReportService.DefaultWithinDays);
 
         Assert.NotNull(cabinet);
         Assert.Equal("Cabinet Ben Salah", cabinet!.Cabinet.ClinicName);
@@ -236,7 +239,7 @@ public class SubscriptionReportServiceTests
             clinicId, SubscriptionPeriodKind.Paid, Today, BaseUtc, durationMonths: 12));
         mistake.Cancel("Mauvais cabinet", "job|subscription-cancel", BaseUtc.AddHours(1));
 
-        var cabinet = await deployment.Service().RunForCabinetAsync(clinicId, Today);
+        var cabinet = await deployment.Service().RunForCabinetAsync(clinicId, Today, SubscriptionReportService.DefaultWithinDays);
 
         Assert.NotNull(cabinet);
         var entry = Assert.Single(cabinet!.Ledger);
@@ -254,6 +257,6 @@ public class SubscriptionReportServiceTests
         var deployment = new Deployment();
         deployment.WithCabinet("Cabinet", Today.AddMonths(1));
 
-        Assert.Null(await deployment.Service().RunForCabinetAsync(Guid.NewGuid(), Today));
+        Assert.Null(await deployment.Service().RunForCabinetAsync(Guid.NewGuid(), Today, SubscriptionReportService.DefaultWithinDays));
     }
 }
