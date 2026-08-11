@@ -30,6 +30,14 @@ interface ToothArchLayoutProps {
   defaultArch?: ToothArch
   /** Override the arch captions. Defaults to « Maxillaire (haut) » / « Mandibule (bas) ». */
   labels?: { upper?: string; lower?: string }
+  /**
+   * Rendered inside the card, below the arches, on its own hairline — for content that describes *this chart*
+   * rather than the page around it (the fiche's condition legend).
+   *
+   * <p>Deliberately outside the `overflow-x-auto` region: a legend that scrolled sideways with the teeth would
+   * leave the colour key off screen exactly when a narrow viewport makes it hardest to read the chart.</p>
+   */
+  footer?: ReactNode
 }
 
 /**
@@ -67,6 +75,7 @@ export function ToothArchLayout({
   onArchChange,
   defaultArch,
   labels,
+  footer,
 }: ToothArchLayoutProps) {
   /*
    * When one arch at a time is the only honest layout.
@@ -141,7 +150,10 @@ export function ToothArchLayout({
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-border bg-card p-3">
+      {/* The border and the ground moved OUT to this wrapper so `footer` can sit on a hairline inside the card
+          while only the arches scroll. With no footer the rendering is identical to before. */}
+      <div className="rounded-lg border border-border bg-card">
+      <div className="overflow-x-auto p-3">
         <div className="mx-auto w-max">
           {showUpper && (
             <div className="space-y-1.5">
@@ -168,6 +180,8 @@ export function ToothArchLayout({
             </div>
           )}
         </div>
+      </div>
+      {footer && <div className="border-t border-border px-3 py-1.5">{footer}</div>}
       </div>
     </div>
   )

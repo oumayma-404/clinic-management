@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, type ReactNode } from "react"
 import { cn } from "@/lib/utils"
 // The FDI quadrant layout is imported, not re-declared: `tooth-multiselect` is the single client-side
 // authority for a tooth's dentition (it mirrors the backend `FdiTooth.IsAdult`), and this file used to carry
@@ -150,9 +150,18 @@ interface RecordToothChartProps {
    * simply never open. `title` still shows.
    */
   toothTitle?: (toothNumber: number) => string
+  /** Forwarded to `ToothArchLayout` — content that belongs to the card, below the arches (the fiche's legend). */
+  footer?: ReactNode
 }
 
-export function RecordToothChart({ view, paint, onToggleTooth, disabled, toothTitle }: RecordToothChartProps) {
+export function RecordToothChart({
+  view,
+  paint,
+  onToggleTooth,
+  disabled,
+  toothTitle,
+  footer,
+}: RecordToothChartProps) {
   const teeth = TEETH_BY_VIEW[view]
 
   const renderTooth = (num: number) => {
@@ -244,5 +253,5 @@ export function RecordToothChart({ view, paint, onToggleTooth, disabled, toothTi
   // The geometry (scroll box, rows, midline, labels, the below-`md:` arch switch) lives in `ToothArchLayout`.
   // Everything above — paint, selection, `disabled`, the native `title` — stays here, which is exactly the
   // contract that lets the read-only summary reuse this chart. See the layout's own note.
-  return <ToothArchLayout teeth={teeth} renderTooth={renderTooth} defaultArch={dataArch} />
+  return <ToothArchLayout teeth={teeth} renderTooth={renderTooth} defaultArch={dataArch} footer={footer} />
 }

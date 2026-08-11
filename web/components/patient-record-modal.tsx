@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
-import { Trash2, Plus, Stethoscope } from "lucide-react"
+import { Trash2, Plus, Stethoscope, ChevronDown, ChevronRight } from "lucide-react"
 import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
@@ -182,6 +182,9 @@ export function PatientRecordModal({
   const [priorStates, setPriorStates] = useState<ToothStateDto[]>([])
   const [linkedPlanItemId, setLinkedPlanItemId] = useState<string>(NO_PLAN_ITEM)
   const [openSections, setOpenSections] = useState({ details: false, acts: false, notes: false })
+  // The chart's condition legend. Folded by default — the colours stay visible collapsed, so what folds is the
+  // labelling, and a dentist who knows the palette does not pay a permanent nine-entry row for it.
+  const [legendOpen, setLegendOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const guard = useDirtyGuard(open, onOpenChange)
   // A save conflict stays in the form; everything else keeps the existing toast.
@@ -715,13 +718,24 @@ export function PatientRecordModal({
             `text-destructive` token. */}
         {patient && <PatientAlertPanel patient={patient} />}
 
-        {/* Session header: patient, date, dentition view, optional plan-step link */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="space-y-1.5">
+        {/*
+          Session header: patient, date, dentition view, optional plan-step link.
+
+          ⚠️ **Two columns is the ceiling, and `lg:grid-cols-4` is why this dialog had a horizontal scrollbar.**
+          A breakpoint variant keys on the VIEWPORT, not on this container — and the dialog is capped at
+          `min(96vw,780px)`. So on any screen ≥1024 px the row became four tracks inside ~750 px of usable width,
+          ~175 px each. A grid item's `min-width` is `auto`, so the « Acte planifié » `Select` — whose options are
+          whole act designations — could not shrink below its content and pushed the row past the body. And
+          `DialogBody` sets only `overflow-y-auto`, which per the CSS overflow spec makes the other axis compute to
+          `auto`, so the overflow surfaced as a scrollbar under the whole fiche. `min-w-0` on the cells is the
+          second half: it lets the track shrink so a long label truncates instead of pushing.
+        */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="patient-name">Patient</Label>
             <Input id="patient-name" value={patientName} readOnly className="h-9 font-medium" />
           </div>
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="date">Date</Label>
             <Input
               id="date"
@@ -736,7 +750,7 @@ export function PatientRecordModal({
               The warning stays: an act charted on the other dentition is still preserved and must still be visible,
               which is now only reachable by editing an older fiche. */}
           {hiddenDentitionActs > 0 && (
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label>Autre dentition</Label>
               <p className="text-2xs text-warning-ink">
                 {hiddenDentitionActs} acte{hiddenDentitionActs > 1 ? "s" : ""} sur des dents que cette vue n&apos;affiche
@@ -745,7 +759,7 @@ export function PatientRecordModal({
             </div>
           )}
           {planItems.length > 0 && (
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label htmlFor="plan-item">
                 Acte planifié <span className="font-normal text-muted-foreground">(optionnel)</span>
               </Label>
@@ -888,6 +902,62 @@ export function PatientRecordModal({
             paint={toothPaint}
             onToggleTooth={(tooth) => dispatch({ type: "toggleTooth", tooth })}
             disabled={loading}
+            footer={
+              /*
+                The condition legend, inside the card it describes and folded by default.
+                It used to be nine `text-2xs` entries in a permanent row of the dialog body — a lot of standing
+                chrome for orientation nobody re-reads after the first week, and it was the row your screenshot
+                showed sliced in half by the body's scroll edge. Collapsed it still carries the colours (the key is
+                the hues, not the words), so what folds away is the labelling, not the information.
+                `min-h-11` on a coarse pointer PAINTS the floor rather than overlaying it: the last row of teeth
+                sits directly above, and a 44 px overlay centred on a ~20 px row would reach into it and steal taps.
+              */
+              <button
+                type="button"
+                onClick={() => setLegendOpen((v) => !v)}
+                aria-expanded={legendOpen}
+                className="flex w-full items-center gap-2 rounded text-left text-2xs text-muted-foreground hover:text-foreground coarse:min-h-11"
+              >
+                {legendOpen ? (
+                  <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+                ) : (
+                  <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+                )}
+                <span className="shrink-0 font-medium">Légende</span>
+                {legendOpen ? (
+                  <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    {CONDITION_ORDER.filter((c) => c !== "Sain").map((c) => (
+                      <span key={c} className="flex items-center gap-1">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: conditionStyle(c).color }}
+                        />
+                        {conditionStyle(c).label}
+                      </span>
+                    ))}
+                    <span className="flex items-center gap-1">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-dashed border-muted-foreground/70" />
+                      contour = état déjà au dossier
+                    </span>
+                  </span>
+                ) : (
+                  <>
+                    {/* `aria-hidden`: collapsed, these dots are a preview of what expanding reveals, and eight
+                        unlabelled colours announced one by one is noise. The button's own name carries the action. */}
+                    <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
+                      {CONDITION_ORDER.filter((c) => c !== "Sain").map((c) => (
+                        <span
+                          key={c}
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: conditionStyle(c).color }}
+                        />
+                      ))}
+                    </span>
+                    <span className="ms-auto truncate">contour pointillé = état déjà au dossier</span>
+                  </>
+                )}
+              </button>
+            }
           />
 
           {openDiagnosisTeeth.length > 0 && (
@@ -946,18 +1016,6 @@ export function PatientRecordModal({
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs">
-            {CONDITION_ORDER.filter((c) => c !== "Sain").map((c) => (
-              <span key={c} className="flex items-center gap-1">
-                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: conditionStyle(c).color }} />
-                <span className="text-muted-foreground">{conditionStyle(c).label}</span>
-              </span>
-            ))}
-            <span className="flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full border-2 border-dashed border-muted-foreground/70" />
-              <span className="text-muted-foreground">contour = état déjà au dossier</span>
-            </span>
-          </div>
         </div>
 
         {/* THE DETAIL — folded, never removed, always summarised. */}
@@ -1125,10 +1183,18 @@ export function PatientRecordModal({
           when the running total is the thing being watched. The footer is `shrink-0` and outside the scroll
           container, which is what « always on screen » actually requires.
 
-          `flex-col`, overriding the primitive's `flex-col-reverse sm:flex-row`: this footer has two stacked
+          `flex-col`, overriding the primitive's `flex-col-reverse md:flex-row`: this footer has two stacked
           bands (figures, then actions) rather than one row of buttons.
+
+          ⚠️ **Every part of this override must key on `md:`, because `DialogFooter` does.** It used to say
+          `sm:flex-col sm:justify-start`, and `sm:` does not override `md:` — Tailwind emits `sm:` first, so at
+          equal specificity the base's `md:flex-row md:justify-end` won by source order and the footer rendered as
+          a ROW above 768 px. The second half was worse: the primitive's `md:[&>*]:w-auto` compiles to a `> *`
+          selector of specificity (0,2,0), which beats the figures band's own `w-full` (0,1,0) — so the band
+          collapsed to its content width and its `flex-wrap` children stacked into a narrow column with the
+          buttons floating beside it. Hence `md:[&>*]:w-full`, which restores full-width bands at every size.
         */}
-        <DialogFooter className="flex-col gap-3 sm:flex-col sm:justify-start">
+        <DialogFooter className="flex-col gap-3 md:flex-col md:justify-start md:[&>*]:w-full">
           {/*
             The cheque's identity, above the figures rather than beside « Payé »: it is three fields, and three
             more controls on the figures row is two columns at 320 px. Rendered only for a cheque — `ChequeFields`
