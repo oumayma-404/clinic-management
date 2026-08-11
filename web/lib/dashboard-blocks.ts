@@ -28,8 +28,8 @@ interface DashboardBlockMeta {
    * <p>This is how the dashboard got shorter without anything being deleted. Each of these is a real figure that
    * some clinic wants — but for the practitioner-owner this dashboard is built for, each is either usually zero
    * (`refunds`), reception's job rather than theirs (`waitingList`), or already implied by a neighbour they can see
-   * (`invoiced`, next to « Encaissé » and « Créances »). Switching them on is one click, and nothing about the
-   * data path changed, so a clinic that lives by any of them loses nothing permanently.</p>
+   * (`invoiced`, next to « Encaissé »). Switching them on is one click, and nothing about the data path changed,
+   * so a clinic that lives by any of them loses nothing permanently.</p>
    *
    * <p>Default-hidden rather than removed, on purpose: removing a card takes it away from every user in every
    * clinic with no way back, and the whole point of shipping a customiser is that that trade is no longer
@@ -56,14 +56,12 @@ export const DASHBOARD_BLOCKS: Record<DashboardBlockKey, DashboardBlockMeta> = {
   collected: { section: 'money', label: 'Encaissé' },
   net: { section: 'money', label: 'Net' },
   expenses: { section: 'money', label: 'Dépenses' },
-  receivables: { section: 'money', label: 'Créances' },
   // Usually zero, and it matters enormously in the month it isn't — which is exactly why it is default-hidden
   // rather than deleted. Note the visibility is NOT overridden when the figure is non-zero: quietly re-showing a
   // block the user switched off would make their own setting untrustworthy. « Net » stays explainable regardless,
   // because its description names the formula it comes from.
   refunds: { section: 'money', label: 'Avoirs remboursés', hiddenByDefault: true },
-  // « Facturé » sits between « Encaissé » (what came in) and « Créances » (what is still owed), both of which are
-  // shown. For an owner it is the least load-bearing of the three.
+  // For an owner « Encaissé » (what actually came in) is the load-bearing half of the pair, and it is shown.
   invoiced: { section: 'money', label: 'Facturé', hiddenByDefault: true },
 
   // À traiter

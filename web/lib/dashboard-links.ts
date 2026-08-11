@@ -18,7 +18,6 @@ export type DashboardKpiKey =
   | 'refunds'
   | 'expenses'
   | 'net'
-  | 'receivables'
   | 'waitingList'
   | 'draftPlans'
   | 'overdueLabOrders'
@@ -86,9 +85,8 @@ export const DASHBOARD_LINKS: Record<DashboardKpiKey, (period: DashboardPeriodDt
   expenses: (p) => `/caisse${query(range(p))}`,
   net: (p) => `/caisse${query(range(p))}`,
 
-  // Point-in-time: « Créances » IS the whole list, so there is nothing to filter by.
-  receivables: () => '/creances',
-
+  // No `receivables`: the « Créances » screen was withdrawn, so the figure it linked to is off the dashboard too.
+  // `DashboardReceivablesDto` is still served — this union governs the cards, not the read.
   waitingList: () => '/waiting-list',
   draftPlans: () => `/treatment-plans${query({ status: 'Draft' })}`,
   overdueLabOrders: () => `/lab-orders${query({ status: 'Sent' })}`,

@@ -1,14 +1,12 @@
 import {
   BellRing,
   Calendar,
-  CalendarClock,
   ClipboardCheck,
   ClipboardList,
   Clock,
   CreditCard,
   FileCheck,
   FlaskConical,
-  HandCoins,
   LayoutDashboard,
   Package,
   Pill,
@@ -46,7 +44,8 @@ export const baseSections: NavSection[] = [
     items: [
       { name: "Tableau de bord", href: "/", icon: LayoutDashboard },
       { name: "Rendez-vous", href: "/appointments", icon: Calendar },
-      { name: "RDV récurrents", href: "/recurring-series", icon: CalendarClock },
+      // « RDV récurrents » (/recurring-series) is gone — the screen was withdrawn. Its BACKEND and the screen
+      // itself are deliberately intact (`app/recurring-series/page.tsx` keeps the component, unrouted).
       { name: "Salle d'attente", href: "/waiting-list", icon: Clock },
       { name: "Patients", href: "/patients", icon: Users },
     ],
@@ -65,7 +64,8 @@ export const baseSections: NavSection[] = [
       { name: "Factures", href: "/factures", icon: Receipt },
       { name: "Caisse", href: "/caisse", icon: Wallet },
       { name: "Chèques", href: "/cheques", icon: ReceiptText },
-      { name: "Créances", href: "/creances", icon: HandCoins },
+      // « Créances » (/creances) is gone, on the same terms: the read, `ReceivablesTable` and the unrouted screen
+      // all stay. The dashboard's « Créances » figure went with it, so nothing in the app links there.
     ],
   },
   {
@@ -145,7 +145,8 @@ const SECRETARY_HIDDEN_HREFS: ReadonlySet<string> = new Set([
   // `GET /api/billing/cheques` is `AdminOrDoctor`. A secretary recording a cheque payment on a patient's invoice
   // is unaffected: that endpoint stays deliberately open.
   "/cheques",
-  "/creances",
+  // No "/creances": that row no longer exists, and an href this set can never be asked about is dead weight that
+  // reads as a live gate.
 ])
 
 /** True when this role must not see the clinic-wide money screens. The one place the comparison is written. */
@@ -175,7 +176,7 @@ export function isNavItemVisible(href: string, role: string | null | undefined):
 }
 
 /**
- * Every destination this role can reach, grouped — 15 for a practitioner, 19 for an admin, 11 for a secretary.
+ * Every destination this role can reach, grouped — 13 for a practitioner, 17 for an admin, 10 for a secretary.
  *
  * <p>Takes the **role**, not an `isAdmin` boolean: the admin/not-admin split alone cannot express « a secretary
  * sees less than a doctor », which is the whole distinction I1 turns on. A section whose every item is hidden is

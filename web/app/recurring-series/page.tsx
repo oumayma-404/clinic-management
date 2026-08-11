@@ -16,6 +16,7 @@ import { fr } from "date-fns/locale"
 import { toast } from "sonner"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { RetiredPageCard } from "@/components/ui/retired-page-card"
 import { PageHeader } from "@/components/ui/page-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -527,7 +528,28 @@ interface SeriesOutcome {
   outsideWorkingHours: string[]
 }
 
+/**
+ * « RDV récurrents » is withdrawn from the product. The rail no longer lists it and nothing else linked here, so
+ * this covers a bookmark or a shared link.
+ *
+ * <p><b>Nothing behind it was removed</b> — the three recurring-series endpoints and
+ * `appointmentsApi.listRecurring`/`createRecurring`/`cancelRecurring` are intact, and
+ * {@link RecurringSeriesScreen} below is the screen verbatim, so restoring it is re-pointing this export. It is
+ * kept in the module rather than deleted so `tsc` and `npm run build` keep covering it; a screen parked outside
+ * the compiler is a screen that stops compiling.</p>
+ */
 export default function RecurringSeriesPage() {
+  return (
+    <ClinicGuard>
+      <AppShell width="none" gutter={false}>
+        <RetiredPageCard description="La planification de séries de rendez-vous a été retirée. Les rendez-vous se créent un par un depuis l'agenda." />
+      </AppShell>
+    </ClinicGuard>
+  )
+}
+
+/** The « Rendez-vous récurrents » screen as it shipped. Not routed — see {@link RecurringSeriesPage}. */
+function RecurringSeriesScreen() {
   const [seriesPage, setSeriesPage] = useState<PagedResponse<RecurringAppointmentDto>>(
     () => emptyPage<RecurringAppointmentDto>(),
   )

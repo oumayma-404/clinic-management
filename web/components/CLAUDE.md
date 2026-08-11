@@ -156,6 +156,11 @@ Non-shadcn additions to the same layer:
   broken rather than restricted. Defaults to `/appointments`, which every role can open. Not the gate: the API
   refuses these routes and the rail hides them; this covers a bookmark, a shared link, and a role changed while a
   tab was open.
+- **`retired-page-card.tsx`** — what a route renders once its screen has been withdrawn from the product
+  (`/recurring-series`, `/creances`). ⚠️ **Not `notFound()`**: there is no `app/not-found.tsx`, so Next's built-in
+  404 page is English, and no English string may reach a user — and it is the wrong statement anyway, since the
+  route exists and answers while the *screen* was removed on purpose. Shared for `access-denied-card.tsx`'s reason,
+  and `backHref` is a parameter for the same one: the way back must be a destination the reader can open.
 - **`form-error-banner.tsx`** — the shared `aria-live` refusal banner used by the dialogs. ⚠️ It renders on `--destructive` tokens now, not `red-*` literals — it was the only red in the product that did not follow the palette, and roughly eighteen surfaces had copied the literal block instead of importing it (copying the hand-maintained `dark:` twin along with it).
 - **`confirm-by-typing-dialog.tsx`** — a destructive confirm the operator must **type** a phrase to unlock (AC-P3.47). It exists because the repo's single two-button `AlertDialog` is used for everything from deleting a procedure type to deleting a patient, so an irreversible multi-table operation (anonymise, finalise a bordereau) had no way to *feel* different from the dialog dismissed twenty times a day. Deliberately a plain `Button` rather than `AlertDialogAction`, so a failure leaves the dialog open with the typed phrase intact.
 

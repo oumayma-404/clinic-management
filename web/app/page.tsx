@@ -16,7 +16,6 @@ import {
   CalendarCheck,
   FileText,
   FlaskConical,
-  HandCoins,
   Hourglass,
   PackageMinus,
   PhoneCall,
@@ -359,16 +358,16 @@ function DashboardContent() {
             )}
             {/*
               ⚠️ The scope caveats, from the response rather than inferred here. Two of them, and both matter: an
-              expense has no practitioner, so Dépenses and Net (and Créances below) stay clinic-wide — presenting
-              them as one dentist's would show their income minus everybody's costs. And a filtered « Encaissé »
-              counts invoice payments only, because échéance collections are not attributable in this slice.
+              expense has no practitioner, so Dépenses and Net stay clinic-wide — presenting them as one dentist's
+              would show their income minus everybody's costs. And a filtered « Encaissé » counts invoice payments
+              only, because échéance collections are not attributable in this slice.
             */}
             {data?.money.clinicWideOutgoings && (
               <p role="note" className="mb-3 rounded-md bg-warning-wash p-2.5 text-xs text-warning-ink">
                 Filtré par praticien&nbsp;: «&nbsp;Encaissé&nbsp;» ne compte que les paiements de factures
                 {data.money.collectedInvoicesOnly ? " (hors échéances de devis)" : ""}, et
-                «&nbsp;Dépenses&nbsp;», «&nbsp;Net&nbsp;» et «&nbsp;Créances&nbsp;» restent ceux de tout le cabinet —
-                une dépense n&apos;appartient à aucun praticien.
+                «&nbsp;Dépenses&nbsp;» et «&nbsp;Net&nbsp;» restent ceux de tout le cabinet — une dépense
+                n&apos;appartient à aucun praticien.
               </p>
             )}
             <div
@@ -396,10 +395,6 @@ function DashboardContent() {
                   // hidden inside it — a month with a large avoir used to just look like a weak month.
                   sense: "up-is-bad",
                 })}
-                {/* Créances carries NO comparison — it is a live balance, not a period total. It sits in the
-                    same surface as the period figures rather than in a stranded one-card row below them;
-                    its missing delta is what marks it as a different kind of number. */}
-                {kpi("receivables", money(data?.receivables.total), HandCoins)}
               </KpiGrid>
             </div>
           </DashboardSection>

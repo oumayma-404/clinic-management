@@ -31,13 +31,21 @@ public static class DashboardKpiKeys
     public const string AbsenceRate = "absenceRate";
     public const string AcceptedPlans = "acceptedPlans";
 
-    /// <summary>Argent — the comparable per-period money figures, plus the point-in-time créances total.</summary>
+    /// <summary>Argent — the comparable per-period money figures.</summary>
     public const string Collected = "collected";
     public const string Invoiced = "invoiced";
     public const string Refunds = "refunds";
     public const string Expenses = "expenses";
     public const string Net = "net";
-    public const string Receivables = "receivables";
+    /*
+     * Receivables was here. Removed from the WRITE set when « Créances » was withdrawn, exactly as
+     * PatientsToRecall was below: the dashboard no longer renders that card, so nothing can hide it, and
+     * accepting the key would mean storing a preference about a block that does not exist.
+     *
+     * `GetReceivablesQuery` and `DashboardReceivablesDto` are untouched — this list governs the customiser,
+     * not the figure — and `UserDashboardPreference.Parse` is tolerant, so a row already naming "receivables"
+     * simply hides nothing.
+     */
 
     /// <summary>À traiter — current-state operational counts, independent of the selected period.</summary>
     public const string WaitingList = "waitingList";
@@ -73,7 +81,6 @@ public static class DashboardKpiKeys
         Refunds,
         Expenses,
         Net,
-        Receivables,
         WaitingList,
         DraftPlans,
         OverdueLabOrders,
