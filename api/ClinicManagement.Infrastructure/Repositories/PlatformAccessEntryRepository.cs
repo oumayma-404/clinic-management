@@ -66,11 +66,26 @@ public class PlatformAccessEntryRepository : IPlatformAccessEntryRepository
         // a console account today (the verb creates, deactivates and re-secrets; there is no change-of-address), so
         // this yields one row each — and if that ever changes, showing both addresses an account has acted under is
         // the honest answer, where `Max` would have silently chosen one by alphabet.
-        return await _context.PlatformAccessEntries
+        // ⚠️ The ORDER BY is done in MEMORY, and that is the fix rather than a shortcut. Projecting into a custom
+        // type and then ordering — `.Select(new PlatformAccessActor(..)).Distinct().OrderBy(a => a.AccountEmail)` —
+        // compiles, ships, and **throws at request time**: EF cannot translate an OrderBy over a type it has
+        // materialised through Distinct, so the journal answered « il n'a pas pu être lu » on every single load.
+        // The DISTINCT itself translates fine and is what has to stay in SQL; the sort is over one row per console
+        // account, i.e. two or three. Nothing in the unit suite could see this — every test mocks this repository —
+        // which is why PlatformAccessLogQueryTranslationTests now compiles the expression below.
+        var actors = await RecordedActorsQuery(_context).ToListAsync(cancellationToken);
+
+        return actors.OrderBy(a => a.AccountEmail, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// The distinct actors, as the expression tree the provider must translate — shared with
+    /// <c>PlatformAccessLogQueryTranslationTests</c> so the compiled SQL cannot drift from what ships.
+    /// <c>PatientRepository.RecallCandidateQuery</c>'s arrangement, for its reason.
+    /// </summary>
+    public static IQueryable<PlatformAccessActor> RecordedActorsQuery(ApplicationDbContext context) =>
+        context.PlatformAccessEntries
             .AsNoTracking()
             .Select(e => new PlatformAccessActor(e.PlatformAccountId, e.AccountEmail))
-            .Distinct()
-            .OrderBy(a => a.AccountEmail)
-            .ToListAsync(cancellationToken);
-    }
+            .Distinct();
 }
