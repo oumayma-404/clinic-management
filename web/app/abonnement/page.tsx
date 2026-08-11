@@ -1,13 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { CalendarClock, CreditCard, Mail, Phone, ShieldAlert, Wallet } from "lucide-react"
+import { CalendarClock, CreditCard, Lock, Mail, Phone, ShieldAlert, Wallet } from "lucide-react"
 
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { SubscriptionHistoryTable } from "@/components/subscription/subscription-history-table"
-import { AccessDeniedCard } from "@/components/ui/access-denied-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,8 +14,6 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PageHeader } from "@/components/ui/page-header"
 import { statusToneClass, type StatusTone } from "@/components/ui/status-tone"
-import { authApi } from "@/lib/api/auth"
-import { ApiError } from "@/lib/api/client"
 import { DEFAULT_PAGE_SIZE } from "@/lib/api/paging"
 import {
   subscriptionApi,
@@ -25,8 +22,9 @@ import {
   type SubscriptionPlanPriceDto,
 } from "@/lib/api/subscription"
 import { useSession } from "@/lib/auth/session"
+import { useSubscription } from "@/lib/subscription/subscription-context"
 import { getErrorMessage } from "@/lib/errors"
-import { formatDate, formatDT } from "@/lib/format"
+import { formatCalendarDay, formatDT } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 
 /** Whether this deployment works by subscription at all — `unknown` until the probe answers. */
@@ -48,71 +46,64 @@ export default function AbonnementPage() {
   const { user, isLoading: sessionLoading } = useSession()
   const isAdmin = user?.role === "admin"
 
-  const [availability, setAvailability] = useState<Availability>("unknown")
-  const [subscription, setSubscription] = useState<SubscriptionDto | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // ⚠️ The state comes from the provider, not from a second read of the same two endpoints. This page used to fire
+  // its own `getMode()` **and** `subscriptionApi.get()` on mount — duplicating what Trigger 0 had already done — and
+  // kept a private pair that could disagree with the banner and the rail row; meanwhile the context's `refresh` had
+  // zero callers anywhere, so « Réessayer » here propagated to nothing. `enforced` is the same authority
+  // (`requiresSubscription === true`) read once per session.
+  const { subscription, enforcement, lastError, refresh } = useSubscription()
 
-  const [history, setHistory] = useState<SubscriptionHistoryPageDto | null>(null)
-  const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
+  const [history, setHistory] = useState<SubscriptionHistoryPageDto | null>(null)
+  // Starts true so the first committed render is a skeleton, never « Aucun paiement enregistré »: `loadHistory` runs
+  // in the effect *after* the render in which the section appears, so the two would otherwise be ordered
+  // empty → skeleton → data (§ 13 — a loading skeleton distinct from empty).
+  const [historyLoading, setHistoryLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      // The flag comes first and is the authority (`requiresSubscription`, read `=== true`). A *failed* probe falls
-      // through to the read below rather than declaring the feature absent — the `/join` and `/signup` precedent:
-      // refusing on a network hiccup is the worse error.
-      const mode = await authApi.getMode().catch(() => null)
-      if (mode && mode.requiresSubscription !== true) {
-        setAvailability("unavailable")
-        setError(null)
-        return
-      }
+  const historyRequestRef = useRef(0)
 
-      const data = await subscriptionApi.get()
-      setSubscription(data)
-      setAvailability("available")
-      setError(null)
-    } catch (err) {
-      // 404 is the server-side guarantee behind AC-7.1/7.2 and the backstop for a probe that could not answer. Every
-      // other failure — including a network drop, which is `ApiError(0)` and NOT a 404 — stays retryable (EC-13).
-      if (err instanceof ApiError && err.status === 404) {
-        setAvailability("unavailable")
-        setError(null)
-      } else {
-        setError(getErrorMessage(err))
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  // ⚠️ Only an explicit « off » reads as « this deployment has no subscriptions » (AC-7.1/7.2). A probe that could
+  // not answer is `unreadable` and falls through to the retryable failure below — a network drop must never render
+  // as an absence (EC-13), which is the distinction a single boolean could not carry.
+  const availability: Availability =
+    enforcement === "off" ? "unavailable" : enforcement === "on" && subscription ? "available" : "unknown"
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const unavailable = availability === "unavailable"
+  // The provider swallows read failures on purpose (a banner must not vanish on a blip), which is exactly why it
+  // publishes the last one: this screen is the one place that has to show it, with a retry that re-reads the state
+  // every other consumer shares rather than a private copy of it.
+  const error = subscription ? null : lastError
+  const loading = availability === "unknown" && !error && enforcement !== "unreadable"
+
+  const load = useCallback(() => refresh(true), [refresh])
 
   const loadHistory = useCallback(async () => {
+    // The out-of-order guard `patients-table.tsx` already carries: this is re-created on every page/pageSize change,
+    // so clicking through pages quickly can land an older response last and render page 2's rows under « 76–100 ».
+    const requestId = ++historyRequestRef.current
     setHistoryLoading(true)
+    setHistoryError(null)
     try {
-      setHistory(await subscriptionApi.history(page, pageSize))
-      setHistoryError(null)
+      const result = await subscriptionApi.history({ page, pageSize })
+      if (historyRequestRef.current !== requestId) return
+      setHistory(result)
     } catch (err) {
+      if (historyRequestRef.current !== requestId) return
       setHistoryError(getErrorMessage(err))
     } finally {
-      setHistoryLoading(false)
+      if (historyRequestRef.current === requestId) setHistoryLoading(false)
     }
   }, [page, pageSize])
 
   useEffect(() => {
     // Guarded on the role as well as on availability, so a secretary's browser never issues the request the server
-    // would 403 — which is what would otherwise stack an error toast on top of the refusal card below.
+    // would 403 — which is what would otherwise stack an error toast on top of the refusal below.
     if (isAdmin && availability === "available") void loadHistory()
   }, [isAdmin, availability, loadHistory])
 
-  const unavailable = availability === "unavailable"
+  useEffect(() => () => { historyRequestRef.current = -1 }, [])
 
   return (
     <ClinicGuard>
@@ -135,9 +126,9 @@ export default function AbonnementPage() {
           <LoadFailureNotice
             message="Votre abonnement n'a pas pu être chargé."
             detail="Cela ne change rien à votre abonnement lui-même."
-            onRetry={() => void load()}
+            onRetry={load}
           />
-        ) : loading && !subscription ? (
+        ) : loading ? (
           <div className="grid gap-6 lg:grid-cols-2">
             {Array.from({ length: 2 }).map((_, i) => (
               <Card key={i}>
@@ -186,9 +177,20 @@ export default function AbonnementPage() {
                   }}
                 />
               ) : (
-                // Rendered *instead of* the table, so its fetch never fires (AC-2.3). The state, the date and the
-                // payment instructions above stay fully readable — this withholds one section, not the screen.
-                <AccessDeniedCard
+                /*
+                 * Rendered *instead of* the table, so its fetch never fires (AC-2.3). The state, the date and the
+                 * payment instructions above stay fully readable — this withholds one section, not the screen.
+                 *
+                 * ⚠️ An `EmptyState`, deliberately **not** `AccessDeniedCard`. That component is a whole-screen
+                 * refusal: its root is `min-h-full items-center justify-center p-6`, whose centring resolves against
+                 * `<main>` and therefore needs `width="none"` on the AppShell (which this page does not pass), and
+                 * its only control is a `backHref` defaulting to « Retour à l'agenda » — navigating a secretary off
+                 * the page she was sent to by a refused save, away from the bank details she came for.
+                 */
+                <EmptyState
+                  icon={Lock}
+                  size="compact"
+                  chipClassName={zoneChipClass(ZONES.config)}
                   title="Historique réservé aux administrateurs"
                   description="Le détail des paiements de l'abonnement — dates, montants, références — est réservé aux administrateurs du cabinet. L'état de l'abonnement et la marche à suivre pour payer restent visibles ci-dessus."
                 />
@@ -206,7 +208,7 @@ function subtitleFor(subscription: SubscriptionDto | null, unavailable: boolean)
   if (unavailable) return "Licence permanente — aucun abonnement à renouveler."
   if (!subscription) return undefined
   if (subscription.endsOn === null) return `${subscription.stateLabel} · sans échéance`
-  return `${subscription.stateLabel} · jusqu'au ${formatDate(subscription.endsOn)}`
+  return `${subscription.stateLabel} · jusqu'au ${formatCalendarDay(subscription.endsOn)}`
 }
 
 /**
@@ -253,7 +255,7 @@ function StateCard({ subscription }: { subscription: SubscriptionDto }) {
               nobody can act on, and there is no date to name here — there is genuinely no expiry. */}
           {subscription.endsOn === null
             ? "Sans échéance — cet abonnement n'expire pas."
-            : `${subscription.allowsWrites ? "Valable jusqu'au" : "A expiré le"} ${formatDate(subscription.endsOn)} inclus.`}
+            : `${subscription.allowsWrites ? "Valable jusqu'au" : "A expiré le"} ${formatCalendarDay(subscription.endsOn)} inclus.`}
         </p>
 
         {subscription.suspensionReason && (
@@ -441,6 +443,11 @@ function stateTone(state: SubscriptionDto["state"]): StatusTone {
     case "Suspended":
       return "negative"
   }
+
+  // Unreachable per the union, so exhaustiveness checking is preserved and a new member is still a `tsc` error —
+  // but `apiGet` validates no shape, so a state added server-side ahead of this build would otherwise fall off the
+  // end and return `undefined`. `statusToneClass` happens to absorb that today; accidental safety is not safety.
+  return "neutral"
 }
 
 /** The forfait, or the honest absence of one — a default would read as a commercial choice nobody made. */

@@ -26,7 +26,7 @@ public static class SubscriptionSuspendCommand
     {
         try
         {
-            var reason = ProvisionClinicCommand.ReadOption(args, "--reason");
+            var reason = SubscriptionVerbs.ReadOption(args, "--reason");
             if (string.IsNullOrWhiteSpace(reason))
             {
                 Console.Error.WriteLine(Usage);

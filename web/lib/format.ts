@@ -165,6 +165,24 @@ export function formatDate(iso?: string | null, fallback = "Non renseigné"): st
 }
 
 /**
+ * Format a **calendar day** the server sent — a date that means the same in every timezone because it names a day
+ * rather than an instant (a subscription's inclusive end, the stretch a payment covered).
+ *
+ * ⚠️ **Never `formatDate` for one of these.** Such a value reaches the browser as UTC midnight, and `formatDate`
+ * parses it into a `Date` and renders it in the *workstation's* zone — so anywhere west of UTC it prints the day
+ * before, disagreeing with the server's own French sentence about the same date. This reads the date part of the
+ * ISO string and never builds a `Date` at all: the same defect class `todayLocalIso()` exists to prevent, and the
+ * reason `ChequeDueDate` travels as a bare `YYYY-MM-DD`.
+ */
+export function formatCalendarDay(iso?: string | null, fallback = "Non renseigné"): string {
+  if (!iso) return fallback;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!match) return formatDate(iso, fallback);
+  const [, year, month, day] = match;
+  return `${day}/${month}/${year}`;
+}
+
+/**
  * Format an ISO date-time string as "dd/MM/yyyy HH:mm" (24-hour, French).
  * Returns `fallback` ("Non renseigné") when the value is missing or unparseable.
  */

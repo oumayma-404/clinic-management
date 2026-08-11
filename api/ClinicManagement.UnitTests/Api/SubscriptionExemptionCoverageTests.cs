@@ -47,7 +47,9 @@ public class SubscriptionExemptionCoverageTests
         // --- Compute-only POSTs (AC-4.9): a POST for a read, each persisting nothing.
         "CnamNomenclature.GetReimbursementEstimates",   // an estimate per act row; a GET could not carry the list
         "Patients.PreviewPatientImport",                 // the dry run — a Query by design. The commit is refused.
-        "MedicalDocuments.GeneratePdfForDownload",       // renders a document the cabinet already holds (AC-4.3)
+        // ⚠️ Takes the document in the BODY and persists nothing — it loads no stored document and checks no
+        // ownership, so an expired cabinet can render a brand-new one. AC-4.9 exempts it in those terms anyway.
+        "MedicalDocuments.GeneratePdfForDownload",
 
         // --- Experienced as reading, but issuing a write to do it (AC-4.11).
         "Notifications.MarkRead",                        // else AC-3.4's own expiry notice can never be dismissed
@@ -59,7 +61,13 @@ public class SubscriptionExemptionCoverageTests
 
         // --- Getting your data out, and getting a colleague out (FR-3).
         "Backup.BackupNow",                              // the AC-4.2 argument; the scheduled one already keeps going
-        "Users.SetStatus",                               // offboarding must not wait on an invoice
+        "Users.SetStatus",                               // offboarding must not wait on an invoice; the handler
+                                                         // refuses the RE-activation direction, which the reason
+                                                         // on the attribute never covered
+        "Users.ResetPassword",                           // regaining READ access must not depend on payment: a
+                                                         // forgotten password otherwise costs an expired cabinet
+                                                         // the reads, exports and PDFs AC-4.1/4.2 guarantee, and
+                                                         // hosted has no other recovery
     };
 
     /// <summary>

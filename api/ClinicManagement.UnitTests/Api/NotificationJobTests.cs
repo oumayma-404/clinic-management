@@ -69,7 +69,7 @@ public class NotificationJobTests
                 It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(pending.ToList());
         // L3a — the dispatcher reviews parked rows after the batch. Nothing here parks any, so an empty page
         // keeps these routing/lifecycle scenarios exactly as they were.
-        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Notification>());
         notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
@@ -307,7 +307,7 @@ public class NotificationJobTests
         var notifications = new Mock<INotificationRepository>();
         notifications.Setup(r => r.GetDueForDispatchAsync(
             It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { reminder });
-        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Notification>());
         notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
@@ -361,7 +361,7 @@ public class NotificationJobTests
         var notifications = new Mock<INotificationRepository>();
         notifications.Setup(r => r.GetDueForDispatchAsync(
             It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { reminder });
-        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Notification>());
         notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
@@ -415,7 +415,7 @@ public class NotificationJobTests
         var notifications = new Mock<INotificationRepository>();
         notifications.Setup(r => r.GetDueForDispatchAsync(
             It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { reminder });
-        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Notification>());
         notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
@@ -542,7 +542,7 @@ public class NotificationJobTests
         notifications.Setup(r => r.GetDueForDispatchAsync(
                 It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Notification>());
-        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { blocked });
         notifications.Setup(r => r.UpdateAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
@@ -585,7 +585,7 @@ public class NotificationJobTests
         notifications.Setup(r => r.GetDueForDispatchAsync(
                 It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Notification>());
-        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { blocked });
 
         var probe = new Mock<IInternetProbe>();
@@ -615,7 +615,7 @@ public class NotificationJobTests
         notifications.Setup(r => r.GetDueForDispatchAsync(
                 It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Notification>());
-        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Notification>());
 
         var probe = new Mock<IInternetProbe>();

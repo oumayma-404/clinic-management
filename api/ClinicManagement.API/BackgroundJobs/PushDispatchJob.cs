@@ -113,7 +113,7 @@ public class PushDispatchJob
             }
         }
 
-        await ReviewBlockedRowsAsync(batchSize, entitlements);
+        await ReviewBlockedRowsAsync(batchSize, perClinicBound, entitlements);
         await PurgeExpiredRowsAsync();
     }
 
@@ -238,11 +238,12 @@ public class PushDispatchJob
     /// every platform check below is one a row parked for an expired cabinet would pass, so without it the banner
     /// would go out within a minute on a cabinet that has not paid (FR-8's named gap).</para>
     /// </summary>
-    private async Task ReviewBlockedRowsAsync(int batchSize, OutboxSubscriptionGate entitlements)
+    private async Task ReviewBlockedRowsAsync(
+        int batchSize, int perClinicBound, OutboxSubscriptionGate entitlements)
     {
         try
         {
-            var blocked = await _deliveries.GetBlockedForReviewAsync(batchSize);
+            var blocked = await _deliveries.GetBlockedForReviewAsync(batchSize, perClinicBound);
             var unblocked = 0;
 
             foreach (var delivery in blocked)

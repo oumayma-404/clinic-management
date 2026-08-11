@@ -1,5 +1,5 @@
 import { apiGet } from './client';
-import type { PagedResponse } from './paging';
+import type { PagedResponse, PageParams } from './paging';
 
 /**
  * The cabinet's own subscription, as `GET /api/subscription` answers it (`clinic-subscription` Part C, US-2).
@@ -73,10 +73,12 @@ export interface SubscriptionPeriodDto {
   method: 'Transfer' | 'Cash' | 'Cheque' | 'Card' | null;
   methodLabel: string | null;
   reference: string | null;
-  note: string | null;
   recordedAt: string;
-  /** A user id, or `job|<command>` for a vendor console verb (FR-12). */
-  recordedBy: string | null;
+  /*
+   * ⚠️ No `note` and no `recordedBy`. `--note` is the vendor's own commentary about this customer and `recordedBy`
+   * is our internal command vocabulary; neither is rendered by either tree below, so both were dropped from the
+   * projection rather than shipped to a cabinet's devtools. They stay on the vendor's console report.
+   */
   isCancelled: boolean;
   cancelledAt: string | null;
   /** Mandatory when cancelled — the end date can move into the past as a result (EC-4). */
@@ -95,7 +97,13 @@ export const subscriptionApi = {
    */
   get: async (): Promise<SubscriptionDto> => apiGet<SubscriptionDto>('/subscription'),
 
-  /** One page of what the cabinet has paid, newest first. **Admin only** — the screen itself is not. */
-  history: async (page = 1, pageSize = 25): Promise<SubscriptionHistoryPageDto> =>
-    apiGet<SubscriptionHistoryPageDto>(`/subscription/history?page=${page}&pageSize=${pageSize}`),
+  /**
+   * One page of what the cabinet has paid, newest first. **Admin only** — the screen itself is not.
+   *
+   * Takes `PageParams` like every other paged read (`recalls.ts`, `users.ts`) rather than positional numbers with a
+   * hand-built query string: that shape could not pick up `search` without another literal, and it restated the
+   * default page size the page itself already imports from `./paging`.
+   */
+  history: async (params: PageParams): Promise<SubscriptionHistoryPageDto> =>
+    apiGet<SubscriptionHistoryPageDto>('/subscription/history', params),
 };

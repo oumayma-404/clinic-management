@@ -49,4 +49,17 @@ public static class SubscriptionRefusals
 
     public const string Missing =
         "L'abonnement de ce cabinet est introuvable. Contactez-nous, nous le rétablissons.";
+
+    /// <summary>
+    /// Is this exception one of the domain's <b>deliberate French refusals</b>, safe to show an operator verbatim?
+    ///
+    /// <para>The entitlement aggregates throw those through <b>both</b> <see cref="ArgumentException"/> (a duration,
+    /// an amount, an over-long motif) and <see cref="InvalidOperationException"/> (a foreign cabinet's ledger, an
+    /// already-cancelled entry), so catching only the first replaced half the diagnoses with a generic sentence.
+    /// The two argument subclasses are excluded because they are programming faults: their English framework text —
+    /// « (Parameter 'entries') » — is not a refusal and belongs in the log, not on a vendor console.</para>
+    /// </summary>
+    public static bool IsDomainRefusal(Exception exception) =>
+        exception is ArgumentException or InvalidOperationException
+        && exception is not (ArgumentNullException or ArgumentOutOfRangeException);
 }

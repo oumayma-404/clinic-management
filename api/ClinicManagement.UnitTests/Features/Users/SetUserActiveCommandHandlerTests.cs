@@ -16,9 +16,12 @@ public class SetUserActiveCommandHandlerTests
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IClinicContext> _context = new();
     private readonly Mock<IUnitOfWork> _uow = new();
+    private readonly Mock<IClinicSubscriptionRepository> _subscriptions = new();
+    private readonly Mock<ISubscriptionPolicy> _policy = new();
 
     private SetUserActiveCommandHandler Handler() =>
-        new(_users.Object, _context.Object, _uow.Object, NullLogger<SetUserActiveCommandHandler>.Instance);
+        new(_users.Object, _context.Object, _subscriptions.Object, _policy.Object, _uow.Object,
+            NullLogger<SetUserActiveCommandHandler>.Instance);
 
     private static User Local(string role, Guid clinicId) =>
         User.CreateLocalUser(clinicId, role, $"{role}@clinic.com", "HASH", $"{role} name");

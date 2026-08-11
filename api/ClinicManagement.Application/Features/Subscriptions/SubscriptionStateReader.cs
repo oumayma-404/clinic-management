@@ -108,4 +108,37 @@ public static class SubscriptionStateReader
         daysRemaining is not { } days || days < 0
             ? null
             : WarningThresholds.Where(t => days <= t).Cast<int?>().LastOrDefault();
+
+    /// <summary>
+    /// <b>Why</b> a cabinet may not record new work — the one classification of a refused
+    /// <see cref="SubscriptionStatus"/>, so every surface says the same thing in its own words.
+    ///
+    /// <para>The HTTP gate and the outbox gate each carried this three-arm switch, comments included, and only the
+    /// prose differed; a third consumer would have copied the branching a third time. Callers supply their own
+    /// sentences off the result — « which refusal is this? » has one answer, and only the wording is per-surface.</para>
+    ///
+    /// <para>⚠️ Called only for a status that already refuses. <see cref="SubscriptionRefusalKind.Inactive"/> is
+    /// unreachable today — writes are refused for a suspension or for a date already past, and nothing else — but it
+    /// is named rather than folded into either neighbour, which would record a reason that is not true.</para>
+    /// </summary>
+    public static SubscriptionRefusalKind ClassifyRefusal(SubscriptionStatus status) => status switch
+    {
+        // Suspension outranks a date, including one already past: a suspended cabinet is never told to renew (EC-11).
+        { State: SubscriptionState.Suspended } => SubscriptionRefusalKind.Suspended,
+        { EndsOn: not null } => SubscriptionRefusalKind.Expired,
+        _ => SubscriptionRefusalKind.Inactive,
+    };
+}
+
+/// <summary>Why writes are refused. See <see cref="SubscriptionStateReader.ClassifyRefusal"/>.</summary>
+public enum SubscriptionRefusalKind
+{
+    /// <summary>Stopped by the vendor. Paying does not lift it, so no sentence for it may say « renouvelez ».</summary>
+    Suspended,
+
+    /// <summary>The entitlement's inclusive last day has passed. <c>SubscriptionStatus.EndsOn</c> names it.</summary>
+    Expired,
+
+    /// <summary>Refused, not suspended, and unable to say since when — our fault rather than a lapse on theirs.</summary>
+    Inactive,
 }

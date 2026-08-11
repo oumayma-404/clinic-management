@@ -60,6 +60,11 @@ internal sealed class FakeSubscriptionRepository : IClinicSubscriptionRepository
         CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<ClinicSubscriptionReportRow>>(ReportRows);
 
+    /// <summary>Served from the same rows, so a test cannot make the two reads disagree by populating only one.</summary>
+    public Task<ClinicSubscriptionReportRow?> GetReportRowAsync(
+        Guid clinicId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(ReportRows.FirstOrDefault(r => r.ClinicId == clinicId));
+
     public Task AddEntryAsync(SubscriptionPeriod entry, CancellationToken cancellationToken = default)
     {
         _entries.Add(entry);
@@ -121,7 +126,7 @@ internal sealed class SubscriptionVendorHarness
             durationMonths: durationMonths, durationDays: durationDays);
 
         Subscriptions.Seed(opening);
-        subscription.RecomputeFrom(new[] { opening });
+        subscription.RecomputeFrom(new[] { opening }, DateTime.UtcNow);
         Subscriptions.Subscription = subscription;
         return subscription;
     }

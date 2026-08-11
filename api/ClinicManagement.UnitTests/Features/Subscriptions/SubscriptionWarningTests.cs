@@ -153,7 +153,7 @@ public class SubscriptionWarningTests
                 recordedOnClinicDay: new DateTime(2026, 1, 1),
                 recordedAtUtc: new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                 explicitEndsOn: endsOn)
-        });
+        }, DateTime.UtcNow);
         return subscription;
     }
 
@@ -165,7 +165,7 @@ public class SubscriptionWarningTests
             SubscriptionPeriod.OpenEnded(
                 ClinicId, SubscriptionPeriodKind.Grandfathered,
                 new DateTime(2026, 1, 1), new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc))
-        });
+        }, DateTime.UtcNow);
         return subscription;
     }
 
@@ -337,11 +337,19 @@ public class SubscriptionWarningTests
         Assert.Contains("21/08/2026", row.Message);
     }
 
-    // [AC-3.5] A grant that moves the cabinet to a DIFFERENT threshold inside the window writes a genuinely new row
-    // rather than rewriting the old one — deliberately, and this is the case that looks like a bug and is not.
-    // Rewriting would carry the read markers of the warning already dismissed, so « 3 jours restants » would land
-    // silently on a bell that had already been cleared; the older row stays as the feed's own history, exactly as a
-    // « rendez-vous reporté » row does not delete the « créé » one it supersedes.
+    // [AC-3.5] A grant that moves the cabinet to a DIFFERENT threshold inside the window writes a genuinely **new**
+    // row — new id, unread, so it badges the bell — rather than rewriting the old one. Rewriting would carry the
+    // read markers of a warning already dismissed, so « 3 jours restants » would land silently on a bell that had
+    // been cleared. That half is unchanged and is what this case exists to protect.
+    //
+    // ⚠️ **What changed: the superseded row is now withdrawn rather than kept as history.** It used to survive, so
+    // the bell showed « il vous reste 1 jour … se termine le 21/08 » beside « 3 jours … 22/08 » — two rows
+    // asserting two different end dates, one of them false. The sibling case above already held that a row naming a
+    // superseded date must be corrected (« leaving it would tell the cabinet it expires on a day it does not »);
+    // this only applies the same rule when the threshold moved too. Withdrawing a warning is not foreign to the
+    // design either — `ClearSubscriptionWarningsAsync` does it wholesale for FR-5's re-arm. The « rendez-vous
+    // reporté » analogy does not hold: that row is a record of something that happened, while this one is a live
+    // claim about a date.
     [Fact]
     public async Task A_Grant_That_Moves_The_Threshold_Writes_A_New_Row_Rather_Than_Rewriting_The_Old_One()
     {
@@ -349,11 +357,30 @@ public class SubscriptionWarningTests
         var harness = new Harness(EndingOn(EndsOn));
 
         await harness.RunOn(today);
+        var supersededId = Assert.Single(harness.Warnings).Id;
+
         harness.Subscription = EndingOn(EndsOn.AddDays(2)); // now 3 days out → threshold 3
         await harness.RunOn(today);
 
-        Assert.Equal(new int?[] { 1, 3 }, harness.Thresholds);
-        Assert.Contains("22/08/2026", harness.Warnings[^1].Message);
+        var row = Assert.Single(harness.Warnings);
+        Assert.NotEqual(supersededId, row.Id); // a NEW row, not the old one rewritten — the load-bearing half
+        Assert.Equal(3, row.SubscriptionThresholdDays);
+        Assert.Contains("22/08/2026", row.Message);
+    }
+
+    // The other direction, and the reason the withdrawal is keyed on the message rather than on « the threshold
+    // changed »: a countdown advancing 7 → 3 with the date untouched must keep both rows. They agree about when the
+    // entitlement ends, so neither is false, and the earlier one is the record of a warning already given.
+    [Fact]
+    public async Task A_Countdown_Advancing_With_The_Date_Unchanged_Keeps_Both_Rows()
+    {
+        var harness = new Harness(EndingOn(EndsOn));
+
+        await harness.RunOn(EndsOn.AddDays(-7)); // threshold 7
+        await harness.RunOn(EndsOn.AddDays(-3)); // threshold 3, same end date
+
+        Assert.Equal(new int?[] { 7, 3 }, harness.Thresholds);
+        Assert.All(harness.Warnings, w => Assert.Contains("20/08/2026", w.Message));
     }
 
     // ---- The two states left exactly as they are ---------------------------------------------------

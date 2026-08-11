@@ -2,8 +2,11 @@ using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Subscriptions;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Users.Commands;
@@ -11,6 +14,12 @@ namespace ClinicManagement.Application.Features.Users.Commands;
 /// <summary>
 /// Admin-only: deactivates or reactivates a clinic user (AC-5.3). A deactivated user can no
 /// longer log in, but their historical records are retained (no data is deleted).
+///
+/// <para><b>⚠️ The endpoint's <c>[AllowsWithoutSubscription]</c> is one-directional and this handler is what makes
+/// it so.</b> Its recorded reason — « offboarding must not wait on an invoice » — justifies the *deactivation*
+/// half only, but the action carries both, so an expired cabinet could bring any switched-off account back online:
+/// the same effect as creating one, which the gate correctly refuses on <c>POST /api/users</c>. Reactivation is
+/// therefore refused here, with the gate's own sentence, so the exempt surface matches the reason on it.</para>
 /// </summary>
 public class SetUserActiveCommand : IRequest<Result<ClinicUserDto>>
 {
@@ -22,17 +31,23 @@ public class SetUserActiveCommandHandler : IRequestHandler<SetUserActiveCommand,
 {
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
+    private readonly IClinicSubscriptionRepository _subscriptions;
+    private readonly ISubscriptionPolicy _subscriptionPolicy;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<SetUserActiveCommandHandler> _logger;
 
     public SetUserActiveCommandHandler(
         IUserRepository userRepository,
         IClinicContext clinicContext,
+        IClinicSubscriptionRepository subscriptions,
+        ISubscriptionPolicy subscriptionPolicy,
         IUnitOfWork unitOfWork,
         ILogger<SetUserActiveCommandHandler> logger)
     {
         _userRepository = userRepository;
         _clinicContext = clinicContext;
+        _subscriptions = subscriptions;
+        _subscriptionPolicy = subscriptionPolicy;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -80,6 +95,12 @@ public class SetUserActiveCommandHandler : IRequestHandler<SetUserActiveCommand,
 
             if (request.IsActive)
             {
+                var refusal = await RefuseReactivationAsync(admin.ClinicId, cancellationToken);
+                if (refusal is not null)
+                {
+                    return refusal;
+                }
+
                 target.Activate();
             }
             else
@@ -112,5 +133,40 @@ public class SetUserActiveCommandHandler : IRequestHandler<SetUserActiveCommand,
             _logger.LogError(ex, "Unhandled failure updating the status of user {TargetUserId}", request.TargetUserId);
             return Result<ClinicUserDto>.Failure("Erreur lors de la modification du statut de l'utilisateur. Veuillez réessayer.");
         }
+    }
+
+    /// <summary>
+    /// The subscription half of the endpoint's exemption, applied to the reactivation direction only. Returns the
+    /// gate's own refusal — same sentence, same code — or null where the cabinet may write.
+    /// </summary>
+    private async Task<Result<ClinicUserDto>?> RefuseReactivationAsync(
+        Guid clinicId, CancellationToken cancellationToken)
+    {
+        if (!_subscriptionPolicy.RequiresSubscription)
+        {
+            return null;
+        }
+
+        var subscription = await _subscriptions.GetByClinicAsync(clinicId, cancellationToken);
+        if (subscription is null)
+        {
+            return Result<ClinicUserDto>.Failure(SubscriptionRefusals.Missing, SubscriptionRefusals.MissingCode);
+        }
+
+        var status = SubscriptionStateReader.Read(subscription, ClinicClock.ClinicToday());
+        if (status.AllowsWrites)
+        {
+            return null;
+        }
+
+        return status switch
+        {
+            { State: SubscriptionState.Suspended } =>
+                Result<ClinicUserDto>.Failure(SubscriptionRefusals.Suspended, SubscriptionRefusals.SuspendedCode),
+            { EndsOn: { } endsOn } =>
+                Result<ClinicUserDto>.Failure(
+                    SubscriptionRefusals.Required(endsOn), SubscriptionRefusals.RequiredCode),
+            _ => Result<ClinicUserDto>.Failure(SubscriptionRefusals.Missing, SubscriptionRefusals.MissingCode),
+        };
     }
 }

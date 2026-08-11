@@ -111,7 +111,7 @@ public class SubscriptionTenantIsolationTests
             new DateTime(2026, 8, 10, 9, 0, 0, DateTimeKind.Utc));
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            forA.Subscription.RecomputeFrom(new[] { forA.OpeningEntry, forB.OpeningEntry }));
+            forA.Subscription.RecomputeFrom(new[] { forA.OpeningEntry, forB.OpeningEntry }, DateTime.UtcNow));
 
         Assert.Contains("autre cabinet", exception.Message, StringComparison.OrdinalIgnoreCase);
     }

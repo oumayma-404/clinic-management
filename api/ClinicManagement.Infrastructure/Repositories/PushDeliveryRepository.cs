@@ -74,14 +74,53 @@ public class PushDeliveryRepository : IPushDeliveryRepository
         return collected.OrderBy(p => p.SendNotBefore).ThenBy(p => p.Id).ToList();
     }
 
+    /// <summary>
+    /// The fair-share shape of the due scan above, for the same reason and more sharply: a row parked for an
+    /// expired cabinet never clears and is never purged, so a flat oldest-first scan would let one clinic's
+    /// backlog occupy every review tick and no other clinic's rows would ever be released.
+    /// </summary>
     public async Task<IReadOnlyList<PushDelivery>> GetBlockedForReviewAsync(
-        int batchSize, CancellationToken cancellationToken = default) =>
-        await _context.PushDeliveries
-            .Where(p => p.Status == PushDeliveryStatus.Blocked)
-            .OrderBy(p => p.SendNotBefore)
-            .ThenBy(p => p.Id)
-            .Take(batchSize)
+        int batchSize, int perClinicBound, CancellationToken cancellationToken = default)
+    {
+        var blocked = _context.PushDeliveries.Where(p => p.Status == PushDeliveryStatus.Blocked);
+
+        var backlog = await blocked
+            .GroupBy(p => p.ClinicId)
+            .Select(g => new { ClinicId = g.Key, Oldest = g.Min(p => p.SendNotBefore) })
             .ToListAsync(cancellationToken);
+
+        if (backlog.Count <= 1)
+        {
+            return await blocked
+                .OrderBy(p => p.SendNotBefore)
+                .ThenBy(p => p.Id)
+                .Take(batchSize)
+                .ToListAsync(cancellationToken);
+        }
+
+        var perClinic = Math.Max(1, perClinicBound);
+        var collected = new List<PushDelivery>(batchSize);
+
+        foreach (var clinic in backlog.OrderBy(b => b.Oldest))
+        {
+            var remaining = batchSize - collected.Count;
+            if (remaining <= 0)
+            {
+                break;
+            }
+
+            var slice = await blocked
+                .Where(p => p.ClinicId == clinic.ClinicId)
+                .OrderBy(p => p.SendNotBefore)
+                .ThenBy(p => p.Id)
+                .Take(Math.Min(perClinic, remaining))
+                .ToListAsync(cancellationToken);
+
+            collected.AddRange(slice);
+        }
+
+        return collected.OrderBy(p => p.SendNotBefore).ThenBy(p => p.Id).ToList();
+    }
 
     public Task UpdateAsync(PushDelivery delivery, CancellationToken cancellationToken = default)
     {

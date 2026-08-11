@@ -38,10 +38,20 @@ public static class SubscriptionCabinetLookup
 
         if (!string.IsNullOrWhiteSpace(adminEmail))
         {
-            var user = await users.GetByEmailAsync(adminEmail.Trim(), cancellationToken);
-            return user is null
-                ? Result<Guid>.Failure($"Aucun compte avec l'adresse « {adminEmail.Trim()} ».")
-                : Result<Guid>.Success(user.ClinicId);
+            var trimmed = adminEmail.Trim();
+            var user = await users.GetByEmailAsync(trimmed, cancellationToken);
+            if (user is null)
+            {
+                return Result<Guid>.Failure($"Aucun compte avec l'adresse « {trimmed} ».");
+            }
+
+            // The id branch checks the cabinet exists; this one has to as well, or an account attached to no
+            // practice resolves to Guid.Empty and the verb goes on to blame OUR bookkeeping (« l'abonnement de ce
+            // cabinet est introuvable ») for an address that never belonged to a cabinet — the exact confusion the
+            // two-distinct-sentences design above exists to avoid. A third accurate sentence, not a shared one.
+            return user.ClinicId != Guid.Empty && await clinics.ExistsAsync(user.ClinicId, cancellationToken)
+                ? Result<Guid>.Success(user.ClinicId)
+                : Result<Guid>.Failure($"Le compte « {trimmed} » n'est rattaché à aucun cabinet.");
         }
 
         return Result<Guid>.Failure(NothingSuppliedError);

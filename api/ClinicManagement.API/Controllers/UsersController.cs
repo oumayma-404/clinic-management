@@ -95,6 +95,12 @@ public class UsersController : ApiControllerBase
     /// The temporary password is returned once for the admin to relay.
     /// </summary>
     [HttpPost("{id}/reset-password")]
+    [AllowsWithoutSubscription(
+        "FR-3, AC-4.1/4.2 — regaining READ access must not depend on payment. A staff member who has forgotten "
+        + "their password is locked out of the reads, exports and PDFs an expired cabinet keeps by right, and on a "
+        + "hosted deployment there is no other recovery: change-password needs the current one and reset-admin-password "
+        + "needs container access. AC-4.7's own reasoning for exempting change-password extends to the reset that "
+        + "creates one.")]
     public async Task<ActionResult<ResetPasswordResultDto>> ResetPassword(string id)
     {
         var command = new ResetUserPasswordCommand { TargetUserId = id };

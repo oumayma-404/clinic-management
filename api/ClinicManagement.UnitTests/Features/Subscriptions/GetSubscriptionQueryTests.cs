@@ -79,7 +79,7 @@ public class GetSubscriptionQueryTests
         public ClinicSubscription With(params SubscriptionPeriod[] entries)
         {
             var subscription = ClinicSubscription.For(ClinicId, DateTime.UtcNow);
-            subscription.RecomputeFrom(entries);
+            subscription.RecomputeFrom(entries, DateTime.UtcNow);
 
             Subscriptions.Setup(s => s.GetByClinicAsync(ClinicId, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(subscription);
@@ -285,7 +285,7 @@ public class GetSubscriptionQueryTests
         var entries = new[] { Paid(today.AddDays(-10), months: 12) };
 
         var subscription = ClinicSubscription.For(ClinicId, DateTime.UtcNow, SubscriptionPlan.Clinique);
-        subscription.RecomputeFrom(entries);
+        subscription.RecomputeFrom(entries, DateTime.UtcNow);
         harness.Subscriptions.Setup(s => s.GetByClinicAsync(ClinicId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(subscription);
         harness.Subscriptions.Setup(s => s.GetEntriesAsync(ClinicId, It.IsAny<CancellationToken>()))

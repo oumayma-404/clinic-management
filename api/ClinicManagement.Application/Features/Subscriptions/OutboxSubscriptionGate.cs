@@ -95,13 +95,12 @@ public sealed class OutboxSubscriptionGate
             return null;
         }
 
-        var sentence = status switch
+        // Which refusal this is comes from the one classifier the HTTP gate also reads; only the channel-neutral
+        // wording below belongs to this surface.
+        var sentence = SubscriptionStateReader.ClassifyRefusal(status) switch
         {
-            // Suspension outranks a date, as everywhere else: a suspended cabinet is never told to renew (EC-11).
-            { State: SubscriptionState.Suspended } => Suspended,
-            { EndsOn: { } endsOn } => Expired(endsOn),
-            // Unreachable — writes are refused only for a suspension or a date already past — but stated rather
-            // than folded into one of the two above, which would record a sentence that is not true.
+            SubscriptionRefusalKind.Suspended => Suspended,
+            SubscriptionRefusalKind.Expired => Expired(status.EndsOn!.Value),
             _ => Inactive,
         };
 

@@ -22,16 +22,21 @@ public class SubscriptionStateReaderTests
     /// <summary>An entitlement ending on a given day, folded rather than assigned — there is no other way to set it.</summary>
     private static ClinicSubscription EndingOn(DateTime endsOn)
     {
-        var subscription = ClinicSubscription.For(ClinicId, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        // Recorded a month before the day it ends, derived rather than pinned: an entry may not name an end date
+        // before its own recorded day, so a fixture for a *lapsed* cabinet has to be recorded back then — which is
+        // what a lapsed cabinet's entry actually is.
+        var recordedOn = endsOn.AddMonths(-1).Date;
+        var recordedAt = DateTime.SpecifyKind(recordedOn, DateTimeKind.Utc);
+        var subscription = ClinicSubscription.For(ClinicId, recordedAt);
         subscription.RecomputeFrom(new[]
         {
             SubscriptionPeriod.Create(
                 ClinicId,
                 SubscriptionPeriodKind.Paid,
-                recordedOnClinicDay: new DateTime(2026, 1, 1),
-                recordedAtUtc: new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                recordedOnClinicDay: recordedOn,
+                recordedAtUtc: recordedAt,
                 explicitEndsOn: endsOn)
-        });
+        }, recordedAt);
 
         Assert.Equal(endsOn, subscription.EndsOn);
         return subscription;
@@ -47,7 +52,7 @@ public class SubscriptionStateReaderTests
                 SubscriptionPeriodKind.Grandfathered,
                 new DateTime(2026, 1, 1),
                 new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc))
-        });
+        }, DateTime.UtcNow);
 
         Assert.Null(subscription.EndsOn);
         return subscription;

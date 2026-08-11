@@ -80,14 +80,49 @@ public class NotificationRepository : INotificationRepository
     }
 
     public async Task<IReadOnlyList<Notification>> GetBlockedForReviewAsync(
-        int take, CancellationToken cancellationToken = default)
+        int take, int perClinicBound, CancellationToken cancellationToken = default)
     {
-        return await _context.Notifications
-            .Where(n => n.Status == NotificationStatus.Blocked)
-            .OrderBy(n => n.ScheduledFor)
-            .ThenBy(n => n.Id)
-            .Take(take)
+        // The same fair-share shape as the due scan above, clause for clause, because a parked row lives longer
+        // than a pending one: an expired cabinet's rows sit at the front of this scan indefinitely, so a flat
+        // query past the batch size means no other clinic's rows are ever reconsidered.
+        var blocked = _context.Notifications.Where(n => n.Status == NotificationStatus.Blocked);
+
+        var backlog = await blocked
+            .GroupBy(n => n.ClinicId)
+            .Select(g => new { ClinicId = g.Key, Oldest = g.Min(n => n.ScheduledFor) })
             .ToListAsync(cancellationToken);
+
+        if (backlog.Count <= 1)
+        {
+            return await blocked
+                .OrderBy(n => n.ScheduledFor)
+                .ThenBy(n => n.Id)
+                .Take(take)
+                .ToListAsync(cancellationToken);
+        }
+
+        var perClinic = Math.Max(1, perClinicBound);
+        var collected = new List<Notification>(take);
+
+        foreach (var clinic in backlog.OrderBy(b => b.Oldest))
+        {
+            var remaining = take - collected.Count;
+            if (remaining <= 0)
+            {
+                break;
+            }
+
+            var slice = await blocked
+                .Where(n => n.ClinicId == clinic.ClinicId)
+                .OrderBy(n => n.ScheduledFor)
+                .ThenBy(n => n.Id)
+                .Take(Math.Min(perClinic, remaining))
+                .ToListAsync(cancellationToken);
+
+            collected.AddRange(slice);
+        }
+
+        return collected.OrderBy(n => n.ScheduledFor).ThenBy(n => n.Id).ToList();
     }
 
     public async Task<int> PurgeTerminalOlderThanAsync(

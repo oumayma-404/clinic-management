@@ -186,11 +186,16 @@ public class SubscriptionLedgerTests
 
     // ---- month arithmetic and open-endedness -------------------------------------------------------
 
-    // [FR-2][EC-3] AddMonths clamps: 31 Jan + 1 month is 28 Feb (29 in a leap year), never 3 March.
+    // [FR-2][EC-3] A month duration clamps to the last day of the target month: 31 Jan + 1 month **ends** 28 Feb
+    // (29 in a leap year), never 3 March and never 27 Feb. ⚠️ The three expectations used to each be one day short
+    // of the sentence above them, so a green run read as verification of the rule while the code delivered less
+    // than a month whenever the anchor's day outran the target month — unpredictably, and in the vendor's favour.
+    // The clamp belongs on the INCLUSIVE end, which is why the fold advances its exclusive cursor from the day
+    // before the start.
     [Theory]
-    [InlineData("2026-01-31", 1, "2026-02-27")]
-    [InlineData("2028-01-31", 1, "2028-02-28")]
-    [InlineData("2026-08-31", 6, "2027-02-27")]
+    [InlineData("2026-01-31", 1, "2026-02-28")]
+    [InlineData("2028-01-31", 1, "2028-02-29")]
+    [InlineData("2026-08-31", 6, "2027-02-28")]
     public void Month_Durations_Clamp_To_The_End_Of_A_Shorter_Month(string recorded, int months, string expected)
     {
         Assert.Equal(

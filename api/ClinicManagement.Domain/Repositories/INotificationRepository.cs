@@ -63,9 +63,16 @@ public interface INotificationRepository
     /// A bounded page of <see cref="NotificationStatus.Blocked"/> rows, oldest-due first, for the dispatcher to
     /// re-evaluate. Without this read the status would be a one-way door: the row was kept precisely so that it
     /// sends once the channel is configured, and nothing else in the system ever looks at it.
+    ///
+    /// <para>⚠️ <b><paramref name="perClinicBound"/> is not optional here, and the reason is sharper than on the due
+    /// scan.</b> A row parked for an expired cabinet never clears while that cabinet stays expired, and the purge
+    /// deliberately never deletes a <c>Blocked</c> row — so on a flat oldest-first scan those rows accumulate
+    /// permanently at the <i>front</i> and, past the batch size, consume every review tick for ever. Another
+    /// clinic's channel-parked rows would then never be released however long its operator waited: exactly the
+    /// starvation the parked status was invented to fix, re-armed on the un-park side.</para>
     /// </summary>
     Task<IReadOnlyList<Notification>> GetBlockedForReviewAsync(
-        int take, CancellationToken cancellationToken = default);
+        int take, int perClinicBound, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes **terminal** rows (<c>Sent</c> / <c>Failed</c>) older than <paramref name="olderThanUtc"/> and

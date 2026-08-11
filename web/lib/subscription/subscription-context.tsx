@@ -1,11 +1,12 @@
 "use client"
 
 import type React from "react"
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 
 import { authApi } from "@/lib/api/auth"
 import { ApiError, onSubscriptionRequired } from "@/lib/api/client"
 import { subscriptionApi, type SubscriptionDto } from "@/lib/api/subscription"
+import { getErrorMessage } from "@/lib/errors"
 import { useSession } from "@/lib/auth/session"
 
 export interface SubscriptionState {
@@ -19,17 +20,37 @@ export interface SubscriptionState {
   subscription: SubscriptionDto | null
   /** Whether this deployment works by subscription at all (`requiresSubscription === true`). */
   enforced: boolean
+  /**
+   * The same question with its two undecided answers kept apart, for the screen that has to render them
+   * differently: `"unknown"` before the probe settles, `"on"`/`"off"` once it has, and **`"unreadable"`** when it
+   * failed — which EC-13 requires to be a *retryable* state and never « cette installation n'a pas d'abonnement ».
+   * The banner and the rail row read {@link enforced} instead: for them a probe that could not answer is « off ».
+   */
+  enforcement: "unknown" | "on" | "off" | "unreadable"
+  /**
+   * The last read's failure, or null. `refresh` swallows failures on purpose (a banner must not vanish on a blip),
+   * so this is how « Abonnement » — the one screen whose whole job is to show this state — can offer « Réessayer »
+   * without issuing a second read of its own.
+   */
+  lastError: string | null
   /** The banner is hidden for the rest of the clinic day. Only ever true while the entitlement is still valid. */
   dismissed: boolean
   /** Hide the banner until the clinic day turns over. **Per browser, never a server write** (AC-3.2). */
   dismiss: () => void
-  /** Re-read now. The three FR-15 triggers call it; « Abonnement » can too after a state-changing action. */
-  refresh: () => void
+  /**
+   * Re-read now. The three FR-15 triggers call it, and « Abonnement » does too after a « Réessayer ».
+   *
+   * Throttled to one read a minute unless `force` is passed — the 402 path passes it, because a refusal is
+   * evidence the state has just changed.
+   */
+  refresh: (force?: boolean) => void
 }
 
 const NOT_ENFORCED: SubscriptionState = {
   subscription: null,
   enforced: false,
+  enforcement: "off",
+  lastError: null,
   dismissed: false,
   dismiss: () => undefined,
   refresh: () => undefined,
@@ -55,6 +76,16 @@ export function useSubscription(): SubscriptionState {
  * grant the vendor has just recorded.</p>
  */
 const REREAD_INTERVAL_MS = 5 * 60_000
+
+/**
+ * The floor between two reads, whatever asked for them.
+ *
+ * <p>Without it the focus/`visibilitychange` trigger made the doc above false: it is gated on `enforced && signedIn`
+ * and not on the warning window, so every alt-tab on every enforced cabinet issued a `GET /api/subscription` —
+ * « nothing polls outside that window » was true of the interval alone. `inFlight` only collapses *concurrent*
+ * reads, so it also did not bound a 402 burst spread over a second or repeated tab switching.</p>
+ */
+const MIN_REREAD_GAP_MS = 60_000
 
 /** One entry, overwritten. Holds the clinic-day key the banner was last dismissed for — see {@link clinicDayKey}. */
 const DISMISSED_STORAGE_KEY = "clinic-subscription:banner-dismissed"
@@ -94,18 +125,21 @@ function clinicDayKey(subscription: SubscriptionDto | null): string | null {
  * </ol>
  *
  * <p><b>Mounted inside the session provider</b> (`app/layout.tsx`), because every read here is authenticated. It
- * fetches nothing until a user exists, and nothing at all where `requiresSubscription` is not `true` — which is
- * what keeps `SelfHostedLan` and `CloudBrowser` byte-identical to before (AC-7.1/7.2).</p>
+ * fetches nothing until a user exists, and nothing but `auth/mode` — one capability probe per session — where
+ * `requiresSubscription` is not `true`. ⚠️ Stated precisely on purpose: the earlier « nothing at all » was what a
+ * reader would rely on when reasoning about the unenforced deployments, and it was never true of the probe.</p>
  */
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
   const { user, isLoading: sessionLoading } = useSession()
 
-  const [enforced, setEnforced] = useState(false)
+  const [enforcement, setEnforcement] = useState<SubscriptionState["enforcement"]>("unknown")
   const [subscription, setSubscription] = useState<SubscriptionDto | null>(null)
+  const [lastError, setLastError] = useState<string | null>(null)
   const [dismissedDay, setDismissedDay] = useState<string | null>(null)
 
   // Guards a burst: one page load can raise several 402s at once, and each must not open its own read.
   const inFlight = useRef(false)
+  const lastReadAtMs = useRef(0)
   const mounted = useRef(true)
 
   useEffect(() => {
@@ -120,6 +154,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [])
 
   const signedIn = Boolean(user) && !sessionLoading
+  // The boolean every consumer but « Abonnement » wants: a probe that could not answer reads as « off », which is
+  // the fail-safe direction — no banner invented from a network hiccup.
+  const enforced = enforcement === "on"
 
   // The capability probe, once per session. `=== true` following `publicSignupEnabled`'s convention: an older API
   // answers `undefined`, and the safe direction is « no subscription » — how the other two deployment kinds behave.
@@ -129,41 +166,60 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     authApi
       .getMode()
       .then((mode) => {
-        if (!cancelled) setEnforced(mode.requiresSubscription === true)
+        if (!cancelled) setEnforcement(mode.requiresSubscription === true ? "on" : "off")
       })
       // A failed probe leaves the feature off rather than guessing it on: a banner is a claim about the cabinet's
       // access, and inventing one from a network hiccup is worse than being a few minutes late with a real one.
-      .catch(() => undefined)
+      // It is recorded as `unreadable` rather than `off` all the same — « we could not ask » and « this deployment
+      // has no subscriptions » are different facts, and « Abonnement » has to offer a retry for the first (EC-13).
+      .catch(() => {
+        if (!cancelled) setEnforcement("unreadable")
+      })
     return () => {
       cancelled = true
     }
   }, [signedIn])
 
-  const refresh = useCallback(() => {
-    if (!enforced || inFlight.current) return
-    inFlight.current = true
-    subscriptionApi
-      .get()
-      .then((value) => {
-        if (mounted.current) setSubscription(value)
-      })
-      .catch((err) => {
-        // A 404 is the server saying this deployment does not work by subscription — the backstop for a probe that
-        // could not answer, and the one failure that genuinely turns the feature off. Every other failure keeps the
-        // last known state (EC-13's reasoning, one layer down): a banner must not vanish on a dropped connection.
-        if (err instanceof ApiError && err.status === 404 && mounted.current) {
-          setEnforced(false)
-          setSubscription(null)
-        }
-      })
-      .finally(() => {
-        inFlight.current = false
-      })
-  }, [enforced])
+  const refresh = useCallback(
+    (force = false) => {
+      // Gated on `signedIn`, not on `enforced`: the 402 listener below forces a read and turns enforcement on from
+      // the refusal itself, so requiring `enforced` here would make that path unreachable after a failed probe.
+      if (!signedIn || inFlight.current) return
+      if (!force && Date.now() - lastReadAtMs.current < MIN_REREAD_GAP_MS) return
+      inFlight.current = true
+      lastReadAtMs.current = Date.now()
+      subscriptionApi
+        .get()
+        .then((value) => {
+          if (!mounted.current) return
+          setSubscription(value)
+          setLastError(null)
+          setEnforcement("on")
+        })
+        .catch((err) => {
+          // A 404 is the server saying this deployment does not work by subscription — the backstop for a probe that
+          // could not answer, and the one failure that genuinely turns the feature off. Every other failure keeps the
+          // last known state (EC-13's reasoning, one layer down): a banner must not vanish on a dropped connection.
+          if (!mounted.current) return
+          if (err instanceof ApiError && err.status === 404) {
+            setEnforcement("off")
+            setSubscription(null)
+            setLastError(null)
+            return
+          }
+          setLastError(getErrorMessage(err))
+        })
+        .finally(() => {
+          inFlight.current = false
+        })
+    },
+    [signedIn],
+  )
 
-  // Trigger 0 — the first read, once the deployment is known to enforce and somebody is signed in.
+  // Trigger 0 — the first read, once the deployment is known to enforce and somebody is signed in. Forced past the
+  // throttle: it is the read that populates the state, and there is nothing yet to be fresh.
   useEffect(() => {
-    if (enforced && signedIn) refresh()
+    if (enforced && signedIn) refresh(true)
   }, [enforced, signedIn, refresh])
 
   const warningInForce = subscription !== null && (subscription.shouldWarn || !subscription.allowsWrites)
@@ -171,7 +227,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   // Trigger 1 — the interval, and only inside the window. Outside it this effect installs no timer at all.
   useEffect(() => {
     if (!enforced || !signedIn || !warningInForce) return
-    const interval = setInterval(refresh, REREAD_INTERVAL_MS)
+    const interval = setInterval(() => refresh(true), REREAD_INTERVAL_MS)
     return () => clearInterval(interval)
   }, [enforced, signedIn, warningInForce, refresh])
 
@@ -191,9 +247,19 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }, [enforced, signedIn, refresh])
 
-  // Trigger 3 — any 402. Subscribed even before the probe answers: the refusal is itself proof that this
-  // deployment enforces, and `refresh` no-ops until `enforced` catches up a moment later.
-  useEffect(() => onSubscriptionRequired(() => refresh()), [refresh])
+  // Trigger 3 — any 402, and it is **authoritative**: a refusal carrying a subscription code is positive proof that
+  // this deployment enforces, so it turns `enforced` on itself rather than waiting for a probe that may already have
+  // failed. Without that, one failed `auth/mode` read meant no banner, no rail row and every 402 re-read dropped for
+  // the whole session — which is precisely EC-1's case (midnight passing mid-consultation). Forced past the
+  // throttle for the same reason. The 404 branch in `refresh` remains the fail-safe `enforced` was standing in for.
+  useEffect(
+    () =>
+      onSubscriptionRequired(() => {
+        setEnforcement("on")
+        refresh(true)
+      }),
+    [refresh],
+  )
 
   const currentDay = clinicDayKey(subscription)
   // AC-3.3 rides on `currentDay` being null for an expired entitlement, so an expired banner cannot be dismissed
@@ -207,11 +273,15 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     writeDismissedDay(day)
   }, [subscription])
 
-  return (
-    <SubscriptionContext.Provider value={{ subscription, enforced, dismissed, dismiss, refresh }}>
-      {children}
-    </SubscriptionContext.Provider>
+  // Memoized for `CloudBridge`'s stated reason: an inline literal hands consumers a new identity on every provider
+  // render, so the banner and the whole `DashboardSidebar` (which rebuilds `buildNavSections` each render) re-render
+  // on every five-minute poll — `setSubscription` stores a fresh object whose contents are usually identical.
+  const value = useMemo(
+    () => ({ subscription, enforced, enforcement, lastError, dismissed, dismiss, refresh }),
+    [subscription, enforced, enforcement, lastError, dismissed, dismiss, refresh],
   )
+
+  return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>
 }
 
 /** `localStorage` throws in a locked-down browser and in private mode on some engines — a banner is not worth it. */

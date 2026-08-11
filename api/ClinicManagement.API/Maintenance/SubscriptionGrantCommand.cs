@@ -103,8 +103,8 @@ public static class SubscriptionGrantCommand
                     Plan = plan,
                     Amount = amount,
                     Method = method,
-                    Reference = ProvisionClinicCommand.ReadOption(args, "--reference"),
-                    Note = ProvisionClinicCommand.ReadOption(args, "--note"),
+                    Reference = SubscriptionVerbs.ReadOption(args, "--reference"),
+                    Note = SubscriptionVerbs.ReadOption(args, "--note"),
                     RecordedBy = actor,
                 },
                 cancellationToken);
@@ -122,6 +122,18 @@ public static class SubscriptionGrantCommand
             Console.WriteLine($"  Period id:      {granted.EntryId}   (use this with subscription-cancel)");
             Console.WriteLine($"  Previous end:   {SubscriptionVerbs.Day(granted.PreviousEndsOn)}");
             Console.WriteLine($"  New end:        {SubscriptionVerbs.Day(granted.EndsOn)}");
+
+            // A grant may only ever extend cover (the fold enforces it), so a date that did not move forward means
+            // --until named a day the cabinet was already covered past. Said out loud rather than left to be read
+            // off two dates: the operator typed a date and nothing happened, which reads as a silent success.
+            if (granted.PreviousEndsOn is { } before && granted.EndsOn is { } after && after <= before)
+            {
+                Console.WriteLine();
+                Console.WriteLine("⚠️  The end date did not move: this cabinet was already covered to that day or");
+                Console.WriteLine("    beyond. Cover is never shortened by a grant — use subscription-cancel to void");
+                Console.WriteLine("    a period, or grant a duration rather than a --until date.");
+            }
+
             Console.WriteLine();
             Console.WriteLine("The cabinet's own app picks this up on its next subscription re-read (a few minutes");
             Console.WriteLine("at most) — nobody needs to sign out or restart. Its expiry notifications are");
@@ -140,7 +152,7 @@ public static class SubscriptionGrantCommand
     private static bool TryReadDay(string[] args, string flag, out DateTime? value)
     {
         value = null;
-        var raw = ProvisionClinicCommand.ReadOption(args, flag);
+        var raw = SubscriptionVerbs.ReadOption(args, flag);
         if (string.IsNullOrWhiteSpace(raw))
         {
             return true;
@@ -161,7 +173,7 @@ public static class SubscriptionGrantCommand
     private static bool TryReadAmount(string[] args, out decimal? value)
     {
         value = null;
-        var raw = ProvisionClinicCommand.ReadOption(args, "--amount");
+        var raw = SubscriptionVerbs.ReadOption(args, "--amount");
         if (string.IsNullOrWhiteSpace(raw))
         {
             return true;
@@ -180,7 +192,7 @@ public static class SubscriptionGrantCommand
     private static bool TryReadEnum<T>(string[] args, string flag, out T? value) where T : struct, Enum
     {
         value = null;
-        var raw = ProvisionClinicCommand.ReadOption(args, flag);
+        var raw = SubscriptionVerbs.ReadOption(args, flag);
         if (string.IsNullOrWhiteSpace(raw))
         {
             return true;

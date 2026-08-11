@@ -63,7 +63,7 @@ public static class SubscriptionProvisioning
                 note: "Cette installation n'applique pas d'abonnement : accès sans échéance.");
 
         var subscription = ClinicSubscription.For(clinicId, recordedAtUtc);
-        subscription.RecomputeFrom(new[] { openingEntry });
+        subscription.RecomputeFrom(new[] { openingEntry }, recordedAtUtc);
 
         return new NewClinicEntitlement(subscription, openingEntry);
     }

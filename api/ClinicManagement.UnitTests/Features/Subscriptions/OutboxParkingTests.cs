@@ -46,7 +46,7 @@ public class OutboxParkingTests
                 recordedOnClinicDay: new DateTime(2026, 1, 1),
                 recordedAtUtc: new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                 explicitEndsOn: endsOn)
-        });
+        }, DateTime.UtcNow);
         return subscription;
     }
 
@@ -98,7 +98,7 @@ public class OutboxParkingTests
             notifications.Setup(r => r.GetDueForDispatchAsync(
                     It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((due ?? Array.Empty<Notification>()).ToList());
-            notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            notifications.Setup(r => r.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((blocked ?? Array.Empty<Notification>()).ToList());
 
             var patients = new Mock<IPatientRepository>();
@@ -314,7 +314,7 @@ public class OutboxParkingTests
             deliveries.Setup(d => d.GetDueForDispatchAsync(
                     It.IsAny<int>(), It.IsAny<int>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((due ?? Array.Empty<PushDelivery>()).ToList());
-            deliveries.Setup(d => d.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            deliveries.Setup(d => d.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((blocked ?? Array.Empty<PushDelivery>()).ToList());
 
             var devices = new Mock<IDeviceRegistrationRepository>();

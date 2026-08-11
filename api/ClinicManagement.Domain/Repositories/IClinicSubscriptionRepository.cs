@@ -36,6 +36,14 @@ public interface IClinicSubscriptionRepository
     Task<IReadOnlyList<ClinicSubscriptionReportRow>> GetForReportAsync(
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// One cabinet's report row, or null where no such clinic exists. The targeted sibling of
+    /// <see cref="GetForReportAsync"/>, so <c>subscription-report --clinic &lt;id&gt;</c> costs one cabinet rather
+    /// than every cabinet of the deployment plus every entitlement row.
+    /// </summary>
+    Task<ClinicSubscriptionReportRow?> GetReportRowAsync(
+        Guid clinicId, CancellationToken cancellationToken = default);
+
     Task AddAsync(ClinicSubscription subscription, CancellationToken cancellationToken = default);
 
     Task AddEntryAsync(SubscriptionPeriod entry, CancellationToken cancellationToken = default);

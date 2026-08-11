@@ -152,10 +152,11 @@ public class GrantSubscriptionPeriodCommandHandler
             return Result<SubscriptionGrantResult>.Success(
                 new SubscriptionGrantResult(clinicId, entry.Id, previousEndsOn, saved.Value));
         }
-        catch (ArgumentException ex)
+        catch (Exception ex) when (SubscriptionRefusals.IsDomainRefusal(ex))
         {
-            // SubscriptionPeriod.Create's own French guards: a non-positive duration (AC-5.7), two duration forms,
-            // a negative amount, an over-long reference or note.
+            // The domain's own French guards: a non-positive duration (AC-5.7), two duration forms, an out-of-range
+            // end date, a negative amount, an over-long reference — and RecomputeFrom's foreign-cabinet check,
+            // which is an InvalidOperationException and used to be flattened into the generic sentence below.
             return Result<SubscriptionGrantResult>.Failure(ex.Message);
         }
         catch (Exception ex) when (ex is not ConflictException)

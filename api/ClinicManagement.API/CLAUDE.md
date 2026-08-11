@@ -248,6 +248,7 @@ the account cached, and endpoint metadata is available because the implicit `Use
 middleware (the same reason `UseAuthorization` works here with no explicit call). `SubscriptionGateMiddlewareTests`
 asserts that ordering against **`Program.cs`'s own source** — the middleware is correct in isolation and only its
 *position* is wrong, so nothing else in the build can see it.
+⚠️ **An `/api` path that routes to NOTHING passes too**, and that is a distinct case from « this endpoint declared no exemption »: `GetEndpoint()?.Metadata…is null` conflated them, so on an expired cabinet a mistyped URL — or an old client calling a removed action — was answered **402** and the client fired `onSubscriptionRequired` on the strength of it. Naming the subscription is the loudest thing this gate can say; an unroutable path is routing's own 404 to answer.
 ⚠️ **A caller who is not a cabinet passes** (`ITenantScope.Kind != Clinic`) rather than meeting
 `subscription_missing`: they have no entitlement to find, and that fault code would otherwise land on precisely the
 vendor-console endpoints whose purpose is to *end* a refusal. Authentication already covers the anonymous case.
@@ -257,7 +258,7 @@ beside `AuthorizationPolicies` in Application) and is derived — not listed twi
 The writes on it: the whole of `AuthController` (class-level — AC-4.7/EC-2, of which only `change-password` is
 genuinely refused without it), the three compute-only POSTs (batch CNAM estimate · CSV import **preview** ·
 render-for-download), the four writes experienced as reading (mark-read / read-all · push register + deregister ·
-default file folders · the user's own dashboard layout), and `backup` + `users/{id}/status`. ⚠️ **The AI chat is
+default file folders · the user's own dashboard layout), and `backup`, `users/{id}/status` + **`users/{id}/reset-password`**. ⚠️ That last one is about **reads**, not writes: a staff member who has forgotten their password cannot log in at all, so they lose the reads, exports and PDFs AC-4.1/4.2 guarantee — and a hosted deployment has no other recovery (`change-password` needs the current one, `reset-admin-password` needs container access). ⚠️ **`users/{id}/status` is exempt in one direction only**, and the handler is what makes that true: its recorded reason is offboarding, but the action also **re-activates**, which is the same effect as `POST /api/users` — correctly gated. `SetUserActiveCommand` therefore refuses the reactivation direction with the gate's own sentence. ⚠️ **The AI chat is
 deliberately not on it** — its action set books and cancels appointments — and the **Google OAuth callback is not
 exempted** either: it is a GET that writes, but the request that *starts* the flow is refused, so it is unreachable.
 ⚠️ That guard classifies **non-GET actions only**, so it *cannot* fail when the attribute is removed from a GET-only

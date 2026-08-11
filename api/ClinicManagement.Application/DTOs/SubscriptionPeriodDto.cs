@@ -41,12 +41,12 @@ public class SubscriptionPeriodDto
     /// <summary>The transfer reference, cheque number or receipt number, as the vendor recorded it.</summary>
     public string? Reference { get; set; }
 
-    public string? Note { get; set; }
+    // ⚠️ `Note` and `RecordedBy` are deliberately NOT on this DTO. `--note` is the vendor's own commentary about
+    // the customer (« geste commercial », « pilote ») and `RecordedBy` publishes our internal command vocabulary;
+    // neither is rendered by either tree of the history table, so shipping them was exposure with no product
+    // benefit. They stay on `SubscriptionReportEntry`, which the vendor reads on their own console.
 
     public DateTime RecordedAt { get; set; }
-
-    /// <summary>A user id, or <c>job|&lt;command&gt;</c> for a vendor console verb (FR-12).</summary>
-    public string? RecordedBy { get; set; }
 
     public bool IsCancelled { get; set; }
 

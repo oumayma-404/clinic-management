@@ -121,7 +121,7 @@ public class NotificationJob
             }
         }
 
-        await ReviewBlockedRowsAsync(batchSize, entitlements);
+        await ReviewBlockedRowsAsync(batchSize, perClinicBound, entitlements);
         await PurgeExpiredRowsAsync();
     }
 
@@ -144,11 +144,12 @@ public class NotificationJob
     /// for a <c>SubscriptionExpired</c> one, so a channel-parked row is not released into a queue that is about to
     /// park it again for the other reason.</para>
     /// </summary>
-    private async Task ReviewBlockedRowsAsync(int batchSize, OutboxSubscriptionGate entitlements)
+    private async Task ReviewBlockedRowsAsync(
+        int batchSize, int perClinicBound, OutboxSubscriptionGate entitlements)
     {
         try
         {
-            var blocked = await _notificationRepository.GetBlockedForReviewAsync(batchSize);
+            var blocked = await _notificationRepository.GetBlockedForReviewAsync(batchSize, perClinicBound);
             var unblocked = 0;
 
             foreach (var notification in blocked)

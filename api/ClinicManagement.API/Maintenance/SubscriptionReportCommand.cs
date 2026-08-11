@@ -63,8 +63,8 @@ public static class SubscriptionReportCommand
 
             var today = ClinicClock.ClinicToday();
             var cabinetSelected =
-                !string.IsNullOrWhiteSpace(ProvisionClinicCommand.ReadOption(args, "--clinic"))
-                || !string.IsNullOrWhiteSpace(ProvisionClinicCommand.ReadOption(args, "--email"));
+                !string.IsNullOrWhiteSpace(SubscriptionVerbs.ReadOption(args, "--clinic"))
+                || !string.IsNullOrWhiteSpace(SubscriptionVerbs.ReadOption(args, "--email"));
 
             if (cabinetSelected)
             {
@@ -76,7 +76,9 @@ public static class SubscriptionReportCommand
                     return SubscriptionVerbs.Failed;
                 }
 
-                var cabinet = await service.RunForCabinetAsync(clinicId.Value, today, cancellationToken);
+                var cabinet = await service.RunForCabinetAsync(
+                    clinicId.Value, today, within ?? SubscriptionReportService.DefaultWithinDays, cancellationToken);
+
                 if (cabinet is null)
                 {
                     Console.Error.WriteLine($"Aucun cabinet {clinicId} dans ce déploiement.");
@@ -84,9 +86,11 @@ public static class SubscriptionReportCommand
                 }
 
                 Console.Write(RenderCabinet(cabinet, today));
-                return NeedsAttention(cabinet.Cabinet, within ?? SubscriptionReportService.DefaultWithinDays)
-                    ? FindingsExitCode
-                    : SubscriptionVerbs.Success;
+
+                // The verdict comes from the service, which buckets this cabinet with the same rule the
+                // deployment-wide run uses. A second implementation here agreed only by coincidence and was outside
+                // the test project's reach — and an exit code that quietly stops alarming reads as a clean run.
+                return cabinet.NeedsAttention ? FindingsExitCode : SubscriptionVerbs.Success;
             }
 
             var report = await service.RunAsync(
@@ -101,12 +105,6 @@ public static class SubscriptionReportCommand
             return SubscriptionVerbs.Failed;
         }
     }
-
-    /// <summary>The single-cabinet mirror of <see cref="SubscriptionReport.NeedsAttention"/> — same three groups.</summary>
-    private static bool NeedsAttention(SubscriptionReportLine line, int withinDays) =>
-        line.State is null
-        || !line.AllowsWrites && line.State != Domain.Enums.SubscriptionState.Suspended
-        || line.DaysRemaining is { } days && days <= withinDays;
 
     private static string Render(SubscriptionReport report)
     {

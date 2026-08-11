@@ -140,8 +140,15 @@ namespace ClinicManagement.Infrastructure.Migrations
             // ---- Grandfathering (AC-6.1–6.3) — after every DDL statement, and idempotent ----------------
             //
             // The ledger entry is written FIRST so that a cabinet is never left holding an entitlement whose
-            // ledger is empty: both statements share the same « no entitlement row » predicate, so inserting the
-            // entry first means the predicate still selects the cabinet on the second statement.
+            // ledger is empty: both statements share the « no entitlement row » predicate, so inserting the entry
+            // first means the predicate still selects the cabinet on the second statement.
+            //
+            // ⚠️ The entry insert carries a SECOND predicate of its own — « and no Grandfathered entry yet ». The
+            // shared one is not enough for it: run the pair with the entitlement insert uncommitted (a hand-run of
+            // this SQL during recovery, a future edit that splits the statements, suppressTransaction) and a second
+            // pass still sees « no entitlement row » and duplicates every cabinet's entry. Nothing goes red — two
+            // open-ended entries still fold to NULL — so the damage is silent: subscription-grandfathered-entries
+            // doubles, AC-6.4's before/after diff becomes unreadable, and « Antériorité » appears twice on screen.
             //
             // `RecordedOnClinicDay` is midnight of the CLINIC's day (Tunisia, UTC+1, no DST), stored so that
             // reading it back yields that date at 00:00 — the same value ClinicClock.ClinicToday() produces. It is
@@ -162,7 +169,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                     false, NULL, NULL, NULL, NOW()
                 FROM "Clinics" c
                 WHERE NOT EXISTS (
-                    SELECT 1 FROM "ClinicSubscriptions" s WHERE s."ClinicId" = c."Id");
+                    SELECT 1 FROM "ClinicSubscriptions" s WHERE s."ClinicId" = c."Id")
+                  AND NOT EXISTS (
+                    SELECT 1 FROM "SubscriptionPeriods" p
+                    WHERE p."ClinicId" = c."Id" AND p."Kind" = {GrandfatheredKind});
                 """);
 
             // EndsOn stays NULL — « sans échéance ». Deliberately not computed: NULL is exactly what folding this

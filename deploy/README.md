@@ -95,6 +95,8 @@ app uses — a verb run this way is looking at exactly the database the API is l
 | `reconcile-money` | **yes** | same three |
 | `provision-clinic` | **yes** | `0` / `1` |
 | `reset-admin-password` | **yes** | `0` / `1` |
+| `subscription-report` | **yes** | `0` clean · `1` couldn't run · `2` findings |
+| `subscription-grant` / `-cancel` / `-suspend` / `-unsuspend` | **yes** | `0` / `1` |
 | `restore-backup` | **no — refuses** | see below |
 
 ```bash
@@ -111,6 +113,48 @@ is listening », enforced by looking for a listener on the machine it runs on. I
 *different* container, so from a one-off `docker exec` the check finds nothing and passes — and
 `pg_restore --clean --if-exists` would then drop every table out from under a live application. Restore from the
 `backup`/`pitr` services' artifacts with the stack stopped instead.
+
+---
+
+## Cabinet subscriptions (this profile only)
+
+A cabinet gets **30 free days** and then becomes **read-only**: every read, every CSV export and every PDF keep
+working, and only writes are refused. Two halves of that are the operator's:
+
+**1. Publish the tariff, the payment instructions and the contact details.** The `SUBSCRIPTION_*` variables in
+`.env` feed « Abonnement », which is the screen a refused save points a chairside user at — and unset, it says
+« Aucun tarif n'est publié » to a practice that is trying to pay you. ⚠️ There is deliberately **no
+`SUBSCRIPTION_ENABLED`**: enforcement follows `Deployment__Profile` and nothing an operator can set, so a clinic's
+own PC can never be one config edit away from refusing its own patient records. A blank price reads as « sur
+devis », never as « 0,000 DT ».
+
+**2. Record payments with the five verbs.** They are **verbs and not endpoints on purpose**: a cabinet able to
+extend its own entitlement over HTTP would not have one, so nothing in the API grants time.
+
+```bash
+E=clinic-api-prod; D="docker exec $E dotnet ClinicManagement.API.dll"
+
+# Who needs attention — exits 2 when any cabinet is expiring, expired or has no entitlement at all.
+$D subscription-report --within 7
+
+# One cabinet in full, INCLUDING its period ids — the only place they are printed, and what -cancel takes.
+$D subscription-report --clinic owner@cabinet.tn
+
+# Record a payment. --clinic takes an id or the e-mail of anyone who works there.
+$D subscription-grant --clinic owner@cabinet.tn --months 12 \
+     --amount 1200.000 --method Transfer --reference VIR-4471 --plan Cabinet
+
+# Correct a mistake: the row is KEPT and struck through, and the end date recomputes — possibly into the past.
+$D subscription-cancel --clinic owner@cabinet.tn --entry <period-id> --reason "Mauvais cabinet"
+
+# Stop / restart a cabinet for a non-payment reason. Suspension outranks the date and paying does not lift it.
+$D subscription-suspend   --clinic owner@cabinet.tn --reason "Litige commercial"
+$D subscription-unsuspend --clinic owner@cabinet.tn
+```
+
+⚠️ **A grant never shortens cover.** `--until` past a date the cabinet is already covered to is a no-op the verb
+says out loud; use `subscription-cancel` to take time away. ⚠️ **The cabinet's app picks a grant up on its next
+re-read** — a few minutes at most — with nobody signing out.
 
 ---
 

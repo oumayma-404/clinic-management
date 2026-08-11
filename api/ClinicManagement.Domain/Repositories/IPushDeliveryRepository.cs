@@ -26,10 +26,11 @@ public interface IPushDeliveryRepository
 
     /// <summary>
     /// Parked rows to reconsider (AC-50). Bounded by the same batch size so recovering a large backlog costs a
-    /// tick at a time rather than one very long tick.
+    /// tick at a time rather than one very long tick, and by the same <paramref name="perClinicBound"/> as the due
+    /// scan — see <c>INotificationRepository.GetBlockedForReviewAsync</c> for why the un-park side needs it most.
     /// </summary>
     Task<IReadOnlyList<PushDelivery>> GetBlockedForReviewAsync(
-        int batchSize, CancellationToken cancellationToken = default);
+        int batchSize, int perClinicBound, CancellationToken cancellationToken = default);
 
     Task UpdateAsync(PushDelivery delivery, CancellationToken cancellationToken = default);
 

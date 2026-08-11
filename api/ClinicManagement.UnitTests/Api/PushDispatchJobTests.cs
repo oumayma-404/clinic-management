@@ -51,7 +51,7 @@ public class PushDispatchJobTests
             Deliveries.Setup(d => d.GetDueForDispatchAsync(
                     It.IsAny<int>(), It.IsAny<int>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((due ?? Array.Empty<PushDelivery>()).ToList());
-            Deliveries.Setup(d => d.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            Deliveries.Setup(d => d.GetBlockedForReviewAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((blocked ?? Array.Empty<PushDelivery>()).ToList());
             Deliveries.Setup(d => d.UpdateAsync(It.IsAny<PushDelivery>(), It.IsAny<CancellationToken>()))
                 .Callback<PushDelivery, CancellationToken>((row, _) => Saved.Add(row))

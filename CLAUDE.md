@@ -690,6 +690,29 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   one 5-minute re-read because it reads the entitlement directly (AC-5.8), and the bell rows are withdrawn by Part
   E's daily pass. Clearing them from the grant would force every verb to register a no-op `IRealtimeNotifier`, since
   `INotificationGenerator`'s only implementation of that seam is the API's SignalR notifier.
+  ⚠️ **A 52-finding review pass then corrected the feature in place, and four of its fixes changed behaviour rather
+  than tidying it.** (a) **The fold was wrong in two of its three branches**: a month duration clamped on the
+  *exclusive* cursor, so 31 Jan + 1 month ended **27** Feb where the spec, the Domain guide and the test's own comment
+  all say 28 — a day lost unpredictably, in the vendor's favour, with the test's expectations pinning the defect; and
+  an `--until` entry set the cursor **unconditionally**, so a mistyped year silently revoked months a cabinet had paid
+  for, with a success message. A recorded entry can now only ever *extend* cover, and `SubscriptionPeriod.Create`
+  refuses an end date before its own recorded day or beyond five years. (b) **Part G's un-park re-armed the very
+  starvation it was invented to fix**: the review scan had no per-clinic bound, and an expired cabinet's rows never
+  clear and are never purged, so past the batch size they occupied every review tick for ever and another practice's
+  channel-parked rows were never released. Both blocked scans now carry the due scan's fair-share loop. (c) **The gate
+  answered 402 to an unroutable `/api` path** — `GetEndpoint()?.…is null` read « nothing matched » as « declared no
+  exemption » — so a mistyped URL was answered with the loudest thing it can say. (d) **`users/{id}/reset-password` is
+  now exempt** (a forgotten password otherwise costs an expired cabinet the *reads* AC-4.1/4.2 guarantee, with no
+  other recovery on a hosted deployment) while **`users/{id}/status` is exempt in one direction only** — its recorded
+  reason is offboarding, but the action also re-activates, which the handler now refuses.
+  ⚠️ **One documented decision was deliberately reversed**: a warning row naming a **superseded** end date is now
+  withdrawn rather than kept as feed history, because the bell otherwise showed « 1 jour … 21/08 » beside
+  « 3 jours … 22/08 » — two live claims about one date. A pure countdown escalation with the date unchanged still
+  keeps both rows, and the new row is still genuinely new rather than a rewrite (which would carry read markers).
+  ⚠️ **`deploy/` now carries the ten `Subscription__*` variables**: on the only kind that enforces, « Abonnement » was
+  unconfigurable, so the screen a 402 points a chairside user at rendered « Aucun tarif n'est publié ». The five
+  vendor verbs are documented in `deploy/README.md` beside `verify-schema` — they are the only way to grant time.
+  Three findings were deferred with the remedy chosen: `follow-up/subscription-review-deferred.md`.
   ⚠️ **Interim state until Part D**: `/abonnement` is in `buildConfigItems` unconditionally, so `SelfHostedLan` and
   `CloudBrowser` show one rail row whose page says « cette installation ne fonctionne pas par abonnement ». Both
   endpoints **404 before the mediator** there, so nothing behind them is resolved; Part D's provider removes the row.

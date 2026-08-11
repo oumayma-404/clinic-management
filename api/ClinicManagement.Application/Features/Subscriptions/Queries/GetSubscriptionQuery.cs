@@ -113,9 +113,19 @@ public class GetSubscriptionQueryHandler : IRequestHandler<GetSubscriptionQuery,
     ///
     /// <para>No covering entry at all means the cabinet has lapsed — the state reader answers <c>Expired</c>, and a
     /// label it would not use is not worth deriving.</para>
+    ///
+    /// <para>⚠️ <b>Any live non-trial entry ends the trial label, even one whose cover starts later.</b> FR-1 defines
+    /// « Essai » as <i>only trial entries so far</i>, and paying early is expected (EC-3): a cabinet that pays on day
+    /// 5 of its 30 free days is covered by the trial for another 25, so a covering-entry test alone would keep
+    /// telling a paying customer « Essai gratuit » beside an end date twelve months out.</para>
     /// </summary>
     private static bool IsOnTrial(IReadOnlyList<SubscriptionPeriod> entries, DateTime clinicToday)
     {
+        if (entries.Any(e => !e.IsCancelled && e.Kind != SubscriptionPeriodKind.Trial))
+        {
+            return false;
+        }
+
         var (_, spans) = SubscriptionLedger.FoldWithSpans(entries.Select(e => e.ToLedgerEntry()));
         var day = clinicToday.Date;
 

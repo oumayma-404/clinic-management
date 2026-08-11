@@ -263,14 +263,9 @@ public class SchemaVerificationService
             // Named rather than skipped, for the reason the stock-batch phases document: a check that quietly
             // vanishes from the report is indistinguishable from one that was forgotten, and the before/after
             // diff only works if every line is accounted for.
-            // Built inline rather than through `NotApplicable`, which hardcodes the « Data migrations » section.
             foreach (var check in new[] { "audit-ledger-clinic-nullable", "audit-ledger-has-no-foreign-keys" })
             {
-                findings.Add(new SchemaVerificationFinding(
-                    "Audit ledger",
-                    check,
-                    "not applicable — AuditEntries does not exist yet",
-                    SchemaVerificationSeverity.Info));
+                findings.Add(NotApplicableIn("Audit ledger", check, "AuditEntries does not exist yet"));
             }
 
             return;
@@ -578,17 +573,16 @@ public class SchemaVerificationService
     }
 
     /// <summary>
-    /// <see cref="NotApplicable"/> for a section other than « Data migrations ». Its sibling hardcodes that scope,
-    /// which is why the audit ledger builds its own inline — this is that need, named once.
+    /// A check that cannot run yet, in a named section — the one construction of that finding.
+    ///
+    /// <para>Info, not Drift, on purpose: a part that has not been implemented is not a regression, and making
+    /// <c>verify-schema</c> exit non-zero for unbuilt work would train the operator to ignore its exit code, which
+    /// is the one thing a gate must not do.</para>
     /// </summary>
     private static SchemaVerificationFinding NotApplicableIn(string scope, string check, string why) =>
         new(scope, check, $"not applicable — {why}", SchemaVerificationSeverity.Info);
 
-    /// <summary>
-    /// A check that cannot run yet. Info, not Drift, on purpose: a part that has not been implemented is not a
-    /// regression, and making <c>verify-schema</c> exit non-zero for unbuilt work would train the operator to
-    /// ignore its exit code — which is the one thing a gate must not do.
-    /// </summary>
+    /// <summary>The « Data migrations » case, which is most of them.</summary>
     private static SchemaVerificationFinding NotApplicable(string check, string why) =>
-        new("Data migrations", check, $"not applicable — {why}", SchemaVerificationSeverity.Info);
+        NotApplicableIn("Data migrations", check, why);
 }

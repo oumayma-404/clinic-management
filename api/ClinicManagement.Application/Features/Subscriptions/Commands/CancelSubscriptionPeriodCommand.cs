@@ -114,9 +114,10 @@ public class CancelSubscriptionPeriodCommandHandler
             var previousEndsOn = subscription.EndsOn;
             entry.Cancel(request.Reason, request.CancelledBy, DateTime.UtcNow);
 
-            // No pending entry: the cancelled row is already in the ledger the re-fold reads.
+            // Named as this command's own entry although it is already in the ledger the re-fold reads: the append
+            // is skipped by id, and naming it is what keeps the retry from detaching the unsaved cancellation.
             var saved = await SubscriptionRefold.SaveAsync(
-                clinicId, subscription, pendingEntry: null, plan: null,
+                clinicId, subscription, pendingEntry: entry, plan: null,
                 _subscriptions, _unitOfWork, _logger, cancellationToken);
 
             if (saved.IsFailure)
@@ -131,8 +132,10 @@ public class CancelSubscriptionPeriodCommandHandler
             return Result<SubscriptionCancelResult>.Success(
                 new SubscriptionCancelResult(clinicId, entry.Id, previousEndsOn, saved.Value));
         }
-        catch (ArgumentException ex)
+        catch (Exception ex) when (SubscriptionRefusals.IsDomainRefusal(ex))
         {
+            // Both kinds: the domain throws its French guards through ArgumentException AND
+            // InvalidOperationException, and a genuine programming fault falls through to the log below.
             return Result<SubscriptionCancelResult>.Failure(ex.Message);
         }
         catch (Exception ex) when (ex is not ConflictException)

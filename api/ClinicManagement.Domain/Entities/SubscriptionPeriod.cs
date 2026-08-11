@@ -28,6 +28,9 @@ public class SubscriptionPeriod : AggregateRoot<Guid>
     public const int MaxCancelReasonLength = 500;
     public const int MaxActorLength = 200;
 
+    /// <summary>How far out an explicit end day may be named — `SubscriptionPolicy.MaxTrialDays`' role for `--until`.</summary>
+    public const int MaxExplicitEndYears = 5;
+
     /// <summary>The cabinet this entry entitles. Denormalised beside the entitlement's so both are filtered.</summary>
     public Guid ClinicId { get; private set; }
 
@@ -105,10 +108,14 @@ public class SubscriptionPeriod : AggregateRoot<Guid>
 
         if (forms > 1)
         {
+            // Named for the form supplied *second*: reporting `durationMonths` for a `--days` + `--until` clash sends
+            // the operator — and `GrantSubscriptionPeriodCommandHandler`'s catch — to a flag nobody typed.
             throw new ArgumentException(
                 "Une période d'abonnement porte une seule durée : un nombre de mois, un nombre de jours, "
                 + "une date de fin explicite, ou aucune (sans échéance).",
-                nameof(durationMonths));
+                durationMonths.HasValue
+                    ? durationDays.HasValue ? nameof(durationDays) : nameof(explicitEndsOn)
+                    : nameof(explicitEndsOn));
         }
 
         if (durationMonths is <= 0)
@@ -124,6 +131,25 @@ public class SubscriptionPeriod : AggregateRoot<Guid>
         if (amount is < 0)
         {
             throw new ArgumentException("Le montant ne peut pas être négatif.", nameof(amount));
+        }
+
+        if (explicitEndsOn is { } explicitDay)
+        {
+            // A typed date is the one duration form with no natural floor or ceiling, so both are stated here: a
+            // mistyped year would otherwise record cover that ended before it began, or cover lasting for ever.
+            if (explicitDay.Date < recordedOnClinicDay.Date)
+            {
+                throw new ArgumentException(
+                    "La date de fin ne peut pas précéder le jour où la période est enregistrée.",
+                    nameof(explicitEndsOn));
+            }
+
+            if (explicitDay.Date > recordedOnClinicDay.Date.AddYears(MaxExplicitEndYears))
+            {
+                throw new ArgumentException(
+                    $"La date de fin ne peut pas dépasser {MaxExplicitEndYears} ans à compter d'aujourd'hui.",
+                    nameof(explicitEndsOn));
+            }
         }
 
         return new SubscriptionPeriod

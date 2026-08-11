@@ -189,8 +189,20 @@ public class GetSubscriptionHistoryQueryTests
         Assert.Equal("Cheque", entry.Method);
         Assert.Equal("Chèque", entry.MethodLabel);
         Assert.Equal(1200.000m, entry.Amount);
-        Assert.Equal("Réglé par chèque.", entry.Note);
-        Assert.Equal("job|subscription-grant", entry.RecordedBy);
+        Assert.Equal("VIR-1", entry.Reference);
+    }
+
+    // The vendor's own annotations stay on the vendor's console. `--note` is commentary ABOUT this customer (« geste
+    // commercial », « pilote ») and `RecordedBy` publishes our internal command vocabulary; neither is rendered by
+    // either tree of the history table, so putting them on the wire was exposure with no product benefit. Asserted
+    // over the DTO's shape rather than over a row, because the defect is a property existing at all.
+    [Fact]
+    public void The_History_Row_Carries_No_Vendor_Internal_Field()
+    {
+        var exposed = typeof(SubscriptionPeriodDto).GetProperties().Select(p => p.Name).ToList();
+
+        Assert.DoesNotContain("Note", exposed);
+        Assert.DoesNotContain("RecordedBy", exposed);
     }
 
     // The pager's counts describe the whole filtered set, not the rows on screen — « 1 paiement sur 3 » is what makes

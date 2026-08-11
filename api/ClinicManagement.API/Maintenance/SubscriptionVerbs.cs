@@ -1,4 +1,5 @@
 using System.Globalization;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Subscriptions;
 using ClinicManagement.Domain.Repositories;
@@ -53,8 +54,8 @@ internal static class SubscriptionVerbs
     public static async Task<Guid?> ResolveCabinetAsync(
         string[] args, IServiceProvider scope, CancellationToken cancellationToken)
     {
-        var supplied = ProvisionClinicCommand.ReadOption(args, "--clinic");
-        var email = ProvisionClinicCommand.ReadOption(args, "--email");
+        var supplied = ConsoleArgs.ReadOption(args, "--clinic");
+        var email = ConsoleArgs.ReadOption(args, "--email");
 
         Guid? clinicId = null;
         if (Guid.TryParse(supplied, out var parsed))
@@ -84,12 +85,31 @@ internal static class SubscriptionVerbs
         return null;
     }
 
-    /// <summary>Attributes the verb's writes in the audit ledger as <c>job|&lt;command&gt;</c> (FR-12).</summary>
+    /// <summary>
+    /// Attributes the verb's writes in the audit ledger as <c>job|&lt;command&gt;</c> (FR-12).
+    ///
+    /// <para>The string is built by <see cref="AuditActor.Process"/> rather than by a local <c>$"job|…"</c>: that
+    /// prefix has a named authority which also trims and substitutes « unknown », so a hardcoded copy is how the
+    /// actor stamped on <c>RecordedBy</c> silently diverges from the one the audit interceptor writes for the
+    /// same run.</para>
+    /// </summary>
     public static string DeclareActor(IServiceProvider scope, string commandName)
     {
         scope.GetRequiredService<IAuditActorProvider>().RunAs(commandName);
-        return $"job|{commandName}";
+        return AuditActor.Process(commandName).UserId;
     }
+
+    /// <summary>
+    /// Is this inclusive end day already behind the cabinet? <b>The clinic's day, never the server's</b> —
+    /// <c>EndsOn</c> is a Tunisian calendar day, so comparing it against <c>DateTime.UtcNow.Date</c> printed or
+    /// omitted the « date is in the past » warning against yesterday for the first hour of every clinic day. One
+    /// helper so a third verb needing the question cannot get a third answer.
+    /// </summary>
+    public static bool IsInThePast(DateTime? endsOn) =>
+        endsOn is { } day && day.Date < ClinicClock.ClinicToday().Date;
+
+    /// <summary>Reads <c>--flag value</c> from a verb's arguments. See <see cref="ConsoleArgs.ReadOption"/>.</summary>
+    public static string? ReadOption(string[] args, string flag) => ConsoleArgs.ReadOption(args, flag);
 
     /// <summary>An inclusive end day, or the words for having none — never a far-future date (AC-2.5).</summary>
     public static string Day(DateTime? day) =>
@@ -101,7 +121,7 @@ internal static class SubscriptionVerbs
     public static bool TryReadPositiveInt(string[] args, string flag, out int? value)
     {
         value = null;
-        var raw = ProvisionClinicCommand.ReadOption(args, flag);
+        var raw = ConsoleArgs.ReadOption(args, flag);
         if (string.IsNullOrWhiteSpace(raw))
         {
             return true;
