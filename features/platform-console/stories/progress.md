@@ -14,7 +14,7 @@
 | 4 | Record a payment and unlock the cabinet | No | **implemented** |
 | 5 | Correct a mistake | No — the companion has shipped | **implemented** |
 | 6 | Suspend for abuse | No — the companion has shipped | **implemented** |
-| 7 | Verification, runbook and the promise | No — 4–6 are done; needs the `clinic-subscription` merge first | not-started |
+| 7 | Verification, runbook and the promise | No | **implemented** |
 
 Part 1 was the agreed scope for this session; the user chose it over Parts 1–2 or 1–3 because each part is a
 commit boundary and a part boundary is the resumption point.
@@ -1137,3 +1137,196 @@ checkout and this branch is behind them); step 48's `verify-schema` before/after
 Part 4**, so the batch to run it over is Parts 1–4's; and step 50's « what the vendor sees » sentence must now
 include the **suspension motif** — free text the vendor wrote about the practice, which is new since the sentence
 was drafted, and the one item on that list a cabinet might be surprised to learn is readable.
+
+---
+
+# Part 7 — verification, operator runbook and the promise (steps 48–52)
+
+**Date:** 2026-08-11 · **Status: implemented** — and it is the part that found the feature's one real security
+defect, which is what step 51's « by trying them » is for.
+
+## Working-tree note (start of session)
+
+Clean. `git status` showed only the untracked `features/platform-console/` in the **main** checkout, which belongs
+to a different branch and was not touched. Nothing under `web/` changed in this part (`git status web` → empty).
+
+## Step 0 — the merge that was due at this boundary
+
+`feature/windows-desktop-app`'s `clinic-subscription` Part G **and its 52-finding review pass** were merged in at
+`0b97d09` — the third and last merge of the companion. Parts 4–6 were built against Parts A–F, so without this the
+verification would have been run against code that will not ship.
+
+Six conflicts, all in files both features edit, plus two compile fallouts the merge could not see. The two worth
+knowing:
+
+- **`ClinicSubscription.RecomputeFrom` had been changed on both sides.** Part 4 replaced `Fold` with `FoldWithSpans`
+  (to write `LatestCoverKind`); the review made the method take `whenUtc` instead of reading the clock. Kept **both**,
+  and the four console test fixtures now pass the instant.
+- **`SubscriptionTrial.IsOnTrial` needed the review's fix *ported*, not merged.** Part 4 **moved** that method out of
+  `GetSubscriptionQuery` into its own class, so the review's correction — « any live non-trial entry ends the trial
+  label, even one whose cover starts later » — landed on the copy that no longer exists. Git resolved that as « HEAD
+  deleted it », i.e. silently dropping a real fix. This is the shape to watch for whenever two branches touch code one
+  of them has relocated: **the conflict is not where the fix is missing.**
+
+`PlatformAccountCommand` also had to switch from `ProvisionClinicCommand.ReadOption` (now private) to the review's new
+`ConsoleArgs`.
+
+## Step 48 — the schema gate, before and after, diffed
+
+Run as the verb's own workflow prescribes, against a scratch database **cloned from the dev one** so the « before »
+state was a real pre-batch schema and the user's data was never migrated. Batch = Parts 1–4's four migrations
+(`AddPlatformConsole` · `AddClinicActivityCounters` · `AddPlatformAccessLedger` · `AddPlatformConsoleWrites`); there
+has been no migration since Part 4, so this is the batch the whole feature owes.
+
+| | Result |
+|---|---|
+| **Before** | **11 checks found drift** — every one a `MISSING` index or FK in the four new tables, plus `platform-account-has-totp-or-unenrolled`, both counter checks and `subscription-cover-kind-matches-ledger` reading « not applicable — what it measures does not exist yet » |
+| **After** | **1 check found drift**, and it is the *expected* one: `clinic-activity-snapshot-covers-every-clinic` — « 4 cabinet(s) have no activity snapshot … either the nightly pass has not run yet on this deployment, or it has been failing for those cabinets while logging a clean run » |
+| **Diff** | Only the intended objects. All 11 `MISSING` lines → `[ ok ] … present`, `ClinicActivitySnapshots.CollectedThisMonth: (18,3)` appears, and the four « does not exist yet » lines become real assertions |
+
+⚠️ **The most valuable line in the diff is one nothing else in this repo can produce**:
+`subscription-cover-kind-matches-ledger` went from « not applicable » to « 4 entitlement(s), each naming the cover its
+ledger actually folds to » — i.e. Part 4's denormalised `LatestCoverKind` was independently re-derived through the
+**post-review** fold, over real rows. That is the merge's fold resolution verified by something other than the code
+that performed it.
+
+⚠️ **`dotnet ef` needs `--configuration Release` on this machine.** `dotnet ef database update` failed with
+`FileLoadException … An Application Control policy has blocked this file (0x800711C7)` on the **Debug**
+`ClinicManagement.API.dll` — Part 6's lesson applies to `dotnet ef` as much as to `dotnet test`. Also worth knowing:
+`dotnet ef` reads its connection string from the **startup project's own config chain**, and `launchSettings.json`
+overrides an exported `ASPNETCORE_URLS` / `ConnectionStrings__*` — so it pointed at the dev database and said
+« already up to date » while the scratch one stayed empty. The batch was applied as SQL instead
+(`dotnet ef migrations script … --idempotent` → `psql -f`), which is deterministic and needs no design-time host.
+
+## Step 51 — the two « cannot look the same » requirements, tried rather than reasoned about
+
+The first live end-to-end walk this feature has had: API booted in `HostedMultiTenant` with `Console__Port=5443`,
+a console account created with the verb, TOTP enrolled with a code computed from the printed secret, signed in, and
+the console endpoints called with the real token. What that established, in order:
+
+| Checked | Result |
+|---|---|
+| Both listeners bound in one call | startup log: « Bound the public API on port 5100 and the vendor console on port 5443 » |
+| The public API survived the second listener | `GET :5100/api/auth/mode` → **200** with the real payload |
+| A console path on the public port | `GET :5100/api/platform/summary` → **404** — absent, not present-and-refusing |
+| A clinic path on the console port | `GET :5443/api/auth/mode` → **404** |
+| Password-only sign-in on an unenrolled account (EC-2) | **403** `totp_enrolment_required`, no secret and no session in the body |
+| Enrolment returns the recovery codes once | **200**, eight codes |
+| **EC-12** — the portfolio with the database frozen (`docker pause`) | **500 + « Une erreur est survenue… »**, and the page's `catch → <ReadFailure>` renders « je n'ai pas pu lire ». **Never** an empty table |
+| **EC-15** — a deployment whose counter pass has never run | `summary` answers `neverMeasured: 4`, `dormant: 0` — reported as unmeasured, **not** as four dormant cabinets. Same fact from `verify-schema`, independently |
+
+⚠️ **EC-12 was tested by freezing the container, not by stopping it, and the first attempt was invalid.**
+`ALTER DATABASE … CONNECTION LIMIT 0` looked like the polite way to make the database unreadable without disturbing
+the user's dev stack — but `clinic_user` is the container's superuser and **the limit does not apply to superusers**,
+so new connections kept succeeding and only the in-flight one failed. The 500 it produced was real, but for the wrong
+reason. `docker pause` is the honest version, and reversible in a second.
+
+## ⚠️ What step 51 actually found: `PlatformAccountStateMiddleware` was inert in production
+
+Committed separately as `3d348a1`, ahead of this part's documentation, because it is a security fix and not
+housekeeping.
+
+**The experiment:** signed in, ran `platform-account --deactivate --email ops@editeur.tn` (which succeeded, set
+`IsActive=false` and bumped `TokenVersion` to 2), then called `GET /api/platform/summary` again with the **same
+token**. Expected 401 on the very next request (AC-1.6). Got **HTTP 200 and the whole portfolio.** The one-time
+bootstrap password was equally unenforced: `MustChangePassword` was `true` in the row and every console route
+answered normally, so AC-8.1's « one-time » was true of nothing.
+
+**Why:** the middleware read `context.User`. For a **console** token that is never populated where it runs —
+`UseAuthentication` authenticates only the *default* (clinic) scheme, a console token fails that scheme **by design**
+(that being AC-1.4, the feature's own guarantee), and the console's own scheme is authenticated inside
+`AuthorizationMiddleware` because `AuthorizationPolicies.PlatformConsole` **pins** it, which runs *after* this
+middleware. So `ConsoleAccountId` saw an unauthenticated principal on every request, returned null, and took the
+pass-through branch. Both of AC-1.6's revocations and AC-8.1 were absent for the whole life of the feature.
+
+**Why nothing caught it:** `PlatformAccountStateTests` set `context.User` by hand — the one thing production does not
+do. Its ordering guard against `Program.cs`'s source passed too, because the *position* was right; it is the
+*mechanism* that was wrong. The generalisable rule, now in the test-suite guide: **a middleware whose subject is
+established by a pinned authentication scheme cannot be unit-tested through `DefaultHttpContext.User`** — assigning
+the principal asserts the very arrangement that is broken.
+
+**The fix:** the middleware authenticates the console scheme itself and every check reads *that* principal.
+⚠️ **Two-layer defect**: after routing the account-id lookup through the resolved principal, `HasCurrentTokenVersion`
+was **still** reading `context.User`, so a stale token version passed — caught by the second new test, which is why
+there are two rather than one. ⚠️ Moving the middleware after `UseAuthorization` would also have worked (that *does*
+write the combined principal back) and was rejected: it lets a revoked token be authorized before being refused, and
+rests on a framework detail rather than on this file.
+
+**Re-verified over the wire after the fix:** one-time password → **403** `must_change_password` on the summary and
+**200** on the password change; a stale `TokenVersion` → **401**; deactivation → **401 on the very next request**.
+
+## Steps 49–50 — the runbook and the promise
+
+`deploy/README.md`'s console section gains three subsections, and the two existing ones are corrected:
+
+- **« Recording a payment, correcting one, stopping a cabinet »** — the console's four writes mapped to the verbs that
+  do the same thing, plus the three properties an operator will otherwise discover by accident (a repeated payment
+  replays rather than erring; nothing is ever deleted; a lift restores the entitlement and leaves an *expired* cabinet
+  still read-only).
+- **« When the console is unavailable »** — AC-8.3, stated as the fallback being undegraded rather than as a list. With
+  the two asymmetries: the verbs are the only place a period id is printed and the only way to pass an explicit
+  `--until`, while the console is the only one that records a *person* (`console|…` rather than
+  `job|subscription-grant`).
+- **« What the console can and cannot see »** — rewritten as a **French block quote meant to be sent to a clinic**,
+  because the operator's paraphrase is exactly where AC-7.4 fails. It names the administrator's contact details, the
+  counts, the subscription and its payment history, **the cabinet's own monthly collected total**, and — new since the
+  sentence was first drafted — **the suspension motif**, which is free text the *vendor* wrote about the practice and
+  the one item a clinic might be surprised is readable. It then says what is not visible, and why that is structural
+  (a closed field list that fails the build) rather than a promise.
+- **« Failures worth recognising »** grew from two entries to five: EC-12's « je n'ai pas pu lire », EC-15's « jamais
+  mesuré » on a deployment whose first night has not passed, and « a deactivated console account still works », which
+  is now stated as the defect above rather than as a hypothetical.
+
+**Decision recorded:** the promise is a **document only** — chosen by the user (`AskUserQuestion`, « Document only »)
+over also rendering it on the clinic's « Abonnement » screen. The plan's own verb is « write », and a new clinic-facing
+UI block would pull in `web/`'s device gate and an eye pass this repo still has no browser for.
+
+## Step 52 — the maps
+
+| File | Change |
+|---|---|
+| `CLAUDE.md` | A **Part 7** bullet (the defect, the two EC verifications, the schema diff), and the Part 1 bullet's claim about `PlatformAccountStateMiddleware` annotated — it described behaviour that did not exist until now |
+| `api/ClinicManagement.API/CLAUDE.md` | The middleware-order line was **stale**: it named neither console middleware, both added in Part 1. Now correct, with a paragraph on `PlatformAccountStateMiddleware` including why it was inert |
+| `api/ClinicManagement.UnitTests/CLAUDE.md` | `PlatformAccountStateTests` as the suite's clearest example of a class that was green while the thing it guards did nothing, and the pinned-scheme rule that generalises from it |
+| `api/ClinicManagement.Application/CLAUDE.md` · `Domain/CLAUDE.md` | Unchanged by Part 7 itself; both were **merged** at `0b97d09` (the Domain one needed a hand-merge of two rows whose ⚠️ notes had both grown) |
+
+## Gate results
+
+| Gate | Command | Result |
+|------|---------|--------|
+| Backend build | `dotnet build --no-incremental` | **0 errors, 55 warnings** — the identical pre-existing baseline, and **0 in any file this part touched** (verified by extracting every warning's filename and comparing against the changed set) |
+| Backend unit suite | `dotnet test -c Release` | **2662 passed, 0 failed.** Part 6 left 2644; the merge brought +16, this part's two new cases +2 |
+| Load-bearing case proven able to fail | the wire, before the fix | **yes, and it is the strongest proof in this feature**: the defect was found by the check rather than the check being validated against a known defect — deactivate, re-call, **200**. After the fix, **401** |
+| Schema | `dotnet run -- verify-schema`, before/after, diffed | **clean after, and the diff shows only the intended objects** — see step 48. The one remaining DRIFT is EC-15's own signal on a deployment whose counter pass has never run |
+| Console typecheck | `npx tsc --noEmit` | clean |
+| Console device gate | `npm run check:responsive` | **14/14 pass** |
+| Console build | `npm run build` | clean, **12 routes** |
+| `web/` untouched | `git status web` | empty |
+| CI | `.github/workflows/ci.yml` | unchanged — the `console` job already runs all three console gates |
+| Live walk | see step 51 | both listeners, the two-way port gate, EC-2, enrolment, EC-12, EC-15, and AC-1.6/AC-8.1 before **and** after the fix |
+
+## Owed, and honestly outstanding
+
+- **The eye pass has still not been done, for the seventh and last time.** There is no browser tooling in this
+  repository. Part 7 changed **no** rendering file, so nothing new is owed by this part — but the widths owed by
+  Parts 1–6 are unchanged: **320 / 390 / 820 / 1180 / 1440 px + a landscape phone + a keyboard walk**, on login, the
+  list, the detail, the journal, the payment sheet and both confirmations. Everything mechanical passes (14/14) and
+  every part re-read its diff against `DEVICE-CONTRACT.md` § 1; **structurally sound is not looked at.**
+- **The four writes still have not been exercised over the wire.** This session drove the *reads* and the whole auth
+  surface end to end, which is what caught the middleware defect — but no payment, cancellation or suspension has
+  travelled `console/` → `/bff/*` → the console listener → the handler against a running deployment. Given what the
+  first live walk found in the auth path, this is the highest-value thing left in the feature.
+- **The counter job has still never been run against real data.** `count-clinic-activity` runs at 03:00 UTC; the walk
+  used a database whose snapshots were never written, which is exactly why EC-15 was verifiable and the portfolio's
+  activity figures were not.
+- **`ClinicActivityCounterJob`'s output is therefore unverified end to end**: `verify-schema`'s
+  `clinic-activity-snapshot-is-internally-consistent` passed over **zero** rows, which is a true statement about an
+  empty table and not evidence about the pass.
+- **The `console/` app itself was never opened in a browser.** EC-12's client half is a code reading
+  (`catch → <ReadFailure>`) plus the server's 500, not a screenshot.
+
+## Next
+
+**The story is `implemented` — all seven parts.** What follows is `/review-story`, and the two items worth putting in
+front of it are the last two bullets above: the four writes over the wire, and the eye pass. Neither is a gap in the
+code; both are gaps in what has been *observed*.

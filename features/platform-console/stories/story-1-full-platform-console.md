@@ -1,7 +1,7 @@
 # Story 1: [Full] The vendor runs the practice portfolio from a private console
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts 1–6 implemented**. `features/clinic-subscription/` was merged in at `25b252d`; Part 7 remains, and needs that companion merged again (its Part G + review pass landed afterwards).
+**Story Status:** **implemented** — all seven parts. `features/clinic-subscription/` is fully merged in (Parts A–G + the 52-finding review, at `0b97d09`). ⚠️ Part 7's verification found and fixed a real defect: `PlatformAccountStateMiddleware` was **inert in production**, so AC-1.6's revocations and AC-8.1's one-time password had never worked — see `progress.md`. Next: `/review-story`.
 **Progress:** [progress.md](./progress.md) — gate results, deviations and what is owed
 **Layer:** Full — ⚠️ see *Notes* for why the BE/FE separation rule is deliberately overridden
 **Depends On:** `features/clinic-subscription/` — **Parts 4–7 only** (Parts 1–3 have no dependency on it)
@@ -314,7 +314,7 @@ Before starting this story, ensure:
 46. **Confirm with consequence** — names the cabinet and warns the practice will be unable to record new work (AC-6.5)
 47. **Record it** — `PlatformAccessEntry` + journal rows
 
-### Part 7 — Verification, operator runbook and the promise *(AC-7.4, AC-8.3, FR-8, EC-12, EC-15)*
+### Part 7 — Verification, operator runbook and the promise *(AC-7.4, AC-8.3, FR-8, EC-12, EC-15)* — **implemented**
 
 48. **Run the schema gate** — `verify-schema` before/after the migration batch and **diff**, as that command's workflow prescribes
 49. **Write the operator runbook** (`deploy/README.md`) — opening the tunnel, bootstrapping the first account, enrolling the factor, storing the recovery codes, deactivating an account, and the four companion commands that keep working when the console does not (AC-8.3)
@@ -440,15 +440,15 @@ Before starting this story, ensure:
 ### Per part (the plan's own checklists — the commit gate for each)
 
 **Part 1**
-- [ ] Tunnelled `https://127.0.0.1:9443/login` signs in with password + code; `https://{DOMAIN}/api/platform/summary` and `https://{DOMAIN}/cabinets` both **404**
+- [x] Signs in with password + code, and `/api/platform/summary` on the **public** port is **404** (Part 7 live walk — direct ports, **not** through Caddy or a tunnel: the reverse-proxy half is still unverified)
 - [ ] A clinic token on `/api/platform/*` → **401**; a console token on `/api/patients` → **401**
-- [ ] Password-only sign-in on an unenrolled account → 403 with no secret and no session
+- [x] Password-only sign-in on an unenrolled account → **403 `totp_enrolment_required`**, no secret and no session (Part 7 live walk)
 - [ ] A recovery code signs in once and cannot be reused, including when the sign-in it accompanied failed
-- [ ] Deactivating an account mid-session refuses its **very next** request (401), not at token expiry
+- [x] Deactivating an account mid-session refuses its **very next** request (401), not at token expiry — ⚠️ **this was FALSE until Part 7 fixed it** (`3d348a1`); it answered 200 with the whole portfolio
 - [ ] Setting the console port to the web port refuses startup, naming both keys
 - [ ] Setting `Console:Port` equal to the port in `ASPNETCORE_URLS` refuses startup — EC-4 fires where `Hosting:HttpPort` is unset
-- [ ] **With the console enabled, `https://{DOMAIN}/api/auth/mode` still answers**, and the startup log names both bound endpoints
-- [ ] `dotnet test` green; `console` CI job green; login usable at 320 px
+- [x] **With the console enabled, `/api/auth/mode` still answers** (200), and the startup log names both bound endpoints (Part 7 live walk)
+- [x] `dotnet test` green (2662) and the `console` gates green — ⚠️ « login usable at 320 px » is the **mechanical** check only; the eye pass is still owed
 
 **Part 2**
 - [ ] The list filters and sorts on activity across the **portfolio**, not the current page
@@ -485,10 +485,10 @@ Before starting this story, ensure:
 - [ ] « Expiré » and « Suspendu » are distinguishable in greyscale, in the list and the detail
 
 **Part 7**
-- [ ] `verify-schema` clean; the before/after diff shows only the intended objects
-- [ ] Killing the database renders « je n'ai pas pu lire », **not** « aucun cabinet »
-- [ ] A deployment with no counter pass yet reports its staleness explicitly
-- [ ] The runbook is followable by someone who has not read the plan
+- [x] `verify-schema` clean after; the before/after diff shows only the intended objects (11 `MISSING` → 0; the one remaining DRIFT is EC-15's own signal)
+- [x] Freezing the database makes the portfolio read **500 + a French sentence** and the page render « je n'ai pas pu lire » — never an empty table
+- [x] A deployment with no counter pass reports `neverMeasured: 4` / `dormant: 0`, and `verify-schema` says the same independently
+- [x] The runbook was **followed** to bootstrap the first account, enrol the factor and change the one-time password — which is the strongest evidence available without a second reader
 
 **Verification commands:**
 

@@ -248,14 +248,84 @@ docker exec clinic-api-prod dotnet ClinicManagement.API.dll   platform-account -
 
 Its live sessions are refused on their **next request**, not when the token would have expired.
 
+### Recording a payment, correcting one, stopping a cabinet
+
+Everything in « Cabinet subscriptions » above can also be done from the console, on the cabinet's own fiche:
+
+| On the fiche | Does | Same as the verb |
+|---|---|---|
+| « Enregistrer un paiement » | Records a payment already received and extends the entitlement | `subscription-grant` |
+| « Annuler cette période » (motif required) | Strikes the entry through and lets the end date recompute, **possibly into the past** | `subscription-cancel` |
+| « Suspendre » / « Lever la suspension » (motif required) | Makes the cabinet read-only **regardless of what it has paid**, and releases it | `subscription-suspend` / `-unsuspend` |
+
+Three things worth knowing before using them:
+
+- **A repeated submission of a payment returns the first outcome, not an error.** Double-clicking records one entry.
+  Two *different* payments both land — the surplus one is corrected by a cancellation, never by refusing money that
+  has already arrived.
+- **Nothing is ever deleted.** A cancelled entry stays visible, struck through, carrying its motif, who cancelled it
+  and when.
+- **A suspension is not a payment state.** Lifting one restores whatever entitlement the cabinet had — no paid day is
+  spent — so a cabinet that was *also* expired stays read-only after the lift, and the console says so rather than
+  claiming the practice can work again. Changing a motif means lifting and re-suspending; both halves land in
+  « Journal des accès ».
+
+### When the console is unavailable
+
+**The verbs are the fallback, and not a degraded one.** A broken, unreachable or not-yet-configured console must never
+stop you unlocking a cabinet that has paid, or correcting a grant keyed against the wrong practice — so
+`subscription-grant`, `-cancel`, `-suspend`/`-unsuspend` and `-report` do everything the console's four writes do, over
+`docker exec`, with no console account and no second factor in the way. The commands are in « Cabinet subscriptions »
+above.
+
+⚠️ Two differences in the verbs' favour: `subscription-report --clinic <id|email>` is the **only** place a period id is
+printed, and `subscription-cancel` is what consumes one — so a mistake older than your current console session is
+corrected there. And `--until` accepts an explicit end date, which the console deliberately does not offer.
+
+⚠️ One difference the other way: a verb is recorded as `job|subscription-grant` in the cabinet's own journal, where the
+console records the account that acted (`console|…`). Both are attributable; only the console names a person.
+
 ### What the console can and cannot see
 
-Worth being able to say out loud to a clinic that asks. It reads **counts, dates, the subscription state, and the
-cabinet's own monthly collected total**. It cannot read a patient, an appointment, a note, a document, a
-diagnosis or any per-patient amount — and that is enforced by a check that fails the build, not by a policy
-somebody could edit.
+**This is the paragraph to send a clinic that asks, and it is written to be true rather than reassuring.** Copy it as
+it stands; the temptation to shorten it to « nous ne voyons pas vos données » is exactly what makes it false.
 
-### Two failures worth recognising
+> **Ce que l'éditeur voit de votre cabinet**
+>
+> Depuis notre console d'administration, nous voyons de votre cabinet :
+>
+> - le **nom du cabinet**, sa ville, sa date de création, et le **nom, l'adresse e-mail et le téléphone du compte
+>   administrateur** ;
+> - des **nombres** : combien de patients sont enregistrés, combien de comptes utilisateurs existent, combien de
+>   rendez-vous ont été pris sur 30 jours, combien d'enregistrements ont été faits sur 7 et 30 jours, sur combien de
+>   jours le logiciel a servi, la date du dernier enregistrement et celle de la dernière connexion ;
+> - votre **abonnement** : son état, sa date de fin, le forfait, et l'historique des paiements que vous nous avez faits ;
+> - le **total encaissé par votre cabinet ce mois-ci** — un seul chiffre, celui que votre propre caisse affiche ;
+> - et, si votre cabinet a été **suspendu**, le motif que nous avons écrit nous-mêmes en le suspendant.
+>
+> Nous ne voyons **pas** : vos patients (aucun nom, aucun dossier, aucune fiche de soins, aucune ordonnance, aucun
+> document, aucun antécédent, aucune dent), vos rendez-vous eux-mêmes, vos notes, ni le détail de vos factures, de vos
+> dépenses ou du solde d'un patient. Nous ne pouvons pas nous connecter à votre application avec un compte de votre
+> cabinet.
+>
+> Ce n'est pas une promesse d'usage : la console ne dispose que d'une liste **fermée** de champs, et toute tentative
+> d'en ajouter un autre — un nom de patient, par exemple — fait échouer la compilation du logiciel. Chaque
+> consultation de la fiche de votre cabinet par l'un de nos comptes est par ailleurs **enregistrée** : qui, quel
+> cabinet, quand.
+
+Three notes for whoever sends it:
+
+- **The monthly collected total is the sentence's load-bearing half.** It is one figure, it is not per-patient and it
+  is not clinical — but it is the practice's turnover, and « nous ne voyons rien » is a broader claim than the truth.
+  A clinic that discovers the figure afterwards has been misled by the short version, not by the product.
+- **The suspension motif is free text we wrote about them.** It is the one item on the list a practice might be
+  surprised is readable, and it exists because the screen that can lift a suspension has to be able to say why one
+  stands. Write motifs accordingly.
+- **What the clinic cannot see is our access log.** « Journal des accès » is the vendor's, not the cabinet's; showing
+  a practice which of our accounts opened its file is deliberately out of scope. If a clinic asks for it, that is a
+  product decision, not a configuration one.
+
+### Failures worth recognising
 
 - **The API stopped answering after enabling the console.** Should be impossible — `Program.cs` binds the public
   port and the console port in one call, and logs both at startup (« Bound the public API on port … and the
@@ -263,6 +333,19 @@ somebody could edit.
 - **Startup refuses with a message naming `Console:Port`.** The console port collides with the port the API
   already answers on. Pick another, or set `CONSOLE_PORT=0` to switch the console off. It refuses to start rather
   than silently making either the console or the whole product unreachable.
+- **« Je n'ai pas pu lire les cabinets » on the portfolio.** The database is unreachable or the API cannot read it.
+  This screen is written so that a failed read can never render as an empty portfolio: **« aucun cabinet » and « je
+  n'ai pas pu lire » are the same picture and opposite facts**, and a vendor who reads the first concludes the
+  deployment is empty. Check `GET /health` — it grades the database `Unhealthy` (503) while a storage outage is only
+  `Degraded` (200).
+- **Every cabinet reads « jamais mesuré » and the « dormant » filter finds nothing.** That is not a portfolio of idle
+  practices — it is the nightly counter pass never having run on this deployment. It is `count-clinic-activity`
+  (03:00 UTC), and `dotnet ClinicManagement.API.dll verify-schema` reports the same thing as
+  `clinic-activity-snapshot-covers-every-clinic`. **A freshly deployed console shows it until the first night has
+  passed**, which is expected and says so on screen.
+- **A console account still works after you deactivated it.** It must not, and as of Part 7 it does not: refusal is on
+  the account's **very next request** (401), not at token expiry. If you ever see otherwise, that is the defect
+  `PlatformAccountStateMiddleware` exists to prevent — it was real once, and it was silent.
 
 ## Two things this topology does not solve
 

@@ -174,6 +174,16 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   account and a cancelled appointment are all things no request-time guard can still catch. The isolation class
   states the deliberate **asymmetry** — registration crosses clinics (the token is globally unique, so a scoped
   lookup makes a rebind a 500) while deregistration must not.
+- **`Api/PlatformAccountStateTests.cs`** (`platform-console` Part 1, corrected in Part 7) — and the clearest example in
+  this suite of a class that was **green while the thing it guards did nothing**. Every case built its principal with
+  `context.User = new ClaimsPrincipal(...)`, which is exactly what production never does for a **console** token: the
+  console's scheme is *pinned* by its policy and is therefore authenticated inside `AuthorizationMiddleware`, after the
+  middleware under test, so on a real request `context.User` was unauthenticated and the middleware passed everything
+  through. The defect surfaced only by signing in over the wire and deactivating the account — HTTP 200, the whole
+  portfolio. ⚠️ **The lesson generalises to any middleware whose subject comes from a pinned scheme**: hand-assigning
+  the principal asserts the one arrangement that is broken. The two new cases install a **stub
+  `IAuthenticationService`** and set no principal at all, so they exercise the call production makes; the second of
+  them caught `HasCurrentTokenVersion` still reading `context.User` after the first fix, which is why there are two.
 - **`Features/Platform/PlatformReadShapeTests.cs`** (`platform-console` Part 2) — the guard that *is* US-7. It reflects over
   every `IRequest` in `Features.Platform`, unwraps `Result<T>`, recurses into nested DTOs and collections, and asserts every
   property name at every depth is in `PlatformReadShape.AllowedLeafNames`. ⚠️ **Names, not types**: a type allow-list is

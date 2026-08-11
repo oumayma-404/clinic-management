@@ -90,7 +90,7 @@ graph TD
 
 | Story | Layer | Name | Status | Depends On |
 |-------|-------|------|--------|------------|
-| 1 | Full | [The vendor runs the practice portfolio from a private console](./story-1-full-platform-console.md) | in-progress (Parts 1–5 done) | `features/clinic-subscription/` — **merged in at `25b252d`** |
+| 1 | Full | [The vendor runs the practice portfolio from a private console](./story-1-full-platform-console.md) | **implemented** (all 7 parts) | `features/clinic-subscription/` — **fully merged at `0b97d09`** (Parts A–G + the review pass) |
 
 ### Part-level progress (within Story 1)
 
@@ -104,7 +104,7 @@ The story's own commit boundaries. Tick a part when its validation checklist pas
 | 4 | Record a payment and unlock the cabinet | No — merged at `25b252d` | **implemented** |
 | 5 | Correct a mistake | No — merged at `25b252d` | **implemented** |
 | 6 | Suspend for abuse | No — merged at `25b252d` | **implemented** |
-| 7 | Verification, operator runbook and the promise | No — 4–6 are done; needs the `clinic-subscription` merge first | not-started |
+| 7 | Verification, operator runbook and the promise | No | **implemented** |
 
 ## Gates this story is held to
 

@@ -872,7 +872,8 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   `TenantScopeMiddleware`** (a console principal has no `User` row), so two middlewares fill the holes that
   creates: **`PlatformAccountStateMiddleware`** re-reads the account and refuses a deactivation or a stale
   `TokenVersion` on the **next** request (AC-1.6) — without it the deactivation verb would leave a revoked account
-  with full cross-cabinet access until its token expired — and **`PlatformTenantScopeMiddleware`** declares
+  with full cross-cabinet access until its token expired, ⚠️ **which is exactly what it did until Part 7 fixed it;
+  see that bullet before trusting this sentence's history** — and **`PlatformTenantScopeMiddleware`** declares
   `UseSystemWide("platform console")`, because an `Unset` scope reads **zero rows with no error**, which is
   indistinguishable from a portfolio where every cabinet is idle (EC-12).
   ⚠️ **`AuditActor.Console(accountId)` lands here rather than with the first console write.** `AuditActorProvider`
@@ -1056,6 +1057,36 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   AC-6.3. A « Suspendre » button beside the payment history presents suspension as a billing lever, and a vendor who
   reads it that way reaches for a **cancellation** instead, which is not reversible. « Suspendu » is stated in words
   with the motif quoted, so a greyscale printout and a screen reader get the same facts as a colour.
+
+- **The verification found the hole the six parts before it could not (`platform-console` Part 7)**: Part 7 adds no
+  feature — it is the schema gate run before and after the migration batch and diffed, the operator runbook in
+  [`deploy/README.md`](deploy/README.md), and the paragraph a clinic can be *sent* about what the vendor sees. Its
+  step 51 says « confirm the two "cannot look the same" requirements **by trying them** », and trying them is what
+  earned this bullet.
+  ⚠️ **`PlatformAccountStateMiddleware` was inert in production for the whole life of the feature**, so AC-1.6's two
+  revocations and AC-8.1's « one-time » password were absent while every layer reported them present. It read
+  `context.User`, which for a **console** token is never populated where it runs: `UseAuthentication` authenticates
+  only the *default* (clinic) scheme — which a console token fails **by design**, that being AC-1.4 — and the
+  console's own scheme is authenticated inside `AuthorizationMiddleware`, because the policy pins it, i.e. *after*
+  this middleware. So the account id resolved to null on every request and everything passed through. Proven over
+  the wire: signed in, ran `platform-account --deactivate`, called `/api/platform/summary` again with the same
+  token — **HTTP 200, the whole portfolio**. The fix authenticates the console scheme in the middleware and every
+  check reads *that* principal; `HasCurrentTokenVersion` was still reading `context.User` after the first attempt,
+  which the new test caught.
+  ⚠️ **Its tests passed throughout because they set `context.User` by hand** — the one thing production does not do.
+  That is the general lesson: a middleware whose subject is established by a *pinned* authentication scheme cannot be
+  unit-tested through `DefaultHttpContext.User` without asserting the very arrangement that is broken. The new cases
+  install a stub `IAuthenticationService` instead, so they exercise the call production makes.
+  ⚠️ **EC-12 and EC-15 both hold, and the second was proven twice.** With the database frozen the portfolio read
+  answers **500 + a French sentence** and the page renders « je n'ai pas pu lire » — never an empty table, because
+  « aucun cabinet » and « je n'ai pas pu lire » are the same picture and opposite facts. A deployment whose counter
+  pass has never run reports « jamais mesuré » on screen (`neverMeasured: 4`, `dormant: 0`) **and** as
+  `verify-schema`'s `clinic-activity-snapshot-covers-every-clinic` — the one figure that says « the pass has not run »
+  rather than « these practices are idle ».
+  ⚠️ **The before/after schema diff is the clean result the workflow is for**: 11 drifts, every one of them a
+  `MISSING` index or FK in the four new tables, going to **0** — plus `subscription-cover-kind-matches-ledger` and
+  the two counter checks moving from « not applicable — does not exist yet » to green, which independently
+  re-derives Part 4's `LatestCoverKind` through the *real* fold.
 - **A clinic can let itself in, and nothing exists until the email is answered (`clinic-self-signup`)**: a hosted
   clinic used to exist only because an operator ran `provision-clinic`. `POST /api/auth/signup` (anonymous) writes a
   pending **`ClinicSignup`** and emails a link; `POST /api/auth/signup/verify` consumes it and provisions the clinic +
