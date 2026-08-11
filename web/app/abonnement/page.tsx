@@ -253,9 +253,17 @@ function StateCard({ subscription }: { subscription: SubscriptionDto }) {
         <p className="text-sm text-foreground">
           {/* AC-2.5: an entitlement with no end date says so in words. A far-future date would be a sentence
               nobody can act on, and there is no date to name here — there is genuinely no expiry. */}
+          {/* ⚠️ The past tense is chosen by `state === "Expired"`, NOT by `allowsWrites`, which is false for two
+              different reasons. A suspension makes the cabinet read-only while touching no ledger entry — that is
+              what makes lifting it restore the entitlement exactly — so `endsOn` still names a date in the FUTURE,
+              and forking on `allowsWrites` printed « A expiré le 09/09/2026 » on the 11th of August: a past tense
+              about a date a month away, and a false claim, since the cover had not expired at all. The suspension
+              is stated on its own line below; this line is only ever about the entitlement. The banner one folder
+              over already branched on `state` and said so in its own comment — the reasoning existed and this
+              screen did not apply it. */}
           {subscription.endsOn === null
             ? "Sans échéance — cet abonnement n'expire pas."
-            : `${subscription.allowsWrites ? "Valable jusqu'au" : "A expiré le"} ${formatCalendarDay(subscription.endsOn)} inclus.`}
+            : `${subscription.state === "Expired" ? "A expiré le" : "Valable jusqu'au"} ${formatCalendarDay(subscription.endsOn)} inclus.`}
         </p>
 
         {subscription.suspensionReason && (
