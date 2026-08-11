@@ -210,6 +210,19 @@ documents, nullable-patient appointments, and the multi-tenant clinic/user/docto
   exactly what folding one open-ended entry yields, so `subscription-end-date-matches-ledger` reads clean the moment
   it finishes. Verified end to end: applied to a live database, `verify-schema` went exit 2 → **exit 0**, and
   `4 clinics = 4 entitlements = 4 grandfathered = 4 open-ended`.
+- **`20260810223151_AddPlatformConsoleWrites`** (`platform-console` Part 4) — three columns, one index and one
+  backfill. `ClinicSubscriptions.LatestCoverKind` (the clock-free denormalisation the console's « en essai » filter
+  reads) plus `PlatformAccessEntries.IdempotencyKey` and `.SubscriptionPeriodId`. Purely additive — nothing altered,
+  narrowed or dropped — and the backfill sits **below every DDL statement** so a later edit inherits that order.
+  ⚠️ **`LatestCoverKind` is nullable and stays null for a cabinet whose every entry has been cancelled**: that is a
+  real state, not a missing value, and a scaffolded `defaultValue` of `Paid` would put an unentitled cabinet in the
+  portfolio's paid bucket — the class of bug the backup-schedule zeros already cost this repo once.
+  ⚠️ The index on `IdempotencyKey` is **unique and partial** (`IS NOT NULL`), and it — not the handler's read-first
+  check — is what makes « a double-click produces one entry » true: two simultaneous submissions both read « rien
+  encore enregistré ». Verified end to end against a throwaway database seeded with two cabinets: the backfill wrote
+  `Paid` for a trial→paid ledger and **`Trial`** for one whose paid entry was cancelled, so the « last non-cancelled
+  entry » rule is what ran; `verify-schema` went 1 DRIFT → clean on those two checks, and corrupting one row turned
+  the new `subscription-cover-kind-matches-ledger` red.
 
 ## Repositories (`Repositories/`)
 Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `ApplicationDbContext`; `GetById*` uses
@@ -244,6 +257,8 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `IDeviceRegistrationRepository` | `DeviceRegistrationRepository` (P6). Its `GetByTokenAcrossClinicsAsync` is the only deliberately `IgnoreQueryFilters()` read here besides the seeder's — see the Domain guide for why that is *required* rather than lax |
 | `IClinicSubscriptionRepository` | `ClinicSubscriptionRepository` (`clinic-subscription`). Both its tables carry a non-nullable `ClinicId` and are filtered, so there is **no `IgnoreQueryFilters()` anywhere in it** and none is needed: a caller with no clinic in scope has to declare `UseSystemWide` rather than have this class quietly read across cabinets. Guarded `UpdateAsync` (the detached-`xmin`-0 trap `ClinicSignupRepository` documents) |
 | `IClinicSignupRepository` | `ClinicSignupRepository` (`clinic-self-signup`). The one repository with **no** `IgnoreQueryFilters()` and no need of one: `ClinicSignup` carries no `ClinicId`, so no filter is configured for it. Its `PurgeSpentAsync` **stages** removals rather than `ExecuteDelete`, so the trim rides the caller's single `SaveChangesAsync` instead of committing even when the signup it accompanies is refused |
+| `IClinicActivityRepository` | `ClinicActivityRepository` (`platform-console` Part 2). The vendor console's counter tables and the one bounded portfolio JOIN. ⚠️ A **LEFT** join from `Clinics` onto the snapshot, so a cabinet the pass has never reached still appears with its counters stated as unknown rather than as zeros (EC-8/EC-15) — an inner join would hide exactly the cabinets whose absence is the thing worth seeing. ⚠️ The administrators'-address half of the search is an `EXISTS`, not a join: a cabinet with two admins must appear **once**, and joining would duplicate its row and corrupt every page boundary after it. ⚠️ `.ThenBy(clinic.Id)` on every sort branch, or `OFFSET` shows one cabinet twice and skips another. ⚠️ Since Part 3 the list and the **detail** (`GetClinicRowAsync`) pass the **same** projection expression over a named `PortfolioJoin` — AC-3.1 is « the same figures », and two expressions would drift into a cabinet reading one way in the portfolio and another when opened, the hardest kind of discrepancy to notice because both screens look right alone |
+| `IPlatformAccessEntryRepository` | `PlatformAccessEntryRepository` (`platform-console` Part 3). Add and one paged read; **no update and no delete**, which is the contract rather than an omission. `GetRecordedActorsAsync` is a plain `SELECT DISTINCT` over `(PlatformAccountId, AccountEmail)` and not a `GroupBy` picking one address per account: nothing renames a console account today, so it yields one row each — and if that changes, showing both addresses an account has acted under is the honest answer where `Max` would have chosen one by alphabet |
 | `IPushDeliveryRepository` | `PushDeliveryRepository` (P6). The due scan mirrors `NotificationRepository`'s per-clinic fairness bound predicate for predicate |
 
 ## External Services (`Services/`, `Storage/`, `Security/`, `Auth/`)

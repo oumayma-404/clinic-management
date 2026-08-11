@@ -70,6 +70,37 @@ public class UserRepository : IUserRepository
             .CountAsync(cancellationToken);
     }
 
+    public async Task<ClinicStaffSummary> GetStaffSummaryAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // Every account of the clinic, active or not: a suspended colleague is still a seat the practice has, and
+        // the vendor's question is « how big is this cabinet? », not « who may sign in today? ».
+        var summary = await _context.Users
+            .Where(u => u.ClinicId == clinicId)
+            .GroupBy(u => 1)
+            .Select(g => new { Count = g.Count(), LastLoginAt = g.Max(u => u.LastLoginAt) })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return summary is null
+            ? new ClinicStaffSummary(0, null)
+            : new ClinicStaffSummary(summary.Count, summary.LastLoginAt);
+    }
+
+    public async Task<ClinicAdminContact?> GetPrimaryAdminContactAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // Active first, then the oldest account — the founder ahead of a later addition — and Id last so two
+        // consecutive loads of the detail cannot name two different people.
+        return await _context.Users
+            .AsNoTracking()
+            .Where(u => u.ClinicId == clinicId && u.Role == User.RoleAdmin)
+            .OrderByDescending(u => u.IsActive)
+            .ThenBy(u => u.CreatedAt)
+            .ThenBy(u => u.Id)
+            .Select(u => new ClinicAdminContact(u.FullName, u.Email, u.IsActive))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<User?> GetByAuth0SubAsync(string auth0Sub, CancellationToken cancellationToken = default)
     {
         return await _context.Users

@@ -47,6 +47,17 @@ services:
       # anonymous-or-401. Named explicitly, which is also why Auth__Mode is deliberately absent: the
       # derivation exists for installs that predate this key, not as a second place to state the answer.
       Deployment__Profile: HostedMultiTenant
+      # The console's second Kestrel listener (platform-console). Absent or 0 ⇒ the console is ABSENT: no
+      # listener, no reachable route, 404 on every /api/platform path — never present-and-refusing (AC-1.8).
+      # ⚠️ Program.cs binds this port and the public one in ONE ConfigureKestrel call. It has to: nothing here
+      # calls ConfigureKestrel today, ASPNETCORE_URLS above is the only thing binding 5000, and an explicit
+      # Kestrel endpoint overrides that configuration wholesale — so binding the console alone would unbind 5000
+      # and take the entire product down while the console itself worked.
+      Console__Port: ${CONSOLE_PORT:-5443}
+      # ⚠️ NEVER the clinic's Auth__Local__SigningKey. Distinct issuer, audience and key are what make a console
+      # token and a clinic token fail each other's validation — AC-1.4's « refused as unauthenticated » is a
+      # property of the signature, not of a policy. Startup FAILS LOUD if this is absent while Console__Port > 0.
+      Console__SigningKey: ${CONSOLE_SIGNING_KEY}
       ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       # This profile owns its accounts, so THIS is what signs and validates every bearer token and every 12-hour
       # refresh cookie. Absent, LocalAuthConfig generates a key into /app/.local/ — on the container's ephemeral
@@ -159,6 +170,28 @@ services:
     networks: [internal]
     # No `ports:` — Caddy proxies everything except /api/* and /hub/* to this service.
 
+  # The vendor's back-office (platform-console FR-2) — its OWN image, containing none of the clinic bundle.
+  # That separation is the requirement rather than a packaging preference: the public front door proxies
+  # everything outside /api to `web`, so a console screen shipped in that bundle would be publicly reachable by
+  # default and a proxy rule would be the only thing hiding it.
+  console:
+    build:
+      context: ../console
+      dockerfile: Dockerfile
+    container_name: clinic-console-prod
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      # Straight to the API's SECOND listener over the internal network. It bypasses Caddy deliberately: this is
+      # a server-to-server hop inside the compose network, and routing it back out through the proxy would make
+      # the console depend on its own public site being up to reach an API it can already see.
+      CONSOLE_API_URL: http://api:5443/api
+    networks:
+      - internal
+    # No `ports:` — only Caddy's loopback-published 9443 reaches it.
+
   caddy:
     extends:
       file: docker-compose.prod.yml
@@ -167,6 +200,17 @@ services:
     depends_on:
       - api
       - web
+      - console
+    ports:
+      # ⚠️ 127.0.0.1: — the console's address is NOT published to the internet (FR-2). Binding this to 0.0.0.0
+      # would put the highest-privilege surface in the product on a public port behind nothing but a password,
+      # and the two-way port gate inside the API would not save it: the gate decides WHICH routes answer on this
+      # port, not who may reach it. Reaching it is meant to require `ssh -L 9443:127.0.0.1:9443 <host>`.
+      #
+      # `extends` does not merge lists, so the two public ports the prod file declares are restated here.
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:9443:9443"
 
   backup:
     extends:

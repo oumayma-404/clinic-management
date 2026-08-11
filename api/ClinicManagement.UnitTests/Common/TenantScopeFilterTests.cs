@@ -41,7 +41,21 @@ public class TenantScopeFilterTests
         // ⚠️ The reason is the NULLABLE ClinicId, not the cross-clinic dispatcher: DocumentEmail is filtered and its
         // dispatcher declares UseSystemWide too, so « drained cross-clinic » cannot be what exempts a table.
         ["Notification"] = "ClinicId is nullable (legacy and recall rows), so a filter would hide exactly the "
-                           + "unattributed rows; all four reachable reads take a clinicId explicitly"
+                           + "unattributed rows; all four reachable reads take a clinicId explicitly",
+        // platform-console Part 2. These two are the VENDOR's measurements ABOUT a cabinet, not the cabinet's own
+        // data: written by ClinicActivityCounterJob and read only by the console, both of which are cross-cabinet
+        // by definition and declare UseSystemWide. No clinic-facing surface reads them at all, so a per-clinic
+        // filter would guard a door nobody uses — while making the one legitimate reader depend on lifting it.
+        ["ClinicActivityDay"] = "vendor-console counters: no clinic-facing read exists, and both writers and the "
+                                + "only reader are cross-cabinet by construction",
+        ["ClinicActivitySnapshot"] = "same — and the portfolio LEFT JOINs it across every cabinet, which is the "
+                                     + "read the console exists to serve",
+        // platform-console Part 3. The console's own access ledger. Its ClinicId is the cabinet that was LOOKED AT,
+        // not the owner of the row — the row belongs to the vendor — so a per-clinic filter would be answering a
+        // different question from the one the column asks. It is also read only by /journal, which exists precisely
+        // to read across every cabinet, and its most valuable rows concern a cabinet that has since been deleted.
+        ["PlatformAccessEntry"] = "the VENDOR's ledger of what it did, keyed on the cabinet it did it to: the only "
+                                  + "reader is the cross-cabinet journal, and a closed cabinet's rows must survive"
     };
 
     private sealed class Scope : ICurrentClinicProvider

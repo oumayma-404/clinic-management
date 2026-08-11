@@ -174,6 +174,45 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   account and a cancelled appointment are all things no request-time guard can still catch. The isolation class
   states the deliberate **asymmetry** — registration crosses clinics (the token is globally unique, so a scoped
   lookup makes a rebind a 500) while deregistration must not.
+- **`Api/PlatformAccountStateTests.cs`** (`platform-console` Part 1, corrected in Part 7) — and the clearest example in
+  this suite of a class that was **green while the thing it guards did nothing**. Every case built its principal with
+  `context.User = new ClaimsPrincipal(...)`, which is exactly what production never does for a **console** token: the
+  console's scheme is *pinned* by its policy and is therefore authenticated inside `AuthorizationMiddleware`, after the
+  middleware under test, so on a real request `context.User` was unauthenticated and the middleware passed everything
+  through. The defect surfaced only by signing in over the wire and deactivating the account — HTTP 200, the whole
+  portfolio. ⚠️ **The lesson generalises to any middleware whose subject comes from a pinned scheme**: hand-assigning
+  the principal asserts the one arrangement that is broken. The two new cases install a **stub
+  `IAuthenticationService`** and set no principal at all, so they exercise the call production makes; the second of
+  them caught `HasCurrentTokenVersion` still reading `context.User` after the first fix, which is why there are two.
+- **`Features/Platform/PlatformReadShapeTests.cs`** (`platform-console` Part 2) — the guard that *is* US-7. It reflects over
+  every `IRequest` in `Features.Platform`, unwraps `Result<T>`, recurses into nested DTOs and collections, and asserts every
+  property name at every depth is in `PlatformReadShape.AllowedLeafNames`. ⚠️ **Names, not types**: a type allow-list is
+  satisfied by adding a field to a type already on it, which is exactly how a patient's name would arrive — as one more
+  property on the row somebody was already editing, not as a new DTO. Asserted in **both** directions (an unused allowance is
+  a pre-approved hole), with a non-vacuity test naming three field names it must have reached — reflection tests fail *open*,
+  and a renamed namespace would leave this passing for ever while checking nothing — and a **red proof** that runs the real
+  collector over a `SmuggledPatientRow` carrying `PatientName`, which is the plan's own « verify by trying it » step.
+- **`Features/Platform/PlatformCounterPassTests.cs`** — mostly about the two AC-2.2 exclusions, because they are the only part
+  that fails *silently*: a miscounted total is visible to anyone who looks twice, while a background job counted as cabinet
+  activity makes an empty practice read as busy, and the vendor's response to that is to leave a churning cabinet alone. Also
+  pins that active days are bucketed in the **clinic's** day (23:30 UTC is already tomorrow in Tunis) — every fixture is a
+  fixed instant, for `ClinicClockTests`' reason.
+- **`Features/Platform/PlatformPortfolioQueryTests.cs`** — every filter reaching the repository **verbatim** (the matching
+  itself is SQL and out of this suite's reach), the sort fallback, `PageRequest` clamping, freshness as the **oldest**
+  measurement on the page, « jamais mesuré » kept distinct from zero (EC-15), the subscription placeholder returning four
+  nulls rather than a guessed « Actif », and — the load-bearing one — that a handler reached with **no declared cross-clinic
+  scope throws** instead of reading zero rows and reporting success (EC-12).
+- **`Features/Platform/PlatformAccessLedgerTests.cs`** (`platform-console` Part 3) — the detail read and the console's
+  own access ledger. Its load-bearing case runs the **real** detail handler and the **real** journal handler over
+  **one** ledger, so the row the write produced is compared with the row the read serves rather than with a
+  hand-written expectation — a write-only ledger and a ledger nobody reads back look identical from outside.
+  ⚠️ Its second is `Loading_The_List_Cannot_Write_A_Ledger_Row`, asserted on the **constructor**
+  (`ClinicHubTenantScopeTests`' technique): AC-3.5 is a promise about something that does *not* happen, and « I ran
+  the list and no row appeared » passes just as well when the ledger is broken for every caller. Also pins that an
+  unattributable read **fails** rather than succeeding unrecorded, that a vanished cabinet is refused by **code**
+  and records nothing, and that the trend's six buckets keep « pas encore mesuré » (`DaysMeasured == 0`) distinct
+  from a measured zero — with the window derived from `ClinicClock` rather than hard-coded, deliberately, since
+  « what is today in Tunis » is `ClinicClockTests`' business and a literal would flake for one hour of every day.
 - **`Hubs/ClinicHubTenantScopeTests.cs`** — asserts on the hub's **constructor**, because the defect it guards
   against cannot be caught behaviourally: HTTP middleware does not run per hub invocation, so a hub method reading
   a clinic-filtered entity returns an **empty result and reports success**.

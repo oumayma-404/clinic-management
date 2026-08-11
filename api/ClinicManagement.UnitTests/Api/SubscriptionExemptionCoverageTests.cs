@@ -68,6 +68,24 @@ public class SubscriptionExemptionCoverageTests
                                                          // forgotten password otherwise costs an expired cabinet
                                                          // the reads, exports and PDFs AC-4.1/4.2 guarantee, and
                                                          // hosted has no other recovery
+
+        // --- The vendor console's own write (`platform-console` AC-4.1). It is the endpoint whose PURPOSE is to end
+        // a refusal, and the cabinets it is used on are precisely the ones that have lapsed. A console account is
+        // not a cabinet, so it passes the gate on that ground today — the attribute states the intent where a reader
+        // finds it rather than leaving it to how the tenant scope happens to resolve.
+        "PlatformSubscriptions.RecordPeriod",
+
+        // --- And correcting one recorded by mistake (`platform-console` AC-5.1). The vendor's own bookkeeping, on
+        // the cabinets likeliest to be lapsed — including where the mis-keyed entry is what caused the lapse, which
+        // is the one case refusing it would make uncorrectable from the console.
+        "PlatformSubscriptions.CancelPeriod",
+
+        // --- Stopping a cabinet for abuse, and undoing that (`platform-console` AC-6.1/6.4). Suspension is not a
+        // payment state (AC-6.3), so making it wait on the cabinet's own entitlement would be incoherent in both
+        // directions: a fraudulent practice that has stopped paying is exactly the one still to be stopped, and a
+        // mistaken suspension has to stay liftable on the same cabinet.
+        "PlatformSubscriptions.Suspend",
+        "PlatformSubscriptions.LiftSuspension",
     };
 
     /// <summary>

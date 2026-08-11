@@ -65,7 +65,19 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
         nameof(Notification),
         // Written by the ANONYMOUS signup endpoint: no actor, no clinic to resolve, so no reading of GET /api/audit
         // can ever show them — and a purge row would record the abandoned visitor's name and address for ever.
-        nameof(ClinicSignup)
+        nameof(ClinicSignup),
+        // The vendor's console identity (platform-console). « Journal d'activité » is a CLINIC's history, read by
+        // that clinic's admin; a console sign-in, a lockout counter or a recovery code being spent belongs to no
+        // cabinet, so every such row would be unattributable noise nobody can see. What the console does *to* a
+        // cabinet is still audited — that write touches the cabinet's own aggregates and carries `console|{id}`.
+        nameof(PlatformAccount),
+        nameof(PlatformRecoveryCode),
+        // The console's own access ledger (Part 3). It is already a ledger: auditing it would record « the vendor
+        // recorded that it looked at a cabinet » in that cabinet's « Journal d'activité » — a row about the writing
+        // of a row — and, because a mere READ produces one, opening a detail would appear in the practice's history
+        // as a mutation of its own data, which it is not. What the console does *to* a cabinet still audits itself,
+        // through the cabinet's own aggregates and under `console|{accountId}`.
+        nameof(PlatformAccessEntry)
     };
 
     /// <summary>

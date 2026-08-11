@@ -419,6 +419,35 @@ public class SchemaVerificationService
         // both are silent: a backfill that covered nothing (rows stuck at Guid.Empty, so a patient's whole
         // record reads as empty rather than as an error), or a write path that named a clinic other than the
         // patient's (the row is visible — to the wrong practice).
+        // platform-console Part 1. Two columns that are halves of one fact, with no constraint saying so — and
+        // the broken half locks the vendor out of its own console while every screen says « code invalide ».
+        Add("platform-account-has-totp-or-unenrolled", counts.PlatformAccountsEnrolledWithoutSecret,
+            n => n == 0
+                ? "0 console account(s) are marked enrolled without a second-factor secret"
+                : $"{n} console account(s) are marked as having enrolled a second factor but carry NO secret — "
+                  + "they cannot sign in and cannot re-enrol; `platform-account --reset-totp` is the only way back",
+            n => n == 0);
+
+        // platform-console Part 2. The counter job survives one cabinet's failure on purpose, so a cabinet
+        // skipped every night costs nothing visible — the run logs clean and the console says « jamais mesuré »,
+        // which on a fresh deployment is also the honest answer. Only this figure tells the two apart.
+        Add("clinic-activity-snapshot-covers-every-clinic", counts.ClinicsWithoutActivitySnapshot,
+            n => n == 0
+                ? "every cabinet has an activity snapshot"
+                : $"{n} cabinet(s) have no activity snapshot — either the nightly pass has not run yet on this "
+                  + "deployment, or it has been failing for those cabinets while logging a clean run",
+            n => n == 0);
+
+        // The relations one Restate call makes true by construction. A violation is a second writer, and its
+        // symptom is a portfolio filtered or sorted on a figure that is quietly wrong rather than an error.
+        Add("clinic-activity-snapshot-is-internally-consistent", counts.IncoherentActivitySnapshots,
+            n => n == 0
+                ? "every activity snapshot's figures agree with each other"
+                : $"{n} activity snapshot(s) contradict themselves (7 j above 30 j, more than 30 active days, "
+                  + "active days with no saves, or saves with no last-write instant) — they were not written by "
+                  + "one ClinicActivitySnapshot.Restate call",
+            n => n == 0);
+
         Add("clinical-child-clinic-matches-patient", counts.ClinicalChildrenWithWrongClinic,
             n => n == 0
                 ? "every fiche, document, file, folder, antécédent and tooth state names its patient's clinic"
@@ -547,6 +576,36 @@ public class SchemaVerificationService
                       + "ledger's fold — some write path set EndsOn without going through "
                       + "ClinicSubscription.RecomputeFrom",
                 drifted.Count == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+        }
+
+        // `LatestCoverKind` is a denormalisation of the same fold, so the same argument applies twice over: it is
+        // re-derived here with the real SubscriptionLedger rather than re-expressed in SQL, and it is checked at all
+        // because a denormalised column and its source can disagree while every layer above reports success — the
+        // shape `clinical-child-clinic-matches-patient` exists for. Its visible symptom would be a cabinet dropping
+        // out of the console's « en essai » filter, which nobody would notice until a churn review came up empty.
+        if (facts.SubscriptionLedgers is { } kindLedgers && facts.SubscriptionCoverKindColumnPresent)
+        {
+            var mismatched = kindLedgers
+                .Where(l => l.StoredLatestCoverKind
+                            != SubscriptionLedger.FoldWithSpans(l.Entries).LatestCoverKind)
+                .ToList();
+
+            findings.Add(new SchemaVerificationFinding(
+                "Cabinet entitlements",
+                "subscription-cover-kind-matches-ledger",
+                mismatched.Count == 0
+                    ? $"{kindLedgers.Count} entitlement(s), each naming the cover its ledger actually folds to"
+                    : $"{mismatched.Count} of {kindLedgers.Count} entitlement(s) store a LatestCoverKind that is NOT "
+                      + "their ledger's — some write path reached the column without going through "
+                      + "ClinicSubscription.RecomputeFrom, or the backfill missed them",
+                mismatched.Count == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+        }
+        else
+        {
+            findings.Add(NotApplicableIn(
+                "Cabinet entitlements",
+                "subscription-cover-kind-matches-ledger",
+                "ClinicSubscriptions.LatestCoverKind does not exist yet"));
         }
 
         // Info with its count, never asserted — see the DTO's own note on why AC-6.4's equality belongs to FR-9's

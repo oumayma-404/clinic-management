@@ -173,7 +173,7 @@ public class SubscriptionReportService
         }
 
         var entries = await _subscriptions.GetEntriesAsync(clinicId, cancellationToken);
-        var (_, spans) = SubscriptionLedger.FoldWithSpans(entries.Select(e => e.ToLedgerEntry()));
+        var spans = SubscriptionLedger.FoldWithSpans(entries.Select(e => e.ToLedgerEntry())).Spans;
         var spanByEntry = spans.ToDictionary(s => s.EntryId);
 
         var ledger = entries

@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Maintenance;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
 using Moq;
 
@@ -29,7 +30,8 @@ public class SchemaVerificationServiceTests
         IReadOnlyList<MappedDecimalFact>? mappedDecimals = null,
         DataMigrationCounts? counts = null,
         AuditLedgerFacts? auditLedger = null,
-        IReadOnlyList<ClinicSubscriptionLedgerFact>? subscriptionLedgers = null)
+        IReadOnlyList<ClinicSubscriptionLedgerFact>? subscriptionLedgers = null,
+        bool coverKindColumnPresent = true)
     {
         _reader
             .Setup(r => r.ReadAsync(It.IsAny<CancellationToken>()))
@@ -45,7 +47,8 @@ public class SchemaVerificationServiceTests
                 auditLedger ?? new AuditLedgerFacts(TableExists: true, ClinicIdIsNullable: true),
                 // Default: one cabinet whose stored end date IS its ledger's fold, so the subscription checks
                 // pass and individual tests override just this facet.
-                subscriptionLedgers ?? new[] { AgreeingLedger }));
+                subscriptionLedgers ?? new[] { AgreeingLedger },
+                coverKindColumnPresent));
     }
 
     /// <summary>
@@ -59,9 +62,11 @@ public class SchemaVerificationServiceTests
         get
         {
             var entries = new[] { TrialEntry };
+            var fold = SubscriptionLedger.FoldWithSpans(entries);
             return new ClinicSubscriptionLedgerFact(
                 Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
-                SubscriptionLedger.Fold(entries),
+                fold.EndsOn,
+                fold.LatestCoverKind,
                 entries);
         }
     }
@@ -73,7 +78,8 @@ public class SchemaVerificationServiceTests
         DurationMonths: null,
         DurationDays: 30,
         ExplicitEndsOn: null,
-        IsCancelled: false);
+        IsCancelled: false,
+        Kind: SubscriptionPeriodKind.Trial);
 
     private static SchemaSide EmptySide => new(
         Array.Empty<IndexFact>(), Array.Empty<ForeignKeyFact>(), Array.Empty<DecimalColumnFact>());
@@ -84,9 +90,13 @@ public class SchemaVerificationServiceTests
         'x',
         "EXCLUDE USING gist (\"DoctorId\" WITH =, slot WITH &&) WHERE (\"Status\" <> ALL (ARRAY[5, 6]))");
 
+    // Positional because the record is: `PatientsTotal` (the 7th) is a population, not a defect count, so it is
+    // the one non-zero entry. The three positional zeros after it are platform-console's checks; the two
+    // clinic-subscription ones are NAMED, because a merge that appended them positionally is exactly how a
+    // twenty-first zero lands in the wrong slot and every assertion still passes.
     private static DataMigrationCounts CleanCounts =>
-        new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, ClinicsWithoutEntitlement: 0,
-            GrandfatheredEntitlementEntries: 3);
+        new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ClinicsWithoutEntitlement: 0, GrandfatheredEntitlementEntries: 3);
 
     private static SchemaVerificationFinding Finding(SchemaVerificationReport report, string check) =>
         report.Findings.Single(f => f.Check == check);
@@ -800,12 +810,61 @@ public class SchemaVerificationServiceTests
             // The off-by-one a hand-written `creationDay.AddDays(trialDays - 1)` produces one way or the other:
             // one day past what the exclusive cursor yields.
             new ClinicSubscriptionLedgerFact(
-                Guid.NewGuid(), SubscriptionLedger.Fold(entries)!.Value.AddDays(1), entries)
+                Guid.NewGuid(),
+                SubscriptionLedger.Fold(entries)!.Value.AddDays(1),
+                SubscriptionPeriodKind.Trial,
+                entries)
         });
 
         var report = await CreateService().RunAsync();
 
         Assert.True(IsDrift(Finding(report, "subscription-end-date-matches-ledger")));
+    }
+
+    // [platform-console Q-1] The cover kind is a denormalisation of the same fold, and it can drift in exactly the
+    // way the end date can: a write path that reaches the column without RecomputeFrom, or a backfill that missed
+    // rows. Its symptom is silent — a cabinet dropping out of the console's « en essai » filter — so the check is
+    // the only thing that can see it.
+    [Fact]
+    public async Task A_Stored_Cover_Kind_That_Is_Not_Its_Ledgers_Is_Drift()
+    {
+        var entries = new[] { TrialEntry };
+        Arrange(subscriptionLedgers: new[]
+        {
+            new ClinicSubscriptionLedgerFact(
+                Guid.NewGuid(),
+                SubscriptionLedger.Fold(entries),
+                SubscriptionPeriodKind.Paid, // the ledger says Trial
+                entries)
+        });
+
+        var report = await CreateService().RunAsync();
+
+        Assert.True(IsDrift(Finding(report, "subscription-cover-kind-matches-ledger")));
+    }
+
+    [Fact]
+    public async Task An_Entitlement_Naming_Its_Ledgers_Cover_Is_Not_Drift()
+    {
+        Arrange();
+
+        var report = await CreateService().RunAsync();
+
+        Assert.False(IsDrift(Finding(report, "subscription-cover-kind-matches-ledger")));
+    }
+
+    // Before the migration the column does not exist, and « not applicable » is the honest answer — a null stored
+    // kind is also a real value (« every entry cancelled »), which is why the reader reports the two separately.
+    [Fact]
+    public async Task The_Cover_Kind_Check_Reads_Not_Applicable_Before_The_Column_Exists()
+    {
+        Arrange(coverKindColumnPresent: false);
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "subscription-cover-kind-matches-ledger");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("not applicable", finding.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     // The satisfied direction, and the one that pins WHICH date is right: the trial folds to day 30 counting the
@@ -836,7 +895,8 @@ public class SchemaVerificationServiceTests
                 Array.Empty<MappedDecimalFact>(),
                 CleanCounts,
                 new AuditLedgerFacts(TableExists: true, ClinicIdIsNullable: true),
-                SubscriptionLedgers: null));
+                SubscriptionLedgers: null,
+                SubscriptionCoverKindColumnPresent: false));
 
         var report = await CreateService().RunAsync();
 

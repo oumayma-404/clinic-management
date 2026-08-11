@@ -211,7 +211,13 @@ public static class RateLimiting
     /// the fifth auth endpoint somebody adds would silently get the API ceiling instead of this one.
     /// </summary>
     public static bool IsAnonymousAuthPath(PathString path) =>
-        path.StartsWithSegments("/api/auth", StringComparison.OrdinalIgnoreCase);
+        path.StartsWithSegments("/api/auth", StringComparison.OrdinalIgnoreCase)
+        // The vendor console's sign-in (platform-console AC-1.5). A prefix the limiter does not know gets the
+        // loose API ceiling (600/60 s) instead of the tight auth window — which on the product's
+        // highest-privilege credential is not a decision anybody would take deliberately. ⚠️ Widening this one
+        // predicate widens the ACCOUNT capture too: AuthAttemptAccount asks IsAnonymousAuthAttempt rather than
+        // repeating the terms, so the limiter and the capture cannot disagree about what an auth attempt is.
+        || path.StartsWithSegments("/api/platform/auth", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// A request the tight auth bounds apply to: a <b>POST</b> to that surface.

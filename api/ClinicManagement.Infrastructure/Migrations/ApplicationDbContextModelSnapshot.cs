@@ -363,6 +363,101 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("Clinics", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicActivityDay", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Appointments")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ComputedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date");
+
+                    b.Property<int>("PatientsCreated")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<int>("Writes")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId", "Day")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ClinicActivityDays_ClinicId_Day");
+
+                    b.ToTable("ClinicActivityDays", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicActivitySnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ActiveDays30d")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Appointments30d")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("CollectedThisMonth")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<DateTime>("ComputedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastLoginAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastWriteAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Patients")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Users")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<int>("Writes30d")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Writes7d")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ClinicActivitySnapshots_ClinicId");
+
+                    b.HasIndex("Writes30d")
+                        .HasDatabaseName("IX_ClinicActivitySnapshots_Writes30d");
+
+                    b.ToTable("ClinicActivitySnapshots", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicReminderSettings", b =>
                 {
                     b.Property<Guid>("Id")
@@ -562,6 +657,9 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<bool>("IsSuspended")
                         .HasColumnType("boolean");
+
+                    b.Property<int?>("LatestCoverKind")
+                        .HasColumnType("integer");
 
                     b.Property<int?>("Plan")
                         .HasColumnType("integer");
@@ -2245,6 +2343,164 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("Payments", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformAccessEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AccountEmail")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("Action")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClinicName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("PlatformAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SubscriptionPeriodId")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("IX_PlatformAccessEntries_IdempotencyKey")
+                        .HasFilter("\"IdempotencyKey\" IS NOT NULL");
+
+                    b.HasIndex("ClinicId", "OccurredAt")
+                        .HasDatabaseName("IX_PlatformAccessEntries_ClinicId_OccurredAt");
+
+                    b.HasIndex("PlatformAccountId", "OccurredAt")
+                        .HasDatabaseName("IX_PlatformAccessEntries_PlatformAccountId_OccurredAt");
+
+                    b.ToTable("PlatformAccessEntries", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformAccount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("FailedLoginAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastLoginAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LockoutEnd")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("MustChangePassword")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("ProtectedTotpSecret")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<int>("TokenVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("TotpEnrolledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique()
+                        .HasDatabaseName("IX_PlatformAccounts_Email");
+
+                    b.ToTable("PlatformAccounts", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformRecoveryCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsUsed")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("PlatformAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlatformAccountId", "IsUsed")
+                        .HasDatabaseName("IX_PlatformRecoveryCodes_PlatformAccountId_IsUsed");
+
+                    b.ToTable("PlatformRecoveryCodes", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ProcedureType", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3152,6 +3408,24 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicActivityDay", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicActivitySnapshot", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicReminderSettings", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
@@ -3683,6 +3957,17 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformRecoveryCode", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.PlatformAccount", "Account")
+                        .WithMany("RecoveryCodes")
+                        .HasForeignKey("PlatformAccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Account");
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ProcedureType", b =>
                 {
                     b.OwnsOne("ClinicManagement.Domain.ValueObjects.ColorHex", "Color", b1 =>
@@ -3931,6 +4216,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Navigation("Files");
 
                     b.Navigation("SubFolders");
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformAccount", b =>
+                {
+                    b.Navigation("RecoveryCodes");
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ProcedureType", b =>

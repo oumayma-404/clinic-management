@@ -3,10 +3,8 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
-using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
-using ClinicManagement.Domain.Services;
 using MediatR;
 using Microsoft.Extensions.Logging;
 
@@ -74,7 +72,8 @@ public class GetSubscriptionQueryHandler : IRequestHandler<GetSubscriptionQuery,
 
             var today = ClinicClock.ClinicToday();
             var entries = await _subscriptions.GetEntriesAsync(clinicId, cancellationToken);
-            var status = SubscriptionStateReader.Read(subscription, today, IsOnTrial(entries, today));
+            var status = SubscriptionStateReader.Read(
+                subscription, today, SubscriptionTrial.IsOnTrial(entries, today));
 
             return Result<SubscriptionDto>.Success(new SubscriptionDto
             {
@@ -100,42 +99,6 @@ public class GetSubscriptionQueryHandler : IRequestHandler<GetSubscriptionQuery,
             _logger.LogError(ex, "Error reading the clinic subscription.");
             return Result<SubscriptionDto>.Failure("Erreur lors de la lecture de l'abonnement.");
         }
-    }
-
-    /// <summary>
-    /// Is the cover in force today the free trial? Answered from the ledger's own spans rather than from the
-    /// entitlement, because the entitlement carries one date and no memory of where it came from.
-    ///
-    /// <para><b>The last covering entry wins.</b> A grandfathered cabinet that later pays holds two entries covering
-    /// today — the open-ended one and the paid one — and the cabinet is on neither a trial nor a mystery: it is on
-    /// the most recently recorded cover. Fold order (<c>RecordedAtUtc</c> then id) is the ledger's own, applied
-    /// inside <see cref="SubscriptionLedger.FoldWithSpans"/>, so this cannot depend on how the rows came back.</para>
-    ///
-    /// <para>No covering entry at all means the cabinet has lapsed — the state reader answers <c>Expired</c>, and a
-    /// label it would not use is not worth deriving.</para>
-    ///
-    /// <para>⚠️ <b>Any live non-trial entry ends the trial label, even one whose cover starts later.</b> FR-1 defines
-    /// « Essai » as <i>only trial entries so far</i>, and paying early is expected (EC-3): a cabinet that pays on day
-    /// 5 of its 30 free days is covered by the trial for another 25, so a covering-entry test alone would keep
-    /// telling a paying customer « Essai gratuit » beside an end date twelve months out.</para>
-    /// </summary>
-    private static bool IsOnTrial(IReadOnlyList<SubscriptionPeriod> entries, DateTime clinicToday)
-    {
-        if (entries.Any(e => !e.IsCancelled && e.Kind != SubscriptionPeriodKind.Trial))
-        {
-            return false;
-        }
-
-        var (_, spans) = SubscriptionLedger.FoldWithSpans(entries.Select(e => e.ToLedgerEntry()));
-        var day = clinicToday.Date;
-
-        var covering = spans.LastOrDefault(s =>
-            s.FromDay is { } from
-            && from <= day
-            && (s.ThroughDay is null || day <= s.ThroughDay.Value));
-
-        return covering is not null
-               && entries.FirstOrDefault(e => e.Id == covering.EntryId)?.Kind == SubscriptionPeriodKind.Trial;
     }
 
     /// <summary>

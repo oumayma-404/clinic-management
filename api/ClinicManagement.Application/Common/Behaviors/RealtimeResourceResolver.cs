@@ -32,9 +32,15 @@ public static class RealtimeResourceResolver
     // the two moments that change it cannot push one: a vendor grant runs in a separate process whose container does
     // not even resolve the notifier and which has no caller's token to derive a clinic from, and an entitlement
     // ending at midnight has no actor at all. A key here would advertise a live channel that covers neither.
+    //
+    // "Platform" is the vendor console, and BOTH pipeline defaults are wrong for it. The audience is derived from
+    // the *acting user's* clinic, and a console account belongs to none — so a broadcast would reach nobody, and do
+    // it silently. And the key would be a new one, which fails the contract test in both directions unless
+    // `clinic-hub.ts` learns to listen for a resource no clinic screen renders. The cabinet learns of a grant by the
+    // re-read `Subscriptions` is excluded for; the console's own screens are server-rendered per request.
     private static readonly HashSet<string> ExcludedAreas = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Auth", "AI", "Backup", "Connectivity", "Dashboard", "PushDevices", "Subscriptions"
+        "Auth", "AI", "Backup", "Connectivity", "Dashboard", "Platform", "PushDevices", "Subscriptions"
     };
 
     public static string? Resolve(Type requestType)

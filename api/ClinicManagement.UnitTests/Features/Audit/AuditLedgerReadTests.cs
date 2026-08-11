@@ -272,6 +272,22 @@ public class AuditLedgerReadTests
 
     // ---------------------------------------------------------------- the actor seam
 
+    /// <summary>
+    /// An <see cref="AuditActorProvider"/> over a clinic context and a console session that answers « nobody ».
+    ///
+    /// <para>Every case below is a <b>clinic or job</b> request, so the console seam has to be explicitly silent —
+    /// and saying so here rather than passing a bare mock is the point: these assertions are what prove the
+    /// console branch added in <c>platform-console</c> Part 1 did not change the clinic path.</para>
+    /// </summary>
+    private static AuditActorProvider Provider(Mock<IClinicContext> context, Guid? consoleAccountId = null)
+    {
+        var session = new Mock<IPlatformSessionContext>();
+        session.Setup(s => s.GetAccountId()).Returns(consoleAccountId);
+        session.Setup(s => s.GetEmail()).Returns(consoleAccountId is null ? null : "vendor@editeur.tn");
+
+        return new AuditActorProvider(context.Object, session.Object);
+    }
+
     // A signed-in user's identity outranks any declared process name, so a helper that calls RunAs while running
     // inside somebody's request cannot claim their work.
     [Fact]
@@ -280,7 +296,7 @@ public class AuditLedgerReadTests
         var context = new Mock<IClinicContext>();
         context.Setup(c => c.GetUserId()).Returns("local|real-person");
         context.Setup(c => c.GetUserEmail()).Returns("person@clinic.tn");
-        var provider = new AuditActorProvider(context.Object);
+        var provider = Provider(context);
 
         provider.RunAs("SomeJob");
 
@@ -296,7 +312,7 @@ public class AuditLedgerReadTests
     {
         var context = new Mock<IClinicContext>();
         context.Setup(c => c.GetUserId()).Returns((string?)null);
-        var provider = new AuditActorProvider(context.Object);
+        var provider = Provider(context);
 
         Assert.Equal(AuditActor.Unknown.UserId, provider.Current.UserId);
         Assert.True(provider.Current.IsProcess);
@@ -307,7 +323,7 @@ public class AuditLedgerReadTests
     {
         var context = new Mock<IClinicContext>();
         context.Setup(c => c.GetUserId()).Returns((string?)null);
-        var provider = new AuditActorProvider(context.Object);
+        var provider = Provider(context);
 
         provider.RunAs("NotificationJob");
 
@@ -323,12 +339,46 @@ public class AuditLedgerReadTests
     {
         var context = new Mock<IClinicContext>();
         context.Setup(c => c.GetUserId()).Returns("local|first");
-        var provider = new AuditActorProvider(context.Object);
+        var provider = Provider(context);
 
         var first = provider.Current;
         context.Setup(c => c.GetUserId()).Returns("local|second");
 
         Assert.Equal(first.UserId, provider.Current.UserId);
+    }
+
+    // [platform-console AC-4.7] A console principal is recorded as `console|{accountId}`, NOT as the bare GUID its
+    // token's `sub` carries. Without this the grant reads in the cabinet's own journal as an ordinary clinic user
+    // — and the counter pass's `console|` exclusion matches nothing, so granting a dormant cabinet makes it read as
+    // active the next morning. Both failures are silent, which is why this case exists.
+    [Fact]
+    public void A_Console_Principal_Is_Recorded_Under_The_Console_Prefix()
+    {
+        var accountId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var context = new Mock<IClinicContext>();
+        // The console token carries a `sub` too, so the clinic context sees one. This is the whole trap.
+        context.Setup(c => c.GetUserId()).Returns(accountId.ToString());
+
+        var provider = Provider(context, accountId);
+
+        Assert.Equal($"{AuditActor.ConsolePrefix}{accountId}", provider.Current.UserId);
+        Assert.True(provider.Current.IsConsole);
+        // Not a process: a person did this, and « Tâche automatique » would be a lie about a vendor's action.
+        Assert.False(provider.Current.IsProcess);
+    }
+
+    // The mirror case, and the one that would fail if the console seam were consulted too eagerly: an ordinary
+    // clinic request must still resolve to its own user id.
+    [Fact]
+    public void A_Clinic_Principal_Is_Untouched_By_The_Console_Seam()
+    {
+        var context = new Mock<IClinicContext>();
+        context.Setup(c => c.GetUserId()).Returns("local|clinic-user");
+
+        var provider = Provider(context);
+
+        Assert.Equal("local|clinic-user", provider.Current.UserId);
+        Assert.False(provider.Current.IsConsole);
     }
 
     // A declaration arriving after the actor has been read would disagree with the rows already written, so the
@@ -338,7 +388,7 @@ public class AuditLedgerReadTests
     {
         var context = new Mock<IClinicContext>();
         context.Setup(c => c.GetUserId()).Returns((string?)null);
-        var provider = new AuditActorProvider(context.Object);
+        var provider = Provider(context);
 
         _ = provider.Current;
         provider.RunAs("TooLateJob");

@@ -1,3 +1,4 @@
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Common.Interfaces;
@@ -30,7 +31,13 @@ public sealed record SchemaFacts(
     IReadOnlyList<MappedDecimalFact> MappedDecimals,
     DataMigrationCounts DataMigrations,
     AuditLedgerFacts AuditLedger,
-    IReadOnlyList<ClinicSubscriptionLedgerFact>? SubscriptionLedgers);
+    IReadOnlyList<ClinicSubscriptionLedgerFact>? SubscriptionLedgers,
+    /// <summary>
+    /// Whether <c>ClinicSubscriptions.LatestCoverKind</c> exists yet. Separate from the facts above because a
+    /// <b>null</b> stored kind is a real value — a cabinet whose every ledger entry has been cancelled — and
+    /// « the column is not there » must not be reported as that.
+    /// </summary>
+    bool SubscriptionCoverKindColumnPresent);
 
 /// <summary>
 /// One cabinet's stored entitlement date beside the ledger it is supposed to be a fold of
@@ -43,9 +50,16 @@ public sealed record SchemaFacts(
 /// projects and <c>SchemaVerificationService</c> calls the <b>real</b> fold. The ledger is a handful of rows per
 /// cabinet on a read-only operator verb, and the check stays unit-testable against a mocked reader like the rest.</para>
 /// </summary>
+/// <param name="StoredLatestCoverKind">
+/// The cabinet's denormalised <c>LatestCoverKind</c>, which <c>subscription-cover-kind-matches-ledger</c> re-derives
+/// from <paramref name="Entries"/> through the <b>real</b> fold. Null both for « every entry cancelled » and — until
+/// the column exists — for a database that has not run the migration; <c>SchemaFacts</c> carries a flag so the two
+/// are told apart.
+/// </param>
 public sealed record ClinicSubscriptionLedgerFact(
     Guid ClinicId,
     DateTime? StoredEndsOn,
+    SubscriptionPeriodKind? StoredLatestCoverKind,
     IReadOnlyList<SubscriptionLedgerEntry> Entries);
 
 /// <summary>
@@ -260,6 +274,56 @@ public sealed record DataMigrationCounts(
     /// </para>
     /// </summary>
     int? ClinicalChildrenWithWrongClinic,
+    /// <summary>
+    /// Console accounts marked as having enrolled a second factor while carrying <b>no secret</b>
+    /// (<c>platform-console</c> AC-1.3a). Null before the table exists.
+    /// <para>
+    /// The table's shape is diffed against the catalog for free; what no constraint states is that
+    /// <c>TotpEnrolledAt</c> and <c>ProtectedTotpSecret</c> are two halves of one fact. An account in the broken
+    /// half is <b>unusable and says nothing about it</b>: sign-in demands a code, the enrolment path refuses
+    /// because the account already counts as enrolled, and the only way back is the <c>platform-account
+    /// --reset-totp</c> verb — which an operator has no reason to reach for, because every screen simply reports
+    /// « code invalide ». It is the vendor locking itself out of its own console with no error anywhere.
+    /// </para>
+    /// </summary>
+    int? PlatformAccountsEnrolledWithoutSecret,
+    /// <summary>
+    /// Cabinets with <b>no activity snapshot at all</b> (<c>platform-console</c> AC-2.4a, EC-15). Null before the
+    /// table exists.
+    /// <para>
+    /// The counter job's per-cabinet loop swallows one cabinet's failure so the other ninety-nine still get
+    /// measured — correct, and it means a cabinet can be skipped every night while the run logs clean. The
+    /// portfolio renders such a cabinet as « jamais mesuré » rather than as zeros, so nothing on screen is a lie;
+    /// but nothing on screen distinguishes « the pass has never run » from « this one cabinet has been failing
+    /// since June », and this figure is where that distinction lives.
+    /// </para>
+    /// <para>
+    /// ⚠️ A fresh deployment legitimately reports every cabinet here until the first nightly pass. That is not a
+    /// false positive — it is the same statement the console itself makes — which is why it is reported as drift
+    /// to be read rather than as a failure to be silenced.
+    /// </para>
+    /// </summary>
+    int? ClinicsWithoutActivitySnapshot,
+    /// <summary>
+    /// Activity snapshots whose own figures contradict each other (<c>platform-console</c> AC-2.1). Null before
+    /// the table exists.
+    /// <para>
+    /// Every figure on a snapshot is written by one <c>Restate</c> call over one window of one cabinet's audit
+    /// rows, which makes several relations between them true by construction: seven days cannot hold more saves
+    /// than thirty, thirty clinic-local days cannot contain thirty-one active ones, no active day exists without
+    /// a save, and a cabinet that saved something has a <c>LastWriteAt</c>. A violation therefore means the row
+    /// was written by something other than that one call — a half-applied refactor, a partial update, a second
+    /// writer — and the visible symptom would be a portfolio sorted or filtered on a figure that is quietly wrong
+    /// rather than an error.
+    /// </para>
+    /// <para>
+    /// ⚠️ This replaces the plan's <c>clinic-activity-day-unique-per-clinic-day</c>, which the unique index on
+    /// (cabinet, day) makes <b>unfalsifiable</b> — and that index is already diffed against the catalog for free.
+    /// A check that cannot fail is worse than no check: it reports « ✓ » for ever about something it never looked
+    /// at, which is the exact rot this verb exists to avoid.
+    /// </para>
+    /// </summary>
+    int? IncoherentActivitySnapshots,
     /// <summary>
     /// Cabinets with <b>no entitlement row at all</b> (<c>clinic-subscription</c> AC-6.4, FR-13). Must be 0.
     /// <para>

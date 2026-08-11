@@ -70,3 +70,46 @@
 		reverse_proxy web:3000
 	}
 }
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# THE VENDOR CONSOLE'S PRIVATE SITE (platform-console FR-2).
+#
+# Bound to 127.0.0.1:9443 and published loopback-only by docker-compose, so it is reachable ONLY over an SSH
+# tunnel — it is not on {$DOMAIN}, has no DNS name, and no route reaches it from the public site above.
+#
+#   /api/platform/*  -> api:5443   (the API's SECOND Kestrel listener — see below)
+#   /*               -> console:3000 (the console's own Next application)
+#
+# ⚠️ THREE THINGS HERE ARE LOAD-BEARING, and each is a way this could look right and be wrong.
+#
+#   1. `/api/platform/*` goes to **api:5443, never api:5000**. Behind a proxy every request reaches the API from
+#      the same container, so `HttpContext.Connection.LocalPort` is the only unforgeable way the process can tell
+#      a console request from a public one. Sending it to 5000 would make `ConsolePortGate` 404 it — correctly,
+#      because on that port it IS a public request.
+#
+#   2. The public site above gains **no** `/api/platform` route, and must never gain one. The gate would refuse
+#      it anyway, so the damage of adding one is not an open door — it is that the refusal would start looking
+#      like a proxy rule, which is exactly the arrangement FR-2 rejects.
+#
+#   3. `tls internal` — Caddy's own local CA, because 127.0.0.1 has no public name for ACME to issue against.
+#      The operator's browser will not know that CA; a certificate warning on a tunnelled loopback address is
+#      expected here and is not the same event as one on {$DOMAIN}.
+# ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+https://127.0.0.1:9443 {
+	tls internal
+	encode zstd gzip
+
+	handle /api/platform/* {
+		reverse_proxy api:5443
+	}
+
+	handle {
+		header {
+			X-Content-Type-Options nosniff
+			X-Frame-Options DENY
+			Referrer-Policy strict-origin-when-cross-origin
+		}
+
+		reverse_proxy console:3000
+	}
+}

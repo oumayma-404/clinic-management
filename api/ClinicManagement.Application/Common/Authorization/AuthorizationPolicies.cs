@@ -97,6 +97,26 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string AdminOnly = "AdminOnly";
 
+    /// <summary>
+    /// A signed-in <b>console</b> account — the vendor's back-office, and the one policy in this file that admits
+    /// nobody from any clinic (<c>platform-console</c> AC-1.1, AC-1.4).
+    ///
+    /// <para><b>It requires no role, because a console account has none.</b> It belongs to no cabinet, so
+    /// <see cref="RoleRequirement"/> has nothing to compare against; what makes it a gate is the
+    /// <b>authentication scheme</b> it pins, not a claim it inspects.</para>
+    ///
+    /// <para>⚠️ <b>Pinning the scheme is not optional.</b> A policy with no explicit scheme authenticates against
+    /// the <i>default</i> one — the clinic's — whose issuer and audience validation every console token fails, so
+    /// the obvious version of this policy rejects every console request and the console is unusable from its very
+    /// first call.</para>
+    ///
+    /// <para>⚠️ <b>And the four clinic policies above keep <i>no</i> explicit scheme, deliberately.</b> They
+    /// continue to use the default, so a console token presented to a clinic route fails that scheme's validation
+    /// and is refused as <b>unauthenticated</b> rather than merely unauthorised. That asymmetry — console pins,
+    /// clinic defaults — is what makes AC-1.4 true in <i>both</i> directions instead of only one.</para>
+    /// </summary>
+    public const string PlatformConsole = "PlatformConsole";
+
     /// <param name="isLocalMode">
     /// When true (Local/offline mode — FR-E3 release gate) a <see cref="AuthorizationOptions.FallbackPolicy"/>
     /// of <c>RequireAuthenticatedUser()</c> is installed so every endpoint lacking an explicit
@@ -121,6 +141,13 @@ public static class AuthorizationPolicies
         // Users, clinic configuration, and the irreversible deletes.
         options.AddPolicy(AdminOnly, policy =>
             policy.Requirements.Add(new RoleRequirement(User.RoleAdmin)));
+
+        // The vendor's console. Registered here rather than at the host so the two derived guards keep passing with
+        // no exemption list, and scheme-pinned so it authenticates against the console's issuer rather than the
+        // clinic's — see the constant's remarks for why both halves are load-bearing.
+        options.AddPolicy(PlatformConsole, policy => policy
+            .AddAuthenticationSchemes(PlatformConsoleScheme.Name)
+            .RequireAuthenticatedUser());
 
         if (isLocalMode)
         {

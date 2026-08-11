@@ -92,6 +92,41 @@ jobs:
       - name: Build
         run: npm run build
 
+  # The vendor console (platform-console Part 1) — a SECOND Next application, held to exactly the `web` job's
+  # gate above. Its own job rather than a matrix entry with `web`, for the same reason the four existing jobs are
+  # separate: a failure should name the stack without anyone reading a log, and these two share no lockfile.
+  #
+  # ⚠️ It runs the console's OWN `scripts/check-responsive.mjs`. That file is a copy of `web`'s with two
+  # documented differences (the agenda check deleted, the inherited card-fallback exemptions emptied), and the
+  # copy is deliberate: two applications in one repository held to one device contract is the point, and a
+  # symlink or a shared script would have to grow a per-app branch at the first divergence.
+  console:
+    name: Console — typecheck + responsive + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Responsive rules
+        run: npm run check:responsive
+
+      - name: Build
+        run: npm run build
+
   desktop:
     name: Desktop shell — build
     # Windows-only by construction: net8.0-windows + WPF. It cannot be *run* here (WebView2 runtime), so this

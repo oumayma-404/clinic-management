@@ -113,6 +113,27 @@ public class ApplicationDbContext : DbContext
     // clinic-owned set from that column never sees it.
     public DbSet<ClinicSignup> ClinicSignups { get; set; }
 
+    // The vendor's console identity population (platform-console FR-1). Like ClinicSignup above and for the same
+    // structural reason, these carry **no ClinicId**: a console account belongs to no cabinet, which is the whole
+    // point of it, so they sit outside the tenant filter by construction and need no named exemption in
+    // TenantScopeFilterTests — that guard derives its clinic-owned set from the column neither of them has.
+    public DbSet<PlatformAccount> PlatformAccounts { get; set; }
+    public DbSet<PlatformRecoveryCode> PlatformRecoveryCodes { get; set; }
+
+    // The console's activity counters (platform-console Part 2). These DO carry a ClinicId, so unlike the two
+    // above they are named decisions in TenantScopeFilterTests rather than absent from it: they are the VENDOR's
+    // measurements about a cabinet, written by the counter job and read only by the console — no clinic-facing
+    // surface reads them, so a per-clinic filter would guard a door nobody uses while making the one legitimate
+    // reader depend on lifting it.
+    public DbSet<ClinicActivityDay> ClinicActivityDays { get; set; }
+    public DbSet<ClinicActivitySnapshot> ClinicActivitySnapshots { get; set; }
+
+    // The console's own access ledger (platform-console Part 3, FR-5). Carries a ClinicId — the cabinet that was
+    // looked at — so it is a named decision in TenantScopeFilterTests like the two counter tables above. Filtering
+    // it per clinic would be doubly wrong here: the journal's whole purpose is to read ACROSS cabinets, and the
+    // rows worth most are the ones about a cabinet that no longer exists.
+    public DbSet<PlatformAccessEntry> PlatformAccessEntries { get; set; }
+
     // A cabinet's dated right to record new work, and the append-only ledger EndsOn is a full re-fold of
     // (clinic-subscription FR-1). Both clinic-owned with non-nullable ClinicIds, so both are filtered like the
     // rest; the vendor's console verbs declare UseSystemWide to reach every cabinet.

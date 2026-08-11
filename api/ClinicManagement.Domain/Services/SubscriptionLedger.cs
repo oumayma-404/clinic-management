@@ -1,3 +1,5 @@
+using ClinicManagement.Domain.Enums;
+
 namespace ClinicManagement.Domain.Services;
 
 /// <summary>
@@ -9,6 +11,11 @@ namespace ClinicManagement.Domain.Services;
 /// The clinic-local day this entry was recorded on, and the <b>inclusive start</b> of the cover it may open. It is
 /// the entry's own anchor, never "today": see the class remarks on why passing a clock in is wrong.
 /// </param>
+/// <param name="Kind">
+/// Why this stretch is covered. Read by the fold only to answer <see cref="SubscriptionFold.LatestCoverKind"/>; it
+/// changes no date. ⚠️ Deliberately <b>not</b> defaulted: a projection that forgot it would silently report every
+/// cabinet as <c>Paid</c>, and « en essai » is exactly the answer the console filters on.
+/// </param>
 public sealed record SubscriptionLedgerEntry(
     Guid Id,
     DateTime RecordedOnClinicDay,
@@ -16,7 +23,8 @@ public sealed record SubscriptionLedgerEntry(
     int? DurationMonths,
     int? DurationDays,
     DateTime? ExplicitEndsOn,
-    bool IsCancelled)
+    bool IsCancelled,
+    SubscriptionPeriodKind Kind)
 {
     /// <summary>No duration of any kind — cover with no end date at all (FR-1's real « sans échéance » state).</summary>
     public bool IsOpenEnded => DurationMonths is null && DurationDays is null && ExplicitEndsOn is null;
@@ -28,6 +36,26 @@ public sealed record SubscriptionLedgerEntry(
 /// nothing — and an <b>open-ended</b> one gets <c>(FromDay, null)</c>, « sans échéance ».
 /// </summary>
 public sealed record PeriodSpan(Guid EntryId, DateTime? FromDay, DateTime? ThroughDay);
+
+/// <summary>
+/// Everything one fold of a ledger yields.
+///
+/// <para><see cref="LatestCoverKind"/> is the <see cref="SubscriptionLedgerEntry.Kind"/> of the <b>last
+/// non-cancelled entry in fold order</b>, or null for a ledger with none. It is a pure function of the ledger with
+/// <i>no clock in it</i>, which is the whole reason it can be denormalised onto <c>ClinicSubscription</c> beside
+/// <c>EndsOn</c> and re-derived by <c>verify-schema</c>.</para>
+///
+/// <para>⚠️ <b>It is not « what covers today ».</b> That question — the one <c>SubscriptionTrial.IsOnTrial</c>
+/// answers for the cabinet's own « Abonnement » screen — is a function of the ledger <i>and of today</i>, so a
+/// stored copy would be correct only until the next midnight and would need a daily pass to stay true. The
+/// difference is visible in exactly one shape: a cabinet still inside its free days that has <i>already paid</i>
+/// reads « Actif » from this and « Essai » from that. Both are true statements; this one is the one that can be
+/// filtered and sorted in SQL before a page is cut (AC-2.4a).</para>
+/// </summary>
+public sealed record SubscriptionFold(
+    DateTime? EndsOn,
+    SubscriptionPeriodKind? LatestCoverKind,
+    IReadOnlyList<PeriodSpan> Spans);
 
 /// <summary>
 /// Folds the append-only ledger into the one date the product enforces on. Pure, total, and <b>clock-free</b>.
@@ -66,8 +94,7 @@ public static class SubscriptionLedger
     /// two call sites (the repository read and <c>verify-schema</c>'s raw projection) would otherwise each carry
     /// an <c>ORDER BY</c> the fold silently depends on.</para>
     /// </summary>
-    public static (DateTime? EndsOn, IReadOnlyList<PeriodSpan> Spans) FoldWithSpans(
-        IEnumerable<SubscriptionLedgerEntry> entries)
+    public static SubscriptionFold FoldWithSpans(IEnumerable<SubscriptionLedgerEntry> entries)
     {
         ArgumentNullException.ThrowIfNull(entries);
 
@@ -75,6 +102,7 @@ public static class SubscriptionLedger
         DateTime? endsOn = null;
         DateTime? cursor = null;
         var openEnded = false;
+        SubscriptionPeriodKind? latestKind = null;
 
         foreach (var entry in entries.OrderBy(e => e.RecordedAtUtc).ThenBy(e => e.Id))
         {
@@ -83,6 +111,10 @@ public static class SubscriptionLedger
                 spans.Add(new PeriodSpan(entry.Id, null, null));
                 continue;
             }
+
+            // Set on every surviving entry, in the fold's own order, so « the latest cover » cannot depend on how
+            // the rows came back from the database.
+            latestKind = entry.Kind;
 
             if (entry.IsOpenEnded)
             {
@@ -110,7 +142,7 @@ public static class SubscriptionLedger
             spans.Add(new PeriodSpan(entry.Id, start, endsOn));
         }
 
-        return (openEnded ? null : endsOn, spans);
+        return new SubscriptionFold(openEnded ? null : endsOn, latestKind, spans);
     }
 
     private static DateTime Later(DateTime left, DateTime right) => left >= right ? left : right;

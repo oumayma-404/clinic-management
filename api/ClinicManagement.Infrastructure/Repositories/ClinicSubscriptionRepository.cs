@@ -64,6 +64,17 @@ public class ClinicSubscriptionRepository : IClinicSubscriptionRepository
     }
 
     /// <summary>
+    /// The vendor's own takings over an inclusive window. A projected <c>SUM</c>, so a deployment with a long ledger
+    /// pays for one scalar rather than for every entry it ever recorded.
+    /// </summary>
+    public async Task<decimal> GetVendorCollectedBetweenAsync(
+        DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
+        await _context.SubscriptionPeriods
+            .AsNoTracking()
+            .Where(p => !p.IsCancelled && p.RecordedAtUtc >= fromUtc && p.RecordedAtUtc <= toUtc)
+            .SumAsync(p => p.Amount ?? 0m, cancellationToken);
+
+    /// <summary>
     /// One cabinet's report row. Same two-read shape as its deployment-wide sibling and for the same reason — the
     /// two tables answer to different query filters — but bounded to the clinic asked about.
     /// </summary>

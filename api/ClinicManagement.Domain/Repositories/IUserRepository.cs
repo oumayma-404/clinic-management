@@ -30,8 +30,48 @@ public interface IUserRepository
     /// whenever the pending colleagues sort onto page 2.
     /// </summary>
     Task<int> CountPendingActivationAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How many staff accounts a clinic has and when any of them last signed in — the two figures the vendor
+    /// console's counter pass reports per cabinet (<c>platform-console</c> AC-2.1).
+    ///
+    /// <para>One aggregate rather than <c>GetByClinicIdAsync</c> with no paging: the pass runs for every cabinet
+    /// on every run and needs two scalars, not every colleague's row. Both are also the answer to « is anyone
+    /// still using this? », which is the question the portfolio exists to ask.</para>
+    /// </summary>
+    Task<ClinicStaffSummary> GetStaffSummaryAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Who to contact at a cabinet — the administrator the vendor console's detail names (<c>platform-console</c>
+    /// AC-3.3). Null where the cabinet has no admin account at all.
+    ///
+    /// <para>⚠️ <b>Active admins win, then the oldest.</b> A practice accumulates admins (the founder, a partner,
+    /// a departed manager who was switched off), and the one the vendor should ring is someone who can still sign
+    /// in — with the founder ahead of a later addition. Deterministic to the end (<c>ThenBy(Id)</c>), so the
+    /// detail does not name a different person on two consecutive loads.</para>
+    ///
+    /// <para>A projection rather than a <c>User</c>: this read exists to put two strings on a screen, and
+    /// returning the aggregate would hand a cross-cabinet surface the whole account row including its password
+    /// hash and lockout state.</para>
+    /// </summary>
+    Task<ClinicAdminContact?> GetPrimaryAdminContactAsync(
+        Guid clinicId, CancellationToken cancellationToken = default);
+
     Task AddAsync(User entity, CancellationToken cancellationToken = default);
     void Update(User entity);
     void Remove(User entity);
 }
+
+/// <summary>
+/// A cabinet's administrator, reduced to what the vendor may see: a name and an address to reach them at.
+///
+/// <para><see cref="IsActive"/> travels with it because « l'administrateur est désactivé » is the answer to a
+/// support call, and a name shown with no such marker reads as somebody who can be reached.</para>
+/// </summary>
+public sealed record ClinicAdminContact(string? FullName, string? Email, bool IsActive);
+
+/// <summary>A clinic's staff, reduced to the two figures the portfolio reports. <paramref name="LastLoginAt"/> is
+/// null where nobody has ever signed in — which for a cabinet created weeks ago is the loudest churn signal there
+/// is, and is why it is nullable rather than defaulted to the creation date.</summary>
+public sealed record ClinicStaffSummary(int Count, DateTime? LastLoginAt);
 

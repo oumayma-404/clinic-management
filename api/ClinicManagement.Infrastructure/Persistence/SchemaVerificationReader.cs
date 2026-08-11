@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -42,11 +43,12 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         var mappedDecimals = ReadMappedDecimals();
         var dataMigrations = await ReadDataMigrationCountsAsync(connection, cancellationToken);
         var auditLedger = await ReadAuditLedgerFactsAsync(connection, cancellationToken);
-        var subscriptionLedgers = await ReadSubscriptionLedgersAsync(connection, cancellationToken);
+        var (subscriptionLedgers, coverKindPresent) =
+            await ReadSubscriptionLedgersAsync(connection, cancellationToken);
 
         return new SchemaFacts(
             extensions, constraints, model, database, mappedDecimals, dataMigrations, auditLedger,
-            subscriptionLedgers);
+            subscriptionLedgers, coverKindPresent);
     }
 
     // ------------------------------------------------------------------ the EF model side
@@ -562,6 +564,39 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                      JOIN "Patients" p ON p."Id" = c."PatientId" WHERE c."ClinicId" <> p."ClinicId")
                 """);
 
+        // platform-console Part 1. The two TOTP columns are halves of one fact and no constraint says so; an
+        // account in the broken half cannot sign in and reports only « code invalide ».
+        var enrolledWithoutSecret = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "PlatformAccounts",
+            requiredColumn: "TotpEnrolledAt",
+            sql: """
+                SELECT COUNT(*) FROM "PlatformAccounts"
+                WHERE "TotpEnrolledAt" IS NOT NULL
+                  AND ("ProtectedTotpSecret" IS NULL OR "ProtectedTotpSecret" = '')
+                """);
+
+        // platform-console Part 2. A cabinet the nightly pass has never reached — which the per-cabinet
+        // try/catch makes survivable and therefore silent.
+        var clinicsWithoutSnapshot = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "ClinicActivitySnapshots",
+            requiredColumn: "ClinicId",
+            sql: """
+                SELECT COUNT(*) FROM "Clinics" c
+                WHERE NOT EXISTS (SELECT 1 FROM "ClinicActivitySnapshots" s WHERE s."ClinicId" = c."Id")
+                """);
+
+        // The relations one Restate call makes true by construction. Any of them false means a second writer.
+        var incoherentSnapshots = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "ClinicActivitySnapshots",
+            requiredColumn: "Writes30d",
+            sql: """
+                SELECT COUNT(*) FROM "ClinicActivitySnapshots"
+                WHERE "Writes7d" > "Writes30d"
+                   OR "ActiveDays30d" > 30
+                   OR ("Writes30d" = 0 AND "ActiveDays30d" > 0)
+                   OR ("Writes30d" > 0 AND "LastWriteAt" IS NULL)
+                """);
+
         // clinic-subscription FR-13. A flat count over EVERY cabinet — never one qualified by which door created
         // it, and never a list of known doors, because the failure this exists to catch is a *third* door added
         // later. Guarded on the entitlement table, so a pre-migration run reads « not applicable » rather than a
@@ -592,6 +627,7 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             unsetBackupSchedule, chequeDetailsOnNonCheque, bankedStampOnNonCheque,
             attributableButUnattributed, pushClinicMismatch,
             signupOrphans, clinicalChildrenWrongClinic,
+            enrolledWithoutSecret, clinicsWithoutSnapshot, incoherentSnapshots,
             clinicsWithoutEntitlement, grandfatheredEntries);
     }
 
@@ -606,32 +642,42 @@ public class SchemaVerificationReader : ISchemaVerificationReader
     /// in, and which <c>SubscriptionLedger</c> re-applies anyway, so this side cannot silently become the one the
     /// answer depends on.</para>
     /// </summary>
-    private static async Task<IReadOnlyList<ClinicSubscriptionLedgerFact>?> ReadSubscriptionLedgersAsync(
-        NpgsqlConnection connection, CancellationToken cancellationToken)
+    private static async Task<(IReadOnlyList<ClinicSubscriptionLedgerFact>? Ledgers, bool CoverKindPresent)>
+        ReadSubscriptionLedgersAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
     {
         if (!await ColumnExistsAsync(connection, "ClinicSubscriptions", "EndsOn", cancellationToken)
             || !await ColumnExistsAsync(connection, "SubscriptionPeriods", "RecordedOnClinicDay", cancellationToken))
         {
-            return null;
+            return (null, false);
         }
 
-        var storedEndDates = new Dictionary<Guid, DateTime?>();
+        var stored = new Dictionary<Guid, (DateTime? EndsOn, SubscriptionPeriodKind? CoverKind)>();
 
-        const string subscriptionsSql = """SELECT "ClinicId", "EndsOn" FROM "ClinicSubscriptions" """;
+        // The cover-kind column arrives with `platform-console` Part 4, so it is projected only where it exists —
+        // and the caller is told which, because a null there is also a real value (« every entry cancelled »).
+        var coverKindPresent =
+            await ColumnExistsAsync(connection, "ClinicSubscriptions", "LatestCoverKind", cancellationToken);
+
+        var subscriptionsSql = coverKindPresent
+            ? """SELECT "ClinicId", "EndsOn", "LatestCoverKind" FROM "ClinicSubscriptions" """
+            : """SELECT "ClinicId", "EndsOn", NULL::int FROM "ClinicSubscriptions" """;
+
         await using (var command = new NpgsqlCommand(subscriptionsSql, connection))
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
             while (await reader.ReadAsync(cancellationToken))
             {
-                storedEndDates[reader.GetGuid(0)] = reader.IsDBNull(1) ? null : reader.GetDateTime(1);
+                stored[reader.GetGuid(0)] = (
+                    reader.IsDBNull(1) ? null : reader.GetDateTime(1),
+                    reader.IsDBNull(2) ? null : (SubscriptionPeriodKind)reader.GetInt32(2));
             }
         }
 
-        var entriesByClinic = storedEndDates.Keys.ToDictionary(id => id, _ => new List<SubscriptionLedgerEntry>());
+        var entriesByClinic = stored.Keys.ToDictionary(id => id, _ => new List<SubscriptionLedgerEntry>());
 
         const string entriesSql = """
             SELECT "Id", "ClinicId", "RecordedOnClinicDay", "RecordedAtUtc", "DurationMonths", "DurationDays",
-                   "ExplicitEndsOn", "IsCancelled"
+                   "ExplicitEndsOn", "IsCancelled", "Kind"
             FROM "SubscriptionPeriods"
             ORDER BY "ClinicId", "RecordedAtUtc", "Id"
             """;
@@ -656,13 +702,17 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                     reader.IsDBNull(4) ? null : reader.GetInt32(4),
                     reader.IsDBNull(5) ? null : reader.GetInt32(5),
                     reader.IsDBNull(6) ? null : reader.GetDateTime(6),
-                    reader.GetBoolean(7)));
+                    reader.GetBoolean(7),
+                    (SubscriptionPeriodKind)reader.GetInt32(8)));
             }
         }
 
-        return storedEndDates
-            .Select(pair => new ClinicSubscriptionLedgerFact(pair.Key, pair.Value, entriesByClinic[pair.Key]))
-            .ToList();
+        return (
+            stored
+                .Select(pair => new ClinicSubscriptionLedgerFact(
+                    pair.Key, pair.Value.EndsOn, pair.Value.CoverKind, entriesByClinic[pair.Key]))
+                .ToList(),
+            coverKindPresent);
     }
 
     /// <summary>

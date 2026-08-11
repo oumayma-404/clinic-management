@@ -1,3 +1,4 @@
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
 using Xunit;
 
@@ -28,7 +29,8 @@ public class SubscriptionLedgerTests
         int? days = null,
         DateTime? explicitEndsOn = null,
         bool cancelled = false,
-        int sequence = 0) =>
+        int sequence = 0,
+        SubscriptionPeriodKind kind = SubscriptionPeriodKind.Paid) =>
         new(
             Guid.Parse($"11111111-1111-1111-1111-{sequence:D12}"),
             recordedOnClinicDay,
@@ -38,7 +40,8 @@ public class SubscriptionLedgerTests
             months,
             days,
             explicitEndsOn,
-            cancelled);
+            cancelled,
+            kind);
 
     // ---- the trial, which is the arithmetic the exclusive cursor exists for -------------------------
 
@@ -240,7 +243,7 @@ public class SubscriptionLedgerTests
     [Fact]
     public void Each_Entry_Gets_The_Stretch_It_Covers()
     {
-        var (endsOn, spans) = SubscriptionLedger.FoldWithSpans(new[]
+        var (endsOn, _, spans) = SubscriptionLedger.FoldWithSpans(new[]
         {
             Entry(CreationDay, days: 30, sequence: 1),
             Entry(new DateTime(2026, 9, 1), months: 1, sequence: 2)
@@ -260,10 +263,10 @@ public class SubscriptionLedgerTests
     [Fact]
     public void A_Cancelled_Entry_Keeps_A_Row_With_No_Period()
     {
-        var (_, spans) = SubscriptionLedger.FoldWithSpans(new[]
+        var spans = SubscriptionLedger.FoldWithSpans(new[]
         {
             Entry(CreationDay, days: 30, cancelled: true)
-        });
+        }).Spans;
 
         var span = Assert.Single(spans);
         Assert.Null(span.FromDay);
@@ -273,12 +276,61 @@ public class SubscriptionLedgerTests
     [Fact]
     public void An_Open_Ended_Entry_Gets_A_Start_And_No_End()
     {
-        var (_, spans) = SubscriptionLedger.FoldWithSpans(new[] { Entry(CreationDay) });
+        var spans = SubscriptionLedger.FoldWithSpans(new[] { Entry(CreationDay) }).Spans;
 
         var span = Assert.Single(spans);
         Assert.Equal(CreationDay, span.FromDay);
         Assert.Null(span.ThroughDay);
     }
+
+    // ---- the latest cover kind, Q-1's clock-free denormalisation ------------------------------------
+
+    // [platform-console AC-2.3] « En essai » has to be a SQL predicate, so the kind is folded rather than derived
+    // per request. The property that makes it storable is exactly this one: it reads no clock, so re-folding the
+    // same ledger tomorrow yields the same answer.
+    [Fact]
+    public void The_Latest_Cover_Kind_Is_The_Last_Surviving_Entry()
+    {
+        var fold = SubscriptionLedger.FoldWithSpans(new[]
+        {
+            Entry(CreationDay, days: 30, sequence: 1, kind: SubscriptionPeriodKind.Trial),
+            Entry(new DateTime(2026, 9, 1), months: 12, sequence: 2, kind: SubscriptionPeriodKind.Paid)
+        });
+
+        Assert.Equal(SubscriptionPeriodKind.Paid, fold.LatestCoverKind);
+    }
+
+    // A cancelled entry contributes no cover, so it cannot be « the latest cover » either — otherwise cancelling a
+    // mis-keyed payment would leave the portfolio filtering a cabinet by an entry that entitles it to nothing.
+    [Fact]
+    public void A_Cancelled_Entry_Is_Not_The_Latest_Cover()
+    {
+        var fold = SubscriptionLedger.FoldWithSpans(new[]
+        {
+            Entry(CreationDay, days: 30, sequence: 1, kind: SubscriptionPeriodKind.Trial),
+            Entry(new DateTime(2026, 9, 1), months: 12, sequence: 2, kind: SubscriptionPeriodKind.Paid,
+                cancelled: true)
+        });
+
+        Assert.Equal(SubscriptionPeriodKind.Trial, fold.LatestCoverKind);
+    }
+
+    // Null, not a defaulted `Paid`: a cabinet whose every entry has been cancelled is entitled to nothing, and
+    // saying « Paiement » about it would put it in the portfolio's paid bucket.
+    [Fact]
+    public void A_Wholly_Cancelled_Ledger_Names_No_Cover()
+    {
+        var fold = SubscriptionLedger.FoldWithSpans(new[]
+        {
+            Entry(CreationDay, days: 30, cancelled: true, kind: SubscriptionPeriodKind.Trial)
+        });
+
+        Assert.Null(fold.LatestCoverKind);
+    }
+
+    [Fact]
+    public void An_Empty_Ledger_Names_No_Cover() =>
+        Assert.Null(SubscriptionLedger.FoldWithSpans(Array.Empty<SubscriptionLedgerEntry>()).LatestCoverKind);
 
     [Fact]
     public void Fold_And_FoldWithSpans_Cannot_Disagree()

@@ -28,6 +28,10 @@ public static class Extensions
         // Note: IHttpContextAccessor must be registered in the API layer (Program.cs)
         services.AddScoped<IClinicContext, ClinicContext>();
         services.AddScoped<ICurrentClinicResolver, CurrentClinicResolver>();
+        // « Which console account is acting? » — the second identity population's context (platform-console).
+        // Here rather than in AddInfrastructure because it reads IHttpContextAccessor, exactly like ClinicContext
+        // above; the console verbs need none of it, and they resolve ProcessAuditActorProvider instead.
+        services.AddScoped<IPlatformSessionContext, PlatformSessionContext>();
         // Best-effort writer for the in-app staff notification feed (generated inline from command handlers).
         services.AddScoped<INotificationGenerator, NotificationGenerator>();
         // AC-P4.10 — draws an act's material list out of stock when its fiche is saved. Scoped and called

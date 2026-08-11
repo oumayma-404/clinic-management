@@ -59,7 +59,10 @@ public class DeploymentProfileTests
             // clinic-self-signup. The first capability true of HostedMultiTenant ALONE, which is what forced the
             // `hostedOnlyCapabilities` set in the R-2 test below — see the comment there.
             [nameof(DeploymentProfile.AllowsPublicClinicSignup)] = (false, true, false),
-            // clinic-subscription AC-7.1–7.3. The second hosted-only capability: the two other kinds are ✗ for
+            // platform-console. The SECOND capability true of HostedMultiTenant alone, so it joins the
+            // `hostedOnlyCapabilities` set below for the same reason AllowsPublicClinicSignup did.
+            [nameof(DeploymentProfile.ServesPlatformConsole)] = (false, true, false),
+            // clinic-subscription AC-7.1–7.3. The THIRD hosted-only capability: the two other kinds are ✗ for
             // their own reasons (the clinic's own disk; a topology that predates the arrangement), not by default.
             [nameof(DeploymentProfile.RequiresSubscription)] = (false, true, false)
         };
@@ -109,6 +112,7 @@ public class DeploymentProfileTests
         var hostedOnlyCapabilities = new[]
         {
             nameof(DeploymentProfile.AllowsPublicClinicSignup),
+            nameof(DeploymentProfile.ServesPlatformConsole),
             nameof(DeploymentProfile.RequiresSubscription)
         };
 

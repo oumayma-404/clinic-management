@@ -49,13 +49,26 @@ public static class SubscriptionStateReader
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
-        var endsOn = subscription.EndsOn?.Date;
+        return Read(subscription.EndsOn, subscription.IsSuspended, clinicToday, isTrial);
+    }
+
+    /// <summary>
+    /// The same rule over the two fields it actually reads, for a caller holding a <b>projection</b> rather than the
+    /// entity — the vendor console's portfolio, which JOINs one row per cabinet and never materialises an aggregate.
+    ///
+    /// <para>⚠️ An overload rather than a second reader: « is this cabinet expired? » must have one answer, and the
+    /// entity form above delegates here so there is exactly one place the branches live.</para>
+    /// </summary>
+    public static SubscriptionStatus Read(
+        DateTime? subscriptionEndsOn, bool isSuspended, DateTime clinicToday, bool isTrial = false)
+    {
+        var endsOn = subscriptionEndsOn?.Date;
         var today = clinicToday.Date;
 
         // ⚠️ Suspension outranks everything, including an end date still in the future AND one already past
         // (EC-11: a suspended cabinet reads « Suspendu », never « Expiré »). The two have different causes and
         // different remedies, and telling a suspended practice its subscription lapsed sends it to pay again.
-        if (subscription.IsSuspended)
+        if (isSuspended)
         {
             return new SubscriptionStatus(
                 SubscriptionState.Suspended,
