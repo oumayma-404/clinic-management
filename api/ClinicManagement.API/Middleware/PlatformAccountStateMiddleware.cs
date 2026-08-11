@@ -2,10 +2,12 @@ using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using ClinicManagement.API.Startup;
+using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Auth;
+using Microsoft.AspNetCore.Authentication;
 
 namespace ClinicManagement.API.Middleware;
 
@@ -58,7 +60,9 @@ public class PlatformAccountStateMiddleware
             return;
         }
 
-        var accountId = ConsoleAccountId(context.User);
+        // ⚠️ Every check below reads THIS principal, never context.User — see ConsolePrincipalAsync.
+        var principal = await ConsolePrincipalAsync(context);
+        var accountId = ConsoleAccountId(principal);
         if (accountId is null)
         {
             // Anonymous (login, enrolment, recovery) or a non-console principal that somehow reached a console
@@ -75,7 +79,7 @@ public class PlatformAccountStateMiddleware
             return;
         }
 
-        if (!HasCurrentTokenVersion(context.User, account.TokenVersion))
+        if (!HasCurrentTokenVersion(principal!, account.TokenVersion))
         {
             await RefuseAsync(context, StatusCodes.Status401Unauthorized,
                 "Votre session n'est plus valide. Veuillez vous reconnecter.");
@@ -91,6 +95,36 @@ public class PlatformAccountStateMiddleware
 
         context.Items[AccountItemKey] = account;
         await _next(context);
+    }
+
+    /// <summary>
+    /// The console principal for this request, authenticating the console scheme when nothing has yet.
+    ///
+    /// <para>⚠️ <b><c>context.User</c> alone is not enough, and relying on it made this whole middleware inert in
+    /// production.</b> <c>UseAuthentication</c> populates only the <i>default</i> (clinic) scheme, and a console
+    /// token fails that scheme's validation by design (AC-1.4) — the console's own scheme is authenticated inside
+    /// <c>AuthorizationMiddleware</c>, because <c>AuthorizationPolicies.PlatformConsole</c> pins it. That runs
+    /// <b>after</b> this middleware, so <c>ConsoleAccountId</c> saw an unauthenticated principal on every request,
+    /// returned null, and passed everything through: a deactivated account with a bumped <c>TokenVersion</c> kept
+    /// full cross-cabinet read access, which is the exact defect AC-1.6 exists to prevent. Found by signing in and
+    /// deactivating the account over the wire in Part 7 — no unit test could see it, because the tests set
+    /// <c>context.User</c> by hand, which is precisely what production does not do.</para>
+    ///
+    /// <para>Moving the middleware after <c>UseAuthorization</c> would also work, since that writes the combined
+    /// principal back — but it would let a revoked token reach a policy and be authorized before being refused, and
+    /// it would rest on a framework detail rather than on this file. Authenticating the scheme here is one call, on
+    /// console paths only, and states the dependency out loud.</para>
+    /// </summary>
+    private static async Task<ClaimsPrincipal?> ConsolePrincipalAsync(HttpContext context)
+    {
+        if (ConsoleAccountId(context.User) is not null)
+        {
+            return context.User;
+        }
+
+        var result = await context.AuthenticateAsync(PlatformConsoleScheme.Name);
+
+        return result.Succeeded ? result.Principal : null;
     }
 
     /// <summary>

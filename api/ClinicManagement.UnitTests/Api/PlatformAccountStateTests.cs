@@ -3,11 +3,14 @@ using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using System.Text.Json;
 using ClinicManagement.API.Middleware;
+using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Auth;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Xunit;
 
@@ -51,24 +54,67 @@ public class PlatformAccountStateTests
         return account;
     }
 
+    private static ClaimsPrincipal ConsolePrincipal(Guid accountId, int tokenVersion) =>
+        new(new ClaimsIdentity(new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, accountId.ToString()),
+            new Claim(LocalAuthClaims.TokenVersion, tokenVersion.ToString(CultureInfo.InvariantCulture)),
+            new Claim(IPlatformSessionContext.TokenKindClaim, IPlatformSessionContext.PlatformTokenKind)
+        }, "TestConsole"));
+
+    /// <summary>
+    /// A console request. <paramref name="schemeYields"/> is what <c>AuthenticateAsync(PlatformConsole)</c> hands
+    /// back — the production path, since <c>UseAuthentication</c> populates only the clinic scheme. Every context
+    /// carries the stub, so a test that sets no principal exercises the same call production makes.
+    /// </summary>
     private static DefaultHttpContext ConsoleRequest(
-        Guid? accountId, int tokenVersion, string path = "/api/platform/clinics")
+        Guid? accountId,
+        int tokenVersion,
+        string path = "/api/platform/clinics",
+        ClaimsPrincipal? schemeYields = null)
     {
-        var context = new DefaultHttpContext();
+        var services = new ServiceCollection();
+        services.AddSingleton<IAuthenticationService>(new StubAuthenticationService(schemeYields));
+
+        var context = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
         context.Request.Path = path;
         context.Response.Body = new MemoryStream();
 
         if (accountId is not null)
         {
-            context.User = new ClaimsPrincipal(new ClaimsIdentity(new[]
-            {
-                new Claim(ClaimTypes.NameIdentifier, accountId.Value.ToString()),
-                new Claim(LocalAuthClaims.TokenVersion, tokenVersion.ToString(CultureInfo.InvariantCulture)),
-                new Claim(IPlatformSessionContext.TokenKindClaim, IPlatformSessionContext.PlatformTokenKind)
-            }, "TestConsole"));
+            context.User = ConsolePrincipal(accountId.Value, tokenVersion);
         }
 
         return context;
+    }
+
+    /// <summary>Answers one scheme and refuses to be asked about anything else.</summary>
+    private sealed class StubAuthenticationService : IAuthenticationService
+    {
+        private readonly ClaimsPrincipal? _principal;
+
+        public StubAuthenticationService(ClaimsPrincipal? principal) => _principal = principal;
+
+        public Task<AuthenticateResult> AuthenticateAsync(HttpContext context, string? scheme)
+        {
+            Assert.Equal(PlatformConsoleScheme.Name, scheme);
+
+            return Task.FromResult(_principal is null
+                ? AuthenticateResult.NoResult()
+                : AuthenticateResult.Success(new AuthenticationTicket(_principal, scheme!)));
+        }
+
+        public Task ChallengeAsync(HttpContext c, string? s, AuthenticationProperties? p) =>
+            throw new NotSupportedException();
+
+        public Task ForbidAsync(HttpContext c, string? s, AuthenticationProperties? p) =>
+            throw new NotSupportedException();
+
+        public Task SignInAsync(HttpContext c, string? s, ClaimsPrincipal u, AuthenticationProperties? p) =>
+            throw new NotSupportedException();
+
+        public Task SignOutAsync(HttpContext c, string? s, AuthenticationProperties? p) =>
+            throw new NotSupportedException();
     }
 
     private static async Task<(int Status, string? Code, bool Continued)> Invoke(
@@ -175,6 +221,49 @@ public class PlatformAccountStateTests
             ConsoleRequest(AccountId, account.TokenVersion, PlatformAccountStateMiddleware.ChangePasswordPath),
             account);
         Assert.True(allowed.Continued);
+    }
+
+    // [AC-1.6] The case that was broken in production for six parts, and that every test above missed by setting
+    // context.User itself: UseAuthentication populates only the CLINIC scheme, and a console token fails that one
+    // by design (AC-1.4), so on a real request this middleware sees an unauthenticated principal. It must
+    // authenticate the console scheme itself — otherwise it passes everything through and a deactivated account
+    // keeps reading every cabinet. Verified over the wire before it was fixed: deactivating an account and
+    // re-calling /api/platform/summary with the same token answered 200.
+    [Fact]
+    public async Task A_revoked_account_is_refused_even_though_only_the_console_scheme_can_authenticate_it()
+    {
+        var account = Account(tokenVersion: 1);
+        var tokenVersion = account.TokenVersion;
+        account.Deactivate();
+
+        var context = ConsoleRequest(
+            accountId: null,                                             // as UseAuthentication leaves it
+            tokenVersion: 0,
+            schemeYields: ConsolePrincipal(AccountId, tokenVersion));     // as the pinned scheme resolves it
+
+        var result = await Invoke(context, account);
+
+        Assert.False(result.Continued);
+        Assert.Equal(StatusCodes.Status401Unauthorized, result.Status);
+    }
+
+    // The same blindness applied to the forced password change, which is what made « one-time » true of nothing:
+    // the bootstrap password stayed a working credential for the whole token lifetime.
+    [Fact]
+    public async Task A_pending_one_time_password_is_caught_on_a_scheme_authenticated_request()
+    {
+        var account = Account(mustChange: true);
+
+        var context = ConsoleRequest(
+            accountId: null,
+            tokenVersion: 0,
+            schemeYields: ConsolePrincipal(AccountId, account.TokenVersion));
+
+        var result = await Invoke(context, account);
+
+        Assert.False(result.Continued);
+        Assert.Equal(StatusCodes.Status403Forbidden, result.Status);
+        Assert.Equal("must_change_password", result.Code);
     }
 
     // A clinic request must not pay for any of this — it has no console principal, and re-reading one on every
