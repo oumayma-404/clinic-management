@@ -25,6 +25,8 @@ namespace ClinicManagement.Domain.Entities;
 /// </summary>
 public class PlatformAccessEntry : AggregateRoot<Guid>
 {
+    public const int MaxIdempotencyKeyLength = 100;
+
     /// <summary>The console account that acted. Recorded even after that account is deactivated.</summary>
     public Guid PlatformAccountId { get; private set; }
 
@@ -41,6 +43,29 @@ public class PlatformAccessEntry : AggregateRoot<Guid>
 
     public DateTime OccurredAt { get; private set; }
 
+    /// <summary>
+    /// The <c>SubscriptionPeriod</c> this action produced or acted on, for the rows that have one (Part 4's grant,
+    /// Parts 5–6's corrections). Null for a plain <see cref="PlatformAccessAction.ViewedClinic"/>.
+    ///
+    /// <para>Deliberately <b>not</b> a foreign key, for the reason the whole type has none: the ledger outlives the
+    /// cabinet whose rows it names, and a cascade would erase the record of a payment taken for a practice that has
+    /// since closed.</para>
+    /// </summary>
+    public Guid? SubscriptionPeriodId { get; private set; }
+
+    /// <summary>
+    /// The client's own key for the write this row records — <b>unique across the ledger</b>, which is what makes
+    /// « a double-click produces one entry » (AC-4.6) a property of the database rather than of a handler winning a
+    /// race. Null for every row that is not a keyed write.
+    ///
+    /// <para><b>Why the key lives on the ledger and not in a table of its own.</b> Every console write already
+    /// produces exactly one row here, in the same transaction as the write itself, so the ledger is already the
+    /// « one row per console action » table an idempotency store would duplicate. It also makes the replay
+    /// answerable: the row names the entry that was created, so a repeated submission returns the first outcome
+    /// instead of guessing at it.</para>
+    /// </summary>
+    public string? IdempotencyKey { get; private set; }
+
     private PlatformAccessEntry() { } // For EF Core
 
     public PlatformAccessEntry(
@@ -49,7 +74,9 @@ public class PlatformAccessEntry : AggregateRoot<Guid>
         Guid clinicId,
         string clinicName,
         PlatformAccessAction action,
-        DateTime occurredAt)
+        DateTime occurredAt,
+        Guid? subscriptionPeriodId = null,
+        string? idempotencyKey = null)
         : base(Guid.NewGuid())
     {
         if (platformAccountId == Guid.Empty)
@@ -64,5 +91,17 @@ public class PlatformAccessEntry : AggregateRoot<Guid>
         ClinicName = clinicName?.Trim() ?? string.Empty;
         Action = action;
         OccurredAt = occurredAt;
+        SubscriptionPeriodId = subscriptionPeriodId;
+
+        var key = idempotencyKey?.Trim();
+        if (key is { Length: > MaxIdempotencyKeyLength })
+        {
+            throw new ArgumentException(
+                $"La clé d'idempotence dépasse {MaxIdempotencyKeyLength} caractères.", nameof(idempotencyKey));
+        }
+
+        // Blank collapses to null rather than to "": the column's unique index treats every null as distinct, so a
+        // handful of unkeyed rows carrying an empty string would collide with each other.
+        IdempotencyKey = string.IsNullOrWhiteSpace(key) ? null : key;
     }
 }

@@ -47,9 +47,12 @@ public static class PlatformReadShape
         "City",
         "CreatedAt",
 
-        // ── Its entitlement (null until the companion ships — see PlatformSubscriptionPlaceholder).
+        // ── Its entitlement (Part 4). A forfait, a state, a date and a countdown — all four are facts about the
+        // contract between the vendor and the practice, and none of them can name anybody the practice treats.
         "Plan",
+        "PlanLabel",
         "State",
+        "StateLabel",
         "EndsOn",
         "DaysRemaining",
 
@@ -68,7 +71,7 @@ public static class PlatformReadShape
         "ClinicCollectedThisMonthDt",
         "VendorCollectedThisMonthDt",
 
-        // ── The portfolio's own shape: paging, freshness, and the admission that entitlement is not here yet.
+        // ── The portfolio's own shape: paging and freshness.
         "Items",
         "Page",
         "PageSize",
@@ -77,7 +80,6 @@ public static class PlatformReadShape
         "HasPreviousPage",
         "HasNextPage",
         "CountersAsOf",
-        "SubscriptionDataAvailable",
 
         // ── Portfolio-wide counts behind the summary strip.
         "Clinics",
@@ -88,10 +90,36 @@ public static class PlatformReadShape
         "ExpiringWithin14Days",
         "Expired",
         "Suspended",
+        "NoEntitlement",
 
         // ── One cabinet, opened (Part 3, US-3). The row above, verbatim, plus what only the detail shows.
         "Clinic",
-        "SubscriptionExplanation",
+
+        // ── The cabinet's subscription ledger (Part 4, AC-3.2) — the VENDOR's money, and deliberately a separate
+        // vocabulary from the clinic's own (FR-2). Every name here describes a payment the practice made to us: what
+        // it bought, when, how much, by what means and under what reference. None of it can reach a patient — the
+        // rows come from `SubscriptionPeriods`, a table whose only link to a cabinet is its id.
+        "Payments",
+        "Kind",
+        "KindLabel",
+        "RecordedOn",
+        "CoversFrom",
+        "CoversThrough",
+        "AmountDt",
+        "Method",
+        "MethodLabel",
+        "Reference",
+        "Note",
+        "RecordedBy",
+        "IsCancelled",
+        "CancelledAt",
+        "CancelledBy",
+        "CancelReason",
+
+        // ── What a recorded payment answers with (Part 4, AC-4.3): the entry it created and the dates either side
+        // of it, so « paying early never costs days » (EC-3) is legible on the screen that did it.
+        "PreviousEndsOn",
+        "AlreadyRecorded",
 
         // Who to call at the cabinet (AC-3.3). ⚠️ These are the two names on this surface that identify a PERSON,
         // so they are the ones to think hardest about — and they are admissible for a reason the field names carry:

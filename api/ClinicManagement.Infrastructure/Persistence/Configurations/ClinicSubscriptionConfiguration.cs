@@ -31,6 +31,9 @@ public class ClinicSubscriptionConfiguration : IEntityTypeConfiguration<ClinicSu
         builder.Property(s => s.Plan)
             .HasConversion<int>();
 
+        builder.Property(s => s.LatestCoverKind)
+            .HasConversion<int>();
+
         builder.Property(s => s.SuspensionReason)
             .HasMaxLength(ClinicSubscription.MaxSuspensionReasonLength);
 

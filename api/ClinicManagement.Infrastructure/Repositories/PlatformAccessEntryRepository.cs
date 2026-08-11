@@ -49,6 +49,12 @@ public class PlatformAccessEntryRepository : IPlatformAccessEntryRepository
             .ToPagedResultAsync(paging, cancellationToken);
     }
 
+    public async Task<PlatformAccessEntry?> GetByIdempotencyKeyAsync(
+        string idempotencyKey, CancellationToken cancellationToken = default) =>
+        await _context.PlatformAccessEntries
+            .AsNoTracking()
+            .FirstOrDefaultAsync(e => e.IdempotencyKey == idempotencyKey, cancellationToken);
+
     public async Task<IReadOnlyList<PlatformAccessActor>> GetRecordedActorsAsync(
         CancellationToken cancellationToken = default)
     {

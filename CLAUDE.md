@@ -922,6 +922,39 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   and labelled « non mesuré » rather than drawn flat, and `components/ui/pager.tsx` was **extracted** so the journal
   and the portfolio cannot drift on links-not-buttons and disabled-step-as-text.
 
+- **The vendor records a payment and the cabinet unlocks (`platform-console` Part 4)**:
+  `POST /api/platform/clinics/{id}/subscription-periods` — the console's **only** write, on its own
+  `PlatformSubscriptionsController` so `PlatformPortfolioController`'s « read-only by construction » stays a
+  checkable claim. The portfolio's entitlement column, its five state filters, its « par date de fin » sort, the
+  summary strip's state counts and the detail's payment history all become real, and
+  `PlatformSubscriptionPlaceholder` is **deleted** — the compiler listed its callers, which is what it was for.
+  ⚠️ **The console computes no date** (AC-4.2). It reuses the companion's own pieces — `SubscriptionCabinetLookup`,
+  `SubscriptionPeriod.Create`, `SubscriptionRefold` — rather than sending `GrantSubscriptionPeriodCommand`, and the
+  reason is **atomicity**: that command commits on its own, so the FR-5 access-ledger row would be a second
+  transaction, and a payment recorded with no ledger row behind it is the « an unattributable action must not
+  aboutir » Part 3 settled for reads. Staging the ledger row before `SubscriptionRefold`'s single save is the only
+  shape in which AC-4.7 and AC-7.3 are true of the same instant. An explicit transaction was rejected too — the
+  refold retries on `ConflictException`, and a failed statement aborts the ambient transaction.
+  ⚠️ **« En essai » had to become a SQL predicate, and the obvious column was unstorable.** AC-2.4a requires every
+  figure the portfolio filters on to exist before a page is cut, and folding N cabinets' ledgers is the unbounded
+  read EC-11 forbids — but « is the cover in force **today** the trial? » is a function of the ledger *and of
+  today*, while `RecomputeFrom` is deliberately clock-free. The storable form is **`ClinicSubscription.LatestCoverKind`**,
+  the kind of the last non-cancelled entry in fold order: a pure function of the ledger, written by `RecomputeFrom`
+  alone and re-derived by `verify-schema`'s **`subscription-cover-kind-matches-ledger`** through the *real* fold.
+  The filter ANDs it with the state terms, so a lapsed trial is excluded by « expiré » regardless of its kind.
+  `IsOnTrial` **moved** out of `GetSubscriptionQuery` into `SubscriptionTrial` — the console is its second caller.
+  ⚠️ **A double-click produces one entry, and the guard is a partial-unique index** on
+  `PlatformAccessEntry.IdempotencyKey` — never the handler's read-first check, which two simultaneous submissions
+  both pass. The key lives on the access ledger rather than in a table of its own because every console write
+  already produces exactly one row there, in the same transaction; the row also names the `SubscriptionPeriodId`
+  it created, so a replay returns the **first** outcome instead of guessing. A lost race replays rather than
+  surfacing the unique violation (EC-5), and two *different* grants both land and are both kept (EC-6).
+  ⚠️ **`Platform` joins `RealtimeResourceResolver.ExcludedAreas`**: a console account belongs to no clinic, so the
+  behaviour's audience would be nobody — silently — and a new key fails the contract test in both directions.
+  AC-4.4a is dropped for the reason `Subscriptions` is already excluded (progress.md DEV-12).
+  ⚠️ **The console cannot grant open-ended cover**, because the companion refuses it in its own handler: a cabinet
+  that should never expire is grandfathered by a migration. EC-14 is met on the **read** side — « Sans échéance »
+  is said in words wherever a null end date appears.
 - **A clinic can let itself in, and nothing exists until the email is answered (`clinic-self-signup`)**: a hosted
   clinic used to exist only because an operator ran `provision-clinic`. `POST /api/auth/signup` (anonymous) writes a
   pending **`ClinicSignup`** and emails a link; `POST /api/auth/signup/verify` consumes it and provisions the clinic +

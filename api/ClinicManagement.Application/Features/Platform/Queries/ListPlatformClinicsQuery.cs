@@ -28,11 +28,18 @@ public class ListPlatformClinicsQuery : IRequest<Result<PlatformClinicPageDto>>
     /// <summary>« rien enregistré depuis 30 jours » (AC-2.3).</summary>
     public bool Dormant { get; set; }
 
+    /// <summary>
+    /// <c>trial</c> | <c>active</c> | <c>expiringSoon</c> | <c>expired</c> | <c>suspended</c> | <c>missing</c>
+    /// (AC-2.3). An unrecognised value narrows <b>nothing</b> rather than refusing — the tolerance the lab-order
+    /// stage filter and the audit action filter apply, so a stale bookmark shows the portfolio instead of an error.
+    /// </summary>
+    public string? State { get; set; }
+
     /// <summary>Matches the cabinet's name, its city, or an administrator's e-mail address (AC-2.5).</summary>
     public string? Q { get; set; }
 
     /// <summary>
-    /// <c>name</c> | <c>activity</c> | <c>createdAt</c>. An unrecognised value falls back to <c>name</c> rather
+    /// <c>name</c> | <c>activity</c> | <c>createdAt</c> | <c>endsOn</c>. An unrecognised value falls back to <c>name</c> rather
     /// than refusing — the same tolerance the lab-order stage filter and the audit action filter apply, so a
     /// stale bookmark shows rows instead of a French error.
     /// </summary>
@@ -69,9 +76,16 @@ public class ListPlatformClinicsQueryHandler
 
         try
         {
+            // One « today », resolved once and handed to the repository: the filters, the sort and the countdown
+            // every row carries must all be measured against the same clinic-local day, and a repository that read
+            // the clock itself could not be asked about a midnight.
+            var today = ClinicClock.ClinicToday();
+
             var filter = new PlatformPortfolioFilter(
+                ClinicToday: today,
                 SearchPattern: SearchTerm.ToLikePattern(request.Q),
                 DormantOnly: request.Dormant,
+                Subscription: ParseState(request.State),
                 Sort: ParseSort(request.Sort));
 
             // Omitting the paging parameters gets the FIRST PAGE, not everything — the opposite of the clinic
@@ -80,7 +94,7 @@ public class ListPlatformClinicsQueryHandler
             var paging = PageRequest.From(request.Page, request.PageSize) ?? PageRequest.Of(1, PageRequest.DefaultPageSize);
 
             var page = await _activityRepository.GetPortfolioAsync(filter, paging, cancellationToken);
-            var items = page.Items.Select(ToDto).ToList();
+            var items = page.Items.Select(row => PlatformClinicRowMapper.ToDto(row, today)).ToList();
 
             return Result<PlatformClinicPageDto>.Success(new PlatformClinicPageDto(
                 Items: items,
@@ -90,8 +104,7 @@ public class ListPlatformClinicsQueryHandler
                 TotalPages: page.TotalPages,
                 HasPreviousPage: page.HasPreviousPage,
                 HasNextPage: page.HasNextPage,
-                CountersAsOf: OldestMeasurement(items),
-                SubscriptionDataAvailable: PlatformSubscriptionPlaceholder.DataAvailable));
+                CountersAsOf: OldestMeasurement(items)));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
@@ -121,28 +134,22 @@ public class ListPlatformClinicsQueryHandler
     {
         "activity" => PlatformPortfolioSort.Activity,
         "createdat" => PlatformPortfolioSort.CreatedAt,
+        "endson" => PlatformPortfolioSort.EndsOn,
         _ => PlatformPortfolioSort.Name
     };
 
-    private static PlatformClinicRowDto ToDto(PlatformClinicRow row) => new(
-        ClinicId: row.ClinicId,
-        Name: row.Name,
-        City: row.City,
-        CreatedAt: row.CreatedAt,
-        // The four entitlement members stay null until features/clinic-subscription/ ships. Part 4 replaces this
-        // block with the companion's own read — see PlatformSubscriptionPlaceholder on why it is not folded here.
-        Plan: null,
-        State: null,
-        EndsOn: null,
-        DaysRemaining: null,
-        Users: row.Users,
-        Patients: row.Patients,
-        Appointments30d: row.Appointments30d,
-        Writes7d: row.Writes7d,
-        Writes30d: row.Writes30d,
-        ActiveDays30d: row.ActiveDays30d,
-        LastWriteAt: row.LastWriteAt,
-        LastLoginAt: row.LastLoginAt,
-        ClinicCollectedThisMonthDt: row.CollectedThisMonth,
-        CountersComputedAt: row.CountersComputedAt);
+    /// <summary>
+    /// An unrecognised value narrows nothing — deliberately not « matches nothing ». A stale bookmark should show
+    /// the portfolio, and a filter silently matching zero cabinets reads as a deployment that has lost its clients.
+    /// </summary>
+    private static PlatformSubscriptionFilter? ParseState(string? state) => state?.Trim().ToLowerInvariant() switch
+    {
+        "trial" => PlatformSubscriptionFilter.Trial,
+        "active" => PlatformSubscriptionFilter.Active,
+        "expiringsoon" => PlatformSubscriptionFilter.ExpiringSoon,
+        "expired" => PlatformSubscriptionFilter.Expired,
+        "suspended" => PlatformSubscriptionFilter.Suspended,
+        "missing" => PlatformSubscriptionFilter.Missing,
+        _ => null
+    };
 }

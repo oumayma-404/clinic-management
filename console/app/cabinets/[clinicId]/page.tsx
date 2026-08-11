@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ActivityTrend } from "@/components/activity-trend";
+import { RecordPaymentSheet } from "@/components/record-payment-sheet";
 import { ConsoleApiError } from "@/lib/api/client";
 import { CLINIC_NOT_FOUND_CODE, fetchClinicDetail, type PlatformClinicDetail } from "@/lib/api/platform";
 import { EM_DASH, formatCount, formatDate, formatDateTime, formatFreshness, formatMoney } from "@/lib/format";
@@ -111,24 +112,82 @@ export default async function CabinetDetailPage({ params }: PageProps) {
 }
 
 /**
- * The entitlement section — which today says it cannot be read from here.
+ * The entitlement, and the ledger behind it (AC-3.1, AC-3.2, US-4).
  *
- * ⚠️ **Stated, not empty.** An « Historique des paiements » table with no rows asserts that this cabinet has never
- * paid, which is a claim about the cabinet; the truth is a claim about the console. The sentence comes from the
- * server (`PlatformSubscriptionPlaceholder`) so this screen and the portfolio cannot word the same gap differently
- * — and so it disappears in one edit when the companion feature ships.
+ * ⚠️ **Every cancelled entry stays listed, struck through and marked in WORDS as well.** A strike-through alone is
+ * invisible to a screen reader and to anyone reading a printout, and AC-6.3's « never colour alone » is the same
+ * rule one field over. An entry is never edited and never deleted (AC-5.2), so a history that hid them would answer
+ * « what were we paid, and for what? » with a tidied version of the truth.
+ *
+ * ⚠️ **« Sans échéance » is said in words** (EC-14) rather than left as a blank date — a cabinet that never expires
+ * is a deliberate arrangement, and an empty cell reads as « nous ne savons pas ».
  */
 function Subscription({ detail }: { detail: PlatformClinicDetail }) {
-  if (detail.subscriptionDataAvailable) {
-    return null;
-  }
+  const clinic = detail.clinic;
 
   return (
-    <section aria-labelledby="subscription-heading" className="rounded-lg border border-dashed border-border bg-card p-4">
-      <h2 id="subscription-heading" className="text-base font-semibold">
-        Abonnement et paiements
-      </h2>
-      <p className="mt-1 text-sm text-muted-foreground">{detail.subscriptionExplanation}</p>
+    <section aria-labelledby="subscription-heading" className="rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h2 id="subscription-heading" className="text-base font-semibold">
+          Abonnement et paiements
+        </h2>
+        <RecordPaymentSheet clinicId={clinic.clinicId} clinicName={clinic.name} endsOn={clinic.endsOn} />
+      </div>
+
+      <dl className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 min-[380px]:grid-cols-2 lg:grid-cols-4">
+        <Figure label="État" value={clinic.stateLabel} />
+        <Figure label="Forfait" value={clinic.planLabel ?? "Non choisi"} />
+        <Figure label="Fin de couverture" value={clinic.endsOn ? formatDate(clinic.endsOn) : "Sans échéance"} />
+        <Figure
+          label="Jours restants"
+          value={clinic.daysRemaining === null ? EM_DASH : formatCount(clinic.daysRemaining)}
+        />
+      </dl>
+
+      <h3 className="mt-6 text-sm font-semibold">Historique des paiements</h3>
+      {detail.payments.length === 0 ? (
+        <p className="mt-1 text-sm text-muted-foreground">
+          Aucune période enregistrée pour ce cabinet. Ce n&apos;est pas la même chose qu&apos;un cabinet qui
+          n&apos;a jamais payé : c&apos;est un cabinet sans aucun droit d&apos;usage enregistré.
+        </p>
+      ) : (
+        <ul className="mt-2 space-y-2">
+          {detail.payments.map((entry) => (
+            <li
+              key={entry.entryId}
+              className="rounded-md border border-border p-3 text-sm"
+            >
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className={entry.isCancelled ? "font-medium line-through" : "font-medium"}>
+                  {entry.kindLabel}
+                  {entry.amountDt === null ? "" : ` · ${formatMoney(entry.amountDt)}`}
+                  {entry.methodLabel ? ` · ${entry.methodLabel}` : ""}
+                </span>
+                <span className="text-xs text-muted-foreground">{formatDate(entry.recordedOn)}</span>
+              </div>
+
+              <p className="mt-1 text-xs text-muted-foreground">
+                {entry.coversFrom
+                  ? `Couvre du ${formatDate(entry.coversFrom)} ${entry.coversThrough ? `au ${formatDate(entry.coversThrough)}` : "— sans échéance"}`
+                  : "Ne couvre aucune période"}
+                {entry.reference ? ` · réf. ${entry.reference}` : ""}
+              </p>
+
+              {entry.isCancelled ? (
+                // In words, not only struck through: a strike-through is invisible to a screen reader and to a
+                // printout, and « annulé » is the whole meaning of the row.
+                <p className="mt-1 text-xs text-destructive">
+                  Annulé{entry.cancelledAt ? ` le ${formatDate(entry.cancelledAt)}` : ""}
+                  {entry.cancelledBy ? ` par ${entry.cancelledBy}` : ""}
+                  {entry.cancelReason ? ` — ${entry.cancelReason}` : ""}
+                </p>
+              ) : null}
+
+              {entry.note ? <p className="mt-1 text-xs text-muted-foreground">{entry.note}</p> : null}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

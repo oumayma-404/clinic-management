@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -54,12 +55,7 @@ public class ClinicActivityRepository : IClinicActivityRepository
         // A LEFT JOIN, not an inner one: a cabinet the pass has never covered must still appear — with its
         // counters stated as unknown rather than as zero (EC-8/EC-15). An inner join would hide exactly the
         // cabinets whose absence from the counters is the thing worth seeing.
-        var query =
-            from clinic in _context.Clinics.AsNoTracking()
-            join snapshotRow in _context.ClinicActivitySnapshots.AsNoTracking()
-                on clinic.Id equals snapshotRow.ClinicId into snapshots
-            from snapshot in snapshots.DefaultIfEmpty()
-            select new PortfolioJoin { clinic = clinic, snapshot = snapshot };
+        var query = PortfolioQuery(_context.Clinics.AsNoTracking());
 
         if (filter.SearchPattern is { } pattern)
         {
@@ -84,6 +80,11 @@ public class ClinicActivityRepository : IClinicActivityRepository
             query = query.Where(x => x.snapshot != null && x.snapshot.Writes30d == 0);
         }
 
+        if (filter.Subscription is { } state)
+        {
+            query = query.Where(SubscriptionPredicate(state, filter.ClinicToday.Date, filter.ExpiringWithinDays));
+        }
+
         // ⚠️ `.ThenBy(Id)` on every branch, never decoratively: OFFSET over a non-unique sort can show one
         // cabinet on two pages and skip another, which reads as a practice having disappeared from the portfolio.
         var ordered = filter.Sort switch
@@ -94,6 +95,12 @@ public class ClinicActivityRepository : IClinicActivityRepository
             PlatformPortfolioSort.CreatedAt => query
                 .OrderByDescending(x => x.clinic.CreatedAt)
                 .ThenBy(x => x.clinic.Id),
+            // Ascending, so the soonest deadline is first. « Sans échéance » and « aucun abonnement » are both null
+            // here and land at the end under PostgreSQL's NULLS LAST — which is what this read wants, since neither
+            // is a deadline; it is asserted rather than inherited by `PlatformPortfolioQueryTests`.
+            PlatformPortfolioSort.EndsOn => query
+                .OrderBy(x => x.subscription != null ? x.subscription.EndsOn : null)
+                .ThenBy(x => x.clinic.Id),
             _ => query
                 .OrderBy(x => x.clinic.Name)
                 .ThenBy(x => x.clinic.Id)
@@ -102,29 +109,81 @@ public class ClinicActivityRepository : IClinicActivityRepository
         return await ordered.Select(Projection).ToPagedResultAsync(paging, cancellationToken);
     }
 
+    /// <summary>
+    /// One JOINed row, three tables. The entitlement is a <b>LEFT</b> join for the reason the snapshot is: a cabinet
+    /// with none must still appear — that is FR-13's failure state, and an inner join would hide precisely the rows
+    /// worth seeing.
+    /// </summary>
+    private IQueryable<PortfolioJoin> PortfolioQuery(IQueryable<Clinic> clinics) =>
+        from clinic in clinics
+        join snapshotRow in _context.ClinicActivitySnapshots.AsNoTracking()
+            on clinic.Id equals snapshotRow.ClinicId into snapshots
+        from snapshot in snapshots.DefaultIfEmpty()
+        join subscriptionRow in _context.ClinicSubscriptions.AsNoTracking()
+            on clinic.Id equals subscriptionRow.ClinicId into subscriptions
+        from subscription in subscriptions.DefaultIfEmpty()
+        select new PortfolioJoin { clinic = clinic, snapshot = snapshot, subscription = subscription };
+
+    /// <summary>
+    /// AC-2.3's filters as SQL, and the <b>same</b> branches the summary strip counts with — so a chip saying
+    /// « 4 expirés » and the list it opens cannot disagree.
+    ///
+    /// <para>⚠️ Each branch reproduces <c>SubscriptionStateReader</c>'s precedence rather than inventing one:
+    /// suspension outranks an expiry (EC-11), a null <c>EndsOn</c> is « sans échéance » and therefore covered, and
+    /// « en essai » is a <i>label</i> on a covered cabinet — it ANDs with the covered terms, which is what makes the
+    /// clock-free <c>LatestCoverKind</c> a correct answer here (see that property's remarks).</para>
+    /// </summary>
+    private static Expression<Func<PortfolioJoin, bool>> SubscriptionPredicate(
+        PlatformSubscriptionFilter state, DateTime today, int expiringWithinDays)
+    {
+        var horizon = today.AddDays(expiringWithinDays);
+
+        return state switch
+        {
+            PlatformSubscriptionFilter.Missing => x => x.subscription == null,
+            PlatformSubscriptionFilter.Suspended => x => x.subscription != null && x.subscription.IsSuspended,
+            PlatformSubscriptionFilter.Expired => x =>
+                x.subscription != null
+                && !x.subscription.IsSuspended
+                && x.subscription.EndsOn != null
+                && x.subscription.EndsOn < today,
+            PlatformSubscriptionFilter.ExpiringSoon => x =>
+                x.subscription != null
+                && !x.subscription.IsSuspended
+                && x.subscription.EndsOn != null
+                && x.subscription.EndsOn >= today
+                && x.subscription.EndsOn <= horizon,
+            PlatformSubscriptionFilter.Trial => x =>
+                x.subscription != null
+                && !x.subscription.IsSuspended
+                && (x.subscription.EndsOn == null || x.subscription.EndsOn >= today)
+                && x.subscription.LatestCoverKind == SubscriptionPeriodKind.Trial,
+            _ => x =>
+                x.subscription != null
+                && !x.subscription.IsSuspended
+                && (x.subscription.EndsOn == null || x.subscription.EndsOn >= today)
+        };
+    }
+
     public async Task<PlatformClinicRow?> GetClinicRowAsync(
         Guid clinicId, CancellationToken cancellationToken = default)
     {
-        // The same LEFT JOIN and the same projection as the list — AC-3.1 is « the same figures », so the
+        // The same LEFT JOINs and the same projection as the list — AC-3.1 is « the same figures », so the
         // expression is shared rather than retyped.
-        var query =
-            from clinic in _context.Clinics.AsNoTracking().Where(c => c.Id == clinicId)
-            join snapshotRow in _context.ClinicActivitySnapshots.AsNoTracking()
-                on clinic.Id equals snapshotRow.ClinicId into snapshots
-            from snapshot in snapshots.DefaultIfEmpty()
-            select new PortfolioJoin { clinic = clinic, snapshot = snapshot };
+        var query = PortfolioQuery(_context.Clinics.AsNoTracking().Where(c => c.Id == clinicId));
 
         return await query.Select(Projection).FirstOrDefaultAsync(cancellationToken);
     }
 
     /// <summary>
-    /// A cabinet beside its snapshot, or beside nothing. A named type rather than an anonymous one so the list
-    /// and the detail can pass the <b>same</b> projection expression over it.
+    /// A cabinet beside its snapshot and its entitlement, or beside nothing. A named type rather than an anonymous
+    /// one so the list and the detail can pass the <b>same</b> projection expression over it.
     /// </summary>
     private sealed class PortfolioJoin
     {
         public required Clinic clinic { get; init; }
         public ClinicActivitySnapshot? snapshot { get; init; }
+        public ClinicSubscription? subscription { get; init; }
     }
 
     /// <summary>
@@ -140,6 +199,11 @@ public class ClinicActivityRepository : IClinicActivityRepository
             x.clinic.Name,
             x.clinic.City,
             x.clinic.CreatedAt,
+            x.subscription != null,
+            x.subscription != null ? x.subscription.Plan : null,
+            x.subscription != null ? x.subscription.EndsOn : null,
+            x.subscription != null && x.subscription.IsSuspended,
+            x.subscription != null ? x.subscription.LatestCoverKind : null,
             x.snapshot != null ? x.snapshot.Users : 0,
             x.snapshot != null ? x.snapshot.Patients : 0,
             x.snapshot != null ? x.snapshot.Appointments30d : 0,
@@ -151,7 +215,8 @@ public class ClinicActivityRepository : IClinicActivityRepository
             x.snapshot != null ? x.snapshot.CollectedThisMonth : 0m,
             x.snapshot != null ? x.snapshot.ComputedAt : (DateTime?)null);
 
-    public async Task<PlatformPortfolioTotals> GetPortfolioTotalsAsync(CancellationToken cancellationToken = default)
+    public async Task<PlatformPortfolioTotals> GetPortfolioTotalsAsync(
+        DateTime clinicToday, int expiringWithinDays, CancellationToken cancellationToken = default)
     {
         var clinics = await _context.Clinics.AsNoTracking().CountAsync(cancellationToken);
 
@@ -161,9 +226,30 @@ public class ClinicActivityRepository : IClinicActivityRepository
 
         var measured = await _context.ClinicActivitySnapshots.AsNoTracking().CountAsync(cancellationToken);
 
-        // Derived from the two counts rather than read with a NOT EXISTS: the snapshot table is unique on
-        // ClinicId and every row's clinic exists (FK), so « cabinets − mesurés » is the same number and one
-        // query cheaper. It cannot go negative for the same two reasons.
-        return new PlatformPortfolioTotals(clinics, dormant, clinics - measured);
+        // The five entitlement figures are counted through the SAME predicates the list filters with, so a chip
+        // saying « 4 expirés » and the page it opens cannot disagree. One JOINed query rather than five scalar
+        // reads, so all five describe one instant.
+        var joined = PortfolioQuery(_context.Clinics.AsNoTracking());
+        var today = clinicToday.Date;
+
+        var inTrial = await joined.CountAsync(
+            SubscriptionPredicate(PlatformSubscriptionFilter.Trial, today, expiringWithinDays), cancellationToken);
+        var active = await joined.CountAsync(
+            SubscriptionPredicate(PlatformSubscriptionFilter.Active, today, expiringWithinDays), cancellationToken);
+        var expiringSoon = await joined.CountAsync(
+            SubscriptionPredicate(PlatformSubscriptionFilter.ExpiringSoon, today, expiringWithinDays), cancellationToken);
+        var expired = await joined.CountAsync(
+            SubscriptionPredicate(PlatformSubscriptionFilter.Expired, today, expiringWithinDays), cancellationToken);
+        var suspended = await joined.CountAsync(
+            SubscriptionPredicate(PlatformSubscriptionFilter.Suspended, today, expiringWithinDays), cancellationToken);
+        var missing = await joined.CountAsync(
+            SubscriptionPredicate(PlatformSubscriptionFilter.Missing, today, expiringWithinDays), cancellationToken);
+
+        // ⚠️ « En essai » is a subset of « Actif » in SQL — both branches require a covered, unsuspended cabinet —
+        // so the strip subtracts it out here. Without that the five buckets would over-count every trialling cabinet
+        // and stop summing to the portfolio, which is the one property that makes the strip readable.
+        return new PlatformPortfolioTotals(
+            clinics, dormant, clinics - measured,
+            inTrial, active - inTrial, expiringSoon, expired, suspended, missing);
     }
 }

@@ -56,6 +56,17 @@ internal sealed class FakeSubscriptionRepository : IClinicSubscriptionRepository
             .ThenBy(e => e.Id)
             .ToList());
 
+    /// <summary>
+    /// The vendor's takings over a window — non-cancelled entries only, and an entry with no amount contributes
+    /// nothing rather than being skipped. The predicate is the repository's, so a test can hold the console's
+    /// summary equal to what the ledger actually holds.
+    /// </summary>
+    public Task<decimal> GetVendorCollectedBetweenAsync(
+        DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_entries
+            .Where(e => !e.IsCancelled && e.RecordedAtUtc >= fromUtc && e.RecordedAtUtc <= toUtc)
+            .Sum(e => e.Amount ?? 0m));
+
     public Task<IReadOnlyList<ClinicSubscriptionReportRow>> GetForReportAsync(
         CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<ClinicSubscriptionReportRow>>(ReportRows);

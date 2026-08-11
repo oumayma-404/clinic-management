@@ -19,6 +19,7 @@ public static class PlatformAccessLabels
     public static string Action(PlatformAccessAction action) => action switch
     {
         PlatformAccessAction.ViewedClinic => "Fiche cabinet consultée",
+        PlatformAccessAction.GrantedPeriod => "Paiement enregistré",
         _ => action.ToString()
     };
 

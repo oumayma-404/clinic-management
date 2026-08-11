@@ -7,6 +7,7 @@ using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -36,6 +37,7 @@ public class PlatformAccessLedgerTests
     private readonly FakeAccessLedger _ledger = new();
     private readonly Mock<IClinicActivityRepository> _activity = new();
     private readonly Mock<IUserRepository> _users = new();
+    private readonly Mock<IClinicSubscriptionRepository> _subscriptions = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
 
     // ------------------------------------------------------------------ harness
@@ -47,64 +49,37 @@ public class PlatformAccessLedgerTests
         return scope;
     }
 
-    /// <summary>A ledger that keeps its rows, so the write path and the read path can be compared against each other.</summary>
-    private sealed class FakeAccessLedger : IPlatformAccessEntryRepository
-    {
-        public List<PlatformAccessEntry> Rows { get; } = new();
-
-        public Task AddAsync(PlatformAccessEntry entry, CancellationToken cancellationToken = default)
-        {
-            Rows.Add(entry);
-            return Task.CompletedTask;
-        }
-
-        public Task<PagedResult<PlatformAccessEntry>> GetPageAsync(
-            Guid? platformAccountId, Guid? clinicId, PageRequest? paging = null,
-            CancellationToken cancellationToken = default)
-        {
-            var matched = Rows
-                .Where(r => platformAccountId is null || r.PlatformAccountId == platformAccountId)
-                .Where(r => clinicId is null || r.ClinicId == clinicId)
-                .OrderByDescending(r => r.OccurredAt)
-                .ThenBy(r => r.Id)
-                .ToList();
-
-            var page = paging ?? PageRequest.Of(1, PageRequest.DefaultPageSize);
-            return Task.FromResult(new PagedResult<PlatformAccessEntry>(
-                matched.Skip((page.Page - 1) * page.PageSize).Take(page.PageSize).ToList(),
-                page.Page, page.PageSize, matched.Count));
-        }
-
-        public Task<IReadOnlyList<PlatformAccessActor>> GetRecordedActorsAsync(
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<PlatformAccessActor>>(Rows
-                .Select(r => new PlatformAccessActor(r.PlatformAccountId, r.AccountEmail))
-                .Distinct()
-                .OrderBy(a => a.AccountEmail)
-                .ToList());
-    }
-
-    private sealed class Session : IPlatformSessionContext
-    {
-        public Guid? AccountId { get; init; }
-        public string? Email { get; init; }
-        public Guid? GetAccountId() => AccountId;
-        public string? GetEmail() => Email;
-    }
-
     private static IPlatformSessionContext SignedIn() =>
-        new Session { AccountId = AccountId, Email = AccountEmail };
+        new FakePlatformSession { AccountId = AccountId, Email = AccountEmail };
+
+    /// <summary>
+    /// ⚠️ The empty-ledger default is set <b>here</b>, not inside <c>DetailHandler()</c>: Moq lets the last matching
+    /// setup win, so an <c>It.IsAny</c> stub applied when the handler is built would silently override the specific
+    /// ledger a test had just wired — and the test would assert against no rows while looking correct.
+    /// (Moq's default for an unstubbed collection-returning read is <c>null</c>, which the handler dereferences and
+    /// the catch-all turns into a French business error nowhere near the real cause.)
+    /// </summary>
+    public PlatformAccessLedgerTests() =>
+        _subscriptions
+            .Setup(r => r.GetEntriesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<SubscriptionPeriod>());
 
     private GetPlatformClinicDetailQueryHandler DetailHandler(
         IPlatformSessionContext? session = null, ITenantScope? scope = null) =>
-        new(_activity.Object, _users.Object, _ledger, session ?? SignedIn(), _unitOfWork.Object,
-            scope ?? SystemWideScope(), NullLogger<GetPlatformClinicDetailQueryHandler>.Instance);
+        new(_activity.Object, _users.Object, _subscriptions.Object, _ledger, session ?? SignedIn(),
+            _unitOfWork.Object, scope ?? SystemWideScope(),
+            NullLogger<GetPlatformClinicDetailQueryHandler>.Instance);
 
     private GetPlatformAccessLogQueryHandler JournalHandler() =>
         new(_ledger, SystemWideScope(), NullLogger<GetPlatformAccessLogQueryHandler>.Instance);
 
     private static PlatformClinicRow Row(string name = "Cabinet Ben Ali") =>
         new(ClinicId, name, "Tunis", new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc),
+            HasEntitlement: true,
+            Plan: SubscriptionPlan.Cabinet,
+            SubscriptionEndsOn: null,
+            SubscriptionIsSuspended: false,
+            LatestCoverKind: SubscriptionPeriodKind.Grandfathered,
             Users: 3, Patients: 412, Appointments30d: 96, Writes7d: 4, Writes30d: 12, ActiveDays30d: 9,
             LastWriteAt: new DateTime(2026, 8, 9, 10, 0, 0, DateTimeKind.Utc),
             LastLoginAt: new DateTime(2026, 8, 10, 7, 0, 0, DateTimeKind.Utc),
@@ -209,7 +184,7 @@ public class PlatformAccessLedgerTests
         WireCabinet(Row());
         WireAdmin(null);
 
-        var handler = DetailHandler(session: new Session { AccountId = null, Email = null });
+        var handler = DetailHandler(session: new FakePlatformSession { AccountId = null, Email = null });
 
         var result = await handler.Handle(
             new GetPlatformClinicDetailQuery { ClinicId = ClinicId }, CancellationToken.None);
@@ -400,24 +375,93 @@ public class PlatformAccessLedgerTests
         Assert.Equal(PlatformAccessLabels.Month(current.Year, current.Month), current.MonthLabel);
     }
 
-    // [FR-4][AC-3.2] The payment history the AC asks for belongs to features/clinic-subscription/, which has not
-    // shipped here. The detail SAYS so rather than returning an empty history: a table with no rows asserts that
-    // this cabinet has never paid — a claim about the cabinet — where the truth is a claim about the console.
+    // [AC-3.2] The payment history is the companion's ledger, read — newest first, with the « période couverte »
+    // each entry covers taken from the FOLD rather than computed from the entry alone. Computing it here would
+    // produce entirely plausible dates describing periods the cabinet was never entitled to.
     [Fact]
-    public async Task The_Absent_Payment_History_Is_Stated_Rather_Than_Empty()
+    public async Task The_Payment_History_Is_The_Ledger_With_Its_Folded_Periods()
     {
         WireCabinet(Row());
         WireAdmin(null);
 
+        var trial = SubscriptionPeriod.Trial(ClinicId, new DateTime(2026, 1, 5), 30,
+            new DateTime(2026, 1, 5, 8, 0, 0, DateTimeKind.Utc));
+        var paid = SubscriptionPeriod.Create(ClinicId, SubscriptionPeriodKind.Paid, new DateTime(2026, 3, 1),
+            new DateTime(2026, 3, 1, 9, 0, 0, DateTimeKind.Utc), durationMonths: 12, amount: 1_200.000m,
+            method: SubscriptionPaymentMethod.Transfer, reference: "VIR-9931");
+
+        _subscriptions
+            .Setup(r => r.GetEntriesAsync(ClinicId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { trial, paid });
+
         var result = await DetailHandler().Handle(
             new GetPlatformClinicDetailQuery { ClinicId = ClinicId }, CancellationToken.None);
 
-        Assert.False(result.Value!.SubscriptionDataAvailable);
-        Assert.Equal(PlatformSubscriptionPlaceholder.DetailExplanation, result.Value.SubscriptionExplanation);
-        // And the four entitlement members stay null, never a guessed « Actif » or a computed end date (EC-14).
-        Assert.Null(result.Value.Clinic.State);
-        Assert.Null(result.Value.Clinic.EndsOn);
-        Assert.Null(result.Value.Clinic.Plan);
-        Assert.Null(result.Value.Clinic.DaysRemaining);
+        var payments = result.Value!.Payments;
+        Assert.Equal(2, payments.Count);
+
+        // Newest first.
+        Assert.Equal(paid.Id, payments[0].EntryId);
+        Assert.Equal(1_200.000m, payments[0].AmountDt);
+        Assert.Equal("VIR-9931", payments[0].Reference);
+        Assert.Equal("Virement", payments[0].MethodLabel);
+
+        // The spans are the fold's, asserted against the real fold rather than against retyped dates — a literal
+        // here would be a second copy of the arithmetic and could agree with a mistake.
+        var spans = SubscriptionLedger.FoldWithSpans(new[] { trial.ToLedgerEntry(), paid.ToLedgerEntry() }).Spans
+            .ToDictionary(s => s.EntryId);
+        Assert.Equal(spans[paid.Id].FromDay, payments[0].CoversFrom);
+        Assert.Equal(spans[paid.Id].ThroughDay, payments[0].CoversThrough);
+    }
+
+    // [AC-4.8] « Offert » carries NO amount rather than an amount of zero — the two are different statements, and
+    // only one of them is ever true of a complimentary period.
+    [Fact]
+    public async Task A_Complimentary_Period_Reads_As_Offert_With_No_Amount()
+    {
+        WireCabinet(Row());
+        WireAdmin(null);
+
+        var gift = SubscriptionPeriod.Create(ClinicId, SubscriptionPeriodKind.Complimentary,
+            new DateTime(2026, 4, 1), new DateTime(2026, 4, 1, 9, 0, 0, DateTimeKind.Utc), durationMonths: 1);
+
+        _subscriptions
+            .Setup(r => r.GetEntriesAsync(ClinicId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { gift });
+
+        var result = await DetailHandler().Handle(
+            new GetPlatformClinicDetailQuery { ClinicId = ClinicId }, CancellationToken.None);
+
+        var entry = Assert.Single(result.Value!.Payments);
+        Assert.Equal("Offert", entry.KindLabel);
+        Assert.Null(entry.AmountDt);
+    }
+
+    // [AC-5.2] A cancelled entry stays listed with its reason, canceller and moment. Hiding it would answer
+    // « what were we paid, and for what? » with a tidied version of the truth, on the one screen built to check.
+    [Fact]
+    public async Task A_Cancelled_Entry_Stays_Listed_With_Its_Reason()
+    {
+        WireCabinet(Row());
+        WireAdmin(null);
+
+        var mistake = SubscriptionPeriod.Create(ClinicId, SubscriptionPeriodKind.Paid, new DateTime(2026, 5, 1),
+            new DateTime(2026, 5, 1, 9, 0, 0, DateTimeKind.Utc), durationMonths: 12, amount: 1_200.000m);
+        mistake.Cancel("Montant saisi deux fois", "console|op", new DateTime(2026, 5, 2, 9, 0, 0, DateTimeKind.Utc));
+
+        _subscriptions
+            .Setup(r => r.GetEntriesAsync(ClinicId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { mistake });
+
+        var result = await DetailHandler().Handle(
+            new GetPlatformClinicDetailQuery { ClinicId = ClinicId }, CancellationToken.None);
+
+        var entry = Assert.Single(result.Value!.Payments);
+        Assert.True(entry.IsCancelled);
+        Assert.Equal("Montant saisi deux fois", entry.CancelReason);
+        Assert.Equal("console|op", entry.CancelledBy);
+        // It covers nothing, which is what the fold says about it — struck through on screen, and worth no days.
+        Assert.Null(entry.CoversFrom);
+        Assert.Null(entry.CoversThrough);
     }
 }

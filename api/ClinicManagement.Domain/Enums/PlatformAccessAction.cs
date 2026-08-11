@@ -4,11 +4,11 @@ namespace ClinicManagement.Domain.Enums;
 /// What a console account did to a cabinet, as recorded in the console's own access ledger
 /// (<c>platform-console</c> FR-5, AC-7.3).
 ///
-/// <para>⚠️ <b>One member, deliberately.</b> The plan lists five — the four writes of Parts 4–6 alongside this —
-/// and each of those arrives with the write that produces it. It is the decision <c>PlatformPortfolioSort</c>
-/// already made in Part 2 for « par date de fin » (progress.md DEV-6): a member nothing can produce is a value the
-/// journal can never show and a filter can never match, and the reader has no way to tell « jamais fait » from
-/// « pas encore possible ». Part 4 adds <c>GrantedPeriod</c> in the same commit as the grant.</para>
+/// <para>⚠️ <b>Each member arrives with the write that produces it</b>, never ahead of it — the decision
+/// <c>PlatformPortfolioSort</c> made in Part 2 for « par date de fin » (progress.md DEV-6): a member nothing can
+/// produce is a value the journal can never show and a filter can never match, and the reader has no way to tell
+/// « jamais fait » from « pas encore possible ». Parts 5 and 6 add <c>CancelledPeriod</c>, <c>Suspended</c> and
+/// <c>Unsuspended</c> on the same terms.</para>
 /// </summary>
 public enum PlatformAccessAction
 {
@@ -19,5 +19,10 @@ public enum PlatformAccessAction
     /// cabinet, so a row per cabinet per page load would drown every reading anyone actually wants — including
     /// this one.</para>
     /// </summary>
-    ViewedClinic = 0
+    ViewedClinic = 0,
+
+    /// <summary>
+    /// A console account recorded a received payment and extended the cabinet's entitlement (Part 4, AC-4.7).
+    /// </summary>
+    GrantedPeriod = 1
 }

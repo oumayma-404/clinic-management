@@ -60,6 +60,12 @@ public class SubscriptionExemptionCoverageTests
         // --- Getting your data out, and getting a colleague out (FR-3).
         "Backup.BackupNow",                              // the AC-4.2 argument; the scheduled one already keeps going
         "Users.SetStatus",                               // offboarding must not wait on an invoice
+
+        // --- The vendor console's own write (`platform-console` AC-4.1). It is the endpoint whose PURPOSE is to end
+        // a refusal, and the cabinets it is used on are precisely the ones that have lapsed. A console account is
+        // not a cabinet, so it passes the gate on that ground today — the attribute states the intent where a reader
+        // finds it rather than leaving it to how the tenant scope happens to resolve.
+        "PlatformSubscriptions.RecordPeriod",
     };
 
     /// <summary>

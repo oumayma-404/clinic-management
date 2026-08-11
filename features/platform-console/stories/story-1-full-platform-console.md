@@ -1,7 +1,7 @@
 # Story 1: [Full] The vendor runs the practice portfolio from a private console
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts 1–3 implemented**; Parts 4–7 blocked on `features/clinic-subscription/`
+**Story Status:** in-progress — **Parts 1–4 implemented**. `features/clinic-subscription/` was merged in at `25b252d`, so Parts 5–7 are no longer blocked.
 **Progress:** [progress.md](./progress.md) — gate results, deviations and what is owed
 **Layer:** Full — ⚠️ see *Notes* for why the BE/FE separation rule is deliberately overridden
 **Depends On:** `features/clinic-subscription/` — **Parts 4–7 only** (Parts 1–3 have no dependency on it)
@@ -37,31 +37,31 @@ _From spec:_
 **US-2 — the portfolio (Part 2)**
 - [ ] AC-2.1 — the list shows every named figure per cabinet, including saves over 7/30 days and the cabinet's own monthly collected total
 - [ ] AC-2.2 — « saves » counts only people at the cabinet: background work **and** the vendor's own console writes excluded
-- [ ] AC-2.3 — filters: en essai · expire sous N jours · expiré · suspendu · dormant
-- [ ] AC-2.4 — sortable by end date, activity and creation date, and paged
+- [x] AC-2.3 — filters: en essai · expire sous N jours · expiré · suspendu · dormant *(Part 4; five SQL predicates, shared with the summary counts)*
+- [x] AC-2.4 — sortable by end date, activity and creation date, and paged *(Part 4 adds « par date de fin »; nulls last)*
 - [ ] AC-2.4a — every activity figure exists for every cabinet **before** a page is cut; figures come from scheduled counters, never per-request derivation
 - [ ] AC-2.5 — free-text search matches name, city or the administrator's e-mail
 - [ ] AC-2.6 — every figure is a count, a date or a total; no patient, appointment, document, note or per-patient amount anywhere
-- [ ] AC-2.7 — a summary of six figures, with the **vendor's** revenue never a sum of the cabinets' own, and both labelled so they cannot be confused
+- [x] AC-2.7 — a summary of six figures, with the **vendor's** revenue never a sum of the cabinets' own, and both labelled so they cannot be confused *(Part 4; read from `SubscriptionPeriods`, and the five state counts sum to the portfolio — progress.md DEV-16)*
 - [ ] AC-2.8 — the screen says when the counters last ran
 
 **US-3 — one cabinet (Part 3)**
 - [x] AC-3.1 — the same figures plus a six-month trend *(Part 3; the list's own projection is shared, not restated)*
-- [ ] AC-3.2 — the full payment history including cancelled entries, struck through with their reason — **deferred to Part 4** with the companion's ledger; the detail states the gap rather than rendering an empty history (progress.md DEV-9)
+- [x] AC-3.2 — the full payment history including cancelled entries, struck through with their reason *(Part 4; the companion's ledger read back, each entry's « période couverte » from the fold, a cancellation marked in **words** as well as struck through)*
 - [x] AC-3.3 — the administrator's name, e-mail and the staff count *(Part 3; « désactivé » is a distinct answer from « aucun administrateur »)*
 - [x] AC-3.4 — no clinical or per-patient information of any kind *(Part 3; held by `PlatformReadShape`, proven red against a Part-3 DTO)*
 - [x] AC-3.5 — opening a detail is recorded; **listing cabinets is not** *(Part 3; the « not » half asserted on the list handler's constructor)*
 
 **US-4 — record a payment (Part 4)**
-- [ ] AC-4.1 — duration or explicit end date, plan, amount, method, reference, optional note
-- [ ] AC-4.2 — the end date follows the existing rule; the console introduces no second arithmetic
-- [ ] AC-4.3 — the console shows the new state and end date immediately
-- [ ] AC-4.4 — the clinic's app reflects it without signing out, via the **companion's re-read**
-- [ ] AC-4.4a — any direct notification is an optimisation only, addressed to the **target** cabinet explicitly
-- [ ] AC-4.5 — refused with a named reason for a non-positive duration or an unknown cabinet
-- [ ] AC-4.6 — a double-click produces **one** entry
-- [ ] AC-4.7 — every grant records which console account made it and appears in that cabinet's own journal
-- [ ] AC-4.8 — a complimentary period (no amount) can be recorded, and the entry says which it is
+- [x] AC-4.1 — duration or explicit end date, plan, amount, method, reference, optional note *(Part 4)*
+- [x] AC-4.2 — the end date follows the existing rule; the console introduces no second arithmetic *(Part 4; `ClinicSubscription.RecomputeFrom` stays the only writer of `EndsOn` — progress.md DEV-14)*
+- [x] AC-4.3 — the console shows the new state and end date immediately *(Part 4; read back through `SubscriptionStateReader`, never inferred from « c'est payé »)*
+- [x] AC-4.4 — the clinic's app reflects it without signing out, via the **companion's re-read** *(Part 4; this feature adds no second mechanism)*
+- [~] AC-4.4a — any direct notification is an optimisation only, addressed to the **target** cabinet explicitly — **dropped**: the companion declared no realtime key and `Subscriptions` is on `ExcludedAreas` (progress.md DEV-12)
+- [x] AC-4.5 — refused with a named reason for a non-positive duration or an unknown cabinet *(Part 4; the unknown cabinet carries a **code** the console branches on)*
+- [x] AC-4.6 — a double-click produces **one** entry *(Part 4; a partial-unique `IdempotencyKey` on the access ledger — the index is the guard, not the read — progress.md DEV-15)*
+- [x] AC-4.7 — every grant records which console account made it and appears in that cabinet's own journal *(Part 4; `console|{accountId}` through `AuditActor`'s own constant)*
+- [x] AC-4.8 — a complimentary period (no amount) can be recorded, and the entry says which it is *(Part 4; « offert » carries **no** amount, never a zero)*
 
 **US-5 — correct a mistake (Part 5)**
 - [ ] AC-5.1 — any entry can be cancelled with a **mandatory written reason**
@@ -94,21 +94,21 @@ _From spec:_
 **Edge cases**
 - [ ] EC-1 · EC-2 · EC-3 (Part 1) — a leaked clinic password grants nothing; a leaked console password without the factor fails, **including on an account that has never signed in**; a lost factor is recoverable
 - [ ] EC-4 (Part 1) — a console/clinic port collision **refuses startup**, naming both settings
-- [ ] EC-5 · EC-6 (Part 4) — a double-click is one entry; two *different* simultaneous grants both succeed with **no conflict response**
+- [x] EC-5 · EC-6 (Part 4) — a double-click is one entry; two *different* simultaneous grants both succeed with **no conflict response** *(the lost race replays the first outcome rather than surfacing the unique violation)*
 - [ ] EC-7 (Part 5) — a cancellation that puts a working cabinet back into read-only says so before committing
 - [ ] EC-8 · EC-9 (Part 2) — a cabinet with no activity appears with zeros and a « dormant » marker; a cluster of same-day trials is visible as such
 - [ ] EC-10 (Part 2) — activity is polluted by neither machine work **nor the vendor**
 - [ ] EC-11 (Part 2) — a large portfolio stays paged and bounded by the **number** of cabinets, not by any one cabinet's history
 - [ ] EC-12 (Parts 2, 7) — « je n'ai pas pu lire » and « zéro cabinet » never look the same; an unscoped read is a **fault**
 - [x] EC-13 (Part 3) — a vanished cabinet renders a French state with a way back *(404 + `clinic_not_found`, branched on the code)*
-- [ ] EC-14 (Part 3) — a never-expiring cabinet says so in words — **deferred to Part 4**: with no entitlement ledger here, « sans échéance » and « nous ne pouvons pas le lire » are indistinguishable, so the detail says the second (progress.md DEV-9)
+- [x] EC-14 — a never-expiring cabinet says so in words *(Part 4; « Sans échéance » on the portfolio, the detail and the payment sheet. ⚠️ The console cannot **grant** open-ended cover — the companion refuses it — see progress.md DEV-13)*
 - [ ] EC-15 (Parts 2, 7) — counters that never ran report their staleness, never a portfolio of dormant cabinets
 
 _Story-specific (added by the challenge pass):_
 
 - [ ] The public API is **still reachable** with the console enabled — binding the console listener must not unbind the public one
 - [ ] EC-4's collision check fires in `HostedMultiTenant`, where `Hosting:HttpPort` is unset
-- [ ] A console write's audit actor is `console|…` — distinguishable from a clinic user and matched by the counter pass's exclusion **through a shared constant**
+- [x] A console write's audit actor is `console|…` — distinguishable from a clinic user and matched by the counter pass's exclusion **through a shared constant** *(Part 4; the first real console write, and the test asserts the constant rather than the literal)*
 - [ ] `PlatformAccountStateMiddleware` refuses a deactivated account or stale `TokenVersion` on the next request
 - [ ] `patients` is a real count, not counted from audit `Insert` rows (which post-date most patients)
 - [ ] The console's « encaissé par le cabinet » equals that cabinet's own caisse figure — pinned by `MoneyReadConsistencyTests`
@@ -129,8 +129,8 @@ Before starting this story, ensure:
 
 **Before Parts 4–7 only:**
 
-- [ ] ⚠️ **`features/clinic-subscription/` has shipped.** Verified spec-only today: no plan file, and zero hits in `api/` for `ClinicSubscription`, `SubscriptionPeriod`, `GrantSubscriptionPeriodCommand`, `SuspendClinicCommand`
-- [ ] The Part 4 **pre-flight name check** (step 4.0) has passed for all six rows of the plan's *Assumed dependency surface*
+- [x] ⚠️ **`features/clinic-subscription/` has shipped.** Parts A–F were merged into this branch at `25b252d`
+- [x] The Part 4 **pre-flight name check** (step 4.0) has passed for all six rows of the plan's *Assumed dependency surface* — see progress.md
 
 ## Steps
 
@@ -276,9 +276,9 @@ Before starting this story, ensure:
 
 31. **Tests** — `PlatformAccessLedgerTests` (detail recorded, list not, and the read returns what the write recorded), `PlatformReadShapeTests` over the detail and access-log DTOs
 
-### Part 4 — Record a payment and unlock the cabinet *(AC-4.x, EC-5, EC-6, EC-14, FR-4, FR-6)*
+### Part 4 — Record a payment and unlock the cabinet *(AC-4.x, EC-5, EC-6, EC-14, FR-4, FR-6)* — **implemented**
 
-> ⚠️ **BLOCKED until `features/clinic-subscription/` ships.**
+> ✅ **Unblocked and done.** The companion was merged in at `25b252d`; the step-32 pre-flight is recorded in progress.md.
 
 32. **Pre-flight — do this before writing anything**
     - Look up, by name in the source, each of the six rows of the plan's *Assumed dependency surface*

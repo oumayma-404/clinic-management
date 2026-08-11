@@ -583,6 +583,36 @@ public class SchemaVerificationService
                 drifted.Count == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
         }
 
+        // `LatestCoverKind` is a denormalisation of the same fold, so the same argument applies twice over: it is
+        // re-derived here with the real SubscriptionLedger rather than re-expressed in SQL, and it is checked at all
+        // because a denormalised column and its source can disagree while every layer above reports success — the
+        // shape `clinical-child-clinic-matches-patient` exists for. Its visible symptom would be a cabinet dropping
+        // out of the console's « en essai » filter, which nobody would notice until a churn review came up empty.
+        if (facts.SubscriptionLedgers is { } kindLedgers && facts.SubscriptionCoverKindColumnPresent)
+        {
+            var mismatched = kindLedgers
+                .Where(l => l.StoredLatestCoverKind
+                            != SubscriptionLedger.FoldWithSpans(l.Entries).LatestCoverKind)
+                .ToList();
+
+            findings.Add(new SchemaVerificationFinding(
+                "Cabinet entitlements",
+                "subscription-cover-kind-matches-ledger",
+                mismatched.Count == 0
+                    ? $"{kindLedgers.Count} entitlement(s), each naming the cover its ledger actually folds to"
+                    : $"{mismatched.Count} of {kindLedgers.Count} entitlement(s) store a LatestCoverKind that is NOT "
+                      + "their ledger's — some write path reached the column without going through "
+                      + "ClinicSubscription.RecomputeFrom, or the backfill missed them",
+                mismatched.Count == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+        }
+        else
+        {
+            findings.Add(NotApplicableIn(
+                "Cabinet entitlements",
+                "subscription-cover-kind-matches-ledger",
+                "ClinicSubscriptions.LatestCoverKind does not exist yet"));
+        }
+
         // Info with its count, never asserted — see the DTO's own note on why AC-6.4's equality belongs to FR-9's
         // before/after diff and not to a figure this command can know once new cabinets start arriving.
         AddSubscription("subscription-grandfathered-entries", counts.GrandfatheredEntitlementEntries,

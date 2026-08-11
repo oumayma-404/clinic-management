@@ -36,6 +36,19 @@ public interface IClinicSubscriptionRepository
     Task<IReadOnlyList<ClinicSubscriptionReportRow>> GetForReportAsync(
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// What the <b>vendor</b> was paid across every cabinet over an inclusive window — the summary strip's
+    /// « encaissé par l'éditeur » (<c>platform-console</c> AC-2.7).
+    ///
+    /// <para>⚠️ <b>Never a sum of the cabinets' own turnover</b>, which is a different figure with a different name
+    /// measured over different rows (FR-2). Cancelled entries are excluded, and an entry with no amount — a
+    /// complimentary period, AC-4.8 — contributes nothing rather than being skipped as a row.</para>
+    ///
+    /// <para>⚠️ Meaningful only under <c>UseSystemWide</c>, like <see cref="GetForReportAsync"/>.</para>
+    /// </summary>
+    Task<decimal> GetVendorCollectedBetweenAsync(
+        DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
+
     Task AddAsync(ClinicSubscription subscription, CancellationToken cancellationToken = default);
 
     Task AddEntryAsync(SubscriptionPeriod entry, CancellationToken cancellationToken = default);

@@ -43,6 +43,24 @@ public class ClinicSubscription : AggregateRoot<Guid>
     /// </summary>
     public DateTime? EndsOn { get; private set; }
 
+    /// <summary>
+    /// Why the <b>last non-cancelled entry</b> of the ledger covers this cabinet — a denormalisation of
+    /// <see cref="SubscriptionFold.LatestCoverKind"/>, written by <see cref="RecomputeFrom"/> and by nothing else,
+    /// exactly as <see cref="EndsOn"/> is. Null for a cabinet whose every entry has been cancelled.
+    ///
+    /// <para><b>It exists so « en essai » can be a SQL predicate.</b> The vendor console filters and sorts the whole
+    /// portfolio <i>before</i> a page is cut (<c>platform-console</c> AC-2.4a), and folding N cabinets' ledgers to
+    /// answer that is precisely the unbounded read EC-11 forbids.</para>
+    ///
+    /// <para>⚠️ <b>The obvious column — « is the cover in force <i>today</i> the trial? » — is unstorable</b>, which
+    /// is why this one is shaped as it is. That question is a function of the ledger <b>and of today</b>, while
+    /// <see cref="RecomputeFrom"/> is deliberately clock-free (see <see cref="SubscriptionLedger"/>), so a stored
+    /// answer would be correct only until the next midnight and would need a daily pass to stay true —
+    /// reintroducing exactly the staleness the fold is designed to avoid. This is a pure function of the ledger, so
+    /// <c>verify-schema</c> can re-derive it instead of trusting it.</para>
+    /// </summary>
+    public SubscriptionPeriodKind? LatestCoverKind { get; private set; }
+
     /// <summary>Stopped by the vendor. Outranks an expiry when both are true — EC-11 requires « Suspendu ».</summary>
     public bool IsSuspended { get; private set; }
 
@@ -97,7 +115,11 @@ public class ClinicSubscription : AggregateRoot<Guid>
                 "Le journal d'abonnement fourni contient une période appartenant à un autre cabinet.");
         }
 
-        EndsOn = SubscriptionLedger.Fold(entries.Select(e => e.ToLedgerEntry()));
+        // One fold, two denormalisations. Reading the kind from a second pass over the entries here would be a
+        // second ordering of the ledger, and the fold's own `RecordedAtUtc` then `Id` must exist exactly once.
+        var fold = SubscriptionLedger.FoldWithSpans(entries.Select(e => e.ToLedgerEntry()));
+        EndsOn = fold.EndsOn;
+        LatestCoverKind = fold.LatestCoverKind;
         UpdatedAt = DateTime.UtcNow;
     }
 

@@ -11,9 +11,9 @@
 | 1 | Reach the console and sign in | No | **implemented** |
 | 2 | The portfolio, and the counters behind it | No | **implemented** |
 | 3 | One cabinet's detail | No | **implemented** |
-| 4 | Record a payment and unlock the cabinet | Companion feature | not-started |
-| 5 | Correct a mistake | Companion feature | not-started |
-| 6 | Suspend for abuse | Companion feature | not-started |
+| 4 | Record a payment and unlock the cabinet | No | **implemented** |
+| 5 | Correct a mistake | No — the companion has shipped | not-started |
+| 6 | Suspend for abuse | No — the companion has shipped | not-started |
 | 7 | Verification, runbook and the promise | Follows 4–6 | not-started |
 
 Part 1 was the agreed scope for this session; the user chose it over Parts 1–2 or 1–3 because each part is a
@@ -601,3 +601,165 @@ settled** (above) — no open questions remain. Order to resume in:
    stylistic. Verified green at `25b252d` with `Controllers/Platform/` present.
 3. Steps 35–37 — the `[AllowsWithoutSubscription]` attribute + its test, the `PlatformAccessEntry`, and DEV-12.
 4. Step 38 — the payment sheet. 5. Step 39 — tests and the two gates.
+
+---
+
+# Part 4 — Record a payment and unlock the cabinet
+
+**Session:** 2026-08-10/11 (fourth session on this branch) · steps 32–39 of the story.
+**Status: implemented.**
+
+## Working-tree note (start of session)
+
+The worktree was **clean** (`git status` empty). Part 4's step-32 pre-flight had already been run and committed in
+the previous session, and `feature/windows-desktop-app` was merged in at `25b252d`, so
+`features/clinic-subscription/` Parts A–F are on this branch. Nothing else was in flight.
+
+## What Part 4 delivers
+
+**Q-1 (companion-side, done first — the console read half depends on it).** `SubscriptionLedgerEntry` gains
+**`Kind`** (deliberately **not** defaulted); `FoldWithSpans` now returns a named **`SubscriptionFold`** carrying
+**`LatestCoverKind`** — the kind of the last non-cancelled entry in fold order — beside `EndsOn` and the spans;
+`ClinicSubscription.LatestCoverKind` is written by `RecomputeFrom` and by nothing else, from **one** fold;
+`SchemaVerificationReader` projects both columns and `verify-schema` gains
+**`subscription-cover-kind-matches-ledger`**, which calls the **real** fold rather than re-expressing it in SQL.
+**`IsOnTrial` was MOVED** out of `GetSubscriptionQuery` into `Features/Subscriptions/SubscriptionTrial` — the
+console is its second caller, and a correct helper wired to one call site is this repo's dominant defect shape.
+`SubscriptionStateReader.Read` gained a **primitive overload** (`endsOn`, `isSuspended`) so a projected row can be
+read by the one FR-1 rule without materialising an aggregate; the entity form delegates to it.
+
+**Read half.** `PlatformSubscriptionPlaceholder` is **deleted** and the compiler listed its callers, as it was
+designed to. The portfolio JOIN is now `Clinics ⋈ snapshot ⋈ ClinicSubscriptions` (LEFT on both), carrying
+`HasEntitlement`/`Plan`/`SubscriptionEndsOn`/`SubscriptionIsSuspended`/`LatestCoverKind`;
+**`PlatformClinicRowMapper`** is the one place a row becomes a DTO, deriving the state through
+`SubscriptionStateReader`. AC-2.3's five filters and AC-2.4's **end-date sort** are SQL predicates
+(`PlatformSubscriptionFilter`), and the summary strip counts through the **same** predicates. AC-3.2's payment
+history is the companion's ledger read back, with each entry's « période couverte » taken from the **fold**.
+`GET /api/platform/summary` gains the vendor's own revenue via
+`IClinicSubscriptionRepository.GetVendorCollectedBetweenAsync`, over the **clinic's** month.
+
+**Write half.** `RecordSubscriptionPeriodCommand` +
+`POST /api/platform/clinics/{clinicId}/subscription-periods` on a new **`PlatformSubscriptionsController`**,
+carrying `[AllowsWithoutSubscription]`. `PlatformAccessEntry` gains `SubscriptionPeriodId` and a **unique,
+partial-indexed `IdempotencyKey`**; `PlatformAccessAction.GrantedPeriod` arrives with the write that produces it.
+Migration **`AddPlatformConsoleWrites`** (three columns, one index, one backfill below every DDL statement).
+`Platform` joins `RealtimeResourceResolver.ExcludedAreas` (DEV-12).
+
+**`console/`** — `components/record-payment-sheet.tsx` (full-screen `dvh` sheet below `lg:`, dialog above, pinned
+action, confirm-before-discard), `app/bff/paiements/route.ts`, the state badge, the five filter chips, the end-date
+sort, the real summary strip and the payment history on the detail.
+
+## Gate results
+
+| Gate | Command | Result |
+|------|---------|--------|
+| Backend build | `dotnet build --no-incremental` | **0 errors, 55 warnings — the identical pre-existing baseline, and 0 in any file this part touched** (verified by extracting every warning's filename; the only `Designer.cs` hit is the 2025 `addclinics` migration) |
+| Backend unit suite | `OutDir=api/.testrun` + `dotnet vstest` | **2612 passed, 0 failed** (the post-merge baseline was 2570; +42) |
+| Schema | `verify-schema` before/after, diffed | **before: 1 DRIFT — exactly the index this migration creates — with the cover-kind check « not applicable »; after: that index « present (unique) » and « 2 entitlement(s), each naming the cover its ledger actually folds to ». The diff is three lines plus the timestamp.** Run against a throwaway `clinic_p4_verify`, dropped afterwards |
+| Backfill proven on real rows | two hand-seeded cabinets | **yes, and not vacuously**: cabinet A (trial → paid) backfilled to `Paid`, cabinet B (trial + a **cancelled** payment) to `Trial` — so the « last **non-cancelled** entry » rule is what ran, not « the last row ». An empty database would have proven neither |
+| New check proven able to fail | hand-corrupted one row | **yes** — flipping cabinet B's `LatestCoverKind` to `Paid` turned `subscription-cover-kind-matches-ledger` red naming « 1 of 2 » |
+| Console typecheck | `npx tsc --noEmit` | clean |
+| Console device gate | `npm run check:responsive` | **14/14 pass**, and **proven able to fail**: a throwaway probe carrying `min-h-screen`, `text-[9px]`, `hover:scale-105`, `max-h-[90vh]` and a `<Table>` with no `<CardList>` turned **5** checks red, then green again once deleted |
+| Console build | `npm run build` | clean, **10 routes** (was 9); `/bff/paiements` is `ƒ`, as a token-bearing write must be |
+| CI | `.github/workflows/ci.yml` | unchanged — the `console` job already runs all three console gates |
+| `web/` untouched | `git status` | verified: this part changes no file under `web/` |
+
+## Deviations — Part 4
+
+### Auto-approved (trivial)
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| `SubscriptionFold` as a named record rather than a 3-tuple | Trivial | `FoldWithSpans` had to grow a third result; a tuple would have made every call site's `var (_, spans)` positional and silently re-orderable. Three call sites updated to `.Spans` |
+| `SubscriptionStateReader.Read` primitive overload | Trivial | The console holds a projected row, not an aggregate. An **overload delegating to one body** rather than a second reader, so « is this cabinet expired? » still has one answer |
+| `PlatformClinicRowMapper` extracted | Trivial | The list and the detail held byte-identical mappers; Part 4 gave them something to disagree about (a *derived* state), and AC-3.1 is « the same figures » |
+| `FakeAccessLedger`/`FakePlatformSession` moved to `PlatformConsoleFakes.cs` | Trivial | Part 4's tests are their second caller. The fake also reproduces the **partial unique index**, without which the EC-5 race test would pass over an implementation that has no index behind it |
+| `PlatformSubscriptionsController` as its own controller | Trivial | `PlatformPortfolioController`'s docstring claims « read-only by construction », which stops being checkable the moment one action on it writes |
+
+### DEV-13: the console cannot grant open-ended cover, so EC-14 is met on the read side
+
+**Date:** 2026-08-11 · **Category:** Scope · **Approved:** yes (recorded — forced by the companion)
+
+- **Plan:** step 33 — « Supports « offert » with no amount (AC-4.8) **and a never-expiring cabinet (EC-14)** ».
+- **Implemented:** « offert » in full; a grant with **no duration at all is refused**, by the console and by the
+  companion alike.
+- **Justification:** `GrantSubscriptionPeriodCommandHandler` refuses it in the companion's own code, with its
+  reasoning stated there: open-ended cover is « reachable by forgetting one flag and unnoticeable afterwards », so a
+  cabinet that should never expire is **grandfathered by a migration**, not granted from a console. Re-opening that
+  door here would be the console contradicting the feature it delegates to (R-2 says adapt, never re-implement).
+- **Impact:** EC-14 is satisfied where it is actually about display — a cabinet whose `EndsOn` is null reads
+  « Sans échéance » **in words** on the portfolio, on the detail and in the payment sheet's header, and
+  `A_Never_Expiring_Cabinet_Is_Active_With_No_End_Date` pins it.
+
+### DEV-14: the command reuses the companion's write half rather than sending its grant command
+
+**Date:** 2026-08-11 · **Category:** Technical · **Approved:** yes (recorded)
+
+- **Plan:** step 33 — « delegate to the companion's grant handler ».
+- **Implemented:** it delegates to the companion's **pieces** — `SubscriptionCabinetLookup`,
+  `SubscriptionPeriod.Create`, `SubscriptionRefold.SaveAsync` — and stages the `PlatformAccessEntry` **before**
+  the refold's single save, rather than `_mediator.Send`-ing the companion's grant command.
+- **Justification:** **atomicity, and it is not a preference.** That command commits on its own, so a ledger row
+  written after it would be a second transaction — and a payment recorded with no FR-5 row behind it is exactly
+  the « an unattributable action must not aboutir » Part 3 settled for reads (DEV-11). An explicit transaction
+  around it was rejected too: `SubscriptionRefold` retries on `ConflictException`, and in PostgreSQL a failed
+  statement aborts the ambient transaction, so the retry could not run. **No date is computed here** —
+  `ClinicSubscription.RecomputeFrom` remains the only writer of `EndsOn`, which is what AC-4.2 actually forbids.
+- **Impact:** the two paths share every rule and differ only in pipeline. Parts 5–6 inherit the shape. It also
+  keeps `Controllers/` free of the three forbidden type names, which `SubscriptionVendorCommandReachabilityTests`
+  source-scans for.
+
+### DEV-15: idempotency lives on the access ledger, not in a table of its own
+
+**Date:** 2026-08-11 · **Category:** Technical · **Approved:** yes (recorded)
+
+- **Plan:** step 34 — « idempotency on `idempotencyKey` ». It does not say where the key is stored.
+- **Implemented:** a nullable, **partial-unique** `IdempotencyKey` column on `PlatformAccessEntry`, beside a
+  nullable `SubscriptionPeriodId`.
+- **Justification:** every console write already produces **exactly one** ledger row, in the same transaction as
+  the write itself — so the ledger already *is* the « one row per console action » table an idempotency store
+  would duplicate, and a second table would be a second thing able to disagree with it. It also makes the replay
+  answerable rather than approximate: the row names the entry that was created, so a repeated submission returns
+  the **first** outcome instead of guessing at it.
+- **Impact:** ⚠️ **The enforcement is the index, never this handler's read-first check**, which two simultaneous
+  submissions both pass. `A_Repeated_Submission_That_Loses_The_Race_Replays_Rather_Than_Failing` drives that path
+  deliberately (by blinding one read) so the guard under test is the database's.
+
+### DEV-16: `PlatformSummaryDto` gained a tenth figure, « sans abonnement »
+
+**Date:** 2026-08-11 · **Category:** Scope · **Approved:** yes (recorded)
+
+- **Plan:** AC-2.7 lists the summary's figures and does not include it.
+- **Implemented:** `NoEntitlement`, counted and shown only when non-zero.
+- **Justification:** without it a cabinet in FR-13's failure state is counted in **none** of the five state
+  figures, so the lines stop summing to « Cabinets » — the one property that makes a strip readable at a glance,
+  and the same reason la caisse prints « Espèces 0,000 ». `The_Five_State_Counts_Sum_To_The_Portfolio` pins it.
+- **Impact:** one field, one chip, one test. « En essai » is subtracted out of « Actifs » for the same reason:
+  in SQL both branches match a covered, unsuspended cabinet, so leaving them overlapping would over-count.
+
+## Owed, and honestly outstanding
+
+- **The eye pass has not been done, for the fourth time.** There is still no browser tooling in this repository.
+  What was done instead: the mechanical gate (14/14, proven live against a five-violation probe) and a re-read of
+  the diff against `DEVICE-CONTRACT.md` § 1. The structural claims for the new surface are: the payment sheet is
+  **full height below `lg:`** (`h-dvh`, never `vh`) with the body scrolling inside `flex-1` and the primary action
+  a `shrink-0` sibling, so it stays on screen with the keyboard open and at a 380 px landscape height; it becomes a
+  centred `lg:max-w-lg` dialog above that boundary; it is dismissible by a visible control **and** `Escape` **and**
+  the overlay, all three routed through one handler that confirms before discarding typed input; every control is
+  disabled in flight; the method picker is a **native** `<select>` (the platform's own picker on a phone, keyboard
+  reachable for free) and every field is ≥ 16 px. The state badge is **text and shape, never colour alone**
+  (AC-6.3). **Structurally sound is not looked at.** Widths still owed: 320 / 390 / 820 / 1180 / 1440 px + a
+  landscape phone + a keyboard walk.
+- **The write has not been exercised over the wire.** The command, its idempotency, its refusals and its
+  attribution are unit-tested against an in-memory ledger, and the schema behind them is verified — but no request
+  has travelled `console/` → `/bff/paiements` → Kestrel's console listener → the handler on a running deployment.
+  That is the same operator-verified boundary Part 1's tunnel walk sits on.
+- **The counter job still has not been run against real data** (unchanged from Parts 2–3).
+
+## Next
+
+**Part 5 — correct a mistake** (steps 40–43). It reuses everything this part built: `PlatformAccessLedger` gains
+its third caller, `PlatformAccessAction` gains `CancelledPeriod`, and the confirmation's « from which date the
+cabinet becomes read-only » comes from the companion's **own fold**, never a console-side estimate. The shape
+DEV-14 settled — reuse the companion's pieces, stage the ledger row before the single save — is what Part 5's
+cancel command should follow.

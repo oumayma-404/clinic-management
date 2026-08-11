@@ -3,9 +3,11 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Platform.Dtos;
+using ClinicManagement.Application.Features.Subscriptions;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 using MediatR;
 using Microsoft.Extensions.Logging;
 
@@ -47,6 +49,7 @@ public class GetPlatformClinicDetailQueryHandler
 {
     private readonly IClinicActivityRepository _activityRepository;
     private readonly IUserRepository _userRepository;
+    private readonly IClinicSubscriptionRepository _subscriptions;
     private readonly IPlatformAccessEntryRepository _accessEntryRepository;
     private readonly IPlatformSessionContext _session;
     private readonly IUnitOfWork _unitOfWork;
@@ -56,6 +59,7 @@ public class GetPlatformClinicDetailQueryHandler
     public GetPlatformClinicDetailQueryHandler(
         IClinicActivityRepository activityRepository,
         IUserRepository userRepository,
+        IClinicSubscriptionRepository subscriptions,
         IPlatformAccessEntryRepository accessEntryRepository,
         IPlatformSessionContext session,
         IUnitOfWork unitOfWork,
@@ -64,6 +68,7 @@ public class GetPlatformClinicDetailQueryHandler
     {
         _activityRepository = activityRepository;
         _userRepository = userRepository;
+        _subscriptions = subscriptions;
         _accessEntryRepository = accessEntryRepository;
         _session = session;
         _unitOfWork = unitOfWork;
@@ -92,6 +97,7 @@ public class GetPlatformClinicDetailQueryHandler
 
             var admin = await _userRepository.GetPrimaryAdminContactAsync(request.ClinicId, cancellationToken);
             var trend = await ReadTrendAsync(request.ClinicId, cancellationToken);
+            var payments = await ReadPaymentsAsync(request.ClinicId, cancellationToken);
 
             // AC-7.3. Staged before the save below, and its failure fails the read — see the class remarks.
             await PlatformAccessLedger.RecordAsync(
@@ -106,17 +112,14 @@ public class GetPlatformClinicDetailQueryHandler
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Result<PlatformClinicDetailDto>.Success(new PlatformClinicDetailDto(
-                Clinic: ToRowDto(row),
+                Clinic: PlatformClinicRowMapper.ToDto(row, ClinicClock.ClinicToday()),
                 AdminName: admin?.FullName,
                 AdminEmail: admin?.Email,
                 // No admin at all reads as « inactive » rather than as a reachable person: the screen shows a
                 // marker either way, and a missing contact must not look like a live one.
                 AdminIsActive: admin?.IsActive ?? false,
                 Trend: trend,
-                SubscriptionDataAvailable: PlatformSubscriptionPlaceholder.DataAvailable,
-                SubscriptionExplanation: PlatformSubscriptionPlaceholder.DataAvailable
-                    ? null
-                    : PlatformSubscriptionPlaceholder.DetailExplanation));
+                Payments: payments));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
@@ -163,27 +166,48 @@ public class GetPlatformClinicDetailQueryHandler
         DaysMeasured: days.Count);
 
     /// <summary>
-    /// The list's row, unchanged — including the four entitlement members the placeholder keeps null. Kept
-    /// alongside <c>ListPlatformClinicsQuery</c>'s mapper rather than shared, because the two differ in nothing
-    /// today and Part 4 replaces both with the companion's read in one edit.
+    /// AC-3.2's payment history — <b>the companion's ledger, read</b>, never a console-side re-derivation (FR-4).
+    ///
+    /// <para>⚠️ <b>The « période couverte » of each entry comes from the fold</b>, exactly as the cabinet's own
+    /// « Abonnement » screen builds it: the span an entry covers is a function of every non-cancelled entry
+    /// recorded before it, so computing it here from the entry alone would produce plausible dates describing
+    /// periods no cabinet was ever entitled to.</para>
+    ///
+    /// <para>⚠️ <b>Newest first, cancelled entries included and marked.</b> An entry is never edited and never
+    /// deleted (AC-5.2); a history that hid the cancelled ones would answer « what were we paid, and for what? »
+    /// with a tidied version of the truth, on the one screen whose purpose is to check that.</para>
     /// </summary>
-    private static PlatformClinicRowDto ToRowDto(PlatformClinicRow row) => new(
-        ClinicId: row.ClinicId,
-        Name: row.Name,
-        City: row.City,
-        CreatedAt: row.CreatedAt,
-        Plan: null,
-        State: null,
-        EndsOn: null,
-        DaysRemaining: null,
-        Users: row.Users,
-        Patients: row.Patients,
-        Appointments30d: row.Appointments30d,
-        Writes7d: row.Writes7d,
-        Writes30d: row.Writes30d,
-        ActiveDays30d: row.ActiveDays30d,
-        LastWriteAt: row.LastWriteAt,
-        LastLoginAt: row.LastLoginAt,
-        ClinicCollectedThisMonthDt: row.CollectedThisMonth,
-        CountersComputedAt: row.CountersComputedAt);
+    private async Task<IReadOnlyList<PlatformSubscriptionEntryDto>> ReadPaymentsAsync(
+        Guid clinicId, CancellationToken cancellationToken)
+    {
+        var entries = await _subscriptions.GetEntriesAsync(clinicId, cancellationToken);
+        var spans = SubscriptionLedger.FoldWithSpans(entries.Select(e => e.ToLedgerEntry())).Spans
+            .ToDictionary(s => s.EntryId);
+
+        return entries
+            .OrderByDescending(e => e.RecordedAtUtc)
+            .ThenByDescending(e => e.Id)
+            .Select(e =>
+            {
+                var span = spans.TryGetValue(e.Id, out var found) ? found : null;
+                return new PlatformSubscriptionEntryDto(
+                    EntryId: e.Id,
+                    Kind: e.Kind.ToString(),
+                    KindLabel: SubscriptionLabels.PeriodKind(e.Kind),
+                    RecordedOn: e.RecordedOnClinicDay,
+                    CoversFrom: span?.FromDay,
+                    CoversThrough: span?.ThroughDay,
+                    AmountDt: e.Amount,
+                    Method: e.Method?.ToString(),
+                    MethodLabel: e.Method is { } method ? SubscriptionLabels.PaymentMethod(method) : null,
+                    Reference: e.Reference,
+                    Note: e.Note,
+                    RecordedBy: e.RecordedBy,
+                    IsCancelled: e.IsCancelled,
+                    CancelledAt: e.CancelledAtUtc,
+                    CancelledBy: e.CancelledBy,
+                    CancelReason: e.CancelReason);
+            })
+            .ToList();
+    }
 }

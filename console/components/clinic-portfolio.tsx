@@ -81,7 +81,9 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                     <span className="font-medium">{clinic.name}</span>
                     <span className="block text-xs text-muted-foreground">{clinic.city ?? EM_DASH}</span>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{stateLabel(clinic)}</TableCell>
+                  <TableCell>
+                    <StateBadge clinic={clinic} />
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">{measured(clinic, clinic.patients)}</TableCell>
                   <TableCell className="text-right tabular-nums">{measured(clinic, clinic.users)}</TableCell>
                   <TableCell className="text-right tabular-nums">{measured(clinic, clinic.appointments30d)}</TableCell>
@@ -118,18 +120,16 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
           getKey={(clinic) => clinic.clinicId}
           title={(clinic) => clinic.name}
           subtitle={(clinic) => clinic.city ?? undefined}
-          status={(clinic) =>
-            clinic.countersComputedAt === null ? (
-              <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
-                Jamais mesuré
-              </span>
-            ) : clinic.writes30d === 0 ? (
-              <span className="rounded-full border border-destructive/40 px-2 py-0.5 text-xs text-destructive">
-                Dormant
-              </span>
-            ) : null
-          }
+          status={(clinic) => <StateBadge clinic={clinic} />}
           fields={(clinic) => [
+            // The two activity markers move into the field list below `lg:` — the status slot holds one badge and
+            // the entitlement is what the vendor reads first. They are words, not colours (AC-6.3).
+            clinic.countersComputedAt === null
+              ? { label: "Compteurs", value: "Jamais mesuré" }
+              : clinic.writes30d === 0
+                ? { label: "Compteurs", value: "Dormant (30 j)" }
+                : false,
+            clinic.endsOn ? { label: "Fin d'abonnement", value: formatDate(clinic.endsOn) } : false,
             // Ordered by what a churn conversation needs first: is it being used, then how much money, then the
             // rest. The unmeasured cabinet drops every figure rather than showing zeros it cannot vouch for.
             clinic.countersComputedAt !== null && {
@@ -175,11 +175,37 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
 }
 
 /**
- * A cabinet's subscription state, or the em dash while the companion feature is unbuilt. One place, so the
- * table and the card list cannot word the gap differently — and one place for Part 4 to replace.
+ * A cabinet's entitlement state, in one place so the table and the card list cannot word it differently.
+ *
+ * ⚠️ **Text and shape, never colour alone** (AC-6.3). « Suspendu » and « Expiré » have different causes and
+ * different remedies, and a reader who cannot distinguish two reds — or is reading a printout — must still be able
+ * to tell them apart. The colour is an emphasis on top of a word that already says it.
+ *
+ * ⚠️ **A cabinet with no entitlement carries the server's own sentence** rather than an em dash: it is FR-13's
+ * failure state, not a missing value, and « — » would read as « nous ne savons pas ».
  */
-function stateLabel(clinic: PlatformClinicRow): string {
-  return clinic.state ?? EM_DASH;
+function StateBadge({ clinic }: { clinic: PlatformClinicRow }) {
+  const tone =
+    clinic.state === "Suspended"
+      ? "border-destructive/60 text-destructive"
+      : clinic.state === "Expired"
+        ? "border-destructive/40 text-destructive"
+        : clinic.state === null
+          ? "border-destructive/40 text-destructive"
+          : "border-border text-muted-foreground";
+
+  const soon = clinic.daysRemaining !== null && clinic.daysRemaining <= 14;
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <span className={`rounded-full border px-2 py-0.5 text-xs ${tone}`}>{clinic.stateLabel}</span>
+      {soon ? (
+        <span className="text-xs text-muted-foreground">
+          {clinic.daysRemaining === 0 ? "dernier jour" : `${clinic.daysRemaining} j`}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 /**

@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import type { PlatformSummary } from "@/lib/api/platform";
-import { formatCount } from "@/lib/format";
+import { formatCount, formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
@@ -12,15 +12,40 @@ import { cn } from "@/lib/utils";
  * is always « lesquels ? ». A figure with no destination is rendered as plain text rather than as a dead link —
  * a control that does nothing is worse than no control (device contract § 0).
  *
- * ⚠️ **The five subscription counts are absent, not zero.** Until `features/clinic-subscription/` ships there is
- * nothing behind them, and « Expirés 0 » is a claim that no cabinet has lapsed — which the console has no way of
- * knowing. The strip states that gap once, in words, instead.
+ * ⚠️ **The five state counts are mutually exclusive and sum to « Cabinets ».** « Expire sous 14 j » is deliberately
+ * NOT a sixth bucket — it is a subset of the covered cabinets, which is the whole point of showing it — so it is
+ * labelled apart and placed after them. Lines that do not add up to the total above them is what makes a strip
+ * unreadable at a glance.
+ *
+ * ⚠️ **The vendor's revenue is its own figure with its own label** (AC-2.7). It is never a sum of the cabinets'
+ * « Encaissé (cabinet) », which is their turnover; the two names carry that distinction wherever they appear.
  */
 export function PortfolioSummary({ summary }: { summary: PlatformSummary }) {
   const figures: Array<{ label: string; value: number; href?: string; tone?: "warning" }> = [
     { label: "Cabinets", value: summary.clinics, href: "/cabinets" },
+    { label: "En essai", value: summary.inTrial, href: "/cabinets?state=trial" },
+    { label: "Actifs", value: summary.active, href: "/cabinets?state=active" },
+    {
+      label: "Expire sous 14 j",
+      value: summary.expiringWithin14Days,
+      href: "/cabinets?state=expiringSoon",
+      tone: "warning",
+    },
+    { label: "Expirés", value: summary.expired, href: "/cabinets?state=expired", tone: "warning" },
+    { label: "Suspendus", value: summary.suspended, href: "/cabinets?state=suspended", tone: "warning" },
     { label: "Dormants (30 j)", value: summary.dormant, href: "/cabinets?dormant=true", tone: "warning" },
   ];
+
+  // FR-13's failure state: a cabinet that somehow has no entitlement at all. Shown only when there are any — on a
+  // healthy deployment this is 0 for ever, and a permanent zero teaches the reader to skip the strip.
+  if (summary.noEntitlement > 0) {
+    figures.push({
+      label: "Sans abonnement",
+      value: summary.noEntitlement,
+      href: "/cabinets?state=missing",
+      tone: "warning",
+    });
+  }
 
   // Only when there are any: on a healthy deployment this figure is 0 for ever, and a permanent « 0 jamais
   // mesuré » teaches the reader to ignore the strip.
@@ -71,12 +96,14 @@ export function PortfolioSummary({ summary }: { summary: PlatformSummary }) {
         })}
       </div>
 
-      {!summary.subscriptionDataAvailable ? (
-        <p className="text-sm text-muted-foreground" role="note">
-          Abonnements, revenus de l&apos;éditeur et états (essai, expiré, suspendu) ne sont pas encore disponibles
-          ici. Les chiffres ci-dessus portent uniquement sur l&apos;activité réelle des cabinets.
-        </p>
-      ) : null}
+      <p className="text-sm text-muted-foreground">
+        Encaissé par l&apos;éditeur ce mois-ci :{" "}
+        <span className="font-medium tabular-nums text-foreground">
+          {formatMoney(summary.vendorCollectedThisMonthDt)}
+        </span>{" "}
+        — les abonnements que les cabinets nous ont réglés, jamais le chiffre d&apos;affaires des cabinets
+        eux-mêmes.
+      </p>
     </section>
   );
 }

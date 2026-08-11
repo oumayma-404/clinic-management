@@ -22,6 +22,15 @@ const SORTS: Array<{ value: string; label: string }> = [
   { value: "name", label: "Nom" },
   { value: "activity", label: "Activité" },
   { value: "createdAt", label: "Création" },
+  { value: "endsOn", label: "Date de fin" },
+];
+
+/** AC-2.3's entitlement filters. Every one is a SQL predicate over the whole portfolio, never over the page. */
+const STATES: Array<{ value: string; label: string }> = [
+  { value: "trial", label: "En essai" },
+  { value: "expiringSoon", label: "Expire sous 14 j" },
+  { value: "expired", label: "Expirés" },
+  { value: "suspended", label: "Suspendus" },
 ];
 
 /**
@@ -38,9 +47,9 @@ const SORTS: Array<{ value: string; label: string }> = [
  * closes) rather than a disclosure, and the active filters stay visible **outside** it as removable chips — so a
  * narrowed list can never look like an empty portfolio, which is the EC-12 confusion in miniature.
  *
- * ⚠️ **« Par date de fin » is not offered.** AC-2.4 asks for it, and it is a property of the subscription, which
- * this console cannot see yet — an option that silently sorted by something else would be a screen quietly
- * answering a different question. It arrives with the data behind it.
+ * ⚠️ **Every state filter narrows the whole portfolio, not the page.** That is a property of the endpoint (AC-2.4a)
+ * and the reason it is stated in the sheet's own description: « 4 expirés » in the strip and the list this opens
+ * are the same set, counted by the same predicate.
  */
 export function PortfolioFilters({ query }: { query: PortfolioQuery }) {
   const router = useRouter();
@@ -98,6 +107,28 @@ export function PortfolioFilters({ query }: { query: PortfolioQuery }) {
         </div>
       </fieldset>
 
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="mb-1.5 text-sm font-medium">Abonnement</legend>
+        <div className="flex flex-wrap gap-2">
+          {STATES.map((state) => {
+            const active = query.state === state.value;
+            return (
+              <Button
+                key={state.value}
+                type="button"
+                variant={active ? "default" : "outline"}
+                aria-pressed={active}
+                // Tapping the active one clears it: without that the only way out of a state filter is the chip,
+                // which is off screen while the sheet is open on a phone.
+                onClick={() => apply({ state: active ? "" : state.value })}
+              >
+                {state.label}
+              </Button>
+            );
+          })}
+        </div>
+      </fieldset>
+
       <Button
         type="button"
         variant={query.dormant ? "default" : "outline"}
@@ -111,6 +142,13 @@ export function PortfolioFilters({ query }: { query: PortfolioQuery }) {
 
   const activeChips = [
     query.q ? { key: "q", label: `« ${query.q} »`, clear: { q: "" } as PortfolioQuery } : null,
+    query.state
+      ? {
+          key: "state",
+          label: STATES.find((s) => s.value === query.state)?.label ?? query.state,
+          clear: { state: "" } as PortfolioQuery,
+        }
+      : null,
     query.dormant ? { key: "dormant", label: "Dormants (30 j)", clear: { dormant: false } as PortfolioQuery } : null,
   ].filter(Boolean) as Array<{ key: string; label: string; clear: PortfolioQuery }>;
 
@@ -133,7 +171,11 @@ export function PortfolioFilters({ query }: { query: PortfolioQuery }) {
             </SheetHeader>
             <div className="px-4">{controls}</div>
             <SheetFooter>
-              <Button type="button" variant="outline" onClick={() => apply({ q: "", dormant: false, sort: "name" })}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => apply({ q: "", dormant: false, state: "", sort: "name" })}
+              >
                 Tout réinitialiser
               </Button>
             </SheetFooter>

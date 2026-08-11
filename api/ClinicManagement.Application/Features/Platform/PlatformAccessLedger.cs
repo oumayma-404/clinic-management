@@ -26,6 +26,13 @@ public static class PlatformAccessLedger
     /// and nothing else is saved, and on Parts 4–6's write paths it rides the same transaction as the write it
     /// records.
     /// </summary>
+    /// <param name="subscriptionPeriodId">
+    /// The ledger entry a write produced or acted on, for the rows that have one (Parts 4–6). Null for a read.
+    /// </param>
+    /// <param name="idempotencyKey">
+    /// The client's key for a keyed write, unique across the ledger — which is what makes AC-4.6's « one entry per
+    /// submission » a property of the database. Null for a read and for an unkeyed write.
+    /// </param>
     public static async Task RecordAsync(
         IPlatformAccessEntryRepository repository,
         IPlatformSessionContext session,
@@ -33,24 +40,38 @@ public static class PlatformAccessLedger
         string clinicName,
         PlatformAccessAction action,
         DateTime occurredAt,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Guid? subscriptionPeriodId = null,
+        string? idempotencyKey = null)
     {
-        var accountId = session.GetAccountId()
-            ?? throw new InvalidOperationException(
-                "Une action de la console éditeur s'exécute sans compte console identifiable : elle ne peut pas "
-                + "être inscrite au journal des accès, et une action non attribuable ne doit pas aboutir. "
-                + "Vérifiez que la stratégie PlatformConsole épingle bien le schéma d'authentification de la console.");
-
         // The address is what makes a row readable years later, and it is the account's own at the time — a
         // renamed or deleted account must not silently blank the rows it left behind.
         var entry = new PlatformAccessEntry(
-            accountId,
+            RequireAccountId(session),
             session.GetEmail() ?? string.Empty,
             clinicId,
             clinicName,
             action,
-            occurredAt);
+            occurredAt,
+            subscriptionPeriodId,
+            idempotencyKey);
 
         await repository.AddAsync(entry, cancellationToken);
+    }
+
+    /// <summary>
+    /// The acting console account, or a throw. Public so a <b>write</b> can resolve it before it builds anything:
+    /// a grant stamps the same account onto the append-only <c>SubscriptionPeriod</c> it creates, and « nous ne
+    /// savons pas qui » has to stop that write rather than be discovered while recording it.
+    /// </summary>
+    public static Guid RequireAccountId(IPlatformSessionContext session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+
+        return session.GetAccountId()
+            ?? throw new InvalidOperationException(
+                "Une action de la console éditeur s'exécute sans compte console identifiable : elle ne peut pas "
+                + "être inscrite au journal des accès, et une action non attribuable ne doit pas aboutir. "
+                + "Vérifiez que la stratégie PlatformConsole épingle bien le schéma d'authentification de la console.");
     }
 }

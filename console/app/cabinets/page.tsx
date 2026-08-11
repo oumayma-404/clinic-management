@@ -39,6 +39,7 @@ export default async function CabinetsPage({ searchParams }: PageProps) {
   const query: PortfolioQuery = {
     q: single(params.q),
     dormant: single(params.dormant) === "true",
+    state: single(params.state),
     sort: single(params.sort),
     page: toPage(single(params.page)),
   };

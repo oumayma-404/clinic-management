@@ -210,6 +210,19 @@ documents, nullable-patient appointments, and the multi-tenant clinic/user/docto
   exactly what folding one open-ended entry yields, so `subscription-end-date-matches-ledger` reads clean the moment
   it finishes. Verified end to end: applied to a live database, `verify-schema` went exit 2 → **exit 0**, and
   `4 clinics = 4 entitlements = 4 grandfathered = 4 open-ended`.
+- **`20260810223151_AddPlatformConsoleWrites`** (`platform-console` Part 4) — three columns, one index and one
+  backfill. `ClinicSubscriptions.LatestCoverKind` (the clock-free denormalisation the console's « en essai » filter
+  reads) plus `PlatformAccessEntries.IdempotencyKey` and `.SubscriptionPeriodId`. Purely additive — nothing altered,
+  narrowed or dropped — and the backfill sits **below every DDL statement** so a later edit inherits that order.
+  ⚠️ **`LatestCoverKind` is nullable and stays null for a cabinet whose every entry has been cancelled**: that is a
+  real state, not a missing value, and a scaffolded `defaultValue` of `Paid` would put an unentitled cabinet in the
+  portfolio's paid bucket — the class of bug the backup-schedule zeros already cost this repo once.
+  ⚠️ The index on `IdempotencyKey` is **unique and partial** (`IS NOT NULL`), and it — not the handler's read-first
+  check — is what makes « a double-click produces one entry » true: two simultaneous submissions both read « rien
+  encore enregistré ». Verified end to end against a throwaway database seeded with two cabinets: the backfill wrote
+  `Paid` for a trial→paid ledger and **`Trial`** for one whose paid entry was cancelled, so the « last non-cancelled
+  entry » rule is what ran; `verify-schema` went 1 DRIFT → clean on those two checks, and corrupting one row turned
+  the new `subscription-cover-kind-matches-ledger` red.
 
 ## Repositories (`Repositories/`)
 Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `ApplicationDbContext`; `GetById*` uses

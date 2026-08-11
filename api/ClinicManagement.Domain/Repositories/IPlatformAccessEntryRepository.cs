@@ -39,6 +39,18 @@ public interface IPlatformAccessEntryRepository
     /// offers a filter that matches nothing, and a deactivated one that did must stay filterable.</para>
     /// </summary>
     Task<IReadOnlyList<PlatformAccessActor>> GetRecordedActorsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The row a keyed write already produced, or null — the read half of AC-4.6's « a double-click produces one
+    /// entry ». It is a lookup and not a « does it exist? »: a replay has to return the <b>first</b> outcome,
+    /// which means naming the <c>SubscriptionPeriod</c> that row recorded.
+    ///
+    /// <para>⚠️ It is not the enforcement. The unique index on the column is, because two simultaneous submissions
+    /// both read « nothing yet » before either has saved. This read is what turns the second one's refusal into the
+    /// first one's answer instead of an error.</para>
+    /// </summary>
+    Task<PlatformAccessEntry?> GetByIdempotencyKeyAsync(
+        string idempotencyKey, CancellationToken cancellationToken = default);
 }
 
 /// <summary>One console account as the journal's filter offers it: its id and the address its rows carry.</summary>

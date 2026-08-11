@@ -59,7 +59,7 @@ public class GetSubscriptionHistoryQueryHandler
             }
 
             var entries = await _subscriptions.GetEntriesAsync(clinicResult.Value, cancellationToken);
-            var (_, spans) = SubscriptionLedger.FoldWithSpans(entries.Select(e => e.ToLedgerEntry()));
+            var spans = SubscriptionLedger.FoldWithSpans(entries.Select(e => e.ToLedgerEntry())).Spans;
             var spanById = spans.ToDictionary(s => s.EntryId);
 
             // Newest first, like the audit ledger and the notification feed: the entry an owner came to check is the

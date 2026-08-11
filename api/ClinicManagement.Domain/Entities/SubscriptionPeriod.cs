@@ -201,7 +201,7 @@ public class SubscriptionPeriod : AggregateRoot<Guid>
 
     /// <summary>Projects onto the fold's input. The one bridge between the entity and the arithmetic.</summary>
     public SubscriptionLedgerEntry ToLedgerEntry() =>
-        new(Id, RecordedOnClinicDay, RecordedAtUtc, DurationMonths, DurationDays, ExplicitEndsOn, IsCancelled);
+        new(Id, RecordedOnClinicDay, RecordedAtUtc, DurationMonths, DurationDays, ExplicitEndsOn, IsCancelled, Kind);
 
     private static string? Trimmed(string? value, int maxLength, string parameterName)
     {

@@ -15,9 +15,16 @@ export interface PlatformClinicRow {
   name: string;
   city: string | null;
   createdAt: string;
-  /** Null while `subscriptionDataAvailable` is false — never a guessed « Actif ». */
   plan: string | null;
+  planLabel: string | null;
+  /**
+   * `Trial` | `Active` | `Expired` | `Suspended`, derived server-side by the one rule the gate and the cabinet's
+   * own screen read — or **null** where the cabinet has no entitlement row at all (FR-13's failure state), which
+   * `stateLabel` then says in words. Null is not « sans échéance »: that is an entitlement with a null `endsOn`.
+   */
   state: string | null;
+  /** Always present. Branch on `state`, never on this — a reworded label must not change what a screen does. */
+  stateLabel: string;
   endsOn: string | null;
   daysRemaining: number | null;
   users: number;
@@ -44,27 +51,32 @@ export interface PlatformClinicPage {
   hasNextPage: boolean;
   /** The oldest measurement on the page (AC-2.8), or null where nothing on it has ever been measured. */
   countersAsOf: string | null;
-  subscriptionDataAvailable: boolean;
 }
 
 export interface PlatformSummary {
   clinics: number;
   dormant: number;
   neverMeasured: number;
-  inTrial: number | null;
-  active: number | null;
-  expiringWithin14Days: number | null;
-  expired: number | null;
-  suspended: number | null;
-  /** The VENDOR's revenue. Null until the subscription ledger exists — never a sum of the cabinets' own. */
-  vendorCollectedThisMonthDt: number | null;
-  subscriptionDataAvailable: boolean;
+  /**
+   * The five state counts are mutually exclusive and sum to `clinics`; `expiringWithin14Days` is a **subset** of
+   * the covered ones rather than a sixth bucket, which is why the strip labels it apart.
+   */
+  inTrial: number;
+  active: number;
+  expiringWithin14Days: number;
+  expired: number;
+  suspended: number;
+  noEntitlement: number;
+  /** The VENDOR's revenue this month — never a sum of the cabinets' own turnover (FR-2). */
+  vendorCollectedThisMonthDt: number;
 }
 
 /** What the screen may narrow the portfolio by. Mirrors the query string the API accepts. */
 export interface PortfolioQuery {
   q?: string;
   dormant?: boolean;
+  /** `trial` | `active` | `expiringSoon` | `expired` | `suspended` | `missing` (AC-2.3). */
+  state?: string;
   sort?: string;
   page?: number;
 }
@@ -78,6 +90,7 @@ export function portfolioSearchParams(query: PortfolioQuery): URLSearchParams {
   const params = new URLSearchParams();
   if (query.q) params.set("q", query.q);
   if (query.dormant) params.set("dormant", "true");
+  if (query.state) params.set("state", query.state);
   if (query.sort && query.sort !== "name") params.set("sort", query.sort);
   if (query.page && query.page > 1) params.set("page", String(query.page));
   return params;
@@ -124,9 +137,53 @@ export interface PlatformClinicDetail {
   adminIsActive: boolean;
   /** Always six months, oldest first. */
   trend: PlatformActivityMonth[];
-  subscriptionDataAvailable: boolean;
-  /** Why the state, the end date and the payment history are absent. Null once the companion feature ships. */
-  subscriptionExplanation: string | null;
+  /** The cabinet's subscription ledger, newest first — cancelled entries included and marked (AC-3.2, AC-5.2). */
+  payments: PlatformSubscriptionEntry[];
+}
+
+/**
+ * One entry of a cabinet's subscription ledger.
+ *
+ * ⚠️ `coversFrom`/`coversThrough` are **derived by the server's fold**, not stored and not recomputed here — the
+ * same spans the cabinet's own « Abonnement » screen shows. A cancelled entry covers nothing and both are null.
+ *
+ * ⚠️ `amountDt` is null for « offert » (AC-4.8) — **not** zero. « Offert » and « payé 0,000 DT » are different
+ * statements, and only one of them is ever true.
+ */
+export interface PlatformSubscriptionEntry {
+  entryId: string;
+  kind: string;
+  kindLabel: string;
+  recordedOn: string;
+  coversFrom: string | null;
+  coversThrough: string | null;
+  amountDt: number | null;
+  method: string | null;
+  methodLabel: string | null;
+  reference: string | null;
+  note: string | null;
+  recordedBy: string | null;
+  isCancelled: boolean;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
+  cancelReason: string | null;
+}
+
+/**
+ * What recording a payment answers with (AC-4.3).
+ *
+ * ⚠️ `alreadyRecorded` is a **success**: the second tap of a double-click found the money already taken, which is
+ * the outcome the vendor wanted (AC-4.6). The screen says so rather than claiming to have taken it twice.
+ */
+export interface PlatformPaymentRecorded {
+  clinicId: string;
+  entryId: string | null;
+  previousEndsOn: string | null;
+  endsOn: string | null;
+  state: string;
+  stateLabel: string;
+  daysRemaining: number | null;
+  alreadyRecorded: boolean;
 }
 
 /**

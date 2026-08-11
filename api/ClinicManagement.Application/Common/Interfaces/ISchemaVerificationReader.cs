@@ -1,3 +1,4 @@
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Common.Interfaces;
@@ -30,7 +31,13 @@ public sealed record SchemaFacts(
     IReadOnlyList<MappedDecimalFact> MappedDecimals,
     DataMigrationCounts DataMigrations,
     AuditLedgerFacts AuditLedger,
-    IReadOnlyList<ClinicSubscriptionLedgerFact>? SubscriptionLedgers);
+    IReadOnlyList<ClinicSubscriptionLedgerFact>? SubscriptionLedgers,
+    /// <summary>
+    /// Whether <c>ClinicSubscriptions.LatestCoverKind</c> exists yet. Separate from the facts above because a
+    /// <b>null</b> stored kind is a real value — a cabinet whose every ledger entry has been cancelled — and
+    /// « the column is not there » must not be reported as that.
+    /// </summary>
+    bool SubscriptionCoverKindColumnPresent);
 
 /// <summary>
 /// One cabinet's stored entitlement date beside the ledger it is supposed to be a fold of
@@ -43,9 +50,16 @@ public sealed record SchemaFacts(
 /// projects and <c>SchemaVerificationService</c> calls the <b>real</b> fold. The ledger is a handful of rows per
 /// cabinet on a read-only operator verb, and the check stays unit-testable against a mocked reader like the rest.</para>
 /// </summary>
+/// <param name="StoredLatestCoverKind">
+/// The cabinet's denormalised <c>LatestCoverKind</c>, which <c>subscription-cover-kind-matches-ledger</c> re-derives
+/// from <paramref name="Entries"/> through the <b>real</b> fold. Null both for « every entry cancelled » and — until
+/// the column exists — for a database that has not run the migration; <c>SchemaFacts</c> carries a flag so the two
+/// are told apart.
+/// </param>
 public sealed record ClinicSubscriptionLedgerFact(
     Guid ClinicId,
     DateTime? StoredEndsOn,
+    SubscriptionPeriodKind? StoredLatestCoverKind,
     IReadOnlyList<SubscriptionLedgerEntry> Entries);
 
 /// <summary>

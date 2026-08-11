@@ -63,6 +63,17 @@ public class ClinicSubscriptionRepository : IClinicSubscriptionRepository
             .ToList();
     }
 
+    /// <summary>
+    /// The vendor's own takings over an inclusive window. A projected <c>SUM</c>, so a deployment with a long ledger
+    /// pays for one scalar rather than for every entry it ever recorded.
+    /// </summary>
+    public async Task<decimal> GetVendorCollectedBetweenAsync(
+        DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
+        await _context.SubscriptionPeriods
+            .AsNoTracking()
+            .Where(p => !p.IsCancelled && p.RecordedAtUtc >= fromUtc && p.RecordedAtUtc <= toUtc)
+            .SumAsync(p => p.Amount ?? 0m, cancellationToken);
+
     public async Task AddAsync(ClinicSubscription subscription, CancellationToken cancellationToken = default) =>
         await _context.ClinicSubscriptions.AddAsync(subscription, cancellationToken);
 

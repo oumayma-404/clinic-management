@@ -35,6 +35,16 @@ public class PlatformAccessEntryConfiguration : IEntityTypeConfiguration<Platfor
         builder.Property(e => e.ClinicName).IsRequired().HasMaxLength(200);
         builder.Property(e => e.Action).IsRequired().HasConversion<int>();
         builder.Property(e => e.OccurredAt).IsRequired();
+        builder.Property(e => e.IdempotencyKey).HasMaxLength(PlatformAccessEntry.MaxIdempotencyKeyLength);
+
+        // UNIQUE and **partial**: « one entry per submission » (AC-4.6) held by the database rather than by whichever
+        // request happens to read first. Filtered on non-null because every read row legitimately has no key, and an
+        // unfiltered unique index over a mostly-null column is both larger and — in PostgreSQL, where every NULL is
+        // distinct — no stricter.
+        builder.HasIndex(e => e.IdempotencyKey)
+            .IsUnique()
+            .HasFilter("\"IdempotencyKey\" IS NOT NULL")
+            .HasDatabaseName("IX_PlatformAccessEntries_IdempotencyKey");
 
         builder.HasIndex(e => new { e.PlatformAccountId, e.OccurredAt })
             .HasDatabaseName("IX_PlatformAccessEntries_PlatformAccountId_OccurredAt");
