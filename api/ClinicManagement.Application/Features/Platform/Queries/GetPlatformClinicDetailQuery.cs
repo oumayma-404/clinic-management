@@ -97,7 +97,7 @@ public class GetPlatformClinicDetailQueryHandler
 
             var admin = await _userRepository.GetPrimaryAdminContactAsync(request.ClinicId, cancellationToken);
             var trend = await ReadTrendAsync(request.ClinicId, cancellationToken);
-            var payments = await ReadPaymentsAsync(request.ClinicId, cancellationToken);
+            var payments = await ReadPaymentsAsync(row, cancellationToken);
 
             // AC-7.3. Staged before the save below, and its failure fails the read — see the class remarks.
             await PlatformAccessLedger.RecordAsync(
@@ -176,13 +176,18 @@ public class GetPlatformClinicDetailQueryHandler
     /// <para>⚠️ <b>Newest first, cancelled entries included and marked.</b> An entry is never edited and never
     /// deleted (AC-5.2); a history that hid the cancelled ones would answer « what were we paid, and for what? »
     /// with a tidied version of the truth, on the one screen whose purpose is to check that.</para>
+    ///
+    /// <para>⚠️ <b>Each live entry also carries what cancelling it would do</b> (AC-5.3, EC-7) — see
+    /// <see cref="PreviewCancellation"/>. That is why this takes the JOINed row rather than an id: the preview has to
+    /// be read through the FR-1 rule, which needs the cabinet's suspension flag.</para>
     /// </summary>
     private async Task<IReadOnlyList<PlatformSubscriptionEntryDto>> ReadPaymentsAsync(
-        Guid clinicId, CancellationToken cancellationToken)
+        PlatformClinicRow row, CancellationToken cancellationToken)
     {
-        var entries = await _subscriptions.GetEntriesAsync(clinicId, cancellationToken);
-        var spans = SubscriptionLedger.FoldWithSpans(entries.Select(e => e.ToLedgerEntry())).Spans
-            .ToDictionary(s => s.EntryId);
+        var entries = await _subscriptions.GetEntriesAsync(row.ClinicId, cancellationToken);
+        var ledger = entries.Select(e => e.ToLedgerEntry()).ToList();
+        var spans = SubscriptionLedger.FoldWithSpans(ledger).Spans.ToDictionary(s => s.EntryId);
+        var clinicToday = ClinicClock.ClinicToday();
 
         return entries
             .OrderByDescending(e => e.RecordedAtUtc)
@@ -206,8 +211,53 @@ public class GetPlatformClinicDetailQueryHandler
                     IsCancelled: e.IsCancelled,
                     CancelledAt: e.CancelledAtUtc,
                     CancelledBy: e.CancelledBy,
-                    CancelReason: e.CancelReason);
+                    CancelReason: e.CancelReason,
+                    IfCancelled: e.IsCancelled
+                        ? null
+                        : PreviewCancellation(ledger, e.Id, row, clinicToday));
             })
             .ToList();
+    }
+
+    /// <summary>
+    /// AC-5.3 / EC-7 — where the cabinet would stand if this one entry went, so the confirmation can say it
+    /// <b>before</b> the vendor commits.
+    ///
+    /// <para><b>⚠️ It re-folds the real ledger with that entry marked cancelled, and nothing here computes a date.</b>
+    /// The tempting shortcut — « the current end minus this entry's duration » — is wrong whenever the entry is not
+    /// the latest one, which is precisely the case a correction is for: with durations folded on an exclusive cursor,
+    /// removing a <i>middle</i> entry shortens every stretch after it. Re-folding is also what makes the preview and
+    /// the write agree by construction rather than by review, since <c>SubscriptionRefold</c> will run the same fold
+    /// over the same rows a moment later.</para>
+    ///
+    /// <para>⚠️ <c>isTrial</c> comes from the <b>previewed</b> fold, not the cabinet's current cover: cancelling a
+    /// paid entry can hand the cover back to the trial, and labelling that « Actif » would describe the state the
+    /// cabinet is leaving.</para>
+    /// </summary>
+    private static PlatformCancellationPreviewDto? PreviewCancellation(
+        IReadOnlyList<SubscriptionLedgerEntry> ledger, Guid entryId, PlatformClinicRow row, DateTime clinicToday)
+    {
+        // FR-13's failure state has no entitlement to move, and the portfolio already says so in words.
+        if (!row.HasEntitlement)
+        {
+            return null;
+        }
+
+        var without = ledger
+            .Select(e => e.Id == entryId ? e with { IsCancelled = true } : e)
+            .ToList();
+
+        var folded = SubscriptionLedger.FoldWithSpans(without);
+        var status = SubscriptionStateReader.Read(
+            folded.EndsOn,
+            row.SubscriptionIsSuspended,
+            clinicToday,
+            folded.LatestCoverKind == SubscriptionPeriodKind.Trial);
+
+        return new PlatformCancellationPreviewDto(
+            EndsOn: status.EndsOn,
+            State: status.State.ToString(),
+            StateLabel: SubscriptionLabels.State(status.State),
+            MakesReadOnly: !status.AllowsWrites);
     }
 }

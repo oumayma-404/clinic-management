@@ -66,6 +66,11 @@ public class SubscriptionExemptionCoverageTests
         // not a cabinet, so it passes the gate on that ground today — the attribute states the intent where a reader
         // finds it rather than leaving it to how the tenant scope happens to resolve.
         "PlatformSubscriptions.RecordPeriod",
+
+        // --- And correcting one recorded by mistake (`platform-console` AC-5.1). The vendor's own bookkeeping, on
+        // the cabinets likeliest to be lapsed — including where the mis-keyed entry is what caused the lapse, which
+        // is the one case refusing it would make uncorrectable from the console.
+        "PlatformSubscriptions.CancelPeriod",
     };
 
     /// <summary>

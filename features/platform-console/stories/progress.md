@@ -12,7 +12,7 @@
 | 2 | The portfolio, and the counters behind it | No | **implemented** |
 | 3 | One cabinet's detail | No | **implemented** |
 | 4 | Record a payment and unlock the cabinet | No | **implemented** |
-| 5 | Correct a mistake | No — the companion has shipped | not-started |
+| 5 | Correct a mistake | No — the companion has shipped | **implemented** |
 | 6 | Suspend for abuse | No — the companion has shipped | not-started |
 | 7 | Verification, runbook and the promise | Follows 4–6 | not-started |
 
@@ -763,3 +763,164 @@ its third caller, `PlatformAccessAction` gains `CancelledPeriod`, and the confir
 cabinet becomes read-only » comes from the companion's **own fold**, never a console-side estimate. The shape
 DEV-14 settled — reuse the companion's pieces, stage the ledger row before the single save — is what Part 5's
 cancel command should follow.
+
+---
+
+# Part 5 — Correct a mistake
+
+**Session:** 2026-08-11 (fifth session on this branch) · steps 40–43 of the story.
+**Status: implemented.**
+
+## Working-tree note (start of session)
+
+The worktree was **clean** (`git status` empty, `git diff HEAD --numstat` empty) at `394b248`. The *main* checkout
+(`feature/windows-desktop-app`) has moved on again — it now carries `clinic-subscription` **Part G** committed
+(`e379f09`) plus uncommitted work in `Features/Subscriptions/` and `Domain/Services/SubscriptionLedger.cs`. **None of
+it was merged in**, and nothing in Part 5 needs it: Part G is the outbox-parking half (SMS/WhatsApp/push), which this
+part does not touch. That merge belongs at Part 7's own boundary, and `SubscriptionLedger.Fold` is read here
+**unchanged** — a fold edited in the main tree meeting this part's preview mid-session is exactly the situation the
+worktree exists to avoid.
+
+## What Part 5 delivers
+
+**Domain** — `PlatformAccessAction.CancelledPeriod`, arriving with the write that produces it (DEV-8's terms) and
+leaving only Part 6's two members outstanding. **No migration and no model change**: the column is
+`HasConversion<int>()`, so a new member is an int the schema already accepts.
+
+**Application** — **`CancelSubscriptionPeriodFromConsoleCommand`**: mandatory motif (AC-5.1), the entry located
+**within the cabinet's own ledger** so another practice's is structurally unreachable, `entry.Cancel(motif,
+console|{accountId}, now)` (AC-5.2), the `PlatformAccessEntry` staged **before** `SubscriptionRefold`'s single save,
+and the result read back through `SubscriptionStateReader`. Three refusal **codes** (`clinic_not_found` ·
+`period_not_found` · `period_already_cancelled`). Plus **`PlatformCancellationPreviewDto`** and
+**`PlatformSubscriptionCancelledDto`**, and `IfCancelled` on every live row of the payment history.
+
+**API** — `POST /api/platform/clinics/{clinicId}/subscription-periods/{entryId}/cancellation` on
+`PlatformSubscriptionsController`, carrying `[AllowsWithoutSubscription]` with its own reason, plus
+`Models/CancelSubscriptionPeriodRequest`.
+
+**`console/`** — `components/cancel-period-dialog.tsx` (sheet below `lg:`, dialog above, motif mandatory, the
+consequence stated before committing, confirm-before-discard), `app/bff/annulations/route.ts`, and the per-entry
+control on the fiche.
+
+## Step 41 — where the consequence is computed, and why there
+
+`GetPlatformClinicDetailQuery` re-folds the cabinet's **real** ledger with one entry marked cancelled, through
+`SubscriptionLedger.FoldWithSpans`, and reads the result with `SubscriptionStateReader`. So the confirmation's
+sentence is the server's own arithmetic in both halves, and the dialog **cannot exist without it** — see DEV-17 for
+why that beat a preview endpoint.
+
+⚠️ **The naive client-side version is wrong in the case a correction is actually for.** « The current end date minus
+this entry's duration » is only right when the entry is the *latest* one; the fold advances on an exclusive cursor, so
+removing a **middle** entry shortens every stretch after it. Re-folding is also what makes the preview and the write
+agree by construction rather than by review, since `SubscriptionRefold` runs the same fold over the same rows a
+moment later.
+
+⚠️ **`isTrial` comes from the *previewed* fold, not from the cabinet's current cover.** Cancelling a paid entry can
+hand the cover back to the trial, and labelling that « Actif » would describe the state the cabinet is *leaving*.
+
+## ⚠️ The trap this part found: cancelling a cabinet's ONLY entry yields « sans échéance », not « expiré »
+
+`FoldWithSpans` starts `endsOn` at null and returns `openEnded ? null : endsOn`, so a ledger whose every entry is
+cancelled folds to **`EndsOn = null`** — which `SubscriptionStateReader` reads as *no end date*, i.e. **Active,
+writes allowed, for ever**. It is the companion's own semantics and was left alone (FR-4: no second arithmetic here),
+and in practice it is unreachable, because every cabinet is provisioned with an opening entry (FR-13) that the fold
+falls back to.
+
+But it is why **EC-7's fixture needs two entries**: `GivenTrialThenGrant` seeds a lapsed trial *and* the grant, so
+cancelling the grant lands on the trial's expired date. A one-entry fixture would have made
+`Cancelling_A_Three_Week_Old_Grant_Puts_The_Cabinet_Back_Into_Read_Only` assert the opposite of EC-7 and pass, which
+is the shape of a test that certifies a bug. Worth knowing before Part 6 writes its own fixtures.
+
+## Decisions worth recording (not deviations — the plan is silent on all three)
+
+- **The cancel carries no idempotency key, unlike the grant.** AC-4.6's replay exists because a double-click on
+  « Enregistrer le paiement » is the vendor's *own* repeated action and the first outcome is what they wanted. An
+  entry already struck through was struck through by **somebody**, and which colleague and for what motif is a fact
+  the vendor needs — so « déjà annulée » is a refusal carrying `period_already_cancelled`, and the dialog re-reads
+  the fiche so that motif and author appear beside the refusal. Replaying silently would hide a colleague's action.
+- **A POST, not a DELETE.** Nothing is deleted (AC-5.2), and `DELETE` would advertise the opposite to every future
+  reader of the controller and of any client generated from it.
+- **409 for the already-cancelled case**, matching `ConflictException`'s status: it is a state of the world, not a
+  malformed request.
+
+## Gate results
+
+| Gate | Command | Result |
+|------|---------|--------|
+| Backend build | `dotnet build --no-incremental` | **0 errors, 55 warnings — the identical pre-existing baseline, and 0 in any file this part touched** (verified by extracting every warning's filename: the 29 files named are all pre-existing, none of them this part's) |
+| Backend unit suite | `OutDir=<temp>` + `dotnet vstest` | **2627 passed, 0 failed** (Part 4 left it at 2612; +15) |
+| Preview guard proven able to fail | broke `PreviewCancellation` by hand | **yes** — dropping the `IsCancelled = true` marking turned `The_Preview_On_The_Fiche_Is_Exactly_What_Cancelling_Then_Does` red and **only** it (1 of 15), then green once restored. A preview's failure mode is silent, so this is the one case that had to be seen red |
+| Schema | — | **not applicable, and verified so rather than assumed**: this part adds no migration and no model change. `PlatformAccessEntryConfiguration` maps `Action` with `HasConversion<int>()`, so a new enum member is an int the existing column already accepts; `git status` shows no migration and no snapshot change. (`verify-schema` exists and was last run in Part 4 — this row is « nothing to verify », not « the verb is missing ») |
+| Console typecheck | `npx tsc --noEmit` | clean |
+| Console device gate | `npm run check:responsive` | **14/14 pass**, and **proven able to fail**: a throwaway probe carrying `min-h-screen`, `max-h-[90vh]`, `text-[9px]` and `hover:scale-105` turned **4** checks red, then green again once deleted. ⚠️ `card-fallback` stayed green against that probe's raw `<table>` — it matches the `<Table>` **primitive**, as Part 2 recorded; this part adds no table |
+| Console build | `npm run build` | clean, **11 routes** (was 10); `/bff/annulations` is `ƒ`, as a token-bearing write must be |
+| CI | `.github/workflows/ci.yml` | unchanged — the `console` job already runs all three console gates |
+| `web/` untouched | `git status` | verified: this part changes no file under `web/` |
+
+### Derived guards that had something to say
+
+- **`SubscriptionExemptionCoverageTests`** — the new write needed its reviewed entry (`PlatformSubscriptions.CancelPeriod`) with a reason, in **both** directions. Resolved by adding it, not by an exemption.
+- **`SubscriptionVendorCommandReachabilityTests`** — green, and it was the name to be careful about:
+  `CancelSubscriptionPeriodFromConsoleCommand` does **not** contain the substring `CancelSubscriptionPeriodCommand`
+  (`…PeriodFromConsole…`), so the source scan over `Controllers/` stays clean. A console command named
+  `CancelSubscriptionPeriodCommandForConsole` would have failed it.
+- **`PlatformReadShapeTests`** — green with two new names. It asserts in **both** directions, so `IfCancelled` and
+  `MakesReadOnly` had to be genuinely reached; `EndsOn`/`State`/`StateLabel` are **reused verbatim** inside the
+  preview rather than duplicated under prefixed names, because they mean exactly what they mean elsewhere.
+
+## Deviations — Part 5
+
+### Auto-approved (trivial)
+
+| Deviation | Classification | Reason |
+|-----------|----------------|--------|
+| The preview is a nested `PlatformCancellationPreviewDto`, not two flat fields | Trivial | A bare nullable date cannot distinguish « this row is already cancelled, there is nothing to preview » from « cancelling would leave the cabinet *sans échéance* » — and both are real states. A null object says the first; a null `EndsOn` **inside** it says the second |
+| A native `<textarea>` with the `Input`'s classes rather than a new `Textarea` primitive | Trivial | The payment sheet's native `<select>` precedent, for its reason: it is keyboard-reachable for free and `text-base` keeps it at 16 px so a phone does not zoom on focus. One primitive fewer to keep in step with `web/`'s |
+| `/bff/annulations` as its own route rather than a mode flag on `/bff/paiements` | Trivial | Recording money and striking an entry through are different actions with different refusals, and one handler branching on a body field is how the second inherits the first's **idempotency** semantics — which here would replay a correction the vendor may have meant to repeat against another entry |
+| `CancelPeriodDialog` reuses the `Sheet` primitive at `max-h-[85dvh]` rather than the payment sheet's full `h-dvh` | Trivial | The plan says « bottom sheet on phone, dialog on desktop ». One field does not need a full-screen takeover; the `flex` + `min-h-0 flex-1 overflow-y-auto` body + `shrink-0` footer is kept, so the primary action stays on screen at whatever height the panel has — including a 380 px landscape one with the keyboard open |
+
+### DEV-17: AC-5.3's consequence travels on the detail read, not behind a preview endpoint
+
+**Date:** 2026-08-11 · **Category:** Technical · **Approved:** **yes — chosen by the user** (`AskUserQuestion`, « On the detail read, per entry »)
+
+- **Plan:** step 41 — « Compute that consequence **from the companion's own fold**, not from a console-side
+  estimate. » It does not say *where*.
+- **Implemented:** `IfCancelled` on every live row of `GET /api/platform/clinics/{id}`, computed by re-folding the
+  real ledger with that entry marked cancelled. The alternative considered was a
+  `PreviewSubscriptionPeriodCancellationQuery` fetched when the dialog opens.
+- **Justification:** a preview that can **fail** leaves the confirmation with AC-5.3's sentence missing, and the
+  fallback is then either to block a legitimate correction or to open the dialog without the consequence stated —
+  both worse than the staleness this avoids. Carrying it on the read makes « the dialog cannot exist without the
+  figure » **structural**, and the write re-folds and reports the true outcome regardless, so a ledger that moved
+  between render and click is answered honestly by `PlatformSubscriptionCancelledDto` rather than by the preview.
+- **Impact:** N small folds per detail read (a cabinet's ledger is a handful of entries, and the fold was already run
+  once for « période couverte »); two names on `PlatformReadShape`. Part 6's suspension confirmation can follow the
+  same shape or not — suspension needs no fold, so it will not need to.
+
+## Owed, and honestly outstanding
+
+- **The eye pass has not been done, for the fifth time.** There is still no browser tooling in this repository. What
+  was done instead: the mechanical gate (14/14, proven live against a four-violation probe) and a re-read of the diff
+  against `DEVICE-CONTRACT.md` § 1. The structural claims for the new surface are: the confirmation is a **bottom
+  sheet below `lg:`** sized in `dvh` (never `vh`) with the body scrolling inside `flex-1` and the destructive action a
+  `shrink-0` sibling, so it stays on screen with the keyboard open; it becomes a centred `lg:max-w-lg` dialog above
+  that boundary; it is dismissible by a visible control **and** `Escape` **and** the overlay, all three routed through
+  one handler that confirms before discarding a typed motif; every control is disabled in flight; the motif field is
+  `text-base` (16 px); the trigger is a real `<button>` carrying `touch-target`'s 44 px coarse-pointer floor and a
+  row-naming `aria-label`, present at **every** width and never revealed by hover; and the consequence is carried by
+  **text**, not by the border colour that accompanies it (AC-6.3's rule one field over). **Structurally sound is not
+  looked at.** Widths still owed: 320 / 390 / 820 / 1180 / 1440 px + a landscape phone + a keyboard walk.
+- **The cancellation has not been exercised over the wire**, exactly as Part 4's grant has not: the command, its
+  refusals, its attribution and the preview↔write agreement are unit-tested, but no request has travelled
+  `console/` → `/bff/annulations` → Kestrel's console listener → the handler on a running deployment.
+- **The counter job still has not been run against real data** (unchanged from Parts 2–4).
+
+## Next
+
+**Part 6 — suspend for abuse** (steps 44–47). ⚠️ Two things this part settled that Part 6 inherits: the companion
+shipped suspension as **one** `SetSubscriptionSuspensionCommand` (`bool Suspend` + `Reason` + `ActedBy`), so per
+**R-2** steps 44/45 adapt one call site rather than wrapping two — the step-32 pre-flight recorded that — and
+`SetSubscriptionSuspensionCommand` deliberately does **not** use `SubscriptionRefold` (it touches no ledger, so a
+lost update there is an ordinary 409). `PlatformAccessAction` gains its last two members, `Suspended` and
+`Unsuspended`, each with the write that produces it. AC-6.3's « text and shape, never colour alone » is the one to
+hold on the client, and the fiche's state badge already reads « Suspendu » distinctly.

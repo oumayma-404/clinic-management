@@ -36,6 +36,9 @@ public record PlatformClinicDetailDto(
 ///
 /// <para>⚠️ <see cref="AmountDt"/> is null for a complimentary period (AC-4.8) — <b>not</b> zero. « Offert » and
 /// « payé 0,000 DT » are different statements, and only one of them is ever true.</para>
+///
+/// <para>⚠️ <see cref="IfCancelled"/> is AC-5.3's consequence, carried on the row it is about and <b>null on a row
+/// already cancelled</b> — see <see cref="PlatformCancellationPreviewDto"/>.</para>
 /// </summary>
 public record PlatformSubscriptionEntryDto(
     Guid EntryId,
@@ -53,7 +56,52 @@ public record PlatformSubscriptionEntryDto(
     bool IsCancelled,
     DateTime? CancelledAt,
     string? CancelledBy,
-    string? CancelReason);
+    string? CancelReason,
+    PlatformCancellationPreviewDto? IfCancelled);
+
+/// <summary>
+/// Where the cabinet would stand if <i>this</i> entry were cancelled (<c>platform-console</c> AC-5.3, EC-7) — the
+/// sentence the confirmation has to say before the vendor commits.
+///
+/// <para><b>⚠️ Every field is produced by the companion's own machinery and none of it is estimated here</b> (FR-4):
+/// the ledger is re-folded through <c>SubscriptionLedger.FoldWithSpans</c> with this one entry marked cancelled, and
+/// the resulting date is read by <c>SubscriptionStateReader</c> — the same fold and the same FR-1 rule the write will
+/// use a moment later. A console-side « end date minus the duration » would be a second arithmetic, and it is wrong
+/// whenever the entry is not the latest one.</para>
+///
+/// <para><b>⚠️ It travels on the detail read rather than behind a preview endpoint of its own</b>, so the
+/// confirmation cannot exist without it: a preview that can fail would leave the dialog either blocking a
+/// legitimate correction or opening with AC-5.3's sentence missing. It is as fresh as the page, and the write
+/// re-folds and reports the true outcome regardless (progress.md DEV-17).</para>
+/// </summary>
+/// <param name="EndsOn">The end day the remaining entries fold to, or null for « sans échéance ».</param>
+/// <param name="MakesReadOnly">
+/// EC-7's headline: <c>true</c> when the cabinet could no longer record new work. Derived as
+/// <c>!AllowsWrites</c> from the one FR-1 rule, never by comparing dates here — and it stays <c>true</c> for a
+/// cabinet that is <b>suspended</b>, where cancelling changes nothing about the refusal it is already meeting.
+/// </param>
+public record PlatformCancellationPreviewDto(
+    DateTime? EndsOn,
+    string State,
+    string StateLabel,
+    bool MakesReadOnly);
+
+/// <summary>
+/// What cancelling an entry answers with (<c>platform-console</c> AC-5.3): where the cabinet stands afterwards, read
+/// back through <c>SubscriptionStateReader</c> rather than assumed from the preview the vendor confirmed.
+///
+/// <para>⚠️ <see cref="PreviousEndsOn"/> is the date the cabinet held a moment ago, so a correction that moved it
+/// <b>into the past</b> is legible on the screen that did it — which is the whole of EC-7 after the fact.</para>
+/// </summary>
+public record PlatformSubscriptionCancelledDto(
+    Guid ClinicId,
+    Guid EntryId,
+    DateTime? PreviousEndsOn,
+    DateTime? EndsOn,
+    string State,
+    string StateLabel,
+    int? DaysRemaining,
+    bool MakesReadOnly);
 
 /// <summary>
 /// What recording a payment answers with (<c>platform-console</c> AC-4.3): the state and the end date the cabinet

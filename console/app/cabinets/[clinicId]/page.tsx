@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ActivityTrend } from "@/components/activity-trend";
+import { CancelPeriodDialog } from "@/components/cancel-period-dialog";
 import { RecordPaymentSheet } from "@/components/record-payment-sheet";
 import { ConsoleApiError } from "@/lib/api/client";
 import { CLINIC_NOT_FOUND_CODE, fetchClinicDetail, type PlatformClinicDetail } from "@/lib/api/platform";
@@ -184,6 +185,15 @@ function Subscription({ detail }: { detail: PlatformClinicDetail }) {
               ) : null}
 
               {entry.note ? <p className="mt-1 text-xs text-muted-foreground">{entry.note}</p> : null}
+
+              {/* US-5. Offered on live entries only — a cancelled one has nothing left to cancel, and a control
+                  that opens onto a refusal is the dead control the device contract forbids. Always visible at
+                  every width, never revealed by hover. */}
+              {entry.isCancelled ? null : (
+                <div className="mt-2">
+                  <CancelPeriodDialog clinicId={clinic.clinicId} clinicName={clinic.name} entry={entry} />
+                </div>
+              )}
             </li>
           ))}
         </ul>

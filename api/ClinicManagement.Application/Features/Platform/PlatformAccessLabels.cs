@@ -20,6 +20,7 @@ public static class PlatformAccessLabels
     {
         PlatformAccessAction.ViewedClinic => "Fiche cabinet consultée",
         PlatformAccessAction.GrantedPeriod => "Paiement enregistré",
+        PlatformAccessAction.CancelledPeriod => "Période annulée",
         _ => action.ToString()
     };
 

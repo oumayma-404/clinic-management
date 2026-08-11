@@ -167,6 +167,42 @@ export interface PlatformSubscriptionEntry {
   cancelledAt: string | null;
   cancelledBy: string | null;
   cancelReason: string | null;
+  /**
+   * What cancelling **this** entry would do (AC-5.3, EC-7) — null on a row already cancelled, and null for a cabinet
+   * with no entitlement at all.
+   *
+   * ⚠️ **Computed by the server's own fold**, with this entry marked cancelled, and read through the one rule the
+   * gate reads. Never derive it here: « the end date minus this entry's duration » is wrong whenever the entry is
+   * not the latest one, which is precisely the case a correction is for.
+   */
+  ifCancelled: PlatformCancellationPreview | null;
+}
+
+/** Where the cabinet would stand if one entry went. Every field is the server's. */
+export interface PlatformCancellationPreview {
+  /** The end day the remaining entries fold to, or null for « sans échéance ». */
+  endsOn: string | null;
+  state: string;
+  stateLabel: string;
+  /** EC-7's headline: the practice could no longer record new work. */
+  makesReadOnly: boolean;
+}
+
+/**
+ * What cancelling an entry answers with (AC-5.3).
+ *
+ * ⚠️ `previousEndsOn` is the date the cabinet held a moment ago, which is what makes a correction that moved the
+ * date **into the past** legible on the screen that did it.
+ */
+export interface PlatformPeriodCancelled {
+  clinicId: string;
+  entryId: string;
+  previousEndsOn: string | null;
+  endsOn: string | null;
+  state: string;
+  stateLabel: string;
+  daysRemaining: number | null;
+  makesReadOnly: boolean;
 }
 
 /**
@@ -193,6 +229,15 @@ export interface PlatformPaymentRecorded {
  * the screen does, which is the `Contains("déjà facturée")` defect this codebase has already paid for once.
  */
 export const CLINIC_NOT_FOUND_CODE = "clinic_not_found";
+
+/**
+ * The refusal codes a cancellation can come back with (AC-5.1).
+ *
+ * ⚠️ `period_already_cancelled` is a **state of the world**, not a rejected request: somebody else struck the entry
+ * through, and its motif and author are on the fiche the screen re-reads. Branched on the code so rewording the
+ * sentence cannot silently change what the dialog does.
+ */
+export const PERIOD_ALREADY_CANCELLED_CODE = "period_already_cancelled";
 
 export async function fetchClinicDetail(token: string, clinicId: string): Promise<PlatformClinicDetail> {
   return consoleFetch<PlatformClinicDetail>(`/platform/clinics/${clinicId}`, { token });

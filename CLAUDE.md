@@ -955,6 +955,32 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   ⚠️ **The console cannot grant open-ended cover**, because the companion refuses it in its own handler: a cabinet
   that should never expire is grandfathered by a migration. EC-14 is met on the **read** side — « Sans échéance »
   is said in words wherever a null end date appears.
+
+- **A mis-keyed payment is corrected, never erased (`platform-console` Part 5)**:
+  `POST /api/platform/clinics/{id}/subscription-periods/{entryId}/cancellation` strikes one ledger entry through with
+  a **mandatory motif** and the cabinet's end date recomputes — possibly into the past, at which point the practice
+  becomes read-only again. The entry is **kept**, struck through *and* marked « Annulé » in words, carrying its motif,
+  its canceller (`console|{accountId}`) and the moment; `PlatformAccessAction.CancelledPeriod` arrives with the write
+  that produces it, and Part 4's shape is reused verbatim — the companion's own pieces, with the FR-5 access row
+  staged before `SubscriptionRefold`'s single save.
+  ⚠️ **AC-5.3's « from which date » is computed by re-folding the real ledger with that one entry marked cancelled**,
+  and it travels **on the detail read** (`PlatformSubscriptionEntryDto.IfCancelled`) rather than behind a preview
+  endpoint — so the confirmation cannot open without the sentence, which a preview call that can fail would allow.
+  The naive client-side form (« the current end minus this entry's duration ») is right only when the entry is the
+  *latest* one: the fold advances on an **exclusive cursor**, so removing a **middle** entry shortens every stretch
+  after it. `isTrial` comes from the *previewed* fold too, since cancelling a paid entry can hand the cover back to
+  the trial. The preview and the write are held equal by a test that runs both over one ledger, proven red.
+  ⚠️ **Cancelling a cabinet's ONLY entry yields « sans échéance », not « expiré »** — `FoldWithSpans` starts at null,
+  so a wholly-cancelled ledger folds to no end date, which the state reader reads as *no expiry*. It is the
+  companion's own semantics, left alone (FR-4), and unreachable in practice because every cabinet is provisioned with
+  an opening entry (FR-13). It is why EC-7's fixture seeds a lapsed **trial** beside the grant: a one-entry fixture
+  asserts the opposite of EC-7 and passes.
+  ⚠️ **No idempotency key here, unlike the grant, and that is deliberate.** A double-click on « Enregistrer le
+  paiement » is the vendor's own repeated action, so replaying the first outcome is what they wanted (AC-4.6) — but an
+  entry already struck through was struck through by **somebody**, and which colleague and for what motif is a fact
+  the vendor needs. So « déjà annulée » is a **refusal** carrying `period_already_cancelled` (409) and the dialog
+  re-reads the fiche so that motif and author appear beside it. ⚠️ And it is a **POST, not a DELETE**: nothing is
+  deleted, and `DELETE` would advertise the opposite to every reader of the controller.
 - **A clinic can let itself in, and nothing exists until the email is answered (`clinic-self-signup`)**: a hosted
   clinic used to exist only because an operator ran `provision-clinic`. `POST /api/auth/signup` (anonymous) writes a
   pending **`ClinicSignup`** and emails a link; `POST /api/auth/signup/verify` consumes it and provisions the clinic +

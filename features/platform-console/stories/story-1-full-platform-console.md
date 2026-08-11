@@ -64,10 +64,10 @@ _From spec:_
 - [x] AC-4.8 — a complimentary period (no amount) can be recorded, and the entry says which it is *(Part 4; « offert » carries **no** amount, never a zero)*
 
 **US-5 — correct a mistake (Part 5)**
-- [ ] AC-5.1 — any entry can be cancelled with a **mandatory written reason**
-- [ ] AC-5.2 — never edited, never deleted: it stays listed, struck through, with reason, canceller and moment
-- [ ] AC-5.3 — the end date recomputes and may move into the past, which the confirmation says before committing
-- [ ] AC-5.4 — the confirmation names the cabinet and the amount
+- [x] AC-5.1 — any entry can be cancelled with a **mandatory written reason** *(Part 5; refused in French, and nothing at all happens — the entry is untouched and no ledger row is written)*
+- [x] AC-5.2 — never edited, never deleted: it stays listed, struck through, with reason, canceller and moment *(Part 5; the canceller is `console|{accountId}` through `AuditActor`'s own constant, and the fiche marks it « Annulé » **in words** as well as struck through)*
+- [x] AC-5.3 — the end date recomputes and may move into the past, which the confirmation says before committing *(Part 5; the consequence is the **real fold** re-run with that entry marked cancelled, carried on the detail read so the dialog cannot open without it — progress.md DEV-17. The preview↔write agreement is proven red)*
+- [x] AC-5.4 — the confirmation names the cabinet and the amount *(Part 5; « offert » carries no amount rather than 0,000 DT)*
 
 **US-6 — suspend (Part 6)**
 - [ ] AC-6.1 — suspension requires a written reason, recorded with author and moment
@@ -95,7 +95,7 @@ _From spec:_
 - [ ] EC-1 · EC-2 · EC-3 (Part 1) — a leaked clinic password grants nothing; a leaked console password without the factor fails, **including on an account that has never signed in**; a lost factor is recoverable
 - [ ] EC-4 (Part 1) — a console/clinic port collision **refuses startup**, naming both settings
 - [x] EC-5 · EC-6 (Part 4) — a double-click is one entry; two *different* simultaneous grants both succeed with **no conflict response** *(the lost race replays the first outcome rather than surfacing the unique violation)*
-- [ ] EC-7 (Part 5) — a cancellation that puts a working cabinet back into read-only says so before committing
+- [x] EC-7 (Part 5) — a cancellation that puts a working cabinet back into read-only says so before committing *(the sentence is the server's fold; ⚠️ the fixture needs **two** entries — a ledger whose only entry is cancelled folds to « sans échéance », not « expiré », see progress.md)*
 - [ ] EC-8 · EC-9 (Part 2) — a cabinet with no activity appears with zeros and a « dormant » marker; a cluster of same-day trials is visible as such
 - [ ] EC-10 (Part 2) — activity is polluted by neither machine work **nor the vendor**
 - [ ] EC-11 (Part 2) — a large portfolio stays paged and bounded by the **number** of cabinets, not by any one cabinet's history
@@ -300,7 +300,7 @@ Before starting this story, ensure:
 
 39. **Tests** — `PlatformIdempotencyTests`, `SubscriptionWriteGateTests` (extended)
 
-### Part 5 — Correct a mistake *(AC-5.x, EC-7)*
+### Part 5 — Correct a mistake *(AC-5.x, EC-7)* — **implemented**
 
 40. **Add the cancel command** — `CancelSubscriptionPeriodFromConsoleCommand`, mandatory written reason (AC-5.1), delegating to the companion's handler. The entry is never edited and never deleted (AC-5.2)
 41. **State the consequence before committing** — the confirmation names the cabinet **and** the amount (AC-5.4) and says the cabinet will become read-only and from which date (AC-5.3, EC-7), computed **from the companion's own fold**, never a console-side estimate

@@ -121,6 +121,13 @@ public static class PlatformReadShape
         "PreviousEndsOn",
         "AlreadyRecorded",
 
+        // ── What cancelling one entry would do, and then did (Part 5, AC-5.3, EC-7). Both are facts about the
+        // ENTITLEMENT — a date and whether the practice may still record — so neither can name anybody it treats;
+        // `EndsOn`, `State` and `StateLabel` above are reused verbatim rather than duplicated under new names,
+        // because they mean exactly what they mean everywhere else on this surface.
+        "IfCancelled",
+        "MakesReadOnly",
+
         // Who to call at the cabinet (AC-3.3). ⚠️ These are the two names on this surface that identify a PERSON,
         // so they are the ones to think hardest about — and they are admissible for a reason the field names carry:
         // an `Admin*` is the cabinet's own **staff account**, the party the vendor bills and telephones, never

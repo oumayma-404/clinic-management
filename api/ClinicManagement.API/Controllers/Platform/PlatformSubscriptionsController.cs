@@ -9,12 +9,13 @@ using Microsoft.AspNetCore.Mvc;
 namespace ClinicManagement.API.Controllers.Platform;
 
 /// <summary>
-/// The vendor records a payment and the cabinet is unlocked (<c>platform-console</c> US-4).
+/// The vendor records a payment and the cabinet is unlocked (<c>platform-console</c> US-4), and corrects one it
+/// recorded wrongly (US-5).
 ///
-/// <para>⚠️ <b>The console's only write, and it is deliberately in its own controller.</b>
+/// <para>⚠️ <b>The console's only writes, and they are deliberately in their own controller.</b>
 /// <c>PlatformPortfolioController</c> is read-only by construction and says so — « it has no write path » is the
 /// strongest proof a surface that can read every practice can offer, and that claim stops being checkable the
-/// moment one action on it writes. Keeping the write here leaves that guarantee legible on both files.</para>
+/// moment one action on it writes. Keeping the writes here leaves that guarantee legible on both files.</para>
 ///
 /// <para>⚠️ <b>It carries <c>[AllowsWithoutSubscription]</c>, and it is not decoration.</b> The gate refuses every
 /// non-GET under <c>/api</c> for a cabinet whose entitlement has lapsed. A console account is not a cabinet, so
@@ -82,5 +83,49 @@ public class PlatformSubscriptionsController : ApiControllerBase
             result.Code == RecordSubscriptionPeriodCommandHandler.UnknownClinicCode
                 ? StatusCodes.Status404NotFound
                 : StatusCodes.Status400BadRequest);
+    }
+
+    /// <summary>
+    /// Cancels one ledger entry with a written reason, and the cabinet's end date recomputes (AC-5.1–5.3).
+    ///
+    /// <para>⚠️ <b>A POST and deliberately not a DELETE.</b> Nothing is deleted: the entry stays in the ledger,
+    /// struck through, carrying its motif and its canceller (AC-5.2), and a <c>DELETE</c> would advertise the
+    /// opposite to every future reader of this file and of any client generated from it.</para>
+    ///
+    /// <para>⚠️ The two refusals a client acts on differently carry <b>codes</b> — an unknown cabinet or entry is a
+    /// 404, and an entry already struck through is a state of the world (409) rather than a rejected request. Neither
+    /// is recovered by matching the French sentence.</para>
+    /// </summary>
+    [HttpPost("clinics/{clinicId:guid}/subscription-periods/{entryId:guid}/cancellation")]
+    [AllowsWithoutSubscription(
+        "Correcting a payment recorded by mistake is the vendor's own bookkeeping, and a cabinet whose entitlement "
+        + "has lapsed is the likeliest one to need it — including when the lapse is what the mis-keyed entry caused.")]
+    public async Task<ActionResult<PlatformSubscriptionCancelledDto>> CancelPeriod(
+        Guid clinicId,
+        Guid entryId,
+        [FromBody] CancelSubscriptionPeriodRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new CancelSubscriptionPeriodFromConsoleCommand
+            {
+                ClinicId = clinicId,
+                EntryId = entryId,
+                Reason = request.Reason ?? string.Empty,
+            },
+            cancellationToken);
+
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        return HandleFailure(result, result.Code switch
+        {
+            CancelSubscriptionPeriodFromConsoleCommandHandler.UnknownClinicCode => StatusCodes.Status404NotFound,
+            CancelSubscriptionPeriodFromConsoleCommandHandler.UnknownEntryCode => StatusCodes.Status404NotFound,
+            CancelSubscriptionPeriodFromConsoleCommandHandler.AlreadyCancelledCode => StatusCodes.Status409Conflict,
+            _ => StatusCodes.Status400BadRequest,
+        });
     }
 }
