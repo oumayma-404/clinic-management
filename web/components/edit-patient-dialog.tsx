@@ -36,7 +36,8 @@ import {
 import { toast } from "sonner"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
-import { User, Phone, Heart, CreditCard, Flag, Save, X, Plus, Trash2, StickyNote, AlertTriangle } from "lucide-react"
+import { User, Phone, Heart, CreditCard, Flag, Save, X, Plus, Trash2, StickyNote, AlertTriangle, Shield } from "lucide-react"
+import { RecordSection } from "@/components/record/record-section"
 import { cn } from "@/lib/utils"
 import { patientsApi } from "@/lib/api/patients"
 import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
@@ -112,6 +113,30 @@ interface EditPatientDialogProps {
   patient: PatientDto | null
   /** Called on success; receives the saved patient (used to open a newly-created patient). */
   onSuccess?: (patient?: PatientDto) => void
+}
+
+/**
+ * French labels for the fields `validateForm` can refuse, used by the error summary. Every one of them lives in
+ * « L'essentiel », which is always unfolded — so the summary names fields that are on screen rather than hiding
+ * a refusal inside a folded section. Keeping them here rather than reading the `<Label>` text means the summary
+ * cannot go stale against a reworded label without a compiler error.
+ */
+const FIELD_LABELS_FR: Record<string, string> = {
+  firstName: "Prénom",
+  lastName: "Nom",
+  gender: "Sexe",
+  birthdate: "Date de naissance",
+  dentition: "Denture",
+  phone: "Numéro de téléphone",
+  email: "Email",
+}
+
+/** The six foldable sections of the patient form, in the order they appear. */
+type SectionKey = "notes" | "adresse" | "medical" | "cnam" | "assurance" | "flags"
+
+/** All folded (creating) or all unfolded (editing) — see `openSections` for why the two differ. */
+function allSections(open: boolean): Record<SectionKey, boolean> {
+  return { notes: open, adresse: open, medical: open, cnam: open, assurance: open, flags: open }
 }
 
 export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: EditPatientDialogProps) {
@@ -217,6 +242,46 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   /**
+   * Which secondary sections are unfolded. ⚠️ **Everything below « L'essentiel » is folded when CREATING and
+   * unfolded when EDITING**, and that asymmetry is the whole design: registering a walk-in needs a name and a
+   * phone, while opening an existing file is how somebody goes looking for the CNAM identity or an allergy. The
+   * form used to render all forty fields expanded in both cases, which put « Enregistrer » under eleven CNAM
+   * fields nobody filling in a new patient was going to touch.
+   */
+  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>(() => allSections(!!patient))
+
+  const toggleSection = (key: SectionKey) =>
+    setOpenSections((current) => ({ ...current, [key]: !current[key] }))
+
+  /**
+   * What each folded section says about itself. ⚠️ **A folded section must never read as an empty one**: the
+   * summary states what it holds, so folding makes a value read-only rather than invisible — the rule
+   * `RecordSection` was built on. « À renseigner » is deliberately not « — »: one is an invitation, the other is
+   * a claim that there is nothing to say.
+   */
+  const filled = (...values: (string | null | undefined)[]) => values.filter((v) => v && v.trim()).length
+
+  const sectionSummary: Record<SectionKey, string> = {
+    notes:
+      filled(patientImportantNotes, patientNotes) > 0
+        ? [patientImportantNotes.trim() && "alertes", patientNotes.trim() && "notes"].filter(Boolean).join(" · ")
+        : "aucune note",
+    adresse:
+      filled(addressStreet, addressCity, addressGovernorate, emergencyName) > 0
+        ? [addressCity.trim() || addressGovernorate, emergencyName.trim() && "contact d'urgence"]
+            .filter(Boolean)
+            .join(" · ")
+        : "à renseigner",
+    medical:
+      filled(chronicDiseases, allergies) > 0
+        ? [chronicDiseases.trim() && "affections", allergies.trim() && "allergies"].filter(Boolean).join(" · ")
+        : "aucune information",
+    cnam: cnam.identifiantUnique.trim() || (cnam.regime.trim() ? cnam.regime.trim() : "aucun identifiant"),
+    assurance: insuranceProvider.trim() ? insuranceProvider.trim() : "aucune assurance privée",
+    flags: flagged ? "patient signalé" : "aucun signalement",
+  }
+
+  /**
    * The server's « Ce patient existe déjà : … » while the confirmation is open, or null. Create mode only — an
    * update cannot produce a duplicate.
    */
@@ -238,6 +303,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (open) {
+      // ⚠️ Re-derived on every open, not only on mount: this component is reused for both modes from the same
+      // parent, so an edit followed by « Ajouter un patient » would otherwise open the new form with all six
+      // sections unfolded — the exact wall of forty fields the folding exists to prevent.
+      setOpenSections(allSections(!!patient))
       if (patient) {
         // Edit mode: populate with existing patient data
       setFirstName(patient.firstName || "")
@@ -889,12 +958,30 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         <DialogBody>
           <form onSubmit={handleSave} className="p-6 space-y-6">
             <FormErrorBanner message={conflict.error} />
+            {/* ⚠️ A summary as well as the per-field messages, because on a form this long the first refusal can
+                be off screen — and on a phone it always is. `FormErrorBanner` is the shared aria-live region, so
+                this announces too. It names the fields; the fields themselves carry the reason. */}
+            <FormErrorBanner
+              message={
+                Object.keys(errors).length > 0
+                  ? Object.keys(errors).length === 1
+                    ? `Corrigez « ${FIELD_LABELS_FR[Object.keys(errors)[0]] ?? Object.keys(errors)[0]} » ci-dessous.`
+                    : `Corrigez ces champs ci-dessous : ${Object.keys(errors)
+                        .map((field) => FIELD_LABELS_FR[field] ?? field)
+                        .join(", ")}.`
+                  : null
+              }
+            />
 
             {/* Personal Information Section */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 pb-2">
                 <User className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Informations personnelles</h3>
+                <h3 className="text-lg font-semibold">L&apos;essentiel</h3>
+                {/* Named for what it is rather than for what it contains. A patient arriving without an appointment
+                    is registered from these fields alone — which is why the phone moved UP into them: it was two
+                    sections down, below the fold, and it is the field reception actually needs (rappels, relances). */}
+                <span className="text-xs text-muted-foreground">suffit à enregistrer le patient</span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg border bg-muted/30">
@@ -939,6 +1026,50 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     className={cn(errors.lastName && "border-destructive")}
                   />
                   {errors.lastName && <p className="text-sm text-destructive">{errors.lastName}</p>}
+                </div>
+
+                {/* Phone */}
+                <div className="space-y-2">
+                  <Label htmlFor="phone">
+                    Numéro de téléphone{" "}
+                    <span className="text-muted-foreground text-xs">(optionnel)</span>
+                  </Label>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="Ex. 20 123 456 (ou +216…)"
+                    autoComplete="tel"
+                    aria-invalid={!!errors.phone}
+                    className={cn(errors.phone && "border-destructive")}
+                  />
+                  {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
+                  {/* Optional does not mean consequence-free. Saying it here beats a neutral blank the user
+                      only understands weeks later, when the patient misses an appointment. */}
+                  {!phone.trim() && !errors.phone && (
+                    <p className="text-xs text-muted-foreground">
+                      Sans numéro de téléphone, ce patient ne recevra ni rappel ni relance.
+                    </p>
+                  )}
+                </div>
+
+                {/* Email */}
+                <div className="space-y-2">
+                  <Label htmlFor="email">
+                    Email <span className="text-muted-foreground text-xs">(optionnel)</span>
+                  </Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="mohamed.bensalah@email.tn"
+                    autoComplete="email"
+                    aria-invalid={!!errors.email}
+                    className={cn(errors.email && "border-destructive")}
+                  />
+                  {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
                 </div>
 
                 {/* Gender */}
@@ -1062,13 +1193,16 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
               weight here as the widget that displays it on the patient's file, so the box you type into looks like
               the box you will read.
             */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 pb-2">
-                <StickyNote className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Notes du patient</h3>
-              </div>
+            <RecordSection
+              size="md"
+              icon={<StickyNote className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
+              title="Notes du patient"
+              summary={sectionSummary.notes}
+              open={openSections.notes}
+              onToggle={() => toggleSection("notes")}
+            >
 
-              <div className="grid grid-cols-1 gap-4 p-4 rounded-lg border bg-muted/30">
+              <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
                   <Label
                     htmlFor="patientImportantNotes"
@@ -1102,60 +1236,19 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   />
                 </div>
               </div>
-            </div>
+            </RecordSection>
 
             {/* Contact Information Section */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 pb-2">
-                <Phone className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Coordonnées</h3>
-              </div>
+            <RecordSection
+              size="md"
+              icon={<Phone className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
+              title="Adresse et contact d&apos;urgence"
+              summary={sectionSummary.adresse}
+              open={openSections.adresse}
+              onToggle={() => toggleSection("adresse")}
+            >
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg border bg-muted/30">
-                {/* Phone */}
-                <div className="space-y-2">
-                  <Label htmlFor="phone">
-                    Numéro de téléphone{" "}
-                    <span className="text-muted-foreground text-xs">(optionnel)</span>
-                  </Label>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="Ex. 20 123 456 (ou +216…)"
-                    autoComplete="tel"
-                    aria-invalid={!!errors.phone}
-                    className={cn(errors.phone && "border-destructive")}
-                  />
-                  {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
-                  {/* Optional does not mean consequence-free. Saying it here beats a neutral blank the user
-                      only understands weeks later, when the patient misses an appointment. */}
-                  {!phone.trim() && !errors.phone && (
-                    <p className="text-xs text-muted-foreground">
-                      Sans numéro de téléphone, ce patient ne recevra ni rappel ni relance.
-                    </p>
-                  )}
-                </div>
-
-                {/* Email */}
-                <div className="space-y-2">
-                  <Label htmlFor="email">
-                    Email <span className="text-muted-foreground text-xs">(optionnel)</span>
-                  </Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="mohamed.bensalah@email.tn"
-                    autoComplete="email"
-                    aria-invalid={!!errors.email}
-                    className={cn(errors.email && "border-destructive")}
-                  />
-                  {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
-                </div>
-
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Address - Street */}
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="addressStreet">Adresse</Label>
@@ -1244,16 +1337,19 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   />
                 </div>
               </div>
-            </div>
+            </RecordSection>
 
             {/* Medical Information Section */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 pb-2">
-                <Heart className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Informations médicales</h3>
-              </div>
+            <RecordSection
+              size="md"
+              icon={<Heart className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
+              title="Informations médicales"
+              summary={sectionSummary.medical}
+              open={openSections.medical}
+              onToggle={() => toggleSection("medical")}
+            >
 
-              <div className="grid grid-cols-1 gap-4 p-4 rounded-lg border bg-muted/30">
+              <div className="grid grid-cols-1 gap-4">
                 {/* Chronic Diseases */}
                 <div className="space-y-2">
                   <Label htmlFor="chronicDiseases">Maladies chroniques / affections</Label>
@@ -1418,15 +1514,18 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   )}
                 </div>
               </div>
-            </div>
+            </RecordSection>
 
             {/* CNAM Identity Section */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 pb-2">
-                <CreditCard className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Identité CNAM</h3>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg border bg-muted/30">
+            <RecordSection
+              size="md"
+              icon={<CreditCard className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
+              title="Identité CNAM"
+              summary={sectionSummary.cnam}
+              open={openSections.cnam}
+              onToggle={() => toggleSection("cnam")}
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="cnamIdentifiant">Identifiant Unique</Label>
                   {/* Digit keypad, but still a text field — see the postal-code note above: an identifiant is
@@ -1547,16 +1646,19 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   </p>
                 </div>
               </div>
-            </div>
+            </RecordSection>
 
             {/* Insurance Information Section */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 pb-2">
-                <CreditCard className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Informations d'assurance</h3>
-              </div>
+            <RecordSection
+              size="md"
+              icon={<Shield className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
+              title="Informations d'assurance"
+              summary={sectionSummary.assurance}
+              open={openSections.assurance}
+              onToggle={() => toggleSection("assurance")}
+            >
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg border bg-muted/30">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Insurance Provider */}
                 <div className="space-y-2">
                   <Label htmlFor="insuranceProvider">Assureur</Label>
@@ -1590,16 +1692,19 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   />
                 </div>
               </div>
-            </div>
+            </RecordSection>
 
             {/* Flags Section */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 pb-2">
-                <Flag className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Signalements du patient</h3>
-              </div>
+            <RecordSection
+              size="md"
+              icon={<Flag className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
+              title="Signalements du patient"
+              summary={sectionSummary.flags}
+              open={openSections.flags}
+              onToggle={() => toggleSection("flags")}
+            >
 
-              <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label htmlFor="flagged" className="cursor-pointer">
@@ -1625,7 +1730,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   </div>
                 )}
               </div>
-            </div>
+            </RecordSection>
           </form>
         </DialogBody>
 
