@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common;
+﻿using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Application.Features.Platform;
@@ -377,13 +377,16 @@ public class PlatformCancelPeriodTests
         new(_activity.Object, _harness.Users.Object, _harness.Subscriptions, _ledger,
             new FakePlatformSession { AccountId = AccountId, Email = AccountEmail },
             _harness.UnitOfWork.Object, SystemWideScope(),
+            PlatformMessagingReadStubs.NoAllowances(),
+            PlatformMessagingReadStubs.NoReminderSettings(),
+            PlatformMessagingReadStubs.NotSold(),
             NullLogger<GetPlatformClinicDetailQueryHandler>.Instance);
 
     private void WireCabinet(bool isSuspended = false)
     {
         var clinicId = SubscriptionVendorHarness.ClinicId;
 
-        _activity.Setup(r => r.GetClinicRowAsync(clinicId, It.IsAny<CancellationToken>()))
+        _activity.Setup(r => r.GetClinicRowAsync(clinicId, It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PlatformClinicRow(
                 clinicId, ClinicName, "Tunis", new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc),
                 HasEntitlement: true,

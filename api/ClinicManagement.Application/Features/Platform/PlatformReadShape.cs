@@ -186,6 +186,50 @@ public static class PlatformReadShape
         "BlobsRestored",
         "Warnings",
 
+        // ── The cabinet's WhatsApp reminder forfait (`vendor-whatsapp-messaging-quota` US-6/7/8). Every name here is a
+        // COUNT OF MESSAGES, a month, a state, or a payment the practice made to *us* — the vendor's own money and its
+        // own metered consumable (FR-2), on rows whose only link to a cabinet is its id. Nothing here can reach a
+        // patient: the counting row holds two integers and a month key, and the ledger entry holds what the vendor was
+        // paid. ⚠️ `Note`/`Reference`/`AmountDt`/`Method`/`MethodLabel`/`Kind`/`KindLabel`/`IsCancelled`/`CancelledAt`/
+        // `CancelledBy`/`CancelReason`/`IfCancelled`/`EntryId`/`RecordedBy` are REUSED from the subscription block
+        // above rather than re-declared under `Messaging*` names, because they mean exactly the same thing here — a
+        // vendor payment's own fields — and a second spelling would be a second thing to review.
+        "Messaging",
+        "MessagingMeasured",
+        "MessagingAllowance",
+        "MessagingConsumed",
+        "MessagingRemaining",
+        "MessagingExhausted",
+        "MessagingMonth",
+        "MessagingMonthLabel",
+        "MessagingNearThresholdPercent",
+        "Allowance",
+        "Consumed",
+        "Remaining",
+        "Measured",
+        "Exhausted",
+        "StandingAllowance",
+        "Messages",
+        "EffectiveMonth",
+        "EffectiveMonthLabel",
+        "SenderState",
+        "SenderStateLabel",
+        // FR-7b's cost signal. ⚠️ `TemplateCategory` is Meta's own classification of the reminder template
+        // (`UTILITY`/`MARKETING`/`AUTHENTICATION`) — a fact about the message shape we submitted, never about a
+        // message that was sent, and it names no recipient. It is stated on the file only when it is not `UTILITY`.
+        "TemplateStatus",
+        "TemplateStatusLabel",
+        "TemplateCategory",
+        "TemplateCategoryLabel",
+        "Entries",
+        // What a recorded or cancelled allocation answers with. The « ThisMonth » suffix is not noise: these describe
+        // the *current* month's figure either side of the write, where the section's own `Allowance`/`Consumed` describe
+        // the month being displayed — the same month today, and different ones the moment a future top-up is recorded.
+        "PreviousAllowanceThisMonth",
+        "AllowanceThisMonth",
+        "ConsumedThisMonth",
+        "ExhaustedThisMonth",
+
         // ── The console's own access ledger (Part 3, FR-5). Its subject is a CONSOLE ACCOUNT and a cabinet, so
         // nothing here can name anyone at the practice at all.
         "Actors",

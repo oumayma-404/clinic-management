@@ -37,6 +37,14 @@ namespace ClinicManagement.Application.Features.Platform.Dtos;
 /// vendor bills and telephones — never somebody the practice treats. The <c>Admin</c> prefix is what keeps that
 /// reviewable; a bare <c>Email</c> would be one careless reuse away from a patient's.</para>
 /// </param>
+/// <param name="MessagingMeasured">
+/// Whether a WhatsApp-forfait counting row exists for the current Tunisian month
+/// (<c>vendor-whatsapp-messaging-quota</c> AC-8.3). ⚠️ <b>False is « non mesuré », not « zéro »</b>: one row exists per
+/// cabinet per month (FR-1a), so its absence is our own bookkeeping fault, while « 0 rappel envoyé » is a fact about the
+/// practice. The three figures below are null in that case rather than 0, and the exhausted/near filters match neither.
+/// </param>
+/// <param name="MessagingRemaining">Floored at zero. A cancelled allocation can put consumption above the forfait, and
+/// « −17 rappels » is not a quantity anybody can act on.</param>
 public record PlatformClinicRowDto(
     Guid ClinicId,
     string Name,
@@ -58,7 +66,12 @@ public record PlatformClinicRowDto(
     DateTime? LastWriteAt,
     DateTime? LastLoginAt,
     decimal ClinicCollectedThisMonthDt,
-    DateTime? CountersComputedAt);
+    DateTime? CountersComputedAt,
+    bool MessagingMeasured = false,
+    int? MessagingAllowance = null,
+    int? MessagingConsumed = null,
+    int? MessagingRemaining = null,
+    bool MessagingExhausted = false);
 
 /// <summary>
 /// One page of the portfolio.
@@ -68,6 +81,19 @@ public record PlatformClinicRowDto(
 /// ever been measured, which the screen must say out loud — otherwise a portfolio whose pass has never run
 /// reads as a portfolio of dormant practices (EC-15).</para>
 /// </summary>
+/// <param name="MessagingMonth">
+/// The Tunisian month every row's forfait figures are for, <c>AAAA-MM</c> (AC-8.2) — stated rather than assumed,
+/// because a page rendered at 23:59 on the 31st and read a minute later would otherwise be labelled with the wrong
+/// month by whoever is looking at it.
+/// </param>
+/// <param name="MessagingNearThresholdPercent">
+/// The percentage of its forfait a cabinet must have consumed to count as « presque épuisé » — AC-8.2's « à moins de
+/// 10 % » from the server's own constant.
+///
+/// <para>⚠️ <b>Served rather than retyped in the console</b>, and that is the whole point of carrying it: the SQL
+/// predicate and the chip's label are then one figure, where two spellings of a threshold is how a filter and its own
+/// label come to disagree with neither screen looking wrong on its own.</para>
+/// </param>
 public record PlatformClinicPageDto(
     IReadOnlyList<PlatformClinicRowDto> Items,
     int Page,
@@ -76,7 +102,10 @@ public record PlatformClinicPageDto(
     int TotalPages,
     bool HasPreviousPage,
     bool HasNextPage,
-    DateTime? CountersAsOf);
+    DateTime? CountersAsOf,
+    string MessagingMonth = "",
+    string MessagingMonthLabel = "",
+    int MessagingNearThresholdPercent = 0);
 
 /// <summary>
 /// The strip above the list (AC-2.7).

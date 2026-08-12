@@ -38,9 +38,16 @@ public static class RealtimeResourceResolver
     // it silently. And the key would be a new one, which fails the contract test in both directions unless
     // `clinic-hub.ts` learns to listen for a resource no clinic screen renders. The cabinet learns of a grant by the
     // re-read `Subscriptions` is excluded for; the console's own screens are server-rendered per request.
+    //
+    // "Messaging" is `Subscriptions`' case verbatim, one feature over. Its two commands change a cabinet's WhatsApp
+    // reminder forfait and are reachable ONLY from a `messaging-*` console verb — a separate process with no caller's
+    // token and no notifier in its container — or from the vendor console, whose account belongs to no clinic. So the
+    // audience the behavior derives would be nobody, silently, on both doors. The practice learns its new figure by the
+    // ordinary re-read its « Rappels » screen already does; the counter that moves minutely is `ClinicMessagingMonth`,
+    // which is not an aggregate root and emits nothing by design (D-6).
     private static readonly HashSet<string> ExcludedAreas = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Auth", "AI", "Backup", "Connectivity", "Dashboard", "Platform", "PushDevices", "Subscriptions"
+        "Auth", "AI", "Backup", "Connectivity", "Dashboard", "Messaging", "Platform", "PushDevices", "Subscriptions"
     };
 
     public static string? Resolve(Type requestType)

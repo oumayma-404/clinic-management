@@ -40,6 +40,7 @@ export default async function CabinetsPage({ searchParams }: PageProps) {
     q: single(params.q),
     dormant: single(params.dormant) === "true",
     state: single(params.state),
+    messaging: single(params.messaging),
     sort: single(params.sort),
     page: toPage(single(params.page)),
   };
@@ -81,7 +82,9 @@ export default async function CabinetsPage({ searchParams }: PageProps) {
       <div className="mt-6 space-y-6">
         <PortfolioSummary summary={summary} />
 
-        <PortfolioFilters query={query} />
+        {/* ⚠️ The « presque épuisé » threshold comes from the PAGE the server just returned, not from a constant here:
+            the filter's SQL predicate and the words on its button are then one figure. */}
+        <PortfolioFilters query={query} messagingNearThresholdPercent={page.messagingNearThresholdPercent} />
 
         {/* AC-2.8: stated beside the figures, on every width — not tucked into a tooltip or a desktop-only
             caption. A stale figure presented as live is how a cabinet that started working yesterday gets a
@@ -90,6 +93,12 @@ export default async function CabinetsPage({ searchParams }: PageProps) {
           {page.countersAsOf
             ? `Compteurs d'activité mesurés ${formatFreshness(page.countersAsOf)} (le ${formatDateTime(page.countersAsOf)}).`
             : "Les compteurs d'activité n'ont jamais été calculés sur ce déploiement : les chiffres d'activité sont indisponibles, ce qui n'est pas la même chose que « aucune activité »."}
+        </p>
+
+        {/* Which month the reminder figures describe, stated beside them: a page rendered at 23:59 on the 31st and
+            read a minute later would otherwise be labelled with the wrong month by whoever is looking at it. */}
+        <p className="text-sm text-muted-foreground" role="note">
+          Les chiffres « Rappels » portent sur {page.messagingMonthLabel}.
         </p>
 
         <ClinicPortfolio page={page} />

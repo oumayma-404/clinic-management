@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { ActivityTrend } from "@/components/activity-trend";
 import { CancelPeriodDialog } from "@/components/cancel-period-dialog";
+import { MessagingSection } from "@/components/messaging-section";
 import { RecordPaymentSheet } from "@/components/record-payment-sheet";
 import { SuspendDialog } from "@/components/suspend-dialog";
 import { ConsoleApiError } from "@/lib/api/client";
@@ -73,6 +74,16 @@ export default async function CabinetDetailPage({ params }: PageProps) {
         <Subscription detail={detail} />
 
         <Suspension detail={detail} />
+
+        {/* Absent, not present-and-empty, where the deployment does not sell vendor messaging (EC-16) — the server
+            sends null and no heading renders at all. */}
+        {detail.messaging ? (
+          <MessagingSection
+            messaging={detail.messaging}
+            clinicId={clinic.clinicId}
+            clinicName={clinic.name}
+          />
+        ) : null}
 
         <section aria-labelledby="activity-heading" className="rounded-lg border border-border bg-card p-4">
           <h2 id="activity-heading" className="text-base font-semibold">

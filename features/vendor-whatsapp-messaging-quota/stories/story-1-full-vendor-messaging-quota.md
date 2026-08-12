@@ -1,7 +1,7 @@
 # Story 1: FULL — Vendor-purchased WhatsApp messaging quota
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts 0, 1 and 2 done** (see [`../progress.md`](../progress.md)); Parts 3–5 outstanding
+**Story Status:** in-progress — **Parts 0, 1, 2 and 3 done** (see [`../progress.md`](../progress.md)); Parts 4–5 outstanding
 **Layer:** **Full** (BE · jobs · console verbs · clinic UI · console UI) — see the departure note below
 **Depends On:** 0
 **Blocks:** None
@@ -81,41 +81,41 @@ _From spec:_
 - [x] AC-5.4 the refusal carries its **own** outcome, distinct from « aucun canal configuré »
 
 **US-6 — the vendor allocates and adjusts** (Part 3)
-- [ ] AC-6.1 a standing monthly allowance **and** a one-off top-up for a named month, from the cabinet's file
-- [ ] AC-6.2 both are entries in an append-only record; nothing edited in place, nothing deleted
-- [ ] AC-6.3 **raising** takes effect immediately for the current month; held reminders release within one cycle
-- [ ] AC-6.4 **lowering** takes effect from the **next** Tunisian month
-- [ ] AC-6.4a which of the two an entry is, is decided by the **server**; the entry states its own effective month
-- [ ] AC-6.5 a top-up may name the **current or a future** month, never a past one
-- [ ] AC-6.6 every allocation records what the vendor was paid, if anything; complimentary carries **no** amount
-- [ ] AC-6.7 a repeated submission produces **one** entry and returns the first outcome
-- [ ] AC-6.8 every console action is journalled **in the same operation** as the change it records
+- [x] AC-6.1 a standing monthly allowance **and** a one-off top-up for a named month, from the cabinet's file
+- [x] AC-6.2 both are entries in an append-only record; nothing edited in place, nothing deleted
+- [x] AC-6.3 **raising** takes effect immediately for the current month; held reminders release within one cycle
+- [x] AC-6.4 **lowering** takes effect from the **next** Tunisian month
+- [x] AC-6.4a which of the two an entry is, is decided by the **server**; the entry states its own effective month
+- [x] AC-6.5 a top-up may name the **current or a future** month, never a past one
+- [x] AC-6.6 every allocation records what the vendor was paid, if anything; complimentary carries **no** amount
+- [x] AC-6.7 a repeated submission produces **one** entry and returns the first outcome
+- [x] AC-6.8 every console action is journalled **in the same operation** as the change it records
 - [ ] AC-6.9 refused for a deactivated console account, on its next request
 
 **US-7 — the vendor corrects a mistaken allocation** (Part 3)
-- [ ] AC-7.1 cancellable with a **mandatory** written motif
-- [ ] AC-7.2 the entry is **kept**, struck through, labelled « Annulé » in words, carrying motif / who / when
-- [ ] AC-7.3 before confirming, the vendor sees what the allowance **will become**, computed **server-side**
-- [ ] AC-7.4 a cancellation applies to **every month the entry fed, the current one included**; consumed is untouched,
+- [x] AC-7.1 cancellable with a **mandatory** written motif
+- [x] AC-7.2 the entry is **kept**, struck through, labelled « Annulé » in words, carrying motif / who / when
+- [x] AC-7.3 before confirming, the vendor sees what the allowance **will become**, computed **server-side**
+- [x] AC-7.4 a cancellation applies to **every month the entry fed, the current one included**; consumed is untouched,
       remaining is `max(0, allowance − consumed)`, and the month reads « épuisé »
-- [ ] AC-7.4a the distinction from AC-6.4 is deliberate
-- [ ] AC-7.5 cancelling an already-cancelled entry is refused with a distinct machine-readable outcome
+- [x] AC-7.4a the distinction from AC-6.4 is deliberate
+- [x] AC-7.5 cancelling an already-cancelled entry is refused with a distinct machine-readable outcome
 
 **US-8 — consumption across the portfolio** (Part 3)
-- [ ] AC-8.1 the cabinet's file shows allowance / consumed / remaining, connection + template state (**category in
+- [x] AC-8.1 the cabinet's file shows allowance / consumed / remaining, connection + template state (**category in
       words when not `UTILITY`**), and the full allocation history
-- [ ] AC-8.2 the portfolio list carries consumption against allowance, filterable to exhausted or **within 10 %**
-- [ ] AC-8.3 « 0 » for a cabinet that sent nothing; « non mesuré » only with **no counting row**, and it is **neither**
+- [x] AC-8.2 the portfolio list carries consumption against allowance, filterable to exhausted or **within 10 %**
+- [x] AC-8.3 « 0 » for a cabinet that sent nothing; « non mesuré » only with **no counting row**, and it is **neither**
       for the filter
-- [ ] AC-8.4 a failed read renders « je n'ai pas pu lire », never an empty portfolio
-- [ ] AC-8.5 no new console field names a patient, an act, a per-patient amount or any clinical fact
-- [ ] AC-8.6 a report is available **without** the console
+- [x] AC-8.4 a failed read renders « je n'ai pas pu lire », never an empty portfolio
+- [x] AC-8.5 no new console field names a patient, an act, a per-patient amount or any clinical fact
+- [x] AC-8.6 a report is available **without** the console
 
 **US-9 — the vendor operates without the console** (Part 3)
-- [ ] AC-9.1 verbs to grant standing, grant a top-up, cancel with a motif, and report
-- [ ] AC-9.2 the same operations, records, journal entries and refusals as the console
-- [ ] AC-9.3 **no clinic-facing endpoint** anywhere can change a cabinet's own allowance
-- [ ] AC-9.4 the report distinguishes exhausted · no allowance record · a template no longer `UTILITY`, and exits with
+- [x] AC-9.1 verbs to grant standing, grant a top-up, cancel with a motif, and report
+- [x] AC-9.2 the same operations, records, journal entries and refusals as the console
+- [x] AC-9.3 **no clinic-facing endpoint** anywhere can change a cabinet's own allowance
+- [x] AC-9.4 the report distinguishes exhausted · no allowance record · a template no longer `UTILITY`, and exits with
       a distinct code when any is present
 
 **Cross-cutting**
@@ -327,20 +327,21 @@ Step numbers match [`../plan.md`](../plan.md) exactly, so the two can be read si
     finding kinds distinguished. `messaging-report` takes **`--clinic`** *and* **`--month AAAA-MM`**.
 
 **Part 3 commit point.** Validation:
-- [ ] A double-click produces **one** entry and replays the first outcome (AC-6.7, EC-6); two *different* allocations
+- [x] A double-click produces **one** entry and replays the first outcome (AC-6.7, EC-6); two *different* allocations
       both land and are both kept (EC-5)
-- [ ] `MessagingVendorCommandReachabilityTests` — no controller source names either vendor command, and **every verb is
+- [x] `MessagingVendorCommandReachabilityTests` — no controller source names either vendor command, and **every verb is
       dispatched by `Program.cs`** (a missing branch boots the web host and reads as « it did nothing »)
-- [ ] `PlatformReadShapeTests` green **in both directions**; nothing in the new DTOs names a patient, an act or a
+- [x] `PlatformReadShapeTests` green **in both directions**; nothing in the new DTOs names a patient, an act or a
       per-patient amount (AC-8.5)
-- [ ] A failed portfolio read renders « je n'ai pas pu lire », never an empty portfolio (AC-8.4, EC-12)
+- [x] A failed portfolio read renders « je n'ai pas pu lire », never an empty portfolio (AC-8.4, EC-12) —
+      `ReadFailure` on `/cabinets`, unchanged by Part 3 and still the only path a failed read takes
 - [ ] **AC-6.9 confirmed by trying it**: sign in, run `platform-account --deactivate`, call both writes with the same
       token — refused on the next request. ⚠️ `PlatformAccountStateMiddleware` was **inert in production for
       `platform-console` Parts 1–6** while every layer reported it present; « already handled upstream » is exactly the
       assumption that failed
-- [ ] « Near exhausted » is `>= 90 %` in **both** the SQL predicate and the chip label, from one constant
-- [ ] `messaging-report --month` answers for a **closed** month
-- [ ] `console/`'s own `check-responsive.mjs` + `tsc --noEmit` + `build`
+- [x] « Near exhausted » is `>= 90 %` in **both** the SQL predicate and the chip label, from one constant
+- [x] `messaging-report --month` answers for a **closed** month
+- [x] `console/`'s own `check-responsive.mjs` + `tsc --noEmit` + `build`
 
 ### Part 4 — The cabinet connects, the template is submitted, Meta's refusals are told apart
 

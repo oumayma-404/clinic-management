@@ -33,6 +33,12 @@ public static class PlatformAccessLedger
     /// The client's key for a keyed write, unique across the ledger — which is what makes AC-4.6's « one entry per
     /// submission » a property of the database. Null for a read and for an unkeyed write.
     /// </param>
+    /// <param name="messagingAllowanceEntryId">
+    /// The <c>MessagingAllowanceEntry</c> a messaging write produced or acted on
+    /// (<c>vendor-whatsapp-messaging-quota</c> US-6/US-7). Deliberately <b>not</b> folded into
+    /// <paramref name="subscriptionPeriodId"/> — see that column's own remarks for why one shared column would make
+    /// the journal assert something false.
+    /// </param>
     public static async Task RecordAsync(
         IPlatformAccessEntryRepository repository,
         IPlatformSessionContext session,
@@ -42,7 +48,8 @@ public static class PlatformAccessLedger
         DateTime occurredAt,
         CancellationToken cancellationToken = default,
         Guid? subscriptionPeriodId = null,
-        string? idempotencyKey = null)
+        string? idempotencyKey = null,
+        Guid? messagingAllowanceEntryId = null)
     {
         // The address is what makes a row readable years later, and it is the account's own at the time — a
         // renamed or deleted account must not silently blank the rows it left behind.
@@ -54,7 +61,8 @@ public static class PlatformAccessLedger
             action,
             occurredAt,
             subscriptionPeriodId,
-            idempotencyKey);
+            idempotencyKey,
+            messagingAllowanceEntryId);
 
         await repository.AddAsync(entry, cancellationToken);
     }

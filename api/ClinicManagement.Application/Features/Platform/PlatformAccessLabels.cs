@@ -28,6 +28,10 @@ public static class PlatformAccessLabels
         // produces it, and it is the heaviest row in the ledger — the only console action that writes a
         // practice's clinical records.
         PlatformAccessAction.RestoredClinic => "Cabinet restauré",
+        // « Forfait de rappels », never « forfait » alone: the console already has a `Plan`/« forfait » vocabulary for
+        // the subscription, and a journal row a vendor reads at speed must not be ambiguous about which one moved.
+        PlatformAccessAction.GrantedMessagingAllowance => "Forfait de rappels enregistré",
+        PlatformAccessAction.CancelledMessagingAllowance => "Forfait de rappels annulé",
         _ => action.ToString()
     };
 

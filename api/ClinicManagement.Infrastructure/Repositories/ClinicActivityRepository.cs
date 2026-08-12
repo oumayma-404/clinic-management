@@ -55,7 +55,7 @@ public class ClinicActivityRepository : IClinicActivityRepository
         // A LEFT JOIN, not an inner one: a cabinet the pass has never covered must still appear — with its
         // counters stated as unknown rather than as zero (EC-8/EC-15). An inner join would hide exactly the
         // cabinets whose absence from the counters is the thing worth seeing.
-        var query = PortfolioQuery(_context.Clinics.AsNoTracking());
+        var query = PortfolioQuery(_context.Clinics.AsNoTracking(), filter.MessagingMonthKey);
 
         if (filter.SearchPattern is { } pattern)
         {
@@ -83,6 +83,11 @@ public class ClinicActivityRepository : IClinicActivityRepository
         if (filter.Subscription is { } state)
         {
             query = query.Where(SubscriptionPredicate(state, filter.ClinicToday.Date, filter.ExpiringWithinDays));
+        }
+
+        if (filter.Messaging is { } messaging && filter.MessagingMonthKey is not null)
+        {
+            query = query.Where(MessagingPredicate(messaging));
         }
 
         // ⚠️ `.ThenBy(Id)` on every branch, never decoratively: OFFSET over a non-unique sort can show one
@@ -114,7 +119,13 @@ public class ClinicActivityRepository : IClinicActivityRepository
     /// with none must still appear — that is FR-13's failure state, and an inner join would hide precisely the rows
     /// worth seeing.
     /// </summary>
-    private IQueryable<PortfolioJoin> PortfolioQuery(IQueryable<Clinic> clinics) =>
+    /// <param name="messagingMonthKey">
+    /// The Tunisian month the WhatsApp-forfait row is joined on (AC-8.2), or null to leave those columns unread. A
+    /// **third** LEFT join and for the same reason as the other two: a cabinet with no counting row must still appear,
+    /// with « non mesuré » stated rather than zeros implied (AC-8.3). Null yields no row for every cabinet, which the
+    /// projection reads as unmeasured — the honest answer for a caller that did not ask.
+    /// </param>
+    private IQueryable<PortfolioJoin> PortfolioQuery(IQueryable<Clinic> clinics, string? messagingMonthKey) =>
         from clinic in clinics
         join snapshotRow in _context.ClinicActivitySnapshots.AsNoTracking()
             on clinic.Id equals snapshotRow.ClinicId into snapshots
@@ -122,7 +133,46 @@ public class ClinicActivityRepository : IClinicActivityRepository
         join subscriptionRow in _context.ClinicSubscriptions.AsNoTracking()
             on clinic.Id equals subscriptionRow.ClinicId into subscriptions
         from subscription in subscriptions.DefaultIfEmpty()
-        select new PortfolioJoin { clinic = clinic, snapshot = snapshot, subscription = subscription };
+        // Keyed on the composite (cabinet, month) so exactly one row can match — the table's own unique index. Joining
+        // on the cabinet alone would return every month it has ever had and multiply the portfolio's rows, which
+        // corrupts every page boundary after the first.
+        join messagingRow in _context.ClinicMessagingMonths.AsNoTracking()
+            on new { ClinicId = clinic.Id, MonthKey = messagingMonthKey ?? string.Empty }
+            equals new { messagingRow.ClinicId, messagingRow.MonthKey } into messagingMonths
+        from messagingMonth in messagingMonths.DefaultIfEmpty()
+        select new PortfolioJoin
+        {
+            clinic = clinic,
+            snapshot = snapshot,
+            subscription = subscription,
+            messagingMonth = messagingMonth
+        };
+
+    /// <summary>
+    /// AC-8.2's forfait filters, in <b>integer</b> arithmetic over the counting row.
+    ///
+    /// <para>⚠️ <c>consumed × 100 ≥ allowance × 90</c> rather than <c>consumed ≥ 0.90 × allowance</c>: the threshold is
+    /// a boundary the vendor reads as exact, and a floating-point comparison would put « 450 sur 500 » in the list on
+    /// some rows and not on others. The 90 comes from <see cref="PlatformPortfolioFilter.MessagingNearExhaustedPercent"/>,
+    /// which the portfolio read also serves to the console — so the predicate and the chip's label are one figure.</para>
+    ///
+    /// <para>⚠️ <b>Both terms require the row to exist</b> (AC-8.3), which the null check carries: an unmeasured cabinet
+    /// is a bookkeeping finding of ours, not a practice near its limit.</para>
+    ///
+    /// <para>⚠️ An allowance of <b>zero</b> matches both, and correctly: a cabinet the vendor decided sends no WhatsApp
+    /// reminders is exhausted from the first tick — the counting row's own <c>IsExhausted</c> says the same thing.</para>
+    /// </summary>
+    private static Expression<Func<PortfolioJoin, bool>> MessagingPredicate(PlatformMessagingFilter messaging) =>
+        messaging switch
+        {
+            PlatformMessagingFilter.Exhausted => x =>
+                x.messagingMonth != null
+                && x.messagingMonth.ConsumedMessages >= x.messagingMonth.AllowanceMessages,
+            _ => x =>
+                x.messagingMonth != null
+                && x.messagingMonth.ConsumedMessages * 100
+                    >= x.messagingMonth.AllowanceMessages * PlatformPortfolioFilter.MessagingNearExhaustedPercent
+        };
 
     /// <summary>
     /// AC-2.3's filters as SQL, and the <b>same</b> branches the summary strip counts with — so a chip saying
@@ -166,11 +216,11 @@ public class ClinicActivityRepository : IClinicActivityRepository
     }
 
     public async Task<PlatformClinicRow?> GetClinicRowAsync(
-        Guid clinicId, CancellationToken cancellationToken = default)
+        Guid clinicId, string? messagingMonthKey = null, CancellationToken cancellationToken = default)
     {
         // The same LEFT JOINs and the same projection as the list — AC-3.1 is « the same figures », so the
         // expression is shared rather than retyped.
-        var query = PortfolioQuery(_context.Clinics.AsNoTracking().Where(c => c.Id == clinicId));
+        var query = PortfolioQuery(_context.Clinics.AsNoTracking().Where(c => c.Id == clinicId), messagingMonthKey);
 
         return await query.Select(Projection).FirstOrDefaultAsync(cancellationToken);
     }
@@ -184,6 +234,9 @@ public class ClinicActivityRepository : IClinicActivityRepository
         public required Clinic clinic { get; init; }
         public ClinicActivitySnapshot? snapshot { get; init; }
         public ClinicSubscription? subscription { get; init; }
+
+        /// <summary>The cabinet's WhatsApp-forfait counting row for the month asked about, or null for « non mesuré ».</summary>
+        public ClinicMessagingMonth? messagingMonth { get; init; }
     }
 
     /// <summary>
@@ -213,7 +266,13 @@ public class ClinicActivityRepository : IClinicActivityRepository
             x.snapshot != null ? x.snapshot.LastWriteAt : null,
             x.snapshot != null ? x.snapshot.LastLoginAt : null,
             x.snapshot != null ? x.snapshot.CollectedThisMonth : 0m,
-            x.snapshot != null ? x.snapshot.ComputedAt : (DateTime?)null);
+            x.snapshot != null ? x.snapshot.ComputedAt : (DateTime?)null,
+            // ⚠️ The flag carries « non mesuré », and the two figures below are meaningless without it — they read 0
+            // for an absent row exactly as they would for a quiet month, which are opposite facts (AC-8.3). Nothing
+            // downstream may look at them without looking at this first.
+            x.messagingMonth != null,
+            x.messagingMonth != null ? x.messagingMonth.AllowanceMessages : 0,
+            x.messagingMonth != null ? x.messagingMonth.ConsumedMessages : 0);
 
     public async Task<PlatformPortfolioTotals> GetPortfolioTotalsAsync(
         DateTime clinicToday, int expiringWithinDays, CancellationToken cancellationToken = default)
@@ -229,7 +288,9 @@ public class ClinicActivityRepository : IClinicActivityRepository
         // The five entitlement figures are counted through the SAME predicates the list filters with, so a chip
         // saying « 4 expirés » and the page it opens cannot disagree. One JOINed query rather than five scalar
         // reads, so all five describe one instant.
-        var joined = PortfolioQuery(_context.Clinics.AsNoTracking());
+        // No messaging month asked for: the strip counts entitlement states only, and joining a forfait row onto every
+        // cabinet for six counts that never look at it is work with no reader.
+        var joined = PortfolioQuery(_context.Clinics.AsNoTracking(), messagingMonthKey: null);
         var today = clinicToday.Date;
 
         var inTrial = await joined.CountAsync(

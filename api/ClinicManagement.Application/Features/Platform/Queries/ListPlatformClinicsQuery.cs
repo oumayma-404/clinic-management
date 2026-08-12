@@ -49,6 +49,16 @@ public class ListPlatformClinicsQuery : IRequest<Result<PlatformClinicPageDto>>
     /// </summary>
     public string? Sort { get; set; }
 
+    /// <summary>
+    /// <c>exhausted</c> | <c>near</c> — AC-8.2's WhatsApp-forfait narrowing, over the <b>stored counting row</b> for the
+    /// current Tunisian month so it applies to the portfolio rather than to the page (AC-2.4a's rule, one feature over).
+    ///
+    /// <para>⚠️ An unrecognised value narrows <b>nothing</b>, the same tolerance every other filter here applies. And a
+    /// cabinet with no counting row matches neither term (AC-8.3): « non mesuré » is a bookkeeping finding of ours, not
+    /// a practice near its limit.</para>
+    /// </summary>
+    public string? Messaging { get; set; }
+
     public int? Page { get; set; }
 
     public int? PageSize { get; set; }
@@ -88,12 +98,19 @@ public class ListPlatformClinicsQueryHandler
             // the clock itself could not be asked about a midnight.
             var today = ClinicClock.ClinicToday();
 
+            // Derived from the same « today » as the entitlement filters, and passed in rather than left to the
+            // repository: month arithmetic belongs to ClinicClock (FR-8b), and one clock read per request is what keeps
+            // the page's own month label agreeing with the rows it labels across a 23:59 boundary.
+            var messagingMonth = ClinicClock.MonthKey(today);
+
             var filter = new PlatformPortfolioFilter(
                 ClinicToday: today,
                 SearchPattern: SearchTerm.ToLikePattern(request.Q),
                 DormantOnly: request.Dormant,
                 Subscription: ParseState(request.State),
-                Sort: ParseSort(request.Sort));
+                Sort: ParseSort(request.Sort),
+                MessagingMonthKey: messagingMonth,
+                Messaging: ParseMessaging(request.Messaging));
 
             // Omitting the paging parameters gets the FIRST PAGE, not everything — the opposite of the clinic
             // app's list reads, and for the audit ledger's reason: there is no legitimate caller for « every
@@ -122,7 +139,10 @@ public class ListPlatformClinicsQueryHandler
                 TotalPages: page.TotalPages,
                 HasPreviousPage: page.HasPreviousPage,
                 HasNextPage: page.HasNextPage,
-                CountersAsOf: OldestMeasurement(items)));
+                CountersAsOf: OldestMeasurement(items),
+                MessagingMonth: messagingMonth,
+                MessagingMonthLabel: ClinicClock.MonthLabelFr(messagingMonth),
+                MessagingNearThresholdPercent: PlatformPortfolioFilter.MessagingNearExhaustedPercent));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
@@ -164,6 +184,20 @@ public class ListPlatformClinicsQueryHandler
     /// An unrecognised value narrows nothing — deliberately not « matches nothing ». A stale bookmark should show
     /// the portfolio, and a filter silently matching zero cabinets reads as a deployment that has lost its clients.
     /// </summary>
+    /// <summary>
+    /// AC-8.2's two forfait terms. An unrecognised value narrows nothing, for <see cref="ParseState"/>'s reason.
+    ///
+    /// <para>« near » rather than « nearexhausted » on the wire: the console builds its own label from the served
+    /// threshold percentage, so the query value never has to spell the figure out and cannot come to disagree with it.</para>
+    /// </summary>
+    private static PlatformMessagingFilter? ParseMessaging(string? messaging) =>
+        messaging?.Trim().ToLowerInvariant() switch
+        {
+            "exhausted" => PlatformMessagingFilter.Exhausted,
+            "near" => PlatformMessagingFilter.NearExhausted,
+            _ => null
+        };
+
     private static PlatformSubscriptionFilter? ParseState(string? state) => state?.Trim().ToLowerInvariant() switch
     {
         "trial" => PlatformSubscriptionFilter.Trial,

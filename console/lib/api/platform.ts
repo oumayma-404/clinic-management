@@ -47,6 +47,21 @@ export interface PlatformClinicRow {
   clinicCollectedThisMonthDt: number;
   /** Null where the counter pass has never covered this cabinet: « pas encore mesuré », not « rien fait ». */
   countersComputedAt: string | null;
+  /**
+   * Whether a WhatsApp-forfait counting row exists for the current Tunisian month
+   * (`vendor-whatsapp-messaging-quota` AC-8.3).
+   *
+   * ⚠️ **False is « non mesuré », not « zéro »** — one row exists per cabinet per month, so its absence is our own
+   * bookkeeping fault, while « 0 rappel envoyé » is a fact about the practice. The three figures below are null in
+   * that case, and the exhausted/near filters match neither state. Read this before rendering any of them.
+   */
+  messagingMeasured: boolean;
+  messagingAllowance: number | null;
+  messagingConsumed: number | null;
+  /** Floored at zero server-side: a cancelled allocation can put consumption above the forfait. */
+  messagingRemaining: number | null;
+  /** The server's own verdict, false where nothing was measured — an unknown is not an exhaustion. */
+  messagingExhausted: boolean;
 }
 
 export interface PlatformClinicPage {
@@ -59,6 +74,17 @@ export interface PlatformClinicPage {
   hasNextPage: boolean;
   /** The oldest measurement on the page (AC-2.8), or null where nothing on it has ever been measured. */
   countersAsOf: string | null;
+  /** The Tunisian month every row's forfait figures are for, `AAAA-MM`. */
+  messagingMonth: string;
+  messagingMonthLabel: string;
+  /**
+   * The percentage of its forfait a cabinet must have consumed to count as « presque épuisé » — the **server's own
+   * constant**, the same one its SQL predicate reads.
+   *
+   * ⚠️ **Never retype it here.** The chip's label is `100 - this`, so the filter and the words on it are one figure;
+   * two spellings of a threshold is how a filter and its own label come to disagree with neither looking wrong alone.
+   */
+  messagingNearThresholdPercent: number;
 }
 
 export interface PlatformSummary {
@@ -85,6 +111,11 @@ export interface PortfolioQuery {
   dormant?: boolean;
   /** `trial` | `active` | `expiringSoon` | `expired` | `suspended` | `missing` (AC-2.3). */
   state?: string;
+  /**
+   * `exhausted` | `near` — the WhatsApp-forfait narrowing (AC-8.2), applied over the stored counting row so it
+   * narrows the **portfolio** rather than the page. A cabinet with no counting row matches neither (AC-8.3).
+   */
+  messaging?: string;
   sort?: string;
   page?: number;
 }
@@ -108,6 +139,7 @@ export function portfolioSearchParams(query: PortfolioQuery): URLSearchParams {
   if (query.q) params.set("q", query.q);
   if (query.dormant) params.set("dormant", "true");
   if (query.state) params.set("state", query.state);
+  if (query.messaging) params.set("messaging", query.messaging);
   if (query.sort && query.sort !== DEFAULT_PORTFOLIO_SORT) params.set("sort", query.sort);
   if (query.page && query.page > 1) params.set("page", String(query.page));
   return params;
@@ -164,7 +196,153 @@ export interface PlatformClinicDetail {
    * instead would be a second authority on « suspendu ».
    */
   suspension: PlatformSuspension | null;
+  /**
+   * The cabinet's WhatsApp reminder position (`vendor-whatsapp-messaging-quota` AC-8.1) — **null where the deployment
+   * does not sell vendor messaging** (EC-16), in which case the fiche renders no « Messagerie » section at all rather
+   * than a heading over zeros.
+   */
+  messaging: PlatformMessaging | null;
 }
+
+/**
+ * A cabinet's forfait de rappels WhatsApp, as the fiche shows it (AC-8.1).
+ *
+ * ⚠️ **All three figures are nullable and null is « non mesuré », never zero** (AC-8.3). Read `measured` first: a
+ * missing counting row is our own bookkeeping fault, and rendering it as « 0 rappel envoyé » makes a claim about the
+ * practice instead.
+ *
+ * ⚠️ `standingAllowance` is a *different question* from `allowance` — « what does this cabinet get every month? » vs
+ * « what was it allowed **this** month? » — and they differ whenever a top-up is in play or a lowering is pending. Both
+ * come from the server; never derive one from the other.
+ */
+export interface PlatformMessaging {
+  month: string;
+  monthLabel: string;
+  allowance: number | null;
+  consumed: number | null;
+  remaining: number | null;
+  measured: boolean;
+  exhausted: boolean;
+  standingAllowance: number | null;
+  /** `NotConnected` | `PendingReview` | `Ready` | `TemplateRefused` | `Suspended` — branch on this, not the label. */
+  senderState: string;
+  senderStateLabel: string;
+  /** Null until Part 4 stores a per-cabinet template state: « we do not track this yet », not « non soumis ». */
+  templateStatus: string | null;
+  templateStatusLabel: string | null;
+  /**
+   * Meta's classification of the reminder template — stated **only when it is not `UTILITY`** (FR-7b), because that is
+   * the vendor's cost per message having moved. Never shown to the practice, and it holds no reminders.
+   */
+  templateCategory: string | null;
+  templateCategoryLabel: string | null;
+  /** Newest first, cancelled allocations included and marked (AC-6.2). */
+  entries: PlatformMessagingEntry[];
+}
+
+/**
+ * One allocation of a cabinet's forfait ledger.
+ *
+ * ⚠️ `amountDt` is null for « offert » (AC-6.6) — **not** zero; the server refuses that spelling outright.
+ *
+ * ⚠️ `effectiveMonth` is **stated rather than derived** (AC-6.4a): it is when a lowering starts applying, and no client
+ * can work that out without the whole ledger.
+ */
+export interface PlatformMessagingEntry {
+  entryId: string;
+  /** `Standing` | `TopUp` — branch on this; `kindLabel` is what a screen shows. */
+  kind: string;
+  kindLabel: string;
+  messages: number;
+  effectiveMonth: string;
+  effectiveMonthLabel: string;
+  recordedOn: string;
+  amountDt: number | null;
+  method: string | null;
+  methodLabel: string | null;
+  reference: string | null;
+  note: string | null;
+  recordedBy: string | null;
+  isCancelled: boolean;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
+  cancelReason: string | null;
+  /**
+   * What cancelling **this** allocation would do (AC-7.3) — null on a row already cancelled.
+   *
+   * ⚠️ **Computed by the server, by re-folding the real ledger with this entry marked cancelled.** Never derive it
+   * here: « the current forfait minus this entry's messages » is wrong for a *standing* allocation, which replaces
+   * rather than adds — cancelling one hands the month back to whatever earlier standing figure was in force.
+   */
+  ifCancelled: PlatformMessagingCancellationPreview | null;
+}
+
+/**
+ * What the forfait would become if one allocation went. Every field is the server's.
+ *
+ * ⚠️ `exhausted` is AC-7.4's headline: consumption is **untouched** by a cancellation, so the month can end up over its
+ * reduced forfait and the practice's reminders held from that moment. Nothing is unsent and nothing is clawed back —
+ * which is exactly why the confirmation has to say it before the vendor commits.
+ */
+export interface PlatformMessagingCancellationPreview {
+  allowance: number | null;
+  consumed: number | null;
+  remaining: number | null;
+  exhausted: boolean;
+}
+
+/**
+ * What recording a forfait answers with (AC-6.3, AC-6.4).
+ *
+ * ⚠️ `effectiveMonth` is the whole of AC-6.4a on the wire: a **lowering** comes back with next month's key and
+ * `allowanceThisMonth` unchanged. That is correct and surprising, so the screen states it — otherwise a vendor concludes
+ * nothing happened and tries again with a bigger figure.
+ *
+ * ⚠️ `alreadyRecorded` is a **success** (AC-6.7), not a refusal: the second tap of a double-click found the allocation
+ * already recorded, which is what the vendor wanted.
+ */
+export interface PlatformMessagingRecorded {
+  clinicId: string;
+  entryId: string | null;
+  kind: string | null;
+  kindLabel: string | null;
+  effectiveMonth: string | null;
+  effectiveMonthLabel: string | null;
+  messages: number | null;
+  /** Null on a replay: what the figure was before the first submission is not recoverable, and a guess would lie. */
+  previousAllowanceThisMonth: number | null;
+  allowanceThisMonth: number | null;
+  consumedThisMonth: number | null;
+  alreadyRecorded: boolean;
+}
+
+/**
+ * What cancelling an allocation answers with (AC-7.4), read back **after** the re-fold rather than assumed from the
+ * preview the vendor confirmed — the ledger may have moved between the page render and the click.
+ */
+export interface PlatformMessagingCancelled {
+  clinicId: string;
+  entryId: string;
+  previousAllowanceThisMonth: number | null;
+  allowanceThisMonth: number | null;
+  /** Untouched by the cancellation (AC-7.4) — echoed so that claim is checkable on the screen that did it. */
+  consumedThisMonth: number | null;
+  exhaustedThisMonth: boolean;
+}
+
+/**
+ * The refusals a forfait write can come back with.
+ *
+ * ⚠️ `messaging_allowance_entry_already_cancelled` is a **state of the world**, not a rejected request: somebody else
+ * struck the allocation through, and its motif and author are on the fiche the dialog re-reads. Branched on the code so
+ * rewording the sentence cannot silently change what the screen does.
+ *
+ * ⚠️ `messaging_allowance_past_month` points at the **month field** rather than at the form as a whole, which is the
+ * only reason it has a code of its own.
+ */
+export const MESSAGING_ALLOWANCE_ALREADY_CANCELLED_CODE = "messaging_allowance_entry_already_cancelled";
+
+export const MESSAGING_ALLOWANCE_PAST_MONTH_CODE = "messaging_allowance_past_month";
 
 /**
  * A live suspension's trail (AC-6.1).

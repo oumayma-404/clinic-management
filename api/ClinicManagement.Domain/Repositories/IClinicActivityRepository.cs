@@ -67,7 +67,12 @@ public interface IClinicActivityRepository
     /// reading one way in the portfolio and another when opened — the hardest kind of discrepancy to notice,
     /// because both screens look right on their own.</para>
     /// </summary>
-    Task<PlatformClinicRow?> GetClinicRowAsync(Guid clinicId, CancellationToken cancellationToken = default);
+    /// <param name="messagingMonthKey">
+    /// The Tunisian month to read the cabinet's WhatsApp-forfait figures for (AC-8.1), or null to leave them unread —
+    /// which the row then reports as « non mesuré », the honest answer for a caller that did not ask.
+    /// </param>
+    Task<PlatformClinicRow?> GetClinicRowAsync(
+        Guid clinicId, string? messagingMonthKey = null, CancellationToken cancellationToken = default);
 }
 
 /// <summary>How the portfolio list is narrowed. Every field but the day is optional; an omitted one narrows nothing.</summary>
@@ -83,16 +88,68 @@ public interface IClinicActivityRepository
 /// how an unrun pass makes the whole portfolio look like it is churning (EC-15).</param>
 /// <param name="ExpiringWithinDays">The window <see cref="PlatformSubscriptionFilter.ExpiringSoon"/> means.</param>
 /// <param name="Sort">One of <see cref="PlatformPortfolioSort"/>.</param>
+/// <param name="MessagingMonthKey">
+/// The <c>AAAA-MM</c> Tunisian month the WhatsApp-forfait figures are read for
+/// (<c>vendor-whatsapp-messaging-quota</c> AC-8.2). A <b>parameter</b> like <paramref name="ClinicToday"/> and for the
+/// same reason twice over: month arithmetic belongs to <c>ClinicClock</c> (FR-8b) and this project references nothing,
+/// so a repository deriving it would be the second copy that rule exists to prevent — and one that could not be asked
+/// about the 23:59-on-the-31st boundary. Null leaves the forfait columns unread and the messaging filter inert.
+/// </param>
+/// <param name="Messaging">
+/// AC-8.2's « épuisé ou presque ». ⚠️ Like <paramref name="DormantOnly"/>, a cabinet with <b>no counting row</b> is
+/// deliberately matched by neither (AC-8.3): « non mesuré » is a bookkeeping finding of ours, not a practice near its
+/// limit, and folding the two would send the vendor to top up a cabinet whose real problem is that nothing is counting.
+/// </param>
 public record PlatformPortfolioFilter(
     DateTime ClinicToday,
     string? SearchPattern = null,
     bool DormantOnly = false,
     PlatformSubscriptionFilter? Subscription = null,
     int ExpiringWithinDays = PlatformPortfolioFilter.DefaultExpiringWithinDays,
-    PlatformPortfolioSort Sort = PlatformPortfolioSort.Name)
+    PlatformPortfolioSort Sort = PlatformPortfolioSort.Name,
+    string? MessagingMonthKey = null,
+    PlatformMessagingFilter? Messaging = null)
 {
     /// <summary>AC-2.7's « expire sous 14 jours », shared by the filter and the summary strip so they cannot drift.</summary>
     public const int DefaultExpiringWithinDays = 14;
+
+    /// <summary>
+    /// AC-8.2's « à moins de 10 % » expressed the way the data is stored: a cabinet is <b>near exhausted</b> once it has
+    /// consumed this percentage of its forfait.
+    ///
+    /// <para><b>⚠️ One named constant, read by the SQL predicate and served to the console.</b> Two spellings of a
+    /// threshold is how a filter and its own chip label come to disagree — and neither screen looks wrong on its own, so
+    /// the vendor simply learns not to trust the number. The console does not retype 90 or 10: the portfolio read carries
+    /// this figure back and the chip's label is built from it.</para>
+    ///
+    /// <para>⚠️ It is a percentage rather than a fraction so the predicate can stay in <b>integer</b> arithmetic
+    /// (<c>consumed × 100 ≥ allowance × 90</c>). A <c>0.90</c> multiplication in SQL is a floating-point comparison on a
+    /// boundary a vendor reads as exact, and « 450 sur 500 » would sometimes be in the list and sometimes not.</para>
+    /// </summary>
+    public const int MessagingNearExhaustedPercent = 90;
+}
+
+/// <summary>
+/// AC-8.2's WhatsApp-forfait filters, as SQL predicates over the counting row the portfolio already JOINs.
+///
+/// <para>⚠️ <b><see cref="NearExhausted"/> is a superset of <see cref="Exhausted"/></b>, deliberately: the vendor's
+/// question is « qui faut-il recharger ? », and a cabinet that has already run out is the most urgent answer to it. The
+/// two are still separate filters because « déjà épuisé » is a practice whose reminders are being held <i>right now</i>,
+/// which is a different conversation from « bientôt ».</para>
+///
+/// <para>⚠️ <b>Both require a counting row</b> (AC-8.3). A cabinet with none matches neither — see
+/// <c>PlatformPortfolioFilter.Messaging</c>.</para>
+/// </summary>
+public enum PlatformMessagingFilter
+{
+    /// <summary>Nothing left: consumption has met or passed the forfait, so reminders are held.</summary>
+    Exhausted = 0,
+
+    /// <summary>
+    /// Consumed at least <c>PlatformPortfolioFilter.MessagingNearExhaustedPercent</c> of the forfait — including the
+    /// cabinets that have run out entirely.
+    /// </summary>
+    NearExhausted = 1
 }
 
 /// <summary>
@@ -152,6 +209,13 @@ public enum PlatformPortfolioSort
 /// <param name="LatestCoverKind">
 /// The clock-free denormalisation « en essai » filters on. See <c>ClinicSubscription.LatestCoverKind</c>.
 /// </param>
+/// <param name="HasMessagingMonth">
+/// Whether a WhatsApp-forfait counting row exists for the month asked about
+/// (<c>vendor-whatsapp-messaging-quota</c> AC-8.3). ⚠️ <b>False is « non mesuré », never « zéro »</b> — one row exists
+/// per cabinet per Tunisian month (FR-1a), so its absence is a fault on our side and a claim about us, while « 0 rappel
+/// envoyé » is a claim about the practice. It is a separate flag rather than a null in the two figures below so no screen
+/// can get the distinction wrong by forgetting one of them.
+/// </param>
 public record PlatformClinicRow(
     Guid ClinicId,
     string Name,
@@ -171,7 +235,10 @@ public record PlatformClinicRow(
     DateTime? LastWriteAt,
     DateTime? LastLoginAt,
     decimal CollectedThisMonth,
-    DateTime? CountersComputedAt);
+    DateTime? CountersComputedAt,
+    bool HasMessagingMonth = false,
+    int MessagingAllowance = 0,
+    int MessagingConsumed = 0);
 
 /// <summary>
 /// Portfolio-wide counts for the summary strip (AC-2.7).

@@ -570,6 +570,185 @@ the state as live.
 
 ---
 
+## Story 1 — Part 3
+
+**Session scope, chosen by the user:** Part **3** alone. Parts 4–5 are later sessions.
+
+**Branch:** `feature/windows-desktop-app`, continued.
+
+### Working tree note (start of session)
+
+Clean apart from two untracked items excluded from every commit, as unrelated work by another author:
+`features/hosted-security-hardening/`, `features/landing-website/agent-prompt.md`. Nothing was staged with `git add -A`.
+
+⚠️ **The dev database is still ahead of this branch** (`20260812103207_AddUserSecondFactorAndSessionFamilies`), the same
+note Part 2 carries. It affected nothing here.
+
+---
+
+## Part 3 — The vendor allocates, corrects, and sees the portfolio ✅
+
+| Step | Outcome |
+|---|---|
+| 24 · The vendor pair | ✅ `GrantMessagingAllowanceCommand` · `CancelMessagingAllowanceCommand` (no controller names either — AC-9.3) + the two console wrappers `RecordMessagingAllowanceFromConsoleCommand` / `CancelMessagingAllowanceFromConsoleCommand`, each staging the `PlatformAccessEntry` **before** `MessagingAllowanceRefold`'s single save |
+| 25 · AC-6.4a/6.5/6.6 | ✅ **`MessagingAllowancePlan.Decide`** — extracted rather than written twice, see DEV-8 |
+| 26 · The controller | ✅ `PlatformMessagingController`, its own file, two routes, both `[AllowsWithoutSubscription]`, 404/409 by **code** |
+| 27 · The reads | ✅ the detail's `messaging` object (per-entry `IfCancelled` re-folded server-side) + the portfolio's two figures, one filter and `PlatformMessagingFilter`, over the **stored** counting row LEFT-joined on `(ClinicId, MonthKey)` |
+| 28 · `PlatformReadShape` | ✅ 27 new leaves, and **only** those the DTOs return; ten names *reused* from the subscription block rather than re-declared under `Messaging*` (they mean the same thing — a vendor payment's own fields) |
+| 29 · Console UI | ✅ `messaging-section.tsx` · `record-allowance-sheet.tsx` · `cancel-allowance-dialog.tsx` · two portfolio columns + two card fields + two filter chips · `bff/forfaits` + `bff/forfaits/annulations` |
+| 30 · The three verbs | ✅ `messaging-grant` / `messaging-cancel` / `messaging-report` (+ `MessagingVerbs`, `MessagingReportService`), exit 0/1/**2**, AC-9.4's four finding kinds apart, `--month` answering for a **closed** month |
+
+⚠️ **The access ledger needed a column, not a reuse — and that decision is the one to know about here.**
+`PlatformAccessEntry` already carries `SubscriptionPeriodId`, and pointing it at a `MessagingAllowanceEntry` would have
+been one line and no migration. It is refused for two reasons that only show up later: the journal would then assert
+that a *forfait de rappels* extended the cabinet's right to record work, and AC-6.7's replay — which reads the row found
+by its idempotency key and answers with the entry it names — would hand the console back the wrong kind of id. Hence
+**`AddMessagingAllowanceAccessLedgerLink`** (DEV-9), one nullable `uuid`, no index and no FK.
+
+⚠️ **The « presque épuisé » threshold is one figure end to end, and the console never types it.**
+`PlatformPortfolioFilter.MessagingNearExhaustedPercent` (90) is read by the SQL predicate *and* served on every
+portfolio page as `messagingNearThresholdPercent`; the chip's label is `100 − that`. Two spellings of a threshold is how
+a filter and its own label come to disagree with neither screen looking wrong on its own.
+⚠️ The predicate is **integer** arithmetic (`consumed × 100 ≥ allowance × 90`), not `≥ 0.90 × allowance`: the boundary is
+read as exact, and a floating-point comparison would put « 450 sur 500 » in the list on some rows and not others.
+
+⚠️ **`Messaging` joined `RealtimeResourceResolver.ExcludedAreas`** — `Subscriptions`' case verbatim, and the contract
+test is what surfaced it. Both commands are reachable only from a `messaging-*` verb (a separate process with no
+caller's token and no notifier in its container) or from the console (an account belonging to no clinic), so the
+audience the behavior derives is **nobody, silently**, on both doors. The practice learns its new figure by the
+ordinary re-read `/rappels` already does.
+
+### Deviations
+
+#### DEV-8: `MessagingAllowancePlan` is extracted, not a private method on the grant handler
+**Date:** 2026-08-12 · **Story:** 1 (Part 3, step 25) · **Category:** Technical
+
+**Original plan:** Step 25 describes AC-6.4a/6.5/6.6 as behaviour of `GrantMessagingAllowanceCommand`.
+
+**Actual implementation:** A pure `MessagingAllowancePlan.Decide(…)` over the ledger, called by the vendor command
+**and** by `RecordMessagingAllowanceFromConsoleCommand`.
+
+**Justification:** There are **two doors**, because the console wrapper cannot send the vendor command — that command
+commits on its own and AC-6.8's journal row would be a second transaction (the shape
+`RecordSubscriptionPeriodCommand` settled). So « is this a raise or a lowering, and which month does it start in? »
+would have had two implementations, and one of them would be wrong only for a *lowering* — i.e. rarely, invisibly, and
+in the vendor's favour. That is the `fixes-dont-propagate` shape caught before it existed. Being pure also makes both
+refusals and the standing-vs-top-up rule assertable without a repository, which is where every one of them is decided.
+
+**Impact:** None on the wire. `MessagingVendorCommandTests` exercises the rule through the command; the plan's own
+refusal constants live on the shared type.
+
+**Approved:** Implemented and flagged.
+
+#### DEV-9: Part 3 carries a migration the plan did not schedule
+**Date:** 2026-08-12 · **Story:** 1 (Part 3, step 24) · **Category:** Scope
+
+**Original plan:** Part 3 adds no schema change; Migration 1 was to bundle everything.
+
+**Actual implementation:** `20260812150500_AddMessagingAllowanceAccessLedgerLink` — one nullable
+`PlatformAccessEntries.MessagingAllowanceEntryId`.
+
+**Justification:** AC-6.7's replay has to answer with the **first** submission's entry, and the only row carrying the
+idempotency key is the access-ledger row — so it must be able to name the allocation it created. See the ⚠️ above for
+why reusing `SubscriptionPeriodId` was refused. It continues DEV-5's split-by-part, which the plan's own « before and
+after the migration **batch** » wording already allows for.
+
+**Impact:** Part 5's before/after diff covers it. `verify-schema` needs no change: the column carries no index, FK or
+decimal, which is precisely the set that verb diffs — so the diff below is *expected* to show nothing.
+
+**Approved:** Implemented and flagged.
+
+#### DEV-10: `MessagingReportService.Classify` is public, not internal
+**Date:** 2026-08-12 · **Story:** 1 (Part 3, step 30) · **Category:** Technical
+
+**Original plan:** Implicit — `SubscriptionReportService.IsFinding` is `internal`.
+
+**Actual implementation:** `public`, with the reason on the member.
+
+**Justification:** AC-9.4 *is* the classification and its ordering (« aucun forfait » asked before « épuisé », because a
+cabinet with no forfait cannot meaningfully be out of one). `internal` puts that behind a fixture that has to
+manufacture each state, which is how the ordering ends up untested; the subscription sibling could only offer its own
+assembly and consequently has no direct test of its order.
+
+**Approved:** Implemented and flagged.
+
+### Corrections found by running the code
+
+⚠️ **`messaging-report --month 2026-07` printed « forfait non mesuré » where the truth was « aucun forfait ».** One
+helper (`MessagingVerbs.Count`) was formatting both a null *forfait* and a null *consumption*, and those are the two
+facts this whole feature is built to keep apart: no allocation reaches the month (record one) versus no counting row
+exists for it (the daily pass has not run). Split into `Count` / **`Allowance`**. Found by running the verb against a
+closed month, where every cabinet legitimately has no allocation — the one case the unit suite's fixtures do not
+produce, because they seed the month they assert on.
+
+⚠️ **Two derived guards fired on my own prose**, both correctly, and both are recorded because the next person will hit
+them: `MessagingVendorCommandReachabilityTests` matched the vendor command names in `PlatformMessagingController`'s
+**docstring** (a comment is enough to fail it, as its own note says), and the near-threshold check matched `0.90` in the
+SQL predicate's docstring explaining why it is *not* `0.90`. The controller now describes the commands rather than
+naming them, and the scan strips comments first — the `CnamClosedSetContractTests` lesson.
+
+⚠️ **One test of mine asserted the wrong thing and the code was right.** A standing forfait of **zero** is a *lowering*
+like any other, so it defers to next month; I had asserted it applied immediately. Kept and renamed, because the
+reading is not obvious — « zéro » sounds like « stop now », and getting it the other way round would silence a practice
+on the afternoon the vendor typed it. Turning a cabinet off immediately is a **cancellation**, not a zero.
+
+### Part 3 gate
+
+| Check | Result |
+|---|---|
+| `dotnet build` (`--no-incremental`, `BaseOutputPath` outside the repo) | ✅ **0 errors**, 55 warnings — the identical pre-existing baseline, **0 in changed files** (grepped by filename) |
+| Unit suite (`-c Release`, outside the repo) | ✅ **2988 passed / 0 failed** (2939 before Part 3; **49 new**) |
+| `MessagingVendorCommandTests` | ✅ 18 — a raise rewrites the snapshot; **a lowering defers and leaves this month alone**; a raise is not read as a lowering because a top-up inflated the month; a past top-up refused **under its own code** and a future one accepted; a month on a standing figure refused; an amount of **0 refused** and « offert » carrying null; two different allocations both kept (EC-5); a cancellation reaching the **current** month with consumption untouched and remaining floored; a standing cancellation restoring the **earlier** standing figure; AC-7.5 keeping the first motif; another cabinet's allocation unreachable |
+| `PlatformMessagingWriteTests` | ✅ 12 — the journal row **staged before the single save** and naming the messaging entry (not `SubscriptionPeriodId`); a double-click producing **one** entry and replaying the first outcome; a lost unique-index race replaying rather than failing; AC-7.5 journalling **nothing**; an undeclared scope **throwing** (EC-12); an unknown method refused; « non mesuré » kept distinct from zero; the section **absent** where the capability is off (EC-16) |
+| **`The_Preview_On_The_Fiche_Equals_What_Cancelling_Actually_Does`** | ✅ the load-bearing case: the real read and the real write over **one** ledger, and the standing-entry case (200 → 900 → cancel → **200**, not 0) that the plausible « current minus this entry » gets wrong |
+| `MessagingReportServiceTests` | ✅ 12 — the four buckets and the exit code; « aucun forfait » outranking « épuisé »; a quiet month reading **0** not « non mesuré »; the single-cabinet verdict coming from the **same** classification; a cancelled allocation listed and marked; **a closed month answering differently from the current one over one ledger** |
+| `MessagingVendorCommandReachabilityTests` | ✅ 5 — no controller names either command (2 found by reflection, asserted non-empty); all 3 verbs dispatched by `Program.cs`, with an executed red-proof; distinct `messaging-` words; the near threshold a single named constant with no literal in the predicate |
+| `SubscriptionExemptionCoverageTests` | ✅ the two new writes added to the **reviewed** list — the guard fired first, in both directions |
+| `RealtimeResourceResolverTests` | ✅ green after `Messaging` joined `ExcludedAreas` — the guard fired first |
+| `PlatformReadShapeTests` | ✅ green **in both directions**: nothing in the new DTOs names a patient, an act or a per-patient amount, and no allowance is unused |
+| `verify-schema` **before** | exit **0** — « schema matches the model » |
+| `verify-schema` **after** | exit **0** — « schema matches the model » |
+| The **diff** | ✅ **only the generated timestamp.** Expected and correct, exactly as in Part 2: this migration adds one **nullable** column with no index, FK or decimal — precisely the set `verify-schema` diffs. Not a null result: the gate confirming the migration moved nothing it can see |
+| Migration applied for real | ✅ `MessagingAllowanceEntryId uuid NULL`, **no `column_default`**, read back out of `information_schema` |
+| `reconcile-money` | ✅ exit **0**, « no drift detected » — after the four live writes below, which is the stronger reading: the vendor's money reached no clinic money read (FR-2) |
+| `web` untouched | ✅ no file under `web/` changed in Part 3 (the clinic surface is Part 2's) |
+| `console`: `npx tsc --noEmit` | ✅ clean |
+| `console`: `node scripts/check-responsive.mjs` | ✅ **14/14** |
+| `console`: `npm run build` | ✅ compiled; `/cabinets` 3.99 kB, `/cabinets/[clinicId]` 6.12 kB, both new BFF routes listed |
+
+### Verified over the wire, against the real database
+
+Not a substitute for the unit suite — these are the cases only a live run can reach.
+
+| Walk | Outcome |
+|---|---|
+| `messaging-report` (current month) | ✅ exit **0**, 5 cabinets, « No findings » |
+| `messaging-report --month 2026-07` | ✅ exit **2**, all 5 in « No allowance record » — correct: the rollout backfill's entries are effective `2026-08`, so nothing reaches July. **This is the run that found the « non mesuré » wording defect above.** |
+| `messaging-grant --top-up 300 --month 2026-08 --amount 45.000 --method Transfer` | ✅ exit 0, 200 → **500**, allocation id printed |
+| `messaging-grant --per-month 50` (a **lowering**) | ✅ exit 0, effective **2026-09**, this month **unchanged at 500**, and the deferral stated out loud (AC-6.4) |
+| `messaging-grant --top-up 100 --month 2026-07` | ✅ exit 1, refused naming « juillet 2026 » and the earliest legal month (AC-6.5) |
+| `messaging-cancel` the top-up | ✅ exit 0, 500 → **200 in the current month** (AC-7.4), « Already sent: 0 (untouched) » |
+| `messaging-cancel` it again | ✅ exit 1, « Cette allocation est déjà annulée » (AC-7.5) |
+| `messaging-report --clinic <id>` | ✅ the three allocations oldest-first with their ids, both cancelled ones marked **[ANNULÉE]** with their motifs — the ids `messaging-cancel` takes, printed nowhere else |
+
+⚠️ **The dev database was left at 200/month**: the test lowering was cancelled rather than deleted, so the cabinet's
+September figure is back where it was and the two test allocations remain struck through with their motifs. That is the
+append-only rule working as designed, not leftover mess — but the two rows are visible on that cabinet's fiche.
+
+### Still owed for Part 3
+
+- [ ] **AC-6.9 confirmed by trying it**: sign in to the console, run `platform-account --deactivate`, call both new
+      writes with the same token. The plan asks for this explicitly rather than by inheritance, because
+      `PlatformAccountStateMiddleware` was **inert in production for the whole life of `platform-console`** while every
+      layer reported it present. Not done this session — it needs a running console listener and a tunnel.
+- [ ] The **responsive eye pass** on `console/` at 320/390/820/1180/1440 px + a landscape phone + a keyboard walk over
+      the two new sheets. No browser automation on this machine (`agent-browser` is not installed); the mechanical gate
+      (14/14 + `tsc` + `build`) passed and the new components reuse `record-payment-sheet`/`cancel-period-dialog`'s
+      verified `dvh` + pinned-footer arrangement verbatim, but the eye pass remains owed.
+- [ ] `CLAUDE.md` and the four sub-guides — **Part 5's step 42**, deliberately not done here (Parts 0–2 did the same).
+
+---
+
 ## Verification owed before Story 0 closes
 
 - [ ] `dotnet build` clean + the two Meta test classes green (`WhatsAppOnboardingServiceTests`,

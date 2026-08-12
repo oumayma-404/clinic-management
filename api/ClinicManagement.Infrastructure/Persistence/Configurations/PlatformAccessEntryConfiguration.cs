@@ -37,6 +37,11 @@ public class PlatformAccessEntryConfiguration : IEntityTypeConfiguration<Platfor
         builder.Property(e => e.OccurredAt).IsRequired();
         builder.Property(e => e.IdempotencyKey).HasMaxLength(PlatformAccessEntry.MaxIdempotencyKeyLength);
 
+        // No index: nothing looks a row up by the entry it names. Both id columns are read only as part of a row
+        // already found by its idempotency key or by the page's own ordering, so an index here would be paid for on
+        // every console write and read by nothing.
+        builder.Property(e => e.MessagingAllowanceEntryId);
+
         // UNIQUE and **partial**: « one entry per submission » (AC-4.6) held by the database rather than by whichever
         // request happens to read first. Filtered on non-null because every read row legitimately has no key, and an
         // unfiltered unique index over a mostly-null column is both larger and — in PostgreSQL, where every NULL is
