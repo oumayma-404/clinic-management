@@ -526,6 +526,9 @@ Stated Assumptions 1, 2, 3, 4, 5, 6, 7, 8, 10, 11.
 
 # Part B — Transit
 
+**Status: implemented** (2026-08-12) — one commit, check and configuration together.
+Findings, executed verification, what is still owed and DEV-4…DEV-8 are in [`progress.md`](./progress.md#part-b--transit).
+
 **Delivers:** every hop inside the perimeter encrypted and the server's identity verified against an internal
 certificate authority created for the deployment — the API to PostgreSQL, the API to the object store, and both backup
 sidecars. PostgreSQL itself refuses cleartext. A deployment not in that state **refuses to start**, naming the file and

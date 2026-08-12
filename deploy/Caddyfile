@@ -18,12 +18,25 @@
 {$DOMAIN} {
 	encode zstd gzip
 
-	# HSTS belongs HERE, not in the API. `SecurityHeadersMiddleware` guards on `context.Request.IsHttps`, and TLS
-	# terminates in this container — it speaks plain HTTP to `api:5000` and nothing in the solution consumes
-	# `X-Forwarded-Proto` (`UseForwardedHeaders` is deliberately absent so the loopback gates on `setup` and
-	# `/hangfire` stay a property of the real TCP peer). So `IsHttps` is false for every proxied request and the
-	# header was never emitted in either hosted profile, despite the middleware's own docstring saying a publicly
-	# trusted certificate gets it. Set once at the site level so it covers /api/*, /hub/*, /health and the pages.
+	# HSTS is set HERE, at the site level, so it covers /api/*, /hub/*, /health AND the pages — the API can only
+	# ever cover what Kestrel serves, which behind this proxy is /api/* alone.
+	#
+	# ⚠️ This comment used to say « nothing in the solution consumes X-Forwarded-Proto », and since
+	# hosted-security-hardening Part 2 that is no longer true: the API registers `UseForwardedHeaders` bounded by
+	# `Security:TrustedProxies`, so `Request.IsHttps` is now TRUE for a proxied request — which is what gives the
+	# Google OAuth state cookie its `Secure` flag.
+	#
+	# ⚠️ That nearly produced TWO of this header. `header` does NOT replace what an upstream sent: reproducing
+	# this exact directive over an upstream emitting its own gave the client both, and RFC 6797 § 8.1 then has the
+	# browser honour only the first — not a downgrade, but a malformed response carrying a value nothing in the
+	# deployment could predict. The fix is in the API, not here: `SecurityHeadersMiddleware` now emits HSTS only
+	# where it is itself the edge (`SelfHostsFrontDoor`), which keeps this file's own rule — « HSTS belongs HERE »
+	# — true in ONE place rather than by stripping the duplicate on every proxied route. So this is the only
+	# emitter, and `includeSubDomains` below is what a client actually receives.
+	#
+	# ⚠️ The two loopback-only gates did NOT become header-decidable: the API captures the real TCP peer before
+	# honouring these headers (`OriginalPeer`), so `setup` and `/hangfire` still refuse a forged
+	# `X-Forwarded-For: 127.0.0.1`.
 	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 
 	# API — same-origin front door for the frontend's relative `/api` calls (AC-3).

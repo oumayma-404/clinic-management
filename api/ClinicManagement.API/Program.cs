@@ -2,7 +2,9 @@ using ClinicManagement.Application;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.API.Hubs;
 using ClinicManagement.API.Maintenance;
+using ClinicManagement.API.Middleware;
 using ClinicManagement.API.Startup;
+using Microsoft.AspNetCore.HttpOverrides;
 using ClinicManagement.Infrastructure;
 using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Persistence;
@@ -467,6 +469,17 @@ try
         return 1;
     }
 
+    // Transit (hosted-security-hardening Part 2, FR-2.5): on either HOSTED kind, refuse to start unless the
+    // database hop is verified-TLS and the object-store hop is TLS. Placed here, immediately after the
+    // connection string is known and BEFORE Hangfire is handed it — Hangfire opens its own connection from the
+    // same string, so a check after this line would leave one cleartext consumer behind the guard.
+    var transitAssurance = TransportAssurance.Inspect(builder.Configuration, profile, DateTime.UtcNow);
+    if (transitAssurance.Applies && !transitAssurance.IsSatisfied)
+    {
+        StartupDiagnostics.ReportFatal(TransportAssurance.RefusalMessage(transitAssurance));
+        return 1;
+    }
+
     builder.Services.AddHangfire(config =>
         config.UsePostgreSqlStorage(hangfireConnectionString));
     builder.Services.AddHangfireServer();
@@ -687,6 +700,67 @@ try
     {
         app.UseSwagger();
         app.UseSwaggerUI();
+    }
+
+    // FIRST, before anything can substitute the peer (hosted-security-hardening Part 2, FR-2.4 / R-5). The two
+    // loopback-only gates — first-run `setup` and the Hangfire dashboard — read the captured value through
+    // LocalRequest, so they stay a property of the real TCP peer rather than of a header's trust bound.
+    app.UseOriginalPeerCapture();
+
+    // Honour the reverse proxy's X-Forwarded-For and X-Forwarded-Proto, BOUNDED to the proxy's own address
+    // (FR-2.4). Only where the front door is not self-hosted: SelfHostedLan terminates TLS in this process and
+    // FR-2.7 says nothing about that path may change.
+    //
+    // ⚠️ An empty or unparseable Security:TrustedProxies means the headers are IGNORED ENTIRELY and the log says
+    // so — never an unbounded header. `ForwardedHeadersOptions` defaults to trusting loopback only, which sounds
+    // safe and is useless here: behind a proxy every request arrives from a bridge address, so the middleware
+    // would rewrite nothing while looking active. Refusing to register it at all is the honest version of the
+    // same outcome, and it leaves ClientIp — which never stopped resolving the address separately — in charge.
+    //
+    // ⚠️ ForwardLimit stays at its default of 1: exactly one hop in front of the API is ours. A larger limit
+    // walks further left along X-Forwarded-For, which is caller-supplied text, so a client could inject an
+    // extra entry and choose the address it is attributed to.
+    //
+    // ⚠️ XForwardedHost is deliberately NOT processed. Request.Host feeds the Google OAuth redirect-uri
+    // fall-back, and a forged host there would build a redirect URI pointing somewhere else.
+    if (!profile.SelfHostsFrontDoor)
+    {
+        var forwardedFrom = ClinicManagement.Infrastructure.TrustedProxies.FromConfiguration(builder.Configuration);
+        if (forwardedFrom.Networks.Count == 0)
+        {
+            Log.Warning(
+                "Forwarded headers are IGNORED because {Key} {Reason}. Behind a reverse proxy this means every "
+                + "request is attributed to the proxy's own address — the rate limiter, the login lockout and "
+                + "the OAuth state cookie's Secure flag all see the hop, not the client. Set {Key}__0 to the "
+                + "network the proxy reaches this service from.",
+                ClinicManagement.Infrastructure.TrustedProxies.ConfigurationKey,
+                forwardedFrom.ConfiguredEntryCount == 0
+                    ? "is not set"
+                    : $"holds {forwardedFrom.ConfiguredEntryCount} entry(ies) and none of them parsed");
+        }
+        else
+        {
+            var forwardedOptions = new ForwardedHeadersOptions
+            {
+                ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+            };
+
+            // The same parsed set the rate limiter and the login lockout believe, taken from TrustedProxies
+            // rather than re-read here: two parsers of one setting is how the header middleware and the
+            // limiter end up trusting different hops. The framework's loopback defaults are left in place —
+            // the co-located BFF hop is real in every profile, and TrustedProxies trusts loopback too.
+            foreach (var network in forwardedFrom.Networks)
+            {
+                forwardedOptions.KnownNetworks.Add(new IPNetwork(network.Network, network.PrefixLength));
+            }
+
+            app.UseForwardedHeaders(forwardedOptions);
+
+            Log.Information(
+                "Forwarded headers honoured from {RangeCount} configured range(s) ({Ranges}).",
+                forwardedFrom.Networks.Count,
+                string.Join(", ", forwardedFrom.Networks.Select(n => $"{n.Network}/{n.PrefixLength}")));
+        }
     }
 
     // Redirect HTTP → HTTPS everywhere the front door is NOT self-hosted. Where it is, we must not redirect:

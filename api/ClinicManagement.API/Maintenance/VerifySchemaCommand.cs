@@ -66,8 +66,11 @@ public static class VerifySchemaCommand
             scope.ServiceProvider.GetRequiredService<ITenantScope>()
                 .UseSystemWide($"{CommandName} verifies the schema and counts backfilled rows across every clinic");
 
+            // Configuration is passed for the internal-certificate line alone (FR-2.6) — it names the root the
+            // database and object-store hops verify against, so the report reads the deployment's real setting
+            // rather than a third key of its own.
             var reader = new SchemaVerificationReader(
-                scope.ServiceProvider.GetRequiredService<ApplicationDbContext>());
+                scope.ServiceProvider.GetRequiredService<ApplicationDbContext>(), configuration);
             var service = new SchemaVerificationService(reader);
 
             var report = await service.RunAsync(cancellationToken);

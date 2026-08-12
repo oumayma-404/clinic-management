@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
@@ -21,10 +22,17 @@ namespace ClinicManagement.Infrastructure.Persistence;
 public class SchemaVerificationReader : ISchemaVerificationReader
 {
     private readonly ApplicationDbContext _context;
+    private readonly IConfiguration? _configuration;
 
-    public SchemaVerificationReader(ApplicationDbContext context)
+    /// <param name="configuration">
+    /// Read only for the internal root certificate's remaining life (FR-2.6) — a third "side" beside the model
+    /// and the catalog. Optional so a caller that has none reports « not applicable » rather than failing to
+    /// construct; the <c>verify-schema</c> verb always passes it.
+    /// </param>
+    public SchemaVerificationReader(ApplicationDbContext context, IConfiguration? configuration = null)
     {
         _context = context;
+        _configuration = configuration;
     }
 
     public async Task<SchemaFacts> ReadAsync(CancellationToken cancellationToken = default)
@@ -48,7 +56,59 @@ public class SchemaVerificationReader : ISchemaVerificationReader
 
         return new SchemaFacts(
             extensions, constraints, model, database, mappedDecimals, dataMigrations, auditLedger,
-            subscriptionLedgers, coverKindPresent);
+            subscriptionLedgers, coverKindPresent, ReadInternalCertificate());
+    }
+
+    /// <summary>
+    /// The deployment's internal root certificate, or <c>null</c> where it configures none (FR-2.6).
+    ///
+    /// <para>The path is taken from the <b>database connection string's</b> <c>Root Certificate</c> first and
+    /// from <c>MinIO:RootCertificate</c> second, because those are the two settings that actually name it — and
+    /// asking them, rather than introducing a third key, is what stops this report describing a file no hop uses.
+    /// The shipped compose files point both at the same <c>/certs/ca.crt</c>.</para>
+    /// </summary>
+    private InternalCertificateFact? ReadInternalCertificate()
+    {
+        if (_configuration is null)
+        {
+            return null;
+        }
+
+        var path = ResolveRootCertificatePath();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        var inspection = Security.InternalCertificate.Inspect(path, DateTime.UtcNow);
+        return new InternalCertificateFact(
+            inspection.Path ?? path,
+            inspection.DaysRemaining ?? 0,
+            inspection.IsUsable,
+            inspection.Detail);
+    }
+
+    private string? ResolveRootCertificatePath()
+    {
+        var connectionString = _context.Database.GetConnectionString();
+        if (!string.IsNullOrWhiteSpace(connectionString))
+        {
+            try
+            {
+                var fromConnection = new NpgsqlConnectionStringBuilder(connectionString).RootCertificate;
+                if (!string.IsNullOrWhiteSpace(fromConnection))
+                {
+                    return fromConnection;
+                }
+            }
+            catch (Exception ex) when (ex is ArgumentException or FormatException)
+            {
+                // An unparseable connection string is TransportAssurance's refusal to word, not this report's:
+                // fall through to the object store's key so the certificate line still says something.
+            }
+        }
+
+        return _configuration?[Security.InternalCertificate.MinioRootCertificateKey];
     }
 
     // ------------------------------------------------------------------ the EF model side

@@ -18,15 +18,32 @@
 name: clinic-management
 
 services:
+  # The deployment's internal certificate authority (hosted-security-hardening Part 2). One definition, in the
+  # prod file, because both hosted kinds run the identical one-shot — see ./certs/issue.sh.
+  certs:
+    extends:
+      file: docker-compose.prod.yml
+      service: certs
+
   postgres:
     extends:
       file: docker-compose.prod.yml
       service: postgres
+    # Restated: `extends` does not carry depends_on, and without this postgres starts before the certificates
+    # exist — then fails on a missing ssl_cert_file, in a message about a file rather than about ordering.
+    depends_on:
+      certs:
+        condition: service_completed_successfully
 
   minio:
     extends:
       file: docker-compose.prod.yml
       service: minio
+    # Restated for the same reason: MinIO with `--certs-dir` and no certificate serves plain HTTP, and the API
+    # then refuses to start against it — correct, and diagnosed two containers away from the cause.
+    depends_on:
+      certs:
+        condition: service_completed_successfully
 
   api:
     build:
@@ -35,6 +52,8 @@ services:
     container_name: clinic-api-prod
     restart: unless-stopped
     depends_on:
+      certs:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       minio:
@@ -58,7 +77,11 @@ services:
       # token and a clinic token fail each other's validation — AC-1.4's « refused as unauthenticated » is a
       # property of the signature, not of a policy. Startup FAILS LOUD if this is absent while Console__Port > 0.
       Console__SigningKey: ${CONSOLE_SIGNING_KEY}
-      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # ⚠️ `SSL Mode=VerifyFull` + `Root Certificate=`, and startup FAILS LOUD without both (FR-2.1/FR-2.5 —
+      # Startup/TransportAssurance.cs). `Require` would encrypt and accept any certificate, which stops a
+      # packet capture and not an impostor on this bridge network; only verify-full checks identity. The host
+      # must stay `postgres`: that is the name in the internal leaf's SAN and what verify-full compares.
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=VerifyFull;Root Certificate=/certs/ca.crt"
       # This profile owns its accounts, so THIS is what signs and validates every bearer token and every 12-hour
       # refresh cookie. Absent, LocalAuthConfig generates a key into /app/.local/ — on the container's ephemeral
       # layer, silently — so every `up -d --build` mints a new one and signs the whole fleet out mid-shift with
@@ -88,7 +111,10 @@ services:
       MinIO__Endpoint: "minio:9000"
       MinIO__AccessKey: ${MINIO_ROOT_USER}
       MinIO__SecretKey: ${MINIO_ROOT_PASSWORD}
-      MinIO__UseSSL: "false"
+      # FR-2.2. The root below is what the Minio client verifies MinIO's leaf against; the container's system
+      # trust store knows nothing about a CA minted for this deployment, so without it TLS fails closed.
+      MinIO__UseSSL: "true"
+      MinIO__RootCertificate: /certs/ca.crt
       # ── Abonnements (clinic-subscription) ────────────────────────────────────────────────────────
       # ⚠️ **This is the ONLY deployment kind where the subscription gate exists, and « Abonnement » is where a
       # refused save sends the cabinet.** Left unset, `appsettings.json` ships every price at 0 — which that file's
@@ -110,6 +136,9 @@ services:
       Subscription__ContactPhone: ${SUBSCRIPTION_CONTACT_PHONE:-}
     volumes:
       - dataprotection_keys:/keys
+      # The internal root the connection string and the Minio client above both name. Read-only: this
+      # container verifies against the CA and never issues anything.
+      - internal_certs:/certs:ro
     networks: [internal]
     # No `ports:` — Caddy proxies /api/*, /hub/* and /health to this service over the internal network.
     #
@@ -217,6 +246,8 @@ services:
       file: docker-compose.prod.yml
       service: backup
     depends_on:
+      certs:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
 
@@ -225,6 +256,8 @@ services:
       file: docker-compose.prod.yml
       service: pitr
     depends_on:
+      certs:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
 
@@ -252,3 +285,14 @@ volumes:
   # against the most likely exposure — a leaked or stolen backup. Whoever holds that archive can forge auth cookies
   # and impersonate any clinic's e-invoicing identity.
   dataprotection_keys:
+  # The internal CA + the postgres and minio leaves (hosted-security-hardening Part 2). Written once by the
+  # `certs` one-shot above, mounted read-only by everything else.
+  #
+  # ⚠️ Back it up SEPARATELY from postgres_data too, and for a sharper reason than the ring above: this volume
+  # holds the CA's PRIVATE KEY, so one archive with both means whoever holds it can impersonate the database
+  # and the object store to any container that trusts this root.
+  #
+  # ⚠️ Losing the volume is recoverable — the one-shot mints a fresh set and every consumer reads the new root
+  # from the same place, so they move together. Recreating it while containers are already running against the
+  # old root is not: those keep verifying against a CA that no longer signs anything they can reach.
+  internal_certs:

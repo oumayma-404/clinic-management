@@ -97,6 +97,7 @@ public class SchemaVerificationService
         VerifyAuditLedger(facts, findings);
         VerifyDataMigrations(facts, findings);
         VerifySubscriptions(facts, findings);
+        VerifyInternalCertificate(facts, findings);
 
         return new SchemaVerificationReport(findings);
     }
@@ -670,6 +671,45 @@ public class SchemaVerificationService
     /// <c>verify-schema</c> exit non-zero for unbuilt work would train the operator to ignore its exit code, which
     /// is the one thing a gate must not do.</para>
     /// </summary>
+    // ------------------------------------------------------------------ internal transit
+
+    /// <summary>
+    /// Reports how much life the deployment's internal root certificate has left
+    /// (<c>hosted-security-hardening</c> FR-2.6). Not a schema check at all — it is here because this verb is
+    /// the one thing an operator already runs before and after every schema change, and a ten-year certificate
+    /// needs somewhere its expiry will be noticed years before it arrives.
+    ///
+    /// <para>⚠️ <b>Usable is Info with the count; configured-but-unusable is Drift.</b> The story specified
+    /// Info, and that holds for the case it was about — an alarm that is always on is one nobody reads, and a
+    /// certificate with 3 400 days left must not flip this verb to exit 2. But an <i>expired</i> or unreadable
+    /// root reported as <c>[ ok ]</c> is the exact failure shape this file exists to prevent, so that one case
+    /// is drift.</para>
+    ///
+    /// <para>⚠️ Absent means <b>not applicable</b>, not broken: on <c>SelfHostedLan</c> and on a developer
+    /// machine there is no internal CA to have. Where there should be one, the API refuses to start without it
+    /// (<c>TransportAssurance</c>) — so a deployment that reaches this verb has already passed that gate.</para>
+    /// </summary>
+    private static void VerifyInternalCertificate(SchemaFacts facts, List<SchemaVerificationFinding> findings)
+    {
+        const string scope = "Internal transit";
+        const string check = "internal-certificate-days-remaining";
+
+        if (facts.InternalCertificate is not { } certificate)
+        {
+            findings.Add(NotApplicableIn(
+                scope, check, "this deployment configures no internal root certificate"));
+            return;
+        }
+
+        findings.Add(new SchemaVerificationFinding(
+            scope,
+            check,
+            certificate.Usable
+                ? $"{certificate.DaysRemaining} day(s) remaining on {certificate.Path}"
+                : $"the internal root certificate is unusable — {certificate.Detail}",
+            certificate.Usable ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+    }
+
     private static SchemaVerificationFinding NotApplicableIn(string scope, string check, string why) =>
         new(scope, check, $"not applicable — {why}", SchemaVerificationSeverity.Info);
 

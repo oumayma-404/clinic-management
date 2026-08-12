@@ -248,6 +248,10 @@ public static class Extensions
                 !string.IsNullOrWhiteSpace(minioAccessKey) &&
                 !string.IsNullOrWhiteSpace(minioSecretKey))
             {
+                // The internal root the object store's leaf is verified against (hosted-security-hardening
+                // Part 2, FR-2.2). Absent on SelfHostedLan and in dev, where MinIO:UseSSL is false anyway.
+                var minioRootCertificate = configuration[InternalCertificate.MinioRootCertificateKey];
+
                 services.AddSingleton<IMinioClient>(sp =>
                 {
                     var minioClient = new MinioClient()
@@ -257,6 +261,16 @@ public static class Extensions
                     if (minioUseSSL)
                     {
                         minioClient = minioClient.WithSSL();
+
+                        // A CA minted for this deployment is in no system trust store, so without this the
+                        // first upload fails validation. The handler VERIFIES against that root — it does not
+                        // skip verification, which is why a name mismatch still refuses.
+                        var trustedRoot = InternalCertificate.TryLoad(minioRootCertificate);
+                        if (trustedRoot is not null)
+                        {
+                            minioClient = minioClient.WithHttpClient(
+                                InternalRootTrust.CreateHttpClient(trustedRoot), disposeHttpClient: true);
+                        }
                     }
 
                     return minioClient.Build();

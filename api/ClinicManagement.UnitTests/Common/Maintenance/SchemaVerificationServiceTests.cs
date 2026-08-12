@@ -31,7 +31,8 @@ public class SchemaVerificationServiceTests
         DataMigrationCounts? counts = null,
         AuditLedgerFacts? auditLedger = null,
         IReadOnlyList<ClinicSubscriptionLedgerFact>? subscriptionLedgers = null,
-        bool coverKindColumnPresent = true)
+        bool coverKindColumnPresent = true,
+        InternalCertificateFact? internalCertificate = null)
     {
         _reader
             .Setup(r => r.ReadAsync(It.IsAny<CancellationToken>()))
@@ -48,7 +49,11 @@ public class SchemaVerificationServiceTests
                 // Default: one cabinet whose stored end date IS its ledger's fold, so the subscription checks
                 // pass and individual tests override just this facet.
                 subscriptionLedgers ?? new[] { AgreeingLedger },
-                coverKindColumnPresent));
+                coverKindColumnPresent,
+                // Default: no internal root configured — the SelfHostedLan and developer-machine state, which
+                // reads « not applicable ». Passed BY NAME: this record's own comment warns that appending a
+                // value positionally lands it in the wrong slot.
+                InternalCertificate: internalCertificate));
     }
 
     /// <summary>
@@ -896,7 +901,8 @@ public class SchemaVerificationServiceTests
                 CleanCounts,
                 new AuditLedgerFacts(TableExists: true, ClinicIdIsNullable: true),
                 SubscriptionLedgers: null,
-                SubscriptionCoverKindColumnPresent: false));
+                SubscriptionCoverKindColumnPresent: false,
+                InternalCertificate: null));
 
         var report = await CreateService().RunAsync();
 
@@ -921,5 +927,59 @@ public class SchemaVerificationServiceTests
         var finding = Finding(report, "subscription-grandfathered-entries");
         Assert.False(IsDrift(finding));
         Assert.Contains(count.ToString(), finding.Detail, StringComparison.Ordinal);
+    }
+
+    // ---- The internal root certificate (hosted-security-hardening FR-2.6) ------------------------
+
+    // A deployment with no internal CA — SelfHostedLan, and every developer machine — must read « not
+    // applicable ». Reporting 0 days there would be a permanent false alarm on the two topologies that
+    // correctly have no certificate to expire.
+    [Fact]
+    public async Task A_Deployment_With_No_Internal_Certificate_Reads_Not_Applicable()
+    {
+        Arrange(internalCertificate: null);
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "internal-certificate-days-remaining");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("not applicable", finding.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // [FR-2.6] The count is the point: a ten-year certificate has to become visible years before it matters,
+    // on the tool somebody already runs. Info, never drift, whatever the number — 3 400 days left must not
+    // turn `verify-schema` into exit 2.
+    [Theory]
+    [InlineData(3650)]
+    [InlineData(40)]
+    [InlineData(1)]
+    public async Task A_Usable_Certificate_Reports_Its_Remaining_Days_As_Info(int daysRemaining)
+    {
+        Arrange(internalCertificate: new InternalCertificateFact(
+            "/certs/ca.crt", daysRemaining, Usable: true, Detail: $"valide ({daysRemaining} jour(s))"));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "internal-certificate-days-remaining");
+        Assert.False(IsDrift(finding));
+        Assert.Contains(daysRemaining.ToString(), finding.Detail, StringComparison.Ordinal);
+        Assert.Contains("/certs/ca.crt", finding.Detail, StringComparison.Ordinal);
+    }
+
+    // The one case that IS drift, and the reason the severity is not simply « always Info »: an expired or
+    // unreadable root rendered as `[  ok ]` is the failure shape this whole report exists to prevent. The
+    // negative day count is kept rather than clamped — « expired 12 days ago » and « expires today » are
+    // different operator situations.
+    [Fact]
+    public async Task An_Unusable_Certificate_Is_Drift_And_Says_Why()
+    {
+        Arrange(internalCertificate: new InternalCertificateFact(
+            "/certs/ca.crt", -12, Usable: false, Detail: "le certificat « /certs/ca.crt » a expiré le 2026-07-31 UTC"));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "internal-certificate-days-remaining");
+        Assert.True(IsDrift(finding));
+        Assert.Contains("expiré", finding.Detail, StringComparison.Ordinal);
     }
 }

@@ -82,12 +82,12 @@ From the plan's *Deploy order*:
 
 | Part | Name | Plan part | Status |
 |------|------|-----------|--------|
-| A | Identity | Part 1 | not-started |
-| B | Transit | Part 2 | not-started |
+| A | Identity | Part 1 | **implemented** |
+| B | Transit | Part 2 | **implemented** |
 | C | Custody | Part 3 | not-started |
 | D | Evidence & surface | Part 0 + Part 4 | not-started |
 
-**Story Status:** not-started · **Layer:** Full · **Depends On:** None
+**Story Status:** in-progress (A + B implemented) · **Layer:** Full · **Depends On:** None
 
 ### Part A's internal sub-parts
 

@@ -37,7 +37,30 @@ public sealed record SchemaFacts(
     /// <b>null</b> stored kind is a real value — a cabinet whose every ledger entry has been cancelled — and
     /// « the column is not there » must not be reported as that.
     /// </summary>
-    bool SubscriptionCoverKindColumnPresent);
+    bool SubscriptionCoverKindColumnPresent,
+    /// <summary>
+    /// The deployment's internal root certificate, or <b>null</b> where none is configured — which is the
+    /// normal state on <c>SelfHostedLan</c> and on a developer machine, and is « not applicable » rather than
+    /// « expired ». Reported here because this verb is the one thing already run before and after every schema
+    /// change, so it is where a ten-year certificate's remaining life will actually be seen
+    /// (<c>hosted-security-hardening</c> FR-2.6).
+    /// </summary>
+    InternalCertificateFact? InternalCertificate);
+
+/// <summary>
+/// One reading of the deployment's internal root certificate. Deliberately a neutral shape: the reading itself
+/// is done in Infrastructure (which owns the file access and the X.509 parsing) and this project references
+/// Domain alone, so it cannot name that type.
+/// </summary>
+/// <param name="DaysRemaining">
+/// Whole days until <c>NotAfter</c>. Negative on an expired certificate, which is a more useful reading than
+/// clamping to zero — « expired 40 days ago » and « expires today » are different operator situations.
+/// </param>
+public sealed record InternalCertificateFact(
+    string Path,
+    int DaysRemaining,
+    bool Usable,
+    string Detail);
 
 /// <summary>
 /// One cabinet's stored entitlement date beside the ledger it is supposed to be a fold of

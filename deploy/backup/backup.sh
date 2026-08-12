@@ -10,6 +10,35 @@ mkdir -p "${WORK}"
 
 echo "[backup] ${TS} starting"
 
+# 0. The hop is encrypted, or there is no backup (hosted-security-hardening Part 2, FR-2.3's ⚠️).
+#
+# ⚠️ This sidecar connects with its OWN credentials and its own libpq environment, so it is the half of the
+# transit change that fails at 02:00 rather than at deploy time — and a nightly dump that stopped running is
+# discovered by needing it. Hence a check that FAILS THE RUN rather than a warning nobody reads.
+#
+# ⚠️ It asks PostgreSQL whether THIS connection is encrypted rather than checking that PGSSLMODE reads
+# verify-full: the variable states an intention, `pg_stat_ssl` states what happened. Where they come apart is
+# `require` and libpq's own default `prefer` — both encrypt while verifying NOTHING, so an env-var check
+# passes on exactly the configuration FR-2.1 exists to rule out. Identity is what verify-full plus
+# PGSSLROOTCERT buy, and a wrong root fails this block by failing to connect at all (verified by pointing it
+# at the minio leaf: « SSL error: certificate verify failed », exit 1, nothing dumped).
+#
+# Byte-identical to the block in ../postgres/pitr-backup.sh; the two sidecars share no image, so there is
+# nowhere to put one copy. Change both.
+SSL_IN_USE="$(psql -tAqc 'SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()' 2>&1)" || {
+	echo "[backup] ERROR: could not reach PostgreSQL to verify the connection is encrypted." >&2
+	echo "[backup]        psql said: ${SSL_IN_USE}" >&2
+	echo "[backup]        Check PGSSLMODE (expected verify-full) and PGSSLROOTCERT in docker-compose." >&2
+	exit 1
+}
+if [ "$(echo "${SSL_IN_USE}" | tr -d '[:space:]')" != "t" ]; then
+	echo "[backup] ERROR: this connection to PostgreSQL is NOT encrypted (pg_stat_ssl.ssl = '${SSL_IN_USE}')." >&2
+	echo "[backup]        Refusing to dump patient data over a cleartext hop. Set PGSSLMODE=verify-full and" >&2
+	echo "[backup]        PGSSLROOTCERT=/certs/ca.crt on the backup service." >&2
+	exit 1
+fi
+echo "[backup] connection to PostgreSQL is encrypted and verified"
+
 # 1. PostgreSQL dump — custom format so it restores with `pg_restore` (connection via PG* env).
 DB_FILE="${WORK}/db-${TS}.dump"
 pg_dump --format=custom --no-owner --no-privileges --file="${DB_FILE}"

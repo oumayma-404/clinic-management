@@ -26,6 +26,10 @@ cp .env.hosted.example .env          # then fill it in — .env is gitignored, n
 docker compose -f docker-compose.hosted.yml up -d --build
 ```
 
+The **first** container to run is `certs`, a one-shot that mints this deployment's internal certificate authority
+and exits; everything else waits for it. See *Transit inside the perimeter* below — the API **refuses to start** if
+the internal hops are not encrypted and verified, so a cold start is where that is either right or loud.
+
 Then check the front door before anything else:
 
 ```bash
@@ -54,6 +58,90 @@ every one of them fails **quietly** if wrong. Each is commented in place; in sho
 
 ⚠️ **Back up the `dataprotection_keys` volume alongside `postgres_data`.** A restored database whose key ring is
 gone has credentials nobody can decrypt.
+
+---
+
+## Transit inside the perimeter
+
+Caddy terminates the internet's TLS. Everything **behind** it is encrypted and verified too: the API↔PostgreSQL
+hop, the API↔MinIO hop and both backup sidecars, against a certificate authority created for this deployment and
+trusted by nothing else.
+
+**A deployment that is not in that state refuses to start**, names the setting and the file, and says so on the
+console, in the log and (on Windows) in the Event Log. That is deliberate — transit failing *open* is invisible,
+and the whole point is that nobody is watching this console.
+
+### How it is wired
+
+| Piece | What it is |
+|---|---|
+| `certs` service (`./certs/`) | a **one-shot** container: mints a ten-year internal CA and one leaf each for `postgres` and `minio` into the `internal_certs` volume, then exits 0. **Idempotent** — an existing set that still chains is reused, so `up -d` never hands postgres an identity the API does not yet trust |
+| `internal_certs` volume | `ca.crt` (the one trust anchor) · `postgres/server.{crt,key}` · `minio/{public.crt,private.key}` · `minio/CAs/`. Mounted **`:ro`** by every consumer; the authority is the only writer |
+| `postgres` | `ssl=on` with its leaf, and `-c hba_file=/etc/postgresql/pg_hba.conf` — a `pg_hba.conf` baked into the image that offers **`hostssl` only** |
+| `api` | `SSL Mode=VerifyFull;Root Certificate=/certs/ca.crt` in the connection string · `MinIO__UseSSL=true` · `MinIO__RootCertificate=/certs/ca.crt` |
+| `backup`, `pitr` | `PGSSLMODE=verify-full` + `PGSSLROOTCERT=/certs/ca.crt`, and each **asks PostgreSQL whether its own connection is encrypted** before it dumps anything — a run that cannot negotiate **fails**, it never skips and reports success |
+
+⚠️ **The connection string uses Npgsql's spelling, `SSL Mode=VerifyFull` — not libpq's `sslmode=verify-full`**,
+which Npgsql rejects outright. Get that wrong and the API refuses to start rather than falling back, which is the
+intended outcome but reads as a puzzling refusal if you were copying a `psql` command line. The **sidecars** use
+libpq directly, so *there* the value genuinely is `verify-full`.
+
+⚠️ **`VerifyFull`, not `Require`.** `Require` encrypts and accepts *any* certificate: it stops a packet capture and
+not an impostor on the bridge network. Only `verify-full` checks the server's identity — which is also why
+`Host=postgres` must stay exactly that, since `postgres` is the name in the leaf's SAN.
+
+### Cold-start order
+
+Nothing needs doing by hand — `depends_on: { certs: { condition: service_completed_successfully } }` orders it —
+but the order is worth knowing when reading a failed boot:
+
+```
+certs (runs, exits 0)  →  postgres, minio  →  api, backup, pitr  →  web, console, caddy
+```
+
+⚠️ `extends` **does not carry `depends_on`**, so `docker-compose.hosted.yml` restates that dependency on every
+service that inherits from the prod file. A dropped one starts postgres before its certificate exists and fails
+on a *missing file*, two containers away from the real cause. `TransportConfigurationTests` derives the set of
+services that mount the volume and asserts each one waits for it.
+
+### Verifying it by hand
+
+```bash
+# Every hop over TLS, verified against the internal root:
+docker exec clinic-postgres-prod psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '\conninfo'
+# → SSL connection (protocol: TLSv1.3, cipher: TLS_AES_256_GCM_SHA384, compression: off)
+
+# The SERVER refuses cleartext — not merely "nothing uses it":
+docker run --rm --network clinic-management_internal postgres:16-alpine \
+  psql "host=postgres sslmode=disable user=$POSTGRES_USER dbname=$POSTGRES_DB" -c 'select 1'
+# → FATAL: no pg_hba.conf entry for host "...", no encryption
+
+# How long the internal CA has left, on the tool you already run around a migration:
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll verify-schema | grep internal-certificate
+```
+
+### Two things to know about the volume
+
+- **Back `internal_certs` up separately from `postgres_data`, or not at all.** It holds the CA's *private key*, so
+  one archive containing both hands whoever has it the means to impersonate the database and the object store to
+  any container that trusts this root.
+- **Losing it is recoverable and cheap**: delete the volume, `up -d`, and the one-shot mints a fresh set that every
+  consumer picks up from the same place. What is *not* recoverable is recreating it while containers are already
+  running against the old root — they keep verifying against a CA that no longer signs anything they can reach.
+  Bring the stack down first.
+
+### Forwarded headers
+
+`Security__TrustedProxies__0` is what makes the API believe Caddy's `X-Forwarded-For` and `X-Forwarded-Proto`.
+Left unset (or holding nothing parseable) **the headers are ignored entirely and a warning says so at startup** —
+never an unbounded header. The visible cost of ignoring them: every clinic in the deployment shares one
+rate-limit bucket, the per-account login lockout sees one address, and the Google OAuth state cookie loses its
+`Secure` flag.
+
+⚠️ **The two loopback-only gates — first-run `setup` and `/hangfire` — are decided by the real TCP peer and never
+by a header**, whatever this setting says. `curl -H 'X-Forwarded-For: 127.0.0.1' https://$DOMAIN/hangfire` is
+refused. That is a property of the code (the peer is captured before the headers are honoured), not of the proxy
+list being correct.
 
 ---
 

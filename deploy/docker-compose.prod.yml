@@ -9,6 +9,29 @@
 name: clinic-management
 
 services:
+  # The deployment's own internal certificate authority (hosted-security-hardening Part 2, FR-2.1/2.2/2.6).
+  # A one-shot container: it mints the CA + the postgres and minio leaves into `internal_certs`, exits 0, and
+  # every other service waits on `service_completed_successfully`. Idempotent — a still-chaining set is reused,
+  # so `up -d` does not hand postgres a new identity the API does not yet trust. See ./certs/issue.sh.
+  #
+  # ⚠️ Shared by BOTH hosted profiles: docker-compose.hosted.yml `extends` this file's infrastructure, so the
+  # internal CA, `ssl=on` and the hostssl-only pg_hba reach `CloudBrowser` too. That is why the API's
+  # fail-loud transit check gates on `!SelfHostsFrontDoor` — both hosted kinds — rather than on
+  # HostedMultiTenant alone: a check narrower than its own configuration lets transit fail open on the
+  # profile that received it. Transit is the fifth of this feature's global changes.
+  certs:
+    build:
+      context: ./certs
+      dockerfile: Dockerfile
+    image: clinic-internal-certs:1
+    container_name: clinic-certs-prod
+    # A one-shot must NOT be restarted: `restart: unless-stopped` would re-run it in a loop for ever, and
+    # `depends_on: service_completed_successfully` would never be satisfied.
+    restart: "no"
+    volumes:
+      - internal_certs:/certs
+    networks: [internal]
+
   postgres:
     # Custom image = postgres:16 + wal-g (PITR). Built here and tagged so the pitr sidecar reuses it.
     build:
@@ -17,6 +40,9 @@ services:
     image: clinic-postgres-pitr:16
     container_name: clinic-postgres-prod
     restart: unless-stopped
+    depends_on:
+      certs:
+        condition: service_completed_successfully
     # Continuous WAL archiving off-site (PITR). archive_command runs `wal-g wal-push`, inheriting
     # the WALG_*/AWS_* env below from the server process; a failed push is logged and retried by
     # Postgres (WAL is retained, never silently lost — AC-6). archive_timeout forces a WAL switch
@@ -29,6 +55,17 @@ services:
       - archive_command=wal-g wal-push %p
       - -c
       - archive_timeout=${PITR_ARCHIVE_TIMEOUT:-300}
+      # TLS with the internal leaf, and the hostssl-only pg_hba baked into the image (FR-2.3). `hba_file`
+      # points at an image path rather than $PGDATA's initdb-written copy, so the refusal applies to a volume
+      # that predates this change and cannot be edited away on a live host.
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/certs/postgres/server.crt
+      - -c
+      - ssl_key_file=/certs/postgres/server.key
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -42,8 +79,11 @@ services:
       AWS_S3_FORCE_PATH_STYLE: ${WALG_S3_FORCE_PATH_STYLE:-true}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - internal_certs:/certs:ro
     networks: [internal]
     # No `ports:` — not published to the host (AC-1).
+    # `pg_isready` with no host goes over the unix socket, which pg_hba's `local … trust` line covers — so
+    # the hostssl-only rule above does not turn the healthcheck red.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -54,16 +94,32 @@ services:
     image: minio/minio:latest
     container_name: clinic-minio-prod
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+    # `--certs-dir` is what turns 9000 into HTTPS: MinIO serves TLS as soon as it finds public.crt +
+    # private.key there, which is why issue.sh writes the leaf under exactly those two names (FR-2.2).
+    command: server /data --console-address ":9001" --certs-dir /certs/minio
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - minio_data:/data
+      - internal_certs:/certs:ro
     networks: [internal]
     # No `ports:` — not published to the host (AC-1). The bucket is auto-created by the API.
+    # ⚠️ `curl`, because **`minio/minio` ships no `wget`** — so the `wget --spider` line that stood here since
+    # the Cloud deployment was written has never once run: `/bin/sh: wget: command not found`, exit 1, for the
+    # life of both hosted profiles. It stayed invisible because nothing waits on `minio: service_healthy` (the
+    # API deliberately uses `service_started`), so the container simply sat at `health: starting` and no
+    # operator had a reason to look. Found while moving this line to HTTPS; fixed here rather than left,
+    # since the check that reports whether the object store is up should be one that can report.
+    #
+    # ⚠️ `--cacert`, never `--insecure`: a probe that skips verification proves the port answers and nothing
+    # about the chain, so a leaf that had stopped matching would read as healthy right up to the moment the
+    # API refused to talk to it. The leaf's SAN carries `localhost` for exactly this line.
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9000/minio/health/live || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS --cacert /certs/ca.crt https://localhost:9000/minio/health/live -o /dev/null || exit 1"]
       interval: 30s
       timeout: 20s
       retries: 3
@@ -75,6 +131,8 @@ services:
     container_name: clinic-api-prod
     restart: unless-stopped
     depends_on:
+      certs:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       minio:
@@ -84,7 +142,12 @@ services:
       ASPNETCORE_URLS: http://+:5000
       # Cloud mode: host/proxy (Caddy) terminates TLS; the API speaks plain HTTP on the internal net.
       Auth__Mode: Cloud
-      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # ⚠️ `sslmode=verify-full` + `Root Certificate=`, and the API REFUSES TO START without both on either
+      # hosted kind (FR-2.1/FR-2.5 — see Startup/TransportAssurance.cs). `verify-full` is the only mode that
+      # checks the server's identity as well as encrypting: `require` encrypts and accepts any certificate,
+      # so it stops a passive capture and not an impostor on the container network. The host in the string
+      # must stay `postgres` — that is the name in the leaf's SAN, and verify-full compares against it.
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=VerifyFull;Root Certificate=/certs/ca.crt"
       # OAuth success redirect + primary CORS origin (same-origin, so CORS is not exercised by the browser).
       FrontendUrl: "https://${DOMAIN}"
       Auth0__Domain: ${AUTH0_DOMAIN}
@@ -100,7 +163,12 @@ services:
       MinIO__Endpoint: "minio:9000"
       MinIO__AccessKey: ${MINIO_ROOT_USER}
       MinIO__SecretKey: ${MINIO_ROOT_PASSWORD}
-      MinIO__UseSSL: "false"
+      # FR-2.2, and the API refuses to start with this false on either hosted kind. The internal root below
+      # is what the Minio client verifies the leaf against — a system trust store knows nothing about it.
+      MinIO__UseSSL: "true"
+      MinIO__RootCertificate: /certs/ca.crt
+    volumes:
+      - internal_certs:/certs:ro
     networks: [internal]
     # No `ports:` — Caddy proxies /api/* to this service over the internal network (AC-1).
 
@@ -159,6 +227,8 @@ services:
     container_name: clinic-backup-prod
     restart: unless-stopped
     depends_on:
+      certs:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     environment:
@@ -167,6 +237,11 @@ services:
       PGDATABASE: ${POSTGRES_DB}
       PGUSER: ${POSTGRES_USER}
       PGPASSWORD: ${POSTGRES_PASSWORD}
+      # ⚠️ The sidecar has its OWN credentials and its own connection, so it had to come across in the same
+      # change as the server-side refusal (FR-2.3's ⚠️) — left behind, the nightly dump starts failing at
+      # 02:00 and the only symptom is a missing file nobody looks for. libpq reads these two directly.
+      PGSSLMODE: verify-full
+      PGSSLROOTCERT: /certs/ca.crt
       BACKUP_REMOTE: ${BACKUP_REMOTE:-}
       BACKUP_CRON: ${BACKUP_CRON:-0 2 * * *}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
@@ -174,6 +249,7 @@ services:
       - minio_data:/minio-data:ro   # MinIO object store, read-only, for the data archive
       - backups:/backups            # local staging of each dump (pruned by retention)
       - ./rclone:/config/rclone:ro  # operator's rclone.conf (gitignored) for the off-site remote
+      - internal_certs:/certs:ro    # the internal root pg_dump verifies the server against
     networks: [internal]
 
   # PITR base backups + retention (complements the logical `backup` sidecar above — AC-5).
@@ -193,6 +269,8 @@ services:
     container_name: clinic-pitr-prod
     restart: unless-stopped
     depends_on:
+      certs:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     entrypoint: ["/usr/local/bin/pitr-entrypoint.sh"]
@@ -203,6 +281,10 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD}
       PGDATABASE: ${POSTGRES_DB}
       PGDATA: /var/lib/postgresql/data
+      # `wal-g backup-push` brackets its copy with pg_backup_start/stop over a real connection, so the PITR
+      # stream needs the same verified TLS as the logical sidecar — and for the same reason (FR-2.3's ⚠️).
+      PGSSLMODE: verify-full
+      PGSSLROOTCERT: /certs/ca.crt
       # Same off-site destination + shared prefix as the postgres archive_command (AC-3).
       WALG_S3_PREFIX: ${WALG_S3_PREFIX}
       AWS_ENDPOINT: ${WALG_S3_ENDPOINT}
@@ -214,6 +296,7 @@ services:
       PITR_RETAIN_BASE_BACKUPS: ${PITR_RETAIN_BASE_BACKUPS:-7}
     volumes:
       - postgres_data:/var/lib/postgresql/data:ro   # read the data dir for backup-push (never writes it)
+      - internal_certs:/certs:ro
     networks: [internal]
 
 networks:
@@ -226,3 +309,14 @@ volumes:
   caddy_data:
   caddy_config:
   backups:
+  # The internal CA and the two server leaves (hosted-security-hardening Part 2). Written once by the `certs`
+  # one-shot, mounted read-only everywhere else.
+  #
+  # ⚠️ Do NOT back this up into the same archive as postgres_data — the same rule as dataprotection_keys, and
+  # for a sharper reason: this volume holds the CA's PRIVATE KEY, so whoever has both holds the ciphertext and
+  # the means to impersonate the database and the object store to any container that trusts the root.
+  #
+  # ⚠️ Deleting it (`down -v`) is recoverable and costs nothing: the one-shot mints a fresh set on the next
+  # `up -d`, and because every consumer reads the root from the same volume they all move together. What is
+  # NOT recoverable is deleting it while containers are already running against the old root.
+  internal_certs:

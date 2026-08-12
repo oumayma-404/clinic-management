@@ -24,11 +24,24 @@ namespace ClinicManagement.API.Middleware;
 /// <c>AUTH_MODE != local</c> — so there is nothing here to intersect with. The <c>ContainsKey</c> guard below stays
 /// anyway, because it defends against whatever upstream component sets one next.</para>
 ///
-/// <para><b>HSTS is off by default only where the certificate is self-signed</b> (AC-12.7). A self-generated CA
-/// plus HSTS on a device that never imported it converts a bypassable certificate warning into a permanent hard
-/// failure — so there it must be opted into explicitly, and only once every device trusts the CA. A deployment
-/// served over a publicly-trusted certificate gets HSTS on, which is why this asks about the certificate rather
-/// than about the login provider.</para>
+/// <para><b>HSTS is emitted only where this process is the browser-facing edge</b>, and there it is opt-in
+/// (AC-12.7): a self-generated CA plus HSTS on a device that never imported it converts a bypassable certificate
+/// warning into a permanent hard failure, so it must be opted into explicitly and only once every device trusts
+/// the CA.</para>
+///
+/// <para>⚠️ <b>Behind a reverse proxy the edge owns the header, and that became load-bearing in
+/// hosted-security-hardening Part 2.</b> Until then this middleware's HSTS was unreachable on the hosted kinds
+/// for an accidental reason — <c>Request.IsHttps</c> is false for a proxied request and nothing consumed
+/// <c>X-Forwarded-Proto</c> — so <c>deploy/Caddyfile</c> sets the header itself and says « HSTS belongs HERE, not
+/// in the API ». Part 2 registers <c>UseForwardedHeaders</c>, which makes <c>IsHttps</c> true and would have
+/// emitted a <b>second</b> header beside Caddy's: verified by reproducing the shipped directive over an upstream
+/// that sets its own, and the client received <b>two</b> — Caddy appends rather than replaces. RFC 6797 § 8.1
+/// then has the browser honour only the first, so it was not a downgrade; it was a malformed response and a
+/// header whose value nothing in the deployment could predict. Asking <c>SelfHostsFrontDoor</c> keeps the
+/// Caddyfile's stated rule true in one place instead of stripping the duplicate at three proxy blocks.</para>
+///
+/// <para>The observable behaviour is therefore <b>unchanged in every profile</b>: what changed is that the reason
+/// hosted deployments do not emit it is now stated rather than incidental.</para>
 /// </summary>
 public class SecurityHeadersMiddleware
 {
@@ -78,9 +91,9 @@ public class SecurityHeadersMiddleware
     {
         _next = next;
 
-        // Opt-in where the certificate is self-signed, on everywhere else — see the CA interaction above.
-        _hstsEnabled = !DeploymentProfile.Resolve(configuration).SelfSignsCertificate
-                       || configuration.GetValue(EnableHstsKey, false);
+        // Only where this process is the edge, and opt-in there — see the two paragraphs above.
+        _hstsEnabled = DeploymentProfile.Resolve(configuration).SelfHostsFrontDoor
+                       && configuration.GetValue(EnableHstsKey, false);
 
         // Opt-in everywhere, and NOT derived from the profile: what makes enforcing safe is that somebody has
         // walked these pages in this deployment, and no capability knows that. Read once — a per-request read
