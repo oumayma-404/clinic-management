@@ -158,8 +158,27 @@ export function clearMustChangeCookie(response: NextResponse): void {
   }
 }
 
-// No `secure` on a deletion: the browser matches the cookie by name, domain and path only, and requiring
-// Secure here would leave a non-Secure cookie in place on exactly the plain-HTTP deployment above.
+// ⚠️ **`Secure` is decided by the NAME, and getting this wrong made sign-out silently not sign out.**
+//
+// The rule this used to state — « the browser matches the cookie by name, domain and path only, so a deletion
+// needs no Secure » — is true of an ordinary cookie and FALSE of a prefixed one. A `__Host-` cookie must carry
+// `Secure` (with `Path=/` and no `Domain`) or the browser rejects the `Set-Cookie` **entirely**, and that rule
+// is applied to every `Set-Cookie` including one whose only purpose is to expire the value. So
+// `__Host-local_session=; Max-Age=0` with no `Secure` was discarded, the live cookie stayed, `readSessionCookie`
+// went on finding it, and `/bff/auth/local-logout` answered 200 to a user who was still signed in.
+//
+// Observed on the hosted deployment; invisible in local development, where `isSecure` is false, the unprefixed
+// name is what gets written, and its deletion is accepted exactly as the old comment predicted.
+//
+// Keying on the name rather than on the request is what keeps BOTH cases right: the prefixed spelling can only
+// ever have been set on a secure origin, so `Secure` is always correct for it, while the unprefixed one must
+// stay without it or its deletion is refused on the plain-HTTP LAN install. (A non-Secure `Set-Cookie` is
+// perfectly acceptable over HTTPS, so the unprefixed deletion still lands there too.)
 function clearCookie(response: NextResponse, name: string): void {
-  response.cookies.set(name, '', { httpOnly: true, path: '/', maxAge: 0 });
+  response.cookies.set(name, '', {
+    httpOnly: true,
+    secure: name.startsWith('__Host-'),
+    path: '/',
+    maxAge: 0,
+  });
 }
