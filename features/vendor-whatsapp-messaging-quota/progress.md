@@ -953,4 +953,124 @@ the cause but points at the line's end.
       and no `Meta:AppId`/`AppSecret` exists on any deployment (Story 0's 🔴). Everything here is verified against the
       documented payload shapes and the unit suite. § 34's field name and the five finish types are Story 0's reading.
 - [ ] **The v4 flow in a browser** — § 31's four edits are unverified against a live popup for the same reason.
-- [ ] `CLAUDE.md` and the sub-guides — **Part 5's step 42**, deliberately not done here (Parts 0–3 did the same).
+- [x] `CLAUDE.md` and the sub-guides — **Part 5's step 42**, done there.
+
+---
+
+## Story 1 — Part 5
+
+**Session scope, chosen by the user:** Part **5**, the closing part.
+
+**Branch:** `feature/windows-desktop-app`, continued.
+
+### Working tree note (start of session)
+
+`stories/context.md`'s staleness diff (`db2b371..HEAD` over the paths it names) came back **empty**, so every pointer
+in it held and Step 6's exploration was skipped entirely — the first session of this feature to get that.
+
+Another author's in-flight agenda work was present throughout and excluded from every commit: `.gitignore`,
+`web/app/appointments/page.tsx`, `web/components/appointment-calendar.tsx`,
+`web/components/create-appointment-dialog.tsx`, `web/package.json`, `web/package-lock.json`,
+`web/components/agenda-grid-drag.ts`, `web/scripts/shots.mjs`, `.playwright-mcp/`, twelve `*.png` screenshots,
+`features/agenda-grid-gestures/`, `features/hosted-security-hardening/`, `features/landing-website/agent-prompt.md`.
+Every path was staged explicitly; nothing was staged with `git add -A`.
+
+---
+
+## Part 5 — Verification, guards and documentation ✅
+
+| Step | Outcome |
+|---|---|
+| 39 · The three `verify-schema` checks | ✅ `monthly-allowance-matches-ledger` (rows, through the **real** fold, both directions) · `messaging-month-covers-every-clinic` (derived over every cabinet, capability-gated) · `messaging-allowance-entry-has-one-form` + the `MessagingAllowanceFacts` projection in `SchemaVerificationReader` |
+| 40 · Before/after over the **batch**, diffed | ✅ rehearsed on a throwaway database at the pre-feature migration: **6 DRIFT → 0**, and `reconcile-money`'s diff is **only the timestamp** |
+| 41 · EC-16 by reprofiling | ✅ `verify-schema` walked under all three profiles over one database, plus two new guards (below) |
+| 42 · Documentation | ✅ root `CLAUDE.md` + the four `api/*` sub-guides + `web/CLAUDE.md` + `UnitTests/CLAUDE.md` + the **operator runbook** in `deploy/README.md` |
+| 43 · Follow-ups | ✅ `follow-up/vendor-messaging-open-questions.md` (6 items, each with its remedy chosen) + the index row |
+
+### The defect § 39 found in itself, before it shipped
+
+⚠️ **`Fold(...) ?? 0` would have reported the vendor's own documented behaviour as drift.** The first draft of
+`monthly-allowance-matches-ledger` collapsed a null fold to zero. But **both** writers —
+`MessagingAllowanceRefold` and `MessagingAllowanceJob.ProvisionMonthAsync` — deliberately leave a month's snapshot
+standing when the fold is null, because null means « no allocation reaches this month » and is not `0` (FR-4). So
+cancelling every allocation feeding the current month — **AC-7.4's own case**, where consumption is supposed to keep
+reading against the old figure — would have shown as « stores MORE than its ledger » on every cabinet it happened
+to. Found by reading the two writers rather than by a failing test; such rows are now excluded from the comparison
+and **stated** in the finding (« N more reach no allocation and are not compared »), never silently dropped.
+
+### Two new guards, and why each is a *source* scan rather than a behavioural test
+
+⚠️ **`MessagingCapabilityRegistrationTests`.** Every other EC-16 assertion in this feature hands a component a
+mocked `IVendorMessagingAvailability` answering `false` and watches it do nothing — which proves the component
+behaves, and proves nothing about whether the deployment ever *asks*. `MessagingAllowanceJob` is registered by a
+composition-root `if` that no mock reaches: moved one block out of it, the daily pass runs on a clinic's own
+Windows PC for ever, provisioning forfaits nobody sells. The guard brace-matches the `SellsVendorMessaging` block
+in `Program.cs`'s own source and asserts every `AddOrUpdate<…MessagingAllowanceJob>` falls inside it, deriving the
+registrations by regex and asserting the set is **non-empty** so « found nothing » cannot read as « nothing was
+wrong ». A second case pins that the `else`'s `RemoveIfExists` names the **same** job id — a mistyped id there
+leaves the old registration running on a reprofiled install, the one failure the defensive branch exists to
+prevent and the one it cannot report.
+
+⚠️ **The two clinic reads had no test at all.** `GET /api/clinics/reminder-allowance` and `…/history` 404 before
+the mediator on `!SellsVendorMessaging`, and nothing asserted it. They are now driven over the **real**
+`DeploymentProfile.For(kind)` rather than a mocked capability — so the case also fails if `DeploymentProfile` ever
+starts answering `true` for the wrong kind — and the assertion is **`Assert.Empty(mediator.Invocations)`**, not the
+status: a 404 raised *after* the handler, its repository and the allowance policy were resolved would satisfy a
+status check and miss « byte for byte unchanged ».
+
+Both red-proofs were **executed**: moving the registration out of its `if` reddens the first (and only the first);
+reverting the null handling to `?? 0` and dropping the `understated` direction reddens exactly the two cases that
+pin them.
+
+### The gap § 42 found: `deploy/` carried no `Messaging__*` at all
+
+⚠️ Writing the runbook surfaced that **`grep -rn "Messaging__" deploy/` returned nothing** — Part 0 registered
+`IMessagingAllowancePolicy` reading `Messaging:DefaultMessagesPerMonth` / `ContactEmail` / `ContactPhone`, and the
+only deployment that enforces the feature could not configure any of them. Exactly the shape of Story 0's 🔴 about
+the Meta keys, and of `clinic-subscription`'s « `deploy/` now carries the ten `Subscription__*` variables ». The
+three keys are now in `docker-compose.hosted.yml` and `.env.hosted.example` with their fall-backs stated.
+⚠️ It also caught my own runbook naming keys that do not exist (`MESSAGING__DEFAULTMESSAGESPERMONTH`) — corrected
+against `MessagingAllowancePolicy`'s own source before shipping.
+
+### What the live run found on the dev database
+
+⚠️ **`messaging-month-covers-every-clinic` reported 1 of 6 cabinets uncovered on its first run against a real
+database — and it is right.** « Cabinet Chaîne Test », created 17:16 UTC that afternoon, has an entitlement, a user
+and 19 procedure types — the full provisioning signature — and **zero** messaging rows. Not a defect in this
+branch: `ClinicCreationMessagingAllowanceTests` (which derives the door set by scanning for `new Clinic(`) is
+green, and there are `dotnet` processes running since **09 and 11 August**, i.e. a dev API whose binary predates
+Part 1 entirely. `messaging-report` independently lands it in « aucun forfait » rather than « non mesuré » — the
+two facts this feature exists to keep apart — and exits **2**.
+
+### Part 5 gate
+
+| Check | Result |
+|---|---|
+| `dotnet build` (`--no-incremental`, `BaseOutputPath` outside the repo) | ✅ **0 errors**, 55 warnings — the identical pre-existing baseline, **0 in changed files** |
+| Unit suite (`-c Release`, outside the repo) | ✅ **3068 passed / 0 failed** (3049 before Part 5; **19 new**) |
+| `SchemaVerificationServiceTests` | ✅ 66 (**15 new**) — both directions of the fold comparison; a **cancelled** ledger keeping its snapshot; five malformed allocation shapes; the capability-off « not applicable »; and the pre-tables case |
+| `MessagingCapabilityRegistrationTests` | ✅ 5, with an executed red-proof on the registration gate |
+| `verify-schema` **before** the batch (throwaway DB, 2 seeded cabinets) | exit **2** — 6 DRIFT, every one a `MISSING` index or FK of this feature's own objects; the three new checks « not applicable » |
+| `verify-schema` **after** | exit **2** → the only remaining DRIFT is `clinic-activity-snapshot-covers-every-clinic`, pre-existing on a hand-seeded database and **identical before and after**, so it does not appear in the diff |
+| The **diff** | ✅ **only the intended objects**: 3 indexes + 2 FKs `MISSING → present`, `MessagingAllowanceEntries.Amount: (18,3)` arriving from the model-wide convention, and the three new checks moving « not applicable » → green with real figures. Nothing else |
+| `reconcile-money` **before and after** — the pair Parts 1–3 owed | ✅ exit **0** both times, and the diff is **only the timestamp**: the batch moved no closed month (FR-2) |
+| Reprofile walk (`Deployment__Profile`, one database) | ✅ `SelfHostedLan` and `CloudBrowser` both read « not applicable — this deployment does not sell vendor messaging »; `HostedMultiTenant` reports the real figure. The other two checks still run on all three |
+| `messaging-report` against the dev database | ✅ exit **2**, one « aucun forfait » finding (above), 5 cabinets clean |
+| `web`: `npx tsc --noEmit` · `check:responsive` · `build` | ✅ clean · **16/16** · compiled |
+| `console`: `npx tsc --noEmit` · `check-responsive.mjs` · `build` | ✅ clean · **14/14** · compiled |
+| `deploy/docker-compose.hosted.yml` | ✅ parses under `yaml.safe_load`; the three `Messaging__*` keys asserted present with their fall-backs |
+
+### Still owed after Part 5 — all captured, none a code gap
+
+Every item is in [`follow-up/vendor-messaging-open-questions.md`](../../../follow-up/vendor-messaging-open-questions.md)
+with its remedy already chosen. The two that were owed by earlier parts:
+
+- [ ] **The responsive eye pass** at 320/390/820/1180/1440 px + a landscape phone, over `/rappels` (Parts 2 and 4)
+      and the console's two sheets (Part 3). ⚠️ It needs more than a browser: the three cards mount **only where
+      `SellsVendorMessaging` is true**, so the walk needs a `HostedMultiTenant`-profiled instance rather than the
+      local dev one. `web/scripts/shots.mjs` (another author's, mid-feature) should make the width sweep cheap once
+      that exists.
+- [ ] **AC-6.9** confirmed by trying it — needs a running console listener and a tunnel.
+
+⚠️ **Part 5 touched no rendering file** (`web/CLAUDE.md` only), so the eye pass is not owed *by this part's diff*;
+it is inherited from Parts 2–4 and stated rather than quietly dropped.

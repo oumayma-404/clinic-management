@@ -2,7 +2,7 @@
 
 **Feature:** [features/vendor-whatsapp-messaging-quota/](../)
 **Written:** 2026-08-12 at commit `4e59462`
-**Last verified:** 2026-08-12 at commit `db2b371` (end of Part 4)
+**Last verified:** 2026-08-12 at commit `6cdd2a2` (end of Part 5 — the story is complete)
 **Scope:** durable facts only. Anything marked ⚠️ is volatile and MUST be re-checked.
 
 > Written during **Part 4** (the fifth session of Story 1). Parts 0–3 had no `context.md`, so the facts below
@@ -11,7 +11,7 @@
 ## Staleness check (run this first — one command)
 
 ```bash
-git diff --stat db2b371..HEAD -- \
+git diff --stat 6cdd2a2..HEAD -- \
   api/ClinicManagement.Application/Features/Messaging \
   api/ClinicManagement.Application/Common/ClinicClock.cs \
   api/ClinicManagement.Application/Common/Interfaces \
@@ -147,7 +147,7 @@ Paths only — signatures go stale, and the previous part is the most likely thi
 
 | Fact | Why it moves | How to check |
 |------|--------------|--------------|
-| Which parts have landed | one part per session | `git log --oneline -6` + `progress.md`'s part headings — Parts 0–4 are in |
+| Which parts have landed | one part per session | `git log --oneline -6` + `progress.md`'s part headings — **all six parts (0–5) are in; the story is done** |
 | Whether a symbol a later part needs exists yet | Parts 4–5 create several | grep for the symbol |
 | The dev database being **ahead** of this branch | it carries another feature's migration (`AddUserSecondFactorAndSessionFamilies`) | `dotnet ef migrations list` vs `__EFMigrationsHistory` |
 | Working-tree cleanliness | other authors' work arrives between sessions | `git status` + `git diff HEAD --numstat` before staging |

@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Maintenance;
 using ClinicManagement.Domain.Enums;
@@ -31,7 +32,9 @@ public class SchemaVerificationServiceTests
         DataMigrationCounts? counts = null,
         AuditLedgerFacts? auditLedger = null,
         IReadOnlyList<ClinicSubscriptionLedgerFact>? subscriptionLedgers = null,
-        bool coverKindColumnPresent = true)
+        bool coverKindColumnPresent = true,
+        MessagingAllowanceFacts? messagingAllowances = null,
+        bool messagingTablesExist = true)
     {
         _reader
             .Setup(r => r.ReadAsync(It.IsAny<CancellationToken>()))
@@ -48,8 +51,42 @@ public class SchemaVerificationServiceTests
                 // Default: one cabinet whose stored end date IS its ledger's fold, so the subscription checks
                 // pass and individual tests override just this facet.
                 subscriptionLedgers ?? new[] { AgreeingLedger },
-                coverKindColumnPresent));
+                coverKindColumnPresent,
+                // Default: one cabinet whose stored month equals its ledger's fold and which is covered for the
+                // current month, so the three messaging checks pass and tests override just this facet.
+                messagingTablesExist ? messagingAllowances ?? AgreeingMessaging() : null));
     }
+
+    private static readonly Guid MessagingCabinet = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+
+    /// <summary>
+    /// One cabinet allocated 200 messages a month, with a counting row for the current month.
+    /// ⚠️ The stored allowance is <b>computed by the fold</b>, never retyped: a literal here would be a second copy
+    /// of the arithmetic and could agree with a mistake, which is the whole reason this check folds in the service.
+    /// </summary>
+    private static MessagingAllowanceFacts AgreeingMessaging(
+        IReadOnlyList<MessagingAllowanceLedgerEntry>? entries = null,
+        bool coverCurrentMonth = true,
+        bool sells = true)
+    {
+        var month = ClinicClock.CurrentMonthKey();
+        var ledger = entries ?? new[] { StandingEntry(200) };
+        var months = coverCurrentMonth
+            ? new[] { new StoredMessagingMonth(month, MessagingAllowanceLedger.Fold(ledger, month) ?? 0, 17) }
+            : Array.Empty<StoredMessagingMonth>();
+
+        return new MessagingAllowanceFacts(
+            month, sells, new[] { new ClinicMessagingLedgerFact(MessagingCabinet, ledger, months) });
+    }
+
+    private static MessagingAllowanceLedgerEntry StandingEntry(int messages) => new(
+        Guid.Parse("22222222-2222-2222-2222-222222222222"),
+        MessagingAllowanceKind.Standing,
+        messages,
+        // The rollout month, so it reaches every month asked about however long this deployment has been running.
+        "2026-01",
+        new DateTime(2026, 1, 5, 9, 0, 0, DateTimeKind.Utc),
+        IsCancelled: false);
 
     /// <summary>
     /// One cabinet on a 30-day trial recorded on 10 Aug 2026, whose stored <c>EndsOn</c> is what the real fold
@@ -896,7 +933,8 @@ public class SchemaVerificationServiceTests
                 CleanCounts,
                 new AuditLedgerFacts(TableExists: true, ClinicIdIsNullable: true),
                 SubscriptionLedgers: null,
-                SubscriptionCoverKindColumnPresent: false));
+                SubscriptionCoverKindColumnPresent: false,
+                MessagingAllowances: null));
 
         var report = await CreateService().RunAsync();
 
@@ -921,5 +959,191 @@ public class SchemaVerificationServiceTests
         var finding = Finding(report, "subscription-grandfathered-entries");
         Assert.False(IsDrift(finding));
         Assert.Contains(count.ToString(), finding.Detail, StringComparison.Ordinal);
+    }
+
+    // ------------------------------------------------------------------ the WhatsApp reminder forfait (§ 39)
+
+    [Fact]
+    public async Task A_Month_Storing_Exactly_Its_Ledgers_Fold_Is_Not_Drift()
+    {
+        Arrange();
+
+        var report = await CreateService().RunAsync();
+
+        Assert.False(IsDrift(Finding(report, "monthly-allowance-matches-ledger")));
+    }
+
+    // [R-6] Both directions, because they are opposite defects and only one favours the vendor: a snapshot ABOVE the
+    // fold lets a cabinet send messages nobody allocated, one BELOW holds reminders it has paid for. A single
+    // « N rows disagree » would hide which, and the two need different responses.
+    [Theory]
+    [InlineData(300, "MORE")]
+    [InlineData(50, "less")]
+    public async Task A_Month_Disagreeing_With_Its_Ledger_Is_Drift_In_Both_Directions(int stored, string expected)
+    {
+        var ledger = new[] { StandingEntry(200) };
+        Arrange(messagingAllowances: new MessagingAllowanceFacts(
+            ClinicClock.CurrentMonthKey(),
+            SellsVendorMessaging: true,
+            new[]
+            {
+                new ClinicMessagingLedgerFact(
+                    MessagingCabinet,
+                    ledger,
+                    new[] { new StoredMessagingMonth(ClinicClock.CurrentMonthKey(), stored, 0) })
+            }));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "monthly-allowance-matches-ledger");
+        Assert.True(IsDrift(finding));
+        Assert.Contains(expected, finding.Detail, StringComparison.Ordinal);
+    }
+
+    // The case a SQL re-implementation of the fold would most likely get wrong, and the reason this check reads rows:
+    // a CANCELLED entry contributes to no month, the current one included (AC-7.4), while a *lowering* would wait for
+    // the next. A stored 900 here is exactly what a refold that skipped the cancellation would have left behind.
+    [Fact]
+    public async Task A_Cancelled_Allocation_Is_Folded_Out_Of_The_Month_It_Fed()
+    {
+        var month = ClinicClock.CurrentMonthKey();
+        var topUp = new MessagingAllowanceLedgerEntry(
+            Guid.Parse("33333333-3333-3333-3333-333333333333"),
+            MessagingAllowanceKind.TopUp,
+            700,
+            month,
+            new DateTime(2026, 2, 1, 9, 0, 0, DateTimeKind.Utc),
+            IsCancelled: true);
+        var ledger = new[] { StandingEntry(200), topUp };
+
+        Arrange(messagingAllowances: new MessagingAllowanceFacts(
+            month,
+            SellsVendorMessaging: true,
+            new[]
+            {
+                new ClinicMessagingLedgerFact(
+                    MessagingCabinet, ledger, new[] { new StoredMessagingMonth(month, 900, 0) })
+            }));
+
+        var report = await CreateService().RunAsync();
+
+        Assert.True(IsDrift(Finding(report, "monthly-allowance-matches-ledger")));
+        Assert.Equal(200, MessagingAllowanceLedger.Fold(ledger, month));
+    }
+
+    // ⚠️ The case a `Fold(...) ?? 0` gets wrong, and it is the vendor's OWN documented behaviour rather than an
+    // exotic edge: cancelling every allocation feeding a month folds to null, and both writers — the refold and the
+    // daily pass — deliberately leave the snapshot standing so consumption still reads against it (AC-7.4, FR-4).
+    // Collapsing null to 0 reports that as « stores MORE than its ledger » on every cabinet it happens to.
+    [Fact]
+    public async Task A_Month_Whose_Whole_Ledger_Was_Cancelled_Keeps_Its_Snapshot_And_Is_Not_Drift()
+    {
+        var month = ClinicClock.CurrentMonthKey();
+        var cancelled = new MessagingAllowanceLedgerEntry(
+            Guid.Parse("55555555-5555-5555-5555-555555555555"),
+            MessagingAllowanceKind.Standing,
+            200,
+            "2026-01",
+            new DateTime(2026, 1, 5, 9, 0, 0, DateTimeKind.Utc),
+            IsCancelled: true);
+
+        Arrange(messagingAllowances: new MessagingAllowanceFacts(
+            month,
+            SellsVendorMessaging: true,
+            new[]
+            {
+                new ClinicMessagingLedgerFact(
+                    MessagingCabinet,
+                    new[] { cancelled },
+                    new[] { new StoredMessagingMonth(month, 200, 173) })
+            }));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "monthly-allowance-matches-ledger");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("not compared", finding.Detail, StringComparison.Ordinal);
+        Assert.Null(MessagingAllowanceLedger.Fold(new[] { cancelled }, month));
+    }
+
+    // [FR-1a] The figure that says « the pass has not run » rather than « these practices are idle ».
+    [Fact]
+    public async Task A_Cabinet_With_No_Counting_Row_For_This_Month_Is_Drift()
+    {
+        Arrange(messagingAllowances: AgreeingMessaging(coverCurrentMonth: false));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "messaging-month-covers-every-clinic");
+        Assert.True(IsDrift(finding));
+        Assert.Contains(ClinicClock.CurrentMonthKey(), finding.Detail, StringComparison.Ordinal);
+    }
+
+    // [EC-16] The load-bearing case for the two deployment kinds the feature is absent from. Nothing registers the
+    // daily pass there, so every cabinet is legitimately uncovered from the second month onwards — and a check that
+    // is permanently red is a check an operator learns to skip past, taking the other two with it.
+    [Fact]
+    public async Task Where_The_Deployment_Does_Not_Sell_Messaging_The_Coverage_Check_Does_Not_Apply()
+    {
+        Arrange(messagingAllowances: AgreeingMessaging(coverCurrentMonth: false, sells: false));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "messaging-month-covers-every-clinic");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("not applicable", finding.Detail, StringComparison.OrdinalIgnoreCase);
+
+        // ...and the other two still run there: the tables exist and their rows can still drift.
+        Assert.Equal(3, report.Findings.Count(f => f.Scope == "Messaging allowances"));
+    }
+
+    [Fact]
+    public async Task An_Allocation_In_A_Legal_Form_Is_Not_Drift()
+    {
+        Arrange();
+
+        Assert.False(IsDrift(Finding(await CreateService().RunAsync(), "messaging-allowance-entry-has-one-form")));
+    }
+
+    // Every one of these is SILENT in the fold rather than loud — an unknown kind and a malformed month contribute
+    // nothing, so the cabinet reads as having no allowance, while a top-up of zero turns « aucun forfait » into
+    // « forfait épuisé ». None of them can be built through MessagingAllowanceEntry.Create, which is the point: a row
+    // in one of these shapes means some write path reached the table without passing the guard.
+    [Theory]
+    [InlineData((MessagingAllowanceKind)0, 200, "2026-01")]
+    [InlineData(MessagingAllowanceKind.Standing, -5, "2026-01")]
+    [InlineData(MessagingAllowanceKind.TopUp, 0, "2026-01")]
+    [InlineData(MessagingAllowanceKind.Standing, 200, "2026-13")]
+    [InlineData(MessagingAllowanceKind.Standing, 200, "janvier")]
+    public async Task An_Allocation_The_Fold_Cannot_Read_Is_Drift(
+        MessagingAllowanceKind kind, int messages, string effectiveMonth)
+    {
+        var malformed = new MessagingAllowanceLedgerEntry(
+            Guid.Parse("44444444-4444-4444-4444-444444444444"),
+            kind,
+            messages,
+            effectiveMonth,
+            new DateTime(2026, 1, 5, 9, 0, 0, DateTimeKind.Utc),
+            IsCancelled: false);
+
+        Arrange(messagingAllowances: AgreeingMessaging(new[] { malformed }, coverCurrentMonth: false));
+
+        var report = await CreateService().RunAsync();
+
+        Assert.True(IsDrift(Finding(report, "messaging-allowance-entry-has-one-form")));
+    }
+
+    [Fact]
+    public async Task The_Three_Messaging_Checks_Read_Not_Applicable_Before_The_Tables_Exist()
+    {
+        Arrange(messagingTablesExist: false);
+
+        var report = await CreateService().RunAsync();
+
+        var messaging = report.Findings.Where(f => f.Scope == "Messaging allowances").ToList();
+        Assert.Equal(3, messaging.Count);
+        Assert.All(messaging, f => Assert.False(IsDrift(f)));
+        Assert.All(messaging, f =>
+            Assert.Contains("not applicable", f.Detail, StringComparison.OrdinalIgnoreCase));
     }
 }

@@ -37,7 +37,50 @@ public sealed record SchemaFacts(
     /// <b>null</b> stored kind is a real value — a cabinet whose every ledger entry has been cancelled — and
     /// « the column is not there » must not be reported as that.
     /// </summary>
-    bool SubscriptionCoverKindColumnPresent);
+    bool SubscriptionCoverKindColumnPresent,
+    /// <summary>
+    /// The WhatsApp reminder forfait's three checks, or <b>null</b> before its tables exist.
+    /// </summary>
+    MessagingAllowanceFacts? MessagingAllowances);
+
+/// <summary>
+/// Everything the three <c>vendor-whatsapp-messaging-quota</c> checks read, in one shape.
+/// </summary>
+/// <param name="CurrentMonthKey">
+/// The <b>Tunisian</b> month the daily pass is supposed to have provisioned by now, resolved once by the reader
+/// rather than by each check — « aujourd'hui » read twice either side of Tunisian midnight gives two answers, and
+/// the two figures below would then describe different months.
+/// </param>
+/// <param name="SellsVendorMessaging">
+/// Whether this deployment does vendor-purchased messaging at all. It gates only
+/// <c>messaging-month-covers-every-clinic</c>, whose writer — the daily pass — is registered nowhere else, so
+/// without it that check would go permanently red on the two kinds the feature is absent from (EC-16).
+/// </param>
+public sealed record MessagingAllowanceFacts(
+    string CurrentMonthKey,
+    bool SellsVendorMessaging,
+    IReadOnlyList<ClinicMessagingLedgerFact> Cabinets);
+
+/// <summary>
+/// One cabinet's whole allocation ledger beside the counting rows that are supposed to be a fold of it (FR-1a, FR-2).
+///
+/// <para><b>⚠️ Rows and not a count, for <c>subscription-end-date-matches-ledger</c>'s reason</b> (R-6): comparing a
+/// stored <c>AllowanceMessages</c> against the fold *in SQL* means re-expressing « the last standing entry effective
+/// on or before this month, plus that month's top-ups » as a window function — a second copy of the one arithmetic
+/// this feature keeps single, in a language where no compiler checks it against the first. So the reader projects and
+/// <c>SchemaVerificationService</c> calls the <b>real</b> <see cref="MessagingAllowanceLedger.Fold"/>.</para>
+///
+/// <para><b>Every cabinet appears, including one with no rows at all</b> — that is precisely what
+/// <c>messaging-month-covers-every-clinic</c> counts, and a projection keyed off the ledger would make FR-3's failure
+/// state the one state it cannot show.</para>
+/// </summary>
+public sealed record ClinicMessagingLedgerFact(
+    Guid ClinicId,
+    IReadOnlyList<MessagingAllowanceLedgerEntry> Entries,
+    IReadOnlyList<StoredMessagingMonth> Months);
+
+/// <summary>One <c>ClinicMessagingMonths</c> row, reduced to what the fold is compared against.</summary>
+public sealed record StoredMessagingMonth(string MonthKey, int AllowanceMessages, int ConsumedMessages);
 
 /// <summary>
 /// One cabinet's stored entitlement date beside the ledger it is supposed to be a fold of

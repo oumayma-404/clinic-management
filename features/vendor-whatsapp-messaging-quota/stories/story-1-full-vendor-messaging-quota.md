@@ -1,7 +1,7 @@
 # Story 1: FULL — Vendor-purchased WhatsApp messaging quota
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts 0, 1, 2, 3 and 4 done** (see [`../progress.md`](../progress.md)); Part 5 outstanding
+**Story Status:** **implemented** — all six parts (0–5) done (see [`../progress.md`](../progress.md))
 **Layer:** **Full** (BE · jobs · console verbs · clinic UI · console UI) — see the departure note below
 **Depends On:** 0
 **Blocks:** None
@@ -423,9 +423,11 @@ Step numbers match [`../plan.md`](../plan.md) exactly, so the two can be read si
     follow-up items.
 
 **Part 5 commit point.** Validation:
-- [ ] `verify-schema` exits **0** after the batch; the before/after diff shows only the intended objects
-- [ ] The whole unit suite green; `dotnet build` clean; `web` and `console` gates green
-- [ ] Every `CLAUDE.md` touched by this feature reflects it
+- [x] `verify-schema`: the before/after diff over the whole batch shows **only** the intended objects (6 DRIFT → 0,
+      plus the three new checks moving « not applicable » → green). ⚠️ Rehearsed on a throwaway database at the
+      pre-feature migration, since the dev database had the batch applied part by part
+- [x] The whole unit suite green (**3068**); `dotnet build` clean; `web` (16/16) and `console` (14/14) gates green
+- [x] Every `CLAUDE.md` touched by this feature reflects it, and `deploy/README.md` carries the operator runbook
 
 ## Files to Create/Modify
 

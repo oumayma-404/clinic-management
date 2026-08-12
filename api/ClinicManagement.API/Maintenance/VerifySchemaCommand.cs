@@ -67,7 +67,8 @@ public static class VerifySchemaCommand
                 .UseSystemWide($"{CommandName} verifies the schema and counts backfilled rows across every clinic");
 
             var reader = new SchemaVerificationReader(
-                scope.ServiceProvider.GetRequiredService<ApplicationDbContext>());
+                scope.ServiceProvider.GetRequiredService<ApplicationDbContext>(),
+                scope.ServiceProvider.GetRequiredService<IVendorMessagingAvailability>());
             var service = new SchemaVerificationService(reader);
 
             var report = await service.RunAsync(cancellationToken);

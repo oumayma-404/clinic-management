@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Common.Maintenance;
@@ -97,6 +98,7 @@ public class SchemaVerificationService
         VerifyAuditLedger(facts, findings);
         VerifyDataMigrations(facts, findings);
         VerifySubscriptions(facts, findings);
+        VerifyMessagingAllowances(facts, findings);
 
         return new SchemaVerificationReport(findings);
     }
@@ -630,6 +632,123 @@ public class SchemaVerificationService
                 ok(count.Value) ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
         }
     }
+
+    // ------------------------------------------------------------------ the WhatsApp reminder forfait
+
+    /// <summary>
+    /// The three <c>vendor-whatsapp-messaging-quota</c> checks (FR-1a, FR-2, FR-3). The two tables' shape — their
+    /// three indexes, two foreign keys and the amount's precision — is diffed against the catalog for free by the
+    /// model comparison above, so none of it is repeated here; what is named is only what the model cannot state.
+    ///
+    /// <para>⚠️ <c>monthly-allowance-matches-ledger</c> calls the <b>real</b>
+    /// <see cref="MessagingAllowanceLedger.Fold"/> for <c>subscription-end-date-matches-ledger</c>'s reason (R-6).</para>
+    /// </summary>
+    private static void VerifyMessagingAllowances(SchemaFacts facts, List<SchemaVerificationFinding> findings)
+    {
+        const string scope = "Messaging allowances";
+
+        if (facts.MessagingAllowances is not { } messaging)
+        {
+            findings.Add(NotApplicableIn(scope, "monthly-allowance-matches-ledger", NoTablesYet));
+            findings.Add(NotApplicableIn(scope, "messaging-month-covers-every-clinic", NoTablesYet));
+            findings.Add(NotApplicableIn(scope, "messaging-allowance-entry-has-one-form", NoTablesYet));
+            return;
+        }
+
+        // ⚠️ A month whose ledger folds to NULL is deliberately not compared. Both writers — MessagingAllowanceRefold
+        // and the daily pass — leave such a row's snapshot exactly as it was, because null means « no allocation
+        // reaches this month » and is not the same claim as zero (FR-4, AC-4.3): cancelling every allocation feeding
+        // the current month is supposed to leave consumption standing against the old figure (AC-7.4). Collapsing
+        // null to 0 here would report that documented behaviour as drift on every cabinet it happens to.
+        var comparable = messaging.Cabinets
+            .SelectMany(c => c.Months.Select(m => (Stored: m.AllowanceMessages,
+                Folded: MessagingAllowanceLedger.Fold(c.Entries, m.MonthKey))))
+            .ToList();
+        var unfolded = comparable.Count(m => m.Folded is null);
+
+        // Both directions, because they mean opposite things and only one of them is in the vendor's favour: a
+        // snapshot ABOVE the fold lets a cabinet send messages nobody allocated, one BELOW holds reminders it paid
+        // for. Reporting a single « N rows disagree » would hide which.
+        var overstated = comparable.Count(m => m.Folded is { } f && m.Stored > f);
+        var understated = comparable.Count(m => m.Folded is { } f && m.Stored < f);
+        var checkedRows = comparable.Count - unfolded;
+
+        // Stated rather than silently excluded: a row nothing compares is a row a reader must be told about, or the
+        // count above reads as covering every month there is.
+        var aside = unfolded == 0 ? string.Empty : $" ({unfolded} more reach no allocation and are not compared)";
+
+        findings.Add(new SchemaVerificationFinding(
+            scope,
+            "monthly-allowance-matches-ledger",
+            overstated + understated == 0
+                ? $"{checkedRows} counting row(s), each storing exactly what its ledger folds to{aside}"
+                : $"{overstated} row(s) store MORE than their ledger's fold and {understated} store less, of "
+                  + $"{checkedRows}{aside} — some write path set AllowanceMessages without going through "
+                  + "MessagingAllowanceRefold",
+            overstated + understated == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+
+        // FR-1a. A derived count over EVERY cabinet — never one qualified by which door created it — because the
+        // failure it exists to catch is a construction door added later, and because « aucune ligne » and « 0 rappel
+        // envoyé » are opposite claims the whole feature is built to keep apart.
+        if (messaging.SellsVendorMessaging)
+        {
+            var uncovered = messaging.Cabinets
+                .Count(c => !c.Months.Any(m => string.Equals(m.MonthKey, messaging.CurrentMonthKey, StringComparison.Ordinal)));
+
+            findings.Add(new SchemaVerificationFinding(
+                scope,
+                "messaging-month-covers-every-clinic",
+                uncovered == 0
+                    ? $"every one of {messaging.Cabinets.Count} cabinet(s) has a counting row for {messaging.CurrentMonthKey}"
+                    : $"{uncovered} of {messaging.Cabinets.Count} cabinet(s) have no counting row for "
+                      + $"{messaging.CurrentMonthKey} — either the daily pass has not run since the month turned "
+                      + "(it runs at 06:00 Tunis) or it has been failing for those cabinets while logging a clean run",
+                uncovered == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+        }
+        else
+        {
+            findings.Add(NotApplicableIn(
+                scope,
+                "messaging-month-covers-every-clinic",
+                "this deployment does not sell vendor messaging, so nothing provisions a month row"));
+        }
+
+        // Standing xor top-up, and each in exactly one legal form. A domain invariant (MessagingAllowanceEntry.Create)
+        // deliberately not restated as a CHECK constraint, whose failure would be a 500 instead of the French
+        // refusal — `cheque-details-only-on-cheques`' precedent — so it is verified here instead. Every violation is
+        // SILENT in the fold rather than loud: an unknown kind and a malformed month both contribute nothing, so the
+        // cabinet reads as having no allowance at all, while a top-up of zero turns « aucun forfait » into
+        // « forfait épuisé » — a statement about our bookkeeping rendered as a statement about the practice.
+        var entries = messaging.Cabinets.SelectMany(c => c.Entries).ToList();
+        var malformed = entries.Count(e => !HasOneForm(e));
+
+        findings.Add(new SchemaVerificationFinding(
+            scope,
+            "messaging-allowance-entry-has-one-form",
+            malformed == 0
+                ? $"{entries.Count} allocation(s), each a standing figure or a top-up in a form the fold can read"
+                : $"{malformed} of {entries.Count} allocation(s) are neither a readable standing figure nor a "
+                  + "readable top-up (unknown kind, negative figure, top-up of zero, or a month that is not "
+                  + "AAAA-MM) — some write path bypassed MessagingAllowanceEntry.Create",
+            malformed == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+    }
+
+    /// <summary>Mirrors <c>MessagingAllowanceEntry.Create</c>'s guards, which are private to the entity.</summary>
+    private static bool HasOneForm(MessagingAllowanceLedgerEntry entry) =>
+        entry.Kind is MessagingAllowanceKind.Standing or MessagingAllowanceKind.TopUp
+        && entry.Messages >= 0
+        && (entry.Kind != MessagingAllowanceKind.TopUp || entry.Messages > 0)
+        && IsMonthKey(entry.EffectiveMonth);
+
+    private static bool IsMonthKey(string? value) =>
+        value is { Length: 7 }
+        && value[4] == '-'
+        && int.TryParse(value.AsSpan(0, 4), out var year)
+        && int.TryParse(value.AsSpan(5, 2), out var month)
+        && year is >= 2000 and <= 2999
+        && month is >= 1 and <= 12;
+
+    private const string NoTablesYet = "the WhatsApp reminder forfait tables do not exist yet";
 
     /// <summary>
     /// A check that cannot run yet, in a named section — the one construction of that finding.

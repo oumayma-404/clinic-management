@@ -132,6 +132,21 @@ services:
       #    endpoint anybody can subscribe. The webhook's POST refuses on an absent `Meta__AppSecret` for the same
       #    reason — and without it a cabinet sits at « en attente de validation » until the daily poll catches up.
       Meta__WebhookVerifyToken: ${META_WEBHOOK_VERIFY_TOKEN:-}
+
+      # ── Forfait de rappels WhatsApp (HostedMultiTenant only) ───────────────────────────────────────────────
+      # The vendor buys the WhatsApp messages; a cabinet spends them. Enforcement follows `Deployment__Profile`
+      # and, exactly as with subscriptions, there is deliberately NO `Messaging__Enabled` — a key able to flip it
+      # would put a clinic's own PC one config edit away from holding its own reminders.
+      #
+      # What every NEW cabinet is provisioned with. Read *while a clinic is being created*, so anything
+      # unreadable, absent or out of range falls back to 200 rather than throwing and aborting the creation.
+      # Changing it moves no existing cabinet — that is `messaging-grant --per-month`'s job.
+      Messaging__DefaultMessagesPerMonth: ${MESSAGING_DEFAULT_MESSAGES_PER_MONTH:-200}
+      # How a practice that has run out reaches the vendor. Rendered VERBATIM on the cabinet's own « Rappels »
+      # screen beside « forfait épuisé », so unset means the screen states the exhaustion with no route out of
+      # it — absent reads as absent, never as an invented address.
+      Messaging__ContactEmail: ${MESSAGING_CONTACT_EMAIL:-}
+      Messaging__ContactPhone: ${MESSAGING_CONTACT_PHONE:-}
     volumes:
       - dataprotection_keys:/keys
     networks: [internal]

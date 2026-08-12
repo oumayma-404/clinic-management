@@ -97,6 +97,8 @@ app uses — a verb run this way is looking at exactly the database the API is l
 | `reset-admin-password` | **yes** | `0` / `1` |
 | `subscription-report` | **yes** | `0` clean · `1` couldn't run · `2` findings |
 | `subscription-grant` / `-cancel` / `-suspend` / `-unsuspend` | **yes** | `0` / `1` |
+| `messaging-report` | **yes** | `0` clean · `1` couldn't run · `2` findings |
+| `messaging-grant` / `-cancel` | **yes** | `0` / `1` |
 | `restore-backup` | **no — refuses** | see below |
 
 ```bash
@@ -155,6 +157,108 @@ $D subscription-unsuspend --clinic owner@cabinet.tn
 ⚠️ **A grant never shortens cover.** `--until` past a date the cabinet is already covered to is a no-op the verb
 says out loud; use `subscription-cancel` to take time away. ⚠️ **The cabinet's app picks a grant up on its next
 re-read** — a few minutes at most — with nobody signing out.
+
+---
+
+## Forfait de rappels WhatsApp (this profile only)
+
+**You buy the WhatsApp messages; a cabinet spends them.** Each practice gets a monthly allowance of WhatsApp
+appointment reminders, counted one per message actually sent; past it, reminders are **held** rather than dropped —
+they go out when you top the cabinet up, and nothing is lost. SMS is never counted, and an exhausted forfait never
+affects anything but WhatsApp reminders.
+
+Like subscriptions this is `HostedMultiTenant` only, decided by `Deployment__Profile` and by nothing an operator
+can set. Elsewhere the whole feature is **absent**: no screen section, no notifications, no enforcement, no daily
+pass, and the two clinic endpoints answer 404.
+
+### 1. The Meta account (do this first — nothing works without it)
+
+The cabinet-facing connection is Meta's **Embedded Signup**, so the deployment needs a Meta Business app of its own.
+Five keys in `.env`, and the two `NEXT_PUBLIC_*` ones are **build args**, not runtime variables:
+
+| Key | What it is |
+|---|---|
+| `META_APP_ID` / `NEXT_PUBLIC_META_APP_ID` | the Meta app, server side and browser side — the same value |
+| `META_APP_SECRET` | server only; never reaches the browser |
+| `META_CONFIG_ID` / `NEXT_PUBLIC_META_CONFIG_ID` | the Embedded Signup configuration |
+| `META_WEBHOOK_VERIFY_TOKEN` | your own random string, echoed back to Meta on the verify handshake |
+| `META_GRAPH_API_VERSION` | one key feeding **both** the server's Graph client and the browser SDK |
+
+⚠️ **`NEXT_PUBLIC_*` is baked into the web bundle at build time**, so changing either of those needs
+`docker compose … up -d --build`, not a restart. A plain restart leaves the browser on the old value with nothing
+saying so.
+
+Point Meta's webhook at **`https://$DOMAIN/api/meta/webhook`** and subscribe to `account_update` (required for
+Embedded Signup at all) and `message_template_status_update` (how a cabinet's template gets approved). The endpoint
+verifies `X-Hub-Signature-256` over the raw body; an unconfigured secret refuses every delivery rather than trusting
+it.
+
+### 2. Set the default allowance and the contact route
+
+```
+MESSAGING_DEFAULT_MESSAGES_PER_MONTH=200      # → Messaging__DefaultMessagesPerMonth
+MESSAGING_CONTACT_EMAIL=facturation@…         # → Messaging__ContactEmail
+MESSAGING_CONTACT_PHONE=+216 …                # → Messaging__ContactPhone
+```
+
+The first is what every **new** cabinet is provisioned with — read at provisioning time, so changing it does not
+move any existing cabinet's figure, which is what `messaging-grant` is for. Anything unreadable, absent or out of
+range falls back to **200** rather than throwing, because that value is read *while a clinic is being created* and a
+typo must not abort it.
+
+The other two are how a practice that has run out reaches you, and they appear **verbatim** on the cabinet's own
+« Rappels » screen beside « forfait épuisé ». Leave them unset and the screen states the exhaustion with no route
+out of it — an absent contact reads as *absent*, never as an invented address.
+
+### 3. The three verbs
+
+```bash
+E=clinic-api-prod; D="docker exec $E dotnet ClinicManagement.API.dll"
+
+# Who needs attention. Exits 2 on any finding, in this order of severity:
+#   aucun forfait  (our bookkeeping is wrong)  ·  épuisé  ·  non mesuré  ·  template no longer UTILITY
+$D messaging-report
+
+# A CLOSED month — this is how you reconcile against Meta's bill.
+$D messaging-report --month 2026-07
+
+# One cabinet in full, INCLUDING its allocation ids — the only place they are printed, and what -cancel takes.
+$D messaging-report --clinic owner@cabinet.tn
+
+# Change the standing monthly figure. The SERVER decides which month it starts in:
+#   a RAISE applies this month, a LOWERING waits for the next one. The verb says which, out loud.
+$D messaging-grant --clinic owner@cabinet.tn --per-month 500
+
+# A one-off top-up for a named month, on top of whatever standing figure covers it.
+$D messaging-grant --clinic owner@cabinet.tn --top-up 300 --month 2026-08 \
+     --amount 45.000 --method Transfer --reference VIR-8812
+
+# Correct a mistake: the row is KEPT and struck through with your motif, and every month it fed recomputes —
+# including the CURRENT one, possibly to « épuisé ». Messages already sent are never un-counted.
+$D messaging-cancel --clinic owner@cabinet.tn --entry <allocation-id> --reason "Mauvais cabinet"
+```
+
+⚠️ **A top-up cannot name a past month** — a month that has closed cannot be given messages it could have spent —
+and the refusal names the earliest legal one. ⚠️ **A standing figure of `0` is a *lowering*, so it takes effect next
+month**, not this afternoon. Turning a cabinet off now is a **cancellation**, not a zero. ⚠️ **`--complimentary`**
+records an allocation with no amount at all; `--amount 0` would read as a transaction that happened for nothing.
+
+### 4. What to expect in `verify-schema`
+
+Three checks live under **Messaging allowances**, and one of them is worth reading rather than skimming:
+
+- **`monthly-allowance-matches-ledger`** re-derives every month's stored figure through the real fold and reports
+  **both** directions — a row *above* the fold lets a cabinet send messages nobody allocated, one *below* holds
+  reminders it has paid for.
+- **`messaging-month-covers-every-clinic`** is the figure that says « the daily pass has not run » rather than
+  « these practices are idle ». It reads « not applicable » on the other two profiles, where nothing provisions a
+  month row. ⚠️ It is legitimately red for a few hours after a Tunisian month turns: the pass runs at 06:00 Tunis.
+- **`messaging-allowance-entry-has-one-form`** catches an allocation the fold cannot read at all — which fails
+  *silently*, leaving a cabinet looking as though it has no forfait.
+
+⚠️ A cabinet reported as **« aucun forfait »** is not idle and is not out of messages: it has no allocation record
+at all, which is our fault and not theirs, and its reminders are held under their own reason until you run
+`messaging-grant --per-month`. The daily pass will **not** create a month row for it — there is nothing to fold.
 
 ---
 

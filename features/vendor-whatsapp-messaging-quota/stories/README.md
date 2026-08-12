@@ -55,7 +55,7 @@ graph TD
 | Story | Layer | Name | Status | Depends On | Blocks |
 |-------|-------|------|--------|------------|--------|
 | 0 | Spike | Embedded Signup version confirmation | **done** ✅ | – | 1 |
-| 1 | **Full** | Vendor-purchased WhatsApp messaging quota | **in-progress** — Parts 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ⬜ | 0 | – |
+| 1 | **Full** | Vendor-purchased WhatsApp messaging quota | **done** ✅ — Parts 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ | 0 | – |
 
 > **Parts 0 and 1 landed on `feature/windows-desktop-app`** (`57cfd73`, `241dd0b`), at R-1's own split point. Part 0
 > gave `ClinicClock` the month concept it had none of and moved the two private copies into it; Part 1 shipped the
