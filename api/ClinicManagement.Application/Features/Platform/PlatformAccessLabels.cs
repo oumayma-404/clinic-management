@@ -1,4 +1,3 @@
-using System.Globalization;
 using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Application.Features.Platform;
@@ -32,14 +31,4 @@ public static class PlatformAccessLabels
         _ => action.ToString()
     };
 
-    /// <summary>
-    /// « août 2026 » for a trend bucket.
-    ///
-    /// <para>⚠️ Explicitly <c>fr-FR</c>, never the ambient culture: this runs in a container whose culture is
-    /// whatever the base image sets, so the invariant one would render « August 2026 » into a French screen.</para>
-    /// </summary>
-    public static string Month(int year, int month) =>
-        new DateTime(year, month, 1).ToString("MMMM yyyy", French);
-
-    private static readonly CultureInfo French = CultureInfo.GetCultureInfo("fr-FR");
 }

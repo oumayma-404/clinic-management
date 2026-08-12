@@ -161,7 +161,7 @@ public class GetPlatformClinicDetailQueryHandler
     private static PlatformActivityMonthDto Bucket(DateOnly month, IReadOnlyList<ClinicActivityDay> days) => new(
         Year: month.Year,
         Month: month.Month,
-        MonthLabel: PlatformAccessLabels.Month(month.Year, month.Month),
+        MonthLabel: ClinicClock.MonthLabelFr(month.Year, month.Month),
         Writes: days.Sum(d => d.Writes),
         Appointments: days.Sum(d => d.Appointments),
         PatientsCreated: days.Sum(d => d.PatientsCreated),

@@ -372,7 +372,7 @@ public class PlatformAccessLedgerTests
         });
 
         // The label is French and server-built, so the axis and its text alternative cannot disagree.
-        Assert.Equal(PlatformAccessLabels.Month(current.Year, current.Month), current.MonthLabel);
+        Assert.Equal(ClinicClock.MonthLabelFr(current.Year, current.Month), current.MonthLabel);
     }
 
     // [AC-3.2] The payment history is the companion's ledger, read — newest first, with the « période couverte »

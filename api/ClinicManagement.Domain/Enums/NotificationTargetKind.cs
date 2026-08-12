@@ -27,5 +27,13 @@ public enum NotificationTargetKind
     /// <see cref="BackupSettings"/> it needs no id: the warning is about the cabinet, and everything it asks for
     /// — the end date, the tariff, how to pay and who to contact — is on that one screen.
     /// </summary>
-    Subscription = 5
+    Subscription = 5,
+
+    /// <summary>
+    /// The « Forfait de rappels WhatsApp » section of « Rappels »
+    /// (<c>vendor-whatsapp-messaging-quota</c> AC-3.3). Like the three above it needs <b>no id</b>: the warning is
+    /// about the cabinet, and everything it asks for — what is left, when it renews, who to contact and which
+    /// patients were not prevented — is on that one screen.
+    /// </summary>
+    MessagingAllowance = 6
 }

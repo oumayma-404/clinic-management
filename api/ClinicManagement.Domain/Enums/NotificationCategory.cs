@@ -49,5 +49,21 @@ public enum NotificationCategory
     /// dedupe key is therefore <see cref="Entities.StaffNotification.SubscriptionThresholdDays"/>, a real column
     /// rather than a message prefix.</para>
     /// </summary>
-    SubscriptionExpiring = 10
+    SubscriptionExpiring = 10,
+
+    /// <summary>
+    /// The cabinet is running out of its monthly WhatsApp reminder allowance
+    /// (<c>vendor-whatsapp-messaging-quota</c> FR-6) — one row per threshold crossed, at 80, 95 and 100 %.
+    ///
+    /// <para>⚠️ <b>Three genuinely new rows, not one restated row</b>, for
+    /// <see cref="SubscriptionExpiring"/>'s reason: restating does not clear who has read it, so once the owner has
+    /// read « 80 % » the 95 % and 100 % rows would stay read and never badge the bell — and the 80 % one is the
+    /// only one that could still have been acted on. The dedupe key is therefore
+    /// (cabinet, month, threshold) over two real columns rather than a message prefix.</para>
+    ///
+    /// <para>⚠️ Unlike <see cref="SubscriptionExpiring"/>'s countdown this is crossed by a <i>send</i>, so it is
+    /// evaluated where the counter is incremented as well as by the daily pass — 80 % is announced when it happens
+    /// rather than the next morning.</para>
+    /// </summary>
+    MessagingAllowanceLow = 11
 }

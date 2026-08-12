@@ -61,7 +61,8 @@ public sealed class DeploymentProfile
         bool allowsPublicClinicSignup,
         bool servesPlatformConsole,
         bool requiresSubscription,
-        bool backsUpItsOwnData)
+        bool backsUpItsOwnData,
+        bool sellsVendorMessaging)
     {
         Kind = kind;
         UsesLocalAccounts = usesLocalAccounts;
@@ -81,6 +82,7 @@ public sealed class DeploymentProfile
         ServesPlatformConsole = servesPlatformConsole;
         RequiresSubscription = requiresSubscription;
         BacksUpItsOwnData = backsUpItsOwnData;
+        SellsVendorMessaging = sellsVendorMessaging;
     }
 
     /// <summary>Which topology this install is.</summary>
@@ -225,6 +227,29 @@ public sealed class DeploymentProfile
     public bool BacksUpItsOwnData { get; }
 
     /// <summary>
+    /// The <b>vendor</b> buys this deployment's WhatsApp messaging capacity centrally and allocates each cabinet a
+    /// monthly allowance of reminder messages (<c>vendor-whatsapp-messaging-quota</c> FR-9).
+    ///
+    /// <para><b>True only for <see cref="DeploymentKind.HostedMultiTenant"/></b>, and each ✗ is its own reason
+    /// rather than a default. On <see cref="DeploymentKind.SelfHostedLan"/> the practice owns the machine, the
+    /// Meta account and the bill: metering somebody else's WhatsApp spend from their own PC is not a service, and
+    /// there is no vendor credit line behind it to meter.
+    /// <see cref="DeploymentKind.CloudBrowser"/> predates the arrangement, and its clinics supply their own
+    /// WhatsApp credentials through the manual fields this feature closes.</para>
+    ///
+    /// <para>⚠️ <b>Derived from the kind and from nothing an operator can set</b> (FR-9), like every capability
+    /// here. Whether the deployment's own <b>Meta credentials</b> are present is a separate question with a
+    /// separate answer — it lives on <c>IVendorMessagingAvailability</c>, which is
+    /// <see cref="PermitsOsPush"/>'s split and exists for the same reason: a <c>Messaging:*</c> key able to flip
+    /// this would be the <c>httpsConfigured</c> trap the class note above says every capability avoids.</para>
+    ///
+    /// <para>Where this is false every surface of the feature is <b>absent</b> — no section, no notifications, no
+    /// enforcement, no scheduled work, endpoints answering as though they do not exist — and the existing WhatsApp
+    /// behaviour is byte-for-byte unchanged (EC-16).</para>
+    /// </summary>
+    public bool SellsVendorMessaging { get; }
+
+    /// <summary>
     /// May this topology deliver OS push to <paramref name="platform"/> at all? (spec FR-10, AC-51/AC-52.)
     ///
     /// <para><b>Per-platform, not one boolean</b>, because a deployment with a Firebase project and no Apple key
@@ -316,7 +341,10 @@ public sealed class DeploymentProfile
             requiresSubscription: false,
             // One clinic per database on hardware nobody else administers: an in-app dump is the only backup
             // this topology can have, and it is the topology the whole feature was written for.
-            backsUpItsOwnData: true),
+            backsUpItsOwnData: true,
+            // The practice owns the machine, the Meta account and the bill. There is no vendor credit line here
+            // to meter, and metering their own spend from their own PC is not a service.
+            sellsVendorMessaging: false),
 
         DeploymentKind.HostedMultiTenant => new DeploymentProfile(
             kind,
@@ -345,7 +373,10 @@ public sealed class DeploymentProfile
             requiresSubscription: true,
             // The `backup` sidecar already dumps this deployment off-server on a schedule — and one database
             // holds every cabinet, so an in-app `pg_dump` would hand one practice all the others.
-            backsUpItsOwnData: false),
+            backsUpItsOwnData: false,
+            // The one topology we host and bill, so the one where the vendor's own WhatsApp credit line is what
+            // the cabinets' reminders are spent from.
+            sellsVendorMessaging: true),
 
         DeploymentKind.CloudBrowser => new DeploymentProfile(
             kind,
@@ -372,7 +403,10 @@ public sealed class DeploymentProfile
             requiresSubscription: false,
             // Same hosted infrastructure and the same shared database as above: the sidecar backs it up, and an
             // in-app dump would cross tenants.
-            backsUpItsOwnData: false),
+            backsUpItsOwnData: false,
+            // Predates the arrangement: these clinics supply their own WhatsApp credentials through the manual
+            // fields the feature closes on the kind above.
+            sellsVendorMessaging: false),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled deployment kind.")
     };

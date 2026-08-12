@@ -292,6 +292,13 @@ public static class Extensions
         // reason as the profile: both are derived from startup configuration and immutable.
         services.AddSingleton<ISubscriptionPolicy, SubscriptionPolicy>();
         services.AddSingleton<ISubscriptionPricing, SubscriptionPricing>();
+
+        // vendor-whatsapp-messaging-quota — the same two kinds of seam, for the same structural reason (Application
+        // references Domain alone and cannot name DeploymentProfile), and registered here rather than in
+        // AddApplication for the reason above it: `provision-clinic` builds its container from *this* method alone
+        // and it creates a cabinet, which must not come into existence without an allowance (FR-3).
+        services.AddSingleton<IVendorMessagingAvailability, VendorMessagingAvailability>();
+        services.AddSingleton<IMessagingAllowancePolicy, MessagingAllowancePolicy>();
         services.AddScoped<IReminderScheduler, ReminderScheduler>();
         services.AddScoped<IReminderChannelSender, HttpSmsSender>();
         services.AddScoped<IReminderChannelSender, WhatsAppSender>();
