@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common;
+﻿using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -34,6 +34,7 @@ public class GetReminderAllowanceQueryHandler
     private readonly IClinicReminderSettingsRepository _settings;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IMessagingAllowancePolicy _policy;
+    private readonly IVendorMessagingAvailability _availability;
     private readonly ILogger<GetReminderAllowanceQueryHandler> _logger;
 
     public GetReminderAllowanceQueryHandler(
@@ -41,12 +42,14 @@ public class GetReminderAllowanceQueryHandler
         IClinicReminderSettingsRepository settings,
         ICurrentClinicResolver clinicResolver,
         IMessagingAllowancePolicy policy,
+        IVendorMessagingAvailability availability,
         ILogger<GetReminderAllowanceQueryHandler> logger)
     {
         _allowances = allowances;
         _settings = settings;
         _clinicResolver = clinicResolver;
         _policy = policy;
+        _availability = availability;
         _logger = logger;
     }
 
@@ -68,11 +71,9 @@ public class GetReminderAllowanceQueryHandler
             var month = await _allowances.GetMonthAsync(clinicId, monthKey, cancellationToken);
             var settings = await _settings.GetByClinicIdAsync(clinicId, cancellationToken);
 
-            // Part 4 stores a per-cabinet template state; until then it is genuinely unknown and the connection
-            // alone decides — see the ⚠️ on MessagingSender.From for why null is not NotSubmitted.
             var senderState = MessagingSender.From(
                 settings?.WhatsAppConnectionStatus ?? Domain.Enums.WhatsAppConnectionStatus.NotConnected,
-                template: null);
+                settings?.WhatsAppTemplateStatus);
 
             return Result<ReminderAllowanceDto>.Success(new ReminderAllowanceDto
             {
@@ -91,6 +92,8 @@ public class GetReminderAllowanceQueryHandler
                 SenderNumber = null, // see ReminderAllowanceDto.SenderNumber — nothing stores the number today
                 ContactEmail = _policy.ContactEmail,
                 ContactPhone = _policy.ContactPhone,
+                // AC-1.1 — see the DTO: this is the deployment's Meta credentials, NOT whether it sells messaging.
+                CanConnect = _availability.CanOnboardCabinets,
             });
         }
         catch (Exception ex) when (ex is not ConflictException)

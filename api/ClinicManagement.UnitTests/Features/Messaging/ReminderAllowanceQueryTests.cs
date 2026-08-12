@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common;
+﻿using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Messaging;
@@ -421,8 +421,11 @@ public class ReminderAllowanceQueryTests
             policy.SetupGet(p => p.ContactEmail).Returns(contactEmail);
             policy.SetupGet(p => p.ContactPhone).Returns(contactPhone);
 
+            // AC-1.1's `canConnect`. A default mock answers false, which is what a deployment with no Meta
+            // credentials reports — the figures below are unaffected, and the offer to connect has its own cases.
             _current = new GetReminderAllowanceQueryHandler(
                 allowances.Object, settings.Object, resolver.Object, policy.Object,
+                Mock.Of<IVendorMessagingAvailability>(),
                 NullLogger<GetReminderAllowanceQueryHandler>.Instance);
 
             _history = new GetReminderAllowanceHistoryQueryHandler(

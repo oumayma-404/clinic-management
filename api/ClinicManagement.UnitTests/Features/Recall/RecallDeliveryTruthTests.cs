@@ -261,6 +261,7 @@ public class RecallDeliveryTruthTests
                 // messaging gate reads nothing and these recall-truth scenarios are untouched by it too.
                 new Mock<IVendorMessagingAvailability>().Object,
                 new Mock<IMessagingAllowanceRepository>().Object,
+                new Mock<IClinicReminderSettingsRepository>().Object,
                 // I6: the job names itself as the audit actor. Permissive mock — unobserved here.
                 new Mock<IAuditActorProvider>().Object,
                 new Mock<ITenantScope>().Object,

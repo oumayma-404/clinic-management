@@ -13,6 +13,7 @@ import { KpiGrid } from "@/components/dashboard/kpi-grid"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { ReminderLogTable } from "@/components/rappels/reminder-log-table"
 import { MessagingAllowanceCard } from "@/components/rappels/messaging-allowance-card"
+import { WhatsAppConnectCard } from "@/components/rappels/whatsapp-connect-card"
 import { MessagingAllowanceHistory } from "@/components/rappels/messaging-allowance-history"
 import { ReminderSettings } from "@/components/reminder-settings"
 import { reminderSettingsApi, type ReminderDeliveryStatus, type ReminderLogDto } from "@/lib/api/reminder-settings"
@@ -380,6 +381,12 @@ export default function RappelsPage() {
         */}
         {available !== false && (
           <div className="flex flex-col gap-4">
+            {/*
+              US-1 — the connection, above the figures: « puis-je envoyer ? » comes before « combien m'en
+              reste-t-il ? », and a cabinet that has never connected has no use for a forfait it cannot spend.
+              It renders its own five states in words and offers the button only to an admin (AC-1.1/1.4).
+            */}
+            <WhatsAppConnectCard data={allowance} isAdmin={isAdmin} onConnected={() => void loadAllowance()} />
             <MessagingAllowanceCard
               data={allowance}
               loading={allowanceLoading}

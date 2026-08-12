@@ -25,6 +25,10 @@ import {
   Mail,
 } from "lucide-react"
 import { useSession } from "@/lib/auth/session"
+import {
+  useWhatsAppEmbeddedSignup,
+  type EmbeddedSignupOutcome,
+} from "@/lib/hooks/use-whatsapp-embedded-signup"
 import { formatDateTime } from "@/lib/format"
 import {
   reminderSettingsApi,
@@ -40,37 +44,6 @@ type Toggle = "inherit" | "on" | "off"
 
 const toToggle = (value: boolean | null): Toggle => (value === null ? "inherit" : value ? "on" : "off")
 const fromToggle = (value: Toggle): boolean | null => (value === "inherit" ? null : value === "on")
-
-// Meta Embedded Signup config (public, non-secret). Empty in Local/unconfigured installs (the button no-ops).
-const META_APP_ID = process.env.NEXT_PUBLIC_META_APP_ID ?? ""
-const META_CONFIG_ID = process.env.NEXT_PUBLIC_META_CONFIG_ID ?? ""
-// ⚠️ Read from the environment like its two siblings above, not hard-coded. It was the one literal here, and the
-// server pins the same version independently in `MetaConfig.DefaultGraphApiVersion` — two values that never
-// derived from each other, so `Meta:GraphApiVersion` could move the server's Graph calls and leave the browser
-// SDK a version behind. Both now come from one `META_GRAPH_API_VERSION` key in `deploy/`. The fallback keeps a
-// developer build working with no env file, and matches the server's own default.
-const META_GRAPH_VERSION = process.env.NEXT_PUBLIC_META_GRAPH_VERSION ?? "v21.0"
-const FACEBOOK_ORIGINS = ["https://www.facebook.com", "https://web.facebook.com"]
-
-// Data the Embedded-Signup popup posts back via the window "message" event.
-type EmbeddedSignupData = { waba_id?: string; phone_number_id?: string }
-
-interface FbLoginResponse {
-  authResponse?: { code?: string } | null
-  status?: string
-}
-
-interface FbSdk {
-  init(params: { appId: string; autoLogAppEvents?: boolean; xfbml?: boolean; version: string }): void
-  login(callback: (response: FbLoginResponse) => void, options?: Record<string, unknown>): void
-}
-
-declare global {
-  interface Window {
-    FB?: FbSdk
-    fbAsyncInit?: () => void
-  }
-}
 
 // Masks a WhatsApp phone-number id, showing only the last 4 digits.
 const maskId = (id: string | null): string => (!id ? "" : id.length <= 4 ? id : `••••${id.slice(-4)}`)
@@ -128,8 +101,13 @@ export function ReminderSettings() {
   const [waConnectedNumber, setWaConnectedNumber] = useState<string | null>(null)
   const [waLastError, setWaLastError] = useState<string | null>(null)
   const [waBusy, setWaBusy] = useState(false)
-  const [sdkReady, setSdkReady] = useState(false)
-  const signupDataRef = useRef<EmbeddedSignupData | null>(null)
+
+  /**
+   * AC-1.7 — where the vendor provisions WhatsApp, the three manual credential fields are NOT offered, and the
+   * connection is owned by `whatsapp-connect-card` on « Rappels » rather than by this card. Served on the settings
+   * DTO itself, so the form that hides a field and the handler that refuses it read one answer.
+   */
+  const [vendorManagedWhatsApp, setVendorManagedWhatsApp] = useState(false)
 
   const mounted = useRef(true)
   useEffect(() => {
@@ -166,6 +144,7 @@ export function ReminderSettings() {
     setWaStatus(settings.whatsAppConnectionStatus)
     setWaConnectedNumber(settings.whatsAppPhoneNumberId)
     setWaLastError(settings.whatsAppLastError)
+    setVendorManagedWhatsApp(settings.whatsAppVendorManaged)
   }
 
   // Parses the comma/space-separated lead-time field into positive hour tiers; null when empty (= inherit).
@@ -210,58 +189,30 @@ export function ReminderSettings() {
     void loadDelivery()
   }, [])
 
-  // Load the Meta JS SDK once (Cloud + app id configured); captures the Embedded-Signup result via "message".
-  useEffect(() => {
-    if (!isCloud || !META_APP_ID) return
-
-    const handleMessage = (event: MessageEvent) => {
-      if (!FACEBOOK_ORIGINS.includes(event.origin)) return
-      try {
-        const parsed = JSON.parse(event.data as string)
-        if (parsed?.type === "WA_EMBEDDED_SIGNUP" && parsed?.event === "FINISH") {
-          signupDataRef.current = {
-            waba_id: parsed?.data?.waba_id,
-            phone_number_id: parsed?.data?.phone_number_id,
-          }
-        }
-      } catch {
-        // Non-JSON messages from other sources are ignored.
-      }
-    }
-    window.addEventListener("message", handleMessage)
-
-    if (window.FB) {
-      setSdkReady(true)
-    } else if (!document.getElementById("facebook-jssdk")) {
-      window.fbAsyncInit = () => {
-        window.FB?.init({ appId: META_APP_ID, autoLogAppEvents: true, xfbml: false, version: META_GRAPH_VERSION })
-        if (mounted.current) setSdkReady(true)
-      }
-      const script = document.createElement("script")
-      script.id = "facebook-jssdk"
-      script.src = "https://connect.facebook.net/en_US/sdk.js"
-      script.async = true
-      script.defer = true
-      script.crossOrigin = "anonymous"
-      document.body.appendChild(script)
-    }
-
-    return () => window.removeEventListener("message", handleMessage)
-  }, [isCloud])
-
-  const finishConnect = async (response: FbLoginResponse) => {
+  /*
+   * The Embedded-Signup flow lives in `useWhatsAppEmbeddedSignup` (§ 31/§ 38) — extracted, not copied, because the
+   * vendor-managed connect card on « Rappels » runs the same five-outcome protocol. v3 → v4 and the four finish
+   * types this used to drop are that hook's business now.
+   */
+  const finishConnect = async (outcome: EmbeddedSignupOutcome) => {
     try {
-      const code = response.authResponse?.code
-      const data = signupDataRef.current
-      if (!code || !data?.waba_id || !data?.phone_number_id) {
-        // Popup closed / abandoned or an incomplete run — no-op.
-        toast.info("Connexion annulée.")
+      if (outcome.kind === "no-phone-number") {
+        toast.error("Aucun numéro ajouté", {
+          description:
+            "Le compte WhatsApp Business a été créé sans numéro. Reprenez la connexion et ajoutez le numéro de la clinique.",
+        })
         return
       }
+
+      if (outcome.kind !== "connected") {
+        toast.info(outcome.kind === "failed" ? "Meta a signalé une erreur." : "Connexion annulée.")
+        return
+      }
+
       const updated = await reminderSettingsApi.connectWhatsApp({
-        code,
-        wabaId: data.waba_id,
-        phoneNumberId: data.phone_number_id,
+        code: outcome.code,
+        wabaId: outcome.wabaId,
+        phoneNumberId: outcome.phoneNumberId,
       })
       if (mounted.current) hydrate(updated)
       toast.success("WhatsApp connecté")
@@ -271,27 +222,25 @@ export function ReminderSettings() {
       })
     } finally {
       if (mounted.current) setWaBusy(false)
-      signupDataRef.current = null
     }
   }
 
+  const embeddedSignup = useWhatsAppEmbeddedSignup({
+    enabled: isCloud || vendorManagedWhatsApp,
+    onOutcome: (outcome) => void finishConnect(outcome),
+  })
+
   const handleConnect = () => {
-    if (!window.FB || !sdkReady) {
+    if (!embeddedSignup.sdkReady) {
       toast.error("Le SDK Meta n'est pas encore chargé, réessayez.")
       return
     }
-    if (!META_CONFIG_ID) {
+    if (!embeddedSignup.configured) {
       toast.error("Configuration Meta manquante (config_id).")
       return
     }
-    signupDataRef.current = null
     setWaBusy(true)
-    window.FB.login((response) => void finishConnect(response), {
-      config_id: META_CONFIG_ID,
-      response_type: "code",
-      override_default_response_type: true,
-      extras: { setup: {}, sessionInfoVersion: "3" },
-    })
+    embeddedSignup.start()
   }
 
   const handleDisconnect = async () => {
@@ -316,11 +265,17 @@ export function ReminderSettings() {
         smsEnabled: fromToggle(smsEnabled),
         whatsAppEnabled: fromToggle(whatsAppEnabled),
         smsSenderId: smsSenderId.trim() || null,
-        whatsAppPhoneNumberId: whatsAppPhoneNumberId.trim() || null,
-        whatsAppTemplateName: whatsAppTemplateName.trim() || null,
-        whatsAppTemplateLanguage: whatsAppTemplateLanguage.trim() || null,
+        /*
+          AC-1.7 — where the vendor provisions WhatsApp, its four identity fields are sent as `null` and NOT from
+          state. They are still hydrated (the server returns them) and the fields are simply not rendered, so
+          without this an ordinary SMS save would post the stored Phone Number ID back and the handler would refuse
+          the whole request under `messaging_whatsapp_is_vendor_managed`. The server keeps what it has stored.
+        */
+        whatsAppPhoneNumberId: vendorManagedWhatsApp ? null : whatsAppPhoneNumberId.trim() || null,
+        whatsAppTemplateName: vendorManagedWhatsApp ? null : whatsAppTemplateName.trim() || null,
+        whatsAppTemplateLanguage: vendorManagedWhatsApp ? null : whatsAppTemplateLanguage.trim() || null,
         smsApiUrl: smsApiUrl.trim() || null,
-        whatsAppApiUrl: whatsAppApiUrl.trim() || null,
+        whatsAppApiUrl: vendorManagedWhatsApp ? null : whatsAppApiUrl.trim() || null,
         leadTimeHours: parseLeadTimes(leadTimeHours),
         messageTemplateBody: messageTemplateBody.trim() || null,
         smtpHost: smtpHost.trim() || null,
@@ -521,7 +476,7 @@ export function ReminderSettings() {
                 {readinessBadge(whatsAppEnabled, whatsAppEffectiveStatus)}
               </div>
 
-              {isCloud && (
+              {isCloud && !vendorManagedWhatsApp && (
                 <div className="space-y-2 rounded-lg border border-success/25 bg-success-wash/40 p-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium">Connexion (Embedded Signup)</span>
@@ -574,7 +529,7 @@ export function ReminderSettings() {
                       <Button
                         size="sm"
                         onClick={handleConnect}
-                        disabled={waBusy || !sdkReady}
+                        disabled={waBusy || !embeddedSignup.sdkReady}
                         /*
                           The default (primary) fill, not `bg-green-600`. There is no solid-success token to
                           convert to: `--success` is an ink for `--success-wash`, and white type on it at the
@@ -616,6 +571,20 @@ export function ReminderSettings() {
                 </Select>
               </div>
 
+              {/*
+                AC-1.7 — the three fields that ARE the cabinet's WhatsApp credentials (endpoint, Phone Number ID,
+                access token) are absent where the vendor provisions them, and `UpdateClinicReminderSettingsCommand`
+                refuses them server-side. Absent rather than disabled: a greyed field still says « this is yours to
+                fill in one day », which is the opposite of true here.
+              */}
+              {vendorManagedWhatsApp ? (
+                <p className="rounded-lg border border-primary/25 bg-primary/5 p-3 text-xs text-muted-foreground">
+                  Les identifiants WhatsApp de ce cabinet sont fournis et gérés par nous. Utilisez
+                  « Connecter WhatsApp » sur la page « Rappels » — votre numéro et votre modèle de message sont
+                  configurés pour vous.
+                </p>
+              ) : (
+                <>
               <div className="space-y-1">
                 <Label htmlFor="wa-api-url" className="text-xs font-medium">
                   URL de base (Graph API)
@@ -698,6 +667,8 @@ export function ReminderSettings() {
                   className="h-8 md:text-sm"
                 />
               </div>
+                </>
+              )}
             </div>
 
             {/* Programmation & message (partagé entre les canaux) */}

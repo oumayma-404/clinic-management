@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Messaging;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -32,9 +32,13 @@ public class OutboxMessagingGateTests
     {
         public Mock<IVendorMessagingAvailability> Availability { get; } = new();
         public Mock<IMessagingAllowanceRepository> Allowances { get; } = new();
+        public Mock<IClinicReminderSettingsRepository> ReminderSettings { get; } = new();
 
         /// <summary>Reads observed, so a test can assert the gate issued <b>no query at all</b>.</summary>
         public int MonthReads { get; private set; }
+
+        /// <summary>The same, for the settings row § 33a's template term reads.</summary>
+        public int SettingsReads { get; private set; }
 
         public Harness(bool sellsVendorMessaging = true)
         {
@@ -44,6 +48,29 @@ public class OutboxMessagingGateTests
                 .Setup(r => r.GetMonthAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
                 .Callback(() => MonthReads++)
                 .ReturnsAsync((ClinicMessagingMonth?)null);
+
+            // No settings row by default: « we do not track a template for this cabinet », which passes the template
+            // term. Anything else would hold every reminder of every cabinet on the install's own approved template.
+            ReminderSettings
+                .Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .Callback(() => SettingsReads++)
+                .ReturnsAsync((ClinicReminderSettings?)null);
+        }
+
+        /// <summary>Gives the cabinet a connected WhatsApp whose template is in <paramref name="status"/>.</summary>
+        public void WithTemplate(Guid clinicId, WhatsAppTemplateStatus? status)
+        {
+            var settings = new ClinicReminderSettings(clinicId);
+            settings.ApplyWhatsAppConnection("WABA-1", "PHONE-1");
+            if (status is { } value)
+            {
+                settings.SetWhatsAppTemplateState(value, "UTILITY", "TPL-1", CreatedAt);
+            }
+
+            ReminderSettings
+                .Setup(r => r.GetByClinicIdAsync(clinicId, It.IsAny<CancellationToken>()))
+                .Callback(() => SettingsReads++)
+                .ReturnsAsync(settings);
         }
 
         public void WithMonth(Guid clinicId, string monthKey, int allowance, int consumed)
@@ -61,7 +88,7 @@ public class OutboxMessagingGateTests
         }
 
         public OutboxMessagingGate Gate(DateTime? clinicToday = null) =>
-            new(Availability.Object, Allowances.Object, clinicToday ?? MidAugust);
+            new(Availability.Object, Allowances.Object, ReminderSettings.Object, clinicToday ?? MidAugust);
     }
 
     // ---- What it must not touch ------------------------------------------------------------------
@@ -270,5 +297,106 @@ public class OutboxMessagingGateTests
 
         Assert.NotNull(await harness.Gate(new DateTime(2026, 8, 31)).ReviewAsync(NotificationType.WhatsApp, Clinic));
         Assert.Null(await harness.Gate(new DateTime(2026, 9, 1)).ReviewAsync(NotificationType.WhatsApp, Clinic));
+    }
+
+    // ---- § 33a: the template term, asked FIRST ---------------------------------------------------
+
+    /// <summary>
+    /// [FR-7][EC-9] A template Meta has not approved holds the row — and the forfait is never even consulted, which
+    /// is what « consomme rien » means at this layer.
+    /// </summary>
+    [Theory]
+    [InlineData(WhatsAppTemplateStatus.NotSubmitted)]
+    [InlineData(WhatsAppTemplateStatus.PendingReview)]
+    [InlineData(WhatsAppTemplateStatus.Rejected)]
+    [InlineData(WhatsAppTemplateStatus.Paused)]
+    [InlineData(WhatsAppTemplateStatus.Disabled)]
+    public async Task A_Template_That_Is_Not_Approved_Holds_The_Row(WhatsAppTemplateStatus status)
+    {
+        var harness = new Harness();
+        harness.WithTemplate(Clinic, status);
+        harness.WithMonth(Clinic, "2026-08", allowance: 200, consumed: 0);
+
+        var block = await harness.Gate().ReviewAsync(NotificationType.WhatsApp, Clinic);
+
+        Assert.NotNull(block);
+        Assert.Equal(OutboxBlockReason.MessagingTemplateNotReady, block!.Reason);
+        Assert.Equal(0, harness.MonthReads);
+    }
+
+    /// <summary>[FR-7] An approved template is the only one that lets a row through.</summary>
+    [Fact]
+    public async Task An_Approved_Template_Passes()
+    {
+        var harness = new Harness();
+        harness.WithTemplate(Clinic, WhatsAppTemplateStatus.Approved);
+        harness.WithMonth(Clinic, "2026-08", allowance: 200, consumed: 10);
+
+        Assert.Null(await harness.Gate().ReviewAsync(NotificationType.WhatsApp, Clinic));
+    }
+
+    /// <summary>
+    /// [EC-16] <b>A cabinet with NO stored template status passes</b>, and this is the case that would have stopped
+    /// every reminder on the deployment the day § 33a shipped: « nous ne suivons pas de modèle pour ce cabinet » is
+    /// true of every cabinet sending today on the install's own pre-approved template, and reading a null as
+    /// <c>NotSubmitted</c> would hold them all for a template Meta approved long ago.
+    /// </summary>
+    [Fact]
+    public async Task A_Cabinet_With_No_Stored_Template_State_Passes()
+    {
+        var harness = new Harness();
+        harness.WithTemplate(Clinic, status: null);
+        harness.WithMonth(Clinic, "2026-08", allowance: 200, consumed: 10);
+
+        Assert.Null(await harness.Gate().ReviewAsync(NotificationType.WhatsApp, Clinic));
+    }
+
+    /// <summary>
+    /// [FR-7] <b>The order is the wording.</b> A cabinet whose template is not usable AND whose forfait is spent is
+    /// told about the template — only one of the two is something anybody can act on, and « épuisé » would send the
+    /// practice to ask us for messages it could not send anyway.
+    /// </summary>
+    [Fact]
+    public async Task The_Template_Is_Named_Before_An_Exhausted_Forfait()
+    {
+        var harness = new Harness();
+        harness.WithTemplate(Clinic, WhatsAppTemplateStatus.PendingReview);
+        harness.WithMonth(Clinic, "2026-08", allowance: 100, consumed: 100);
+
+        var block = await harness.Gate().ReviewAsync(NotificationType.WhatsApp, Clinic);
+
+        Assert.Equal(OutboxBlockReason.MessagingTemplateNotReady, block!.Reason);
+        Assert.DoesNotContain("épuisé", block.Sentence);
+    }
+
+    /// <summary>
+    /// [FR-7][EC-10] The parked sentence distinguishes « waiting on Meta » from « refused », because only one of them
+    /// ends by itself and they have opposite remedies.
+    /// </summary>
+    [Fact]
+    public async Task The_Parked_Sentence_Tells_Waiting_Apart_From_Refused()
+    {
+        var waiting = new Harness();
+        waiting.WithTemplate(Clinic, WhatsAppTemplateStatus.PendingReview);
+        var refused = new Harness();
+        refused.WithTemplate(Clinic, WhatsAppTemplateStatus.Rejected);
+
+        var waitingSentence = (await waiting.Gate().ReviewAsync(NotificationType.WhatsApp, Clinic))!.Sentence;
+        var refusedSentence = (await refused.Gate().ReviewAsync(NotificationType.WhatsApp, Clinic))!.Sentence;
+
+        Assert.Contains("attente de validation", waitingSentence);
+        Assert.Contains("nous nous en occupons", refusedSentence);
+        Assert.NotEqual(waitingSentence, refusedSentence);
+    }
+
+    /// <summary>[AC-4.6] An SMS row is still never looked up, template or no template.</summary>
+    [Fact]
+    public async Task An_Sms_Row_Ignores_The_Template_Term_Too()
+    {
+        var harness = new Harness();
+        harness.WithTemplate(Clinic, WhatsAppTemplateStatus.Rejected);
+
+        Assert.Null(await harness.Gate().ReviewAsync(NotificationType.SMS, Clinic));
+        Assert.Equal(0, harness.SettingsReads);
     }
 }

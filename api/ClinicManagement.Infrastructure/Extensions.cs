@@ -352,6 +352,11 @@ public static class Extensions
         // WhatsApp Embedded-Signup onboarding (Cloud) — provisions a clinic's own WABA/phone via the Graph API.
         services.AddScoped<IWhatsAppOnboardingService, WhatsAppOnboardingService>();
 
+        // The template this product submits on a cabinet's behalf, and the poll that reads its state back (FR-7,
+        // FR-7a). Registered unconditionally like its onboarding sibling: with no Meta credentials the call fails
+        // and is logged, and the cabinet stays « en attente de validation » rather than the container failing.
+        services.AddScoped<IWhatsAppTemplateService, WhatsAppTemplateService>();
+
         // NOTE: CertificateProvisioner is intentionally NOT DI-registered (Finding 17) — it is constructed
         // manually pre-Build in Program.cs (Kestrel needs the cert before the DI container exists), so a
         // singleton registration here was dead. Program.cs passes it a real (Serilog-backed) logger.

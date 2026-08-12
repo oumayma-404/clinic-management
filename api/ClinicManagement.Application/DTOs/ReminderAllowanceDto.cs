@@ -79,6 +79,18 @@ public class ReminderAllowanceDto
 
     /// <summary>Where an exhausted cabinet calls, or null. Same absent-not-empty rule as <see cref="ContactEmail"/>.</summary>
     public string? ContactPhone { get; set; }
+
+    /// <summary>
+    /// AC-1.1 — can a cabinet be walked through Meta's guided connection <b>right now</b>? Kind <b>and</b> the
+    /// deployment's own Meta credentials (<c>IVendorMessagingAvailability.CanOnboardCabinets</c>).
+    ///
+    /// <para>⚠️ A separate answer from « does this deployment sell vendor messaging », deliberately, and the whole
+    /// reason that seam has two members: an allowance a cabinet cannot yet spend is still a real allowance, so the
+    /// section, the figures and the history all stay while only the <b>offer to connect</b> goes away. Collapsing the
+    /// two would make a missing <c>Meta:AppId</c> look like a deployment that does not sell messaging — and rendering
+    /// the button anyway would be a dead control whose failure the practice cannot act on (§ 0).</para>
+    /// </summary>
+    public bool CanConnect { get; set; }
 }
 
 /// <summary>

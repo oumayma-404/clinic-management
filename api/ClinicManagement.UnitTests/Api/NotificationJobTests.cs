@@ -111,6 +111,7 @@ public class NotificationJobTests
             // reads nothing and these scenarios stay byte-identical (EC-16). Its own cases live in
             // NotificationJobMessagingTests.
             new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
+            new Mock<IClinicReminderSettingsRepository>().Object,
             // I6 wired an audit actor into every job. A permissive mock keeps these scenarios exactly as they
             // were: the job declares itself, nothing here observes it.
             new Mock<IAuditActorProvider>().Object,
@@ -349,6 +350,7 @@ public class NotificationJobTests
             // reads nothing and these scenarios stay byte-identical (EC-16). Its own cases live in
             // NotificationJobMessagingTests.
             new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
+            new Mock<IClinicReminderSettingsRepository>().Object,
             // I6: permissive audit-actor mock — see the shared builder above.
             new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
@@ -406,6 +408,7 @@ public class NotificationJobTests
             // reads nothing and these scenarios stay byte-identical (EC-16). Its own cases live in
             // NotificationJobMessagingTests.
             new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
+            new Mock<IClinicReminderSettingsRepository>().Object,
             // I6: permissive audit-actor mock — see the shared builder above.
             new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
@@ -468,6 +471,7 @@ public class NotificationJobTests
             // reads nothing and these scenarios stay byte-identical (EC-16). Its own cases live in
             // NotificationJobMessagingTests.
             new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
+            new Mock<IClinicReminderSettingsRepository>().Object,
             // I6 wired an audit actor into every job. A permissive mock keeps these scenarios exactly as they
             // were: the job declares itself, nothing here observes it.
             new Mock<IAuditActorProvider>().Object,
@@ -689,6 +693,7 @@ public class NotificationJobTests
             // reads nothing and these scenarios stay byte-identical (EC-16). Its own cases live in
             // NotificationJobMessagingTests.
             new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
+            new Mock<IClinicReminderSettingsRepository>().Object,
             new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
             NullLogger<NotificationJob>.Instance);
     }

@@ -757,3 +757,200 @@ append-only rule working as designed, not leftover mess — but the two rows are
 - [ ] `grep -rn "v21.0" web/components api/ClinicManagement.Infrastructure` shows the two **defaults** only, each
       now fed by `META_GRAPH_API_VERSION`, with no third pin
 - [ ] The WhatsApp connect flow still loads in the browser (this story must not break the existing path)
+
+---
+
+## Story 1 — Part 4
+
+**Session scope, chosen by the user:** Part **4** alone. Part 5 is a later session.
+
+**Branch:** `feature/windows-desktop-app`, continued.
+
+### Working tree note (start of session)
+
+Clean apart from two untracked items excluded from every commit, as unrelated work by another author:
+`features/hosted-security-hardening/`, `features/landing-website/agent-prompt.md`.
+
+⚠️ **More of another author's work arrived mid-session** and is excluded too: a `.gitignore` addition,
+`.playwright-mcp/`, `agenda-1440-week.png`, `features/agenda-grid-gestures/`, `web/components/agenda-grid-drag.ts`
+and `web/scripts/shots.mjs`. Every path was staged explicitly; nothing was staged with `git add -A`.
+
+⚠️ **The dev database is still ahead of this branch** (`20260812103207_AddUserSecondFactorAndSessionFamilies`), the
+same note Parts 2 and 3 carry. It affected one thing: `dotnet ef database update --no-build` reported « already up to
+date » against a **stale in-repo `bin/`** while `migrations list` showed the migration Pending. Dropping `--no-build`
+applied it.
+
+### `stories/context.md` was written this session
+
+Parts 0–3 had none, so each session re-derived the same facts (the gate commands and their quirks, which file to
+imitate, where each authority lives). It is pointers only — Step 6's rule — and carries the staleness diff Part 5
+should run first.
+
+---
+
+## Part 4 — The cabinet connects, the template is submitted, Meta's refusals are told apart ✅
+
+| Step | Outcome |
+|---|---|
+| 31 · Embedded Signup v3 → v4 | ✅ and **extracted rather than edited in place**: `web/lib/hooks/use-whatsapp-embedded-signup.ts` — `sessionInfoVersion` gone, `business_id` captured, **all five finish types** accepted with `FINISH_ONLY_WABA` given its own outcome, and the stricter-than-Meta's-sample origin allow-list kept verbatim |
+| 32 · The template service | ✅ `IWhatsAppTemplateService` + `WhatsAppTemplateService` (submit + read back), plus **`WhatsAppReminderTemplate`** as the one definition of the name, language, category and body |
+| 33 · The four columns + submission | ✅ `ClinicReminderSettings.SetWhatsAppTemplateState` / `ApplySubmittedReminderTemplate`, `20260812161339_AddWhatsAppTemplateState`, and `ConnectClinicWhatsAppCommand` submitting post-exchange (AC-1.3) |
+| 33a · The gate's template term | ✅ term **1** of `OutboxMessagingGate`'s ordered terms, so both § 13 call sites inherit it — dispatch **and** un-park (AC-4.8) |
+| 34 · The webhook | ✅ `MetaWebhookController` — `X-Hub-Signature-256` over the **raw** body, `UseSystemWide` as its first act, `GetByWhatsAppBusinessAccountIdAsync`, both actions added to `ControllerAuthorizationCoverageTests` |
+| 35 · The reconciling poll | ✅ `MessagingAllowanceJob`'s third duty over `GetAwaitingTemplateReviewAsync`'s candidates |
+| 36 · FR-7b's category | ✅ stored, stated in words on the console file, and a `messaging-report` finding — Part 3's four `null` placeholders filled, **no console source change needed** |
+| 37 · Meta's refusals | ✅ `Throttled` + `Blocked` outcomes, `WhatsAppSender.Classify` over the **full** body, and `DispatchAsync`'s `switch` given the `default` it never had |
+| 38 · The client | ✅ `whatsapp-connect-card.tsx` (AC-1.2 before the flow · AC-1.4's five states in words · AC-1.5's 24 h) + AC-1.7's closure of the manual fields, refused server-side |
+
+⚠️ **The plan's own template body could not be used, and the reason is the sender.** § 32 shows
+« Rappel de votre rendez-vous chez {{1}} le {{2}}. » — **two** variables — while `WhatsAppSender` sends **one** body
+parameter carrying the whole pre-rendered French sentence. Two variables is « #132000 number of params does not
+match » on every send; formatting inside the sender instead would move the wording away from `ReminderScheduler`,
+which is where `ReminderMessage.AnnouncesStaleMoment` reads it from to catch a moved appointment (L3b). The user chose
+**« Bonjour, {{1}} À bientôt, votre cabinet dentaire. »** — one variable, neither first nor last, no redundancy
+against the rendered sentence, and the sender and the backstop both untouched. See DEV-11.
+
+⚠️ **Two of this part's decisions exist to keep EC-16 true, and both would have failed silently.**
+**(a)** The template submission is gated on `SellsVendorMessaging`: a stored template state is what makes the gate
+hold a cabinet's reminders, and on the other two deployment kinds *neither writer that could clear it exists* — the
+webhook 404s and the daily pass is not registered. Submitting there would have held a working cabinet's reminders for
+ever. **(b)** The gate passes a cabinet with **no** stored status. Reading null as `NotSubmitted` would have held
+every WhatsApp reminder on the deployment the day § 33a shipped, for a template Meta approved long ago — which is also
+why the migration's four columns carry **no default** (a scaffolded `defaultValue: 0` *is* `NotSubmitted`).
+
+⚠️ **AC-1.7 needed a third fix nobody planned: an ordinary save was going to erase the connection.**
+`ApplyNonSecretSettings` replaces every field it is given, so a screen that no longer renders the WhatsApp identity
+posts nulls — and the next save of an unrelated SMS setting would wipe the phone-number id « Connecter WhatsApp »
+wrote, silently un-configuring the channel (`ClaimsItsOwnWhatsApp` reads exactly those columns). The handler now
+carries the four fields over **from what is stored**, and the browser sends `null` for them rather than
+round-tripping them into the new refusal. Both halves have a case.
+
+⚠️ **`ToDto` gained a *required* parameter rather than a defaulted one.** Four handlers produce
+`ReminderSettingsDto` — the read, the settings save, the connect and the disconnect — and a screen that hid the manual
+fields on load and got them back after connecting would be worse than never hiding them. A default would let one
+caller forget in silence; a parameter made the compiler list them. **The new mapper test then caught that the
+parameter was unused** — signature changed, object initializer not — which is exactly the case a required parameter
+cannot catch by itself.
+
+⚠️ **`WhatsAppTemplateStatuses.AwaitingMeta` is an array, not a predicate**, because the poll's candidate query is
+SQL: a `switch` does not translate, so the alternative was the same set written a second time as a `WHERE` clause.
+`IsTerminal` is derived from it, so the two answers cannot disagree. **`Paused` is deliberately in it** — Meta
+un-pauses a recovered template with no guaranteed webhook, and a cabinet parked there for ever with its reminders held
+is the stranding the poll exists to end.
+
+### Deviations
+
+#### DEV-11: the reminder template carries ONE body variable, not the plan's two
+**Date:** 2026-08-12 · **Story:** 1 (Part 4, step 32) · **Category:** Technical
+
+**Original plan:** § 32's body is « Rappel de votre rendez-vous chez {{1}} le {{2}}. ».
+
+**Actual implementation:** « Bonjour, {{1}} À bientôt, votre cabinet dentaire. » — one variable, neither first nor
+last.
+
+**Justification:** `WhatsAppSender` sends exactly one body parameter carrying the whole rendered sentence, so a
+two-variable template is refused by Meta on every send (#132000). Making the sender format instead would move the
+wording out of `ReminderScheduler` — where `ReminderMessage.AnnouncesStaleMoment` reads it to catch an appointment
+moved under a queued row (L3b) — and would also change the SMS channel's shared wording. The plan's snippet
+illustrates the *rule* it states (never start or end with a variable), which the chosen body obeys. Surfaced to the
+user before any code was written; they picked this option over the two alternatives.
+
+**Impact:** None on the sender, the scheduler or the stale-moment backstop, all untouched. The patient reads one
+sentence with no redundancy.
+
+**Approved:** Yes — chosen by the user from three options.
+
+#### DEV-12: Part 4 carries a migration, and one more DTO field than the plan lists
+**Date:** 2026-08-12 · **Story:** 1 (Part 4, steps 33 / 38) · **Category:** Scope
+
+**Original plan:** Migration 1 bundles the four template columns with Part 1's tables; the plan's DTO tables name no
+`canConnect` or `whatsAppVendorManaged`.
+
+**Actual implementation:** `20260812161339_AddWhatsAppTemplateState` (four nullable columns + one partial index), plus
+`ReminderAllowanceDto.CanConnect` and `ReminderSettingsDto.WhatsAppVendorManaged`.
+
+**Justification:** The migration continues DEV-5/DEV-9's split-by-part, which the plan's own « before and after the
+migration **batch** » wording allows. The two fields are what make AC-1.1 and AC-1.7 renderable without a second
+capability probe: `canConnect` is `CanOnboardCabinets` (so the button is **absent** rather than dead where the Meta
+credentials are missing — a separate question from whether the deployment sells messaging), and
+`whatsAppVendorManaged` travels on the very DTO whose handler refuses the fields, so the form that hides a field and
+the save that rejects it read one answer rather than two that can disagree.
+
+**Impact:** `verify-schema` went exit 2 → **0** with the diff showing only the intended index. Part 5's before/after
+diff covers the migration.
+
+**Approved:** Implemented and flagged.
+
+#### DEV-13: the Embedded-Signup flow was extracted to a hook, not edited in place
+**Date:** 2026-08-12 · **Story:** 1 (Part 4, steps 31/38) · **Category:** Technical
+
+**Original plan:** § 31 is « four edits in `web/components/reminder-settings.tsx` ».
+
+**Actual implementation:** `web/lib/hooks/use-whatsapp-embedded-signup.ts`, called by that card **and** by the new
+connect card.
+
+**Justification:** § 38 adds a second surface that runs the same flow. Two copies of a five-outcome popup protocol is
+how one of them keeps handling only `FINISH` for ever — which is the defect § 31 exists to fix, so shipping the fix
+into a shape that invites it back would be self-defeating. The four edits are all in the hook, once.
+
+**Impact:** `reminder-settings.tsx` lost its local Meta constants, its SDK effect and its `signupDataRef`; behaviour
+where the vendor does not manage WhatsApp is unchanged.
+
+**Approved:** Implemented and flagged.
+
+### Corrections found by running the code
+
+⚠️ **Twelve tests went red on a `null` a mock returned, not on anything the feature did.**
+`Mock.Of<IClinicReminderSettingsRepository>()` answers **null** for `GetAwaitingTemplateReviewAsync`, which § 35's
+pass then enumerates — so every case in `MessagingAllowanceWarningTests` failed on an NRE thrown a layer away from
+anything it asserts. The documented `UnitTests/CLAUDE.md` gotcha, hit exactly as written; the fixture stubs the read
+explicitly now and says why.
+
+⚠️ **The new mapper test failed on its first run and the production code was wrong** — `ToDto` had gained the
+parameter and never used it, so `whatsAppVendorManaged` was always `false` and the manual fields would have stayed on
+screen on the one deployment that must not offer them. A required parameter proves every caller *passes* something;
+it cannot prove the callee reads it.
+
+⚠️ **Two raw string literals needed `$$$`, not `$$`.** A JSON fixture ending `…"code":1234}}}` closes with three
+braces, and C# reads `}}` as an escape — the compiler's message (« does not start with enough `$` characters ») names
+the cause but points at the line's end.
+
+### Part 4 gate
+
+| Check | Result |
+|---|---|
+| `dotnet build` (`--no-incremental`, `BaseOutputPath` outside the repo) | ✅ **0 errors**, 55 warnings — the identical pre-existing baseline, **0 in changed files** (the warning file list was diffed against the changed set) |
+| Unit suite (`-c Release`, outside the repo) | ✅ **3049 passed / 0 failed** (2988 before Part 4; **61 new**) |
+| `WhatsAppSenderErrorClassificationTests` | ✅ 12 — the six codes across both outcomes, each against a **full-length** envelope with `code` after a long `message`; an unknown code and an unparseable body staying transient; **the fixture's own premise asserted** (>200 chars, `code` past the cut) so shortening it later cannot make the class vacuous; and no `fbtrace_id`, type or Meta prose reaching the result (D-8) |
+| `MetaWebhookTests` | ✅ 15 — a valid `message_template_status_update` **actually writing**, asserted with the **real** `TenantScope` so a missing `UseSystemWide` fails rather than passing on a hand-set scope; a forged signature and an unconfigured secret both refusing and writing nothing; the `hub.challenge` handshake and its two refusals; 404 where the capability is off; and the payload reader on its own — a **numeric** `message_template_id`, another template's status ignored, five malformed shapes yielding nothing, an unknown status word falling on the holding side |
+| `OutboxMessagingGateTests` | ✅ 23 (7 new) — all five non-approved statuses holding **with the month never read**; an approved one passing; **a cabinet with no stored status passing** (the EC-16 case that would have stopped the deployment); the template named **before** an exhausted forfait; « waiting » told apart from « refused » in the sentence; an SMS row still never looked up |
+| `NotificationJobMessagingTests` | ✅ 23 (6 new) — a template under review held **pre-send** (sender never called, nothing counted); **a template-parked row not released by a top-up** (AC-4.8) and released by an approval; a throttle leaving the row `Pending` with its retry budget intact; a stopped number parked; and an **unnamed outcome** parking instead of staying `Pending` for ever |
+| `WhatsAppTemplateLifecycleTests` | ✅ 15 — the submission recording status/category/id **and the template's own name**; a failed submission still leaving the cabinet connected; **no submission at all where the deployment does not sell vendor messaging**; an unreadable re-submission not downgrading an approved template; a status confirmation preserving the stored category; disconnect clearing all four; the poll recording an approval the webhook never delivered and a category Meta changed; a null read and an undecryptable token changing nothing; `AwaitingMeta` and `IsTerminal` proven to be one answer; AC-1.7's refusal on each of the three credentials; and an ordinary save **not erasing** a vendor-provisioned connection |
+| `ControllerAuthorizationCoverageTests` | ✅ green in **both** directions with the two webhook actions added to the reviewed anonymous list |
+| `SystemWideCallerCoverageTests` | ✅ green, **and extended**: its criterion is « no HTTP context » and a webhook has one, so a second reviewed set (`ScopedDespiteHavingAnHttpContext`) names this controller with its reason, plus a sibling assertion that the file still exists so a rename cannot leave it checking nothing |
+| **`ReminderSettingsChannelIsolationTests`** | ✅ green and **byte-for-byte unchanged** (R-8) — confirmed with `git diff --stat`, which is empty for that file |
+| `verify-schema` **before** | exit **2** — one DRIFT: `ClinicReminderSettings(WhatsAppBusinessAccountId)` MISSING, i.e. exactly the new index |
+| `verify-schema` **after** | exit **0** — « schema matches the model » |
+| The **diff** | ✅ the one intended index resolved and **nothing else** — the first part of this feature whose diff is non-empty, and it names only what the migration adds |
+| Migration applied for real | ✅ all four columns `YES` nullable with **no `column_default`** (read back out of `information_schema`), and the index confirmed **partial** (`WHERE "WhatsAppBusinessAccountId" IS NOT NULL`) in `pg_indexes` |
+| `reconcile-money` | ✅ exit **0**, « no drift detected » (FR-2 — nothing here touches clinic money) |
+| `messaging-report` | ✅ exit **0**, 5 cabinets, « No findings » — with FR-7b's fourth bucket now fed by a real category rather than a `null` |
+| `web`: `npx tsc --noEmit` | ✅ clean |
+| `web`: `npm run check:responsive` | ✅ **15/15** |
+| `web`: `npm run build` | ✅ compiled; `/rappels` builds with the new card |
+| `console`: `npx tsc --noEmit` | ✅ clean |
+| `console`: `node scripts/check-responsive.mjs` | ✅ **14/14** |
+| `deploy/docker-compose.hosted.yml` | ✅ parses under `yaml.safe_load` after gaining `Meta__AppId` / `Meta__AppSecret` / `Meta__WebhookVerifyToken` and the two public browser build args |
+
+### Still owed for Part 4
+
+- [ ] **The responsive eye pass** at 320/390/820/1180/1440 px + a landscape phone + a keyboard walk over the new
+      connect card. No browser automation on this machine, so the mechanical gate (15/15 + `tsc` + `build`) plus a
+      diff re-read against `DEVICE-CONTRACT.md` § 1 is what was done: the card is a single-column `Card` with a
+      wrapping header row, its one button carries `coarse:h-11`, and every state is a paragraph rather than a table.
+      ⚠️ Another author added `web/scripts/shots.mjs` mid-session, which may make this cheap for Part 5.
+- [ ] **A real Meta walk**: the template has never been submitted to Meta, the webhook has never been called by Meta,
+      and no `Meta:AppId`/`AppSecret` exists on any deployment (Story 0's 🔴). Everything here is verified against the
+      documented payload shapes and the unit suite. § 34's field name and the five finish types are Story 0's reading.
+- [ ] **The v4 flow in a browser** — § 31's four edits are unverified against a live popup for the same reason.
+- [ ] `CLAUDE.md` and the sub-guides — **Part 5's step 42**, deliberately not done here (Parts 0–3 did the same).

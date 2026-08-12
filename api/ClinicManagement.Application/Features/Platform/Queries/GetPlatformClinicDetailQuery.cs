@@ -299,11 +299,9 @@ public class GetPlatformClinicDetailQueryHandler
         var ledger = entries.Select(e => e.ToLedgerEntry()).ToList();
         var settings = await _reminderSettings.GetByClinicIdAsync(row.ClinicId, cancellationToken);
 
-        // Part 4 stores a per-cabinet template state; until then it is genuinely unknown and the connection alone
-        // decides — see MessagingSender.From for why null is not NotSubmitted.
         var senderState = MessagingSender.From(
             settings?.WhatsAppConnectionStatus ?? WhatsAppConnectionStatus.NotConnected,
-            template: null);
+            settings?.WhatsAppTemplateStatus);
 
         var history = entries
             .OrderByDescending(e => e.RecordedAtUtc)
@@ -344,12 +342,18 @@ public class GetPlatformClinicDetailQueryHandler
             StandingAllowance: MessagingAllowanceLedger.StandingInForce(ledger, monthKey),
             SenderState: senderState.ToString(),
             SenderStateLabel: MessagingSender.Label(senderState),
-            // Part 4 (§ 33/36) stores both. Null is « we do not track this yet », which the console states rather than
-            // rendering « Modèle non soumis » about a cabinet sending perfectly well on the install's own template.
-            TemplateStatus: null,
-            TemplateStatusLabel: null,
-            TemplateCategory: null,
-            TemplateCategoryLabel: null,
+            // Null stays « we do not track a template for this cabinet », which the console states rather than
+            // rendering « Modèle non soumis » about one sending perfectly well on the install's own template.
+            TemplateStatus: settings?.WhatsAppTemplateStatus?.ToString(),
+            TemplateStatusLabel: settings?.WhatsAppTemplateStatus is { } status
+                ? MessagingAllowanceLabels.TemplateStatus(status)
+                : null,
+            // FR-7b — the granted category, and the vendor's own concern: it is what a message COSTS us, so it is
+            // stated here and is a messaging-report finding, while the practice is never shown it (the wording is not
+            // theirs to change, and holding their reminders over our commercial exposure is the ungentle enforcement
+            // this feature is defined against).
+            TemplateCategory: settings?.WhatsAppTemplateCategory,
+            TemplateCategoryLabel: MessagingAllowanceLabels.TemplateCategory(settings?.WhatsAppTemplateCategory),
             Entries: history);
     }
 

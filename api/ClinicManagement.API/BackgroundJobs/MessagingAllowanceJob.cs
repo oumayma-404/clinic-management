@@ -11,9 +11,10 @@ using Microsoft.Extensions.Logging;
 namespace ClinicManagement.API.BackgroundJobs;
 
 /// <summary>
-/// The WhatsApp reminder forfait's daily pass (<c>vendor-whatsapp-messaging-quota</c> D-2). Two duties in one loop —
-/// <b>provision</b> each cabinet's counting row for the current Tunisian month (FR-1a), then <b>reconcile</b> the three
-/// warnings (AC-3.6's withdrawal after a grant, AC-3.7's rollover withdraw-and-re-arm).
+/// The WhatsApp reminder forfait's daily pass (<c>vendor-whatsapp-messaging-quota</c> D-2). Three duties —
+/// <b>provision</b> each cabinet's counting row for the current Tunisian month (FR-1a), <b>reconcile</b> the three
+/// warnings (AC-3.6's withdrawal after a grant, AC-3.7's rollover withdraw-and-re-arm), and <b>poll</b> the template
+/// state of the cabinets still waiting on Meta (FR-7a).
 ///
 /// <para><b>⚠️ Provisioning runs FIRST, per cabinet</b> (R-9). It is the cheapest and the most load-bearing of the two:
 /// a missing row is what makes « non mesuré » appear on a practice's own screen, and putting it behind anything that
@@ -42,6 +43,9 @@ public class MessagingAllowanceJob
     private readonly INotificationGenerator _notificationGenerator;
     private readonly IVendorMessagingAvailability _availability;
     private readonly ISubscriptionPolicy _subscriptionPolicy;
+    private readonly IClinicReminderSettingsRepository _reminderSettings;
+    private readonly IWhatsAppTemplateService _templateService;
+    private readonly IReminderSecretProtector _secretProtector;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
@@ -54,6 +58,9 @@ public class MessagingAllowanceJob
         INotificationGenerator notificationGenerator,
         IVendorMessagingAvailability availability,
         ISubscriptionPolicy subscriptionPolicy,
+        IClinicReminderSettingsRepository reminderSettings,
+        IWhatsAppTemplateService templateService,
+        IReminderSecretProtector secretProtector,
         IUnitOfWork unitOfWork,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
@@ -65,6 +72,9 @@ public class MessagingAllowanceJob
         _notificationGenerator = notificationGenerator;
         _availability = availability;
         _subscriptionPolicy = subscriptionPolicy;
+        _reminderSettings = reminderSettings;
+        _templateService = templateService;
+        _secretProtector = secretProtector;
         _unitOfWork = unitOfWork;
         _auditActor = auditActor;
         _tenantScope = tenantScope;
@@ -117,6 +127,91 @@ public class MessagingAllowanceJob
                 clinic.Id, "reconcile the forfait warnings",
                 () => ReconcileWarningsAsync(clinic.Id, clinicToday, monthKey, renewsOn, month));
         }
+
+        // § 35, FR-7a — the second writer of the template state, over its own candidate set rather than the cabinet
+        // loop above: the reads that select it are cross-cabinet, and most cabinets are not waiting on Meta at all.
+        await PollTemplateReviewsAsync();
+    }
+
+    /// <summary>
+    /// FR-7a's reconciling writer: re-read the template of every cabinet still waiting on Meta.
+    ///
+    /// <para><b>⚠️ It is not a substitute for the webhook and the webhook is not a substitute for it.</b> The webhook
+    /// makes AC-1.5's « les rappels partiront dès la validation » true in minutes; this makes it true <i>at all</i>
+    /// for a notification Meta never delivered or that arrived while this process was down — otherwise a cabinet sits
+    /// at « en attente de validation » for ever with its reminders piling up held and nothing in any log naming the
+    /// cause.</para>
+    ///
+    /// <para>⚠️ Candidates come from <c>GetAwaitingTemplateReviewAsync</c>, whose predicate is
+    /// <c>WhatsAppTemplateStatuses.AwaitingMeta</c> — the same set <c>IsTerminal</c> is derived from, so « which
+    /// cabinets does the poll cover? » has one answer. A cabinet whose template is approved, refused or disabled is
+    /// left alone: Meta will not move those by itself, and re-reading every cabinet daily would spend a Graph call
+    /// per practice for ever.</para>
+    ///
+    /// <para>⚠️ It is <b>read-only against Meta</b> — no delete, no resubmission. Recovering a refused template is the
+    /// vendor's action (FR-7), and an automatic loop against Meta's review queue is what EC-10 forbids.</para>
+    /// </summary>
+    private async Task PollTemplateReviewsAsync()
+    {
+        IReadOnlyList<ClinicReminderSettings> candidates;
+        try
+        {
+            candidates = await _reminderSettings.GetAwaitingTemplateReviewAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to read the cabinets awaiting WhatsApp template review.");
+            return;
+        }
+
+        foreach (var settings in candidates)
+        {
+            await SafelyAsync(
+                settings.Id, "poll the WhatsApp template state", () => PollTemplateAsync(settings));
+        }
+    }
+
+    private async Task PollTemplateAsync(ClinicReminderSettings settings)
+    {
+        if (settings.WhatsAppBusinessAccountId is not { } wabaId
+            || settings.WhatsAppAccessTokenEncrypted is not { } ciphertext)
+        {
+            return;
+        }
+
+        // A ciphertext that no longer decrypts (a rotated key ring) is « we cannot ask », not « the template is
+        // gone » — so the stored state is left exactly as it is. Caught here rather than left to the per-cabinet
+        // SafelyAsync, which would log it at Error every day for a cabinet whose reminders are already reported as
+        // « non configuré » by ReminderSettingsProvider for the same reason.
+        string accessToken;
+        try
+        {
+            accessToken = _secretProtector.Unprotect(ciphertext);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex, "Clinic {ClinicId}'s WhatsApp token could not be decrypted; template state left unchanged.",
+                settings.Id);
+            return;
+        }
+
+        var state = await _templateService.ReadReminderTemplateAsync(
+            wabaId, accessToken, settings.WhatsAppTemplateId);
+
+        // Null covers both « the call failed » and « the WABA holds no such template », which are the same answer
+        // here: assert nothing about a template we could not see.
+        if (state is null || state.Status == settings.WhatsAppTemplateStatus)
+        {
+            return;
+        }
+
+        settings.SetWhatsAppTemplateState(state.Status, state.Category, state.TemplateId, DateTime.UtcNow);
+        await _reminderSettings.UpdateAsync(settings);
+        await _unitOfWork.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Clinic {ClinicId}'s WhatsApp template is now {Status} (reconciling poll).", settings.Id, state.Status);
     }
 
     /// <summary>

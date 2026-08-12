@@ -42,6 +42,12 @@ export interface ReminderSettingsDto {
   whatsAppConnectionStatus: WhatsAppConnectionStatus;
   whatsAppLastError: string | null;
   whatsAppConnectedAt: string | null;
+  /**
+   * AC-1.7 — are this cabinet's WhatsApp credentials ours to provision rather than theirs to type? Where true the
+   * three manual fields are absent from the form and the handler refuses them; « Connecter WhatsApp » on
+   * « Rappels » owns the connection instead.
+   */
+  whatsAppVendorManaged: boolean
 }
 
 /**

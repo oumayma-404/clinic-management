@@ -34,6 +34,7 @@ public sealed class OutboxMessagingGate
 {
     private readonly IVendorMessagingAvailability _availability;
     private readonly IMessagingAllowanceRepository _allowances;
+    private readonly IClinicReminderSettingsRepository _settings;
     private readonly DateTime _clinicToday;
     private readonly Dictionary<Guid, OutboxBlock?> _decided = new();
 
@@ -46,10 +47,12 @@ public sealed class OutboxMessagingGate
     public OutboxMessagingGate(
         IVendorMessagingAvailability availability,
         IMessagingAllowanceRepository allowances,
+        IClinicReminderSettingsRepository settings,
         DateTime clinicToday)
     {
         _availability = availability;
         _allowances = allowances;
+        _settings = settings;
         _clinicToday = clinicToday;
     }
 
@@ -102,10 +105,21 @@ public sealed class OutboxMessagingGate
     /// </summary>
     private async Task<OutboxBlock?> DecideAsync(Guid clinicId, CancellationToken cancellationToken)
     {
-        // ── Term 1 (Part 4 § 33a): the template is not usable ────────────────────────────────────────────────
-        // Nothing here yet. It cannot live in the sender: a sender runs *after* the send call, so FR-7's « consume
-        // nothing » would already be lost — Meta would refuse an unapproved template and the row would burn three
-        // retries, or Meta would accept and a unit would be counted against a template the cabinet cannot use.
+        // ── Term 1 (§ 33a): the template is not usable (FR-7) ────────────────────────────────────────────────
+        // It cannot live in the sender: a sender runs *after* the send call, so FR-7's « consume nothing » would
+        // already be lost — Meta would refuse an unapproved template and the row would burn three retries, or Meta
+        // would accept and a unit would be counted against a template the cabinet cannot use.
+        //
+        // ⚠️ A cabinet with NO stored status passes. That is « we do not track a template for this cabinet », which
+        // is true of every cabinet sending today on the install's own pre-approved one — holding those would stop
+        // every reminder on the deployment the day this shipped, for a template Meta approved long ago.
+        var settings = await _settings.GetByClinicIdAsync(clinicId, cancellationToken);
+        if (settings?.WhatsAppTemplateStatus is { } template && template != WhatsAppTemplateStatus.Approved)
+        {
+            return new OutboxBlock(
+                OutboxBlockReason.MessagingTemplateNotReady,
+                MessagingRefusals.ParkedTemplateNotReady(template));
+        }
 
         // ── Term 2: no allowance record at all (AC-4.3) ──────────────────────────────────────────────────────
         var month = await _allowances.GetMonthAsync(clinicId, MonthKey, cancellationToken);

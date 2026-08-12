@@ -145,6 +145,44 @@ public class SystemWideCallerCoverageTests
         }
     }
 
+    /// <summary>
+    /// The paths that <b>have</b> an HTTP context and still must declare a scope, so the criterion above cannot
+    /// reach them. One entry today: an <c>[AllowAnonymous]</c> action has no <c>User</c> row for
+    /// <c>TenantScopeMiddleware</c> to resolve, so its scope lands <c>Unset</c> — where a read of a filtered entity
+    /// returns nothing and the endpoint reports success.
+    ///
+    /// <para>⚠️ Hand-named, unlike everything else in this class, and it is the one place that is unavoidable:
+    /// deriving « an anonymous action that reads a filtered entity » needs a syntax-tree walk this project has no
+    /// dependency for. It is a list of one, and the sibling test asserts the file still exists so a rename cannot
+    /// leave it silently checking nothing.</para>
+    /// </summary>
+    private static readonly Dictionary<string, string> ScopedDespiteHavingAnHttpContext =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["MetaWebhookController.cs"] = "anonymous, so TenantScopeMiddleware leaves the scope Unset; it resolves "
+                                           + "the cabinet through the filtered ClinicReminderSettings table",
+        };
+
+    // [US-2] + vendor-whatsapp-messaging-quota FR-7a. The criterion above is « no HTTP context »; these have one.
+    [Fact]
+    public void Every_Anonymous_Writer_Of_A_Filtered_Entity_Declares_Its_Tenant_Scope()
+    {
+        var root = SolutionSources.Root();
+        var sources = ProductionSources(root).ToList();
+
+        foreach (var (file, reason) in ScopedDespiteHavingAnHttpContext)
+        {
+            var path = sources.SingleOrDefault(
+                p => string.Equals(Path.GetFileName(p), file, StringComparison.OrdinalIgnoreCase));
+
+            Assert.NotNull(path); // A renamed file must fail here rather than pass by not being found.
+            Assert.True(
+                DeclaresAScope(File.ReadAllText(path!)),
+                $"'{file}' ({reason}) declares no tenant scope. It would verify its payload, resolve no cabinet, "
+                + "write nothing and answer 200.");
+        }
+    }
+
     // [US-2] A derived guard that has never gone red is not yet a guard. Rather than asking a reviewer to delete
     // a call by hand, this feeds the predicate the real StockExpiryJob source with its declaration stripped and
     // asserts the verdict flips — so the thing being proved is the exact function the assertion above uses.

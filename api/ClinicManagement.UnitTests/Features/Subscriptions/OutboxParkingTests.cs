@@ -144,6 +144,7 @@ public class OutboxParkingTests
                 // The WhatsApp forfait reads nothing here (`SellsVendorMessaging = false` by default), so these
                 // entitlement-parking cases keep asserting the subscription gate alone.
                 new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
+                new Mock<IClinicReminderSettingsRepository>().Object,
                 new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
                 NullLogger<NotificationJob>.Instance);
         }

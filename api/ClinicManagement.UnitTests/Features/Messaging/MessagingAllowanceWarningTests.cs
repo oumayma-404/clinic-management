@@ -1,4 +1,4 @@
-using ClinicManagement.API.BackgroundJobs;
+﻿using ClinicManagement.API.BackgroundJobs;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Services;
@@ -510,9 +510,21 @@ public class MessagingAllowanceWarningTests
                 Feed, Mock.Of<IDoctorRepository>(), unitOfWork.Object, Mock.Of<IRealtimeNotifier>(),
                 NullLogger<NotificationGenerator>.Instance);
 
+            // § 35's poll, stubbed to NO candidates so it is a no-op here; its own cases live in
+            // WhatsAppTemplateReviewPollTests.
+            //
+            // ⚠️ Stubbed explicitly rather than left to `Mock.Of<…>()`: Moq's default for an unstubbed method
+            // returning a collection is **null**, which the pass then enumerates — so every case in this class fails
+            // on an NRE thrown a layer away from anything it asserts.
+            var reminderSettings = new Mock<IClinicReminderSettingsRepository>();
+            reminderSettings.Setup(r => r.GetAwaitingTemplateReviewAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Array.Empty<ClinicReminderSettings>());
+
             _job = new MessagingAllowanceJob(
                 clinics.Object, allowances.Object, subscriptions.Object, generator, availability.Object,
-                policy.Object, unitOfWork.Object, Mock.Of<IAuditActorProvider>(), Mock.Of<ITenantScope>(),
+                policy.Object, reminderSettings.Object, Mock.Of<IWhatsAppTemplateService>(),
+                Mock.Of<IReminderSecretProtector>(), unitOfWork.Object,
+                Mock.Of<IAuditActorProvider>(), Mock.Of<ITenantScope>(),
                 NullLogger<MessagingAllowanceJob>.Instance);
         }
 

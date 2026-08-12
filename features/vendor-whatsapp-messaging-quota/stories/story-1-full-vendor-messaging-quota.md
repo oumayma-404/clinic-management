@@ -1,7 +1,7 @@
 # Story 1: FULL — Vendor-purchased WhatsApp messaging quota
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts 0, 1, 2 and 3 done** (see [`../progress.md`](../progress.md)); Parts 4–5 outstanding
+**Story Status:** in-progress — **Parts 0, 1, 2, 3 and 4 done** (see [`../progress.md`](../progress.md)); Part 5 outstanding
 **Layer:** **Full** (BE · jobs · console verbs · clinic UI · console UI) — see the departure note below
 **Depends On:** 0
 **Blocks:** None
@@ -32,13 +32,13 @@ Available on **`HostedMultiTenant` only**, through the 18th `DeploymentProfile` 
 _From spec:_
 
 **US-1 — a cabinet connects WhatsApp without configuring anything** (Part 4)
-- [ ] AC-1.1 « Connecter WhatsApp » offered to an admin where vendor messaging is available; Meta's own guided flow
-- [ ] AC-1.2 the one-time code arrives on the practice's own handset, stated **before** the flow starts
-- [ ] AC-1.3 the product submits the French reminder template on the cabinet's behalf; no template editor is ever shown
-- [ ] AC-1.4 exactly five states, each in words; « connecté » is never presented as « prêt à envoyer »
-- [ ] AC-1.5 while under review, the screen says up to 24 h and that reminders booked meanwhile are held
-- [ ] AC-1.6 absent — no card, no button, no message — where vendor messaging is unavailable
-- [ ] AC-1.7 the manual WhatsApp credential fields are **not offered** where it is available
+- [x] AC-1.1 « Connecter WhatsApp » offered to an admin where vendor messaging is available; Meta's own guided flow
+- [x] AC-1.2 the one-time code arrives on the practice's own handset, stated **before** the flow starts
+- [x] AC-1.3 the product submits the French reminder template on the cabinet's behalf; no template editor is ever shown
+- [x] AC-1.4 exactly five states, each in words; « connecté » is never presented as « prêt à envoyer »
+- [x] AC-1.5 while under review, the screen says up to 24 h and that reminders booked meanwhile are held
+- [x] AC-1.6 absent — no card, no button, no message — where vendor messaging is unavailable
+- [x] AC-1.7 the manual WhatsApp credential fields are **not offered** where it is available
 
 **US-2 — a cabinet sees what it has left** (Part 2)
 - [x] AC-2.1 allowance / consumed / remaining for the current Tunisian month
@@ -394,20 +394,20 @@ Step numbers match [`../plan.md`](../plan.md) exactly, so the two can be read si
     in `UpdateClinicReminderSettingsCommand` too.
 
 **Part 4 commit point.** Validation:
-- [ ] `WhatsAppSenderErrorClassificationTests` covers the six codes **and** asserts no response body reaches the result
+- [x] `WhatsAppSenderErrorClassificationTests` covers the six codes **and** asserts no response body reaches the result
       (the `SECURITY_REVIEW_2026-08` finding must not regress)
-- [ ] At least one code per outcome asserted against a **full-length** Meta envelope (>200 chars, `code` after a long
+- [x] At least one code per outcome asserted against a **full-length** Meta envelope (>200 chars, `code` after a long
       `message`)
-- [ ] `DispatchAsync`'s outcome `switch` has a `default` that parks and logs, asserted
-- [ ] A template under review holds reminders **pre-send** (the sender is never called, no unit counted), consumes
+- [x] `DispatchAsync`'s outcome `switch` has a `default` that parks and logs, asserted
+- [x] A template under review holds reminders **pre-send** (the sender is never called, no unit counted), consumes
       nothing, releases on approval (EC-9); a `DECLINED` template says so with a contact route and runs **no**
       resubmission loop (EC-10); `131048`/`131064` hold rather than burning three retries (EC-11)
-- [ ] A template-parked row is **not** released by an allowance top-up (AC-4.8)
-- [ ] A forged webhook signature is rejected; the verify handshake answers `hub.challenge`
-- [ ] **The webhook actually writes** — a valid `message_template_status_update` for a known WABA moves that cabinet's
+- [x] A template-parked row is **not** released by an allowance top-up (AC-4.8)
+- [x] A forged webhook signature is rejected; the verify handshake answers `hub.challenge`
+- [x] **The webhook actually writes** — a valid `message_template_status_update` for a known WABA moves that cabinet's
       template state, asserted with the tenant scope left as production leaves it (`Unset`). A test that sets a scope by
       hand asserts the one arrangement that is broken
-- [ ] `ReminderSettingsChannelIsolationTests` still green, **byte-for-byte unchanged** — closing the manual fields must
+- [x] `ReminderSettingsChannelIsolationTests` still green, **byte-for-byte unchanged** — closing the manual fields must
       not weaken `ClaimsItsOwnWhatsApp` (R-8). If the test needs *any* edit, stop and re-read the security review
 
 ### Part 5 — Verification, guards and documentation

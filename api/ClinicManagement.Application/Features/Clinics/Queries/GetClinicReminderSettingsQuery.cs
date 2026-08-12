@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -23,17 +23,20 @@ public class GetClinicReminderSettingsQueryHandler
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
     private readonly IReminderSettingsProvider _settingsProvider;
+    private readonly IVendorMessagingAvailability _vendorMessaging;
 
     public GetClinicReminderSettingsQueryHandler(
         IClinicReminderSettingsRepository settingsRepository,
         IUserRepository userRepository,
         IClinicContext clinicContext,
-        IReminderSettingsProvider settingsProvider)
+        IReminderSettingsProvider settingsProvider,
+        IVendorMessagingAvailability vendorMessaging)
     {
         _settingsRepository = settingsRepository;
         _userRepository = userRepository;
         _clinicContext = clinicContext;
         _settingsProvider = settingsProvider;
+        _vendorMessaging = vendorMessaging;
     }
 
     public async Task<Result<ReminderSettingsDto>> Handle(
@@ -64,7 +67,7 @@ public class GetClinicReminderSettingsQueryHandler
             // secrets decrypted) — so a channel toggled on but missing a URL/secret reads not_configured even
             // when a WhatsApp OAuth "connection" exists.
             var resolved = await _settingsProvider.ResolveAsync(user.ClinicId, cancellationToken);
-            var dto = settings.ToDto() with
+            var dto = settings.ToDto(_vendorMessaging.SellsVendorMessaging) with
             {
                 SmsEffectiveStatus = resolved.SmsConfigured
                     ? ReminderEffectiveStatus.Configured

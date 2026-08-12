@@ -53,6 +53,18 @@ public sealed record ReminderSettingsDto
     public string WhatsAppConnectionStatus { get; init; } = nameof(Domain.Enums.WhatsAppConnectionStatus.NotConnected);
     public string? WhatsAppLastError { get; init; }
     public DateTime? WhatsAppConnectedAt { get; init; }
+
+    /// <summary>
+    /// AC-1.7 — <b>are this cabinet's WhatsApp credentials ours to provision rather than theirs to type?</b> True on a
+    /// deployment that sells vendor messaging, where the three manual fields (endpoint, phone-number id, access token)
+    /// are absent from the screen and refused by the handler.
+    ///
+    /// <para>⚠️ It travels on <i>this</i> DTO rather than being probed elsewhere, because the screen that hides the
+    /// fields and the handler that refuses them are two halves of one rule — and this is the read that handler
+    /// answers. A separate capability probe is a second source that can disagree, which would mean a form offering a
+    /// field the save is about to reject.</para>
+    /// </summary>
+    public bool WhatsAppVendorManaged { get; init; }
 }
 
 /// <summary>

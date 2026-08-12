@@ -49,6 +49,7 @@ public class NotificationJob
     private readonly IClinicSubscriptionRepository _subscriptions;
     private readonly IVendorMessagingAvailability _messagingAvailability;
     private readonly IMessagingAllowanceRepository _allowances;
+    private readonly IClinicReminderSettingsRepository _reminderSettings;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
     private readonly ILogger<NotificationJob> _logger;
@@ -67,6 +68,7 @@ public class NotificationJob
         IClinicSubscriptionRepository subscriptions,
         IVendorMessagingAvailability messagingAvailability,
         IMessagingAllowanceRepository allowances,
+        IClinicReminderSettingsRepository reminderSettings,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
         ILogger<NotificationJob> logger)
@@ -84,6 +86,7 @@ public class NotificationJob
         _subscriptions = subscriptions;
         _messagingAvailability = messagingAvailability;
         _allowances = allowances;
+        _reminderSettings = reminderSettings;
         _auditActor = auditActor;
         _tenantScope = tenantScope;
         _logger = logger;
@@ -136,7 +139,8 @@ public class NotificationJob
         // FR-4 + FR-7 — the same shape for the WhatsApp reminder forfait, and asked *after* the entitlement gate at
         // both call sites (AC-4.7): a cabinet that may not record new work at all is told that, not that its forfait
         // ran out. Where the deployment does not sell vendor messaging this reads nothing (EC-16).
-        var forfait = new OutboxMessagingGate(_messagingAvailability, _allowances, clinicToday);
+        var forfait = new OutboxMessagingGate(
+            _messagingAvailability, _allowances, _reminderSettings, clinicToday);
 
         // The counting rows this tick has already ensured, per cabinet — so a practice with twenty rows in one batch
         // reads and creates its month row once rather than twenty times.
@@ -499,6 +503,39 @@ public class NotificationJob
                     notification,
                     OutboxBlockReason.ChannelUnconfigured,
                     $"Canal « {ChannelLabel(notification.Type)} » non configuré — identifiants manquants");
+                break;
+
+            case ReminderSendOutcome.Throttled:
+                // FR-8 — the provider is rate-limiting us. Leave the row Pending and touch NOTHING: not the retry
+                // count (nothing is wrong with this reminder, and spending an attempt on our own throughput would
+                // eventually fail a message that a minute's wait would have delivered) and not the state. There is
+                // no save at all, so the next tick picks it up unchanged — which is also why it must not be parked:
+                // a throttle clears by itself, and un-parking is a once-a-tick review rather than the queue.
+                _logger.LogInformation(
+                    "Reminder {NotificationId} deferred — {Channel} is rate-limiting: {Error}",
+                    notification.Id, ChannelLabel(notification.Type), result.Error);
+                break;
+
+            case ReminderSendOutcome.Blocked:
+                // FR-8, EC-11 — the provider has stopped this sender, so a retry cannot change the answer and would
+                // burn the row's budget. Held under the sender's own reason, released by the review pass.
+                await BlockAsync(
+                    notification,
+                    result.BlockReason ?? OutboxBlockReason.ChannelUnconfigured,
+                    result.Error ?? $"Envoi « {ChannelLabel(notification.Type)} » suspendu par le fournisseur");
+                break;
+
+            default:
+                // ⚠️ There was no default here, and its absence was the defect: an outcome this switch does not name
+                // fell through with no save, no log and no state change, so the row stayed Pending and was
+                // re-attempted every tick for ever. A fifth outcome added later parks and says so instead.
+                _logger.LogError(
+                    "Reminder {NotificationId} returned the unhandled outcome {Outcome}; parking it.",
+                    notification.Id, result.Outcome);
+                await BlockAsync(
+                    notification,
+                    OutboxBlockReason.ChannelUnsupported,
+                    $"Résultat d'envoi inattendu ({result.Outcome}) — envoi en attente");
                 break;
         }
     }

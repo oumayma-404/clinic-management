@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Messaging;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
@@ -27,6 +28,7 @@ public class UpdateClinicReminderSettingsCommandHandler
     private readonly IReminderSecretProtector _secretProtector;
     private readonly IReminderSettingsProvider _settingsProvider;
     private readonly IOutboundEndpointPolicy _endpointPolicy;
+    private readonly IVendorMessagingAvailability _vendorMessaging;
     private readonly IUnitOfWork _unitOfWork;
 
     public UpdateClinicReminderSettingsCommandHandler(
@@ -36,6 +38,7 @@ public class UpdateClinicReminderSettingsCommandHandler
         IReminderSecretProtector secretProtector,
         IReminderSettingsProvider settingsProvider,
         IOutboundEndpointPolicy endpointPolicy,
+        IVendorMessagingAvailability vendorMessaging,
         IUnitOfWork unitOfWork)
     {
         _settingsRepository = settingsRepository;
@@ -44,6 +47,7 @@ public class UpdateClinicReminderSettingsCommandHandler
         _secretProtector = secretProtector;
         _settingsProvider = settingsProvider;
         _endpointPolicy = endpointPolicy;
+        _vendorMessaging = vendorMessaging;
         _unitOfWork = unitOfWork;
     }
 
@@ -75,6 +79,28 @@ public class UpdateClinicReminderSettingsCommandHandler
             var isNew = settings == null;
             settings ??= new ClinicReminderSettings(user.ClinicId);
 
+            // AC-1.7 — where the vendor provisions WhatsApp, its identity is not something a cabinet types. The
+            // fields are absent from the screen; this is what makes their absence a rule rather than a layout choice.
+            var vendorManagesWhatsApp = _vendorMessaging.SellsVendorMessaging;
+            if (vendorManagesWhatsApp && ClaimsAWhatsAppCredential(input))
+            {
+                return Result<ReminderSettingsDto>.Failure(
+                    MessagingRefusals.ManualWhatsApp, MessagingRefusals.ManualWhatsAppCode);
+            }
+
+            // ⚠️ And the four WhatsApp identity fields are then carried over from what is STORED, not from the
+            // request. `ApplyNonSecretSettings` replaces every field it is given, so a screen that no longer renders
+            // them posts nulls — which would erase the phone-number id and template name that « Connecter WhatsApp »
+            // wrote, silently un-configuring the channel (ReminderSettingsProvider.ClaimsItsOwnWhatsApp reads exactly
+            // those columns) on the next unrelated save of an SMS setting.
+            var whatsAppApiUrl = vendorManagesWhatsApp ? settings.WhatsAppApiUrl : input.WhatsAppApiUrl;
+            var whatsAppPhoneNumberId =
+                vendorManagesWhatsApp ? settings.WhatsAppPhoneNumberId : input.WhatsAppPhoneNumberId;
+            var whatsAppTemplateName =
+                vendorManagesWhatsApp ? settings.WhatsAppTemplateName : input.WhatsAppTemplateName;
+            var whatsAppTemplateLanguage =
+                vendorManagesWhatsApp ? settings.WhatsAppTemplateLanguage : input.WhatsAppTemplateLanguage;
+
             // The three endpoint fields are the ones a tenant can aim anywhere, so the domain refuses a
             // non-public target. Caught here rather than left to the exception middleware: this is a typo in a
             // settings form, and it must come back as the French 400 the screen renders — not a generic 500.
@@ -85,11 +111,11 @@ public class UpdateClinicReminderSettingsCommandHandler
                     input.SmsEnabled,
                     input.WhatsAppEnabled,
                     input.SmsSenderId,
-                    input.WhatsAppPhoneNumberId,
-                    input.WhatsAppTemplateName,
-                    input.WhatsAppTemplateLanguage,
+                    whatsAppPhoneNumberId,
+                    whatsAppTemplateName,
+                    whatsAppTemplateLanguage,
                     input.SmsApiUrl,
-                    input.WhatsAppApiUrl,
+                    whatsAppApiUrl,
                     input.LeadTimeHours,
                     input.MessageTemplateBody,
                     allowPrivate);
@@ -138,7 +164,7 @@ public class UpdateClinicReminderSettingsCommandHandler
             // Return the freshly-resolved effective status too, so the UI can immediately show whether the
             // channel is now actually sendable (AC-2) without a second round-trip.
             var resolved = await _settingsProvider.ResolveAsync(user.ClinicId, cancellationToken);
-            var dto = settings.ToDto() with
+            var dto = settings.ToDto(vendorManagesWhatsApp) with
             {
                 SmsEffectiveStatus = resolved.SmsConfigured
                     ? ReminderEffectiveStatus.Configured
@@ -158,4 +184,14 @@ public class UpdateClinicReminderSettingsCommandHandler
             return Result<ReminderSettingsDto>.Failure($"Error updating reminder settings: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// Did this request try to supply a WhatsApp credential? The same three fields
+    /// <c>ReminderSettingsProvider.ClaimsItsOwnWhatsApp</c> reads, deliberately: what AC-1.7 refuses is exactly what
+    /// would make the cabinet own its own channel.
+    /// </summary>
+    private static bool ClaimsAWhatsAppCredential(UpdateReminderSettingsRequest input) =>
+        !string.IsNullOrWhiteSpace(input.WhatsAppApiUrl)
+        || !string.IsNullOrWhiteSpace(input.WhatsAppPhoneNumberId)
+        || !string.IsNullOrWhiteSpace(input.WhatsAppAccessToken);
 }

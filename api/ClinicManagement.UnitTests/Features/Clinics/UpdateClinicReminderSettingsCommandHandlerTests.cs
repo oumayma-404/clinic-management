@@ -29,6 +29,12 @@ public class UpdateClinicReminderSettingsCommandHandlerTests
     // behaviour set this up explicitly.
     private readonly Mock<IOutboundEndpointPolicy> _endpointPolicy = new();
 
+    /// <summary>
+    /// AC-1.7. A default mock answers <c>SellsVendorMessaging = false</c>, so every case below keeps the manual
+    /// credential path it was written against; the refusal has its own cases in <c>VendorManagedWhatsAppTests</c>.
+    /// </summary>
+    private readonly Mock<IVendorMessagingAvailability> _vendorMessaging = new();
+
     public UpdateClinicReminderSettingsCommandHandlerTests()
     {
         // Post-save effectiveStatus resolution — a permissive default (no channels/creds → not_configured).
@@ -39,7 +45,7 @@ public class UpdateClinicReminderSettingsCommandHandlerTests
 
     private UpdateClinicReminderSettingsCommandHandler Handler() =>
         new(_settings.Object, _users.Object, _context.Object, _protector.Object, _provider.Object,
-            _endpointPolicy.Object, _uow.Object);
+            _endpointPolicy.Object, _vendorMessaging.Object, _uow.Object);
 
     private static User Local(string role) =>
         User.CreateLocalUser(ClinicId, role, $"{role}@clinic.com", "HASH", $"{role} name");

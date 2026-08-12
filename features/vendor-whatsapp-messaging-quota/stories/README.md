@@ -55,7 +55,7 @@ graph TD
 | Story | Layer | Name | Status | Depends On | Blocks |
 |-------|-------|------|--------|------------|--------|
 | 0 | Spike | Embedded Signup version confirmation | **done** ✅ | – | 1 |
-| 1 | **Full** | Vendor-purchased WhatsApp messaging quota | **in-progress** — Parts 0 ✅ · 1 ✅ · 2 ✅ · 3–5 ⬜ | 0 | – |
+| 1 | **Full** | Vendor-purchased WhatsApp messaging quota | **in-progress** — Parts 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ⬜ | 0 | – |
 
 > **Parts 0 and 1 landed on `feature/windows-desktop-app`** (`57cfd73`, `241dd0b`), at R-1's own split point. Part 0
 > gave `ClinicClock` the month concept it had none of and moved the two private copies into it; Part 1 shipped the
@@ -76,6 +76,21 @@ graph TD
 > `MessagingSender.From` (DEV-6), and `senderNumber` always null because nothing stores a cabinet's own number
 > (DEV-7). ⚠️ **The responsive eye pass is owed** — no browser automation here; the fallback diff re-read did catch a
 > real § 2 touch-target defect.
+
+> **Part 4 landed on the same branch.** A cabinet now connects WhatsApp without touching Meta, the French template is
+> submitted on its behalf, and Meta's refusals are told apart instead of collapsing into one transient failure. Four
+> things are worth knowing before Part 5. **(a)** The plan's two-variable template body could not be used — the sender
+> passes **one** parameter carrying the whole rendered sentence, and formatting inside the sender would break L3b's
+> stale-moment backstop; the user chose « Bonjour, {{1}} À bientôt, votre cabinet dentaire. » (DEV-11). **(b)** Two
+> decisions keep EC-16 true and both would have failed silently: no template is submitted where the deployment does
+> not sell vendor messaging, and the gate **passes** a cabinet with no stored status — reading null as `NotSubmitted`
+> would have held every WhatsApp reminder on the deployment. **(c)** AC-1.7 needed a third, unplanned fix: an ordinary
+> save was going to erase the connection, because the screen no longer renders those fields and
+> `ApplyNonSecretSettings` replaces every field it is given. **(d)** § 31 was **extracted into a hook** rather than
+> edited in place, since § 38 adds a second surface running the same flow (DEV-13). Suite **2988 → 3049** (61 new),
+> and `verify-schema` went exit 2 → **0** with the diff naming only the intended index. Three deviations in
+> [`../progress.md`](../progress.md). ⚠️ **The responsive eye pass and any real Meta walk are still owed** — there is
+> still no `Meta:AppId` on any deployment (Story 0's 🔴), so nothing here has met Meta.
 
 > ✅ **Story 0 is closed, and it answered with a third outcome neither branch covered.** Meta's current Embedded
 > Signup version is **v4**; the 15 Oct 2026 deprecation names **v2 only**; we are on **v3**. Part 4 **§ 31 migrates

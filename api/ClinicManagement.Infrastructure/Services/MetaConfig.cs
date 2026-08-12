@@ -16,6 +16,19 @@ public static class MetaConfig
     public static string? AppId(IConfiguration configuration) => configuration["Meta:AppId"];
     public static string? AppSecret(IConfiguration configuration) => configuration["Meta:AppSecret"];
 
+    /// <summary>
+    /// The token Meta echoes back once, in the webhook's own subscription handshake
+    /// (<c>GET ?hub.verify_token=…</c>). A secret of our choosing, and <b>separate</b> from
+    /// <see cref="AppSecret"/>: this one is typed into Meta's dashboard by an operator, while the app secret signs
+    /// every payload and must never be pasted anywhere.
+    ///
+    /// <para>⚠️ Unset means the handshake <b>always refuses</b> — never « accept anything ». The one request this
+    /// gates is the one that decides whether Meta will deliver to us at all, so an absent value must fail the
+    /// subscription loudly rather than register an endpoint anybody can subscribe.</para>
+    /// </summary>
+    public static string? WebhookVerifyToken(IConfiguration configuration) =>
+        configuration["Meta:WebhookVerifyToken"];
+
     public static string GraphApiVersion(IConfiguration configuration) =>
         string.IsNullOrWhiteSpace(configuration["Meta:GraphApiVersion"])
             ? DefaultGraphApiVersion

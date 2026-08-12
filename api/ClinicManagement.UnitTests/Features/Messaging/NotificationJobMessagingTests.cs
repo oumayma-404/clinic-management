@@ -1,4 +1,4 @@
-using ClinicManagement.API.BackgroundJobs;
+﻿using ClinicManagement.API.BackgroundJobs;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -65,7 +65,27 @@ public class NotificationJobMessagingTests
         public Mock<IMessagingAllowanceRepository> Allowances { get; } = new();
         public Mock<IUnitOfWork> UnitOfWork { get; } = new();
         public Mock<IVendorMessagingAvailability> Availability { get; } = new();
+
+        /// <summary>
+        /// § 33a's template term. A default mock answers <c>null</c> for the settings row, which the gate reads as
+        /// « we do not track a template for this cabinet » and passes — so every case below still belongs to the
+        /// allowance, and the template's own cases live in <c>OutboxMessagingGateTests</c>.
+        /// </summary>
+        public Mock<IClinicReminderSettingsRepository> ReminderSettings { get; } = new();
+
         public NotificationJob Job { get; }
+
+        /// <summary>§ 33a — gives the cabinet a connected WhatsApp whose template is in <paramref name="status"/>.</summary>
+        public void WithTemplate(WhatsAppTemplateStatus status)
+        {
+            var settings = new ClinicReminderSettings(ClinicId);
+            settings.ApplyWhatsAppConnection("WABA-1", "PHONE-1");
+            settings.SetWhatsAppTemplateState(status, "UTILITY", "TPL-1", new DateTime(2026, 8, 1, 9, 0, 0, DateTimeKind.Utc));
+
+            ReminderSettings
+                .Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(settings);
+        }
 
         /// <summary>Every save, in order, with the state of the row that rode it — the atomicity assertion's evidence.</summary>
         public List<(NotificationStatus Status, int Consumed)> Saves { get; } = new();
@@ -191,7 +211,7 @@ public class NotificationJobMessagingTests
                 // belongs to the forfait (AC-4.7's ordering has its own case in OutboxParkingTests).
                 Mock.Of<ISubscriptionPolicy>(p => p.RequiresSubscription == false),
                 new Mock<IClinicSubscriptionRepository>().Object,
-                Availability.Object, Allowances.Object,
+                Availability.Object, Allowances.Object, ReminderSettings.Object,
                 new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
                 NullLogger<NotificationJob>.Instance);
         }
@@ -560,5 +580,129 @@ public class NotificationJobMessagingTests
         Assert.Empty(harness.Created);
         harness.Allowances.Verify(
             r => r.GetMonthAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ---- § 33a + § 37: the template hold, and the two new sender outcomes -----------------------
+
+    /// <summary>
+    /// [FR-7][EC-9] A template under review holds the row <b>pre-send</b>: the sender is never called and no unit is
+    /// counted. That is what distinguishes a gate term from a sender-side classification — a sender runs <i>after</i>
+    /// the call, by which point Meta has either refused it (three burnt retries) or accepted it (a unit counted
+    /// against a template the cabinet cannot use).
+    /// </summary>
+    [Fact]
+    public async Task A_Template_Under_Review_Holds_The_Row_Before_The_Sender_Is_Called()
+    {
+        var row = WhatsAppReminder();
+        var harness = new Harness(due: new[] { row }, month: Month(allowance: 200, consumed: 0));
+        harness.WithTemplate(WhatsAppTemplateStatus.PendingReview);
+
+        await harness.Job.ProcessPendingNotifications();
+
+        Assert.Equal(NotificationStatus.Blocked, row.Status);
+        Assert.Equal(OutboxBlockReason.MessagingTemplateNotReady, row.BlockedReason);
+        Assert.Equal(0, harness.Sender.Calls);
+        Assert.Equal(0, harness.Month!.ConsumedMessages);
+    }
+
+    /// <summary>
+    /// [AC-4.8] <b>A template-parked row is NOT released by an allowance top-up.</b> The un-park review asks the gate
+    /// for <i>every</i> parked row rather than only a forfait-parked one — without that, granting messages would send
+    /// a reminder on a cabinet whose template Meta has refused.
+    /// </summary>
+    [Fact]
+    public async Task A_Template_Parked_Row_Is_Not_Released_By_A_Top_Up()
+    {
+        var parked = WhatsAppReminder(scheduledFor: DateTime.UtcNow.AddMinutes(-5));
+        parked.MarkAsBlocked(OutboxBlockReason.MessagingTemplateNotReady, "Modèle WhatsApp en attente");
+
+        // A forfait with room to spare — the top-up has landed, and it must change nothing here.
+        var harness = new Harness(blocked: new[] { parked }, month: Month(allowance: 500, consumed: 10));
+        harness.WithTemplate(WhatsAppTemplateStatus.Rejected);
+
+        await harness.Job.ProcessPendingNotifications();
+
+        Assert.Equal(NotificationStatus.Blocked, parked.Status);
+        Assert.Equal(0, harness.Sender.Calls);
+    }
+
+    /// <summary>[EC-9] …and it IS released once Meta approves, which is the other half of the same rule.</summary>
+    [Fact]
+    public async Task An_Approval_Releases_A_Template_Parked_Row()
+    {
+        var parked = WhatsAppReminder(scheduledFor: DateTime.UtcNow.AddMinutes(-5));
+        parked.MarkAsBlocked(OutboxBlockReason.MessagingTemplateNotReady, "Modèle WhatsApp en attente");
+
+        var harness = new Harness(blocked: new[] { parked }, month: Month(allowance: 500, consumed: 10));
+        harness.WithTemplate(WhatsAppTemplateStatus.Approved);
+
+        await harness.Job.ProcessPendingNotifications();
+
+        Assert.Equal(NotificationStatus.Pending, parked.Status);
+        Assert.Null(parked.BlockedReason);
+    }
+
+    /// <summary>
+    /// [FR-8] A throttle leaves the row <b>Pending with its retry budget untouched</b>. Nothing is wrong with this
+    /// reminder, so spending an attempt on our own throughput would eventually fail a message that a minute's wait
+    /// would have delivered — and no unit is counted, since nothing was sent.
+    /// </summary>
+    [Fact]
+    public async Task A_Throttle_Leaves_The_Row_Pending_And_Spends_No_Retry()
+    {
+        var row = WhatsAppReminder();
+        var harness = new Harness(
+            due: new[] { row },
+            month: Month(allowance: 200, consumed: 5),
+            sendResult: ReminderSendResult.Throttled("Limite d'envoi WhatsApp atteinte"));
+
+        await harness.Job.ProcessPendingNotifications();
+
+        Assert.Equal(NotificationStatus.Pending, row.Status);
+        Assert.Equal(0, row.RetryCount);
+        Assert.Equal(5, harness.Month!.ConsumedMessages);
+    }
+
+    /// <summary>
+    /// [FR-8][EC-11] Meta has stopped the number: the row is <b>held</b> under its own reason rather than retried
+    /// three times and failed, and nothing is counted.
+    /// </summary>
+    [Fact]
+    public async Task A_Stopped_Number_Parks_The_Row_Rather_Than_Burning_Its_Retries()
+    {
+        var row = WhatsAppReminder();
+        var harness = new Harness(
+            due: new[] { row },
+            month: Month(allowance: 200, consumed: 5),
+            sendResult: ReminderSendResult.Blocked(
+                OutboxBlockReason.MessagingNumberStopped, "Envoi WhatsApp suspendu par Meta"));
+
+        await harness.Job.ProcessPendingNotifications();
+
+        Assert.Equal(NotificationStatus.Blocked, row.Status);
+        Assert.Equal(OutboxBlockReason.MessagingNumberStopped, row.BlockedReason);
+        Assert.Equal(0, row.RetryCount);
+        Assert.Equal(5, harness.Month!.ConsumedMessages);
+    }
+
+    /// <summary>
+    /// [§ 37] An outcome the dispatcher's <c>switch</c> does not name <b>parks and logs</b>. There was no
+    /// <c>default</c> at all, so such a row fell through with no save, no log and no state change — staying
+    /// <c>Pending</c> and being re-attempted every tick for ever, which is invisible except as a queue that never
+    /// drains. Asserted with a value outside the enum, since every declared member is now handled.
+    /// </summary>
+    [Fact]
+    public async Task An_Unnamed_Outcome_Parks_The_Row_Instead_Of_Leaving_It_Pending()
+    {
+        var row = WhatsAppReminder();
+        var harness = new Harness(
+            due: new[] { row },
+            month: Month(allowance: 200, consumed: 5),
+            sendResult: new ReminderSendResult((ReminderSendOutcome)99, "something new"));
+
+        await harness.Job.ProcessPendingNotifications();
+
+        Assert.Equal(NotificationStatus.Blocked, row.Status);
+        Assert.NotEqual(0, (int)(row.BlockedReason ?? 0));
     }
 }

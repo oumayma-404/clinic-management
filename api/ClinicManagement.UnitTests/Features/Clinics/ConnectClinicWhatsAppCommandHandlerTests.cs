@@ -23,10 +23,19 @@ public class ConnectClinicWhatsAppCommandHandlerTests
     private readonly Mock<IClinicContext> _context = new();
     private readonly Mock<IReminderSecretProtector> _protector = new();
     private readonly Mock<IWhatsAppOnboardingService> _onboarding = new();
+    private readonly Mock<IWhatsAppTemplateService> _templates = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
+    /// <summary>
+    /// Part 4 § 33's template submission. A default mock answers <c>SellsVendorMessaging = false</c>, so these
+    /// scenarios stay byte-identical — the submission does not run on a deployment that does not sell vendor
+    /// messaging (EC-16), and its own cases live in <c>WhatsAppTemplateSubmissionTests</c>.
+    /// </summary>
+    private readonly Mock<IVendorMessagingAvailability> _vendorMessaging = new();
+
     private ConnectClinicWhatsAppCommandHandler Handler() =>
-        new(_settings.Object, _users.Object, _context.Object, _protector.Object, _onboarding.Object, _uow.Object);
+        new(_settings.Object, _users.Object, _context.Object, _protector.Object, _onboarding.Object,
+            _templates.Object, _vendorMessaging.Object, _uow.Object);
 
     private static User Local(string role) =>
         User.CreateLocalUser(ClinicId, role, $"{role}@clinic.com", "HASH", $"{role} name");

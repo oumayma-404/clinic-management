@@ -56,6 +56,12 @@ export interface ReminderAllowanceDto {
    */
   contactEmail: string | null;
   contactPhone: string | null;
+  /**
+   * AC-1.1 — can Meta's guided connection actually run here? The deployment's own Meta credentials, which is a
+   * **separate** question from whether it sells vendor messaging: an allowance a cabinet cannot yet spend is still a
+   * real allowance, so the figures stay and only the offer to connect goes away.
+   */
+  canConnect: boolean;
 }
 
 /** One month of the history table (AC-2.3). */

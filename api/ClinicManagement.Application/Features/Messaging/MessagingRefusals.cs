@@ -1,4 +1,5 @@
 using System.Globalization;
+using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Application.Features.Messaging;
 
@@ -77,4 +78,31 @@ public static class MessagingRefusals
 
     public const string ParkedMissing =
         "Forfait de rappels WhatsApp introuvable — envoi en attente du rétablissement";
+
+    /// <summary>AC-1.7 — the cabinet's WhatsApp identity is ours to provision, not theirs to type.</summary>
+    public const string ManualWhatsAppCode = "messaging_whatsapp_is_vendor_managed";
+
+    /// <summary>
+    /// AC-1.7's server-side half. The fields are absent from the screen where vendor messaging is available, and this
+    /// is what makes that a rule rather than a UI decision.
+    ///
+    /// <para>⚠️ It says what to do instead. « Non autorisé » on a field somebody just filled in, with no alternative
+    /// named, is how a practice concludes WhatsApp cannot be switched on at all — when in fact it is one button.</para>
+    /// </summary>
+    public const string ManualWhatsApp =
+        "Les identifiants WhatsApp sont fournis par nous sur cette installation et ne se saisissent pas ici. "
+        + "Utilisez « Connecter WhatsApp » : votre numéro et votre modèle de message sont configurés pour vous.";
+
+    /// <summary>
+    /// § 33a's parked sentence: the cabinet's WhatsApp template is not usable, so the send waits (FR-7, EC-9, EC-10).
+    ///
+    /// <para>⚠️ It names <b>which</b> of the two situations it is, because they have opposite remedies and only one of
+    /// them ends by itself: waiting on Meta's review resolves on its own, while a refused, paused or disabled template
+    /// is recovered by <i>us</i> and never by the practice (FR-7). It consumes nothing either way — the whole reason
+    /// this is a gate term and not a sender outcome.</para>
+    /// </summary>
+    public static string ParkedTemplateNotReady(WhatsAppTemplateStatus status) =>
+        status is WhatsAppTemplateStatus.NotSubmitted or WhatsAppTemplateStatus.PendingReview
+            ? "Modèle WhatsApp en attente de validation par Meta — envoi en attente, rien n'est décompté"
+            : "Modèle WhatsApp refusé ou suspendu par Meta — envoi en attente, nous nous en occupons";
 }

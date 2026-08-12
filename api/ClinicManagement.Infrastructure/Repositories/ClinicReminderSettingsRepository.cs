@@ -1,4 +1,6 @@
+using ClinicManagement.Application.Features.Messaging;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +22,35 @@ public class ClinicReminderSettingsRepository : IClinicReminderSettingsRepositor
     {
         return await _context.ClinicReminderSettings
             .FirstOrDefaultAsync(s => s.Id == clinicId, cancellationToken);
+    }
+
+    // The one IgnoreQueryFilters() read of this class, and the interface says why: the webhook that needs it is
+    // anonymous, so it has no clinic in scope — the row it is looking for is what tells it whose the payload is.
+    public async Task<ClinicReminderSettings?> GetByWhatsAppBusinessAccountIdAsync(
+        string businessAccountId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(businessAccountId))
+        {
+            return null;
+        }
+
+        var id = businessAccountId.Trim();
+        return await _context.ClinicReminderSettings
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.WhatsAppBusinessAccountId == id, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ClinicReminderSettings>> GetAwaitingTemplateReviewAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.ClinicReminderSettings
+            .Where(s => s.WhatsAppConnectionStatus == WhatsAppConnectionStatus.Connected
+                        && s.WhatsAppBusinessAccountId != null
+                        && (s.WhatsAppTemplateStatus == null
+                            || WhatsAppTemplateStatuses.AwaitingMeta.Contains(s.WhatsAppTemplateStatus.Value)))
+            .OrderBy(s => s.WhatsAppTemplateStatusCheckedAtUtc)
+            .ThenBy(s => s.Id)
+            .ToListAsync(cancellationToken);
     }
 
     public async Task AddAsync(ClinicReminderSettings settings, CancellationToken cancellationToken = default)

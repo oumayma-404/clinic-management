@@ -230,23 +230,21 @@ public class MessagingReportService
         var standing = MessagingAllowanceLedger.StandingInForce(ledger, monthKey);
         var settings = await _reminderSettings.GetByClinicIdAsync(row.ClinicId, cancellationToken);
 
-        // Part 4 stores a per-cabinet template state and category; until then it is genuinely unknown and the
-        // connection alone decides — see MessagingSender.From for why null is not NotSubmitted.
         var senderState = MessagingSender.From(
             settings?.WhatsAppConnectionStatus ?? WhatsAppConnectionStatus.NotConnected,
-            template: null);
+            settings?.WhatsAppTemplateStatus);
 
         return new MessagingReportLine(
             ClinicId: row.ClinicId,
             ClinicName: row.ClinicName,
-            Bucket: Classify(allowance, row.Month, templateCategory: null),
+            Bucket: Classify(allowance, row.Month, settings?.WhatsAppTemplateCategory),
             Allowance: allowance,
             StoredAllowance: row.Month?.AllowanceMessages,
             Consumed: row.Month?.ConsumedMessages,
             Remaining: row.Month?.RemainingMessages,
             StandingAllowance: standing,
             SenderStateLabel: MessagingSender.Label(senderState),
-            TemplateCategory: null);
+            TemplateCategory: settings?.WhatsAppTemplateCategory);
     }
 
     /// <summary>
