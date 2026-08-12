@@ -936,7 +936,8 @@ public class SchemaVerificationService
                       : string.Empty)
                 : "the key ring is NOT encrypted at rest — its keys, which decrypt every cabinet's reminder "
                   + "credentials and every administrator's second factor, are readable from a copy of the volume "
-                  + "(set DataProtection:CertificatePath — deploy/KEY-CUSTODY.md)",
+                  + "(set DataProtection:CertificatePath, or DataProtection:CertificateBase64 where the host "
+                  + "passes only environment variables — deploy/KEY-CUSTODY.md)",
             protection.KeyRingIsCertificateProtected
                 ? SchemaVerificationSeverity.Info
                 : SchemaVerificationSeverity.Drift));

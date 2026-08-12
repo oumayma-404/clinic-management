@@ -66,11 +66,14 @@ public static class LocalDataProtection
 
     /// <summary>The operator-facing refusal. Names what to set, not merely what is wrong.</summary>
     public const string UnprotectedKeyRingMessage =
-        "DataProtection:CertificatePath n'est pas renseigné. Le trousseau de protection des données reste alors "
+        "Aucun certificat de protection n'est renseigné (ni DataProtection:CertificatePath, ni "
+        + "DataProtection:CertificateBase64). Le trousseau de protection des données reste alors "
         + "en clair sur son volume : les clés qui déchiffrent les identifiants de rappel de chaque cabinet et le "
         + "second facteur de chaque administrateur seraient lisibles depuis un disque volé ou une copie du "
-        + "volume. Fournissez un fichier PKCS#12 (et son mot de passe dans "
-        + "DataProtection:CertificatePassword) — voir deploy/KEY-CUSTODY.md.";
+        + "volume. Fournissez un fichier PKCS#12 — par chemin (DataProtection:CertificatePath) là où un fichier "
+        + "peut être monté, ou encodé en base64 (DataProtection:CertificateBase64) sur un hébergeur qui ne "
+        + "transmet que des variables d'environnement — avec son mot de passe dans "
+        + "DataProtection:CertificatePassword. Voir deploy/KEY-CUSTODY.md.";
 
     /// <summary>
     /// The directory the key ring is persisted to, or <c>null</c> when the deployment has not configured one and
