@@ -25,6 +25,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
     /// omission was invisible.
     /// </summary>
     private readonly IReminderScheduler _reminderScheduler;
+    private readonly IGoogleTokenProtector _googleTokenProtector;
     private readonly ILogger<GoogleCalendarSyncService> _logger;
 
     public GoogleCalendarSyncService(
@@ -35,8 +36,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         IReminderScheduler reminderScheduler,
+        IGoogleTokenProtector googleTokenProtector,
         ILogger<GoogleCalendarSyncService> logger)
     {
+        _googleTokenProtector = googleTokenProtector;
         _googleCalendarService = googleCalendarService;
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
@@ -47,16 +50,38 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         _logger = logger;
     }
 
-    // Loads a clinic's own Google connection (refresh token + calendar id). Returns null when the clinic
-    // has not connected Google — callers then skip silently (no cross-clinic shared account any more, #4).
+    /// <summary>
+    /// Loads a clinic's own Google connection (refresh token + calendar id). Returns null when the clinic has
+    /// not connected Google — callers then skip silently (no cross-clinic shared account any more, #4).
+    ///
+    /// <para>⚠️ <b>An undecryptable token is a THROW, not a null</b> (FR-3.3). Null means « this practice never
+    /// connected Google », which is a normal state every caller is written to skip quietly — so returning it for
+    /// a broken key ring would stop every connected clinic's calendar syncing with nothing anywhere saying why,
+    /// and the screen would go on reporting « Connecté ». Refusing loudly is the whole of « refuse rather than
+    /// degrade »: the exception names the recovery, and the calling handler already logs and swallows it, so a
+    /// booking is never lost over a calendar hop.</para>
+    ///
+    /// <para>⚠️ It reads the <b>ciphertext column only</b>. Falling back to the legacy plaintext one would be the
+    /// same degradation wearing a different hat — the credential stays usable off a stolen disk indefinitely, and
+    /// the FR-3.4 backfill's own progress figure would never reach zero because nothing would push it there.</para>
+    /// </summary>
     private async Task<GoogleCalendarConnection?> ResolveConnectionAsync(Guid clinicId, CancellationToken cancellationToken)
     {
         var clinic = await _clinicRepository.GetByIdAsync(clinicId, cancellationToken);
-        if (clinic == null || string.IsNullOrEmpty(clinic.GoogleRefreshToken))
+        if (clinic == null || string.IsNullOrEmpty(clinic.GoogleRefreshTokenProtected))
         {
             return null;
         }
-        return new GoogleCalendarConnection(clinic.GoogleRefreshToken, clinic.GoogleCalendarId);
+
+        if (!_googleTokenProtector.TryUnprotect(clinic.GoogleRefreshTokenProtected, out var refreshToken))
+        {
+            throw new InvalidOperationException(
+                $"Le jeton Google Agenda du cabinet « {clinic.Name} » est illisible : la clé de protection des "
+                + "données a changé ou est absente. La synchronisation est refusée plutôt que silencieusement "
+                + "désactivée. Le cabinet doit reconnecter son agenda depuis « Paramètres → Google Agenda ».");
+        }
+
+        return new GoogleCalendarConnection(refreshToken, clinic.GoogleCalendarId);
     }
 
     public async Task SyncAppointmentToGoogleCalendarAsync(

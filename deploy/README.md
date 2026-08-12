@@ -56,8 +56,20 @@ every one of them fails **quietly** if wrong. Each is commented in place; in sho
 | `API_INTERNAL_URL=http://api:5000/api` (web) | login, refresh and change-password 500 — and only those, because only the BFF fetches server-side |
 | `AUTH_COOKIE_SECURE=true` (web) | Caddy speaks plain HTTP to the container, so the handler drops `Secure` from an **internet-facing** session cookie |
 
-⚠️ **Back up the `dataprotection_keys` volume alongside `postgres_data`.** A restored database whose key ring is
-gone has credentials nobody can decrypt.
+⚠️ **What is backed up together, and what is kept apart.** The Data Protection key ring
+(`dataprotection_keys`) is **encrypted** by the deployment's own certificate, so back it up **alongside**
+`postgres_data` — a restored database without it has credentials nobody can decrypt. What must travel
+**separately, never in the same archive**, is the **certificate** that decrypts the ring, together with the
+backup key and the PITR key.
+
+This reverses the rule that stood before the ring was encrypted, when the *ring* was the thing that had to travel
+apart. It is stated in full, once, in **[KEY-CUSTODY.md](./KEY-CUSTODY.md)** — that file is the authority, and it
+also covers what to do when each key is lost.
+
+⚠️ Configuring the certificate protects keys the ring writes **from then on** and re-wraps nothing already on the
+volume. The migration order (`reprotect-secrets --rotate` → `verify-schema` reads zero → *only then* delete the
+old key files) is in KEY-CUSTODY.md § 1; doing it the other way round destroys every administrator's second
+factor at once.
 
 ---
 
@@ -185,6 +197,7 @@ app uses — a verb run this way is looking at exactly the database the API is l
 | `reset-admin-password` | **yes** | `0` / `1` |
 | `subscription-report` | **yes** | `0` clean · `1` couldn't run · `2` findings |
 | `subscription-grant` / `-cancel` / `-suspend` / `-unsuspend` | **yes** | `0` / `1` |
+| `reprotect-secrets [--rotate]` | **yes** | `0` all current · `1` couldn't run · `2` work remains |
 | `restore-backup` | **no — refuses** | see below |
 
 ```bash
@@ -201,6 +214,64 @@ is listening », enforced by looking for a listener on the machine it runs on. I
 *different* container, so from a one-off `docker exec` the check finds nothing and passes — and
 `pg_restore --clean --if-exists` would then drop every table out from under a live application. Restore from the
 `backup`/`pitr` services' artifacts with the stack stopped instead.
+
+---
+
+## Key custody and encryption at rest
+
+Four keys hold this deployment together, and each one has a different answer to « what if it is lost? ».
+**[KEY-CUSTODY.md](./KEY-CUSTODY.md) is the authority** — where each lives, who holds a copy, and how to recover.
+Fill in its holder table before the deployment carries a real practice's records; it is a deliverable, not a note.
+
+| Key | Refuses to start / run without it? | Losing it costs |
+|---|---|---|
+| Key-ring certificate (`DataProtection__CertificatePath`) | **yes**, the API | every second factor and every cabinet's stored credentials |
+| Backup key (`BACKUP_AGE_RECIPIENT`) | **yes**, the `backup` sidecar | **every off-site backup, permanently** |
+| PITR key (`WALG_LIBSODIUM_KEY`) | **yes**, the `pitr` sidecar | **every archived base backup and WAL segment, permanently** |
+| LUKS keyfile | the volume will not unlock at boot | the data volume |
+
+Each refusal is deliberate. « Encrypt if a key happens to be set » is the version that ships a complete copy of
+every practice's medical records to somebody else's storage in the clear, while reporting success.
+
+### After configuring the certificate — the order matters
+
+```bash
+# Re-encrypt every stored secret under a fresh key. Idempotent without --rotate; names any row it cannot read.
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll reprotect-secrets --rotate
+
+# The figure that says it finished. BOTH lines must be clean before any key file is deleted.
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll verify-schema   | grep -E 'key-ring-protection|secrets-protected-under-current-ring|google-token-protected'
+
+# No plaintext key may remain in the ring afterwards:
+docker run --rm -v clinic-management_dataprotection_keys:/keys alpine grep -rl '<key ' /keys || echo "none — expected"
+
+# And no secret should remain in the API's environment (FR-3.10):
+docker exec clinic-api-prod env | grep -Ei 'password|apikey|token|secret' | grep -v '_FILE='
+```
+
+⚠️ **Deleting a plaintext key file before its ciphertext has moved destroys every administrator's second factor
+at once.** `reprotect-secrets` exits `2` and *names* every row it could not decrypt — while one is listed, its
+old key is exactly what is still needed.
+
+### Backups leave encrypted, and are verified by being decrypted
+
+The nightly dump and the object-store archive are encrypted with `age` **before** rclone touches them, and the
+PITR stream with libsodium. Each run also stamps the **key-ring generation** it belongs to beside the dump, and
+`backup/check-keyring.sh` refuses a restore whose generation this ring cannot read — without that, restoring
+against the wrong ring produces a practice whose every second factor is silently undecryptable.
+
+**A backup nobody can restore is not a backup.** The drill, its cadence (**quarterly, plus after each schema
+batch**) and its stated pass condition are in **[RESTORE-DRILL.md](./RESTORE-DRILL.md)**. ⚠️ No drill has been run
+on this deployment yet — the restore path is unproven until the log in that file has its first row.
+
+### The data volume
+
+LUKS on the volume holding `postgres_data` and `minio_data`, unlocked at boot by a keyfile on the host's own boot
+volume so the server still **reboots unattended**. Procedure in KEY-CUSTODY.md § 4.
+
+⚠️ **In these words:** it protects a **stolen, snapshotted or decommissioned disk**. It does **not** protect
+against someone who already has root on the running host — while the machine is up the volume is mounted and
+readable, and no disk encryption changes that.
 
 ---
 

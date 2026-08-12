@@ -98,6 +98,7 @@ public class SchemaVerificationService
         VerifyDataMigrations(facts, findings);
         VerifySubscriptions(facts, findings);
         VerifyInternalCertificate(facts, findings);
+        VerifySecretProtection(facts, findings);
 
         return new SchemaVerificationReport(findings);
     }
@@ -426,6 +427,16 @@ public class SchemaVerificationService
                   + "per-request enrolment check is not refusing them",
             n => n == 0);
 
+        // FR-3.4. Reaching zero is what authorises the later migration that drops the plaintext column — and it
+        // is a backfill, so nothing else in the product can see it: an unconverted clinic syncs perfectly from
+        // the cleartext nobody encrypted, and every layer reports the feature present.
+        Add("google-token-protected", counts.ClinicsWithPlaintextGoogleToken,
+            n => n == 0
+                ? "0 cabinet(s) still hold a Google Agenda token in the clear"
+                : $"{n} cabinet(s) still hold a Google Agenda token in the clear — the FR-3.4 startup backfill "
+                  + "has not reached them; do not drop Clinics.GoogleRefreshToken until this reads zero",
+            n => n == 0);
+
         Add("session-families-have-no-orphans", counts.SessionFamilyOrphans,
             n => n == 0
                 ? "0 session family(ies) outlive their account"
@@ -708,6 +719,64 @@ public class SchemaVerificationService
                 ? $"{certificate.DaysRemaining} day(s) remaining on {certificate.Path}"
                 : $"the internal root certificate is unusable — {certificate.Detail}",
             certificate.Usable ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+    }
+
+    /// <summary>
+    /// FR-3.1 — is the key ring encrypted at rest, and has every stored secret moved onto its current
+    /// generation? Together these are the <b>only</b> thing that authorises deleting the superseded plaintext
+    /// key files, and deleting one early is R-2's data loss reached from the other direction.
+    ///
+    /// <para>⚠️ <b>« Absent » is « not applicable » and never « 0 remaining ».</b> This whole side is null on a
+    /// caller with no Data Protection provider, and reporting a reassuring zero there would say « the re-protect
+    /// finished » about a measurement nobody took — on the strength of which an operator deletes the key that
+    /// opens every clinic's credentials.</para>
+    /// </summary>
+    private static void VerifySecretProtection(SchemaFacts facts, List<SchemaVerificationFinding> findings)
+    {
+        const string scope = "Secret protection";
+
+        if (facts.SecretProtection is not { } protection)
+        {
+            findings.Add(NotApplicableIn(
+                scope, "key-ring-protection", "this run has no Data Protection provider to read the ring with"));
+            findings.Add(NotApplicableIn(
+                scope, "secrets-protected-under-current-ring", "the key ring's generation could not be read"));
+            return;
+        }
+
+        findings.Add(new SchemaVerificationFinding(
+            scope,
+            "key-ring-protection",
+            protection.KeyRingIsCertificateProtected
+                ? "the key ring is encrypted by the deployment's certificate"
+                  + (protection.ProtectingCertificateDaysRemaining is { } days
+                      ? $" ({days} day(s) remaining on it)"
+                      : string.Empty)
+                : "the key ring is NOT encrypted at rest — its keys, which decrypt every cabinet's reminder "
+                  + "credentials and every administrator's second factor, are readable from a copy of the volume "
+                  + "(set DataProtection:CertificatePath — deploy/KEY-CUSTODY.md)",
+            protection.KeyRingIsCertificateProtected
+                ? SchemaVerificationSeverity.Info
+                : SchemaVerificationSeverity.Drift));
+
+        // Per family, never one total: « 3 remaining » does not say which recovery an operator needs, and the
+        // six families recover four different ways.
+        var outstanding = protection.Families.Sum(f => f.NotUnderCurrentGeneration);
+        var detail = string.Join(" · ", protection.Families
+            .Where(f => f.Rows > 0)
+            .Select(f => $"{f.Name} {f.Rows - f.NotUnderCurrentGeneration}/{f.Rows}"));
+
+        findings.Add(new SchemaVerificationFinding(
+            scope,
+            "secrets-protected-under-current-ring",
+            outstanding == 0
+                ? $"every stored secret is under the ring's current generation{Detail(detail)}"
+                : $"{outstanding} stored secret(s) are still under a superseded generation{Detail(detail)} — run "
+                  + "« reprotect-secrets » and do NOT delete any key file until this reads zero",
+            outstanding == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+
+        static string Detail(string detail) =>
+            string.IsNullOrEmpty(detail) ? " (no secret is stored yet)" : $" — {detail}";
     }
 
     private static SchemaVerificationFinding NotApplicableIn(string scope, string check, string why) =>

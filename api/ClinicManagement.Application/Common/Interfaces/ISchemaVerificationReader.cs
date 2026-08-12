@@ -45,7 +45,43 @@ public sealed record SchemaFacts(
     /// change, so it is where a ten-year certificate's remaining life will actually be seen
     /// (<c>hosted-security-hardening</c> FR-2.6).
     /// </summary>
-    InternalCertificateFact? InternalCertificate);
+    InternalCertificateFact? InternalCertificate,
+    /// <summary>
+    /// How much of the deployment's stored ciphertext has moved onto the key ring's current generation
+    /// (<c>hosted-security-hardening</c> FR-3.1), or <b>null</b> where the caller supplied no Data Protection
+    /// provider — a fourth "side", beside the model, the catalog and the internal certificate, and null is
+    /// « not applicable » rather than « zero left to do ».
+    /// </summary>
+    SecretProtectionFacts? SecretProtection = null);
+
+/// <summary>
+/// The figure that says the <c>reprotect-secrets</c> verb finished — and therefore the only thing that
+/// authorises deleting the superseded plaintext key files (FR-3.1).
+///
+/// <para>⚠️ <b>Deleting a key file before its ciphertext has moved is R-2's data loss from the other
+/// direction</b>: every second factor and every clinic's reminder credentials become unreadable at once, with no
+/// way back. Hence a per-family count rather than a single total — « 3 remaining » says nothing about which
+/// recovery an operator needs, and the six families recover four different ways.</para>
+/// </summary>
+/// <param name="KeyRingIsCertificateProtected">
+/// Whether the ring encrypts what it writes. <b>False is drift on a deployment that requires it</b> — that is
+/// FR-3.1's claim, and it is otherwise invisible: a cleartext ring works perfectly and says nothing.
+/// </param>
+/// <param name="ProtectingCertificateDaysRemaining">
+/// Whole days until the protecting certificate expires; null when none is configured. Reported for FR-3.2's
+/// rotation, on <see cref="InternalCertificateFact"/>'s precedent — this verb is the thing already run before and
+/// after every schema change, so it is where a remaining life is actually seen.
+/// </param>
+public sealed record SecretProtectionFacts(
+    bool KeyRingIsCertificateProtected,
+    int? ProtectingCertificateDaysRemaining,
+    IReadOnlyList<SecretFamilyFact> Families);
+
+/// <summary>
+/// One protected column family: how many rows hold ciphertext, and how many of those are not yet under the
+/// ring's current generation.
+/// </summary>
+public sealed record SecretFamilyFact(string Name, int Rows, int NotUnderCurrentGeneration);
 
 /// <summary>
 /// One reading of the deployment's internal root certificate. Deliberately a neutral shape: the reading itself
@@ -401,5 +437,17 @@ public sealed record DataMigrationCounts(
     /// skewed clock, and because a stated blind spot is worth more than a silent one.
     /// </para>
     /// </summary>
-    double? AppToDatabaseClockOffsetSeconds = null
+    double? AppToDatabaseClockOffsetSeconds = null,
+    /// <summary>
+    /// Clinics whose Google Calendar refresh token is <b>still stored in the clear</b>
+    /// (<c>hosted-security-hardening</c> FR-3.4). Zero is the claim, and reaching zero is what authorises the
+    /// later migration that drops the column. Null before the protected column exists.
+    /// <para>
+    /// A backfill is invisible to every other layer, and this one especially: the column exists, the API returns
+    /// it, and a clinic whose token was never converted goes on syncing perfectly from the plaintext nobody
+    /// encrypted. Nothing errors, nothing degrades, and the credential the feature exists to protect stays
+    /// readable off a stolen disk — which is why the count, and not a green test, is what says it finished.
+    /// </para>
+    /// </summary>
+    int? ClinicsWithPlaintextGoogleToken = null
 );

@@ -28,10 +28,23 @@ public class Clinic : AggregateRoot<Guid>
 
     // Per-clinic Google Calendar connection (feature cloud-security-and-tenant-isolation, #4). Replaces the
     // former single token + "primary" calendar shared by ALL clinics (cross-tenant leak). Both nullable: a
-    // clinic that has not connected Google has neither. The refresh token is a secret — see progress.md
-    // (encrypt-at-rest is a tracked follow-up); it lives here (not the .local/ file store) so a multi-instance
-    // Cloud deployment can resolve each clinic's own token.
+    // clinic that has not connected Google has neither. It lives here (not the .local/ file store) so a
+    // multi-instance Cloud deployment can resolve each clinic's own token.
+    /// <summary>
+    /// ⚠️ <b>Legacy plaintext, emptied as each clinic is reached and kept only until the column is dropped</b>
+    /// (<c>hosted-security-hardening</c> FR-3.4). It was the last credential in this database held in the clear.
+    /// Nothing writes it any more — <see cref="SetGoogleCalendarConnection"/> writes
+    /// <see cref="GoogleRefreshTokenProtected"/> — and <c>verify-schema</c>'s <c>google-token-protected</c>
+    /// counts the rows that still hold one. The column is dropped in a later migration, once that reads zero on
+    /// the live deployment, rather than blind in the same change.
+    /// </summary>
     public string? GoogleRefreshToken { get; private set; }
+
+    /// <summary>
+    /// The same token as Data-Protection ciphertext (FR-3.4). Encrypted by the caller — Domain references
+    /// nothing — exactly as <c>PlatformAccount.ProtectedTotpSecret</c> is.
+    /// </summary>
+    public string? GoogleRefreshTokenProtected { get; private set; }
     /// <summary>Target Google calendar id for this clinic's sync; null falls back to the account's "primary".</summary>
     public string? GoogleCalendarId { get; private set; }
 
@@ -207,16 +220,32 @@ public class Clinic : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// Connect (or re-connect) this clinic's Google Calendar: store its OAuth refresh token and the target
-    /// calendar id (null = the account's primary calendar). Per-clinic so no clinic can see another's events.
+    /// Connect (or re-connect) this clinic's Google Calendar: store its OAuth refresh token — <b>already
+    /// encrypted by the caller</b> (FR-3.4) — and the target calendar id (null = the account's primary
+    /// calendar). Per-clinic so no clinic can see another's events.
+    ///
+    /// <para>⚠️ It also <b>clears</b> any legacy plaintext left on the row: re-connecting is the one moment a
+    /// clinic's token is known in full, so leaving the old cleartext beside the new ciphertext would keep the
+    /// credential readable off a stolen disk while every layer reported it protected.</para>
     /// </summary>
-    public void SetGoogleCalendarConnection(string refreshToken, string? calendarId)
+    public void SetGoogleCalendarConnection(string protectedRefreshToken, string? calendarId)
     {
-        if (string.IsNullOrWhiteSpace(refreshToken))
-            throw new ArgumentException("Le jeton de rafraîchissement Google est obligatoire.", nameof(refreshToken));
-
-        GoogleRefreshToken = refreshToken.Trim();
+        SetProtectedGoogleRefreshToken(protectedRefreshToken);
         GoogleCalendarId = string.IsNullOrWhiteSpace(calendarId) ? null : calendarId.Trim();
+    }
+
+    /// <summary>
+    /// Stores the refresh token's ciphertext and drops any plaintext beside it. Two callers, both FR-3.4's:
+    /// the startup backfill that encrypts what is already stored, and <c>reprotect-secrets</c> re-encrypting it
+    /// under a newer key-ring generation. Touches the calendar id and nothing else about the connection.
+    /// </summary>
+    public void SetProtectedGoogleRefreshToken(string protectedRefreshToken)
+    {
+        if (string.IsNullOrWhiteSpace(protectedRefreshToken))
+            throw new ArgumentException("Le jeton de rafraîchissement Google est obligatoire.", nameof(protectedRefreshToken));
+
+        GoogleRefreshTokenProtected = protectedRefreshToken;
+        GoogleRefreshToken = null;
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -224,6 +253,7 @@ public class Clinic : AggregateRoot<Guid>
     public void ClearGoogleCalendarConnection()
     {
         GoogleRefreshToken = null;
+        GoogleRefreshTokenProtected = null;
         GoogleCalendarId = null;
         UpdatedAt = DateTime.UtcNow;
     }

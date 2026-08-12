@@ -173,6 +173,9 @@ public static class Extensions
         // one are not interchangeable. Registered here — inside AddInfrastructure — so the `reset-user-totp`
         // verb, whose container is this method alone, can resolve it.
         services.AddSingleton<IUserSecretProtector, UserSecretProtector>();
+        // The third sibling (FR-3.4): the Google Calendar refresh token, the last credential this database held
+        // in the clear. Registered here for the same reason — `reprotect-secrets` resolves it from this method.
+        services.AddSingleton<IGoogleTokenProtector, GoogleTokenProtector>();
         // ⚠️ SINGLETON, and the lifetime is load-bearing: a step-up confirmation is minted by one request and
         // consumed by another, so a scoped registration builds a fresh store per request, the confirmation is
         // never found, and EVERY guarded action refuses with a French « mot de passe incorrect » that is not

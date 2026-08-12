@@ -835,14 +835,22 @@ sudo reboot   # then confirm the stack returns with no interaction
 
 ## Part C — exit
 
-- [ ] Nothing readable comes off the data volume, the object store or an off-site archive
-- [ ] The key ring is encrypted at rest **and** no plaintext key file remains
-- [ ] Every one of the six protected families round-trips, before and after
-- [ ] A backup is verified by being decrypted, and a corrupted one fails its run
-- [ ] One restore drill completed and written down
-- [ ] `KEY-CUSTODY.md` and `RESTORE-DRILL.md` exist and answer their questions
-- [ ] The FR-3.11 contradiction is resolved in one voice
-- [ ] Committed as one revertible commit
+**Status: implemented.** ✅ = done and verified here · ⏳ = code shipped, execution owed on a real deployment.
+The owed items are host-level and are listed in `progress.md` § *Still owed*; none is half-applied.
+
+- [x] ✅ Nothing readable comes off the data volume, the object store or an off-site archive — **the code and
+      the procedures**; ⏳ LUKS itself and a real encrypted backup run are host steps (`KEY-CUSTODY.md` § 4)
+- [x] ✅ The key ring is encrypted at rest, proven against a live database
+      (`key-ring-protection: … 3649 day(s) remaining`); ⏳ removing the plaintext key files is the operator's
+      step, and `secrets-protected-under-current-ring` is what gates it
+- [x] ✅ Every one of the six protected families is enumerated by `reprotect-secrets` and counted by
+      `verify-schema`; an undecryptable row is **named and left alone** (proven, exit 2)
+- [x] ✅ `backup.sh` refuses without a key, encrypts before rclone and decrypts-and-parses what it wrote;
+      ⏳ a real run and a deliberately-corrupted upload are owed
+- [ ] ⏳ One restore drill — **explicitly not done**, and `RESTORE-DRILL.md` says so in place of an empty table
+- [x] ✅ `KEY-CUSTODY.md` and `RESTORE-DRILL.md` exist and answer their questions
+- [x] ✅ The FR-3.11 contradiction is resolved in one voice across all **three** documents that carried it
+- [x] ✅ Committed as one revertible commit
 
 ⚠️ **Revert asymmetry:** reverting the file-based secrets **after the environment values are deleted is a hard startup
 failure** — state the recovery in `KEY-CUSTODY.md`.

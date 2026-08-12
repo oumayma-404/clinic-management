@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -23,16 +24,26 @@ public class SchemaVerificationReader : ISchemaVerificationReader
 {
     private readonly ApplicationDbContext _context;
     private readonly IConfiguration? _configuration;
+    private readonly IDataProtectionProvider? _dataProtection;
 
     /// <param name="configuration">
     /// Read only for the internal root certificate's remaining life (FR-2.6) — a third "side" beside the model
     /// and the catalog. Optional so a caller that has none reports « not applicable » rather than failing to
     /// construct; the <c>verify-schema</c> verb always passes it.
     /// </param>
-    public SchemaVerificationReader(ApplicationDbContext context, IConfiguration? configuration = null)
+    /// <param name="dataProtection">
+    /// The fourth side (FR-3.1): which generation of the key ring each stored secret is encrypted under. Optional
+    /// for the same reason — and where it is absent the report says « not applicable » rather than « 0 left »,
+    /// which would authorise deleting the old key files on the strength of a measurement nobody took.
+    /// </param>
+    public SchemaVerificationReader(
+        ApplicationDbContext context,
+        IConfiguration? configuration = null,
+        IDataProtectionProvider? dataProtection = null)
     {
         _context = context;
         _configuration = configuration;
+        _dataProtection = dataProtection;
     }
 
     public async Task<SchemaFacts> ReadAsync(CancellationToken cancellationToken = default)
@@ -56,7 +67,134 @@ public class SchemaVerificationReader : ISchemaVerificationReader
 
         return new SchemaFacts(
             extensions, constraints, model, database, mappedDecimals, dataMigrations, auditLedger,
-            subscriptionLedgers, coverKindPresent, ReadInternalCertificate());
+            subscriptionLedgers, coverKindPresent, ReadInternalCertificate(),
+            await ReadSecretProtectionAsync(connection, cancellationToken));
+    }
+
+    /// <summary>
+    /// FR-3.1's coverage figure: per family, how many stored ciphertexts are not yet under the key ring's
+    /// current generation — the only thing that says <c>reprotect-secrets</c> finished.
+    ///
+    /// <para>⚠️ <b>The generation is learned from a live <c>Protect</c>, not from configuration</b>
+    /// (<c>DataProtectionKeyGeneration</c>): what matters is the key this process would write with right now, and
+    /// a settings-derived answer would disagree with it in exactly the situation the check exists for.</para>
+    ///
+    /// <para>⚠️ <b>Every family is guarded on its own column, exactly like the data-migration counts here.</b>
+    /// The first version read through EF unconditionally and the whole verb died with
+    /// <c>column c.GoogleRefreshTokenProtected does not exist</c> against any database predating the migration —
+    /// which is precisely the « before » half of the before-and-after run this verb exists to support. A family
+    /// whose column is absent is <b>omitted</b>, never reported as zero outstanding.</para>
+    ///
+    /// <para>⚠️ It reads the ciphertext of every protected row, which is why every family here is small and
+    /// bounded by the number of cabinets or accounts — never by a practice's history.</para>
+    /// </summary>
+    private async Task<SecretProtectionFacts?> ReadSecretProtectionAsync(
+        NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        if (_dataProtection is null)
+        {
+            return null;
+        }
+
+        Security.DataProtectionKeyGeneration.Generation generation;
+        try
+        {
+            generation = Security.DataProtectionKeyGeneration.Current(
+                _dataProtection.CreateProtector("ClinicManagement.KeyRingGeneration.Probe.v1"));
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+
+        var families = new List<SecretFamilyFact>();
+        foreach (var (table, column, sql) in SecretColumns)
+        {
+            var ciphertexts = await ReadCiphertextsAsync(connection, table, column, sql, cancellationToken);
+            if (ciphertexts is null)
+            {
+                continue;
+            }
+
+            families.Add(new SecretFamilyFact(
+                $"{table}.{column}", ciphertexts.Count, ciphertexts.Count(c => !generation.Covers(c))));
+        }
+
+        var certificates = _configuration is null
+            ? null
+            : TryResolveProtectingCertificates();
+
+        return new SecretProtectionFacts(
+            certificates?.IsConfigured ?? false,
+            certificates?.Active is { } active
+                ? (int)Math.Floor((active.NotAfter.ToUniversalTime() - DateTime.UtcNow).TotalDays)
+                : null,
+            families);
+    }
+
+    /// <summary>
+    /// The six protected column families. The SQL is written out per family rather than composed from the table
+    /// and column names, so this file's own rule still holds: every catalog and data query here is a
+    /// <b>constant string with no interpolated input</b>.
+    /// </summary>
+    private static readonly (string Table, string Column, string Sql)[] SecretColumns =
+    {
+        ("ClinicReminderSettings", "SmsApiKeyEncrypted",
+            """SELECT "SmsApiKeyEncrypted" FROM "ClinicReminderSettings" WHERE "SmsApiKeyEncrypted" IS NOT NULL"""),
+        ("ClinicReminderSettings", "WhatsAppAccessTokenEncrypted",
+            """SELECT "WhatsAppAccessTokenEncrypted" FROM "ClinicReminderSettings" WHERE "WhatsAppAccessTokenEncrypted" IS NOT NULL"""),
+        ("ClinicReminderSettings", "SmtpPasswordEncrypted",
+            """SELECT "SmtpPasswordEncrypted" FROM "ClinicReminderSettings" WHERE "SmtpPasswordEncrypted" IS NOT NULL"""),
+        ("Users", "ProtectedTotpSecret",
+            """SELECT "ProtectedTotpSecret" FROM "Users" WHERE "ProtectedTotpSecret" IS NOT NULL"""),
+        ("PlatformAccounts", "ProtectedTotpSecret",
+            """SELECT "ProtectedTotpSecret" FROM "PlatformAccounts" WHERE "ProtectedTotpSecret" IS NOT NULL"""),
+        ("Clinics", "GoogleRefreshTokenProtected",
+            """SELECT "GoogleRefreshTokenProtected" FROM "Clinics" WHERE "GoogleRefreshTokenProtected" IS NOT NULL"""),
+    };
+
+    /// <summary>Every non-null ciphertext of one column, or <c>null</c> where the column does not exist yet.</summary>
+    private static async Task<List<string>?> ReadCiphertextsAsync(
+        NpgsqlConnection connection,
+        string table,
+        string column,
+        string sql,
+        CancellationToken cancellationToken)
+    {
+        if (!await ColumnExistsAsync(connection, table, column, cancellationToken))
+        {
+            return null;
+        }
+
+        var values = new List<string>();
+        await using var command = new NpgsqlCommand(sql, connection);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (!reader.IsDBNull(0))
+            {
+                values.Add(reader.GetString(0));
+            }
+        }
+
+        return values;
+    }
+
+    /// <summary>
+    /// The key ring's protecting certificate, or null where none is configured or it cannot be read. A refusal
+    /// is <b>startup's</b> to raise, not this report's — reaching this verb means the deployment already passed
+    /// that gate — so an exception here is swallowed into « pas de certificat » rather than failing the run.
+    /// </summary>
+    private Security.KeyRingProtectionCertificates.Resolution? TryResolveProtectingCertificates()
+    {
+        try
+        {
+            return Security.KeyRingProtectionCertificates.Resolve(_configuration!, DateTime.UtcNow);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -728,6 +866,14 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             requiredColumn: "Kind",
             sql: """SELECT COUNT(*) FROM "SubscriptionPeriods" WHERE "Kind" = 3""");
 
+        // FR-3.4. Guarded on the PROTECTED column, not the plaintext one: the plaintext column has existed since
+        // the per-clinic Google connection shipped, so guarding on it would report a reassuring count of
+        // « still plaintext » rows on a database where the feature has not been deployed at all.
+        var plaintextGoogleTokens = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "Clinics",
+            requiredColumn: "GoogleRefreshTokenProtected",
+            sql: """SELECT COUNT(*) FROM "Clinics" WHERE "GoogleRefreshToken" IS NOT NULL""");
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
@@ -740,7 +886,8 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             // positionally lands a zero in the wrong slot with every assertion still passing.
             AdminsWithoutFactorHoldingLiveSession: adminsWithoutFactorLive,
             SessionFamilyOrphans: sessionFamilyOrphans,
-            AppToDatabaseClockOffsetSeconds: clockOffsetSeconds);
+            AppToDatabaseClockOffsetSeconds: clockOffsetSeconds,
+            ClinicsWithPlaintextGoogleToken: plaintextGoogleTokens);
     }
 
     /// <summary>

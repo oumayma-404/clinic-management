@@ -152,6 +152,27 @@ public class PlatformAccount : AggregateRoot<Guid>
     }
 
     /// <summary>
+    /// Stores the <b>same</b> secret re-encrypted under a newer key-ring generation
+    /// (<c>hosted-security-hardening</c> FR-3.1, the <c>reprotect-secrets</c> verb). <see cref="User"/>'s twin —
+    /// see it for why <see cref="IssueTotpSecret"/> must not be used for this. Nothing observable about the
+    /// account changes; only the bytes at rest do.
+    /// </summary>
+    public void ReplaceProtectedTotpSecret(string protectedSecret)
+    {
+        if (string.IsNullOrWhiteSpace(protectedSecret))
+        {
+            throw new ArgumentException("Le secret du second facteur est obligatoire.", nameof(protectedSecret));
+        }
+
+        if (string.IsNullOrEmpty(ProtectedTotpSecret))
+        {
+            throw new InvalidOperationException("Ce compte ne porte aucun secret de second facteur à rechiffrer.");
+        }
+
+        ProtectedTotpSecret = protectedSecret;
+    }
+
+    /// <summary>
     /// Confirms the issued secret with a code the caller generated from it, and binds the recovery codes shown
     /// once in the same response (AC-1.3a). Refuses a second enrolment — that is the spec's 409.
     /// </summary>

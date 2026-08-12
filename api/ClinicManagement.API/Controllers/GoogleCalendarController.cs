@@ -37,6 +37,7 @@ public class GoogleCalendarController : ApiControllerBase
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMemoryCache _cache;
     private readonly IMediator _mediator;
+    private readonly IGoogleTokenProtector _googleTokenProtector;
     private readonly ILogger<GoogleCalendarController> _logger;
 
     public GoogleCalendarController(
@@ -47,8 +48,10 @@ public class GoogleCalendarController : ApiControllerBase
         IUnitOfWork unitOfWork,
         IMemoryCache cache,
         IMediator mediator,
+        IGoogleTokenProtector googleTokenProtector,
         ILogger<GoogleCalendarController> logger)
     {
+        _googleTokenProtector = googleTokenProtector;
         _syncService = syncService;
         _configuration = configuration;
         _clinicRepository = clinicRepository;
@@ -149,7 +152,13 @@ public class GoogleCalendarController : ApiControllerBase
         }
 
         var clinic = await _clinicRepository.GetByIdAsync(clinicResult.Value, cancellationToken);
-        var refreshToken = clinic?.GoogleRefreshToken;
+        // ⚠️ An unreadable token reports « non configuré » on this status read alone, deliberately: it IS the
+        // screen that offers « Reconnecter », so refusing it would leave the clinic looking at an error with no
+        // control to act on. Every path that would actually SYNC refuses instead (FR-3.3).
+        var refreshToken = !string.IsNullOrEmpty(clinic?.GoogleRefreshTokenProtected)
+                           && _googleTokenProtector.TryUnprotect(clinic.GoogleRefreshTokenProtected, out var decrypted)
+            ? decrypted
+            : null;
         var calendarId = clinic?.GoogleCalendarId ?? "primary";
         var hasRefreshToken = !string.IsNullOrEmpty(refreshToken);
 
@@ -384,8 +393,13 @@ public class GoogleCalendarController : ApiControllerBase
             }
             else
             {
-                // No refresh token in the response (user already granted). Reuse the clinic's existing one.
-                refreshToken = clinic.GoogleRefreshToken;
+                // No refresh token in the response (user already granted). Reuse the clinic's existing one —
+                // decrypting it (FR-3.4), and treating an unreadable one as absent, which is honest here: the
+                // user is standing in front of a re-connect flow, and the fix is to revoke and grant again.
+                refreshToken = !string.IsNullOrEmpty(clinic.GoogleRefreshTokenProtected)
+                               && _googleTokenProtector.TryUnprotect(clinic.GoogleRefreshTokenProtected, out var stored)
+                    ? stored
+                    : null;
                 if (string.IsNullOrEmpty(refreshToken))
                 {
                     _logger.LogWarning("No refresh token returned and none stored for clinic {ClinicId}", clinicId);
@@ -401,9 +415,9 @@ public class GoogleCalendarController : ApiControllerBase
                 return StatusCode(500, new { error = "Le jeton de rafraîchissement est vide." });
             }
 
-            // Persist the refresh token onto THIS clinic (per-clinic isolation, #4) — preserving any target
-            // calendar id already chosen (null → the account's primary calendar).
-            clinic.SetGoogleCalendarConnection(refreshToken, clinic.GoogleCalendarId);
+            // Persist the refresh token onto THIS clinic (per-clinic isolation, #4) — encrypted at rest (FR-3.4)
+            // and preserving any target calendar id already chosen (null → the account's primary calendar).
+            clinic.SetGoogleCalendarConnection(_googleTokenProtector.Protect(refreshToken), clinic.GoogleCalendarId);
             await _clinicRepository.UpdateAsync(clinic, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 

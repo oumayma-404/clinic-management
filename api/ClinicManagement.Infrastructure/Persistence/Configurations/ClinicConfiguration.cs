@@ -62,7 +62,13 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
             .HasColumnType("text");
 
         // Per-clinic Google Calendar connection (feature cloud-security-and-tenant-isolation, #4).
+        // ⚠️ The plaintext column is legacy and emptied clinic by clinic by the FR-3.4 startup backfill; it is
+        // dropped in a later migration, once `verify-schema`'s google-token-protected reads zero on the live
+        // deployment. Both are `text`: Data-Protection ciphertext is base64url and outgrows any sane varchar.
         builder.Property(c => c.GoogleRefreshToken)
+            .HasColumnType("text");
+
+        builder.Property(c => c.GoogleRefreshTokenProtected)
             .HasColumnType("text");
 
         builder.Property(c => c.GoogleCalendarId)

@@ -5,6 +5,7 @@ using ClinicManagement.Infrastructure;
 using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Persistence;
 using ClinicManagement.API.Startup;
+using Microsoft.AspNetCore.DataProtection;
 
 namespace ClinicManagement.API.Maintenance;
 
@@ -69,8 +70,12 @@ public static class VerifySchemaCommand
             // Configuration is passed for the internal-certificate line alone (FR-2.6) — it names the root the
             // database and object-store hops verify against, so the report reads the deployment's real setting
             // rather than a third key of its own.
+            // The Data Protection provider is passed for FR-3.1's coverage figure: which key-ring generation each
+            // stored secret is encrypted under, read from a live Protect rather than from configuration.
             var reader = new SchemaVerificationReader(
-                scope.ServiceProvider.GetRequiredService<ApplicationDbContext>(), configuration);
+                scope.ServiceProvider.GetRequiredService<ApplicationDbContext>(),
+                configuration,
+                scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>());
             var service = new SchemaVerificationService(reader);
 
             var report = await service.RunAsync(cancellationToken);

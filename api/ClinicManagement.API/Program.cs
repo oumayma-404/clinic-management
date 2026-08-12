@@ -96,6 +96,18 @@ if (args.Length > 0 && string.Equals(args[0], ResetUserTotpConsoleCommand.Comman
     return await ResetUserTotpConsoleCommand.RunAsync(args);
 }
 
+// Re-encrypt every stored secret under the key ring's current generation (hosted-security-hardening FR-3.1).
+// Configuring certificate protection encrypts keys the ring WRITES from then on and re-wraps nothing already on
+// the volume, so without this the master key stays readable off a stolen disk while FR-3.1 reads satisfied.
+// Run it, confirm `verify-schema`'s secrets-protected-under-current-ring reads zero, and only THEN delete the
+// superseded plaintext key files — the reverse order is R-2's data loss. Usage:
+//   ClinicManagement.API.exe reprotect-secrets [--rotate]
+// Exit codes: 0 = every secret current, 1 = could not run, 2 = ran and work remains.
+if (args.Length > 0 && string.Equals(args[0], ReprotectSecretsCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await ReprotectSecretsCommand.RunAsync(args);
+}
+
 // Restore a backup (L4g). A restore runs with the application STOPPED — it drops and recreates every table the
 // app holds open — so an endpoint inside the app being replaced is the wrong shape; this is the fourth verb of the
 // same family. It validates the folder, refuses while the app is listening, takes a safety dump of the current
@@ -924,6 +936,24 @@ try
     // evaluated INSIDE the !DefersMigrations branch, so for SelfHostedLan it was unreachable — and a future profile
     // declaring `DefersMigrations: true, RunsStartupBackfills: true` would have silently skipped both, which is
     // precisely the "correct only by accident" the split was made to prevent.
+    // FR-3.9 — which key-ring generations this deployment can read, for the backup sidecar to stamp beside each
+    // dump. Best-effort: an unwritable marker volume must not take a whole deployment's clinics off the air.
+    {
+        var markerPath = ClinicManagement.API.Startup.KeyRingGenerationMarker.TryWrite(
+            app.Services, builder.Configuration, out var markerProblem);
+        if (markerPath is not null)
+        {
+            Log.Information("Marqueur de génération du trousseau écrit dans {Path} (FR-3.9).", markerPath);
+        }
+        else if (markerProblem is not null)
+        {
+            Log.Warning(
+                "Le marqueur de génération du trousseau n'a pas pu être écrit ({Problem}). Les sauvegardes "
+                + "seront estampillées « unknown » et une restauration sera refusée faute de pouvoir vérifier "
+                + "la génération (FR-3.9).", markerProblem);
+        }
+    }
+
     if (!profile.DefersMigrations || profile.RunsStartupBackfills)
     {
         using var scope = app.Services.CreateScope();
@@ -962,6 +992,18 @@ try
                     // active admin. New clinics already get an admin at creation.
                     var adminBackfill = scope.ServiceProvider.GetRequiredService<IClinicAdminBackfill>();
                     await adminBackfill.BackfillAsync();
+
+                    // Encrypt every Google Calendar refresh token still held in the clear (FR-3.4). A startup
+                    // pass and not SQL in the migration, because encrypting needs the key ring — see the file.
+                    var converted = await ClinicManagement.API.Startup.GoogleTokenProtectionBackfill.RunAsync(
+                        context,
+                        scope.ServiceProvider.GetRequiredService<IGoogleTokenProtector>(),
+                        scope.ServiceProvider.GetRequiredService<IUnitOfWork>());
+                    if (converted > 0)
+                    {
+                        Log.Information(
+                            "Chiffrement au repos : {Count} jeton(s) Google Agenda convertis (FR-3.4).", converted);
+                    }
                 }
             });
     }

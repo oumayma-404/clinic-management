@@ -77,6 +77,10 @@ services:
       AWS_ACCESS_KEY_ID: ${WALG_S3_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${WALG_S3_SECRET_KEY}
       AWS_S3_FORCE_PATH_STYLE: ${WALG_S3_FORCE_PATH_STYLE:-true}
+      # FR-3.6. This is the archive_command's OWN copy of the key: the server pushes each WAL segment itself, so
+      # setting it only on the `pitr` sidecar would encrypt the base backups and ship the WAL in the clear —
+      # which is the half that never stops flowing. Both must carry the SAME value or the stream cannot be read.
+      WALG_LIBSODIUM_KEY: ${WALG_LIBSODIUM_KEY}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - internal_certs:/certs:ro
@@ -153,13 +157,16 @@ services:
       Auth0__Domain: ${AUTH0_DOMAIN}
       Auth0__Audience: ${AUTH0_AUDIENCE}
       Auth0__ManagementApi__ClientId: ${AUTH0_MGMT_CLIENT_ID}
-      Auth0__ManagementApi__ClientSecret: ${AUTH0_MGMT_CLIENT_SECRET}
+      # FR-3.10 — supplied as FILES, not environment. See the `secrets:` block at the foot of this file for why,
+      # and docker-compose.hosted.yml for the two that deliberately stay in `environment:` (they are shared with
+      # containers that are not .NET and must move with them).
+      Auth0__ManagementApi__ClientSecret_FILE: /run/secrets/auth0_mgmt_client_secret
       GoogleCalendar__ClientId: ${GOOGLE_CLIENT_ID}
-      GoogleCalendar__ClientSecret: ${GOOGLE_CLIENT_SECRET}
+      GoogleCalendar__ClientSecret_FILE: /run/secrets/google_client_secret
       GoogleCalendar__RefreshToken: ${GOOGLE_REFRESH_TOKEN}
       GoogleCalendar__RedirectUri: "https://${DOMAIN}/api/googlecalendar/callback"
       GoogleCalendar__CalendarId: ${GOOGLE_CALENDAR_ID:-primary}
-      HuggingFace__ApiKey: ${HUGGINGFACE_API_KEY}
+      HuggingFace__ApiKey_FILE: /run/secrets/huggingface_api_key
       MinIO__Endpoint: "minio:9000"
       MinIO__AccessKey: ${MINIO_ROOT_USER}
       MinIO__SecretKey: ${MINIO_ROOT_PASSWORD}
@@ -167,8 +174,18 @@ services:
       # is what the Minio client verifies the leaf against — a system trust store knows nothing about it.
       MinIO__UseSSL: "true"
       MinIO__RootCertificate: /certs/ca.crt
+      # FR-3.9 — where the API writes which key-ring generations it can read, for the backup sidecar to stamp
+      # beside each dump. Best-effort: an unwritable path warns and never stops the API, because refusing to
+      # serve a whole deployment's clinics over a restore aid is a far larger outage than the risk it guards.
+      DataProtection__GenerationMarkerPath: /keyring-marker/generation
     volumes:
       - internal_certs:/certs:ro
+      # Read-WRITE here — the API is the only writer. Every other consumer mounts it `:ro`.
+      - keyring_marker:/keyring-marker
+    secrets:
+      - auth0_mgmt_client_secret
+      - google_client_secret
+      - huggingface_api_key
     networks: [internal]
     # No `ports:` — Caddy proxies /api/* to this service over the internal network (AC-1).
 
@@ -245,11 +262,27 @@ services:
       BACKUP_REMOTE: ${BACKUP_REMOTE:-}
       BACKUP_CRON: ${BACKUP_CRON:-0 2 * * *}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      # ⚠️ The age PUBLIC key every archive is encrypted to (FR-3.6). backup.sh REFUSES to run without it —
+      # « encrypt if a key happens to be set » is the version that ships a complete copy of every practice's
+      # medical records to somebody else's storage in the clear while reporting success.
+      # ⚠️ Public on purpose: this container can encrypt and CANNOT decrypt what it wrote. A container reachable
+      # from the network holding the identity that opens every archive is the exposure the encryption prevents.
+      # ⚠️ Lose the matching PRIVATE key and every backup taken with it is unrecoverable — see KEY-CUSTODY.md.
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT}
+      # Optional, and normally NOT set here. Mounting the identity lets each run decrypt what it just uploaded
+      # and confirm it parses (FR-3.7) — at the cost of keeping the opening key beside the archives. Left unset,
+      # that verification is the quarterly drill in deploy/RESTORE-DRILL.md instead, and backup.sh says so out
+      # loud rather than letting « verified » quietly mean « not checked ».
+      BACKUP_AGE_IDENTITY_FILE: ${BACKUP_AGE_IDENTITY_FILE:-}
+      KEYRING_MARKER_FILE: /keyring-marker/generation
     volumes:
       - minio_data:/minio-data:ro   # MinIO object store, read-only, for the data archive
       - backups:/backups            # local staging of each dump (pruned by retention)
       - ./rclone:/config/rclone:ro  # operator's rclone.conf (gitignored) for the off-site remote
       - internal_certs:/certs:ro    # the internal root pg_dump verifies the server against
+      # ⚠️ The MARKER, never the key ring (FR-3.9). It carries key IDs and no key material, and it is read-only
+      # here: one archive holding both the ciphertext and the key that opens it defeats the whole scheme.
+      - keyring_marker:/keyring-marker:ro
     networks: [internal]
 
   # PITR base backups + retention (complements the logical `backup` sidecar above — AC-5).
@@ -292,12 +325,34 @@ services:
       AWS_ACCESS_KEY_ID: ${WALG_S3_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${WALG_S3_SECRET_KEY}
       AWS_S3_FORCE_PATH_STYLE: ${WALG_S3_FORCE_PATH_STYLE:-true}
+      # FR-3.6's other half, and the easier one to forget: WAL segments ship every few minutes, for ever,
+      # unattended — an unencrypted stream is a rolling complete copy of every practice's records off-site.
+      # wal-g reads this itself and encrypts both the WAL segments and the base backups with it.
+      # ⚠️ pitr-entrypoint.sh REFUSES to start without it, and ⚠️ losing it makes every archived backup
+      # unrecoverable. Generate with: wal-g libsodium-key-gen (or any 32-byte hex secret). See KEY-CUSTODY.md.
+      WALG_LIBSODIUM_KEY: ${WALG_LIBSODIUM_KEY}
       PITR_BASE_BACKUP_CRON: ${PITR_BASE_BACKUP_CRON:-0 1 * * *}
       PITR_RETAIN_BASE_BACKUPS: ${PITR_RETAIN_BASE_BACKUPS:-7}
     volumes:
       - postgres_data:/var/lib/postgresql/data:ro   # read the data dir for backup-push (never writes it)
       - internal_certs:/certs:ro
     networks: [internal]
+
+# FR-3.10 — the API's own secrets reach it as FILES rather than environment variables, which are visible to
+# `docker inspect`, /proc/<pid>/environ, every child process and any crash dump. The application reads a
+# `*_FILE` variable's file through the layer added in InstallConfiguration.AddInstallLayers, shared by the host
+# and every console verb — so a verb cannot resolve a different value from the app it is maintaining.
+#
+# ⚠️ A `*_FILE` variable wins over a literal of the same name, and a named file that is missing or empty is a
+# startup REFUSAL rather than an empty value: moving a secret is two edits, and if the literal won, the state
+# between them would keep reading the old value while appearing to have moved.
+secrets:
+  auth0_mgmt_client_secret:
+    file: ${AUTH0_MGMT_CLIENT_SECRET_FILE:-./secrets/auth0-mgmt-client-secret}
+  google_client_secret:
+    file: ${GOOGLE_CLIENT_SECRET_FILE:-./secrets/google-client-secret}
+  huggingface_api_key:
+    file: ${HUGGINGFACE_API_KEY_FILE:-./secrets/huggingface-api-key}
 
 networks:
   internal:
@@ -309,6 +364,16 @@ volumes:
   caddy_data:
   caddy_config:
   backups:
+  # Which key-ring generations this deployment can read (hosted-security-hardening FR-3.9). The API writes it at
+  # every startup; the backup sidecar mounts it READ-ONLY and copies it beside each dump, so a restore can be
+  # refused before it produces a practice whose every second factor is silently undecryptable.
+  #
+  # ⚠️ It holds key IDs and NO key material, which is what makes mounting it into the backup container safe —
+  # unlike dataprotection_keys, which must never go near it.
+  #
+  # ⚠️ Losing it costs nothing: the API rewrites it on the next start. What it cannot reconstruct is the stamp
+  # already copied into an old backup, which is the point.
+  keyring_marker:
   # The internal CA and the two server leaves (hosted-security-hardening Part 2). Written once by the `certs`
   # one-shot, mounted read-only everywhere else.
   #

@@ -10,7 +10,7 @@
 |------|------|-----------|--------|
 | A | Identity | Part 1 | **implemented** (A.1–A.4 landed; eye pass owed) |
 | B | Transit | Part 2 | **implemented** (steps 1–11; two walks owed, both named below) |
-| C | Custody | Part 3 | not-started |
+| C | Custody | Part 3 | **implemented** (C.1–C.5; the host-level items are owed, all named below) |
 | D | Evidence & surface | Part 0 + Part 4 | not-started |
 
 ### Part A sub-parts
@@ -43,10 +43,17 @@ OAuth round trip needs real credentials). The `SameSite` decision was taken on t
 
 ## Resuming — read this first
 
-**Parts A and B are landed in full and the tree is green.** Start at **Part C** (Custody), whose entry section is
-`exploration.md` § 3. Nothing is half-applied.
+**Parts A, B and C are landed in full and the tree is green.** Start at **Part D** (Evidence & surface), whose
+opening step is D.0 — the plan's Part 0, first because D's own gate depends on it. Nothing is half-applied.
 
-⚠️ **Part C must not mint a fresh Data Protection key ring** (R-2) — Part A's second factors live on it.
+⚠️ **Read `context.md` first** (written during Part C): the gate commands that work here, the reference
+implementation for each shape, and the ⚠️ Volatile rows to re-check every session. Run its staleness diff rather
+than trusting it.
+
+⚠️ **Part C did not mint a fresh key ring** (R-2). `ProtectKeysWithCertificate` protects only what the ring
+writes from then on; the existing keys stay as decryptors and the ciphertext is migrated by the new
+`reprotect-secrets` verb. Nothing deletes a key file — that is the operator's step, gated on
+`verify-schema` reading zero.
 
 ⚠️ **A local Docker stack from Part B's verification may still be running** under project name `hshb`
 (`docker compose -p hshb -f deploy/docker-compose.hosted.yml down -v`). It holds an empty database and is not the
@@ -282,3 +289,218 @@ transit whose two most load-bearing files cannot be verified on the machine this
 **Impact:** `deploy/` only. The healthcheck now genuinely gates, which nothing depends on today
 (`service_started` is unchanged, deliberately: MinIO down is `Degraded`, not a reason to refuse to start).
 **Approved:** auto (adjacent, one line each, and each one masks a Part B guarantee)
+
+---
+
+# Part C — Custody
+
+**Status:** implemented, gate green. **One commit.** Everything reachable from a development machine was
+executed; every host-level item is owed and named below rather than claimed.
+
+## What landed, step by step
+
+| Step | Delivered |
+|------|-----------|
+| 1–2 | `Infrastructure/Security/KeyRingProtectionCertificates` + `LocalDataProtection.ApplyCertificateProtection` — `ProtectKeysWithCertificate` **and** `UnprotectKeysWithAnyCertificate`, the Windows DPAPI branch untouched. Required in `HostedMultiTenant`, **Development exempt** (DEV-9). Retained generations = **2**, stated in `KEY-CUSTODY.md` (FR-3.2) |
+| 3–4 | **`reprotect-secrets [--rotate]`** (`API/Maintenance/`) over all **six** families, idempotent, per-family counts, **naming** any row it cannot decrypt and exiting **2**. `--rotate` mints the new active key (DEV-10) |
+| 5 | Deleting the superseded key files is the **operator's** step, gated on the check below — `KEY-CUSTODY.md` § 1 carries the four-command order |
+| 6 | `verify-schema` **`secrets-protected-under-current-ring`** + **`key-ring-protection`**, fed by a fourth "side" on `SchemaFacts`. Absent ⇒ « not applicable », **never zero** |
+| 7 | Every `TryUnprotect` caller audited; `GoogleCalendarSyncService.ResolveConnectionAsync` **throws** rather than returning null (the four TOTP callers already matched `PlatformLoginCommand`'s model) |
+| 8 | `Clinic.GoogleRefreshTokenProtected` + `IGoogleTokenProtector`/`GoogleTokenProtector`, migration **`AddProtectedGoogleToken`**, the **startup backfill** (`Startup/GoogleTokenProtectionBackfill`), and `verify-schema`'s **`google-token-protected`** |
+| 9 | LUKS — **documented**, not applied: `KEY-CUSTODY.md` § 4, with the « stolen, snapshotted or decommissioned disk » wording verbatim and the unattended-reboot `crypttab`/`fstab` lines |
+| 10 | `deploy/backup/Dockerfile` adds **`age`**; `backup.sh` **refuses without a recipient**, encrypts before rclone, and — where an identity is mounted — **decrypts what it just wrote and runs `pg_restore --list`** |
+| 11 | `WALG_LIBSODIUM_KEY` on **both** `postgres` (whose `archive_command` pushes the WAL) and `pitr`; `pitr-entrypoint.sh` **refuses to start** without it |
+| 12 | `Startup/KeyRingGenerationMarker` + `deploy/backup/check-keyring.sh`. ⚠️ **Staleness rule chosen and stated**: the marker lists **every** generation the ring can read, rewritten at startup and by `--rotate` — see DEV-12 |
+| 13 | The **`*_FILE` layer** (`Startup/FileBackedSecrets`) inside `AddInstallLayers`, plus `secrets:` blocks in **both** compose files. Scope decided with the user — see DEV-11 |
+| 14 | FR-3.11 resolved in **one voice** across `deploy/README.md`, `.env.hosted.example` and `KEY-CUSTODY.md`: the ring may travel with `postgres_data`; the **certificate** is what travels apart |
+| 15 | **`deploy/KEY-CUSTODY.md`** and **`deploy/RESTORE-DRILL.md`** |
+| 16 | `UnitTests/Common/SecretProtectionCoverageTests` + the shared `SecretShapedNames`, and `Api/ConsoleVerbDispatchTests` (the verb-reachability guard, widened from the five subscription verbs to **all** of them) |
+
+## Part C gate
+
+| Gate | Result |
+|------|--------|
+| Backend suite (Release, `BaseOutputPath` outside the repo) | **2943 passed, 0 failed** (baseline 2893 + 50 new) |
+| Backend build, `--no-incremental` | 0 errors · the standing warning baseline only. The three warnings in files this part touched were checked line by line and are pre-existing: `Clinic.cs(120)` / `User.cs(70)` are the `private X() { } // For EF Core` ctors (`CS8618`, every entity has one) and `Program.cs(496)` is the Hangfire `UsePostgreSqlStorage` `CS0618` Part B already recorded. **0 warnings in any file this part added** |
+| `web/` `check:responsive` · `tsc --noEmit` · `build` | **15/15**, clean, compiled — Part C changes **no** frontend file (`git diff -- web/ console/` is empty), so this confirms the tree rather than the part |
+| `console/` `check:responsive` · `tsc --noEmit` · `build` | **14/14**, clean, compiled |
+| `verify-schema` before → after the migration | **exit 0 → exit 0, 32 checks, 0 drift both sides**; the diff is **exactly one line** (`google-token-protected`: « not applicable » → « 0 cabinet(s) still hold a Google Agenda token in the clear »). Captures in `../verification/verify-schema-{before,after}-C.txt` |
+| Compose files parse | both, through PyYAML **and** `docker compose config` with a filled `.env` and real secret files |
+| Committed scripts parse on their runtime | `sh -n` clean on `backup.sh`, `check-keyring.sh`, `pitr-entrypoint.sh`; all four container-read files confirmed **LF** (Part B's `.gitattributes` covers the new one) |
+
+## Executed verification — what was actually run
+
+A throwaway PostgreSQL 16 container plus a real self-signed PKCS#12 made most of C.1/C.2 executable end to end.
+
+| Item | Result |
+|------|--------|
+| The ring is **encrypted** and the check says so | `key-ring-protection: the key ring is encrypted by the deployment's certificate (3649 day(s) remaining on it)` |
+| `verify-schema` before/after the migration, **diffed** | one line, exactly the column the migration adds (above) |
+| **`reprotect-secrets` runs** and reports every family | all six listed, exit **0** on a clean database, marker path honoured |
+| **A row it cannot decrypt is NAMED and left alone** | seeded `Clinics.GoogleRefreshTokenProtected = 'not-real-ciphertext'` → « 1 illisible(s) », the cabinet named, **exit 2**, and `SELECT` afterwards shows the value **unchanged** |
+| The coverage figure then reports it | `[DRIFT] secrets-protected-under-current-ring: 1 stored secret(s) are still under a superseded generation — Clinics.GoogleRefreshTokenProtected 0/1 — run « reprotect-secrets » and do NOT delete any key file until this reads zero`, exit 2 |
+| A configured-but-broken certificate refuses | `KeyRingProtectionTests` over generated certificates — missing, unreadable, no private key, retained generation with no path |
+| An expiring certificate **warns** rather than refusing | same class; and more than two retained generations warns |
+| Both compose files resolve with the new `secrets:` blocks | `docker compose config` exit 0 for each, with `WALG_LIBSODIUM_KEY` present on **both** `postgres` and `pitr` |
+
+### Still owed (verification and host changes, not code)
+
+Everything here needs a real hosted deployment. None of it is half-applied; each is a step an operator runs.
+
+- **The LUKS change itself, and the cold unattended reboot.** Documented in `KEY-CUSTODY.md` § 4; not applied.
+- **A real backup run**: that the archive decrypts, that `pg_restore --list` is non-empty, and that a
+  **deliberately-corrupted** upload fails the run. The script is committed and parses; it has not been executed
+  in its image (no `age` binary and no MinIO volume here).
+- **The PITR sidecar's refusal** was not run against a live WAL-G target; the check is a three-line guard at the
+  top of an entrypoint that `sh -n` parses.
+- **One manual restore drill**, end to end. ⚠️ `RESTORE-DRILL.md` says out loud that **no drill has been
+  performed** and that the restore path is unproven until its log has a first row — deliberately, rather than
+  shipping an empty table that reads as « nothing to report ».
+- **A mismatched key-ring generation refused end to end.** `check-keyring.sh` is written and parses; the pair of
+  real files (a stamp from a backup, a marker from a live API) needs the stack up.
+- **`docker exec … env | grep -Ei 'password|apikey|token|secret'` returning nothing** — true for the six secrets
+  moved to files, and **not yet true overall**; see DEV-11 and `follow-up/hosted-secrets-to-files.md`.
+
+## Findings — things that were wrong before this part, or wrong in it
+
+### F-6: the FR-3.11 contradiction was **three** documents, and the correct answer is the opposite of both sides
+
+`exploration.md` § 3.1 records `deploy/README.md` (« alongside ») against the compose file and
+`.env.hosted.example` (« separately, never in the same archive »). Both were written when the ring was
+**cleartext**, which is what made « separately » right. FR-3.1 changes the fact underneath: the ring is now
+encrypted, so it may travel with `postgres_data`, and what must travel apart is the **certificate**. Resolving
+it as a wording fix — picking one of the two existing sentences — would have shipped a rule that was correct
+yesterday and wrong today. All three now say the same thing and point at `KEY-CUSTODY.md`.
+
+### F-7: my own `verify-schema` addition broke the « before » half of the before/after run
+
+The first version of `ReadSecretProtectionAsync` read the six families through EF unconditionally, so against
+any database predating the migration the **entire verb** died with
+`42703: column c.GoogleRefreshTokenProtected does not exist` — i.e. the run that establishes the baseline, which
+is the whole point of the prescribed workflow. Every existing count in that reader is guarded with
+`requiredTable`/`requiredColumn` and mine was not. Found by **running the gate**, not by the suite: nothing in
+`UnitTests` touches a database, so this is exactly the class of defect `verify-schema` exists for — and it
+surfaced the first time the prescribed order was followed. Each family is now guarded on its own column, and an
+absent one is **omitted** rather than reported as zero outstanding.
+
+### F-8: two ephemeral Data Protection providers share a key id, so one new test asserted something false
+
+`Ciphertext_From_Another_Ring_Is_Not_Covered` failed against perfectly correct code:
+`UseEphemeralDataProtectionProvider` leaves the ring's default key id at `Guid.Empty`, so two ephemeral
+providers write byte-identical payload headers. The **test setup** was wrong, not `Covers`. It uses two
+persisted rings now — which is also the arrangement every deployment running this check actually has. Worth
+knowing before writing another test over the payload format.
+
+### F-9: the verb-dispatch guard's first form reported three correctly-dispatched verbs as missing
+
+Written as « `Program.cs` contains `{Verb}.CommandName` **and** `{Verb}.RunAsync(args)` », it went red on
+`CountActivityCommand` (`RunAsync()`), `ProvisionCertCommand` and `HardenPermissionsCommand` (`Run(args)`) —
+the entry points legitimately differ. Loosened to `.Run`, which is the trap in the *other* direction (a
+loosened check can silently stop matching anything), so the class carries an **executed red proof** running the
+real check against a `Program.cs` with `reprotect-secrets`' branch renamed away.
+
+### F-10: `SecretProtectionCoverageTests` found seven columns nobody had ruled on — and one mistake of my own
+
+It went red on first run with `ClinicSignup.PasswordHash`, `ClinicSignup.TokenHash`, `DeviceRegistration.Token`,
+`PlatformAccount.MustChangePassword`, `User.MustChangePassword`, both `SessionFamily.*CredentialHash` and both
+`TokenVersion` counters. Every one is legitimately plaintext and now says **why** — which is the guard's whole
+purpose: none of them had ever been argued about anywhere. Its **both-directions** half then caught a
+speculative entry of mine for `Appointment.GoogleCalendarEventId`, which does not match the heuristic at all —
+a pre-approved hole, removed. And `Every_Decision_Gives_A_Reason` went red on two entries I had written as
+« The clinic twin of the flag above. »
+
+## Red proofs executed
+
+| Guard | Proof |
+|-------|-------|
+| `SecretProtectionCoverageTests` | `The_Guard_Rejects_A_Credential_Column_Whose_Decision_Is_Removed` runs the **real** classifier over the **real** model with the Google-token decision removed. Plus the seven genuine findings above, each a red run |
+| `ConsoleVerbDispatchTests` | `The_Guard_Rejects_A_Verb_Whose_Dispatch_Branch_Is_Removed`, over a `Program.cs` with `ReprotectSecretsCommand.` renamed away; plus F-9's three real red rows |
+| `reprotect-secrets`' refusal | **The real verb against a real database**: an undecryptable row → named, untouched, exit 2 |
+| `secrets-protected-under-current-ring` | **The real verb**: DRIFT + exit 2 with that row present; `ok` + exit 0 without it |
+| `google-token-protected` | The before/after diff — « not applicable » → « 0 cabinet(s) » across the migration |
+| `KeyRingProtectionCertificates` refusals | Four cases over generated certificates (missing · unreadable · no private key · retained generation with no path) |
+| `FileBackedSecrets` refusals | Missing file · empty file · `*_FILE` with no path — each refusing by name and by path |
+| Non-vacuity | Both new derived guards assert a **non-zero candidate count** first, `SystemWideCallerCoverageTests`' lesson |
+
+## Deviations
+
+### DEV-9: the protecting certificate is required in `HostedMultiTenant` **except in Development**
+**Date:** 2026-08-12 · **Story:** Part C, step 1 · **Category:** Technical
+**Original plan / spec:** Part 3's edge-case table — « The protecting certificate is missing at startup → Refuse
+to start. »
+**Actual implementation:** refuses in `HostedMultiTenant` **unless `ASPNETCORE_ENVIRONMENT=Development`**, where
+it warns and continues with an unencrypted ring.
+**Justification:** discovered by running `dotnet ef` — `appsettings.Development.json` selects
+`HostedMultiTenant` **deliberately** (it is the only profile where the public signup door is open), and no
+developer has a PKCS#12, so the literal rule broke `dotnet run` and `dotnet ef migrations add` on a fresh clone
+for everyone. The exemption is not invented: `MinioCredentials.TolerateUnconfigured` decides the identical
+question for object-store credentials, one file away, in the same startup path — « Acceptable in Development
+only — a non-Development environment will refuse to start ». The refusal is unchanged wherever a real
+deployment runs.
+**Impact:** none on any deployment. Pinned by `An_Unprotected_Ring_Is_Tolerated_In_Development_Only`.
+**Approved:** auto (the repo's own precedent for this exact question, and the literal rule is unshippable)
+
+### DEV-10: forcing a new active key is `reprotect-secrets --rotate`, not an unconditional startup action
+**Date:** 2026-08-12 · **Story:** Part C, step 3 · **Category:** Technical
+**Original plan:** step 3 « **Force a new active key**, so every subsequent write is protected », standing alone
+between « configure certificate protection » and « add the verb ».
+**Actual implementation:** an explicit `--rotate` flag on the verb, which mints the key through
+`IKeyManager.CreateNewKey` and then re-protects.
+**Justification:** minting a key is the one **non-idempotent** thing in this part, and step 4 requires the verb
+to be idempotent. Doing it at startup mints a key on every container restart — an unbounded ring, and a
+generation the FR-3.9 marker names differently after every deploy. Behind a flag, the ordinary run is idempotent
+(a second run reports « 0 rechiffrée, N déjà à jour ») and `KEY-CUSTODY.md` § 1's four-command sequence makes
+the rotation an explicit, once-per-migration act.
+**Impact:** the operator types `--rotate` once. Nothing else changes.
+**Approved:** auto (the plan's own step 4 requires idempotence, which an unconditional rotate contradicts)
+
+### DEV-11: FR-3.10 covers the application's own secrets; the sidecars' are a follow-up
+**Date:** 2026-08-12 · **Story:** Part C, step 13 · **Category:** Scope
+**Original plan:** « a `secrets:` block in **both** compose files and `*_FILE` indirection for **every** `${VAR}` ».
+**Actual implementation:** the `*_FILE` **layer** is built in full and applied by the host and every console
+verb; six secrets are moved. Two classes are left and named in place: those **shared** with a non-.NET container
+(the DB password inside the connection string, the MinIO key) and the sidecars' own
+(`POSTGRES_PASSWORD_FILE`, `MINIO_ROOT_PASSWORD_FILE`, `PGPASSFILE`, and wal-g, which has **no** file
+convention at all).
+**Justification:** **asked and decided with the user**, against the spec's own stated contingency (« may be
+dropped if the part is running long — say so rather than half-doing it »). Two reasons. Moving only the API's
+copy of a **shared** secret leaves it in three other containers' environments while the compose file implies it
+has left — a visible gap converted into an invisible one. And each sidecar's mechanism changes how a container
+authenticates **at boot**, unverifiable here (the hosted stack needs a real domain), whose failure is the
+nightly dump stopping at 02:00 — Part B found two defects of exactly that shape.
+**Impact:** `deploy/README.md`'s « no secret remains in `environment:` » check is not yet clean, and says so.
+Remedy chosen and written up: `follow-up/hosted-secrets-to-files.md`.
+**Approved:** **yes — asked explicitly**
+
+### DEV-12: the FR-3.9 marker lists **every** readable generation, not only the active one
+**Date:** 2026-08-12 · **Story:** Part C, step 12 · **Category:** Technical
+**Original plan:** « writes the ring's active key id … the restore procedure compares and **refuses a
+mismatch** », with the note « **Known staleness:** … State the refresh rule chosen (re-write on rotation, or
+re-read before each stamp) rather than leaving it implicit. »
+**Actual implementation:** the marker carries `active=` plus one `readable=` line per key the ring holds; the
+restore check asks whether the backup's generation is **among** the readable ones. The refresh rule is
+**rewritten at every startup and by `reprotect-secrets --rotate`**.
+**Justification:** « re-read before each stamp » is unavailable — the sidecar has no key ring by design, which
+is § 3.1's whole point — so the staleness had to be absorbed rather than eliminated. Equality on the *active*
+key is the wrong question anyway: the framework rolls keys on its own, so a ring that has rolled since the dump
+was taken can still read it perfectly, and equality would refuse a restore that was never in danger. Refusing
+correct restores is how a safety check gets switched off. A list makes the residual staleness **narrow the
+readable set**, so the check errs toward refusing — the safe direction — and says so.
+⚠️ It forced a second decision: `IKey.KeyId` and the id inside a payload must render to the **same text**
+(`DataProtectionKeyGeneration.IdOf`, `Guid.ToByteArray()` order). Rendering one as a canonical GUID byte-swaps
+three fields, so every restore would be refused as a mismatch that is not real — pinned by
+`A_Key_Id_Renders_Identically_However_It_Was_Obtained`.
+**Impact:** a marker of a few short lines instead of one. Nothing else changes.
+**Approved:** auto (the plan asked for the rule to be chosen and stated; this is that choice, with its reason)
+
+### DEV-13: a fourth secret protector rather than collapsing the three that exist
+**Date:** 2026-08-12 · **Story:** Part C, step 8 · **Category:** Technical
+**Original plan:** silent on how the Google token is encrypted.
+**Actual implementation:** `IGoogleTokenProtector`/`GoogleTokenProtector`, a fourth type on
+`UserSecretProtector`'s pattern with its own purpose string.
+**Justification:** each family **must** have its own purpose or the ciphertexts become interchangeable, and the
+purpose is what the framework derives the key from. Collapsing the four into one seam taking a purpose parameter
+is a refactor of Part A's work in the middle of Part C, on the code path that decides whether anybody can sign
+in. Following the established pattern is the smaller risk.
+**Impact:** one more small class. Noted as worth collapsing later, deliberately not here.
+**Approved:** auto (matches the three siblings exactly; the alternative touches Part A's sign-in path)

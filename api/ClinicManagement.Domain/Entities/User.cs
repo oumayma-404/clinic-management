@@ -266,6 +266,31 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     }
 
     /// <summary>
+    /// Stores the <b>same</b> secret re-encrypted under a newer key-ring generation
+    /// (<c>hosted-security-hardening</c> FR-3.1, the <c>reprotect-secrets</c> verb).
+    ///
+    /// <para>⚠️ <b>It exists precisely because <see cref="IssueTotpSecret"/> must not be used for this.</b> That
+    /// one clears the enrolment, wipes every recovery code and bumps <see cref="TokenVersion"/> — correct for a
+    /// reset, catastrophic for a re-wrap: re-encrypting the ring's ciphertext would sign every user out and
+    /// un-enrol every second factor on the deployment, which is R-2's data loss reached from a third
+    /// direction. Nothing observable about the account changes here; only the bytes at rest do.</para>
+    /// </summary>
+    public void ReplaceProtectedTotpSecret(string protectedSecret)
+    {
+        if (string.IsNullOrWhiteSpace(protectedSecret))
+        {
+            throw new ArgumentException("Le secret du second facteur est obligatoire.", nameof(protectedSecret));
+        }
+
+        if (string.IsNullOrEmpty(ProtectedTotpSecret))
+        {
+            throw new InvalidOperationException("Ce compte ne porte aucun secret de second facteur à rechiffrer.");
+        }
+
+        ProtectedTotpSecret = protectedSecret;
+    }
+
+    /// <summary>
     /// Confirms the issued secret with a code generated from it, and binds the recovery codes shown once in the
     /// same response. Refuses a second enrolment — that is <c>totp_already_enrolled</c>.
     /// </summary>
