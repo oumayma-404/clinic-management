@@ -145,16 +145,12 @@ function LocalLoginForm() {
             <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
               {isSubmitting ? 'Connexion…' : 'Se connecter'}
             </Button>
+            {/* /signup states « Inscription non disponible ici » itself where the capability is off, so this
+                link needs no probe of its own — unlike the retired /join one, whose code path is closed. */}
             <p className="text-center text-sm text-muted-foreground">
-              Vous avez un code de clinique ?{' '}
-              <a href="/join" className="text-primary hover:underline">
-                Rejoindre la clinique
-              </a>
-            </p>
-            <p className="text-center text-sm text-muted-foreground">
-              Première configuration de cette clinique ?{' '}
-              <a href="/setup" className="text-primary hover:underline">
-                Configurer la clinique
+              Vous n&apos;avez pas encore de cabinet ?{' '}
+              <a href="/signup" className="text-primary hover:underline">
+                Créer mon cabinet
               </a>
             </p>
           </form>
