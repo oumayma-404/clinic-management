@@ -46,6 +46,9 @@ public class PlatformPortfolioController : ApiControllerBase
     /// <param name="q">Matches the cabinet's name, its city or an administrator's e-mail address (AC-2.5).</param>
     /// <param name="sort">`name` | `activity` | `createdAt` | `endsOn`. An unrecognised value falls back to
     /// `createdAt`, the newest cabinet first.</param>
+    /// <param name="messaging">`exhausted` | `near` — the WhatsApp-forfait narrowing
+    /// (<c>vendor-whatsapp-messaging-quota</c> AC-8.2). An unrecognised value narrows nothing, and a cabinet with no
+    /// counting row is matched by neither (AC-8.3).</param>
     /// <param name="page">1-based. Omitting it gets the first page — this read is never unbounded.</param>
     /// <param name="pageSize">Clamped to <c>PageRequest.MaxPageSize</c>.</param>
     [HttpGet("clinics")]
@@ -54,6 +57,7 @@ public class PlatformPortfolioController : ApiControllerBase
         [FromQuery] string? state = null,
         [FromQuery] string? q = null,
         [FromQuery] string? sort = null,
+        [FromQuery] string? messaging = null,
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null,
         CancellationToken cancellationToken = default)
@@ -65,6 +69,7 @@ public class PlatformPortfolioController : ApiControllerBase
                 State = state,
                 Q = q,
                 Sort = sort,
+                Messaging = messaging,
                 Page = page,
                 PageSize = pageSize
             },

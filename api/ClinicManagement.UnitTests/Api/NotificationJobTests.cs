@@ -93,15 +93,25 @@ public class NotificationJobTests
         // The dispatcher re-checks the appointment status AND (since L3b) its time at send time; return an
         // active (Scheduled) appointment so these routing/lifecycle tests behave as before. The default fixture's
         // message carries no full `dd/MM/yyyy HH:mm` moment, so the staleness check is a pass-through here.
+        //
+        // ⚠️ The visit is TOMORROW, not `DateTime.UtcNow`. AC-4.5a fails a reminder whose appointment has already
+        // started, and `UtcNow` is by definition already started — so a stub at « now » described a reminder for a
+        // patient already in the chair, which is precisely the row the guard exists to stop. A reminder announces a
+        // future visit; that is what these fixtures mean.
         var appointments = new Mock<IAppointmentRepository>();
         appointments.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(appointment ?? new Appointment(
-                Guid.NewGuid(), ClinicId, Guid.NewGuid(), null, DateTime.UtcNow, TimeSpan.FromMinutes(30)));
+                Guid.NewGuid(), ClinicId, Guid.NewGuid(), null, DateTime.UtcNow.AddDays(1), TimeSpan.FromMinutes(30)));
 
         return new NotificationJob(
             notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object, settingsProvider.Object, config, senders,
             new Mock<INotificationGenerator>().Object,
             SubscriptionsNotEnforced(), new Mock<IClinicSubscriptionRepository>().Object,
+            // The WhatsApp forfait: a default mock answers `SellsVendorMessaging = false`, so the messaging gate
+            // reads nothing and these scenarios stay byte-identical (EC-16). Its own cases live in
+            // NotificationJobMessagingTests.
+            new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
+            new Mock<IClinicReminderSettingsRepository>().Object,
             // I6 wired an audit actor into every job. A permissive mock keeps these scenarios exactly as they
             // were: the job declares itself, nothing here observes it.
             new Mock<IAuditActorProvider>().Object,
@@ -330,11 +340,17 @@ public class NotificationJobTests
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build();
         var appointments = new Mock<IAppointmentRepository>();
         appointments.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Appointment(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null, DateTime.UtcNow, TimeSpan.FromMinutes(30)));
+            // Tomorrow, not « now » — see the note in the shared builder above (AC-4.5a).
+            .ReturnsAsync(new Appointment(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null, DateTime.UtcNow.AddDays(1), TimeSpan.FromMinutes(30)));
         var job = new NotificationJob(
             notifications.Object, patients.Object, appointments.Object, new Mock<IUnitOfWork>().Object, probe.Object, provider.Object,
             config, new IReminderChannelSender[] { sender }, new Mock<INotificationGenerator>().Object,
             SubscriptionsNotEnforced(), new Mock<IClinicSubscriptionRepository>().Object,
+            // The WhatsApp forfait: a default mock answers `SellsVendorMessaging = false`, so the messaging gate
+            // reads nothing and these scenarios stay byte-identical (EC-16). Its own cases live in
+            // NotificationJobMessagingTests.
+            new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
+            new Mock<IClinicReminderSettingsRepository>().Object,
             // I6: permissive audit-actor mock — see the shared builder above.
             new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
@@ -382,11 +398,17 @@ public class NotificationJobTests
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build();
         var appointments = new Mock<IAppointmentRepository>();
         appointments.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Appointment(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null, DateTime.UtcNow, TimeSpan.FromMinutes(30)));
+            // Tomorrow, not « now » — see the note in the shared builder above (AC-4.5a).
+            .ReturnsAsync(new Appointment(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null, DateTime.UtcNow.AddDays(1), TimeSpan.FromMinutes(30)));
         var job = new NotificationJob(
             notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object, provider.Object,
             config, new IReminderChannelSender[] { sender }, new Mock<INotificationGenerator>().Object,
             SubscriptionsNotEnforced(), new Mock<IClinicSubscriptionRepository>().Object,
+            // The WhatsApp forfait: a default mock answers `SellsVendorMessaging = false`, so the messaging gate
+            // reads nothing and these scenarios stay byte-identical (EC-16). Its own cases live in
+            // NotificationJobMessagingTests.
+            new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
+            new Mock<IClinicReminderSettingsRepository>().Object,
             // I6: permissive audit-actor mock — see the shared builder above.
             new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
@@ -445,6 +467,11 @@ public class NotificationJobTests
             settingsProvider.Object, config, new IReminderChannelSender[] { sender },
             new Mock<INotificationGenerator>().Object,
             SubscriptionsNotEnforced(), new Mock<IClinicSubscriptionRepository>().Object,
+            // The WhatsApp forfait: a default mock answers `SellsVendorMessaging = false`, so the messaging gate
+            // reads nothing and these scenarios stay byte-identical (EC-16). Its own cases live in
+            // NotificationJobMessagingTests.
+            new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
+            new Mock<IClinicReminderSettingsRepository>().Object,
             // I6 wired an audit actor into every job. A permissive mock keeps these scenarios exactly as they
             // were: the job declares itself, nothing here observes it.
             new Mock<IAuditActorProvider>().Object,
@@ -505,7 +532,14 @@ public class NotificationJobTests
     public async Task A_Reminder_Still_Naming_The_Right_Moment_Sends_Normally()
     {
         var patientId = Guid.NewGuid();
-        var appointmentAt = new DateTime(2026, 3, 10, 9, 0, 0, DateTimeKind.Utc);
+
+        // ⚠️ Relative and truncated to the minute, not a fixed literal, and both halves are needed. It must be in the
+        // FUTURE or AC-4.5a's past-appointment guard fails the row as obsolete before the staleness check is even
+        // reached — which is what a `2026-03-10` literal silently became. And the message carries `dd/MM/yyyy HH:mm`,
+        // so the seconds are truncated to make the formatted round-trip exact.
+        var tomorrow = DateTime.UtcNow.AddDays(1);
+        var appointmentAt = new DateTime(
+            tomorrow.Year, tomorrow.Month, tomorrow.Day, tomorrow.Hour, tomorrow.Minute, 0, DateTimeKind.Utc);
 
         var reminder = new Notification(
             Guid.NewGuid(), NotificationType.SMS, "Rappel de rendez-vous",
@@ -655,6 +689,11 @@ public class NotificationJobTests
             notifications.Object, patients.Object, appointments.Object, uow.Object, probe.Object,
             settingsProvider.Object, config, senders, new Mock<INotificationGenerator>().Object,
             SubscriptionsNotEnforced(), new Mock<IClinicSubscriptionRepository>().Object,
+            // The WhatsApp forfait: a default mock answers `SellsVendorMessaging = false`, so the messaging gate
+            // reads nothing and these scenarios stay byte-identical (EC-16). Its own cases live in
+            // NotificationJobMessagingTests.
+            new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
+            new Mock<IClinicReminderSettingsRepository>().Object,
             new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
             NullLogger<NotificationJob>.Instance);
     }

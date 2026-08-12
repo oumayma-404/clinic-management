@@ -111,6 +111,14 @@ public class SubscriptionExemptionCoverageTests
         // entitlement to read for a cabinet that is gone, and this is the action that gives it one — so a gate
         // consulting the cabinet's own cover would refuse exactly the request meant to create it.
         "PlatformClinicRestore.RestoreClinic",
+
+        // --- The vendor console's WhatsApp-forfait writes (`vendor-whatsapp-messaging-quota` US-6/US-7). The same
+        // argument as the two payment routes above, and it bites harder here: a cabinet whose *subscription* has lapsed
+        // is precisely one whose patients may still need warning about visits it already has booked, so gating a
+        // reminder top-up on that cabinet's own cover would let one lapse silence another. The correction half must
+        // stay reachable for the mirror reason — a mis-keyed forfait is the vendor's own bookkeeping.
+        "PlatformMessaging.RecordAllowance",
+        "PlatformMessaging.CancelAllowance",
     };
 
     /// <summary>

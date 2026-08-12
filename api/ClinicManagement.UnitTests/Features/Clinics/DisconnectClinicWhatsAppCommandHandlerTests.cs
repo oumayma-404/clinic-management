@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -24,8 +24,12 @@ public class DisconnectClinicWhatsAppCommandHandlerTests
     private readonly Mock<IWhatsAppOnboardingService> _onboarding = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
+    // AC-1.7's flag on the returned DTO. A default mock answers false, so these scenarios are unchanged.
+    private readonly Mock<IVendorMessagingAvailability> _vendorMessaging = new();
+
     private DisconnectClinicWhatsAppCommandHandler Handler() =>
-        new(_settings.Object, _users.Object, _context.Object, _protector.Object, _onboarding.Object, _uow.Object);
+        new(_settings.Object, _users.Object, _context.Object, _protector.Object, _onboarding.Object,
+            _vendorMessaging.Object, _uow.Object);
 
     private static User Local(string role) =>
         User.CreateLocalUser(ClinicId, role, $"{role}@clinic.com", "HASH", $"{role} name");

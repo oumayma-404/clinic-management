@@ -42,6 +42,9 @@ public static class StaffNotificationRules
         // AC-3.6: an accounting reminder is not time-critical to a person, and spending the OS's single
         // notification permission on one risks losing the five categories that are.
         NotificationCategory.SubscriptionExpiring => false,
+        // AC-3.4: a forfait running low waits for somebody at the desk, and the person who can act on it is the
+        // vendor rather than whoever is holding the phone.
+        NotificationCategory.MessagingAllowanceLow => false,
         // In-app only: what it asks for is done at a keyboard, at the next sign-in — a lock-screen banner
         // would add urgency to something nobody can act on from the lock screen.
         NotificationCategory.SecondFactorReset => false,

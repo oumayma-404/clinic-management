@@ -9,7 +9,17 @@ rendering, Auth0 management (Cloud) / local JWT auth (Local), and — for offlin
 self-generated HTTPS trust material, and per-clinic reference-catalog seeding. All wiring lives in
 `Extensions.cs` (`AddInfrastructure`).
 
-> **17 capabilities now** — the newest is **`BacksUpItsOwnData`** (`SelfHostedLan` only): does the *application*
+> **18 capabilities now** — the newest is **`SellsVendorMessaging`** (`HostedMultiTenant` only): does the *vendor*
+> buy this deployment's WhatsApp messages and meter them per cabinet? Where false the whole
+> `vendor-whatsapp-messaging-quota` feature is **absent** rather than present-and-refusing — no `/rappels` section,
+> no threshold warnings, no enforcement in the outbox, no daily `MessagingAllowanceJob`, no template submission,
+> and the two clinic reads 404 before the mediator. ⚠️ It is the **kind** half only; the seam clinics actually ask
+> is `IVendorMessagingAvailability`, whose second member `CanOnboardCabinets` ANDs in the deployment's own **Meta
+> credentials** — kept out of `DeploymentProfile` for `IOsPushAvailability`'s reason, so no operator setting can
+> flip a capability. Splitting them matters: an allowance a cabinet cannot yet spend is still a real allowance, so
+> a missing `Meta:AppId` removes the *connect* offer and leaves the counting, the section and the console intact.
+>
+> Before it, **`BacksUpItsOwnData`** (`SelfHostedLan` only): does the *application*
 > back its own database up, or does its **host**? Where false the hourly `BackupJob` is not registered and the two
 > write endpoints 404, because `deploy/`'s `backup` sidecar already dumps the database and the object store
 > off-server on a schedule **and** one database holds every cabinet — so an in-app `pg_dump`, which has no tenant
@@ -291,6 +301,25 @@ documents, nullable-patient appointments, and the multi-tenant clinic/user/docto
   entry » rule is what ran; `verify-schema` went 1 DRIFT → clean on those two checks, and corrupting one row turned
   the new `subscription-cover-kind-matches-ledger` red.
 
+- **The `vendor-whatsapp-messaging-quota` batch — four migrations, one per part** (DEV-5/9/12; the plan's own
+  « before and after the migration **batch** » wording anticipated more than one). `AddClinicMessagingAllowances`
+  (the two tables, three indexes, two FKs, **plus the rollout backfill**), `AddMessagingAllowanceWarningColumns`
+  (two nullable `StaffNotifications` columns), `AddMessagingAllowanceAccessLedgerLink` (one nullable
+  `PlatformAccessEntries.MessagingAllowanceEntryId`) and `AddWhatsAppTemplateState` (four nullable
+  `ClinicReminderSettings` columns + one **partial** index).
+  ⚠️ **EF's differ emitted `xmin` in both `CreateTable` blocks** — the same rejection that makes
+  `AddConcurrencyToken`'s `Up()` deliberately empty — removed by hand.
+  ⚠️ **The rollout backfill sits below every DDL statement and is gated on « this cabinet has no *standing*
+  entry »** (R-13), which is what makes it safe to re-run on a populated database: a cabinet provisioned *after* it
+  already has its own entry, and gating on the table being empty instead would double-allocate. Proven by
+  re-executing both statements against the populated database — `INSERT 0 0` twice.
+  ⚠️ **All four columns of `AddWhatsAppTemplateState` carry no default**, deliberately: a scaffolded
+  `defaultValue: 0` *is* `NotSubmitted`, and the gate reads a null status as « pass » — a default would have held
+  every WhatsApp reminder on the deployment the day it shipped, for a template Meta approved long ago.
+  Verified end to end at Part 5 against a throwaway database rehearsing the whole batch: `verify-schema` went
+  **6 DRIFT → 0**, the diff naming only the three indexes, two FKs and the `(18,3)` amount, and the three new
+  checks moving « not applicable » → green over two real cabinets.
+
 ## Repositories (`Repositories/`)
 Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `ApplicationDbContext`; `GetById*` uses
 `.Include(...)` for needed graphs; mutations only stage (UoW commits). All registered Scoped.
@@ -326,6 +355,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `IClinicSignupRepository` | `ClinicSignupRepository` (`clinic-self-signup`). The one repository with **no** `IgnoreQueryFilters()` and no need of one: `ClinicSignup` carries no `ClinicId`, so no filter is configured for it. Its `PurgeSpentAsync` **stages** removals rather than `ExecuteDelete`, so the trim rides the caller's single `SaveChangesAsync` instead of committing even when the signup it accompanies is refused |
 | `IClinicActivityRepository` | `ClinicActivityRepository` (`platform-console` Part 2). The vendor console's counter tables and the one bounded portfolio JOIN. ⚠️ A **LEFT** join from `Clinics` onto the snapshot, so a cabinet the pass has never reached still appears with its counters stated as unknown rather than as zeros (EC-8/EC-15) — an inner join would hide exactly the cabinets whose absence is the thing worth seeing. ⚠️ The administrators'-address half of the search is an `EXISTS`, not a join: a cabinet with two admins must appear **once**, and joining would duplicate its row and corrupt every page boundary after it. ⚠️ `.ThenBy(clinic.Id)` on every sort branch, or `OFFSET` shows one cabinet twice and skips another. ⚠️ Since Part 3 the list and the **detail** (`GetClinicRowAsync`) pass the **same** projection expression over a named `PortfolioJoin` — AC-3.1 is « the same figures », and two expressions would drift into a cabinet reading one way in the portfolio and another when opened, the hardest kind of discrepancy to notice because both screens look right alone |
 | `IPlatformAccessEntryRepository` | `PlatformAccessEntryRepository` (`platform-console` Part 3). Add and one paged read; **no update and no delete**, which is the contract rather than an omission. `GetRecordedActorsAsync` is a plain `SELECT DISTINCT` over `(PlatformAccountId, AccountEmail)` and not a `GroupBy` picking one address per account: nothing renames a console account today, so it yields one row each — and if that changes, showing both addresses an account has acted under is the honest answer where `Max` would have chosen one by alphabet |
+| `IMessagingAllowanceRepository` | `MessagingAllowanceRepository` (`vendor-whatsapp-messaging-quota`). The forfait's ledger + counting rows; no `IgnoreQueryFilters()` and none needed — see the Domain guide |
 | `IPushDeliveryRepository` | `PushDeliveryRepository` (P6). The due scan mirrors `NotificationRepository`'s per-clinic fairness bound predicate for predicate |
 
 ## External Services (`Services/`, `Storage/`, `Security/`, `Auth/`)
@@ -440,6 +470,22 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 - **`WhatsAppOnboardingService`** (`IWhatsAppOnboardingService`, scoped, Cloud) — Meta Embedded-Signup: code→token
   exchange + app-subscribe + phone-register via Graph API, using `MetaConfig` (`Meta:AppId`/`AppSecret`,
   `Meta:GraphApiVersion`). Failures thrown as categorized `WhatsAppOnboardingException`.
+- **`WhatsAppTemplateService`** (`IWhatsAppTemplateService`, scoped) — submits the reminder template to Meta after
+  the token exchange and reads its status back, over `MetaConfig`'s one Graph-version authority.
+  **`WhatsAppReminderTemplate`** beside it is the single definition of the template's name, language, category and
+  body. ⚠️ **The body carries exactly ONE variable** (« Bonjour, {{1}} À bientôt, votre cabinet dentaire. »), and
+  that is forced rather than stylistic: `WhatsAppSender` sends **one** body parameter holding the whole
+  pre-rendered French sentence, so a two-variable template is « #132000 number of params does not match » on every
+  send — and formatting inside the sender instead would move the wording away from `ReminderScheduler`, which is
+  where `ReminderMessage.AnnouncesStaleMoment` reads it to catch an appointment moved under a queued row.
+  ⚠️ **Submission is gated on `SellsVendorMessaging`**: a stored template state is what makes the outbox gate hold
+  a cabinet's reminders, and on the other two kinds *neither writer that could clear it exists* — the webhook 404s
+  and the daily pass is not registered — so submitting there would have held a working cabinet's reminders for ever.
+- ⚠️ **`WhatsAppSender.Classify` (§ 37) reads Meta's refusal off the FULL response body**, not a truncated prefix:
+  the JSON envelope puts `code` after a long `message`, so a 200-byte cut loses the one field that tells a
+  **throttle** (retry later, keep the retry budget) from a **stopped number** (park it). The classification hook
+  lives on `HttpReminderChannelSender` and is overridden here only; the gateway's body still never reaches the
+  persisted result (D-8).
 
 ### QR rendering
 - **`QrCodeGenerator`** (`IQrCodeGenerator`, **Singleton**) — renders a payload to a PNG QR. Its only live

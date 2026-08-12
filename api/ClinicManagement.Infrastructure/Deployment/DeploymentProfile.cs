@@ -62,6 +62,7 @@ public sealed class DeploymentProfile
         bool servesPlatformConsole,
         bool requiresSubscription,
         bool backsUpItsOwnData,
+        bool sellsVendorMessaging,
         bool requiresAdminSecondFactor)
     {
         Kind = kind;
@@ -82,6 +83,7 @@ public sealed class DeploymentProfile
         ServesPlatformConsole = servesPlatformConsole;
         RequiresSubscription = requiresSubscription;
         BacksUpItsOwnData = backsUpItsOwnData;
+        SellsVendorMessaging = sellsVendorMessaging;
         RequiresAdminSecondFactor = requiresAdminSecondFactor;
     }
 
@@ -227,6 +229,29 @@ public sealed class DeploymentProfile
     public bool BacksUpItsOwnData { get; }
 
     /// <summary>
+    /// The <b>vendor</b> buys this deployment's WhatsApp messaging capacity centrally and allocates each cabinet a
+    /// monthly allowance of reminder messages (<c>vendor-whatsapp-messaging-quota</c> FR-9).
+    ///
+    /// <para><b>True only for <see cref="DeploymentKind.HostedMultiTenant"/></b>, and each ✗ is its own reason
+    /// rather than a default. On <see cref="DeploymentKind.SelfHostedLan"/> the practice owns the machine, the
+    /// Meta account and the bill: metering somebody else's WhatsApp spend from their own PC is not a service, and
+    /// there is no vendor credit line behind it to meter.
+    /// <see cref="DeploymentKind.CloudBrowser"/> predates the arrangement, and its clinics supply their own
+    /// WhatsApp credentials through the manual fields this feature closes.</para>
+    ///
+    /// <para>⚠️ <b>Derived from the kind and from nothing an operator can set</b> (FR-9), like every capability
+    /// here. Whether the deployment's own <b>Meta credentials</b> are present is a separate question with a
+    /// separate answer — it lives on <c>IVendorMessagingAvailability</c>, which is
+    /// <see cref="PermitsOsPush"/>'s split and exists for the same reason: a <c>Messaging:*</c> key able to flip
+    /// this would be the <c>httpsConfigured</c> trap the class note above says every capability avoids.</para>
+    ///
+    /// <para>Where this is false every surface of the feature is <b>absent</b> — no section, no notifications, no
+    /// enforcement, no scheduled work, endpoints answering as though they do not exist — and the existing WhatsApp
+    /// behaviour is byte-for-byte unchanged (EC-16).</para>
+    /// </summary>
+    public bool SellsVendorMessaging { get; }
+
+    /// <summary>
     /// A clinic <b>administrator</b> must present a second factor to obtain a session, and must enrol one before
     /// they can obtain their first (<c>hosted-security-hardening</c> FR-1.1–FR-1.3).
     ///
@@ -347,6 +372,9 @@ public sealed class DeploymentProfile
             // One clinic per database on hardware nobody else administers: an in-app dump is the only backup
             // this topology can have, and it is the topology the whole feature was written for.
             backsUpItsOwnData: true,
+            // The practice owns the machine, the Meta account and the bill. There is no vendor credit line here
+            // to meter, and metering their own spend from their own PC is not a service.
+            sellsVendorMessaging: false,
             // An admin locked out here has nobody to call: every way back this feature ships needs a second
             // admin or the vendor, and a single-dentist LAN install has neither.
             requiresAdminSecondFactor: false),
@@ -379,6 +407,9 @@ public sealed class DeploymentProfile
             // The `backup` sidecar already dumps this deployment off-server on a schedule — and one database
             // holds every cabinet, so an in-app `pg_dump` would hand one practice all the others.
             backsUpItsOwnData: false,
+            // The one topology we host and bill, so the one where the vendor's own WhatsApp credit line is what
+            // the cabinets' reminders are spent from.
+            sellsVendorMessaging: true,
             // Reached over the internet, holding every cabinet's records, with a vendor on call: the one
             // topology where a stolen admin password is the whole attack and a way back genuinely exists.
             requiresAdminSecondFactor: true),
@@ -409,6 +440,9 @@ public sealed class DeploymentProfile
             // Same hosted infrastructure and the same shared database as above: the sidecar backs it up, and an
             // in-app dump would cross tenants.
             backsUpItsOwnData: false,
+            // Predates the arrangement: these clinics supply their own WhatsApp credentials through the manual
+            // fields the feature closes on the kind above.
+            sellsVendorMessaging: false,
             // Auth0 issues these identities and performs the login: a second factor belongs in that tenant's
             // own policy, not bolted on here over a password this product never checks.
             requiresAdminSecondFactor: false),

@@ -89,6 +89,15 @@ interface CreateAppointmentDialogProps {
   onOpenChange: (open: boolean) => void
   defaultDate?: Date
   defaultTime?: string
+  /**
+   * The visit's length, when the caller already knows it — today only the agenda's drag-across-hours does.
+   *
+   * ⚠️ **Supplying it also stops the acts' sum from overwriting the field.** A dragged span is an explicit
+   * statement about how long the visit is, exactly like typing the number by hand, so it arrives with
+   * `durationTouched` already true; without that the first act picked would silently replace the two hours the
+   * user just painted with the catalogue's 30 minutes. It is still an ordinary editable field.
+   */
+  defaultDurationMinutes?: number
   onSuccess?: () => void
   /** Fires with the new appointment's id after a successful create (e.g. waiting-list promote-and-book). */
   onCreated?: (appointmentId: string) => void
@@ -110,6 +119,7 @@ export function CreateAppointmentDialog({
   onOpenChange,
   defaultDate,
   defaultTime,
+  defaultDurationMinutes,
   onSuccess,
   onCreated,
   defaultPatientId,
@@ -142,8 +152,12 @@ export function CreateAppointmentDialog({
    * Has the user set the duration themselves? Until they do, it follows the **sum** of the chosen acts. After they
    * do it is left alone: auto-summing over a hand-typed 45 min would silently undo an explicit decision, and the
    * summed default is a convenience, not a rule.
+   *
+   * ⚠️ A dragged span starts it **true**. Painting 09:00 → 11:00 on the agenda is the same kind of decision as
+   * typing 120, so it must survive picking the acts — otherwise the first act chosen replaces the two hours the
+   * user just drew with the catalogue's 30 minutes, which is the one thing that would make the gesture pointless.
    */
-  const [durationTouched, setDurationTouched] = useState(false)
+  const [durationTouched, setDurationTouched] = useState(defaultDurationMinutes !== undefined)
 
   // Appointment details
   const [date, setDate] = useState<Date | undefined>(defaultDate || new Date())
@@ -186,7 +200,7 @@ export function CreateAppointmentDialog({
   const [useEndTime, setUseEndTime] = useState(false)
   const [endHour, setEndHour] = useState("10")
   const [endMinute, setEndMinute] = useState("00")
-  const [duration, setDuration] = useState("30")
+  const [duration, setDuration] = useState(defaultDurationMinutes ? String(defaultDurationMinutes) : "30")
 
   const [notes, setNotes] = useState("")
   const [loading, setLoading] = useState(false)
@@ -325,6 +339,17 @@ export function CreateAppointmentDialog({
     }
   }, [open, defaultDate, defaultTime])
 
+  /*
+   * A dragged span, applied on open. Separate from the date/time effect above because it must also fire for a
+   * caller that supplies a duration and no date — and because it is the one prop that arrives already *touched*.
+   */
+  useEffect(() => {
+    if (!open || defaultDurationMinutes === undefined) return
+    setDuration(String(defaultDurationMinutes))
+    setUseEndTime(false)
+    setDurationTouched(true)
+  }, [open, defaultDurationMinutes])
+
   // Reset form when dialog closes
   useEffect(() => {
     if (!open) {
@@ -335,14 +360,17 @@ export function CreateAppointmentDialog({
       setNewPatientPhone("")
       setSelectedDoctorId("")
       setSelectedActs([])
-      setDurationTouched(false)
+      // Back to the caller's own defaults, not to the hardcoded pair: this dialog is a long-lived instance the
+      // agenda re-opens with a different span each time, so resetting to « 30 · untouched » would discard the
+      // duration the very next drag is about to supply.
+      setDurationTouched(defaultDurationMinutes !== undefined)
       const initialTime = getInitialTime()
       setStartHour(initialTime.hour)
       setStartMinute(initialTime.minute)
       setUseEndTime(false)
       setEndHour("10")
       setEndMinute("00")
-      setDuration("30")
+      setDuration(defaultDurationMinutes ? String(defaultDurationMinutes) : "30")
       setNotes("")
       setError(null)
       setPatientPickerOpen(false)

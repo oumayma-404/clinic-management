@@ -56,6 +56,20 @@ public class ClinicReminderSettingsConfiguration : IEntityTypeConfiguration<Clin
         builder.Property(s => s.WhatsAppLastError).HasColumnType("text");
         builder.Property(s => s.WhatsAppConnectedAt);
 
+        // Meta's review of the cabinet's reminder template (vendor-whatsapp-messaging-quota FR-7a/FR-7b). All four
+        // nullable: a cabinet connected before Part 4, or one on the install's own pre-approved template, has no
+        // template of its own and « unknown » is the honest value — never NotSubmitted, which would read as
+        // « en attente de validation » about a cabinet that sends fine.
+        builder.Property(s => s.WhatsAppTemplateStatus).HasConversion<int>();
+        builder.Property(s => s.WhatsAppTemplateCategory).HasMaxLength(50);
+        builder.Property(s => s.WhatsAppTemplateId).HasMaxLength(100);
+        builder.Property(s => s.WhatsAppTemplateStatusCheckedAtUtc);
+
+        // The webhook's WABA → cabinet lookup. Filtered on IS NOT NULL because most rows never connect through
+        // Embedded Signup at all, and the index exists for exactly one equality read.
+        builder.HasIndex(s => s.WhatsAppBusinessAccountId)
+            .HasFilter("\"WhatsAppBusinessAccountId\" IS NOT NULL");
+
         builder.Property(s => s.CreatedAt).IsRequired();
         builder.Property(s => s.UpdatedAt);
     }

@@ -1,8 +1,9 @@
-using MediatR;
+﻿using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Messaging;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
@@ -28,6 +29,8 @@ public class ConnectClinicWhatsAppCommandHandler
     private readonly IClinicContext _clinicContext;
     private readonly IReminderSecretProtector _secretProtector;
     private readonly IWhatsAppOnboardingService _onboardingService;
+    private readonly IWhatsAppTemplateService _templateService;
+    private readonly IVendorMessagingAvailability _vendorMessaging;
     private readonly IUnitOfWork _unitOfWork;
 
     public ConnectClinicWhatsAppCommandHandler(
@@ -36,6 +39,8 @@ public class ConnectClinicWhatsAppCommandHandler
         IClinicContext clinicContext,
         IReminderSecretProtector secretProtector,
         IWhatsAppOnboardingService onboardingService,
+        IWhatsAppTemplateService templateService,
+        IVendorMessagingAvailability vendorMessaging,
         IUnitOfWork unitOfWork)
     {
         _settingsRepository = settingsRepository;
@@ -43,6 +48,8 @@ public class ConnectClinicWhatsAppCommandHandler
         _clinicContext = clinicContext;
         _secretProtector = secretProtector;
         _onboardingService = onboardingService;
+        _templateService = templateService;
+        _vendorMessaging = vendorMessaging;
         _unitOfWork = unitOfWork;
     }
 
@@ -90,6 +97,30 @@ public class ConnectClinicWhatsAppCommandHandler
             settings.ApplyWhatsAppConnection(input.WabaId, input.PhoneNumberId);
             settings.SetWhatsAppAccessTokenEncrypted(_secretProtector.Protect(accessToken));
 
+            // AC-1.3 — the reminder template is submitted on the cabinet's behalf here, and the admin is never shown
+            // a template editor. It runs AFTER Meta has accepted the connection, so it must not be able to undo it:
+            // the seam returns null rather than throwing (see IWhatsAppTemplateService), and a cabinet whose
+            // submission failed is left « en attente de validation » for the poll to resolve (FR-7a).
+            //
+            // ⚠️ Only where the deployment SELLS vendor messaging (EC-16), and that condition is load-bearing rather
+            // than tidy: a stored template state is what makes OutboxMessagingGate hold this cabinet's reminders, and
+            // on the other two deployment kinds neither writer that could clear it exists — the webhook 404s and the
+            // daily pass is not registered. Submitting there would hold a working cabinet's reminders for ever, which
+            // is the opposite of « existing WhatsApp behaviour byte-for-byte unchanged ».
+            if (_vendorMessaging.SellsVendorMessaging)
+            {
+                var template = await _templateService.SubmitReminderTemplateAsync(
+                    input.WabaId, accessToken, cancellationToken);
+
+                settings.ApplySubmittedReminderTemplate(
+                    WhatsAppReminderTemplate.Name,
+                    WhatsAppReminderTemplate.Language,
+                    template?.Status,
+                    template?.Category,
+                    template?.TemplateId,
+                    DateTime.UtcNow);
+            }
+
             if (isNew)
             {
                 await _settingsRepository.AddAsync(settings, cancellationToken);
@@ -101,7 +132,7 @@ public class ConnectClinicWhatsAppCommandHandler
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return Result<ReminderSettingsDto>.Success(settings.ToDto());
+            return Result<ReminderSettingsDto>.Success(settings.ToDto(_vendorMessaging.SellsVendorMessaging));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

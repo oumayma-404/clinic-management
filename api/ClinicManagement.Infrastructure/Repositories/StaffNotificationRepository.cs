@@ -170,6 +170,37 @@ public class StaffNotificationRepository : IStaffNotificationRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<StaffNotification?> GetMessagingWarningAsync(
+        Guid clinicId, string monthKey, int thresholdPercent, CancellationToken cancellationToken = default)
+    {
+        // IgnoreQueryFilters for its two siblings' reason: the post-commit hook runs inside the dispatcher's
+        // UseSystemWide scope while the daily pass runs per cabinet. The clinicId parameter is the authoritative
+        // check either way.
+        return await _context.StaffNotifications
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
+                n => n.ClinicId == clinicId
+                     && n.Category == NotificationCategory.MessagingAllowanceLow
+                     && n.MessagingAllowanceMonth == monthKey
+                     && n.MessagingThresholdPercent == thresholdPercent,
+                cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<StaffNotification>> GetMessagingWarningsAsync(
+        Guid clinicId, string? monthKey = null, CancellationToken cancellationToken = default)
+    {
+        var query = _context.StaffNotifications
+            .IgnoreQueryFilters()
+            .Where(n => n.ClinicId == clinicId && n.Category == NotificationCategory.MessagingAllowanceLow);
+
+        if (monthKey != null)
+        {
+            query = query.Where(n => n.MessagingAllowanceMonth == monthKey);
+        }
+
+        return await query.ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<StaffNotification>> GetPendingReviewsForUserAsync(
         Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default)
     {

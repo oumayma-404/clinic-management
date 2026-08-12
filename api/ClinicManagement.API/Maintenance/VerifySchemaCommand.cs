@@ -77,6 +77,7 @@ public static class VerifySchemaCommand
             // report resolving its own would verify a chain nothing wrote.
             var reader = new SchemaVerificationReader(
                 scope.ServiceProvider.GetRequiredService<ApplicationDbContext>(),
+                scope.ServiceProvider.GetRequiredService<IVendorMessagingAvailability>(),
                 configuration,
                 scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>(),
                 scope.ServiceProvider.GetRequiredService<IAuditChainKeyProvider>());

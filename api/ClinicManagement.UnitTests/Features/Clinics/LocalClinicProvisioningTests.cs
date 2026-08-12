@@ -36,6 +36,8 @@ public class LocalClinicProvisioningTests
         public Mock<IProcedureTypeRepository> ProcedureTypes { get; } = new();
         public Mock<IClinicSubscriptionRepository> Subscriptions { get; } = new();
         public Mock<ISubscriptionPolicy> SubscriptionPolicy { get; } = new();
+        public Mock<IMessagingAllowanceRepository> MessagingAllowances { get; } = new();
+        public Mock<IMessagingAllowancePolicy> MessagingPolicy { get; } = new();
         public Mock<IUnitOfWork> UnitOfWork { get; } = new();
         public Mock<IClinicCatalogSeeder> CatalogSeeder { get; } = new();
 
@@ -45,14 +47,27 @@ public class LocalClinicProvisioningTests
         public List<ProcedureType> AddedProcedureTypes { get; } = new();
         public List<ClinicSubscription> AddedSubscriptions { get; } = new();
         public List<SubscriptionPeriod> AddedEntries { get; } = new();
+        public List<MessagingAllowanceEntry> AddedAllowanceEntries { get; } = new();
+        public List<ClinicMessagingMonth> AddedMessagingMonths { get; } = new();
 
         /// <summary>Saves observed, so a test can pin that the entitlement rode the clinic's own save (FR-4).</summary>
         public int SaveCount { get; private set; }
 
-        public Harness(bool requiresSubscription = true, int trialDays = 30)
+        public Harness(bool requiresSubscription = true, int trialDays = 30, int messagesPerMonth = 200)
         {
             SubscriptionPolicy.SetupGet(p => p.RequiresSubscription).Returns(requiresSubscription);
             SubscriptionPolicy.SetupGet(p => p.TrialDays).Returns(trialDays);
+
+            MessagingPolicy.SetupGet(p => p.DefaultMessagesPerMonth).Returns(messagesPerMonth);
+
+            MessagingAllowances
+                .Setup(r => r.AddEntryAsync(It.IsAny<MessagingAllowanceEntry>(), It.IsAny<CancellationToken>()))
+                .Callback<MessagingAllowanceEntry, CancellationToken>((e, _) => AddedAllowanceEntries.Add(e))
+                .Returns(Task.CompletedTask);
+            MessagingAllowances
+                .Setup(r => r.AddMonthAsync(It.IsAny<ClinicMessagingMonth>(), It.IsAny<CancellationToken>()))
+                .Callback<ClinicMessagingMonth, CancellationToken>((m, _) => AddedMessagingMonths.Add(m))
+                .Returns(Task.CompletedTask);
 
             Subscriptions.Setup(r => r.AddAsync(It.IsAny<ClinicSubscription>(), It.IsAny<CancellationToken>()))
                 .Callback<ClinicSubscription, CancellationToken>((s, _) => AddedSubscriptions.Add(s))
@@ -95,6 +110,8 @@ public class LocalClinicProvisioningTests
                 ProcedureTypes.Object,
                 Subscriptions.Object,
                 SubscriptionPolicy.Object,
+                MessagingAllowances.Object,
+                MessagingPolicy.Object,
                 UnitOfWork.Object,
                 CatalogSeeder.Object,
                 NullLogger.Instance);

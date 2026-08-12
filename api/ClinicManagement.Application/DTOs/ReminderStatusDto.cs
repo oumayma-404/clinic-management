@@ -51,6 +51,18 @@ public sealed record ReminderStatusDto
     /// come off the row's one <c>ErrorMessage</c>, and both are the only thing that makes the row actionable.
     /// </summary>
     public string? FailureReason { get; init; }
+
+    /// <summary>
+    /// <b>Why</b> a blocked row is blocked, machine-readably — the <c>OutboxBlockReason</c> member's own name
+    /// (<c>vendor-whatsapp-messaging-quota</c> AC-4.9). Null on every non-blocked row.
+    ///
+    /// <para>⚠️ <b>Beside <see cref="FailureReason"/>, not instead of it.</b> That field is the French sentence a
+    /// secretary reads; this is what the <i>screen</i> branches on. Without it the log could tell an allowance hold from
+    /// a subscription hold only by matching French prose — the <c>Contains("déjà facturée")</c> practice this repo
+    /// deleted in <c>adoption-gaps-remediation</c>, where rewording a message silently changes behaviour.</para>
+    /// </summary>
+    public string? BlockReason { get; init; }
+
     public required DateTime ScheduledAt { get; init; }
     public DateTime? SentAt { get; init; }
 }

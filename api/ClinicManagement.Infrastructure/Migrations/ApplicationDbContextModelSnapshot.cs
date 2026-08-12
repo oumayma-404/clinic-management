@@ -482,6 +482,45 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("ClinicActivitySnapshots", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicMessagingMonth", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AllowanceMessages")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ConsumedMessages")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MonthKey")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId", "MonthKey")
+                        .IsUnique();
+
+                    b.ToTable("ClinicMessagingMonths", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicReminderSettings", b =>
                 {
                     b.Property<Guid>("Id")
@@ -573,6 +612,14 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("WhatsAppTemplateCategory")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("WhatsAppTemplateId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("WhatsAppTemplateLanguage")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
@@ -581,7 +628,16 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<int?>("WhatsAppTemplateStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("WhatsAppTemplateStatusCheckedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("WhatsAppBusinessAccountId")
+                        .HasFilter("\"WhatsAppBusinessAccountId\" IS NOT NULL");
 
                     b.ToTable("ClinicReminderSettings", (string)null);
                 });
@@ -1869,6 +1925,79 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("MedicationActiveIngredients", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.MessagingAllowanceEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("Amount")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<string>("CancelReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("CancelledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CancelledBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EffectiveMonth")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.Property<bool>("IsCancelled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Messages")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("Method")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime>("RecordedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RecordedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId", "EffectiveMonth");
+
+                    b.HasIndex("ClinicId", "RecordedAtUtc");
+
+                    b.ToTable("MessagingAllowanceEntries", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Notification", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2392,6 +2521,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<Guid?>("MessagingAllowanceEntryId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("OccurredAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -2836,6 +2968,13 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<string>("Message")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("MessagingAllowanceMonth")
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.Property<int?>("MessagingThresholdPercent")
+                        .HasColumnType("integer");
 
                     b.Property<Guid?>("StockItemId")
                         .HasColumnType("uuid");
@@ -3553,6 +3692,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicMessagingMonth", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicReminderSettings", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
@@ -3762,6 +3910,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Medication");
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.MessagingAllowanceEntry", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.Notification", b =>

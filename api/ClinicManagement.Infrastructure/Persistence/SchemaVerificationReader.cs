@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using Microsoft.Extensions.Configuration;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Enums;
@@ -23,6 +24,7 @@ namespace ClinicManagement.Infrastructure.Persistence;
 public class SchemaVerificationReader : ISchemaVerificationReader
 {
     private readonly ApplicationDbContext _context;
+    private readonly IVendorMessagingAvailability _vendorMessaging;
     private readonly IConfiguration? _configuration;
     private readonly IDataProtectionProvider? _dataProtection;
     private readonly Security.IAuditChainKeyProvider? _auditChainKey;
@@ -44,11 +46,13 @@ public class SchemaVerificationReader : ISchemaVerificationReader
     /// </param>
     public SchemaVerificationReader(
         ApplicationDbContext context,
+        IVendorMessagingAvailability vendorMessaging,
         IConfiguration? configuration = null,
         IDataProtectionProvider? dataProtection = null,
         Security.IAuditChainKeyProvider? auditChainKey = null)
     {
         _context = context;
+        _vendorMessaging = vendorMessaging;
         _configuration = configuration;
         _dataProtection = dataProtection;
         _auditChainKey = auditChainKey;
@@ -72,10 +76,11 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         var auditLedger = await ReadAuditLedgerFactsAsync(connection, cancellationToken);
         var (subscriptionLedgers, coverKindPresent) =
             await ReadSubscriptionLedgersAsync(connection, cancellationToken);
+        var messagingAllowances = await ReadMessagingAllowancesAsync(connection, cancellationToken);
 
         return new SchemaFacts(
             extensions, constraints, model, database, mappedDecimals, dataMigrations, auditLedger,
-            subscriptionLedgers, coverKindPresent, ReadInternalCertificate(),
+            subscriptionLedgers, coverKindPresent, messagingAllowances, ReadInternalCertificate(),
             await ReadSecretProtectionAsync(connection, cancellationToken),
             await ReadAuditChainAsync(connection, cancellationToken));
     }
@@ -1050,6 +1055,93 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                     pair.Key, pair.Value.EndsOn, pair.Value.CoverKind, entriesByClinic[pair.Key]))
                 .ToList(),
             coverKindPresent);
+    }
+
+    /// <summary>
+    /// Every cabinet beside its WhatsApp reminder allocation ledger and its counting rows, so the service can fold
+    /// with the <b>real</b> <c>MessagingAllowanceLedger</c> rather than a SQL re-implementation of it (FR-2, R-6).
+    ///
+    /// <para>Driven from <c>Clinics</c> and not from either messaging table, deliberately: a cabinet with no
+    /// counting row at all is exactly what <c>messaging-month-covers-every-clinic</c> exists to report, and keying
+    /// the projection off the rows would make FR-3's failure the one state it cannot see.</para>
+    ///
+    /// <para>Ordered <c>RecordedAtUtc</c> then <c>Id</c> — the order the repository reads in, and which the fold
+    /// re-applies anyway, so this side cannot silently become the one the answer depends on.</para>
+    /// </summary>
+    private async Task<MessagingAllowanceFacts?> ReadMessagingAllowancesAsync(
+        NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        if (!await ColumnExistsAsync(connection, "MessagingAllowanceEntries", "EffectiveMonth", cancellationToken)
+            || !await ColumnExistsAsync(connection, "ClinicMessagingMonths", "MonthKey", cancellationToken))
+        {
+            return null;
+        }
+
+        var entriesByClinic = new Dictionary<Guid, List<MessagingAllowanceLedgerEntry>>();
+        var monthsByClinic = new Dictionary<Guid, List<StoredMessagingMonth>>();
+        var cabinets = new List<Guid>();
+
+        await using (var command = new NpgsqlCommand("""SELECT "Id" FROM "Clinics" """, connection))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var clinicId = reader.GetGuid(0);
+                cabinets.Add(clinicId);
+                entriesByClinic[clinicId] = new List<MessagingAllowanceLedgerEntry>();
+                monthsByClinic[clinicId] = new List<StoredMessagingMonth>();
+            }
+        }
+
+        const string entriesSql = """
+            SELECT "Id", "ClinicId", "Kind", "Messages", "EffectiveMonth", "RecordedAtUtc", "IsCancelled"
+            FROM "MessagingAllowanceEntries"
+            ORDER BY "ClinicId", "RecordedAtUtc", "Id"
+            """;
+        await using (var command = new NpgsqlCommand(entriesSql, connection))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                // An entry naming a cabinet that no longer exists cannot be folded against anything; the FK makes it
+                // unreachable, and dropping it silently here beats inventing a cabinet for it.
+                if (entriesByClinic.TryGetValue(reader.GetGuid(1), out var entries))
+                {
+                    entries.Add(new MessagingAllowanceLedgerEntry(
+                        reader.GetGuid(0),
+                        (MessagingAllowanceKind)reader.GetInt32(2),
+                        reader.GetInt32(3),
+                        reader.GetString(4),
+                        reader.GetDateTime(5),
+                        reader.GetBoolean(6)));
+                }
+            }
+        }
+
+        const string monthsSql = """
+            SELECT "ClinicId", "MonthKey", "AllowanceMessages", "ConsumedMessages"
+            FROM "ClinicMessagingMonths"
+            ORDER BY "ClinicId", "MonthKey"
+            """;
+        await using (var command = new NpgsqlCommand(monthsSql, connection))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (monthsByClinic.TryGetValue(reader.GetGuid(0), out var months))
+                {
+                    months.Add(new StoredMessagingMonth(
+                        reader.GetString(1), reader.GetInt32(2), reader.GetInt32(3)));
+                }
+            }
+        }
+
+        return new MessagingAllowanceFacts(
+            ClinicClock.CurrentMonthKey(),
+            _vendorMessaging.SellsVendorMessaging,
+            cabinets
+                .Select(id => new ClinicMessagingLedgerFact(id, entriesByClinic[id], monthsByClinic[id]))
+                .ToList());
     }
 
     /// <summary>

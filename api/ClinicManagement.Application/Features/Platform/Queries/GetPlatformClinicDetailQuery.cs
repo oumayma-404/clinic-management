@@ -2,6 +2,7 @@ using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.Messaging;
 using ClinicManagement.Application.Features.Platform.Dtos;
 using ClinicManagement.Application.Features.Subscriptions;
 using ClinicManagement.Domain.Entities;
@@ -54,6 +55,9 @@ public class GetPlatformClinicDetailQueryHandler
     private readonly IPlatformSessionContext _session;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ITenantScope _tenantScope;
+    private readonly IMessagingAllowanceRepository _allowances;
+    private readonly IClinicReminderSettingsRepository _reminderSettings;
+    private readonly IVendorMessagingAvailability _vendorMessaging;
     private readonly ILogger<GetPlatformClinicDetailQueryHandler> _logger;
 
     public GetPlatformClinicDetailQueryHandler(
@@ -64,6 +68,9 @@ public class GetPlatformClinicDetailQueryHandler
         IPlatformSessionContext session,
         IUnitOfWork unitOfWork,
         ITenantScope tenantScope,
+        IMessagingAllowanceRepository allowances,
+        IClinicReminderSettingsRepository reminderSettings,
+        IVendorMessagingAvailability vendorMessaging,
         ILogger<GetPlatformClinicDetailQueryHandler> logger)
     {
         _activityRepository = activityRepository;
@@ -73,6 +80,9 @@ public class GetPlatformClinicDetailQueryHandler
         _session = session;
         _unitOfWork = unitOfWork;
         _tenantScope = tenantScope;
+        _allowances = allowances;
+        _reminderSettings = reminderSettings;
+        _vendorMessaging = vendorMessaging;
         _logger = logger;
     }
 
@@ -85,7 +95,15 @@ public class GetPlatformClinicDetailQueryHandler
 
         try
         {
-            var row = await _activityRepository.GetClinicRowAsync(request.ClinicId, cancellationToken);
+            // One clock read for the whole request: the row's forfait figures, the history's own month labels and the
+            // per-entry preview must all describe the same month, and two reads either side of Tunisian midnight would
+            // not.
+            var clinicToday = ClinicClock.ClinicToday();
+            var messagingMonth = ClinicClock.MonthKey(clinicToday);
+
+            var row = await _activityRepository.GetClinicRowAsync(
+                request.ClinicId, messagingMonth, cancellationToken);
+
             if (row is null)
             {
                 // EC-13. A refusal with a code, not a 500 and not an empty detail: the console turns this into
@@ -99,6 +117,7 @@ public class GetPlatformClinicDetailQueryHandler
             var trend = await ReadTrendAsync(request.ClinicId, cancellationToken);
             var payments = await ReadPaymentsAsync(row, cancellationToken);
             var suspension = await ReadSuspensionAsync(row.ClinicId, cancellationToken);
+            var messaging = await ReadMessagingAsync(row, messagingMonth, cancellationToken);
 
             // AC-7.3. Staged before the save below, and its failure fails the read — see the class remarks.
             await PlatformAccessLedger.RecordAsync(
@@ -113,7 +132,7 @@ public class GetPlatformClinicDetailQueryHandler
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Result<PlatformClinicDetailDto>.Success(new PlatformClinicDetailDto(
-                Clinic: PlatformClinicRowMapper.ToDto(row, ClinicClock.ClinicToday(), admin?.Email),
+                Clinic: PlatformClinicRowMapper.ToDto(row, clinicToday, admin?.Email),
                 AdminName: admin?.FullName,
                 AdminEmail: admin?.Email,
                 // No admin at all reads as « inactive » rather than as a reachable person: the screen shows a
@@ -121,7 +140,8 @@ public class GetPlatformClinicDetailQueryHandler
                 AdminIsActive: admin?.IsActive ?? false,
                 Trend: trend,
                 Payments: payments,
-                Suspension: suspension));
+                Suspension: suspension,
+                Messaging: messaging));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
@@ -161,7 +181,7 @@ public class GetPlatformClinicDetailQueryHandler
     private static PlatformActivityMonthDto Bucket(DateOnly month, IReadOnlyList<ClinicActivityDay> days) => new(
         Year: month.Year,
         Month: month.Month,
-        MonthLabel: PlatformAccessLabels.Month(month.Year, month.Month),
+        MonthLabel: ClinicClock.MonthLabelFr(month.Year, month.Month),
         Writes: days.Sum(d => d.Writes),
         Appointments: days.Sum(d => d.Appointments),
         PatientsCreated: days.Sum(d => d.PatientsCreated),
@@ -247,6 +267,130 @@ public class GetPlatformClinicDetailQueryHandler
                         : PreviewCancellation(ledger, e.Id, row, clinicToday));
             })
             .ToList();
+    }
+
+    /// <summary>
+    /// AC-8.1's WhatsApp reminder section: this month's figures, the sender and template state, and the whole
+    /// allocation history with each live entry's cancellation consequence beside it.
+    ///
+    /// <para><b>⚠️ Absent where the deployment does not sell vendor messaging</b> (EC-16). The whole section is null
+    /// rather than a set of zeros, so the console renders no heading at all — « absent, not present-and-empty », the
+    /// same line every surface of this feature is held to. The capability is asked here, once, rather than by each
+    /// field: it is derived from the deployment kind and cannot change within a request.</para>
+    ///
+    /// <para>⚠️ <b>Every figure comes from the counting row and none of them is folded here.</b> Where that row is
+    /// absent the three figures are <b>null</b> and <c>Measured</c> is false (AC-8.3) — filling them from the ledger
+    /// would paper over exactly the fault the vendor needs to see, and it would make « non mesuré » unreachable.</para>
+    ///
+    /// <para>⚠️ <b><c>StandingAllowance</c> is folded and the month's figure is not, deliberately.</b> They answer two
+    /// different questions — « what does this cabinet get every month? » and « what was it allowed <i>this</i> month? »
+    /// — and they differ whenever a top-up is in play or a lowering is pending. Re-deriving either beside the other is
+    /// how the file comes to state two forfaits and label them the same.</para>
+    /// </summary>
+    private async Task<PlatformMessagingDto?> ReadMessagingAsync(
+        PlatformClinicRow row, string monthKey, CancellationToken cancellationToken)
+    {
+        if (!_vendorMessaging.SellsVendorMessaging)
+        {
+            return null;
+        }
+
+        var entries = await _allowances.GetEntriesAsync(row.ClinicId, cancellationToken);
+        var ledger = entries.Select(e => e.ToLedgerEntry()).ToList();
+        var settings = await _reminderSettings.GetByClinicIdAsync(row.ClinicId, cancellationToken);
+
+        var senderState = MessagingSender.From(
+            settings?.WhatsAppConnectionStatus ?? WhatsAppConnectionStatus.NotConnected,
+            settings?.WhatsAppTemplateStatus);
+
+        var history = entries
+            .OrderByDescending(e => e.RecordedAtUtc)
+            .ThenByDescending(e => e.Id)
+            .Select(e => new PlatformMessagingEntryDto(
+                EntryId: e.Id,
+                Kind: e.Kind.ToString(),
+                KindLabel: MessagingAllowanceLabels.Kind(e.Kind),
+                Messages: e.Messages,
+                EffectiveMonth: e.EffectiveMonth,
+                EffectiveMonthLabel: ClinicClock.MonthLabelFr(e.EffectiveMonth),
+                RecordedOn: e.RecordedAtUtc,
+                AmountDt: e.Amount,
+                Method: e.Method?.ToString(),
+                MethodLabel: e.Method is { } method ? SubscriptionLabels.PaymentMethod(method) : null,
+                Reference: e.Reference,
+                Note: e.Note,
+                RecordedBy: e.RecordedBy,
+                IsCancelled: e.IsCancelled,
+                CancelledAt: e.CancelledAtUtc,
+                CancelledBy: e.CancelledBy,
+                CancelReason: e.CancelReason,
+                IfCancelled: e.IsCancelled
+                    ? null
+                    : PreviewAllowanceCancellation(ledger, e.Id, monthKey, row)))
+            .ToList();
+
+        return new PlatformMessagingDto(
+            Month: monthKey,
+            MonthLabel: ClinicClock.MonthLabelFr(monthKey),
+            Allowance: row.HasMessagingMonth ? row.MessagingAllowance : null,
+            Consumed: row.HasMessagingMonth ? row.MessagingConsumed : null,
+            Remaining: row.HasMessagingMonth
+                ? Math.Max(0, row.MessagingAllowance - row.MessagingConsumed)
+                : null,
+            Measured: row.HasMessagingMonth,
+            Exhausted: row.HasMessagingMonth && row.MessagingConsumed >= row.MessagingAllowance,
+            StandingAllowance: MessagingAllowanceLedger.StandingInForce(ledger, monthKey),
+            SenderState: senderState.ToString(),
+            SenderStateLabel: MessagingSender.Label(senderState),
+            // Null stays « we do not track a template for this cabinet », which the console states rather than
+            // rendering « Modèle non soumis » about one sending perfectly well on the install's own template.
+            TemplateStatus: settings?.WhatsAppTemplateStatus?.ToString(),
+            TemplateStatusLabel: settings?.WhatsAppTemplateStatus is { } status
+                ? MessagingAllowanceLabels.TemplateStatus(status)
+                : null,
+            // FR-7b — the granted category, and the vendor's own concern: it is what a message COSTS us, so it is
+            // stated here and is a messaging-report finding, while the practice is never shown it (the wording is not
+            // theirs to change, and holding their reminders over our commercial exposure is the ungentle enforcement
+            // this feature is defined against).
+            TemplateCategory: settings?.WhatsAppTemplateCategory,
+            TemplateCategoryLabel: MessagingAllowanceLabels.TemplateCategory(settings?.WhatsAppTemplateCategory),
+            Entries: history);
+    }
+
+    /// <summary>
+    /// AC-7.3 — what the cabinet's forfait becomes if <i>this</i> allocation goes, so the confirmation can say it
+    /// <b>before</b> the vendor commits.
+    ///
+    /// <para><b>⚠️ It re-folds the real ledger with that entry marked cancelled, and nothing here does arithmetic.</b>
+    /// The tempting shortcut — « the current allowance minus this entry's messages » — is wrong for a <b>standing</b>
+    /// entry, which does not add but <i>replaces</i>: cancelling one hands the month back to whatever earlier standing
+    /// figure was in force, which may be higher, lower, or absent entirely. Re-folding is also what makes the preview
+    /// and the write agree by construction, since <c>MessagingAllowanceRefold</c> runs the same fold over the same rows
+    /// a moment later.</para>
+    ///
+    /// <para>⚠️ <b>Consumption comes from the counting row and is untouched</b> (AC-7.4) — which is the whole point:
+    /// this is the number that can put the month into « épuisé », and it is shown beside the reduced forfait rather
+    /// than left implicit. With no counting row there is nothing to compare, so the preview reports the new forfait and
+    /// <c>Exhausted: false</c> — an unknown is not an exhaustion.</para>
+    /// </summary>
+    private static PlatformMessagingCancellationPreviewDto PreviewAllowanceCancellation(
+        IReadOnlyList<MessagingAllowanceLedgerEntry> ledger,
+        Guid entryId,
+        string monthKey,
+        PlatformClinicRow row)
+    {
+        var without = ledger
+            .Select(e => e.Id == entryId ? e with { IsCancelled = true } : e)
+            .ToList();
+
+        var allowance = MessagingAllowanceLedger.Fold(without, monthKey);
+        var consumed = row.HasMessagingMonth ? row.MessagingConsumed : (int?)null;
+
+        return new PlatformMessagingCancellationPreviewDto(
+            Allowance: allowance,
+            Consumed: consumed,
+            Remaining: allowance is { } left && consumed is { } spent ? Math.Max(0, left - spent) : null,
+            Exhausted: allowance is { } cap && consumed is { } used && used >= cap);
     }
 
     /// <summary>

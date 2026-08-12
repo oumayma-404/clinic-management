@@ -70,6 +70,19 @@ public static class PlatformClinicRowMapper
             LastWriteAt: row.LastWriteAt,
             LastLoginAt: row.LastLoginAt,
             ClinicCollectedThisMonthDt: row.CollectedThisMonth,
-            CountersComputedAt: row.CountersComputedAt);
+            CountersComputedAt: row.CountersComputedAt,
+            // ⚠️ Null, not zero, for a cabinet with no counting row (AC-8.3). The row carries a flag and two plain
+            // ints — a projection cannot express « absent » in an int — and this is the one place that turns the flag
+            // back into the distinction every screen renders. Reading the ints without the flag would report a broken
+            // counter as a practice that sent nothing.
+            MessagingMeasured: row.HasMessagingMonth,
+            MessagingAllowance: row.HasMessagingMonth ? row.MessagingAllowance : null,
+            MessagingConsumed: row.HasMessagingMonth ? row.MessagingConsumed : null,
+            MessagingRemaining: row.HasMessagingMonth
+                ? Math.Max(0, row.MessagingAllowance - row.MessagingConsumed)
+                : null,
+            // False where nothing was measured: an unknown is not an exhaustion, and the console's own « épuisé » chip
+            // must not light up for a cabinet whose real problem is that nothing is counting.
+            MessagingExhausted: row.HasMessagingMonth && row.MessagingConsumed >= row.MessagingAllowance);
     }
 }

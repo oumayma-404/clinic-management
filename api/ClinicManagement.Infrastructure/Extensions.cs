@@ -151,6 +151,10 @@ public static class Extensions
         // an entitlement (FR-4), so it has to be able to resolve this and the policy below.
         services.AddScoped<IClinicSubscriptionRepository, ClinicSubscriptionRepository>();
         services.AddScoped<ISessionFamilyRepository, SessionFamilyRepository>();
+        // vendor-whatsapp-messaging-quota — the allocation ledger and the per-month counters. Here for the same
+        // load-bearing reason as the line above: `provision-clinic` creates a cabinet from a container built out of
+        // this method alone, and a cabinet must not exist without an allowance (FR-3).
+        services.AddScoped<IMessagingAllowanceRepository, MessagingAllowanceRepository>();
 
         // HttpClient for Auth0 Management API
         services.AddHttpClient();
@@ -336,6 +340,13 @@ public static class Extensions
         // Same lifetime reasoning as the profile it reads: immutable and derived from startup configuration.
         services.AddSingleton<ISecondFactorPolicy, SecondFactorPolicy>();
         services.AddSingleton<ISubscriptionPricing, SubscriptionPricing>();
+
+        // vendor-whatsapp-messaging-quota — the same two kinds of seam, for the same structural reason (Application
+        // references Domain alone and cannot name DeploymentProfile), and registered here rather than in
+        // AddApplication for the reason above it: `provision-clinic` builds its container from *this* method alone
+        // and it creates a cabinet, which must not come into existence without an allowance (FR-3).
+        services.AddSingleton<IVendorMessagingAvailability, VendorMessagingAvailability>();
+        services.AddSingleton<IMessagingAllowancePolicy, MessagingAllowancePolicy>();
         services.AddScoped<IReminderScheduler, ReminderScheduler>();
         services.AddScoped<IReminderChannelSender, HttpSmsSender>();
         services.AddScoped<IReminderChannelSender, WhatsAppSender>();
@@ -384,6 +395,11 @@ public static class Extensions
 
         // WhatsApp Embedded-Signup onboarding (Cloud) — provisions a clinic's own WABA/phone via the Graph API.
         services.AddScoped<IWhatsAppOnboardingService, WhatsAppOnboardingService>();
+
+        // The template this product submits on a cabinet's behalf, and the poll that reads its state back (FR-7,
+        // FR-7a). Registered unconditionally like its onboarding sibling: with no Meta credentials the call fails
+        // and is logged, and the cabinet stays « en attente de validation » rather than the container failing.
+        services.AddScoped<IWhatsAppTemplateService, WhatsAppTemplateService>();
 
         // NOTE: CertificateProvisioner is intentionally NOT DI-registered (Finding 17) — it is constructed
         // manually pre-Build in Program.cs (Kestrel needs the cert before the DI container exists), so a

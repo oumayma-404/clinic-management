@@ -47,6 +47,8 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
     private readonly IClinicCatalogSeeder _clinicCatalogSeeder;
     private readonly IClinicSubscriptionRepository _subscriptionRepository;
     private readonly ISubscriptionPolicy _subscriptionPolicy;
+    private readonly IMessagingAllowanceRepository _messagingAllowanceRepository;
+    private readonly IMessagingAllowancePolicy _messagingAllowancePolicy;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<CreateClinicCommandHandler> _logger;
 
@@ -62,6 +64,8 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         IClinicCatalogSeeder clinicCatalogSeeder,
         IClinicSubscriptionRepository subscriptionRepository,
         ISubscriptionPolicy subscriptionPolicy,
+        IMessagingAllowanceRepository messagingAllowanceRepository,
+        IMessagingAllowancePolicy messagingAllowancePolicy,
         IUnitOfWork unitOfWork,
         ILogger<CreateClinicCommandHandler> logger)
     {
@@ -76,6 +80,8 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         _clinicCatalogSeeder = clinicCatalogSeeder;
         _subscriptionRepository = subscriptionRepository;
         _subscriptionPolicy = subscriptionPolicy;
+        _messagingAllowanceRepository = messagingAllowanceRepository;
+        _messagingAllowancePolicy = messagingAllowancePolicy;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -276,6 +282,12 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             await LocalClinicProvisioning.StageEntitlementAsync(
                 clinic.Id, _subscriptionRepository, _subscriptionPolicy, cancellationToken);
 
+            // The same door again, for the WhatsApp reminder forfait (FR-3). On CloudBrowser the capability answers
+            // « does not sell vendor messaging », so what lands is an allowance nothing meters against — which is
+            // what keeps « no cabinet without one » true in all three topologies while EC-16 still holds.
+            await LocalClinicProvisioning.StageMessagingAllowanceAsync(
+                clinic.Id, _messagingAllowanceRepository, _messagingAllowancePolicy, cancellationToken);
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             await LocalClinicProvisioning.TrySeedCatalogsAsync(
@@ -357,6 +369,8 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             _procedureTypeRepository,
             _subscriptionRepository,
             _subscriptionPolicy,
+            _messagingAllowanceRepository,
+            _messagingAllowancePolicy,
             _unitOfWork,
             _clinicCatalogSeeder,
             _logger,

@@ -42,6 +42,24 @@ public class ClinicReminderSettings : Entity<Guid>
     public string? WhatsAppLastError { get; private set; }
     public DateTime? WhatsAppConnectedAt { get; private set; }
 
+    // Where Meta's review of this cabinet's reminder template stands (vendor-whatsapp-messaging-quota FR-7a).
+    // Two writers, deliberately: the MetaWebhookController and MessagingAllowanceJob's reconciling poll — both
+    // through SetWhatsAppTemplateState, which is the only writer of all four.
+    //
+    // ⚠️ Null is « we do not know », never NotSubmitted: a cabinet sending today on the install's own
+    // pre-approved template must not read « en attente de validation » (see MessagingSender.From).
+    public Enums.WhatsAppTemplateStatus? WhatsAppTemplateStatus { get; private set; }
+
+    // Meta's own category for the approved template, verbatim (FR-7b). Not an enum: Meta auto-recategorises and
+    // may introduce a value we have never heard of, and a value that does not parse must still be *reportable*.
+    public string? WhatsAppTemplateCategory { get; private set; }
+
+    // Meta's template id — what the poll reads a single template's status back by, and what a webhook payload
+    // names. Kept beside the name because a rename is representable and an id is not.
+    public string? WhatsAppTemplateId { get; private set; }
+
+    public DateTime? WhatsAppTemplateStatusCheckedAtUtc { get; private set; }
+
     // Outbound email (SMTP) — the channel that sends generated documents to a patient or a confrère. It lives
     // on this row rather than in a parallel settings aggregate because everything it needs already exists here:
     // per-clinic-else-per-install resolution, write-only encrypted secrets, and one admin screen. A separate
@@ -211,6 +229,10 @@ public class ClinicReminderSettings : Entity<Guid>
     /// <summary>
     /// Clears the WhatsApp connection: removes the stored WABA id, phone-number id and access token, disables
     /// the channel and resets the status to <see cref="Enums.WhatsAppConnectionStatus.NotConnected"/>.
+    ///
+    /// <para>⚠️ It clears the <b>template</b> state too. That state describes a template inside the WABA being
+    /// disconnected, so keeping it would leave a cabinet reading « modèle refusé » about a business account it no
+    /// longer has — and a reconnection would be judged against the previous one's review.</para>
     /// </summary>
     public void ClearWhatsAppConnection()
     {
@@ -221,7 +243,68 @@ public class ClinicReminderSettings : Entity<Guid>
         WhatsAppConnectionStatus = Enums.WhatsAppConnectionStatus.NotConnected;
         WhatsAppConnectedAt = null;
         WhatsAppLastError = null;
+        WhatsAppTemplateStatus = null;
+        WhatsAppTemplateCategory = null;
+        WhatsAppTemplateId = null;
+        WhatsAppTemplateStatusCheckedAtUtc = null;
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// The <b>single</b> writer of the four template columns (FR-7a), shared by the webhook and the poll so the two
+    /// cannot record a state differently.
+    ///
+    /// <para>⚠️ <paramref name="checkedAtUtc"/> is a parameter rather than <c>DateTime.UtcNow</c>: it is « when we
+    /// last confirmed this », the figure the poll selects its candidates by, so a test that cannot set it cannot
+    /// exercise the candidate rule at all.</para>
+    ///
+    /// <para>⚠️ A null <paramref name="category"/> or <paramref name="templateId"/> <b>preserves</b> what is stored:
+    /// a status webhook carries no category, and re-confirming a status must not erase the category the submission
+    /// recorded — which is the only thing FR-7b's finding reads.</para>
+    /// </summary>
+    public void SetWhatsAppTemplateState(
+        Enums.WhatsAppTemplateStatus status,
+        string? category,
+        string? templateId,
+        DateTime checkedAtUtc)
+    {
+        WhatsAppTemplateStatus = status;
+        WhatsAppTemplateCategory = Normalize(category) ?? WhatsAppTemplateCategory;
+        WhatsAppTemplateId = Normalize(templateId) ?? WhatsAppTemplateId;
+        WhatsAppTemplateStatusCheckedAtUtc = checkedAtUtc;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// The connect path's own writer (AC-1.3): records the template this product just submitted on the cabinet's
+    /// behalf, including <b>its name and language</b>, then the state through <see cref="SetWhatsAppTemplateState"/>.
+    ///
+    /// <para>⚠️ The name is stored rather than left to inherit the per-install
+    /// <c>Reminders:WhatsApp:TemplateName</c>: a connected cabinet owns its whole WhatsApp channel
+    /// (<c>ReminderSettingsProvider.ClaimsItsOwnWhatsApp</c>), and the template the sender names has to be the one
+    /// that was actually submitted, not the one an operator's config happens to say.</para>
+    ///
+    /// <para>⚠️ A null <paramref name="status"/> means the submission call did not answer — it keeps whatever is
+    /// already stored and falls back to « under review », never to <see cref="Enums.WhatsAppTemplateStatus.Approved"/>.
+    /// Overwriting an approved template with « en attente » because one Graph call timed out would hold a working
+    /// cabinet's reminders until the poll's next run.</para>
+    /// </summary>
+    public void ApplySubmittedReminderTemplate(
+        string name,
+        string language,
+        Enums.WhatsAppTemplateStatus? status,
+        string? category,
+        string? templateId,
+        DateTime submittedAtUtc)
+    {
+        WhatsAppTemplateName = Normalize(name) ?? WhatsAppTemplateName;
+        WhatsAppTemplateLanguage = Normalize(language) ?? WhatsAppTemplateLanguage;
+
+        SetWhatsAppTemplateState(
+            status ?? WhatsAppTemplateStatus ?? Enums.WhatsAppTemplateStatus.PendingReview,
+            category,
+            templateId,
+            submittedAtUtc);
     }
 
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

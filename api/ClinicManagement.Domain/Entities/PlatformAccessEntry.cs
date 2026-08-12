@@ -54,6 +54,21 @@ public class PlatformAccessEntry : AggregateRoot<Guid>
     public Guid? SubscriptionPeriodId { get; private set; }
 
     /// <summary>
+    /// The <c>MessagingAllowanceEntry</c> this action produced or acted on
+    /// (<c>vendor-whatsapp-messaging-quota</c> US-6/US-7), or null for every other row.
+    ///
+    /// <para>⚠️ <b>Its own column rather than a reuse of <see cref="SubscriptionPeriodId"/>.</b> Both name « the thing
+    /// the vendor was paid for », and sharing one column would have been one line — which is why it is refused: the
+    /// journal would then assert that a forfait de rappels extended the cabinet's right to record work, and a replay
+    /// keyed on <see cref="IdempotencyKey"/> would hand back the wrong kind of id. It is the same argument
+    /// <c>PlatformReadShape</c> makes about not overloading <c>Note</c>/<c>Reference</c>: a semantic overload is not a
+    /// free pass.</para>
+    ///
+    /// <para>Not a foreign key either, for the reason the whole type has none.</para>
+    /// </summary>
+    public Guid? MessagingAllowanceEntryId { get; private set; }
+
+    /// <summary>
     /// The client's own key for the write this row records — <b>unique across the ledger</b>, which is what makes
     /// « a double-click produces one entry » (AC-4.6) a property of the database rather than of a handler winning a
     /// race. Null for every row that is not a keyed write.
@@ -76,7 +91,8 @@ public class PlatformAccessEntry : AggregateRoot<Guid>
         PlatformAccessAction action,
         DateTime occurredAt,
         Guid? subscriptionPeriodId = null,
-        string? idempotencyKey = null)
+        string? idempotencyKey = null,
+        Guid? messagingAllowanceEntryId = null)
         : base(Guid.NewGuid())
     {
         if (platformAccountId == Guid.Empty)
@@ -92,6 +108,7 @@ public class PlatformAccessEntry : AggregateRoot<Guid>
         Action = action;
         OccurredAt = occurredAt;
         SubscriptionPeriodId = subscriptionPeriodId;
+        MessagingAllowanceEntryId = messagingAllowanceEntryId;
 
         var key = idempotencyKey?.Trim();
         if (key is { Length: > MaxIdempotencyKeyLength })

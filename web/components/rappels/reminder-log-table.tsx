@@ -144,6 +144,11 @@ export function ReminderLogTable({
             <Badge variant="secondary" className={STATUS_CLASS[r.status]}>
               {STATUS_LABEL[r.status]}
             </Badge>
+            {holdKindLabel(r.blockReason) && (
+              <Badge variant="secondary" className="bg-muted font-mono text-2xs text-muted-foreground">
+                {holdKindLabel(r.blockReason)}
+              </Badge>
+            )}
             {r.isRecall && (
               <Badge variant="secondary" className="bg-muted text-muted-foreground">
                 relance
@@ -217,6 +222,11 @@ export function ReminderLogTable({
                   <Badge variant="secondary" className={STATUS_CLASS[row.status]}>
                     {STATUS_LABEL[row.status]}
                   </Badge>
+                  {holdKindLabel(row.blockReason) && (
+                    <Badge variant="secondary" className="bg-muted font-mono text-2xs text-muted-foreground">
+                      {holdKindLabel(row.blockReason)}
+                    </Badge>
+                  )}
                   {row.sentAt && (
                     <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
                       {formatDateTime(row.sentAt)}
@@ -283,6 +293,38 @@ const STATUS_CLASS: Record<ReminderDeliveryStatus, string> = {
  * the same red as a real delivery failure is what would make a screen full of misconfiguration look like a screen
  * full of patients who were never reached.
  */
+/**
+ * AC-4.9 — **what kind of hold this is, read off the machine-readable reason** rather than off the French sentence
+ * beside it.
+ *
+ * <p>A « Bloqué » row can mean « configure a channel », « ask us for more messages » or « Meta has stopped your
+ * number », and those are three entirely different next actions. The sentence already says which; this one word beside
+ * the status is what makes a column of blocked rows sortable by eye — and it comes from the enum, so rewording the
+ * sentence cannot change it (the `Contains("déjà facturée")` practice the backend deleted).</p>
+ *
+ * <p>⚠️ An unknown value returns <b>null</b> and the badge is simply absent: a member added server-side and not here
+ * must degrade to « no extra word », never to « Inconnu » beside a perfectly explained row.</p>
+ */
+function holdKindLabel(blockReason: string | null): string | null {
+  switch (blockReason) {
+    case "MessagingAllowanceExhausted":
+    case "MessagingAllowanceMissing":
+      return "forfait"
+    case "MessagingTemplateNotReady":
+      return "modèle"
+    case "MessagingNumberStopped":
+      return "numéro"
+    case "SubscriptionExpired":
+      return "abonnement"
+    case "ChannelDisabled":
+    case "ChannelUnconfigured":
+    case "ChannelUnsupported":
+      return "canal"
+    default:
+      return null
+  }
+}
+
 const REASON_CLASS: Record<ReminderDeliveryStatus, string> = {
   sent: "text-muted-foreground",
   pending: "text-muted-foreground",

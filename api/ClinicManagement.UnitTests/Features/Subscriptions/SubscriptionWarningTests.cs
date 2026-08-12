@@ -62,6 +62,16 @@ public class SubscriptionWarningTests
                 .Where(n => n.ClinicId == clinicId && n.Category == NotificationCategory.SubscriptionExpiring)
                 .ToList());
 
+        // The WhatsApp-forfait pair (vendor-whatsapp-messaging-quota FR-6) throws like every other member this
+        // feature does not use: a subscription warning must never reach a messaging read, and answering one here
+        // would let that mistake pass.
+        public Task<StaffNotification?> GetMessagingWarningAsync(
+            Guid clinicId, string monthKey, int thresholdPercent, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<IReadOnlyList<StaffNotification>> GetMessagingWarningsAsync(
+            Guid clinicId, string? monthKey = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<StaffNotification?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<IReadOnlyList<StaffNotification>> GetRecentForUserAsync(

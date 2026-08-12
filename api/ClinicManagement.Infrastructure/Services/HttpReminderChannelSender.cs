@@ -6,8 +6,10 @@ namespace ClinicManagement.Infrastructure.Services;
 
 /// <summary>
 /// Shared HTTP plumbing for reminder senders: serializes a JSON payload, POSTs it with a bearer token and
-/// a bounded timeout, and maps the response to a <see cref="ReminderSendResult"/> (2xx → Sent, anything
-/// else / exception → transient failure). Subclasses supply the channel, config check, endpoint and payload.
+/// a bounded timeout, and maps the response to a <see cref="ReminderSendResult"/> — 2xx → Sent, an exception →
+/// transient failure, and anything else through <see cref="Classify"/>, which a channel overrides to tell a
+/// throttle and a stopped sender apart from an ordinary failure (FR-8). Subclasses supply the channel, config
+/// check, endpoint and payload.
 ///
 /// <para>
 /// ⚠️ <b>The gateway's response body never reaches the returned result.</b> It used to, truncated to 200 bytes,
@@ -52,14 +54,19 @@ public abstract class HttpReminderChannelSender
                 return ReminderSendResult.Sent;
             }
 
+            // ⚠️ Read the body ONCE and IN FULL, classify on that, and truncate only the copy the logger gets.
+            // Meta's error envelope puts a long `message` (plus error_user_title/error_user_msg) *before* `code`, so
+            // a classifier fed the 200-char log copy finds no code at all and falls through to transient — FR-8
+            // reading as implemented at every layer while being inert (step 37).
+            var body = await ReadBodyAsync(response, timeoutCts.Token);
+
             // Body to the log, status code to the tenant. See the type note: the URL is tenant-controlled, so
             // anything echoed back here is whatever the tenant chose to point this at.
-            var body = await ReadTruncatedBodyAsync(response, timeoutCts.Token);
             _logger.LogWarning(
                 "{Channel} gateway returned {StatusCode}. Response body: {Body}",
-                channelLabel, (int)response.StatusCode, body);
+                channelLabel, (int)response.StatusCode, Truncate(body));
 
-            return ReminderSendResult.Transient($"{channelLabel} gateway returned {(int)response.StatusCode}");
+            return Classify(body, (int)response.StatusCode, channelLabel);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -74,16 +81,29 @@ public abstract class HttpReminderChannelSender
         }
     }
 
-    private static async Task<string> ReadTruncatedBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    /// <summary>
+    /// How a non-2xx response is classified (FR-8). The default keeps the behaviour every channel had before —
+    /// an ordinary transient failure naming the status code and nothing else — so a channel that does not override
+    /// this is byte-for-byte unchanged, and only WhatsApp reads Meta's error codes.
+    /// </summary>
+    /// <param name="body">
+    /// The <b>full</b> response body. It must never reach the returned result: see the ⚠️ on the type.
+    /// </param>
+    protected virtual ReminderSendResult Classify(string body, int statusCode, string channelLabel) =>
+        ReminderSendResult.Transient($"{channelLabel} gateway returned {statusCode}");
+
+    private static async Task<string> ReadBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         try
         {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            return body.Length > MaxBodyLogLength ? body[..MaxBodyLogLength] : body;
+            return await response.Content.ReadAsStringAsync(cancellationToken);
         }
         catch
         {
             return "(no response body)";
         }
     }
+
+    private static string Truncate(string body) =>
+        body.Length > MaxBodyLogLength ? body[..MaxBodyLogLength] : body;
 }

@@ -12,8 +12,17 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { KpiGrid } from "@/components/dashboard/kpi-grid"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { ReminderLogTable } from "@/components/rappels/reminder-log-table"
+import { MessagingAllowanceCard } from "@/components/rappels/messaging-allowance-card"
+import { WhatsAppConnectCard } from "@/components/rappels/whatsapp-connect-card"
+import { MessagingAllowanceHistory } from "@/components/rappels/messaging-allowance-history"
 import { ReminderSettings } from "@/components/reminder-settings"
 import { reminderSettingsApi, type ReminderDeliveryStatus, type ReminderLogDto } from "@/lib/api/reminder-settings"
+import {
+  reminderAllowanceApi,
+  type ReminderAllowanceDto,
+  type ReminderAllowanceHistoryDto,
+} from "@/lib/api/reminder-allowance"
+import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
@@ -50,6 +59,21 @@ export default function RappelsPage() {
   const [configOpen, setConfigOpen] = useState(false)
 
   const [data, setData] = useState<ReminderLogDto | null>(null)
+
+  /*
+   * The forfait section's own state, tri-state on availability (AC-1.6, EC-16).
+   *
+   * `available === null` is « we have not asked yet »; `false` is the deployment answering 404, i.e. it does not do
+   * vendor-purchased messaging and the whole section is **absent**. Only an explicit 404 means that — every other
+   * failure (a network drop is `ApiError(0)`) is a retryable « je n'ai pas pu lire », because « cette installation ne
+   * fonctionne pas comme ça » and « la lecture a échoué » are opposite facts with the same blank picture. This is
+   * `/abonnement`'s own rule, one screen over.
+   */
+  const [available, setAvailable] = useState<boolean | null>(null)
+  const [allowance, setAllowance] = useState<ReminderAllowanceDto | null>(null)
+  const [allowanceHistory, setAllowanceHistory] = useState<ReminderAllowanceHistoryDto | null>(null)
+  const [allowanceLoading, setAllowanceLoading] = useState(true)
+  const [allowanceError, setAllowanceError] = useState<string | null>(null)
   // `loading` is first paint only; a filter change sets `refreshing` and keeps the rows on screen. Blanking the
   // table on every keystroke or chip tap is what makes a filtered list feel like it is reloading the page.
   const [loading, setLoading] = useState(true)
@@ -97,12 +121,61 @@ export default function RappelsPage() {
     }
   }, [])
 
+  /**
+   * The forfait section's read. Both endpoints together, because the card and the history are one section on screen
+   * and a half-loaded section is worse than a retry.
+   */
+  const loadAllowance = useCallback(async () => {
+    setAllowanceLoading(true)
+    try {
+      const [current, history] = await Promise.all([
+        reminderAllowanceApi.current(),
+        reminderAllowanceApi.history(),
+      ])
+      setAllowance(current)
+      setAllowanceHistory(history)
+      setAllowanceError(null)
+      setAvailable(true)
+    } catch (error) {
+      // Only an explicit 404 means « this deployment does not do vendor messaging » — see the state's own note.
+      if (error instanceof ApiError && error.status === 404) {
+        setAvailable(false)
+        setAllowanceError(null)
+      } else {
+        setAllowanceError(
+          error instanceof Error ? error.message : "Le forfait de rappels n'a pas pu être lu.",
+        )
+        // Leave `available` as it was: a failed read says nothing about whether the feature exists here, and
+        // flipping it to false would hide the section AND the retry that would fix it.
+      }
+    } finally {
+      setAllowanceLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     void load()
   }, [load])
 
+  useEffect(() => {
+    void loadAllowance()
+  }, [loadAllowance])
+
   // A dispatched or failed reminder changes this page under the viewer, and the job runs every minute.
   useClinicRealtime(RealtimeResource.Clinics, load)
+
+  /*
+   * The forfait refreshes on the same key as the log above, and deliberately gets **no key of its own**:
+   * `Features.Messaging` contains queries only, so it emits nothing — and `RealtimeResourceResolverTests` asserts the
+   * emitted and declared key sets are equal in both directions, so declaring one here would fail the build.
+   *
+   * ⚠️ What that means in practice: the figures follow a peer's *settings* edit, and the warning rows arrive on the
+   * bell's own `notifications` key. A send incrementing the counter is a background job with no command behind it, so
+   * nothing broadcasts for it — the numbers catch up on the next thing that does, or on a reload. That is a fact worth
+   * knowing rather than a gap to paper over with a poll: the practice reads this screen to decide something, not to
+   * watch it tick.
+   */
+  useClinicRealtime(RealtimeResource.Clinics, loadAllowance)
 
   // Any filter change returns to page 1: keeping the page number lands the user on page 4 of a 2-page result —
   // an empty table over data that matched.
@@ -149,6 +222,16 @@ export default function RappelsPage() {
     ],
     [data],
   )
+
+  /*
+   * AC-4.9 — « en attente de forfait », counted apart from the undifferentiated « Bloqués » it is a subset of.
+   *
+   * It is a sentence under the counters rather than a fifth tile, and that is deliberate twice over: four figures at
+   * 320 px are already two rows of two, and — more to the point — a fifth counter would present it as a fifth *state*
+   * when the rows are `Blocked` like any other. What distinguishes them is the reason, which is why it reads as a
+   * breakdown of the number above it. Absent entirely at zero, which is the normal reading.
+   */
+  const heldByAllowance = data?.heldByAllowance ?? 0
 
   return (
     <ClinicGuard>
@@ -212,6 +295,22 @@ export default function RappelsPage() {
           ))}
         </KpiGrid>
 
+        {heldByAllowance > 0 && (
+          <p role="status" className="-mt-2 text-sm text-warning-ink">
+            {heldByAllowance === 1
+              ? "1 rappel est en attente de forfait"
+              : `${heldByAllowance.toLocaleString("fr-TN")} rappels sont en attente de forfait`}{" "}
+            — ils partiront dès que nous augmentons votre forfait WhatsApp.{" "}
+            <button
+              type="button"
+              onClick={() => setFilter(setStatus)("blocked")}
+              className="touch-target underline"
+            >
+              Voir lesquels
+            </button>
+          </p>
+        )}
+
         {/* ListToolbar: only what NARROWS the list. Counted chips, so an active filter is visible as a
             state rather than having to be read out of a changing button label. */}
         <div className="flex flex-wrap items-center gap-2 border-b pb-3">
@@ -270,6 +369,38 @@ export default function RappelsPage() {
             />
           </span>
         </div>
+
+        {/*
+          US-2 — the forfait section, above the log because « combien me reste-t-il ? » is the question a secretary
+          arrives with, and the log below answers « et qui n'a pas été prévenu ? ».
+
+          ⚠️ Rendered only where the deployment answered something other than 404 (AC-1.6, EC-16): on a clinic's own
+          PC and on the Auth0 deployment there is no card, no button and no message at all — absent, not
+          present-and-refusing. `available === null` still renders, so the section shows its own skeleton on first
+          paint instead of appearing a beat late.
+        */}
+        {available !== false && (
+          <div className="flex flex-col gap-4">
+            {/*
+              US-1 — the connection, above the figures: « puis-je envoyer ? » comes before « combien m'en
+              reste-t-il ? », and a cabinet that has never connected has no use for a forfait it cannot spend.
+              It renders its own five states in words and offers the button only to an admin (AC-1.1/1.4).
+            */}
+            <WhatsAppConnectCard data={allowance} isAdmin={isAdmin} onConnected={() => void loadAllowance()} />
+            <MessagingAllowanceCard
+              data={allowance}
+              loading={allowanceLoading}
+              error={allowanceError}
+              onRetry={() => void loadAllowance()}
+            />
+            <MessagingAllowanceHistory
+              data={allowanceHistory}
+              loading={allowanceLoading}
+              error={allowanceError}
+              onRetry={() => void loadAllowance()}
+            />
+          </div>
+        )}
 
         <ReminderLogTable
           rows={rows}

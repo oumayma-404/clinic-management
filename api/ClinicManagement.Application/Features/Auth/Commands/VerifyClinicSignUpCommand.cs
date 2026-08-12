@@ -58,6 +58,8 @@ public class VerifyClinicSignUpCommandHandler
     private readonly IClinicCatalogSeeder _clinicCatalogSeeder;
     private readonly IClinicSubscriptionRepository _subscriptionRepository;
     private readonly ISubscriptionPolicy _subscriptionPolicy;
+    private readonly IMessagingAllowanceRepository _messagingAllowanceRepository;
+    private readonly IMessagingAllowancePolicy _messagingAllowancePolicy;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<VerifyClinicSignUpCommandHandler> _logger;
 
@@ -70,6 +72,8 @@ public class VerifyClinicSignUpCommandHandler
         IClinicCatalogSeeder clinicCatalogSeeder,
         IClinicSubscriptionRepository subscriptionRepository,
         ISubscriptionPolicy subscriptionPolicy,
+        IMessagingAllowanceRepository messagingAllowanceRepository,
+        IMessagingAllowancePolicy messagingAllowancePolicy,
         IUnitOfWork unitOfWork,
         ILogger<VerifyClinicSignUpCommandHandler> logger)
     {
@@ -81,6 +85,8 @@ public class VerifyClinicSignUpCommandHandler
         _clinicCatalogSeeder = clinicCatalogSeeder;
         _subscriptionRepository = subscriptionRepository;
         _subscriptionPolicy = subscriptionPolicy;
+        _messagingAllowanceRepository = messagingAllowanceRepository;
+        _messagingAllowancePolicy = messagingAllowancePolicy;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -160,6 +166,8 @@ public class VerifyClinicSignUpCommandHandler
                 // days from the same helper first-run `setup` and `provision-clinic` use.
                 _subscriptionRepository,
                 _subscriptionPolicy,
+                _messagingAllowanceRepository,
+                _messagingAllowancePolicy,
                 _unitOfWork,
                 _clinicCatalogSeeder,
                 _logger,

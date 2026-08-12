@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common;
+﻿using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Application.Features.Platform;
@@ -68,6 +68,9 @@ public class PlatformAccessLedgerTests
         IPlatformSessionContext? session = null, ITenantScope? scope = null) =>
         new(_activity.Object, _users.Object, _subscriptions.Object, _ledger, session ?? SignedIn(),
             _unitOfWork.Object, scope ?? SystemWideScope(),
+            PlatformMessagingReadStubs.NoAllowances(),
+            PlatformMessagingReadStubs.NoReminderSettings(),
+            PlatformMessagingReadStubs.NotSold(),
             NullLogger<GetPlatformClinicDetailQueryHandler>.Instance);
 
     private GetPlatformAccessLogQueryHandler JournalHandler() =>
@@ -88,7 +91,7 @@ public class PlatformAccessLedgerTests
 
     private void WireCabinet(PlatformClinicRow? row, params ClinicActivityDay[] days)
     {
-        _activity.Setup(r => r.GetClinicRowAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(row);
+        _activity.Setup(r => r.GetClinicRowAsync(ClinicId, It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync(row);
         _activity.Setup(r => r.GetDaysAsync(
                 ClinicId, It.IsAny<DateOnly>(), It.IsAny<DateOnly>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(days);
@@ -372,7 +375,7 @@ public class PlatformAccessLedgerTests
         });
 
         // The label is French and server-built, so the axis and its text alternative cannot disagree.
-        Assert.Equal(PlatformAccessLabels.Month(current.Year, current.Month), current.MonthLabel);
+        Assert.Equal(ClinicClock.MonthLabelFr(current.Year, current.Month), current.MonthLabel);
     }
 
     // [AC-3.2] The payment history is the companion's ledger, read — newest first, with the « période couverte »

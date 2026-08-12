@@ -77,6 +77,14 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                 <TableHead scope="col" className="text-right">
                   Encaissé (cabinet)
                 </TableHead>
+                {/* AC-8.2's « consumption against its allowance » as one figure, plus what is left — the number the
+                    vendor acts on. Both are for `page.messagingMonth`, which the summary strip states. */}
+                <TableHead scope="col" className="text-right">
+                  Rappels (mois)
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  Reste
+                </TableHead>
                 <TableHead scope="col">Créé le</TableHead>
                 {/* The action column's header is not empty: a blank `<th>` leaves a screen reader announcing
                     « colonne 13 » for the one cell that does something. */}
@@ -116,6 +124,19 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                   <TableCell className="whitespace-nowrap">{formatDateTime(clinic.lastLoginAt)}</TableCell>
                   <TableCell className="whitespace-nowrap text-right tabular-nums">
                     {clinic.countersComputedAt ? formatMoney(clinic.clinicCollectedThisMonthDt) : EM_DASH}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-right tabular-nums">
+                    {messagingConsumption(clinic)}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-right tabular-nums">
+                    {/* « épuisé » in a WORD beside the zero, not a colour and not a bare 0: the practice's reminders
+                        are being held right now, which is the one figure in this table that means something is
+                        happening rather than something was measured. */}
+                    {!clinic.messagingMeasured
+                      ? EM_DASH
+                      : clinic.messagingExhausted
+                        ? "épuisé"
+                        : formatCount(clinic.messagingRemaining)}
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{formatDate(clinic.createdAt)}</TableCell>
                   <TableCell className="whitespace-nowrap">
@@ -169,6 +190,17 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
               label: "Encaissé (cabinet)",
               value: formatMoney(clinic.clinicCollectedThisMonthDt),
             },
+            // AC-8.2's figures join the card rather than becoming table columns at phone width, per the feature's own
+            // device table. « Non mesuré » is a field of its own here — `CardList` drops an empty value, so a cabinet
+            // nothing is counting for would otherwise silently have no reminder line at all, which reads as « fine ».
+            clinic.messagingMeasured
+              ? {
+                  label: "Rappels (mois)",
+                  value: clinic.messagingExhausted
+                    ? `${messagingConsumption(clinic)} · épuisé`
+                    : `${messagingConsumption(clinic)} · reste ${formatCount(clinic.messagingRemaining)}`,
+                }
+              : { label: "Rappels (mois)", value: "Non mesuré" },
             clinic.countersComputedAt !== null && { label: "Patients", value: formatCount(clinic.patients) },
             clinic.countersComputedAt !== null && { label: "Comptes", value: formatCount(clinic.users) },
             clinic.countersComputedAt !== null && {
@@ -242,4 +274,18 @@ function StateBadge({ clinic }: { clinic: PlatformClinicRow }) {
  */
 function measured(clinic: PlatformClinicRow, value: number): string {
   return clinic.countersComputedAt === null ? EM_DASH : formatCount(value);
+}
+
+/**
+ * AC-8.2's « consumption against its allowance » as one figure: « 143 / 200 ».
+ *
+ * ⚠️ **It reads `messagingMeasured`, not `countersComputedAt`.** They are different measurements taken by different
+ * passes: the activity counters are the nightly console job's, and this is the reminder counting row the daily messaging
+ * pass writes. A cabinet can have one and not the other, and using the wrong flag would show reminder figures as
+ * unavailable on a cabinet that is sending fine — or, worse, as zeros on one nothing is counting for (AC-8.3).
+ */
+function messagingConsumption(clinic: PlatformClinicRow): string {
+  return clinic.messagingMeasured
+    ? `${formatCount(clinic.messagingConsumed)} / ${formatCount(clinic.messagingAllowance)}`
+    : EM_DASH;
 }

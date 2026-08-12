@@ -215,6 +215,26 @@ Infrastructure/ → service/repo/persistence tests: renderers, senders, backup, 
   and records nothing, and that the trend's six buckets keep « pas encore mesuré » (`DaysMeasured == 0`) distinct
   from a measured zero — with the window derived from `ClinicClock` rather than hard-coded, deliberately, since
   « what is today in Tunis » is `ClinicClockTests`' business and a literal would flake for one hour of every day.
+- **`Features/Messaging/*` + `Common/Maintenance/SchemaVerificationServiceTests.cs` + `Api/MessagingCapabilityRegistrationTests.cs`**
+  (`vendor-whatsapp-messaging-quota`, ~150 cases). `MessagingAllowanceLedgerTests` is the highest-value class, on
+  `SubscriptionLedgerTests`' reasoning: every screen, the gate, the daily pass, the console and the schema check
+  read the figure it produces, so an error is wrong everywhere at once and visible nowhere in particular. It pins
+  **clock-freedom** (there is no `DateTime.UtcNow` in the file at all) and the three asymmetries that are easy to
+  get backwards — a raise is effective **this** month and a lowering **next**, a **cancellation** reaches every
+  month it fed *including the current one*, and no entry folds to **`null` not 0`**.
+  ⚠️ **One test asserted the wrong thing while the code was right** and is kept renamed rather than deleted: a
+  standing forfait of **zero is a lowering** like any other and defers to next month. « Zéro » sounds like « stop
+  now », and getting it the other way round would silence a practice on the afternoon the vendor typed it.
+  `SchemaVerificationServiceTests`' messaging block carries the case a naive `Fold(...) ?? 0` gets wrong —
+  a month whose whole ledger was cancelled keeps its snapshot and is **not** drift — found by reading both writers
+  rather than by a failing test, and pinned so the shortcut cannot come back.
+  `MessagingCapabilityRegistrationTests` is Part 5's EC-16 guard and worth reading as a **pattern**: every other
+  EC-16 assertion in this suite hands a component a mocked `IVendorMessagingAvailability` answering `false` and
+  watches it do nothing — which proves the component behaves and proves nothing about whether the deployment ever
+  *asks*. So it scans `Program.cs`'s own source (brace-matched, derived by regex, non-vacuity asserted) for the
+  job's capability gate, and separately drives `ClinicsController` over the **real** `DeploymentProfile.For(kind)`
+  asserting `Assert.Empty(mediator.Invocations)` — the 404 is not the assertion; « the handler was never resolved »
+  is.
 - **`Hubs/ClinicHubTenantScopeTests.cs`** — asserts on the hub's **constructor**, because the defect it guards
   against cannot be caught behaviourally: HTTP middleware does not run per hub invocation, so a hub method reading
   a clinic-filtered entity returns an **empty result and reports success**.

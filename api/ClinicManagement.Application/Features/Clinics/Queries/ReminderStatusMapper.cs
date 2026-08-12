@@ -31,6 +31,11 @@ public static class ReminderStatusMapper
             _ => ReminderDeliveryStatus.Pending,
         },
         FailureReason = string.IsNullOrWhiteSpace(n.ErrorMessage) ? null : n.ErrorMessage,
+        // AC-4.9 — the enum member's own name, so the screen never has to read the French sentence beside it to know
+        // what kind of hold this is. Null unless the row is actually blocked: `MarkAsBlocked`/`Unblock` write and clear
+        // the reason together, but a released row that kept a stale value would read as held on a screen that branches
+        // on this field.
+        BlockReason = n.Status == NotificationStatus.Blocked ? n.BlockedReason?.ToString() : null,
         ScheduledAt = n.ScheduledFor,
         SentAt = n.SentAt,
     };

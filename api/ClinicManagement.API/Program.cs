@@ -157,6 +157,32 @@ if (args.Length > 0 && string.Equals(args[0], SubscriptionReportCommand.CommandN
     return await SubscriptionReportCommand.RunAsync(args);
 }
 
+// The vendor's WhatsApp-forfait verbs (vendor-whatsapp-messaging-quota Part 3, US-9). Records a cabinet's reminder
+// allowance, corrects a mis-keyed one, and reports where every cabinet stands. Verbs and NOT endpoints for the reason
+// the five above are: a practice able to raise its own forfait would not have one, so no controller anywhere references
+// the two commands behind these (AC-9.3). Gated on the connection string like their siblings — they run no PostgreSQL
+// binary, and the hosted deployment they exist for has no local DB tooling. Usage:
+//   ClinicManagement.API.exe messaging-grant  --clinic <id|email> (--per-month N | --top-up N --month AAAA-MM)
+//                                             [--amount …] [--method …] [--reference …] [--note …]
+//   ClinicManagement.API.exe messaging-cancel --clinic <id|email> --entry <id> --reason "<motif>"
+//   ClinicManagement.API.exe messaging-report [--clinic <id|email>] [--month AAAA-MM]
+// The report shares reconcile-money's exit codes: 0 = nothing to do, 1 = could not run, 2 = findings. Its --month is
+// what lets it answer for a CLOSED month, which is when the vendor reconciles against Meta's bill.
+if (args.Length > 0 && string.Equals(args[0], MessagingGrantCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await MessagingGrantCommand.RunAsync(args);
+}
+
+if (args.Length > 0 && string.Equals(args[0], MessagingCancelCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await MessagingCancelCommand.RunAsync(args);
+}
+
+if (args.Length > 0 && string.Equals(args[0], MessagingReportCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await MessagingReportCommand.RunAsync(args);
+}
+
 // Install-time permission hardening (security-hardening, audit § 2 findings 1–3): tightens NTFS ACLs on the
 // install's data directories so no other local account can read the patient database, the uploaded files,
 // the logs, or the .local/ trust store. The installer calls this instead of running icacls itself, so the
@@ -1144,6 +1170,26 @@ try
         // Defensively drop it, as the push dispatcher does: an install reprofiled away from the hosted kind would
         // otherwise keep a registration pointing at work it must no longer do.
         RecurringJob.RemoveIfExists("warn-subscription-expiry");
+    }
+
+    // The WhatsApp reminder forfait's daily pass (vendor-whatsapp-messaging-quota D-2) — provision each cabinet's
+    // counting row for the current Tunisian month, then reconcile the three warnings. Registered ONLY where the
+    // deployment sells vendor messaging (EC-16), on SubscriptionWarningJob's precedent: elsewhere there is no forfait
+    // to provision and the pass could only ever loop over cabinets it must not touch. Not connectivity-gated — one
+    // duty writes a database row and the other writes the in-app feed. 05:00 UTC = 06:00 Tunis: after the Tunisian
+    // month has genuinely turned (so a rollover withdrawal is not racing midnight) and before the clinic opens.
+    if (profile.SellsVendorMessaging)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.MessagingAllowanceJob>(
+            "review-messaging-allowances",
+            job => job.ReviewMessagingAllowances(),
+            Cron.Daily(5));
+    }
+    else
+    {
+        // Defensively drop it, as the two jobs above do: an install reprofiled away from the hosted kind would
+        // otherwise keep a registration pointing at work it must no longer do.
+        RecurringJob.RemoveIfExists("review-messaging-allowances");
     }
 
     // Google→App calendar sync never runs on a schedule: the recurring job and its GoogleCalendarSyncJob

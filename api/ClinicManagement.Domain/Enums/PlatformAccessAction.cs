@@ -63,5 +63,26 @@ public enum PlatformAccessAction
     ///
     /// <para>No <c>SubscriptionPeriodId</c>: no money changed hands and no entitlement was extended.</para>
     /// </summary>
-    RestoredClinic = 5
+    RestoredClinic = 5,
+
+    /// <summary>
+    /// A console account recorded a cabinet's WhatsApp reminder allocation — a standing monthly figure or a one-off
+    /// top-up (<c>vendor-whatsapp-messaging-quota</c> US-6, AC-6.8).
+    ///
+    /// <para>⚠️ <b>It names a <c>MessagingAllowanceEntryId</c> and not a <c>SubscriptionPeriodId</c>.</b> Both are
+    /// « the vendor was paid for something », and reusing the entitlement column would have been one line — which is
+    /// exactly why it is refused: the journal would then assert that a forfait de rappels extended the cabinet's right
+    /// to record work, and Part 4's own <c>PlatformReadShape</c> note makes the same argument about not overloading
+    /// <c>Note</c>/<c>Reference</c>. Two facts, two columns.</para>
+    /// </summary>
+    GrantedMessagingAllowance = 6,
+
+    /// <summary>
+    /// A console account struck one allocation through, with a written motif (US-7, AC-7.1).
+    ///
+    /// <para>⚠️ Unlike <see cref="CancelledPeriod"/>, this one can take the <i>current</i> month's forfait below what
+    /// the cabinet has already spent (AC-7.4) — the month then reads « épuisé » and reminders are held from that
+    /// moment. Nothing is unsent, and this row plus the entry's own motif are what explain it afterwards.</para>
+    /// </summary>
+    CancelledMessagingAllowance = 7
 }

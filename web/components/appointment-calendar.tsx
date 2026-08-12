@@ -3,6 +3,16 @@
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { AppointmentQuickStatus } from "@/components/appointment-quick-status"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
@@ -26,13 +36,22 @@ import {
 import { format, addDays, startOfWeek, endOfWeek, addWeeks, subWeeks, subDays, startOfDay, endOfDay, isToday, startOfMonth, endOfMonth, addMonths, subMonths, isSameMonth, isSameDay } from "date-fns"
 import { AgendaPhoneHeader } from "@/components/agenda-phone-header"
 import { fr } from "date-fns/locale"
-import { useMemo, useRef, useEffect, useState, type CSSProperties } from "react"
+import { useCallback, useMemo, useRef, useEffect, useState, type CSSProperties } from "react"
 import { toast } from "sonner"
 import { useAppointments } from "@/lib/hooks/use-appointments"
 import { googleCalendarApi } from "@/lib/api/google-calendar"
-import { ApiError } from "@/lib/api/client"
+import { appointmentsApi } from "@/lib/api/appointments"
+import { ApiError, ApiErrorCode } from "@/lib/api/client"
+import { showErrorToast } from "@/lib/errors"
 import { useConnectivity } from "@/lib/connectivity/connectivity"
-import { useMediaQuery } from "@/lib/hooks/use-media-query"
+import { useMediaQuery, COARSE_POINTER_QUERY } from "@/lib/hooks/use-media-query"
+import {
+  AGENDA_CELL_ATTR,
+  AGENDA_NO_DRAG_ATTR,
+  AGENDA_SNAP_MINUTES,
+  useAgendaGridDrag,
+  type AgendaCellTarget,
+} from "@/components/agenda-grid-drag"
 import { useSession } from "@/lib/auth/session"
 import type { AppointmentDto } from "@/lib/api/types"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
@@ -49,6 +68,10 @@ import type { StatusTone } from "@/components/ui/status-tone"
 
 /** `13` → `"13:00"`. One place, because the hour label, the `data-time-slot` key and the scroll target must agree. */
 const hourSlot = (hour: number): string => `${String(hour).padStart(2, "0")}:00`
+
+/** `585` → `"09:45"`. The grid gestures speak in minutes past midnight; the user reads a clock. */
+const clockOfMinutes = (minutes: number): string =>
+  `${String(Math.floor(minutes / 60) % 24).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`
 
 /**
  * The hours the time grid renders when the clinic has configured no working hours at all.
@@ -312,7 +335,15 @@ interface AppointmentCalendarProps {
   view: "day" | "week" | "month"
   selectedDate: Date
   onDateChange: (date: Date) => void
-  onTimeSlotClick?: (date: Date, time: string) => void
+  /**
+   * Open the create dialog on a slot.
+   *
+   * ⚠️ `durationMinutes` arrives **only from a drag across hours** — a plain click still calls this with two
+   * arguments and the dialog keeps its own default length. One prop rather than a second « onTimeSpanSelect »,
+   * because the two are the same request with one extra fact, and a caller that wired only one of them would have
+   * a grid where clicking books and dragging does nothing.
+   */
+  onTimeSlotClick?: (date: Date, time: string, durationMinutes?: number) => void
   onAppointmentClick?: (appointment: AppointmentDto) => void
   /** Month view only: clicking a day cell's empty area / "+N more" focuses that date in Day view (AC-4). */
   onSelectDay?: (date: Date) => void
@@ -371,6 +402,15 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   // `md:` — the same boundary the rest of this feature splits devices at. Declared here rather than beside the
   // scroll refs because the fetch window below reads it: Mois on a phone spans several months, not one grid.
   const isNarrow = useMediaQuery("(max-width: 767px)")
+  /**
+   * A finger, not a mouse — which decides whether the two grid gestures arm on a long press or on movement.
+   *
+   * ⚠️ The **pointer**, never `isNarrow`: a chairside tablet is 1180 px and finger-operated, so a width test would
+   * start a drag on contact there and take the scroll away on the one device this product is used on most. The
+   * hook reads `false` until `matchMedia` answers, which errs toward the mouse behaviour for one frame — harmless,
+   * because nothing is armed until a pointer actually goes down.
+   */
+  const coarsePointer = useMediaQuery(COARSE_POINTER_QUERY)
 
   /**
    * Has `matchMedia` answered yet?
@@ -472,7 +512,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     if (status === "cancelled" || status === "completed") return null
 
     return (
-      <div className="mt-0.5 flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="mt-0.5 flex items-center gap-1 flex-shrink-0"
+        onClick={(e) => e.stopPropagation()}
+        {...{ [AGENDA_NO_DRAG_ATTR]: "" }}
+      >
         <Badge
           variant="secondary"
           className="border-0 bg-warning-wash text-warning-ink h-4 gap-0.5 px-1 text-2xs leading-none"
@@ -932,6 +976,203 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     }
   }
 
+  /* ── The two grid gestures: drag empty hours to book a span, drag a block to move it ───────────────────── */
+
+  /** `yyyy-MM-dd` → the `Date` of that grid column, so a gesture's day key resolves without re-parsing a string. */
+  const gridDayByKey = useMemo(() => {
+    const byKey = new Map<string, Date>()
+    for (const day of gridDays) byKey.set(format(day, "yyyy-MM-dd"), day)
+    return byKey
+  }, [gridDays])
+
+  /**
+   * Where a provisional band sits — **the same arithmetic `renderAppointmentBlock` uses**, and reusing it rather
+   * than re-deriving it is the point: a selection that painted a pixel off the block it is about to become would
+   * read as the grid being imprecise about time.
+   */
+  const gridBandStyle = (dayKey: string, fromMinutes: number, spanMinutes: number): CSSProperties | null => {
+    const dayIndex = gridDays.findIndex((day) => format(day, "yyyy-MM-dd") === dayKey)
+    if (dayIndex < 0) return null
+    const position =
+      view === "week"
+        ? laneStyle(weekBandLeftExpr(dayIndex), weekBandWidthExpr, 0, 1)
+        : laneStyle(dayBandLeftExpr, dayBandWidthExpr, 0, 1)
+    return {
+      ...position,
+      top: `${hourGridOffsetTop + ((fromMinutes - gridWindow.fromHour * 60) / 60) * hourHeight}px`,
+      // A floor of 4 px so a zero-length selection (the drag has not left its first unit yet) is still a visible
+      // hairline rather than nothing at all — the user is holding the pointer down and must see that it took.
+      height: `${Math.max((spanMinutes / 60) * hourHeight, 4)}px`,
+    }
+  }
+
+  /**
+   * What an hour cell must carry for a drag to identify it — spread, never retyped per branch.
+   *
+   * `data-time-slot` rides along because the two things that read the grid from the DOM (the « maintenant » line
+   * and the initial scroll) key on it, and Jour and Semaine render the cell from two different branches: writing
+   * the set out twice is how one of them ends up with a cell the drag can see and the scroll cannot.
+   */
+  const cellDataProps = (day: Date, hour: number) => ({
+    [AGENDA_CELL_ATTR]: "",
+    "data-agenda-day": format(day, "yyyy-MM-dd"),
+    "data-agenda-hour": hour,
+    "data-time-slot": hourSlot(hour),
+  })
+
+  /** The appointment whose move is in flight — the block dims rather than pretending the new time is saved. */
+  const [movingId, setMovingId] = useState<string | null>(null)
+  /**
+   * The refusal a drop met, if any: the server's own French sentence for the two advisory codes, ours for the
+   * past-time case — which no backend refuses, so both booking dialogs already ask it client-side and this is the
+   * third caller of the same question rather than a new rule.
+   */
+  const [movePrompt, setMovePrompt] = useState<{ kind: "overlap" | "hours" | "past"; message: string } | null>(null)
+  const pendingMoveRef = useRef<{ appointment: AppointmentDto; start: Date } | null>(null)
+  /**
+   * ⚠️ **Merged, and a ref.** A single drop can trip all three — an emergency squeezed into an occupied slot on a
+   * Saturday morning — and each confirmation re-sends, so granting one as a fresh boolean would un-grant the last
+   * and loop. It is a ref because the confirmation re-submits in the same tick a state update would miss, which is
+   * the trap `create-appointment-dialog.tsx` documents for the identical shape.
+   */
+  const moveGrantsRef = useRef({ hours: false, overlap: false, past: false })
+
+  const submitMove = useCallback(async () => {
+    const pending = pendingMoveRef.current
+    if (!pending) return
+    const { appointment, start } = pending
+
+    if (!moveGrantsRef.current.past) {
+      const nowFloored = new Date()
+      nowFloored.setSeconds(0, 0)
+      if (start.getTime() < nowFloored.getTime()) {
+        setMovePrompt({
+          kind: "past",
+          message: "L'heure choisie est déjà passée. Voulez-vous quand même déplacer ce rendez-vous ?",
+        })
+        return
+      }
+    }
+
+    setMovingId(appointment.id)
+    try {
+      /*
+       * ⚠️ **Only the instant, the version and the granted overrides.** Every other key on this payload is
+       * tri-state, and `durationMinutes`, `procedures` and `status` are each omitted on purpose: sending the acts
+       * would replace them, sending the statut would re-assert whatever this render happens to hold (the L2a
+       * defect `edit-appointment-dialog.tsx` names), and sending the duration would let a move quietly relengthen
+       * a visit — AC-5 says a moved appointment keeps its own length.
+       */
+      await appointmentsApi.update(appointment.id, {
+        appointmentDateTime: start.toISOString(),
+        version: appointment.version,
+        allowOutsideWorkingHours: moveGrantsRef.current.hours || undefined,
+        allowOverlap: moveGrantsRef.current.overlap || undefined,
+      })
+      pendingMoveRef.current = null
+      toast.success("Rendez-vous déplacé", {
+        description: `${appointment.patientName} · ${format(start, "EEEE d MMMM à HH:mm", { locale: fr })}`,
+      })
+      onChanged?.()
+      void refetch()
+    } catch (err) {
+      if (err instanceof ApiError) {
+        // Advisory as on create and on edit — and guarded on the grant, so a re-send that still refuses
+        // surfaces as a real error instead of re-asking for ever.
+        if (err.code === ApiErrorCode.SlotTaken && !moveGrantsRef.current.overlap) {
+          setMovePrompt({ kind: "overlap", message: err.message })
+          return
+        }
+        if (err.code === ApiErrorCode.OutsideWorkingHours && !moveGrantsRef.current.hours) {
+          setMovePrompt({ kind: "hours", message: err.message })
+          return
+        }
+        // A peer moved the same appointment first. The server's sentence says so; the refetch is what stops the
+        // grid disagreeing with the database about a visit's time.
+        if (err.status === 409) void refetch()
+      }
+      pendingMoveRef.current = null
+      showErrorToast(err)
+    } finally {
+      setMovingId(null)
+    }
+  }, [onChanged, refetch])
+
+  const handleMoveDrop = useCallback(
+    (appointment: AppointmentDto, target: AgendaCellTarget) => {
+      const day = gridDayByKey.get(target.dayKey)
+      if (!day) return
+      const start = new Date(day)
+      start.setHours(0, 0, 0, 0)
+      start.setMinutes(target.minutes)
+
+      // Dropped back where it already was: no request at all (AC-7). Compared on the minute, because a
+      // Google-synced appointment keeps its stored seconds and would otherwise never look equal to a snapped slot.
+      const current = new Date(appointment.appointmentDateTime)
+      current.setSeconds(0, 0)
+      if (current.getTime() === start.getTime()) return
+
+      pendingMoveRef.current = { appointment, start }
+      moveGrantsRef.current = { hours: false, overlap: false, past: false }
+      void submitMove()
+    },
+    [gridDayByKey, submitMove],
+  )
+
+  const handleCreateSpan = useCallback(
+    (dayKey: string, startMinutes: number, durationMinutes: number) => {
+      const day = gridDayByKey.get(dayKey)
+      if (!day) return
+      const time = `${String(Math.floor(startMinutes / 60)).padStart(2, "0")}:${String(startMinutes % 60).padStart(2, "0")}`
+      onTimeSlotClick?.(day, time, durationMinutes)
+    },
+    [gridDayByKey, onTimeSlotClick],
+  )
+
+  const handleCellClick = useCallback(
+    (dayKey: string, hour: number) => {
+      const day = gridDayByKey.get(dayKey)
+      if (day) onTimeSlotClick?.(day, hourSlot(hour))
+    },
+    [gridDayByKey, onTimeSlotClick],
+  )
+
+  const gridDrag = useAgendaGridDrag({
+    // Mois has no hour cells and the phone's Semaine renders the strip instead, so there is nothing to drag
+    // across in either; `loading` is in here because the cells this measures do not exist yet.
+    enabled: mounted && !loading && view !== "month" && !(view === "week" && isNarrow),
+    coarsePointer,
+    containerRef: scrollContainerRef,
+    // The rendered window and the row height are what every cell's position is made of — see the hook's note on
+    // why a change cancels an in-flight drag rather than remapping it.
+    geometryKey: `${view}-${gridWindow.fromHour}-${gridWindow.toHour}-${hourHeight}`,
+    onCreateSpan: handleCreateSpan,
+    onCellClick: handleCellClick,
+    onMoveDrop: handleMoveDrop,
+  })
+
+  /** The provisional span's geometry, or null when nothing is being dragged (or the day left the grid mid-drag). */
+  const createSelectionStyle = gridDrag.createSelection
+    ? gridBandStyle(
+        gridDrag.createSelection.dayKey,
+        gridDrag.createSelection.fromMinutes,
+        gridDrag.createSelection.toMinutes - gridDrag.createSelection.fromMinutes,
+      )
+    : null
+
+  /**
+   * Where the dragged block would land. Sized by the appointment's **own** duration, which is what makes the
+   * preview honest: a move never changes how long a visit is (AC-5), so a ghost the height of the pointer's travel
+   * would be advertising a resize this feature deliberately does not do.
+   */
+  const moveGhostStyle = gridDrag.moveDrag
+    ? gridBandStyle(
+        gridDrag.moveDrag.target.dayKey,
+        gridDrag.moveDrag.target.minutes,
+        Math.max(parseDurationToMinutes(gridDrag.moveDrag.appointment.duration), AGENDA_SNAP_MINUTES),
+      )
+    : null
+
   // Assign overlapping appointments to side-by-side columns (Google-Calendar style) so simultaneous
   // appointments share the slot width instead of stacking on top of each other. Appointments are packed
   // into the first free column (a column frees once its last appointment ends); each cluster of
@@ -1072,6 +1313,46 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     const colorStyle = appointmentAppearance(appointment)
     const tone = appointmentTone(appointment)
     const statusLabel = appointmentStatusLabel(appointment.status)
+
+    /*
+     * ── Drag-to-move, on the block ────────────────────────────────────────────────────────────────────────
+     *
+     * ⚠️ AC-9: a **cancelled or completed** visit is not draggable. Moving one asserts a change to something that
+     * has already happened or has already been called off, and both are corrected through the edit dialog — which
+     * the block still opens on click, so this removes no capability (§ 0).
+     *
+     * ⚠️ `onClick` stays, guarded, rather than the gesture claiming the tap: the phone branch below is a real
+     * `<button>`, so Enter and Space produce a `click` and **no pointer events at all**. What a click cannot know
+     * on its own is whether a drag preceded it — browsers synthesise one after a pointer release — hence the
+     * guard, without which moving an appointment would also re-open its dialog on top of the grid.
+     *
+     * ⚠️ Every block goes `pointer-events-none` while any drag is painting, not just the dragged one. The drop
+     * target is resolved with `elementFromPoint`, and an appointment block is a sibling of the hour grid rather
+     * than a child of a cell — so a block left interactive is a hole in the grid that a drop cannot land on.
+     */
+    const canonicalStatus = normalizeStatus(appointment.status)
+    const isDraggable = canonicalStatus !== "Cancelled" && canonicalStatus !== "Completed"
+    const isBeingDragged = gridDrag.moveDrag?.appointment.id === appointment.id
+    const isBeingSaved = movingId === appointment.id
+    const onBlockPointerDown = isDraggable
+      ? (event: React.PointerEvent<HTMLElement>) =>
+          gridDrag.beginAppointmentGesture(event, appointment, {
+            dayKey: format(aptStart, "yyyy-MM-dd"),
+            minutes: startMinutesOfDay,
+          })
+      : undefined
+    const onBlockClick = (event: React.MouseEvent) => {
+      event.stopPropagation()
+      if (gridDrag.didConsumeGesture()) return
+      onAppointmentClick?.(appointment)
+    }
+    const dragClasses = cn(
+      gridDrag.dragActive && "pointer-events-none",
+      isBeingDragged && "opacity-40",
+      // In flight, and deliberately still at its OLD position: the grid must never show a time that was not
+      // saved (AC-8), so the block dims where it is and moves only once the refetch confirms it.
+      isBeingSaved && "opacity-60",
+    )
     // The name a screen reader (and the hover tooltip) gets. Status is in it because status is now *paint* on
     // the block — a struck-through, dashed or ringed block states something, and until this it stated it to
     // sighted users only.
@@ -1113,12 +1394,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             "pointer-events-auto absolute z-20 flex cursor-pointer flex-col overflow-hidden rounded-md text-start transition-[box-shadow,transform] duration-[160ms] ease-snap active:scale-[0.99]",
             colorStyle.className,
             tightLines ? "px-1.5 py-0" : "px-1.5 py-0.5",
+            dragClasses,
           )}
           style={{ top: `${top}px`, height: `${height}px`, ...positionStyle, ...colorStyle.style }}
-          onClick={(e) => {
-            e.stopPropagation()
-            onAppointmentClick?.(appointment)
-          }}
+          onPointerDown={onBlockPointerDown}
+          onClick={onBlockClick}
           title={blockLabel}
           aria-label={blockLabel}
         >
@@ -1158,15 +1438,17 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           // Press feedback on the block itself: it is the primary click target of the whole screen and had
           // none. Kept at 0.99 because the block is absolutely positioned against its neighbours — anything
           // stronger reads as the appointment jumping out of its slot rather than being pressed.
-          "pointer-events-auto absolute z-20 flex cursor-pointer flex-col overflow-hidden rounded transition-[box-shadow,transform] duration-[160ms] ease-snap hover:shadow-md active:scale-[0.99]",
+          "pointer-events-auto absolute z-20 flex flex-col overflow-hidden rounded transition-[box-shadow,transform] duration-[160ms] ease-snap hover:shadow-md active:scale-[0.99]",
+          // A grab cursor is the only affordance a mouse gets for the move gesture, and it is honest: a block that
+          // cannot be dragged (annulé, terminé) keeps the plain pointer rather than promising one.
+          isDraggable ? (isBeingDragged ? "cursor-grabbing" : "cursor-grab") : "cursor-pointer",
           colorStyle.className,
           isVerySmall ? "px-1 py-0" : isSmall ? "p-1" : "p-1.5",
+          dragClasses,
         )}
         style={{ top: `${top}px`, height: `${height}px`, ...positionStyle, ...colorStyle.style }}
-        onClick={(e) => {
-          e.stopPropagation()
-          onAppointmentClick?.(appointment)
-        }}
+        onPointerDown={onBlockPointerDown}
+        onClick={onBlockClick}
         title={blockLabel}
         aria-label={blockLabel}
       >
@@ -1217,12 +1499,14 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             been changed, and the popover's own options carry the 44 px coarse floor.
           */}
           {!isVerySmall && height >= 36 && (
-            <AppointmentQuickStatus
-              appointment={appointment}
-              onChanged={() => onChanged?.()}
-              compact
-              triggerClassName="-me-0.5"
-            />
+            <span {...{ [AGENDA_NO_DRAG_ATTR]: "" }} className="contents">
+              <AppointmentQuickStatus
+                appointment={appointment}
+                onChanged={() => onChanged?.()}
+                compact
+                triggerClassName="-me-0.5"
+              />
+            </span>
           )}
         </div>
         {!isVerySmall && (
@@ -1302,6 +1586,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     const start = swipeStartRef.current
     swipeStartRef.current = null
     if (!start || view !== "day") return
+    /*
+     * ⚠️ A drag has already consumed this touch. `touchend` fires *after* `pointerup`, so by the time we get here
+     * the gesture is finished and invisible — without this, carrying an appointment leftwards across the grid in
+     * Jour would also read as « swipe to the previous day » and the agenda would jump out from under the drop.
+     */
+    if (gridDrag.didConsumeGesture()) return
 
     const touch = event.changedTouches[0]
     if (!touch) return
@@ -2241,6 +2531,20 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             className={cn(
               "relative min-h-0 flex-1 overflow-auto transition-opacity duration-200 ease-snap",
               refetching && "opacity-60",
+              /*
+               * ⚠️ **Unconditional, and it has to be.** A mouse drag across the grid otherwise anchors a native
+               * text selection and paints a blue smear over the hour labels, the blocks and — the selection runs
+               * on past the scroller — the footer beneath them, which is what a drag across two hours actually
+               * looked like before this.
+               *
+               * Gating it on the drag being armed does **not** work: the browser establishes the selection anchor
+               * on `mousedown`, i.e. before any movement has told us this is a drag rather than a click, so by the
+               * time the class lands the smear already exists. That was measured, not assumed.
+               *
+               * The grid is a control surface rather than prose — every value on it is reachable as real text in
+               * the edit dialog and on the patient's page — so nothing is lost by never selecting inside it.
+               */
+              "select-none",
             )}
           >
           {/* `lg:w-full`, matching `WEEK_COLS` — the two are one contract and moving only one of them is what
@@ -2523,8 +2827,13 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                                   !dayOpen && "bg-muted/40 opacity-70",
                                 )}
                                 style={{ minHeight: hourHeight }}
-                                onClick={() => onTimeSlotClick?.(day, time)}
-                                data-time-slot={time}
+                                /* The click is no longer here: the gesture hook decides press-versus-drag on
+                                   release and calls back with the hour for a plain click, so the two cannot both
+                                   fire on one gesture. */
+                                onPointerDown={(event) =>
+                                  gridDrag.beginCellGesture(event, format(day, "yyyy-MM-dd"), hour)
+                                }
+                                {...cellDataProps(day, hour)}
                               />
                             )
                           })
@@ -2536,8 +2845,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                                 !isWorkingHours && "bg-muted/40 opacity-70",
                               )}
                               style={{ minHeight: hourHeight }}
-                              onClick={() => onTimeSlotClick?.(selectedDate, time)}
-                              data-time-slot={time}
+                              onPointerDown={(event) =>
+                                gridDrag.beginCellGesture(event, format(selectedDate, "yyyy-MM-dd"), hour)
+                              }
+                              {...cellDataProps(selectedDate, hour)}
                             />
                           )}
                     </div>
@@ -2568,6 +2879,50 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                         minutesToNextStart,
                       ),
                   )}
+
+              {/*
+                The span being painted, and the block being carried.
+
+                ⚠️ **`aria-hidden`, and that is not an oversight.** Both are transient states of a pointer gesture
+                nobody can perform with a keyboard or a screen reader, and they change on every pointer move — a
+                live region here would announce a new time several times a second. The accessible route to both
+                capabilities is unchanged and is where it has always been: « Nouveau rendez-vous » for a booking,
+                the edit dialog for a move (AC-11).
+
+                ⚠️ `pointer-events-none` on both, for the same reason every block goes transparent while a drag is
+                on: the drop target is resolved with `elementFromPoint`, and a preview under the cursor would hide
+                the very cell it is previewing.
+              */}
+              {gridDrag.createSelection && createSelectionStyle && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute z-30 overflow-hidden rounded-md border-2 border-dashed border-primary bg-primary/10 px-1.5 py-0.5"
+                  style={createSelectionStyle}
+                >
+                  <span className="truncate text-2xs font-semibold tabular-nums text-primary">
+                    {clockOfMinutes(gridDrag.createSelection.fromMinutes)}
+                    {gridDrag.createSelection.toMinutes > gridDrag.createSelection.fromMinutes &&
+                      ` – ${clockOfMinutes(gridDrag.createSelection.toMinutes)} · ${
+                        gridDrag.createSelection.toMinutes - gridDrag.createSelection.fromMinutes
+                      } min`}
+                  </span>
+                </div>
+              )}
+
+              {gridDrag.moveDrag && moveGhostStyle && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute z-30 flex flex-col overflow-hidden rounded border-2 border-primary bg-primary/15 px-1.5 py-0.5 shadow-lg"
+                  style={moveGhostStyle}
+                >
+                  <span className="truncate text-2xs font-semibold text-primary">
+                    {gridDrag.moveDrag.appointment.patientName}
+                  </span>
+                  <span className="truncate text-2xs tabular-nums text-primary/80">
+                    {clockOfMinutes(gridDrag.moveDrag.target.minutes)}
+                  </span>
+                </div>
+              )}
             </>
           )}
           </div>
@@ -2585,67 +2940,117 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
 
             Rendered at every width (a phone needs the 06:30 slot more than a desk machine, not less), and it is a
             real `min-h-11` control on a coarse pointer rather than a 24 px link.
+
+            ⚠️ **It is also where « aucun rendez-vous » now lives**, which is why the strip renders whenever the
+            range is empty and not only when the window is trimmed. That sentence used to be an `inset-0` overlay
+            card: it read as a modal, it sat on top of the very hours the user was trying to click, and — with the
+            grid now also answering to a drag across those hours — it covered the whole gesture. A quiet line under
+            the grid states the same fact and takes nothing away, and « Nouveau rendez-vous » keeps its two
+            existing homes (the bar's own button, and the phone's floating action), so the overlay's duplicate went
+            with the overlay.
+
+            ⚠️ Suppressed while `loading` **or** `error` is set. The banner above already says the fetch failed;
+            « aucun rendez-vous » printed beside it is exactly the false statement that banner exists to prevent,
+            and it would be the more emphatic of the two.
           */}
-          {isTrimmed || showFullDay ? (
-            <div className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-1.5">
-              <button
-                type="button"
-                onClick={() => setShowFullDay((full) => !full)}
-                aria-expanded={showFullDay}
-                className="touch-target inline-flex items-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showFullDay && "rotate-180")} aria-hidden="true" />
-                {showFullDay ? "Réduire aux horaires d'ouverture" : "Afficher les 24 heures"}
-              </button>
-              <span className="text-2xs text-muted-foreground">
-                {showFullDay
-                  ? "00:00 – 24:00"
-                  : `Affichage ${hourSlot(gridWindow.fromHour)} – ${hourSlot(gridWindow.toHour === 24 ? 0 : gridWindow.toHour)}`}
-              </span>
-            </div>
-          ) : null}
+          {(() => {
+            const showWindowDisclosure = isTrimmed || showFullDay
+            const showEmptySentence = !loading && !error && emptyRange
+            if (!showWindowDisclosure && !showEmptySentence) return null
 
-          {/*
-            The empty state for the time grid. A free day was ~1536 px of blank ruled paper: nothing on screen
-            distinguished « personne aujourd'hui » from « the grid has not filled in », and nothing offered the
-            obvious next move.
-
-            ⚠️ **Overlaid, not substituted.** Replacing the grid would take away the click-an-hour-to-book
-            gesture, which is the very thing the card is telling you about — hence `pointer-events-none` on the
-            sheet and `auto` on the button alone, so every hour cell underneath stays tappable.
-
-            ⚠️ Suppressed while `error` is set. The banner above already says the fetch failed; « aucun rendez-vous »
-            printed next to it is exactly the false statement that banner exists to prevent, and it would be
-            *more* emphatic than the truth.
-          */}
-          {!loading && !error && emptyRange && (
-            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center p-6">
-              <div className="max-w-xs rounded-xl border bg-card/95 px-4 py-5 text-center shadow-md backdrop-blur-[1px]">
-                <p className="text-sm font-medium">
-                  {view === "week" ? "Aucun rendez-vous cette semaine" : "Aucun rendez-vous ce jour-là"}
-                </p>
-                <p className="mt-1 text-2xs text-muted-foreground">
-                  {/* Two spellings of the same sentence rather than one that is wrong on half the devices: this
-                      app is used on a phone in a corridor and on a desk machine at reception. */}
-                  <span className="md:hidden">Touchez une heure pour en ajouter un</span>
-                  <span className="hidden md:inline">Cliquez sur une heure pour en ajouter un</span>
-                </p>
-                <Button
-                  size="sm"
-                  className="pointer-events-auto mt-3 gap-2"
-                  onClick={() =>
-                    onTimeSlotClick?.(selectedDate, `${String(initialScrollHour).padStart(2, "0")}:00`)
-                  }
-                >
-                  <Plus className="h-4 w-4" />
-                  Nouveau rendez-vous
-                </Button>
+            return (
+              <div className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-1.5">
+                {showWindowDisclosure && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowFullDay((full) => !full)}
+                      aria-expanded={showFullDay}
+                      className="touch-target inline-flex items-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showFullDay && "rotate-180")} aria-hidden="true" />
+                      {showFullDay ? "Réduire aux horaires d'ouverture" : "Afficher les 24 heures"}
+                    </button>
+                    <span className="text-2xs text-muted-foreground">
+                      {showFullDay
+                        ? "00:00 – 24:00"
+                        : `Affichage ${hourSlot(gridWindow.fromHour)} – ${hourSlot(gridWindow.toHour === 24 ? 0 : gridWindow.toHour)}`}
+                    </span>
+                  </>
+                )}
+                {showEmptySentence && (
+                  <p className="text-2xs text-muted-foreground">
+                    <span className="font-medium text-foreground">
+                      {view === "week" ? "Aucun rendez-vous cette semaine" : "Aucun rendez-vous ce jour-là"}
+                    </span>{" "}
+                    {/* Two spellings of the same hint rather than one that is wrong on half the devices: this app
+                        is used on a phone in a corridor and on a desk machine at reception. */}
+                    <span className="md:hidden">— touchez une heure, ou faites glisser sur plusieurs</span>
+                    <span className="hidden md:inline">— cliquez sur une heure, ou faites glisser sur plusieurs</span>
+                  </p>
+                )}
               </div>
-            </div>
-          )}
+            )
+          })()}
         </div>
         )}
       </Card>
+
+      {/*
+        The three refusals a drop can meet, in one dialog.
+
+        ⚠️ **The two advisory codes quote the server verbatim.** `slot_taken` and `outside_working_hours` are
+        refusals the backend words itself — « Dr X : le cabinet est fermé le samedi. » — and confirming re-sends the
+        same request carrying the acknowledgement, which is what records the exception on the appointment rather
+        than silently allowing it. Rewording them here would be a second copy of a rule the server owns, and
+        branching on the French would break the day somebody fixed a typo.
+
+        ⚠️ **Past-time is ours, because no backend refuses it.** Both booking dialogs already ask this question
+        client-side; this is a third caller of the same question, not a new rule — which is also why it is checked
+        *before* the request rather than being read out of a response that will never carry it.
+
+        Cancelling leaves the appointment exactly where it was: nothing was ever optimistically moved, so the block
+        is already at its saved time and there is no snap-back to perform (AC-6).
+      */}
+      <AlertDialog
+        open={movePrompt !== null}
+        onOpenChange={(open) => {
+          if (open) return
+          setMovePrompt(null)
+          pendingMoveRef.current = null
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {movePrompt?.kind === "overlap"
+                ? "Créneau déjà occupé"
+                : movePrompt?.kind === "hours"
+                  ? "En dehors des horaires d'ouverture"
+                  : "Heure dans le passé"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>{movePrompt?.message}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const kind = movePrompt?.kind
+                setMovePrompt(null)
+                if (!kind) return
+                // Merged into the grants already given, never replacing them: a drop can trip all three, and each
+                // confirmation re-sends the whole request.
+                if (kind === "overlap") moveGrantsRef.current.overlap = true
+                else if (kind === "hours") moveGrantsRef.current.hours = true
+                else moveGrantsRef.current.past = true
+                void submitMove()
+              }}
+            >
+              Déplacer quand même
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

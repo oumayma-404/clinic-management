@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -24,6 +24,7 @@ public class DisconnectClinicWhatsAppCommandHandler
     private readonly IClinicContext _clinicContext;
     private readonly IReminderSecretProtector _secretProtector;
     private readonly IWhatsAppOnboardingService _onboardingService;
+    private readonly IVendorMessagingAvailability _vendorMessaging;
     private readonly IUnitOfWork _unitOfWork;
 
     public DisconnectClinicWhatsAppCommandHandler(
@@ -32,6 +33,7 @@ public class DisconnectClinicWhatsAppCommandHandler
         IClinicContext clinicContext,
         IReminderSecretProtector secretProtector,
         IWhatsAppOnboardingService onboardingService,
+        IVendorMessagingAvailability vendorMessaging,
         IUnitOfWork unitOfWork)
     {
         _settingsRepository = settingsRepository;
@@ -39,6 +41,7 @@ public class DisconnectClinicWhatsAppCommandHandler
         _clinicContext = clinicContext;
         _secretProtector = secretProtector;
         _onboardingService = onboardingService;
+        _vendorMessaging = vendorMessaging;
         _unitOfWork = unitOfWork;
     }
 
@@ -69,7 +72,7 @@ public class DisconnectClinicWhatsAppCommandHandler
             // No settings row / nothing connected → nothing to do; return the current (not-connected) view.
             if (settings == null || string.IsNullOrEmpty(settings.WhatsAppBusinessAccountId))
             {
-                return Result<ReminderSettingsDto>.Success(settings.ToDto());
+                return Result<ReminderSettingsDto>.Success(settings.ToDto(_vendorMessaging.SellsVendorMessaging));
             }
 
             await TryUnsubscribeAsync(settings.WhatsAppBusinessAccountId, settings.WhatsAppAccessTokenEncrypted, cancellationToken);
@@ -78,7 +81,7 @@ public class DisconnectClinicWhatsAppCommandHandler
             await _settingsRepository.UpdateAsync(settings, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return Result<ReminderSettingsDto>.Success(settings.ToDto());
+            return Result<ReminderSettingsDto>.Success(settings.ToDto(_vendorMessaging.SellsVendorMessaging));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

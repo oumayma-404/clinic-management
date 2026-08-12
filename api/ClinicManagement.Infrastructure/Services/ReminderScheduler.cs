@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
@@ -26,6 +27,8 @@ public class ReminderScheduler : IReminderScheduler
     private readonly IClinicRepository _clinics;
     private readonly IPatientRepository _patients;
     private readonly IReminderSettingsProvider _settingsProvider;
+    private readonly IVendorMessagingAvailability _messagingAvailability;
+    private readonly IMessagingAllowanceRepository _allowances;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ReminderScheduler> _logger;
@@ -35,6 +38,8 @@ public class ReminderScheduler : IReminderScheduler
         IClinicRepository clinics,
         IPatientRepository patients,
         IReminderSettingsProvider settingsProvider,
+        IVendorMessagingAvailability messagingAvailability,
+        IMessagingAllowanceRepository allowances,
         IUnitOfWork unitOfWork,
         IConfiguration configuration,
         ILogger<ReminderScheduler> logger)
@@ -43,6 +48,8 @@ public class ReminderScheduler : IReminderScheduler
         _clinics = clinics;
         _patients = patients;
         _settingsProvider = settingsProvider;
+        _messagingAvailability = messagingAvailability;
+        _allowances = allowances;
         _unitOfWork = unitOfWork;
         _configuration = configuration;
         _logger = logger;
@@ -111,6 +118,27 @@ public class ReminderScheduler : IReminderScheduler
                     "Skipped a recall for patient {PatientId}: clinic {ClinicId} has no sendable reminder channel.",
                     patientId, clinicId);
                 return RecallDispatchOutcome.NoChannelConfigured;
+            }
+
+            // US-5 — the forfait is checked at ENQUEUE for the recall path, unlike an appointment reminder.
+            //
+            // ⚠️ The two are gated in different places on purpose. An appointment reminder is queued days ahead and
+            // measured against the forfait when it comes DUE, so a top-up in between still gets it out; a « Relancer »
+            // is a gesture somebody just made, and the honest answer has to come back to their hand — which is what
+            // AC-5.1 asks for and what stops the patient being snoozed 30 days with nothing sent (AC-5.2).
+            //
+            // ⚠️ Refused ONLY when WhatsApp is the sole sendable channel (AC-5.3). With SMS also sendable the relance
+            // succeeds and both rows are queued: a channel being exhausted is not the same as having no channel, and
+            // the WhatsApp row is simply held at dispatch by the same gate.
+            if (sendable.Count == 1
+                && sendable[0] == NotificationType.WhatsApp
+                && await IsMessagingAllowanceExhaustedAsync(clinicId, cancellationToken))
+            {
+                _logger.LogInformation(
+                    "Refused a recall for patient {PatientId}: clinic {ClinicId}'s WhatsApp forfait is spent and "
+                    + "WhatsApp is its only sendable channel.",
+                    patientId, clinicId);
+                return RecallDispatchOutcome.MessagingAllowanceExhausted;
             }
 
             var clinic = await _clinics.GetByIdAsync(clinicId, cancellationToken);
@@ -255,6 +283,31 @@ public class ReminderScheduler : IReminderScheduler
         }
 
         return voided;
+    }
+
+    /// <summary>
+    /// Is this cabinet's WhatsApp forfait spent for the current Tunisian month (AC-5.1)?
+    ///
+    /// <para><b>⚠️ « No allowance record » answers false here, and that is deliberate — it is the opposite of the
+    /// dispatch gate's answer.</b> There the missing row is what the send is metered against, so sending would spend
+    /// the vendor's credit line against a cabinet nothing is tracking; here the row is enqueued and then met by that
+    /// same gate, which parks it under <c>MessagingAllowanceMissing</c> with its own sentence. Refusing at enqueue
+    /// instead would tell a practice its forfait is « épuisé » when our own bookkeeping is what is missing — the exact
+    /// conflation AC-4.3 exists to prevent.</para>
+    ///
+    /// <para>Where the deployment does not sell vendor messaging this reads nothing at all (EC-16).</para>
+    /// </summary>
+    private async Task<bool> IsMessagingAllowanceExhaustedAsync(Guid clinicId, CancellationToken cancellationToken)
+    {
+        if (!_messagingAvailability.SellsVendorMessaging)
+        {
+            return false;
+        }
+
+        var month = await _allowances.GetMonthAsync(
+            clinicId, ClinicClock.CurrentMonthKey(), cancellationToken);
+
+        return month is not null && month.IsExhausted;
     }
 
     private async Task SafelyAsync(Guid appointmentId, string operation, Func<Task> work)

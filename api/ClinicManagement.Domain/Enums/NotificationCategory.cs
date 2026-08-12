@@ -52,6 +52,22 @@ public enum NotificationCategory
     SubscriptionExpiring = 10,
 
     /// <summary>
+    /// The cabinet is running out of its monthly WhatsApp reminder allowance
+    /// (<c>vendor-whatsapp-messaging-quota</c> FR-6) — one row per threshold crossed, at 80, 95 and 100 %.
+    ///
+    /// <para>⚠️ <b>Three genuinely new rows, not one restated row</b>, for
+    /// <see cref="SubscriptionExpiring"/>'s reason: restating does not clear who has read it, so once the owner has
+    /// read « 80 % » the 95 % and 100 % rows would stay read and never badge the bell — and the 80 % one is the
+    /// only one that could still have been acted on. The dedupe key is therefore
+    /// (cabinet, month, threshold) over two real columns rather than a message prefix.</para>
+    ///
+    /// <para>⚠️ Unlike <see cref="SubscriptionExpiring"/>'s countdown this is crossed by a <i>send</i>, so it is
+    /// evaluated where the counter is incremented as well as by the daily pass — 80 % is announced when it happens
+    /// rather than the next morning.</para>
+    /// </summary>
+    MessagingAllowanceLow = 11,
+
+    /// <summary>
     /// An administrator reset this account's second factor (<c>hosted-security-hardening</c> FR-1.4).
     ///
     /// <para>⚠️ <b>Targeted at the affected user, and it exists to make a quiet action loud.</b> Without it,
@@ -59,7 +75,7 @@ public enum NotificationCategory
     /// as them. It stays <b>in-app</b> (and by e-mail): waking a dentist's lock screen adds nothing, because
     /// the action they must take — enrol again — happens at the machine, at their next sign-in.</para>
     /// </summary>
-    SecondFactorReset = 11,
+    SecondFactorReset = 12,
 
     /// <summary>
     /// Somebody downloaded the cabinet's <b>whole record</b> as one file
@@ -75,5 +91,5 @@ public enum NotificationCategory
     /// <para>In-app only: the export is already finished by the time this is written, so a lock-screen banner
     /// would announce something nobody can intervene in.</para>
     /// </summary>
-    ClinicArchiveExported = 12
+    ClinicArchiveExported = 13
 }

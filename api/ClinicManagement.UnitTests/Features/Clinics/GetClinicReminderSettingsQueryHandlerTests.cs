@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Clinics.Queries;
 using ClinicManagement.Domain.Entities;
@@ -31,8 +31,11 @@ public class GetClinicReminderSettingsQueryHandlerTests
             .ReturnsAsync(new ResolvedReminderSettings { EnabledChannels = Array.Empty<NotificationType>() });
     }
 
+    // AC-1.7's flag on the returned DTO. A default mock answers false, so these scenarios are unchanged.
+    private readonly Mock<IVendorMessagingAvailability> _vendorMessaging = new();
+
     private GetClinicReminderSettingsQueryHandler Handler() =>
-        new(_settings.Object, _users.Object, _context.Object, _provider.Object);
+        new(_settings.Object, _users.Object, _context.Object, _provider.Object, _vendorMessaging.Object);
 
     private static User Local(string role) =>
         User.CreateLocalUser(ClinicId, role, $"{role}@clinic.com", "HASH", $"{role} name");

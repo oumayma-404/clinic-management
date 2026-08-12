@@ -2,6 +2,7 @@ using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.Messaging;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
 
@@ -106,6 +107,11 @@ public class SendRecallCommandHandler : IRequestHandler<SendRecallCommand, Resul
         RecallDispatchOutcome.NoDeliverablePhone =>
             "Ce patient n'a pas de numéro de téléphone valide : la relance ne peut pas être envoyée. "
             + "Contactez-le autrement, puis utilisez « Marquer comme contacté ».",
+        // AC-5.1/5.4 — the forfait's own sentence, from MessagingRefusals rather than written again here: the code
+        // and the wording are one statement, and a second copy is how a reworded message stops matching the outcome
+        // it was paired with. It is deliberately NOT the no-channel sentence above, which would tell the practice to
+        // configure a channel it has already configured.
+        RecallDispatchOutcome.MessagingAllowanceExhausted => MessagingRefusals.RecallExhausted,
         _ =>
             "La relance n'a pas pu être mise en file d'envoi. Le patient reste dans la liste des relances ; "
             + "réessayez dans quelques instants.",

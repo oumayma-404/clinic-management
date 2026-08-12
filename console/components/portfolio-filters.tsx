@@ -52,9 +52,29 @@ const STATES: Array<{ value: string; label: string }> = [
  * and the reason it is stated in the sheet's own description: « 4 expirés » in the strip and the list this opens
  * are the same set, counted by the same predicate.
  */
-export function PortfolioFilters({ query }: { query: PortfolioQuery }) {
+export function PortfolioFilters({
+  query,
+  messagingNearThresholdPercent,
+}: {
+  query: PortfolioQuery;
+  /**
+   * The server's own « presque épuisé » threshold, as a percentage consumed.
+   *
+   * ⚠️ **Passed in, never retyped.** The chip's label is `100 - this`, so the filter's SQL predicate and the words on
+   * the button are one figure — two spellings of a threshold is how a filter and its own label come to disagree with
+   * neither looking wrong on its own, and the vendor simply learns not to trust the number.
+   */
+  messagingNearThresholdPercent: number;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+
+  // AC-8.2's two forfait filters. Built here rather than as a module constant because the « presque » label is derived
+  // from the server's threshold, which arrives per request.
+  const messagingFilters: Array<{ value: string; label: string }> = [
+    { value: "exhausted", label: "Forfait épuisé" },
+    { value: "near", label: `Forfait à moins de ${100 - messagingNearThresholdPercent} %` },
+  ];
 
   function apply(next: PortfolioQuery) {
     // Page is deliberately dropped on every change: « page 4 » of the old filter is meaningless under the new
@@ -130,6 +150,34 @@ export function PortfolioFilters({ query }: { query: PortfolioQuery }) {
         </div>
       </fieldset>
 
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="mb-1.5 text-sm font-medium">Rappels WhatsApp</legend>
+        <div className="flex flex-wrap gap-2">
+          {messagingFilters.map((filter) => {
+            const active = query.messaging === filter.value;
+            return (
+              <Button
+                key={filter.value}
+                type="button"
+                variant={active ? "default" : "outline"}
+                aria-pressed={active}
+                // Tapping the active one clears it, as the state filters do: on a phone the chip that would otherwise
+                // clear it is off screen while this sheet is open.
+                onClick={() => apply({ messaging: active ? "" : filter.value })}
+              >
+                {filter.label}
+              </Button>
+            );
+          })}
+        </div>
+        {/* AC-8.3 said where the choice is made: a cabinet nothing is counting for matches neither term, and a vendor
+            who expected it in « épuisé » would otherwise conclude the filter is broken. */}
+        <p className="text-xs text-muted-foreground">
+          Un cabinet dont le mois n&apos;est pas mesuré n&apos;apparaît dans aucun des deux : ce n&apos;est pas une
+          limite atteinte, c&apos;est notre comptage qui manque.
+        </p>
+      </fieldset>
+
       <Button
         type="button"
         variant={query.dormant ? "default" : "outline"}
@@ -148,6 +196,13 @@ export function PortfolioFilters({ query }: { query: PortfolioQuery }) {
           key: "state",
           label: STATES.find((s) => s.value === query.state)?.label ?? query.state,
           clear: { state: "" } as PortfolioQuery,
+        }
+      : null,
+    query.messaging
+      ? {
+          key: "messaging",
+          label: messagingFilters.find((f) => f.value === query.messaging)?.label ?? query.messaging,
+          clear: { messaging: "" } as PortfolioQuery,
         }
       : null,
     query.dormant ? { key: "dormant", label: "Dormants (30 j)", clear: { dormant: false } as PortfolioQuery } : null,
@@ -175,7 +230,9 @@ export function PortfolioFilters({ query }: { query: PortfolioQuery }) {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => apply({ q: "", dormant: false, state: "", sort: DEFAULT_PORTFOLIO_SORT })}
+                onClick={() =>
+                  apply({ q: "", dormant: false, state: "", messaging: "", sort: DEFAULT_PORTFOLIO_SORT })
+                }
               >
                 Tout réinitialiser
               </Button>

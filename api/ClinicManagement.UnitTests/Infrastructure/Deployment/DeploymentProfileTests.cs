@@ -71,7 +71,10 @@ public class DeploymentProfileTests
             // reasons (an off-server sidecar already runs there, and one database holds every cabinet, so an
             // in-app `pg_dump` would be a cross-tenant read) — see the capability's own doc comment.
             [nameof(DeploymentProfile.BacksUpItsOwnData)] = (true, false, false),
-            // hosted-security-hardening FR-1.1. The FOURTH hosted-only capability, so it joins the
+            // vendor-whatsapp-messaging-quota FR-9. The FOURTH hosted-only capability, so it joins the
+            // `hostedOnlyCapabilities` set below for the same reason the three before it did.
+            [nameof(DeploymentProfile.SellsVendorMessaging)] = (false, true, false),
+            // hosted-security-hardening FR-1.1. The FIFTH hosted-only capability, so it joins the
             // `hostedOnlyCapabilities` set below. Both ✗ are decisions: a LAN admin locked out has nobody to
             // call (AC-7 is unsatisfiable there), and Auth0 owns CloudBrowser's identities and its MFA policy.
             [nameof(DeploymentProfile.RequiresAdminSecondFactor)] = (false, true, false)
@@ -124,6 +127,7 @@ public class DeploymentProfileTests
             nameof(DeploymentProfile.AllowsPublicClinicSignup),
             nameof(DeploymentProfile.ServesPlatformConsole),
             nameof(DeploymentProfile.RequiresSubscription),
+            nameof(DeploymentProfile.SellsVendorMessaging),
             nameof(DeploymentProfile.RequiresAdminSecondFactor)
         };
 
@@ -273,6 +277,32 @@ public class DeploymentProfileTests
 
         Assert.False(profile.PermitsOsPush(DevicePlatform.Android));
         Assert.False(profile.PermitsOsPush(DevicePlatform.Ios));
+    }
+
+    // ---- Vendor-purchased messaging (vendor-whatsapp-messaging-quota Part 0) -----------------------
+
+    /// <summary>
+    /// [FR-9] The same boundary as the push test above, for the 18th capability: no <c>Messaging:*</c> or
+    /// <c>Meta:*</c> key moves the answer on the two kinds that do not sell messaging.
+    ///
+    /// <para>Asserted by resolving each profile with every relevant key <b>present and plausible</b> — a value that
+    /// would be tempting to read. The credentials half deliberately lives on
+    /// <c>IVendorMessagingAvailability</c> instead, so this method never sees it.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(DeploymentKind.SelfHostedLan))]
+    [InlineData(nameof(DeploymentKind.CloudBrowser))]
+    public void A_deployment_that_does_not_sell_messaging_still_does_not_however_it_is_configured(string kind)
+    {
+        var profile = DeploymentProfile.Resolve(Configuration(
+            (DeploymentProfile.ProfileKey, kind),
+            ("Messaging:DefaultMessagesPerMonth", "500"),
+            ("Messaging:ContactEmail", "forfaits@example.tn"),
+            ("Messaging:ContactPhone", "+216 71 000 000"),
+            ("Meta:AppId", "an-app-id"),
+            ("Meta:AppSecret", "a-real-looking-secret")));
+
+        Assert.False(profile.SellsVendorMessaging);
     }
 
     /// <summary>

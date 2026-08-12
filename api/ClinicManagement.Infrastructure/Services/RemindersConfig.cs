@@ -41,6 +41,25 @@ public static class RemindersConfig
     private const int DefaultPerClinicDispatchBound = 20;
 
     /// <summary>
+    /// How long a <b>parked</b> row may wait before it is failed as obsolete
+    /// (<c>vendor-whatsapp-messaging-quota</c> step 15a, R-5). One full allowance cycle: 30 days.
+    ///
+    /// <para><b>⚠️ This bound exists because the two other drains cannot reach every row.</b> The
+    /// past-appointment guard keys on <c>appointment.AppointmentDateTime</c>, and <c>ReminderScheduler</c> creates a
+    /// <b>recall</b> row with <c>appointmentId: null</c> — so nothing can ever make one obsolete, it is non-terminal,
+    /// the purge excludes it by construction, and it would be re-examined on every review tick for ever. That is the
+    /// starvation shape this outbox has already been bitten by twice. And AC-5.3 manufactures exactly that row
+    /// deliberately (exhausted + SMS sendable ⇒ enqueue both, hold the WhatsApp one).</para>
+    ///
+    /// <para><b>⚠️ Reason-agnostic, and it applies to EVERY profile.</b> The two pre-existing channel reasons
+    /// (<c>ChannelDisabled</c>, <c>ChannelUnconfigured</c>) have the identical defect on a recall row <i>today</i>, so
+    /// « how long may a send wait? » gets one answer rather than one per reason — a term per reason is the
+    /// <c>fixes-dont-propagate</c> shape. The failure is <b>recorded</b>, so it surfaces on « Rappels » like any
+    /// other.</para>
+    /// </summary>
+    private const int DefaultHeldMaxDays = 30;
+
+    /// <summary>
     /// Clinic-local quiet hours: no reminder is sent from <see cref="DefaultQuietHoursStartLocal"/>:00 until
     /// <see cref="DefaultQuietHoursEndLocal"/>:00. Without this floor the tiered send-time calculation happily
     /// resolved to 02:00 for an 08:00 appointment booked ~22 h ahead — a message that wakes the patient is worse
@@ -107,6 +126,14 @@ public static class RemindersConfig
     /// <summary>Per-clinic share of one dispatch tick (L3a). A non-positive override falls back.</summary>
     public static int PerClinicDispatchBound(IConfiguration configuration) =>
         Positive(configuration.GetValue<int?>("Reminders:PerClinicDispatchBound"), DefaultPerClinicDispatchBound);
+
+    /// <summary>
+    /// How many days a parked row may wait before it is failed as obsolete (step 15a). A non-positive override falls
+    /// back rather than disabling the bound: zero would fail every parked row on the next tick, which is the opposite
+    /// of what parking means.
+    /// </summary>
+    public static int HeldMaxDays(IConfiguration configuration) =>
+        Positive(configuration.GetValue<int?>("Reminders:HeldMaxDays"), DefaultHeldMaxDays);
 
     /// <summary>
     /// The clinic-local quiet window as <c>(startHour, endHour)</c> — no sends at or after <c>start</c>, none

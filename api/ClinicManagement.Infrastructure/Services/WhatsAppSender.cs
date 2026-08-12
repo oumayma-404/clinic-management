@@ -1,4 +1,5 @@
-﻿using ClinicManagement.Application.Common.Models;
+﻿using System.Text.Json;
+using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Enums;
 using Microsoft.Extensions.Logging;
 
@@ -84,5 +85,65 @@ public class WhatsAppSender : HttpReminderChannelSender, IReminderChannelSender
             };
 
         return PostJsonAsync(endpoint, payload, settings.WhatsAppAccessToken, "WhatsApp", cancellationToken);
+    }
+
+    /// <summary>
+    /// FR-8 — Meta's own refusals, told apart by their <c>error.code</c>:
+    /// a <b>throttle</b> leaves the row queued and spends no retry budget, and a <b>stopped number</b> parks it,
+    /// because retrying burns capacity and cannot succeed (EC-11). Anything else keeps the previous behaviour.
+    ///
+    /// <para>⚠️ <b>Read on the FULL body</b> (see the base's own ⚠️): Meta puts a long <c>message</c> before
+    /// <c>code</c>, so classifying the truncated log copy matches nothing on a real payload — which is why
+    /// <c>WhatsAppSenderErrorClassificationTests</c> asserts against a realistic full-length envelope rather than a
+    /// short fixture, which would pass against a sender that fails on every genuine response.</para>
+    ///
+    /// <para>⚠️ Nothing from <paramref name="body"/> reaches the result. The sentences below are ours (D-8).</para>
+    /// </summary>
+    protected override ReminderSendResult Classify(string body, int statusCode, string channelLabel)
+    {
+        var code = MetaErrorCode(body);
+
+        return code switch
+        {
+            // Application, account and platform rate limits, and too many messages to one recipient. Nothing is
+            // wrong with this reminder, so it must not spend an attempt.
+            4 or 80007 or 130429 or 131056 => ReminderSendResult.Throttled(
+                "Limite d'envoi WhatsApp atteinte — rappel reporté automatiquement"),
+
+            // 131048: the sender's messaging health / spam-rate limit. 131064: the account has hit the limit its
+            // template classification puts on it. Both are stopped-until-somebody-acts, never a retry away.
+            131048 or 131064 => ReminderSendResult.Blocked(
+                OutboxBlockReason.MessagingNumberStopped,
+                "Envoi WhatsApp suspendu par Meta — rappel en attente, nous nous en occupons"),
+
+            _ => base.Classify(body, statusCode, channelLabel),
+        };
+    }
+
+    /// <summary>
+    /// Meta's <c>error.code</c>, or null when the body is not a Graph error envelope. An unreadable body is left to
+    /// the base — falling back to a *named* outcome on a payload we could not parse would be asserting something
+    /// about Meta's answer on no evidence.
+    /// </summary>
+    private static int? MetaErrorCode(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return document.RootElement.TryGetProperty("error", out var error)
+                   && error.TryGetProperty("code", out var code)
+                   && code.TryGetInt32(out var value)
+                ? value
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }

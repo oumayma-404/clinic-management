@@ -20,6 +20,12 @@ namespace ClinicManagement.Application.Features.Platform.Dtos;
 /// every cabinet is provisioned with an opening entry (FR-13), means only one that has none at all.</param>
 /// <param name="Suspension">Null unless the cabinet is suspended right now — see
 /// <see cref="PlatformSuspensionDto"/>.</param>
+/// <param name="Messaging">
+/// The cabinet's WhatsApp reminder position (<c>vendor-whatsapp-messaging-quota</c> AC-8.1) — this month's figures, the
+/// sender and template state, and the full allocation history with each live entry's cancellation consequence. Its own
+/// object rather than more fields on <see cref="Clinic"/>, because the section it feeds is a section: it has its own
+/// heading, its own two write actions, and a « non mesuré » state that must not be read as a fact about the practice.
+/// </param>
 public record PlatformClinicDetailDto(
     PlatformClinicRowDto Clinic,
     string? AdminName,
@@ -27,7 +33,8 @@ public record PlatformClinicDetailDto(
     bool AdminIsActive,
     IReadOnlyList<PlatformActivityMonthDto> Trend,
     IReadOnlyList<PlatformSubscriptionEntryDto> Payments,
-    PlatformSuspensionDto? Suspension);
+    PlatformSuspensionDto? Suspension,
+    PlatformMessagingDto? Messaging);
 
 /// <summary>
 /// Why a cabinet is suspended, who suspended it and when (<c>platform-console</c> Part 6, AC-6.1) — <b>null when it

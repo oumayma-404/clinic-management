@@ -62,7 +62,9 @@ public class GetPlatformSummaryQueryHandler : IRequestHandler<GetPlatformSummary
 
             // ⚠️ The month is the CLINIC's, through ClinicClock — a UTC month files a payment recorded at 00:30 on
             // the 1st into the one that has just closed, which is finding #20 one table over.
-            var (monthFrom, monthTo) = ClinicMonthRangeUtc(today);
+            // ⚠️ Month-to-DATE, not the whole month: a vendor payment dated later this month (a post-dated cheque
+            // is a first-class concept here) has not been collected yet.
+            var (monthFrom, monthTo) = ClinicClock.MonthToDateRangeUtc(today);
             var vendorCollected =
                 await _subscriptions.GetVendorCollectedBetweenAsync(monthFrom, monthTo, cancellationToken);
 
@@ -84,13 +86,4 @@ public class GetPlatformSummaryQueryHandler : IRequestHandler<GetPlatformSummary
             return Result<PlatformSummaryDto>.Failure("Erreur lors de la lecture du résumé du portefeuille.");
         }
     }
-
-    /// <summary>
-    /// The current clinic-local month, month-to-date. The shape <c>ClinicActivityCounterJob</c> uses for the
-    /// cabinets' own figure: <b>the last tick</b> of today rather than the next midnight, because every money read
-    /// in this codebase is inclusive on both ends and the exclusive bound counts a midnight payment twice.
-    /// </summary>
-    private static (DateTime From, DateTime ToInclusive) ClinicMonthRangeUtc(DateTime todayLocal) => (
-        ClinicClock.StartOfLocalDayUtc(new DateTime(todayLocal.Year, todayLocal.Month, 1)),
-        ClinicClock.LastTickOfLocalDayUtc(todayLocal));
 }

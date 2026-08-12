@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Messaging;
 using ClinicManagement.Application.Features.Subscriptions;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -382,6 +383,80 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task EnsureMessagingAllowanceWarningAsync(
+        Guid clinicId, string monthKey, int thresholdPercent, int allowance, DateTime resetsOn,
+        CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var existing = await _notifications.GetMessagingWarningAsync(
+                clinicId, monthKey, thresholdPercent, cancellationToken);
+            if (existing != null)
+            {
+                // This threshold has already been announced for this month, so no second row (AC-3.2) and — unlike
+                // the two ensure pairs above — no restatement either. The message names the threshold, the allowance
+                // and the month, none of which can change for a row that already exists: a *changed* allowance means
+                // the crossed set itself changed, which is the caller's business (AC-3.6), not a reword here.
+                return false;
+            }
+
+            var notification = StaffNotification.ForMessagingAllowance(
+                Guid.NewGuid(),
+                clinicId,
+                MessagingWarningTitle(thresholdPercent),
+                MessagingWarningMessage(thresholdPercent, allowance, monthKey, resetsOn),
+                DateTime.UtcNow,
+                thresholdPercent,
+                monthKey);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // a genuinely new unread row → it badges the bell, which is the point (AC-3.2)
+        }, cancellationToken);
+    }
+
+    public async Task ClearMessagingAllowanceWarningsAsync(
+        Guid clinicId, string? keepMonthKey, IReadOnlyCollection<int> keepThresholds,
+        CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            // Every month, not just the one being kept: a row from a *past* month is precisely what has to go, and
+            // that withdrawal is what re-arms the thresholds (AC-3.7).
+            var outstanding = await _notifications.GetMessagingWarningsAsync(
+                clinicId, monthKey: null, cancellationToken);
+
+            var stale = outstanding
+                .Where(n => !IsStillMet(n, keepMonthKey, keepThresholds))
+                .ToList();
+
+            if (stale.Count == 0)
+            {
+                return false; // nothing outstanding — the common case for a cabinet well inside its forfait
+            }
+
+            foreach (var notification in stale)
+            {
+                await _notifications.RemoveAsync(notification, cancellationToken);
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // rows left the feed → clients refetch
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Is this warning still a true statement? Only for the month being kept, and only for a threshold the cabinet
+    /// still meets. A row with no threshold recorded is not kept — it cannot be matched, and leaving it would make it
+    /// permanently unwithdrawable.
+    /// </summary>
+    private static bool IsStillMet(
+        StaffNotification notification, string? keepMonthKey, IReadOnlyCollection<int> keepThresholds) =>
+        keepMonthKey != null
+        && string.Equals(notification.MessagingAllowanceMonth, keepMonthKey, StringComparison.Ordinal)
+        && notification.MessagingThresholdPercent is { } threshold
+        && keepThresholds.Contains(threshold);
+
     public async Task EnsurePostVisitReviewAsync(
         Guid clinicId, Guid appointmentId, Guid? doctorId, string patientName, DateTime appointmentEndUtc,
         CancellationToken cancellationToken = default)
@@ -641,6 +716,42 @@ public class NotificationGenerator : INotificationGenerator
         $"Votre abonnement se termine le {endsOn.ToString(SubscriptionRefusals.DateFormat, CultureInfo.InvariantCulture)}. "
         + "Vous pourrez toujours consulter et exporter vos données, mais plus enregistrer de nouveaux actes. "
         + "Rendez-vous dans « Abonnement » pour le renouveler.";
+
+    /// <summary>
+    /// The percentage is in the <b>title</b> for <see cref="SubscriptionWarningTitle"/>'s reason: with one shared
+    /// title a cabinet reading the bell could not tell the 95 % row from the 80 % one it read this morning.
+    /// </summary>
+    private static string MessagingWarningTitle(int thresholdPercent) => thresholdPercent >= 100
+        ? "Forfait de rappels WhatsApp épuisé"
+        : $"Forfait de rappels WhatsApp — {thresholdPercent} % utilisés";
+
+    /// <summary>
+    /// Derived from the <b>threshold</b>, the allowance and the month — never from the live consumed count (AC-3.5).
+    /// A count-bearing message differs on every send, so the ensure would restate the row and make every open browser
+    /// refetch on every WhatsApp reminder the practice sends.
+    ///
+    /// <para>It names <b>SMS</b> explicitly (AC-2.6): read chairside, the first fear is « are my patients no longer
+    /// being reminded at all? », and for the SMS channel the answer is no.</para>
+    ///
+    /// <para>⚠️ The 100 % wording states the renewal date as a fact about the <b>forfait</b> and offers the top-up as
+    /// the remedy — it must never promise that the held reminders themselves go out on the 1st. They are for visits
+    /// about a day away, so by then they are refused as obsolete (AC-4.2, AC-4.5). Same law as
+    /// <see cref="MessagingRefusals"/>, whose strings the Part 2 validation asserts this against.</para>
+    /// </summary>
+    private static string MessagingWarningMessage(
+        int thresholdPercent, int allowance, string monthKey, DateTime resetsOn)
+    {
+        var month = ClinicClock.MonthLabelFr(monthKey);
+        var renewal = resetsOn.ToString(MessagingRefusals.DateFormat, CultureInfo.InvariantCulture);
+
+        return thresholdPercent >= 100
+            ? $"Votre forfait de {allowance} rappels WhatsApp pour {month} est épuisé. "
+              + "Les rappels en attente partiront dès que nous augmentons votre forfait ; "
+              + $"votre forfait se renouvelle le {renewal}. "
+              + "Vos rappels SMS ne sont pas concernés."
+            : $"Vous avez utilisé {thresholdPercent} % de votre forfait de {allowance} rappels WhatsApp "
+              + $"pour {month}. Vos rappels SMS ne sont pas concernés.";
+    }
 
     private const string ReminderTitle = "Rappel de rendez-vous";
 

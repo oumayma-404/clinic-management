@@ -80,6 +80,14 @@ public class ControllerAuthorizationCoverageTests
                                      // exempts this one route from the floor for the same reason (AC-29).
         "GoogleCalendar.Callback",   // OAuth browser redirect back from Google — cannot carry a bearer
 
+        // --- Meta's template-status webhook (vendor-whatsapp-messaging-quota FR-7a). ---
+        // Anonymous by necessity: Meta carries no bearer token. What authenticates the POST is the
+        // X-Hub-Signature-256 HMAC over the raw body with Meta:AppSecret, and the GET is the one-time subscription
+        // handshake gated on Meta:WebhookVerifyToken — both refuse outright where their secret is unconfigured,
+        // rather than accepting anything. Both 404 where the deployment does not sell vendor messaging (EC-16).
+        "MetaWebhook.Verify",        // hub.mode/hub.verify_token → hub.challenge, echoed once at subscription
+        "MetaWebhook.Receive",       // message_template_status_update for one of this deployment's cabinets
+
         // --- The vendor console's sign-in surface (platform-console AC-1.2, AC-1.3a, AC-1.3b). ---
         // Anonymous by necessity, not by concession: all three are performed by a caller who has no console
         // session, that being the point of each. What bounds them is not authentication but (a) the listener —
