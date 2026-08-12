@@ -107,10 +107,26 @@ export default function AppointmentsPage() {
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("all")
   const doctorFilterId = selectedDoctorId === "all" ? undefined : selectedDoctorId
 
-  const handleTimeSlotClick = useCallback((date: Date, time: string) => {
+  /**
+   * The length a dragged span asked for, or `undefined` for every other way into the create dialog.
+   *
+   * ⚠️ It has to be **cleared** on a plain click, not merely left unset: this page keeps one long-lived dialog, so
+   * a duration held over from the last drag would silently apply to the next appointment booked by clicking an
+   * hour — and, being « touched », would also stop that booking's acts from setting their own length.
+   */
+  const [selectedDurationMinutes, setSelectedDurationMinutes] = useState<number | undefined>(undefined)
+
+  const handleTimeSlotClick = useCallback((date: Date, time: string, durationMinutes?: number) => {
     const [hours, minutes] = time.split(':').map(Number)
     const dateWithTime = setMinutes(setHours(date, hours), minutes)
     setSelectedDate(dateWithTime)
+    setSelectedDurationMinutes(durationMinutes)
+    setDialogOpen(true)
+  }, [])
+
+  /** « Nouveau rendez-vous » from the bar or the floating action — no span, so no duration override. */
+  const openCreateDialog = useCallback(() => {
+    setSelectedDurationMinutes(undefined)
     setDialogOpen(true)
   }, [])
 
@@ -444,7 +460,7 @@ export default function AppointmentsPage() {
               onChanged={handleAppointmentUpdated}
               onViewChange={selectView}
               doctorId={doctorFilterId}
-              onNewAppointment={() => setDialogOpen(true)}
+              onNewAppointment={openCreateDialog}
               doctorFilter={{ doctors, value: selectedDoctorId, onChange: setSelectedDoctorId }}
               /*
                * Admins only, and that is the gate rather than a disabled state: every Google endpoint behind
@@ -500,7 +516,7 @@ export default function AppointmentsPage() {
       */}
       <div className="pointer-events-none fixed inset-x-0 bottom-[calc(1rem+var(--bottom-inset))] z-40 flex justify-center md:hidden">
         <Button
-          onClick={() => setDialogOpen(true)}
+          onClick={openCreateDialog}
           className="pointer-events-auto gap-2 rounded-full shadow-lg"
         >
           <Plus className="h-4 w-4" />
@@ -513,6 +529,7 @@ export default function AppointmentsPage() {
         onOpenChange={(o) => { setDialogOpen(o); if (!o) setBookingPatientId(undefined) }}
         defaultDate={selectedDate}
         defaultTime={selectedDate ? `${String(selectedDate.getHours()).padStart(2, '0')}:${String(selectedDate.getMinutes()).padStart(2, '0')}` : undefined}
+        defaultDurationMinutes={selectedDurationMinutes}
         defaultPatientId={bookingPatientId}
         onSuccess={handleAppointmentCreated}
       />

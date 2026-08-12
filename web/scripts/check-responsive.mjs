@@ -368,6 +368,58 @@ check(
 );
 
 check(
+  "agenda-gestures",
+  "G1",
+  "The agenda's drag gestures can still identify the cells they act on",
+  "The two grid gestures resolve their target through the DOM — `elementFromPoint` then `dataset` — because a " +
+    "week grid has 168 cells and a move may cross day columns, so per-cell handlers are neither affordable nor " +
+    "able to answer « the pointer is over no cell at all ». That makes the attributes a **contract between two " +
+    "files that nothing type-checks**: `agenda-grid-drag.ts` reads `dataset.agendaDay`/`agendaHour`, and " +
+    "`appointment-calendar.tsx` has to emit them. Rename either side, or add a third grid branch and forget the " +
+    "props, and `tsc` is silent, the build is clean, the grid looks perfect and **dragging simply stops doing " +
+    "anything** — the exact shape of defect this gate exists for. The `data-time-slot` half is older and worse " +
+    "to lose: the « maintenant » line and the opening scroll both find their row with it.",
+  () => {
+    const hookFile = ALL_FILES.find((f) => rel(f) === "components/agenda-grid-drag.ts");
+    const gridFile = ALL_FILES.find((f) => rel(f) === "components/appointment-calendar.tsx");
+    // Derived, not listed: a renamed or split file reports rather than passing on a file that is not there.
+    if (!hookFile || !gridFile) {
+      return [{ file: hookFile ? "components/appointment-calendar.tsx" : "components/agenda-grid-drag.ts", line: 0, text: "missing", full: "a file this check guards is gone — retarget or retire the check" }];
+    }
+
+    const hook = read(hookFile);
+    const grid = read(gridFile);
+    const hits = [];
+
+    // The required attributes are READ OUT OF THE HOOK, so a new `dataset.x` is covered the day it is written.
+    const required = [...new Set([...hook.matchAll(/\.dataset\.([A-Za-z][A-Za-z0-9]*)/g)].map((m) => m[1]))];
+    for (const key of required) {
+      const attr = `data-${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
+      if (!grid.includes(`"${attr}"`)) {
+        hits.push({ file: rel(gridFile), line: 0, text: attr, full: `read as \`dataset.${key}\` in agenda-grid-drag.ts but never emitted — the gesture cannot resolve a cell` });
+      }
+    }
+
+    // `data-time-slot` is consumed by this file's own DOM queries, so both halves live here and must agree.
+    if (/\[data-time-slot/.test(grid) && !grid.includes('"data-time-slot"')) {
+      hits.push({ file: rel(gridFile), line: 0, text: "data-time-slot", full: "queried by the « maintenant » line and the opening scroll, but no longer emitted" });
+    }
+
+    /*
+     * A cell that starts a gesture must also be identifiable by it. Counting the two against each other is what
+     * makes a THIRD grid branch safe: Jour and Semaine render the hour cell from separate branches today, and
+     * whichever one forgot the props would lose the gesture silently in that view alone.
+     */
+    const starters = (grid.match(/beginCellGesture\(/g) ?? []).length;
+    const labelled = (grid.match(/\{\.\.\.cellDataProps\(/g) ?? []).length;
+    if (starters !== labelled) {
+      hits.push({ file: rel(gridFile), line: 0, text: `${starters} gesture cell(s), ${labelled} labelled`, full: "every cell that calls `beginCellGesture` must spread `cellDataProps` — a branch with one and not the other drags nowhere" });
+    }
+    return hits;
+  }
+);
+
+check(
   "header-orphans",
   "P2",
   "dashboard-header.tsx has no orphaned drawer-trigger symbols",
