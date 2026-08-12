@@ -184,6 +184,152 @@ public class KeyRingProtectionTests
         Assert.Contains("Path", ex.Message, StringComparison.Ordinal);
     }
 
+    // ---- FR-3.1 delivery: the same certificate, handed over as base64 --------------------------
+    //
+    // Why these exist: CertificatePath assumes a file mount, and a managed platform (Render, Fly, App Service)
+    // hands a process environment variables. A `.pfx` pasted into a text-only "secret file" arrives corrupted and
+    // a PEM loads with no private key, so without this route the deployment simply cannot start — which is what
+    // happened on the first hosted deploy of this branch.
+
+    /// <summary>The bytes of a real PKCS#12 with a private key, base64-encoded.</summary>
+    private static string CertificateBase64(int daysValid = 3650)
+    {
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest(
+            "CN=base64-active", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var certificate = request.CreateSelfSigned(
+            new DateTimeOffset(Now.AddDays(-1)), new DateTimeOffset(Now.AddDays(daysValid)));
+
+        return Convert.ToBase64String(certificate.Export(X509ContentType.Pkcs12));
+    }
+
+    [Fact]
+    public void A_Base64_Certificate_Is_Loaded_And_Also_Decrypts() // [FR-3.1]
+    {
+        var resolution = KeyRingProtectionCertificates.Resolve(
+            Config((KeyRingProtectionCertificates.CertificateBase64Key, CertificateBase64())), Now);
+
+        Assert.True(resolution.IsConfigured);
+        Assert.True(resolution.Active!.HasPrivateKey);
+        // The active certificate leads the decryptor set, exactly as on the file route — otherwise the ring
+        // writes keys it cannot read back after a restart.
+        Assert.Same(resolution.Active, resolution.Decryptors[0]);
+    }
+
+    // A dashboard that soft-wraps a ~3 KB value must not turn a perfectly good certificate into « illisible ».
+    [Fact]
+    public void A_Base64_Certificate_Survives_The_Wrapping_A_Dashboard_Adds() // [FR-3.1]
+    {
+        var wrapped = string.Join("\n", Chunk(CertificateBase64(), 64));
+
+        var resolution = KeyRingProtectionCertificates.Resolve(
+            Config((KeyRingProtectionCertificates.CertificateBase64Key, wrapped)), Now);
+
+        Assert.True(resolution.IsConfigured);
+
+        static IEnumerable<string> Chunk(string value, int size)
+        {
+            for (var i = 0; i < value.Length; i += size)
+            {
+                yield return value.Substring(i, Math.Min(size, value.Length - i));
+            }
+        }
+    }
+
+    // ⚠️ The case this pair exists for: naming two certificates for one role is an operator holding two
+    // intentions, and honouring one silently is how a deployment encrypts under a key nobody is backing up.
+    [Fact]
+    public void Naming_Both_A_Path_And_Base64_Refuses_Rather_Than_Choosing() // [FR-3.1]
+    {
+        using var dir = new TempDir();
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            KeyRingProtectionCertificates.Resolve(
+                Config(
+                    (KeyRingProtectionCertificates.CertificatePathKey, WriteCertificate(dir.Path, "active")),
+                    (KeyRingProtectionCertificates.CertificateBase64Key, CertificateBase64())),
+                Now));
+
+        Assert.Contains(KeyRingProtectionCertificates.CertificatePathKey, ex.Message, StringComparison.Ordinal);
+        Assert.Contains(KeyRingProtectionCertificates.CertificateBase64Key, ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Base64_Value_That_Is_Not_Base64_Refuses_And_Says_How_To_Encode() // [FR-3.1]
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            KeyRingProtectionCertificates.Resolve(
+                Config((KeyRingProtectionCertificates.CertificateBase64Key, "obviously-not-base64!!")), Now));
+
+        Assert.Contains(KeyRingProtectionCertificates.CertificateBase64Key, ex.Message, StringComparison.Ordinal);
+        Assert.Contains("base64", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // The load-bearing one: the base64 route must not be a laxer door into the same ring. A certificate with no
+    // private key is refused identically to the file route, which is what stops a deployment writing keys it
+    // could never read back.
+    [Fact]
+    public void A_Base64_Certificate_With_No_Private_Key_Refuses_Like_The_File_Route() // [FR-3.1]
+    {
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest(
+            "CN=public-only", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var certificate = request.CreateSelfSigned(
+            new DateTimeOffset(Now.AddDays(-1)), new DateTimeOffset(Now.AddDays(365)));
+
+        var publicOnly = Convert.ToBase64String(certificate.Export(X509ContentType.Cert));
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            KeyRingProtectionCertificates.Resolve(
+                Config((KeyRingProtectionCertificates.CertificateBase64Key, publicOnly)), Now));
+
+        Assert.Contains("clé privée", ex.Message, StringComparison.Ordinal);
+    }
+
+    // FR-3.2 rotation has to be reachable on the same platforms, or the base64 route is a one-way door.
+    [Fact]
+    public void A_Retained_Generation_May_Be_Supplied_As_Base64() // [FR-3.2]
+    {
+        using var dir = new TempDir();
+
+        var resolution = KeyRingProtectionCertificates.Resolve(
+            Config(
+                (KeyRingProtectionCertificates.CertificatePathKey, WriteCertificate(dir.Path, "active")),
+                ($"{KeyRingProtectionCertificates.PreviousCertificatesSection}:0:Base64", CertificateBase64())),
+            Now);
+
+        Assert.Equal(2, resolution.Decryptors.Count);
+        Assert.All(resolution.Decryptors, c => Assert.True(c.HasPrivateKey));
+    }
+
+    [Fact]
+    public void A_Retained_Generation_Naming_Both_Forms_Refuses() // [FR-3.2]
+    {
+        using var dir = new TempDir();
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            KeyRingProtectionCertificates.Resolve(
+                Config(
+                    (KeyRingProtectionCertificates.CertificatePathKey, WriteCertificate(dir.Path, "active")),
+                    ($"{KeyRingProtectionCertificates.PreviousCertificatesSection}:0:Path",
+                        WriteCertificate(dir.Path, "previous")),
+                    ($"{KeyRingProtectionCertificates.PreviousCertificatesSection}:0:Base64", CertificateBase64())),
+                Now));
+
+        Assert.Contains("Base64", ex.Message, StringComparison.Ordinal);
+    }
+
+    // The other direction: neither key set is still « pas de certificat », not a refusal — a Windows install
+    // protects the ring with DPAPI and configures neither.
+    [Fact]
+    public void Neither_Delivery_Route_Configured_Is_Still_Not_Configured() // [FR-3.1]
+    {
+        var resolution = KeyRingProtectionCertificates.Resolve(Config(), Now);
+
+        Assert.False(resolution.IsConfigured);
+        Assert.Empty(resolution.Decryptors);
+    }
+
     // No certificate configured at all is the pre-FR-3.1 state and stays legal on the profiles that do not
     // require one — the Windows install protects the same ring with DPAPI instead.
     [Fact]

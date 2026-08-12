@@ -32,6 +32,29 @@ public static class KeyRingProtectionCertificates
     /// <summary>PKCS#12 file protecting the key ring. Its password key is <see cref="CertificatePasswordKey"/>.</summary>
     public const string CertificatePathKey = "DataProtection:CertificatePath";
 
+    /// <summary>
+    /// The same PKCS#12, base64-encoded, for a platform that has no way to put a <b>binary</b> file in front of
+    /// the container (FR-3.1, delivery only — the guarantee is unchanged).
+    ///
+    /// <para><b>Why this exists.</b> <see cref="CertificatePathKey"/> assumes a file mount, which the compose
+    /// deployments have and a managed platform generally does not: Render, Fly and App Service all hand secrets to
+    /// a process as <b>environment variables</b>, and their "secret file" features store text — so a `.pfx` pasted
+    /// into one arrives corrupted, and a PEM loads with no private key and is refused one check later. Without
+    /// this key the only remaining routes are a persistent disk plus shell access, or a shell step in the image
+    /// that decodes the certificate before the app starts. Both put the deployment's most sensitive material
+    /// through more moving parts than reading one setting does.</para>
+    ///
+    /// <para>⚠️ <b>It weakens nothing.</b> The bytes take the identical path — same PKCS#12 parse, same
+    /// private-key requirement, same refusal to start when unusable. What changes is where the bytes come from,
+    /// and an environment variable holding a password-protected PKCS#12 is not more exposed than a file the same
+    /// process must be able to read. <see cref="CertificatePasswordKey"/> still applies, and still should be set.</para>
+    ///
+    /// <para>⚠️ <b>Setting both this and <see cref="CertificatePathKey"/> is refused rather than resolved by
+    /// precedence.</b> Two certificates named for one role is an operator holding two intentions, and silently
+    /// honouring one of them is how a deployment ends up encrypting under a key its operator is not backing up.</para>
+    /// </summary>
+    public const string CertificateBase64Key = "DataProtection:CertificateBase64";
+
     /// <summary>Password for <see cref="CertificatePathKey"/>. Empty is legitimate for an unprotected PKCS#12.</summary>
     public const string CertificatePasswordKey = "DataProtection:CertificatePassword";
 
@@ -70,14 +93,29 @@ public static class KeyRingProtectionCertificates
     public static Resolution Resolve(IConfiguration configuration, DateTime nowUtc)
     {
         var activePath = configuration[CertificatePathKey];
+        var activeBase64 = configuration[CertificateBase64Key];
+        var hasPath = !string.IsNullOrWhiteSpace(activePath);
+        var hasBase64 = !string.IsNullOrWhiteSpace(activeBase64);
 
-        if (string.IsNullOrWhiteSpace(activePath))
+        if (hasPath && hasBase64)
+        {
+            throw new InvalidOperationException(
+                $"{CertificatePathKey} et {CertificateBase64Key} sont tous deux renseignés. Un seul certificat "
+                + "peut protéger le trousseau : choisir l'un des deux silencieusement reviendrait à chiffrer "
+                + "sous une clé dont l'exploitant sauvegarde peut-être l'autre. Supprimez celui qui ne sert pas "
+                + "— voir deploy/KEY-CUSTODY.md.");
+        }
+
+        if (!hasPath && !hasBase64)
         {
             return new Resolution(null, Array.Empty<X509Certificate2>(), Array.Empty<string>());
         }
 
         var warnings = new List<string>();
-        var active = Load(activePath, configuration[CertificatePasswordKey], "active", CertificatePathKey);
+        var password = configuration[CertificatePasswordKey];
+        var active = hasPath
+            ? Load(activePath!, password, "active", CertificatePathKey)
+            : LoadFromBase64(activeBase64!, password, "active", CertificateBase64Key);
 
         // The active certificate leads the decryptor set — see the ⚠️ on the class.
         var decryptors = new List<X509Certificate2> { active };
@@ -86,16 +124,34 @@ public static class KeyRingProtectionCertificates
         for (var i = 0; i < previous.Count; i++)
         {
             var path = previous[i]["Path"];
-            if (string.IsNullOrWhiteSpace(path))
+            var base64 = previous[i]["Base64"];
+            var role = $"génération retenue n° {i}";
+
+            // A retained generation gets the same two delivery routes as the active certificate, or rotation
+            // (FR-3.2) would be impossible on exactly the platforms CertificateBase64Key exists for.
+            if (!string.IsNullOrWhiteSpace(path) && !string.IsNullOrWhiteSpace(base64))
             {
                 throw new InvalidOperationException(
-                    $"{PreviousCertificatesSection}:{i} n'indique aucun « Path ». Une génération retenue sans "
-                    + "fichier ne déchiffre rien : indiquez le chemin du certificat précédent ou supprimez "
-                    + "l'entrée.");
+                    $"{PreviousCertificatesSection}:{i} indique à la fois « Path » et « Base64 ». Une génération "
+                    + "retenue est un seul certificat : n'en gardez qu'un.");
             }
 
-            decryptors.Add(Load(path, previous[i]["Password"], $"génération retenue n° {i}",
-                $"{PreviousCertificatesSection}:{i}:Path"));
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                decryptors.Add(Load(path, previous[i]["Password"], role,
+                    $"{PreviousCertificatesSection}:{i}:Path"));
+            }
+            else if (!string.IsNullOrWhiteSpace(base64))
+            {
+                decryptors.Add(LoadFromBase64(base64, previous[i]["Password"], role,
+                    $"{PreviousCertificatesSection}:{i}:Base64"));
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"{PreviousCertificatesSection}:{i} n'indique ni « Path » ni « Base64 ». Une génération "
+                    + "retenue sans certificat ne déchiffre rien : indiquez le précédent ou supprimez l'entrée.");
+            }
         }
 
         if (previous.Count > RecommendedRetainedGenerations)
@@ -137,23 +193,61 @@ public static class KeyRingProtectionCertificates
                 + "ni chiffrées ni relues — voir deploy/KEY-CUSTODY.md.");
         }
 
+        return FromBytes(File.ReadAllBytes(path), password, role, settingKey, $"« {path} »");
+    }
+
+    /// <summary>
+    /// The <see cref="CertificateBase64Key"/> route. Whitespace is stripped before decoding because an
+    /// environment variable carrying ~3 KB of base64 is routinely pasted wrapped, and a dashboard that folds it
+    /// would otherwise produce « illisible » for a certificate that is perfectly good.
+    /// </summary>
+    private static X509Certificate2 LoadFromBase64(string base64, string? password, string role, string settingKey)
+    {
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(new string(base64.Where(c => !char.IsWhiteSpace(c)).ToArray()));
+        }
+        catch (FormatException ex)
+        {
+            throw new InvalidOperationException(
+                $"Le certificat de protection du trousseau ({role}) n'est pas du base64 valide. Il est nommé par "
+                + $"{settingKey}. Encodez le fichier PKCS#12 entier : "
+                + "`base64 -w0 dataprotection.pfx` — voir deploy/KEY-CUSTODY.md. "
+                + $"Détail : {ex.Message}", ex);
+        }
+
+        return FromBytes(bytes, password, role, settingKey, "fourni en base64");
+    }
+
+    /// <summary>
+    /// The single parse, so a certificate delivered as a file and one delivered as base64 meet <b>identical</b>
+    /// checks — a second copy of « is this a PKCS#12 with a private key? » is how one route ends up laxer.
+    /// </summary>
+    private static X509Certificate2 FromBytes(
+        byte[] bytes, string? password, string role, string settingKey, string origin)
+    {
         X509Certificate2 certificate;
         try
         {
-            certificate = new X509Certificate2(File.ReadAllBytes(path), password);
+            certificate = new X509Certificate2(bytes, password);
         }
         catch (Exception ex)
         {
+            var passwordKey = settingKey.Contains("Base64", StringComparison.Ordinal)
+                ? settingKey.Replace("Base64", "Password", StringComparison.Ordinal)
+                : settingKey.Replace("Path", "Password", StringComparison.Ordinal);
+
             throw new InvalidOperationException(
-                $"Le certificat de protection du trousseau ({role}) est illisible : « {path} ». "
-                + $"Vérifiez qu'il s'agit d'un fichier PKCS#12 et que {settingKey.Replace("Path", "Password")} "
+                $"Le certificat de protection du trousseau ({role}) est illisible : {origin}. "
+                + $"Vérifiez qu'il s'agit d'un fichier PKCS#12 et que {passwordKey} "
                 + $"est correct. Détail : {ex.Message}", ex);
         }
 
         if (!certificate.HasPrivateKey)
         {
             throw new InvalidOperationException(
-                $"Le certificat de protection du trousseau ({role}) « {path} » ne contient pas de clé privée. "
+                $"Le certificat de protection du trousseau ({role}) {origin} ne contient pas de clé privée. "
                 + "La clé privée est ce qui permet de RELIRE le trousseau ; sans elle le déploiement écrirait "
                 + "des clés qu'il ne saurait plus déchiffrer au redémarrage suivant.");
         }
