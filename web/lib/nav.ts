@@ -1,4 +1,5 @@
 import {
+  ShieldCheck,
   BellRing,
   Calendar,
   ClipboardCheck,
@@ -120,6 +121,13 @@ export function buildConfigItems(isAdmin: boolean, showSubscription = true): Nav
     // caller that must never lose the row is `lib/zones.ts`, which builds the route→icon map and needs every
     // destination that can render — including this one, on the deployments where it does.
     ...(showSubscription ? [{ name: "Abonnement", href: "/abonnement", icon: CreditCard }] : []),
+    // `hosted-security-hardening` FR-1.5 — **outside the `isAdmin` branch, and unconditional across
+    // deployments.** A doctor or a secretary may enrol a second factor voluntarily anywhere, and this is the
+    // only screen where they can; gating it on the role would leave the two people most likely to want it with
+    // no way to reach it, and gating it on the deployment would do the same on the two profiles that require
+    // nothing of administrators. What the *deployment* decides is whether an admin may switch theirs off,
+    // which the page states in words.
+    { name: "Sécurité", href: "/securite", icon: ShieldCheck },
   ]
 }
 

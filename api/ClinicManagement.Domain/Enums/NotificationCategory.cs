@@ -49,5 +49,15 @@ public enum NotificationCategory
     /// dedupe key is therefore <see cref="Entities.StaffNotification.SubscriptionThresholdDays"/>, a real column
     /// rather than a message prefix.</para>
     /// </summary>
-    SubscriptionExpiring = 10
+    SubscriptionExpiring = 10,
+
+    /// <summary>
+    /// An administrator reset this account's second factor (<c>hosted-security-hardening</c> FR-1.4).
+    ///
+    /// <para>⚠️ <b>Targeted at the affected user, and it exists to make a quiet action loud.</b> Without it,
+    /// stripping a colleague's protection is a silent step a stolen admin session could take before signing in
+    /// as them. It stays <b>in-app</b> (and by e-mail): waking a dentist's lock screen adds nothing, because
+    /// the action they must take — enrol again — happens at the machine, at their next sign-in.</para>
+    /// </summary>
+    SecondFactorReset = 11
 }

@@ -85,6 +85,15 @@ if (args.Length > 0 && string.Equals(args[0], VerifySchemaCommand.CommandName, S
     return await VerifySchemaCommand.RunAsync(args);
 }
 
+// Reset one clinic account's second factor (hosted-security-hardening FR-1.4) — the third way back, for the
+// cabinet where nobody on site can act: no recovery code left and no second administrator. ⚠️ Without a branch
+// here the verb would boot the WEB HOST instead and read to an operator as « the command did nothing », which is
+// the trap SubscriptionVendorCommandReachabilityTests exists to catch.
+if (args.Length > 0 && string.Equals(args[0], ResetUserTotpConsoleCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await ResetUserTotpConsoleCommand.RunAsync(args);
+}
+
 // Restore a backup (L4g). A restore runs with the application STOPPED — it drops and recreates every table the
 // app holds open — so an endpoint inside the app being replaced is the wrong shape; this is the fourth verb of the
 // same family. It validates the folder, refuses while the app is listening, takes a safety dump of the current

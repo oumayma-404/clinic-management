@@ -141,4 +141,18 @@ public interface INotificationGenerator
     Task ReminderDeliveryFailedAsync(
         Guid clinicId, Guid? appointmentId, string patientName, string channel, string? reason,
         bool patientRequiresRecontact, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tells one user that an administrator reset their second factor
+    /// (<c>hosted-security-hardening</c> FR-1.4).
+    ///
+    /// <para>⚠️ <b>Targeted at that user alone</b>, unlike most rows here: it is a fact about their credential,
+    /// and broadcasting « le second facteur de X a été réinitialisé » to the whole practice would publish a
+    /// security event about one colleague to everybody.</para>
+    ///
+    /// <para>Its whole purpose is to make a quiet action loud — without it, stripping a colleague's protection
+    /// is a step a stolen admin session could take unobserved before signing in as them.</para>
+    /// </summary>
+    Task SecondFactorResetAsync(
+        Guid clinicId, string targetUserId, CancellationToken cancellationToken = default);
 }

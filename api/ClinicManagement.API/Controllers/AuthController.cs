@@ -9,6 +9,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Auth;
 using ClinicManagement.Application.Features.Auth.Commands;
+using ClinicManagement.Application.Features.Auth.Queries;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.API.Models;
 using ClinicManagement.Infrastructure.Auth;
@@ -269,6 +270,57 @@ public class AuthController : ApiControllerBase
         });
 
         return result.IsSuccess ? Ok(result) : RefuseAuth(result);
+    }
+
+    /// <summary>
+    /// « Sécurité » — this account's own second factor (FR-1.5). Reachable by <b>every</b> role: a doctor or a
+    /// secretary may enrol voluntarily on any deployment, and the screen is where they do it.
+    /// </summary>
+    [HttpGet("totp")]
+    public async Task<IActionResult> GetTotpState()
+    {
+        var result = await _mediator.Send(new GetTotpStateQuery());
+        return result.IsSuccess ? Ok(result) : HandleFailure(result);
+    }
+
+    /// <summary>Replaces every recovery code with a fresh set. Requires a current code, not just the session.</summary>
+    [HttpPost("totp/recovery-codes")]
+    public async Task<IActionResult> RegenerateRecoveryCodes([FromBody] TotpCodeRequest request)
+    {
+        var result = await _mediator.Send(new RegenerateRecoveryCodesCommand { TotpCode = request.TotpCode });
+        return result.IsSuccess ? Ok(result) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// Removes the second factor. Refused for an administrator <b>where the deployment requires one</b> — never
+    /// on the role alone, which would strand a voluntarily-enrolled admin on the other two profiles.
+    /// </summary>
+    // A POST and not a DELETE: it carries a body (the current code, which is what authorises it), and DELETE
+    // with a body is unevenly supported end to end — `apiDelete` in the web client sends none at all.
+    [HttpPost("totp/disable")]
+    public async Task<IActionResult> DisableTotp([FromBody] TotpCodeRequest request)
+    {
+        var result = await _mediator.Send(new DisableTotpCommand { TotpCode = request.TotpCode });
+        return result.IsSuccess ? Ok(new { }) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// Re-authenticates the signed-in user for one sensitive action (FR-1.8).
+    ///
+    /// <para>⚠️ It spends its <b>own</b> failure counter, never the login lockout: three wrong attempts refuse
+    /// this action with the session untouched, because the user is already signed in and doing ordinary work.</para>
+    /// </summary>
+    [HttpPost("step-up")]
+    public async Task<IActionResult> StepUp([FromBody] StepUpRequest request)
+    {
+        var result = await _mediator.Send(new StepUpCommand
+        {
+            Action = request.Action,
+            Password = request.Password,
+            TotpCode = request.TotpCode
+        });
+
+        return result.IsSuccess ? Ok(result) : HandleFailure(result);
     }
 
     /// <summary>Renders a refusal with the status its code carries.</summary>

@@ -182,6 +182,13 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         _inner.ReminderDeliveryFailedAsync(
             clinicId, appointmentId, patientName, channel, reason, patientRequiresRecontact, cancellationToken);
 
+    // Pass-through, like its neighbours above: `StaffNotificationRules.ReachesALockedPhone` answers false for
+    // this category, so there is nothing to fan out. Enrolling again happens at a keyboard on the next
+    // sign-in, which a lock-screen banner cannot make any more actionable.
+    public Task SecondFactorResetAsync(
+        Guid clinicId, string targetUserId, CancellationToken cancellationToken = default) =>
+        _inner.SecondFactorResetAsync(clinicId, targetUserId, cancellationToken);
+
     // ---- The fan-out ------------------------------------------------------------------------------
 
     /// <summary>

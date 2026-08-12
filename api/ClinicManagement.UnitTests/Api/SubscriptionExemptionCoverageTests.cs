@@ -51,6 +51,13 @@ public class SubscriptionExemptionCoverageTests
         // is still entitled to read.
         "Auth.EnrolTotp",
         "Auth.RedeemRecoveryCode",
+        // FR-1.10, and the same reason as the group above: an expired cabinet keeps every read, export and PDF
+        // by right (AC-4.1/4.2), and it reaches none of them if its people cannot get in. « Sécurité » is where
+        // a lost authenticator is re-secured and where a step-up is proved; refusing those on the entitlement
+        // would turn a lapsed subscription into a lockout from records the cabinet is still entitled to read.
+        "Auth.RegenerateRecoveryCodes",
+        "Auth.DisableTotp",
+        "Auth.StepUp",
 
         // --- Compute-only POSTs (AC-4.9): a POST for a read, each persisting nothing.
         "CnamNomenclature.GetReimbursementEstimates",   // an estimate per act row; a GET could not carry the list

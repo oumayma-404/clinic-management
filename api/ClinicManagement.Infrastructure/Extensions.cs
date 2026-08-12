@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Infrastructure.Auth;
@@ -172,6 +173,11 @@ public static class Extensions
         // one are not interchangeable. Registered here — inside AddInfrastructure — so the `reset-user-totp`
         // verb, whose container is this method alone, can resolve it.
         services.AddSingleton<IUserSecretProtector, UserSecretProtector>();
+        // ⚠️ SINGLETON, and the lifetime is load-bearing: a step-up confirmation is minted by one request and
+        // consumed by another, so a scoped registration builds a fresh store per request, the confirmation is
+        // never found, and EVERY guarded action refuses with a French « mot de passe incorrect » that is not
+        // incorrect — silently. See IStepUpConfirmations' own note.
+        services.AddSingleton<IStepUpConfirmations, StepUpConfirmations>();
 
         // The console's activity counters (platform-console Part 2). Registered unconditionally for the reason
         // above: the counter job runs on any deployment and its rows cost nothing where no console reads them,

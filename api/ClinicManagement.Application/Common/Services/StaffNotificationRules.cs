@@ -42,6 +42,9 @@ public static class StaffNotificationRules
         // AC-3.6: an accounting reminder is not time-critical to a person, and spending the OS's single
         // notification permission on one risks losing the five categories that are.
         NotificationCategory.SubscriptionExpiring => false,
+        // In-app only: what it asks for is done at a keyboard, at the next sign-in — a lock-screen banner
+        // would add urgency to something nobody can act on from the lock screen.
+        NotificationCategory.SecondFactorReset => false,
         // A new category does not silently start pushing. Deciding is the point — a default of `true` would put
         // an unreviewed message on a lock screen, and `false` would look like a decision nobody made.
         _ => throw new ArgumentOutOfRangeException(

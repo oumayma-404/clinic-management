@@ -464,6 +464,31 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task SecondFactorResetAsync(
+        Guid clinicId, string targetUserId, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.SecondFactorReset,
+                "Second facteur réinitialisé",
+                "Un administrateur a réinitialisé votre second facteur. Vous devrez en enrôler un nouveau à "
+                + "votre prochaine connexion. Si vous n'êtes pas à l'origine de cette demande, prévenez "
+                + "immédiatement votre administrateur.",
+                DateTime.UtcNow,
+                NotificationTargetKind.Security,
+                // ⚠️ A TARGET and no actor exclusion. The one person who must see this is the affected user —
+                // broadcasting « le second facteur de X a été réinitialisé » to the whole practice would
+                // publish a security event about one colleague to everybody.
+                actorUserId: null,
+                targetUserId: targetUserId);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
     // Resolves the post-visit target: the appointment's DoctorId → its linked User; any miss → null = all staff.
     // The rule itself lives in StaffNotificationRules, because the push fan-out must target the same person.
     private Task<string?> ResolveTargetUserIdAsync(Guid clinicId, Guid? doctorId, CancellationToken cancellationToken) =>
