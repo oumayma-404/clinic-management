@@ -57,6 +57,15 @@ public sealed class OutboxMessagingGate
     public string MonthKey => ClinicClock.MonthKey(_clinicToday);
 
     /// <summary>
+    /// The day the forfait renews — the first of the next Tunisian month, off the same <c>clinicToday</c> the whole
+    /// tick shares. Exposed so the parked row's sentence and the 100 % warning name <b>one</b> date rather than each
+    /// reading the clock again; two reads either side of Tunisian midnight would disagree.
+    ///
+    /// <para>⚠️ It is a fact about the <b>allowance</b>, never a promise about the held reminders (AC-4.2).</para>
+    /// </summary>
+    public DateTime RenewsOn => ClinicClock.FirstDayOfNextMonth(_clinicToday);
+
+    /// <summary>
     /// Null when the row may be sent, otherwise what to park it with. Nullable rather than a two-field verdict so a
     /// caller cannot read the reason of a decision that was « send ».
     /// </summary>
@@ -115,7 +124,7 @@ public sealed class OutboxMessagingGate
         {
             return new OutboxBlock(
                 OutboxBlockReason.MessagingAllowanceExhausted,
-                MessagingRefusals.ParkedExhausted(ClinicClock.FirstDayOfNextMonth(_clinicToday)));
+                MessagingRefusals.ParkedExhausted(RenewsOn));
         }
 
         return null;

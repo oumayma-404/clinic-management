@@ -460,6 +460,12 @@ public class NotificationJob
                 }
 
                 await SaveAsync(notification);
+
+                // Step 19, FR-6 — the thresholds are evaluated HERE, post-commit, rather than left to the daily
+                // pass: consumption can cross all three between two sends in one afternoon, and US-3 exists so a
+                // practice can ask for more *before* patients stop being reminded. A warning that arrives the next
+                // morning cannot do that. Best-effort in the strict sense — the send has already committed.
+                await AnnounceAllowanceThresholdsAsync(notification.ClinicId, countingRow, forfait.RenewsOn);
                 break;
 
             case ReminderSendOutcome.TransientFailure:
@@ -494,6 +500,47 @@ public class NotificationJob
                     OutboxBlockReason.ChannelUnconfigured,
                     $"Canal « {ChannelLabel(notification.Type)} » non configuré — identifiants manquants");
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Step 19, FR-6 — announces every 80/95/100 % threshold this send has just crossed, one genuinely new unread row
+    /// each (AC-3.1, AC-3.2).
+    ///
+    /// <para>⚠️ It runs <b>after</b> the send's commit and never inside it. <c>INotificationGenerator</c> swallows and
+    /// logs by contract, so a feed failure cannot cost a message that Meta has already accepted and that the vendor is
+    /// already paying for — the same rule every other post-commit side effect in this job follows.</para>
+    ///
+    /// <para>⚠️ It hands the generator the <b>threshold</b>, the allowance and the month rather than the live consumed
+    /// count (AC-3.5). The count changes on every send, so a message built from it would restate the row minutely and
+    /// make every open browser refetch.</para>
+    ///
+    /// <para>The daily pass re-checks the same thresholds (FR-6's reconciling writer) and withdraws the rows a grant
+    /// has made untrue (AC-3.6). Neither writer can duplicate the other: the dedupe key forbids it.</para>
+    /// </summary>
+    /// <param name="renewsOn">
+    /// The gate's own renewal day, so the parked row's sentence and this warning name one date — not two clock reads
+    /// that could fall either side of Tunisian midnight.
+    /// </param>
+    private async Task AnnounceAllowanceThresholdsAsync(
+        Guid? clinicId, ClinicMessagingMonth? countingRow, DateTime renewsOn)
+    {
+        if (clinicId is not { } id || countingRow is null)
+        {
+            // Nothing the forfait meters — a non-WhatsApp row, a row with no cabinet, a deployment that does not sell
+            // vendor messaging, or a cabinet with no allowance record (which the gate has already refused, AC-4.3).
+            return;
+        }
+
+        foreach (var threshold in MessagingAllowanceThresholds.Crossed(
+                     countingRow.ConsumedMessages, countingRow.AllowanceMessages))
+        {
+            await _notificationGenerator.EnsureMessagingAllowanceWarningAsync(
+                id,
+                countingRow.MonthKey,
+                threshold,
+                countingRow.AllowanceMessages,
+                renewsOn);
         }
     }
 

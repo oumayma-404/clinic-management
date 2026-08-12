@@ -423,6 +423,153 @@ file are in its doc comment.
 
 ---
 
+## Story 1 — Part 2
+
+**Session scope, chosen by the user:** Part **2** alone. Parts 3–5 are later sessions.
+
+**Branch:** `feature/windows-desktop-app`, continued.
+
+### Working tree note (start of session)
+
+Clean apart from two untracked items excluded from every commit, as unrelated work by another author:
+`features/hosted-security-hardening/`, `features/landing-website/agent-prompt.md`. Nothing was staged with
+`git add -A`.
+
+⚠️ **The dev database is ahead of this branch.** `clinic-postgres`'s `clinic_management` carries
+`20260812103207_AddUserSecondFactorAndSessionFamilies`, which does **not** exist in this tree — another author's
+in-flight migration. It affected nothing here (`verify-schema` reports only model→catalog *omissions*, so their extra
+objects are invisible to it), but it is the reason the before/after diff below is not a clean-room rehearsal.
+
+---
+
+## Part 2 — The practice sees what it has left and is warned before it runs out ✅
+
+| Step | Outcome |
+|---|---|
+| 16 · The two reads | ✅ `GetReminderAllowanceQuery` · `GetReminderAllowanceHistoryQuery` (floored per D-5) · `ReminderAllowanceDto`/`…MonthDto`/`…HistoryDto` · **`MessagingSenderState` + `MessagingSender.From/Label`** · `WhatsAppTemplateStatus` (Part 0's undelivered enum) |
+| 17 · Exposed | ✅ `GET /api/clinics/reminder-allowance` + `…/history`, **`AnyClinicRole`**, 404 **before the mediator** on `!SellsVendorMessaging` |
+| 18 · Thresholds + the pair | ✅ `MessagingAllowanceThresholds.Crossed` (**all** crossed, FR-6) · `StaffNotification.MessagingThresholdPercent`/`MessagingAllowanceMonth` + `ForMessagingAllowance` · `IStaffNotificationRepository.GetMessagingWarningAsync`/`GetMessagingWarningsAsync` · `INotificationGenerator.EnsureMessagingAllowanceWarningAsync`/`ClearMessagingAllowanceWarningsAsync` · migration `20260812131227_AddMessagingAllowanceWarningColumns` |
+| 19 · Announced where the counter moves | ✅ `NotificationJob.AnnounceAllowanceThresholdsAsync`, post-commit on the `Sent` branch, taking the gate's own `RenewsOn` |
+| 20 · The daily pass | ✅ `MessagingAllowanceJob` — provision **first**, then reconcile; `Cron.Daily(5)`, capability-gated with `RemoveIfExists` in the else; « today » a parameter; one try/catch **per cabinet per duty** (R-9) |
+| 21 · US-5 | ✅ `RecallDispatchOutcome.MessagingAllowanceExhausted` · `ReminderScheduler`'s enqueue branch (WhatsApp-only ⇒ refuse; SMS also sendable ⇒ enqueue both) · `SendRecallCommand` reusing `MessagingRefusals.RecallExhausted` |
+| 22 · Clinic surface | ✅ `web/lib/api/reminder-allowance.ts` · `messaging-allowance-card.tsx` · `messaging-allowance-history.tsx`, mounted in `app/rappels/page.tsx` behind a tri-state availability probe |
+| 23 · AC-4.9 | ✅ `ReminderStatusDto.BlockReason` (the enum member's own name) · `ReminderLogCounts.HeldByAllowance` + `ReminderLogDto.HeldByAllowance` · the « en attente de forfait » line + the per-row hold-kind badge |
+
+⚠️ **One reconciling call, not two, and it is the shape the two withdrawal criteria share.**
+`ClearMessagingAllowanceWarningsAsync(clinicId, keepMonthKey, keepThresholds)` withdraws everything the cabinet no
+longer meets: a grant shrinks `keepThresholds` (AC-3.6) and a rollover changes `keepMonthKey` (AC-3.7). Two methods
+would be two obligations at every writer — the `fixes-dont-propagate` shape — and the *keep* framing is what preserves
+the read markers on a row still true, which a clear-and-re-ensure would destroy.
+
+⚠️ **The 100 % wording and `MessagingRefusals` are held to AC-4.2 by a test, not by eye.**
+`No_Sentence_Promises_That_Held_Reminders_Go_Out_At_The_Rollover` asserts over the produced rows *and* all three
+refusal strings that none says « partiront le », « dès le renouvellement » or « au renouvellement ». The remedy every
+one of them offers is the **top-up**; the renewal date is stated as a fact about the forfait.
+
+### Deviations
+
+#### DEV-5: Part 2 carries its own migration; the plan's « Migration 1 » is split by part
+**Date:** 2026-08-12 · **Story:** 1 (Part 2, step 18) · **Category:** Scope
+
+**Original plan:** Migration 1 (`AddClinicMessagingAllowances`) bundles the two tables, the two `StaffNotifications`
+columns **and** Part 4's four `ClinicReminderSettings` template columns.
+
+**Actual implementation:** Part 1 shipped the two tables alone (already committed), so Part 2 adds
+`AddMessagingAllowanceWarningColumns` for its own two columns and Part 4 will add its four.
+
+**Justification:** Forced rather than chosen — Part 1 is committed. It is also consistent with the plan's own wording:
+step 40 and the exit criteria say « before and after the migration **batch** », which already anticipates more than one.
+A part cannot ship a column it does not write, and shipping Part 4's four now would put four unwritten columns in the
+schema for two parts.
+
+**Impact:** Part 5's before/after diff covers the batch, as planned. `verify-schema` needs no change: it diffs
+indexes, FKs and decimal precisions, and this migration adds none.
+
+**Approved:** Implemented and flagged; grounded in the plan's own « batch » wording.
+
+#### DEV-6: `MessagingSender.From` takes a **nullable** template status
+**Date:** 2026-08-12 · **Story:** 1 (Part 2, step 16) · **Category:** Technical
+
+**Original plan:** « Add `MessagingSenderState` so AC-1.4's five states have one derivation », from
+`(WhatsAppConnectionStatus, WhatsAppTemplateStatus)`.
+
+**Actual implementation:** `From(connection, WhatsAppTemplateStatus? template)`, where **null means « this deployment
+does not track a per-cabinet template yet »** and the connection alone decides.
+
+**Justification:** The four template columns arrive in Part 4 (§ 33), so before then the answer is genuinely
+*unknown* — not `NotSubmitted`. Defaulting to `NotSubmitted` would report « en attente de validation » for every
+cabinet that is sending perfectly well today on the install's own pre-approved template: a statement about us,
+rendered as a statement about them, which is the AC-2.4 mistake one field over. The five states are all derived now,
+so Part 4 supplies a **value** rather than a second rule.
+
+**Impact:** Part 4 passes the stored status and the null branch stops being reachable for a connected cabinet.
+`Connected_Is_Never_Ready_While_The_Template_Is_Not` already pins all ten (connection × template) combinations.
+
+**Approved:** Implemented and flagged.
+
+#### DEV-7: `senderNumber` is always null, and says why
+**Date:** 2026-08-12 · **Story:** 1 (Part 2, step 16) · **Category:** Technical
+
+**Original plan:** The spec's endpoint contract carries `"senderNumber": "+216 •• ••• •12" | null`.
+
+**Actual implementation:** The field exists on the DTO and is **always null**.
+
+**Justification:** Nothing in the product stores a cabinet's WhatsApp **number** — onboarding keeps Meta's
+`phone_number_id`, which is an opaque id. Masking an id into something shaped like a phone number would be an invented
+fact on the one screen whose whole job is to state what is true. The field stays on the wire (a stable null, the
+`PlatformSubscriptionPlaceholder` precedent) so Part 4 can fill it once it reads the number back from Meta.
+
+**Impact:** The card renders no number today. Part 4 populates it.
+
+**Approved:** Implemented and flagged.
+
+### Auto-approved deviations
+
+| Deviation | Classification | Reason |
+|---|---|---|
+| `OutboxMessagingGate.RenewsOn` added | Trivial-adjacent (a new member on a Part-1 class of this feature) | The parked sentence and the 100 % warning must name **one** date. Without it the job would read the clock a second time, and two reads either side of Tunisian midnight disagree. It also removes the inline `FirstDayOfNextMonth` call the gate already had. |
+| `ClinicClock.ClinicToday()` threaded into `MessagingAllowanceJob.MayBeWarnedAsync` | Trivial | Same one-clock-per-pass rule the job already applies to its month key. |
+| The three throwing `IStaffNotificationRepository` members in `SubscriptionWarningTests`' fake | Trivial | Required to compile, and *throwing* is that fake's own documented rule (« everything else throws »), which a subscription warning reaching a messaging read would violate. |
+| `ReminderSchedulerTests`' harness gains two mocks | Trivial | A constructor change on an existing service; `SellsVendorMessaging` is stubbed **false** so those fixtures stay byte-for-byte the pre-Part-2 recall path. |
+
+### Part 2 gate
+
+| Check | Result |
+|---|---|
+| `dotnet build` (`--no-incremental`, `BaseOutputPath` outside the repo) | ✅ **0 errors**, 55 warnings — the identical pre-existing baseline, **0 in changed files** (the only hit under a changed filename is `Program.cs:462`, Hangfire's obsolete `UsePostgreSqlStorage`, ~540 lines from the edit) |
+| Unit suite (`-c Release`, outside the repo) | ✅ **2939 passed / 0 failed** (2886 before Part 2; **53 new**) |
+| `MessagingAllowanceWarningTests` | ✅ 20 — three thresholds from one jump are **three** rows with three ids (AC-3.1/3.2); a zero allowance yields the 100 % row alone; a grant withdraws what is no longer met and **keeps the id** of what is (AC-3.6); a rollover withdraws last month's and **re-arms** (AC-3.7); an expired cabinet is not warned; the capability off reads **nothing at all**; provisioning from the **fold** (not the policy default); no row for a cabinet with no ledger (AC-4.3); a drifted snapshot rewritten (R-6); a failing warning pass **cannot cost the counting row** (R-9) |
+| `ReminderAllowanceQueryTests` | ✅ 22 — the three-way « 0 rappel envoyé » / « non mesuré » / failed-read distinction; remaining floored at 0 over a cancellation; the contact route **absent, not empty**; the D-5 floor in both directions (pre-rollout months omitted, a gap **inside** the range still « non mesuré »); a past month showing the allowance in force **then**; all ten (connection × template) states |
+| `RecallMessagingRefusalTests` | ✅ 11 — WhatsApp-only + spent ⇒ refused and **nothing queued** (AC-5.1); SMS also sendable ⇒ **both** rows queued and no refusal (AC-5.3); a cabinet with **no** counting row is *not* refused as exhausted (AC-4.3's mirror at enqueue); the patient left untouched (AC-5.2); the two refusals read differently (AC-5.4) |
+| **Red-proof, executed** | ✅ Two deliberate defects — `Crossed` returning only the largest, and the reconciliation ignoring `keepThresholds` — turned **7** cases red including all four headline ones, then were reverted and the suite re-run green (118 messaging tests) |
+| `verify-schema` **before** | exit **0** — « schema matches the model » |
+| `verify-schema` **after** | exit **0** — « schema matches the model » |
+| The **diff** | ✅ **only the generated timestamp**. Expected and correct: this migration adds two **nullable** columns and no index, FK or decimal, which is precisely the set `verify-schema` diffs. It is not a null result — it is the gate confirming the migration moved nothing it can see. |
+| Migration applied for real | ✅ `MessagingAllowanceMonth varchar(7) NULL` + `MessagingThresholdPercent integer NULL`, **both with no `column_default`** — read back out of `information_schema` |
+| `reconcile-money` | ✅ exit **0**, no drift. ⚠️ **After only.** The migration touches `StaffNotifications` alone — no money table — so there was nothing it could move, but the prescribed before/after pair is again only half-satisfied for this verb (the same note Part 1 carries). |
+| `web`: `npx tsc --noEmit` | ✅ clean |
+| `web`: `npm run check:responsive` | ✅ **15/15** |
+| `web`: `npm run build` | ✅ compiled; `/rappels` 13.2 kB |
+| Responsive eye pass at 320/390/820/1180/1440 px | ⚠️ **Not done — no browser automation on this machine** (`agent-browser` is not installed). Fell back to the mechanical gate plus a re-read of the frontend diff against `DEVICE-CONTRACT.md` § 1, which **found a real defect** — see below. It remains owed. |
+
+⚠️ **The diff re-read earned its keep: two adjacent `.touch-target` contact links.** AC-2.7's e-mail and phone were
+inline in a paragraph separated by « · », each carrying `.touch-target` — which overlays a 44 px hit area **without
+repainting**, so their overlays overlapped and the later sibling, painted last, would steal taps aimed at the first.
+That is § 2's named wrong-action bug, and no mechanical check can see it. They are their own `flex flex-wrap` row now
+with real `coarse:min-h-11` boxes and a `gap-x-4`, so the hit areas cannot overhang each other.
+
+⚠️ **`WhatsAppConnectionStatus.Error` has no writer anywhere in the product** — `ApplyWhatsAppConnection` and
+`ClearWhatsAppConnection` are the only mutators and neither sets it. So `MessagingSenderState.Suspended` is
+unreachable in production until Part 4's Meta classification writes it. Derived and tested now; noted so nobody reads
+the state as live.
+
+### Still owed for Part 2
+
+- [ ] The **responsive eye pass** at 320/390/820/1180/1440 px + a landscape phone + a keyboard walk on `/rappels`
+- [ ] `reconcile-money` **before** a migration batch, so the prescribed pair is whole (a Part 5 concern now)
+
+---
+
 ## Verification owed before Story 0 closes
 
 - [ ] `dotnet build` clean + the two Meta test classes green (`WhatsAppOnboardingServiceTests`,

@@ -997,6 +997,26 @@ try
         RecurringJob.RemoveIfExists("warn-subscription-expiry");
     }
 
+    // The WhatsApp reminder forfait's daily pass (vendor-whatsapp-messaging-quota D-2) — provision each cabinet's
+    // counting row for the current Tunisian month, then reconcile the three warnings. Registered ONLY where the
+    // deployment sells vendor messaging (EC-16), on SubscriptionWarningJob's precedent: elsewhere there is no forfait
+    // to provision and the pass could only ever loop over cabinets it must not touch. Not connectivity-gated — one
+    // duty writes a database row and the other writes the in-app feed. 05:00 UTC = 06:00 Tunis: after the Tunisian
+    // month has genuinely turned (so a rollover withdrawal is not racing midnight) and before the clinic opens.
+    if (profile.SellsVendorMessaging)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.MessagingAllowanceJob>(
+            "review-messaging-allowances",
+            job => job.ReviewMessagingAllowances(),
+            Cron.Daily(5));
+    }
+    else
+    {
+        // Defensively drop it, as the two jobs above do: an install reprofiled away from the hosted kind would
+        // otherwise keep a registration pointing at work it must no longer do.
+        RecurringJob.RemoveIfExists("review-messaging-allowances");
+    }
+
     // Google→App calendar sync never runs on a schedule: the recurring job and its GoogleCalendarSyncJob
     // class were removed as dead scaffolding. App→Google sync runs inline on appointment create/update, and
     // Google→App stays manual-only (GoogleCalendarController). Defensively drop any stale recurring

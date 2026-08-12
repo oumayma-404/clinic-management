@@ -55,7 +55,7 @@ graph TD
 | Story | Layer | Name | Status | Depends On | Blocks |
 |-------|-------|------|--------|------------|--------|
 | 0 | Spike | Embedded Signup version confirmation | **done** ✅ | – | 1 |
-| 1 | **Full** | Vendor-purchased WhatsApp messaging quota | **in-progress** — Parts 0 ✅ · 1 ✅ · 2–5 ⬜ | 0 | – |
+| 1 | **Full** | Vendor-purchased WhatsApp messaging quota | **in-progress** — Parts 0 ✅ · 1 ✅ · 2 ✅ · 3–5 ⬜ | 0 | – |
 
 > **Parts 0 and 1 landed on `feature/windows-desktop-app`** (`57cfd73`, `241dd0b`), at R-1's own split point. Part 0
 > gave `ClinicClock` the month concept it had none of and moved the two private copies into it; Part 1 shipped the
@@ -65,6 +65,17 @@ graph TD
 > [`../progress.md`](../progress.md) — two settled by the user (the `PlatformAccessAction` members deferred to Part 3;
 > no `PushLabel` for a category that never pushes) and two technical (the held-row bound keyed on `ScheduledFor`;
 > three fixtures corrected for AC-4.5a).
+
+> **Part 2 landed on the same branch.** The practice can now see its forfait, and it is warned at 80/95/100 % **when
+> each is crossed** rather than the next morning. Its two load-bearing decisions are worth knowing before Part 3
+> touches them: the withdrawal is **one reconciling call** (`keepMonthKey` + `keepThresholds`) because AC-3.6 and
+> AC-3.7 are the same operation from two sides, and the warning message is derived from the **threshold** rather than
+> the live count, so a threshold holding for days restates nothing. Suite **2886 → 2939** (53 new), and a red-proof
+> turned 7 of them red on two deliberate defects before reverting. Three deviations recorded, all in
+> [`../progress.md`](../progress.md): the migration batch split by part (DEV-5), a **nullable** template status in
+> `MessagingSender.From` (DEV-6), and `senderNumber` always null because nothing stores a cabinet's own number
+> (DEV-7). ⚠️ **The responsive eye pass is owed** — no browser automation here; the fallback diff re-read did catch a
+> real § 2 touch-target defect.
 
 > ✅ **Story 0 is closed, and it answered with a third outcome neither branch covered.** Meta's current Embedded
 > Signup version is **v4**; the 15 Oct 2026 deprecation names **v2 only**; we are on **v3**. Part 4 **§ 31 migrates

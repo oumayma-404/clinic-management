@@ -62,6 +62,15 @@ export interface ReminderStatusDto {
   status: ReminderDeliveryStatus;
   /** Why it failed — or, for a `blocked` row, why it cannot be sent. Both come off the row's one reason field. */
   failureReason: string | null;
+  /**
+   * **Why** a blocked row is blocked, machine-readably — the backend `OutboxBlockReason` member's own name. Null on
+   * every non-blocked row.
+   *
+   * ⚠️ Branch on **this**, never on `failureReason`'s French prose (AC-4.9). Recovering behaviour by matching a
+   * sentence is the `Contains("déjà facturée")` practice the backend deleted in `adoption-gaps-remediation`, and it
+   * would mean rewording a message silently changed what this screen does.
+   */
+  blockReason: string | null;
   scheduledAt: string;
   sentAt: string | null;
   /**
@@ -109,6 +118,13 @@ export interface ReminderLogDto {
    * like `pending`.
    */
   blocked: number;
+  /**
+   * How many of `blocked` are waiting on the WhatsApp reminder forfait rather than on a channel (AC-4.9).
+   *
+   * ⚠️ A **subset** of `blocked`, not a fifth status. It exists because « 12 bloqués » cannot tell a practice whether
+   * to configure a channel or ask us for more messages — two entirely different actions behind one number.
+   */
+  heldByAllowance: number;
 }
 
 /** Payload posted after a successful Meta Embedded-Signup run (Cloud onboarding). */

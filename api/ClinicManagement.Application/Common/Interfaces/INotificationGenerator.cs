@@ -111,6 +111,49 @@ public interface INotificationGenerator
     Task ClearSubscriptionWarningsAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Ensures the cabinet carries exactly one warning row for <paramref name="thresholdPercent"/> — 80, 95 or 100 % of
+    /// <paramref name="allowance"/> in <paramref name="monthKey"/> (<c>vendor-whatsapp-messaging-quota</c> AC-3.1).
+    /// Clinic-wide, no actor, deep-linking to « Rappels » (AC-3.3), and <b>never</b> an OS push (AC-3.4 — the category
+    /// is classified <c>false</c> in <c>StaffNotificationRules.ReachesALockedPhone</c>).
+    ///
+    /// <para><b>⚠️ Deduped per (cabinet, month, threshold)</b>, on <see cref="EnsureSubscriptionWarningAsync"/>'s
+    /// reasoning plus the month: three thresholds crossed in one afternoon must produce <b>three</b> unread rows, each
+    /// badging the bell, and next month's 80 % must be a new row rather than a duplicate of this month's.</para>
+    ///
+    /// <para><b>⚠️ The message is derived from the threshold, the allowance and the month — never from the live
+    /// consumed count</b> (AC-3.5). A count-bearing message differs on every send, so the ensure would restate the row
+    /// and make every open browser refetch on every WhatsApp reminder the cabinet sends.</para>
+    /// </summary>
+    /// <param name="resetsOn">
+    /// The day the forfait renews, named by the 100 % wording only. It is a fact about the <b>allowance</b> and must
+    /// never be presented as a promise that the held reminders go out then (AC-4.2) —
+    /// <c>MessagingRefusals</c> carries the same distinction for the parked rows.
+    /// </param>
+    Task EnsureMessagingAllowanceWarningAsync(
+        Guid clinicId, string monthKey, int thresholdPercent, int allowance, DateTime resetsOn,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Withdraws every WhatsApp-forfait warning the cabinet is carrying <b>except</b> the ones it still meets — the
+    /// thresholds in <paramref name="keepThresholds"/> for the month <paramref name="keepMonthKey"/>.
+    ///
+    /// <para><b>⚠️ One reconciling call rather than two, because AC-3.6 and AC-3.7 are the same operation seen from two
+    /// sides.</b> A grant that puts the cabinet back below a crossed threshold shrinks <c>keepThresholds</c>, so this
+    /// month's now-untrue rows go — the bell never asserts two states of one month. A month rollover changes
+    /// <c>keepMonthKey</c>, so <i>last</i> month's rows all go, which is what <b>re-arms</b> all three thresholds
+    /// (a cabinet busy in August and busy again in September is warned both times). Two methods would be two
+    /// call-site obligations at every writer, which is the <c>fixes-dont-propagate</c> shape.</para>
+    ///
+    /// <para>⚠️ It <b>keeps</b> the rows still met rather than clearing and re-ensuring: a rewritten row is a new row,
+    /// and its read markers do not survive. That is the whole reason this family deduplicates on a column.</para>
+    ///
+    /// <para>Pass <c>keepMonthKey: null</c> and an empty set to withdraw everything.</para>
+    /// </summary>
+    Task ClearMessagingAllowanceWarningsAsync(
+        Guid clinicId, string? keepMonthKey, IReadOnlyCollection<int> keepThresholds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ensures a "post-visit review" notification for an appointment matches its current state — created if
     /// missing, otherwise moved. It becomes visible at the appointment's end (<paramref name="appointmentEndUtc"/> =
     /// start + duration; deferred visibility). The target user is resolved from <paramref name="doctorId"/>

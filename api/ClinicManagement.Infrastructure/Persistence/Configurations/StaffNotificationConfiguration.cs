@@ -55,6 +55,13 @@ public class StaffNotificationConfiguration : IEntityTypeConfiguration<StaffNoti
         // rather than a French message prefix; no writer until Part E.
         builder.Property(n => n.SubscriptionThresholdDays);
 
+        // The (clinic, month, threshold) dedupe key for the three forfait warnings
+        // (vendor-whatsapp-messaging-quota FR-6). The month is bounded at AAAA-MM's own length rather than left
+        // unbounded: it is a key, not prose, and a 7-character column is what makes the lookup below a cheap one.
+        builder.Property(n => n.MessagingThresholdPercent);
+        builder.Property(n => n.MessagingAllowanceMonth)
+            .HasMaxLength(ClinicMessagingMonth.MonthKeyLength);
+
         builder.Property(n => n.CreatedAt)
             .IsRequired();
 

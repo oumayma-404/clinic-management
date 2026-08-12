@@ -51,6 +51,23 @@ public class StaffNotification : AggregateRoot<Guid>
     /// </summary>
     public int? SubscriptionThresholdDays { get; private set; }
 
+    /// <summary>
+    /// Which WhatsApp-forfait threshold this row announces — 80, 95 or 100 % (<c>vendor-whatsapp-messaging-quota</c>
+    /// FR-6). Written only by <see cref="ForMessagingAllowance"/>; null on every other category.
+    ///
+    /// <para>⚠️ Together with <see cref="MessagingAllowanceMonth"/> this is the <b>dedupe key</b> for « one genuinely
+    /// new unread row per threshold crossed » (AC-3.1, AC-3.2). Both halves are needed: the threshold alone would make
+    /// the next month's 80 % row a duplicate of this month's and it would never badge the bell again, which is exactly
+    /// the failure <see cref="SubscriptionThresholdDays"/> exists to avoid one entitlement over.</para>
+    /// </summary>
+    public int? MessagingThresholdPercent { get; private set; }
+
+    /// <summary>
+    /// The Tunisian month (<c>AAAA-MM</c>) the threshold was crossed in. The second half of the dedupe key, and what
+    /// lets the daily pass withdraw <i>last</i> month's rows while leaving this month's alone (AC-3.7).
+    /// </summary>
+    public string? MessagingAllowanceMonth { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
 
     private StaffNotification() { } // For EF Core
@@ -97,6 +114,36 @@ public class StaffNotification : AggregateRoot<Guid>
             id, clinicId, NotificationCategory.SubscriptionExpiring, title, message,
             effectiveFeedTimeUtc, NotificationTargetKind.Subscription);
         notification.SubscriptionThresholdDays = thresholdDays;
+        return notification;
+    }
+
+    /// <summary>
+    /// A WhatsApp-forfait warning for one crossed threshold (<c>vendor-whatsapp-messaging-quota</c> AC-3.1–3.3).
+    /// Clinic-wide with no actor and no target user: nobody « did » a quota being reached, and the practice as a whole
+    /// is who has to decide whether to ask for more.
+    ///
+    /// <para>A factory rather than two more constructor parameters, on <see cref="ForSubscription"/>'s reasoning: the
+    /// threshold and the month are meaningful for exactly one category, and optional arguments on the ctor would let
+    /// any of the other ten carry them.</para>
+    ///
+    /// <para>⚠️ It deep-links to <c>NotificationTargetKind.MessagingAllowance</c>, which carries <b>no id</b>: the
+    /// alert is about the clinic and everything it asks for is on « Rappels » (AC-3.3).</para>
+    /// </summary>
+    public static StaffNotification ForMessagingAllowance(
+        Guid id,
+        Guid clinicId,
+        string title,
+        string message,
+        DateTime effectiveFeedTimeUtc,
+        int thresholdPercent,
+        string monthKey)
+    {
+        var notification = new StaffNotification(
+            id, clinicId, NotificationCategory.MessagingAllowanceLow, title, message,
+            effectiveFeedTimeUtc, NotificationTargetKind.MessagingAllowance);
+        notification.MessagingThresholdPercent = thresholdPercent;
+        notification.MessagingAllowanceMonth = monthKey
+            ?? throw new ArgumentNullException(nameof(monthKey));
         return notification;
     }
 

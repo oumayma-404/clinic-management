@@ -18,7 +18,16 @@ namespace ClinicManagement.Domain.Repositories;
 /// counter the whole <c>Blocked</c> status exists to make visible: a queue that silently stops sending is the
 /// defect, so « N rappels bloqués » has to be a number on the page rather than a state only the database knows.</para>
 /// </summary>
-public record ReminderLogCounts(int SentToday, int Pending, int FailedRecent, int Blocked);
+/// <param name="HeldByAllowance">
+/// « En attente de forfait » — the blocked rows held by the WhatsApp reminder forfait rather than by a channel
+/// (<c>vendor-whatsapp-messaging-quota</c> AC-4.9).
+/// <para>⚠️ <b>A subset of <paramref name="Blocked"/>, not a fifth status.</b> Those rows are <c>Blocked</c> like any
+/// other and what tells them apart is <c>Notification.BlockedReason</c> — which is exactly why AC-4.9 asks for the
+/// <b>machine-readable</b> reason on the row. Counting it by matching the French sentence is the
+/// <c>Contains("déjà facturée")</c> practice this repo deleted: rewording a message would silently change the
+/// number.</para>
+/// </param>
+public record ReminderLogCounts(int SentToday, int Pending, int FailedRecent, int Blocked, int HeldByAllowance);
 
 /// <summary>
 /// How deep the reminder outbox is, for the operator read behind <c>GET /api/outbox</c> (multi-tenant-cloud US-6).

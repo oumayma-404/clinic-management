@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using MediatR;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Application.Features.Clinics.Queries;
+using ClinicManagement.Application.Features.Messaging.Queries;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.API.Models;
@@ -359,6 +360,56 @@ public class ClinicsController : ApiControllerBase
         }
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// « Forfait de rappels WhatsApp » — what this cabinet has left this Tunisian month (US-2, AC-2.1).
+    /// </summary>
+    /// <remarks>
+    /// <para><b><c>AnyClinicRole</c>, deliberately</b> (AC-2.2). Reception is who meets a refused « Relancer »
+    /// chairside, and this is the read that explains it — the same exception « Abonnement » makes, and for the same
+    /// reason: none of these figures is clinic revenue (FR-2).</para>
+    /// <para><b>404 <i>before</i> the mediator where the deployment does not sell vendor messaging</b> (AC-1.6,
+    /// EC-16), on <c>SubscriptionController</c>'s precedent — so on the other two deployment kinds the handler, its
+    /// repository and the allowance policy are never resolved. « Absent », not « present and refusing ».</para>
+    /// <para>⚠️ Gated on <c>SellsVendorMessaging</c> and <b>not</b> on whether the Meta credentials are configured:
+    /// an allowance a cabinet cannot yet spend is still a real allowance, and collapsing the two would make a
+    /// missing <c>Meta:AppId</c> look like a deployment that does not do this at all.</para>
+    /// </remarks>
+    [HttpGet("reminder-allowance")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<IActionResult> GetReminderAllowance(CancellationToken cancellationToken = default)
+    {
+        if (!_deployment.SellsVendorMessaging)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new GetReminderAllowanceQuery(), cancellationToken);
+
+        return result.IsSuccess ? Ok(result) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// The cabinet's consumption month by month — this Tunisian month and the twelve before it (AC-2.3).
+    /// </summary>
+    /// <remarks>
+    /// Same policy and same 404 as <see cref="GetReminderAllowance"/>. Months below the D-5 floor are
+    /// <b>omitted</b> rather than reported unmeasured, so a cabinet that predates the rollout is not told we failed
+    /// to count months that nobody was counting.
+    /// </remarks>
+    [HttpGet("reminder-allowance/history")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<IActionResult> GetReminderAllowanceHistory(CancellationToken cancellationToken = default)
+    {
+        if (!_deployment.SellsVendorMessaging)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new GetReminderAllowanceHistoryQuery(), cancellationToken);
+
+        return result.IsSuccess ? Ok(result) : HandleFailure(result);
     }
 
     /// <summary>

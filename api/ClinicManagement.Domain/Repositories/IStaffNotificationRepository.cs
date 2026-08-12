@@ -84,6 +84,27 @@ public interface IStaffNotificationRepository
         Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The cabinet's warning row for one WhatsApp-forfait threshold <b>in one Tunisian month</b>
+    /// (<c>vendor-whatsapp-messaging-quota</c> FR-6).
+    ///
+    /// <para>⚠️ Keyed on <b>(clinic, month, threshold)</b> — the month is what distinguishes this from
+    /// <see cref="GetSubscriptionWarningAsync"/>. Without it, next month's 80 % row would find this month's and never
+    /// be written, so the bell would badge for a cabinet's first busy month and never again (AC-3.2, AC-3.7).</para>
+    /// </summary>
+    Task<StaffNotification?> GetMessagingWarningAsync(
+        Guid clinicId, string monthKey, int thresholdPercent, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every WhatsApp-forfait warning the cabinet is carrying, optionally for one month only.
+    ///
+    /// <para>Read to withdraw them: for <b>one month</b> when a grant puts the cabinet back below a crossed threshold
+    /// (AC-3.6), and with <paramref name="monthKey"/> null to sweep the ones a <b>past</b> month left behind, which is
+    /// what re-arms all three thresholds at a rollover (AC-3.7).</para>
+    /// </summary>
+    Task<IReadOnlyList<StaffNotification>> GetMessagingWarningsAsync(
+        Guid clinicId, string? monthKey = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The viewer's due, unread post-visit review notifications (same unread predicate as
     /// <see cref="CountUnreadAsync"/>, restricted to the <c>PostVisitReview</c> category). Drives the popup.
     /// </summary>

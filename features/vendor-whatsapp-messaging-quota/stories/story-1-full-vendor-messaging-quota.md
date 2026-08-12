@@ -1,7 +1,7 @@
 # Story 1: FULL — Vendor-purchased WhatsApp messaging quota
 
 **Status:** APPROVED
-**Story Status:** in-progress — **Parts 0 and 1 done** (see [`../progress.md`](../progress.md)); Parts 2–5 outstanding
+**Story Status:** in-progress — **Parts 0, 1 and 2 done** (see [`../progress.md`](../progress.md)); Parts 3–5 outstanding
 **Layer:** **Full** (BE · jobs · console verbs · clinic UI · console UI) — see the departure note below
 **Depends On:** 0
 **Blocks:** None
@@ -41,24 +41,24 @@ _From spec:_
 - [ ] AC-1.7 the manual WhatsApp credential fields are **not offered** where it is available
 
 **US-2 — a cabinet sees what it has left** (Part 2)
-- [ ] AC-2.1 allowance / consumed / remaining for the current Tunisian month
-- [ ] AC-2.2 readable by **every** clinic role including a secretary
-- [ ] AC-2.3 the twelve preceding months with their allowance and consumption
-- [ ] AC-2.4 a quiet month reads « 0 rappel envoyé »; only a month with **no row** reads « non mesuré »; a month before
+- [x] AC-2.1 allowance / consumed / remaining for the current Tunisian month
+- [x] AC-2.2 readable by **every** clinic role including a secretary
+- [x] AC-2.3 the twelve preceding months with their allowance and consumption
+- [x] AC-2.4 a quiet month reads « 0 rappel envoyé »; only a month with **no row** reads « non mesuré »; a month before
       the cabinet existed is **not listed**
-- [ ] AC-2.5 a failed read renders as a failure with a retry, never an empty or zeroed table
-- [ ] AC-2.6 the section states SMS reminders are unaffected
-- [ ] AC-2.7 exhausted ⇒ says so, names the reset date, gives the vendor's contact from **operator config**; renders
+- [x] AC-2.5 a failed read renders as a failure with a retry, never an empty or zeroed table
+- [x] AC-2.6 the section states SMS reminders are unaffected
+- [x] AC-2.7 exhausted ⇒ says so, names the reset date, gives the vendor's contact from **operator config**; renders
       **no** contact route at all where unconfigured
 
 **US-3 — warned before it runs out** (Part 2)
-- [ ] AC-3.1 in-app notification at **80 / 95 / 100 %**, at the moment crossed; one row for **each** threshold crossed
-- [ ] AC-3.2 each threshold is one genuinely new unread row, so each badges the bell
-- [ ] AC-3.3 clinic-wide, no actor, no target user, deep-linking to « Rappels »
-- [ ] AC-3.4 **never** delivered as an OS push
-- [ ] AC-3.5 wording derived from threshold + allowance + month, never the live count
-- [ ] AC-3.6 a grant putting the cabinet below a crossed threshold **withdraws** those rows
-- [ ] AC-3.7 at a new month, the previous month's rows are withdrawn and all three thresholds re-armed
+- [x] AC-3.1 in-app notification at **80 / 95 / 100 %**, at the moment crossed; one row for **each** threshold crossed
+- [x] AC-3.2 each threshold is one genuinely new unread row, so each badges the bell
+- [x] AC-3.3 clinic-wide, no actor, no target user, deep-linking to « Rappels »
+- [x] AC-3.4 **never** delivered as an OS push
+- [x] AC-3.5 wording derived from threshold + allowance + month, never the live count
+- [x] AC-3.6 a grant putting the cabinet below a crossed threshold **withdraws** those rows
+- [x] AC-3.7 at a new month, the previous month's rows are withdrawn and all three thresholds re-armed
 
 **US-4 — stop rather than overspend, resume by themselves** (Part 1)
 - [ ] AC-4.1 fully consumed ⇒ the reminder is **held**, not sent and not failed, with a French reason
@@ -72,13 +72,13 @@ _From spec:_
 - [ ] AC-4.6 SMS for the same appointment is **unaffected**
 - [ ] AC-4.7 a lapsed **subscription** holds for *that* reason; subscription is evaluated first
 - [ ] AC-4.8 on release, **every** blocking condition is re-checked before the row returns to the queue
-- [ ] AC-4.9 the held count and the **machine-readable** reason are visible on the « Rappels » delivery log
+- [x] AC-4.9 the held count and the **machine-readable** reason are visible on the « Rappels » delivery log
 
 **US-5 — a manual relance is refused honestly** (Part 2)
-- [ ] AC-5.1 « Relancer » while exhausted is refused, in French, naming the cause and « Marquer comme contacté »
-- [ ] AC-5.2 the patient is left exactly as they were — not snoozed, not marked contacted
-- [ ] AC-5.3 SMS sendable ⇒ sent by SMS and **not** refused; only the WhatsApp row is held
-- [ ] AC-5.4 the refusal carries its **own** outcome, distinct from « aucun canal configuré »
+- [x] AC-5.1 « Relancer » while exhausted is refused, in French, naming the cause and « Marquer comme contacté »
+- [x] AC-5.2 the patient is left exactly as they were — not snoozed, not marked contacted
+- [x] AC-5.3 SMS sendable ⇒ sent by SMS and **not** refused; only the WhatsApp row is held
+- [x] AC-5.4 the refusal carries its **own** outcome, distinct from « aucun canal configuré »
 
 **US-6 — the vendor allocates and adjusts** (Part 3)
 - [ ] AC-6.1 a standing monthly allowance **and** a one-off top-up for a named month, from the cabinet's file
@@ -290,17 +290,20 @@ Step numbers match [`../plan.md`](../plan.md) exactly, so the two can be read si
     distinct from the undifferentiated « Bloqués ».
 
 **Part 2 commit point.** Validation:
-- [ ] Three thresholds crossed in one afternoon produce **three** unread rows, each badging the bell (AC-3.1/3.2); a
+- [x] Three thresholds crossed in one afternoon produce **three** unread rows, each badging the bell (AC-3.1/3.2); a
       threshold holding for days restates nothing (AC-3.5); a zero allowance produces the 100 % row only
-- [ ] A grant below a threshold **withdraws** the rows no longer met (AC-3.6); a rollover withdraws and re-arms (AC-3.7)
-- [ ] `StaffNotificationRules.ReachesALockedPhone` returns **`false`** — asserted, since AC-3.4 is honoured by
+- [x] A grant below a threshold **withdraws** the rows no longer met (AC-3.6); a rollover withdraws and re-arms (AC-3.7)
+- [x] `StaffNotificationRules.ReachesALockedPhone` returns **`false`** — asserted, since AC-3.4 is honoured by
       classifying, never by omitting
-- [ ] A quiet month reads « 0 rappel envoyé »; only a month with no row reads « non mesuré »; a pre-rollout month is
+- [x] A quiet month reads « 0 rappel envoyé »; only a month with no row reads « non mesuré »; a pre-rollout month is
       **absent** (AC-2.4, D-5)
-- [ ] `RecallMessagingRefusalTests` — AC-5.1–5.4, patient untouched, outcome distinct from `NoChannelConfigured`
-- [ ] The figures announce in a live region; failure = alert role, measured zero = status role
-- [ ] The duplicate-counting disclosure is on the screen (FR-1)
-- [ ] `npm run check:responsive` + `npx tsc --noEmit` + `npm run build`, then an eye pass at 320/390/820/1180/1440 px
+- [x] `RecallMessagingRefusalTests` — AC-5.1–5.4, patient untouched, outcome distinct from `NoChannelConfigured`
+- [x] The figures announce in a live region; failure = alert role, measured zero = status role
+- [x] The duplicate-counting disclosure is on the screen (FR-1)
+- [x] `npm run check:responsive` (15/15) + `npx tsc --noEmit` + `npm run build` — **all green**
+- [ ] ⚠️ The **eye pass** at 320/390/820/1180/1440 px is **owed**: no browser automation on this machine. The
+      fallback diff re-read against `DEVICE-CONTRACT.md` § 1 found and fixed a real § 2 defect (two adjacent
+      `.touch-target` contact links stealing each other's taps) — see `../progress.md`
 
 ### Part 3 — The vendor allocates, corrects, and sees the portfolio
 

@@ -103,7 +103,8 @@ public class GetClinicReminderLogQueryHandler : IRequestHandler<GetClinicReminde
                 counts.SentToday,
                 counts.Pending,
                 counts.FailedRecent,
-                counts.Blocked));
+                counts.Blocked,
+                counts.HeldByAllowance));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

@@ -224,7 +224,20 @@ public class NotificationRepository : INotificationRepository
 
         var shared = await SharedCountsAsync(scoped, failedSinceUtc, cancellationToken);
 
-        return new ReminderLogCounts(sentToday, shared.Pending, shared.FailedRecent, shared.Blocked);
+        // AC-4.9 — « en attente de forfait » counted apart from the undifferentiated « Bloqués ». It is a SUBSET of
+        // that figure, not a fifth status: the rows are `Blocked` like any other, and what distinguishes them is the
+        // machine-readable reason. Counted here rather than derived from the page's rows, which would render « les
+        // rappels en attente de forfait parmi ces 25 » — the trap the four counters above already document.
+        var heldByAllowance = await scoped.CountAsync(
+            n => n.Status == NotificationStatus.Blocked
+                 && (n.BlockedReason == OutboxBlockReason.MessagingAllowanceExhausted
+                     || n.BlockedReason == OutboxBlockReason.MessagingAllowanceMissing
+                     || n.BlockedReason == OutboxBlockReason.MessagingTemplateNotReady
+                     || n.BlockedReason == OutboxBlockReason.MessagingNumberStopped),
+            cancellationToken);
+
+        return new ReminderLogCounts(
+            sentToday, shared.Pending, shared.FailedRecent, shared.Blocked, heldByAllowance);
     }
 
     /// <summary>

@@ -172,6 +172,20 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
     public Task ClearSubscriptionWarningsAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
         _inner.ClearSubscriptionWarningsAsync(clinicId, cancellationToken);
 
+    // Same pass-through, same reason (vendor-whatsapp-messaging-quota AC-3.4): a quota notice is not time-critical
+    // to a person, and `StaffNotificationRules.ReachesALockedPhone` answers `false` for the category so nothing here
+    // could queue one even if this method tried.
+    public Task EnsureMessagingAllowanceWarningAsync(
+        Guid clinicId, string monthKey, int thresholdPercent, int allowance, DateTime resetsOn,
+        CancellationToken cancellationToken = default) =>
+        _inner.EnsureMessagingAllowanceWarningAsync(
+            clinicId, monthKey, thresholdPercent, allowance, resetsOn, cancellationToken);
+
+    public Task ClearMessagingAllowanceWarningsAsync(
+        Guid clinicId, string? keepMonthKey, IReadOnlyCollection<int> keepThresholds,
+        CancellationToken cancellationToken = default) =>
+        _inner.ClearMessagingAllowanceWarningsAsync(clinicId, keepMonthKey, keepThresholds, cancellationToken);
+
     public Task CancelPostVisitReviewAsync(
         Guid clinicId, Guid appointmentId, CancellationToken cancellationToken = default) =>
         _inner.CancelPostVisitReviewAsync(clinicId, appointmentId, cancellationToken);

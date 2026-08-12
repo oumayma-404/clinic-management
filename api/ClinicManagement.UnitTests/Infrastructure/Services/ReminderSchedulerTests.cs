@@ -26,6 +26,8 @@ public class ReminderSchedulerTests
         public Mock<IClinicRepository> Clinics { get; } = new();
         public Mock<IPatientRepository> Patients { get; } = new();
         public Mock<IReminderSettingsProvider> SettingsProvider { get; } = new();
+        public Mock<IVendorMessagingAvailability> MessagingAvailability { get; } = new();
+        public Mock<IMessagingAllowanceRepository> Allowances { get; } = new();
         public Mock<IUnitOfWork> Uow { get; } = new();
         public List<Notification> Added { get; } = new();
         public List<Notification> Removed { get; } = new();
@@ -52,6 +54,11 @@ public class ReminderSchedulerTests
                 .ReturnsAsync(Array.Empty<Notification>());
             Clinics.Setup(r => r.GetByIdAsync(ClinicId, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new Clinic(ClinicId, "Clinique Test"));
+
+            // These fixtures are about enqueue on a deployment that does NOT sell vendor messaging, which is the
+            // default and leaves the recall path byte-for-byte as it was (EC-16). The forfait's own refusal is
+            // covered by RecallMessagingRefusalTests, which switches this on.
+            MessagingAvailability.SetupGet(a => a.SellsVendorMessaging).Returns(false);
 
             // Every patient in these fixtures is reachable unless a test says otherwise — the scheduler now
             // gates enqueue on a deliverable phone.
@@ -147,7 +154,8 @@ public class ReminderSchedulerTests
         }
 
         public ReminderScheduler Scheduler() =>
-            new(Notifications.Object, Clinics.Object, Patients.Object, SettingsProvider.Object, Uow.Object,
+            new(Notifications.Object, Clinics.Object, Patients.Object, SettingsProvider.Object,
+                MessagingAvailability.Object, Allowances.Object, Uow.Object,
                 Config(), NullLogger<ReminderScheduler>.Instance);
     }
 

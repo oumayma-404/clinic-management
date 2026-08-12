@@ -24,5 +24,21 @@ public enum RecallDispatchOutcome
     /// The enqueue itself faulted (DB/settings failure, already logged). Distinct from the two "nothing to
     /// do" outcomes: the operator should retry rather than go and configure a channel.
     /// </summary>
-    Failed = 4
+    Failed = 4,
+
+    /// <summary>
+    /// The cabinet's WhatsApp reminder forfait is spent for this Tunisian month, and WhatsApp is the <b>only</b>
+    /// channel it can send on — so nothing was queued (<c>vendor-whatsapp-messaging-quota</c> AC-5.1).
+    ///
+    /// <para><b>⚠️ Its own outcome, distinct from <see cref="NoChannelConfigured"/>, and that distinction is AC-5.4.</b>
+    /// Today's vocabulary would answer a WhatsApp-only cabinet with the no-channel refusal, whose sentence tells the
+    /// practice to go and configure a channel it has already configured — advice it cannot act on. This one names the
+    /// forfait and offers « Marquer comme contacté », and like every other non-success branch it leaves the patient
+    /// exactly as they were (AC-5.2).</para>
+    ///
+    /// <para>⚠️ It is reached <b>only</b> when WhatsApp is the sole sendable channel. With SMS also sendable the relance
+    /// is <see cref="Enqueued"/> and <b>not</b> refused (AC-5.3): a channel being exhausted is not the same as having
+    /// no channel, and the WhatsApp row is simply held at dispatch.</para>
+    /// </summary>
+    MessagingAllowanceExhausted = 5
 }
