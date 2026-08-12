@@ -108,6 +108,18 @@ services:
       Subscription__PaymentInstructions: ${SUBSCRIPTION_PAYMENT_INSTRUCTIONS:-}
       Subscription__ContactEmail: ${SUBSCRIPTION_CONTACT_EMAIL:-}
       Subscription__ContactPhone: ${SUBSCRIPTION_CONTACT_PHONE:-}
+
+      # ── Meta / WhatsApp ────────────────────────────────────────────────────────────────────────────────────
+      # ⚠️ **The Graph version is read from the SAME key as the web image's build arg below**, and that is the
+      # whole point of it being here. It was pinned in two independent places — `MetaConfig.DefaultGraphApiVersion`
+      # (server) and a hard-coded constant in `components/reminder-settings.tsx` (browser SDK) — so setting
+      # `Meta__GraphApiVersion` moved the server's Graph calls and silently left the browser a version behind.
+      # One key, both consumers.
+      Meta__GraphApiVersion: ${META_GRAPH_API_VERSION:-v21.0}
+      # ⚠️ `Meta__AppId`/`Meta__AppSecret` are NOT set here yet, and until they are the WhatsApp Embedded-Signup
+      # connection cannot run on this profile at all — `ExposesMetaOnboarding` is true, so the button appears and
+      # the exchange then fails. They arrive with the vendor-messaging feature, which is what makes that flow
+      # load-bearing; `Meta__AppSecret` is a secret and belongs in `.env.hosted`, never in this file.
     volumes:
       - dataprotection_keys:/keys
     networks: [internal]
@@ -151,6 +163,11 @@ services:
         # Auth0, and a « Se connecter » button that goes nowhere. Both the build arg and the runtime variable
         # are required — `middleware.ts` and the `/bff/auth/*` handlers read the latter per request.
         AUTH_MODE: local
+        # ⚠️ A build ARG, not a runtime variable: `NEXT_PUBLIC_*` is substituted into the bundle by
+        # `npm run build`, so a runtime value never reaches the browser (the same trap `NEXT_PUBLIC_API_URL`
+        # above documents). It reads the **same** `META_GRAPH_API_VERSION` key the api service's
+        # `Meta__GraphApiVersion` does, so the browser SDK and the server's Graph calls cannot drift apart.
+        NEXT_PUBLIC_META_GRAPH_VERSION: ${META_GRAPH_API_VERSION:-v21.0}
     container_name: clinic-web-prod
     restart: unless-stopped
     depends_on:

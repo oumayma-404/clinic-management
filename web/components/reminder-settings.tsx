@@ -44,7 +44,12 @@ const fromToggle = (value: Toggle): boolean | null => (value === "inherit" ? nul
 // Meta Embedded Signup config (public, non-secret). Empty in Local/unconfigured installs (the button no-ops).
 const META_APP_ID = process.env.NEXT_PUBLIC_META_APP_ID ?? ""
 const META_CONFIG_ID = process.env.NEXT_PUBLIC_META_CONFIG_ID ?? ""
-const META_GRAPH_VERSION = "v21.0"
+// ⚠️ Read from the environment like its two siblings above, not hard-coded. It was the one literal here, and the
+// server pins the same version independently in `MetaConfig.DefaultGraphApiVersion` — two values that never
+// derived from each other, so `Meta:GraphApiVersion` could move the server's Graph calls and leave the browser
+// SDK a version behind. Both now come from one `META_GRAPH_API_VERSION` key in `deploy/`. The fallback keeps a
+// developer build working with no env file, and matches the server's own default.
+const META_GRAPH_VERSION = process.env.NEXT_PUBLIC_META_GRAPH_VERSION ?? "v21.0"
 const FACEBOOK_ORIGINS = ["https://www.facebook.com", "https://web.facebook.com"]
 
 // Data the Embedded-Signup popup posts back via the window "message" event.

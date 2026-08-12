@@ -26,6 +26,17 @@ COPY . .
 ARG NEXT_PUBLIC_API_URL=/api
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
+# The Graph API version the browser's Meta JS SDK is initialised with (`FB.init({ version })` in
+# `components/reminder-settings.tsx`). A build ARG for the same reason as the URL above: `NEXT_PUBLIC_*` is
+# substituted into the bundle by `npm run build`, so a runtime variable never reaches it.
+#
+# ⚠️ It exists because the version was pinned in **two independent places** — that constant and the server's
+# `MetaConfig.DefaultGraphApiVersion` — with nothing deriving one from the other, so `Meta:GraphApiVersion` could
+# advance the server's Graph calls while the browser SDK stayed behind. `deploy/docker-compose.hosted.yml` now
+# feeds both from a single `META_GRAPH_API_VERSION` key. The default matches the server's.
+ARG NEXT_PUBLIC_META_GRAPH_VERSION=v21.0
+ENV NEXT_PUBLIC_META_GRAPH_VERSION=${NEXT_PUBLIC_META_GRAPH_VERSION}
+
 # ⚠️ **`AUTH_MODE` must be set at BUILD time, not only at runtime, and this was a live defect.**
 # `app/layout.tsx` is a server component that calls `resolveAuthMode()` to choose between `CloudSessionProvider`
 # and `LocalSessionProvider`, and `/login` is **statically prerendered** — `.next/server/app/login.html` is
