@@ -9,7 +9,7 @@ Next.js 15 (App Router) frontend for the dental/medical clinic management system
 - **shadcn/ui** (style "new-york", RSC enabled) on top of Radix UI primitives. See `components/ui/`.
 - **Auth0** via `@auth0/nextjs-auth0` v4 (`Auth0Provider`, middleware, `/auth/*` routes) — cloud mode only.
 - **@microsoft/signalr** v8 — realtime client (`lib/realtime/`, hub at `/hub/clinic` on the API host root).
-- **sonner** toasts, **lucide-react** icons, **date-fns** dates (fr locale), **react-hook-form** + **zod** forms, **recharts** charts (first real usage is the dashboard's `collected-trend-chart.tsx`), **docx** + **file-saver** for client-side document export, **@vercel/analytics** (mounted in layout).
+- **sonner** toasts, **lucide-react** icons, **date-fns** dates (fr locale), **react-hook-form** + **zod** forms, **recharts** charts (first real usage is the dashboard's `collected-trend-chart.tsx`), **docx** + **file-saver** for client-side document export. ⚠️ **`@vercel/analytics` was removed** by `hosted-security-hardening` FR-4.5 and must not come back: it loads a script from a third-party **origin**, which breaks the now-enforcing `script-src 'self'` before any other work, and it sent page views from a medical-records application to a third party — and this app's URLs contain patient identifiers, which is what makes a page view here PHI.
 - Data layer is plain `fetch` wrapped in `lib/api/` — **no React Query / SWR / Redux**. State is local `useState` + custom hooks + React Contexts (session, connectivity, sidebar) + the SignalR realtime seam.
 
 ## Run
@@ -76,7 +76,7 @@ Dockerized via `web/Dockerfile`.
     never client-side at all — it was `client.ts`'s 403 fallback (« Vous n'avez pas les droits nécessaires pour
     cette action. ») surfacing an ASP.NET refusal that fired *before* any handler ran. If a clinical read refuses
     again, the fix is a policy on the controller, not a branch in the page.
-- `app/layout.tsx` (a server component) reads `AUTH_MODE` and mounts either `CloudSessionProvider` or `LocalSessionProvider`, then `ConnectivityProvider` (Phase 3 — polls `/api/connectivity` in Local mode, static online default in Cloud), `SidebarProvider`, children, the floating `<AIChat>` widget (inside connectivity so it can gate on reachability), the global `<Toaster>`, and Vercel `<Analytics>`. French `metadata` (title via `PRODUCT_NAME` from `lib/brand.ts`) + theme-aware favicons.
+- `app/layout.tsx` (a server component) reads `AUTH_MODE` and mounts either `CloudSessionProvider` or `LocalSessionProvider`, then `ConnectivityProvider` (Phase 3 — polls `/api/connectivity` in Local mode, static online default in Cloud), `SidebarProvider`, children, the floating `<AIChat>` widget (inside connectivity so it can gate on reachability) and the global `<Toaster>`. French `metadata` (title via `PRODUCT_NAME` from `lib/brand.ts`) + theme-aware favicons.
 
 ## Folder Structure
 

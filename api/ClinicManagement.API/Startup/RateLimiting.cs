@@ -44,6 +44,24 @@ public static class RateLimiting
     /// <summary>Policy name for the anonymous auth endpoints, applied via <c>[EnableRateLimiting]</c>.</summary>
     public const string AnonymousAuthPolicy = "anonymous-auth";
 
+    /// <summary>
+    /// Policy name for the full-cabinet archive — download and restore (<c>hosted-security-hardening</c> FR-4.2).
+    ///
+    /// <para><b>It had none, and the general limiter is no limit at all here.</b> The archive fell to the
+    /// authenticated API window — 600 requests per 60 s per <c>sub</c> — so one administrator could pull
+    /// <b>six hundred complete copies of a practice's medical records a minute</b>. Each one is built into a temp
+    /// file and streamed, so that is also the cheapest way to fill a hosted deployment's disk.</para>
+    /// </summary>
+    public const string ArchivePolicy = "clinic-archive";
+
+    /// <summary>
+    /// Policy name for the CSP violation sink (FR-4.5). Anonymous and unauthenticated, so it is bounded per
+    /// address — and generously, because one page load can legitimately produce several reports while one
+    /// misbehaving browser extension can produce one per navigation for ever. Excess is <b>dropped</b>: a
+    /// diagnostic feed that fills a disk is worse than one with holes in it.
+    /// </summary>
+    public const string CspReportPolicy = "csp-report";
+
     // The tight window, now per submitted ACCOUNT (US-6). 30 attempts in five minutes is far more than a person
     // mistyping their own password and far less than a guessing run.
     private const int DefaultAuthPermitLimit = 30;
@@ -56,6 +74,17 @@ public static class RateLimiting
 
     private const int DefaultApiPermitLimit = 600;
     private const int DefaultApiWindowSeconds = 60;
+
+    // Three exports in ten minutes. Taking a copy is an occasional, deliberate act — an owner does it before a
+    // migration, or when their accountant asks — and three leaves room for a failed download and a retry without
+    // ever resembling a bulk pull. Deliberately per USER rather than per address: this endpoint is behind
+    // AdminOnly *and* a step-up, so the actor is always identified, and per-address would bound a whole practice
+    // sharing one NAT address on the actions of one of them.
+    private const int DefaultArchivePermitLimit = 3;
+    private const int DefaultArchiveWindowSeconds = 600;
+
+    private const int DefaultCspReportPermitLimit = 60;
+    private const int DefaultCspReportWindowSeconds = 60;
 
     private const int SegmentsPerWindow = 6;
 
@@ -95,6 +124,14 @@ public static class RateLimiting
         var apiPermitLimit = Read(configuration, "RateLimiting:Api:PermitLimit", DefaultApiPermitLimit);
         var apiWindow = TimeSpan.FromSeconds(
             Read(configuration, "RateLimiting:Api:WindowSeconds", DefaultApiWindowSeconds));
+        var archivePermitLimit = Read(
+            configuration, "RateLimiting:Archive:PermitLimit", DefaultArchivePermitLimit);
+        var archiveWindow = TimeSpan.FromSeconds(
+            Read(configuration, "RateLimiting:Archive:WindowSeconds", DefaultArchiveWindowSeconds));
+        var cspReportPermitLimit = Read(
+            configuration, "RateLimiting:CspReport:PermitLimit", DefaultCspReportPermitLimit);
+        var cspReportWindow = TimeSpan.FromSeconds(
+            Read(configuration, "RateLimiting:CspReport:WindowSeconds", DefaultCspReportWindowSeconds));
 
         // Resolved once: behind a reverse proxy every peer is the proxy container, so without this every partition
         // below is one bucket for the whole deployment (review finding 1).
@@ -129,6 +166,31 @@ public static class RateLimiting
                     {
                         PermitLimit = authPermitLimit,
                         Window = authWindow,
+                        SegmentsPerWindow = SegmentsPerWindow,
+                        QueueLimit = 0
+                    }));
+
+            // FR-4.2's tight bound on the full-cabinet archive. Applied *in addition* to the global limiter
+            // below, which still bounds the same request on its own window — a named policy narrows, it does not
+            // replace.
+            options.AddPolicy(ArchivePolicy, httpContext =>
+                RateLimitPartition.GetSlidingWindowLimiter(
+                    $"archive:{ArchivePartitionKey(httpContext, trustedProxies)}",
+                    _ => new SlidingWindowRateLimiterOptions
+                    {
+                        PermitLimit = archivePermitLimit,
+                        Window = archiveWindow,
+                        SegmentsPerWindow = SegmentsPerWindow,
+                        QueueLimit = 0
+                    }));
+
+            options.AddPolicy(CspReportPolicy, httpContext =>
+                RateLimitPartition.GetSlidingWindowLimiter(
+                    $"csp:{ClientIp.Resolve(httpContext, trustedProxies)}",
+                    _ => new SlidingWindowRateLimiterOptions
+                    {
+                        PermitLimit = cspReportPermitLimit,
+                        Window = cspReportWindow,
                         SegmentsPerWindow = SegmentsPerWindow,
                         QueueLimit = 0
                     }));
@@ -262,6 +324,14 @@ public static class RateLimiting
             ? $"ip:{address}"
             : $"account:{account}|{address}";
     }
+
+    /// <summary>
+    /// Who an archive request is charged to. The signed-in user, which every request here has — the endpoints are
+    /// <c>AdminOnly</c> behind a step-up — falling back to the address only so an unauthenticated probe cannot
+    /// share one unbounded bucket with every other.
+    /// </summary>
+    public static string ArchivePartitionKey(HttpContext httpContext, TrustedProxies trustedProxies) =>
+        PartitionKey(httpContext, trustedProxies);
 
     /// <summary>
     /// Per authenticated user where possible, else per resolved client address, so one signed-in client's

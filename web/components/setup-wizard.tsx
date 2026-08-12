@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation"
 import { clinicsApi, type CreateClinicRequest } from "@/lib/api/clinics"
 import { authApi } from "@/lib/api/auth"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
+import { usePasswordMinLength } from "@/lib/hooks/use-password-policy"
 import { useSession } from "@/lib/auth/session"
 import { TUNISIAN_GOVERNORATES } from "@/lib/tunisia"
 import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
@@ -88,6 +89,18 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
   const { accessToken } = useAuthToken()
   const { mode } = useSession()
   const isLocalMode = mode === "local"
+  /*
+   * Does step 2 collect an administrator account (name + e-mail + password)?
+   *
+   * ⚠️ **`isSignup` is ORed in deliberately, and it is what makes the password rule safe.** `isLocalMode` comes
+   * from `useSession()`, whose context default is `mode: "cloud"` until `LocalSessionProvider` is in scope — so
+   * on the public signup route, which always collects an admin account whatever the session says, keying the
+   * rule on the deployment alone leaves a window where step 2 is validated against the Cloud branch and the
+   * password is not checked at all. `flow` is a prop and is therefore correct on the very first render.
+   */
+  const collectsAdminAccount = isLocalMode || isSignup
+  // The server's floor. `null` = not known yet or the probe failed, in which case nothing is pre-checked here.
+  const minLength = usePasswordMinLength()
 
   /*
    * AC-1.3: the trial is stated **before the visitor submits anything**, so this is read on mount and shown in the
@@ -203,13 +216,20 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
   }
 
   const isStep2Valid = () => {
-    if (isLocalMode) {
-      // Local first-run: admin account (full name + email + password ≥ 8, confirmed). When the admin is
+    // ⚠️ Gated on « this step collects a password », never on the deployment. `useSession()` returns
+    // `mode: "cloud"` until its provider is in scope, and this same component serves the **public signup**
+    // flow — so keying the account rules on `isLocalMode` alone means that during that window step 2 falls
+    // through to the Cloud branch below and the password is never checked at all. `isSignup` comes from a
+    // prop, so it is right on the first render.
+    if (collectsAdminAccount) {
+      // Admin account (full name + email + a password meeting the served floor, confirmed). When the admin is
       // also the practitioner, a specialty is required (it seeds the linked Doctor record).
       return (
         adminFullName.trim() !== "" &&
         /\S+@\S+\.\S+/.test(adminEmail) &&
-        adminPassword.length >= 8 &&
+        // An unknown floor does not block « Continuer »: the server refuses a short password with its own
+        // sentence, and stalling the wizard on a metadata read would remove a working capability.
+        (minLength === null || adminPassword.length >= minLength) &&
         adminPassword === adminPasswordConfirm &&
         (!adminIsPractitioner || adminSpecialty !== "")
       )
@@ -629,7 +649,11 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                         <Input
                           id="admin-password"
                           type="password"
-                          placeholder="Au moins 8 caractères"
+                          // The floor was hardcoded here too, so the placeholder went on promising 8 while the
+                          // server refused at 12. Falls back to a sentence with no number when it is unknown.
+                          placeholder={
+                            minLength !== null ? `Au moins ${minLength} caractères` : "Choisissez un mot de passe"
+                          }
                           value={adminPassword}
                           onChange={(e) => setAdminPassword(e.target.value)}
                           required
@@ -649,8 +673,10 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                         />
                       </div>
                     </div>
-                    {adminPassword.length > 0 && adminPassword.length < 8 && (
-                      <p className="text-xs text-destructive">Le mot de passe doit contenir au moins 8 caractères.</p>
+                    {minLength !== null && adminPassword.length > 0 && adminPassword.length < minLength && (
+                      <p className="text-xs text-destructive">
+                        Le mot de passe doit contenir au moins {minLength} caractères.
+                      </p>
                     )}
                     {adminPasswordConfirm.length > 0 && adminPassword !== adminPasswordConfirm && (
                       <p className="text-xs text-destructive">Les mots de passe ne correspondent pas.</p>

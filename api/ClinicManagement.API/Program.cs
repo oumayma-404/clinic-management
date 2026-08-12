@@ -2,7 +2,9 @@ using ClinicManagement.Application;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.API.Hubs;
 using ClinicManagement.API.Maintenance;
+using ClinicManagement.API.Middleware;
 using ClinicManagement.API.Startup;
+using Microsoft.AspNetCore.HttpOverrides;
 using ClinicManagement.Infrastructure;
 using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Persistence;
@@ -83,6 +85,27 @@ if (args.Length > 0 && string.Equals(args[0], ReconcileMoneyCommand.CommandName,
 if (args.Length > 0 && string.Equals(args[0], VerifySchemaCommand.CommandName, StringComparison.OrdinalIgnoreCase))
 {
     return await VerifySchemaCommand.RunAsync(args);
+}
+
+// Reset one clinic account's second factor (hosted-security-hardening FR-1.4) — the third way back, for the
+// cabinet where nobody on site can act: no recovery code left and no second administrator. ⚠️ Without a branch
+// here the verb would boot the WEB HOST instead and read to an operator as « the command did nothing », which is
+// the trap SubscriptionVendorCommandReachabilityTests exists to catch.
+if (args.Length > 0 && string.Equals(args[0], ResetUserTotpConsoleCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await ResetUserTotpConsoleCommand.RunAsync(args);
+}
+
+// Re-encrypt every stored secret under the key ring's current generation (hosted-security-hardening FR-3.1).
+// Configuring certificate protection encrypts keys the ring WRITES from then on and re-wraps nothing already on
+// the volume, so without this the master key stays readable off a stolen disk while FR-3.1 reads satisfied.
+// Run it, confirm `verify-schema`'s secrets-protected-under-current-ring reads zero, and only THEN delete the
+// superseded plaintext key files — the reverse order is R-2's data loss. Usage:
+//   ClinicManagement.API.exe reprotect-secrets [--rotate]
+// Exit codes: 0 = every secret current, 1 = could not run, 2 = ran and work remains.
+if (args.Length > 0 && string.Equals(args[0], ReprotectSecretsCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await ReprotectSecretsCommand.RunAsync(args);
 }
 
 // Restore a backup (L4g). A restore runs with the application STOPPED — it drops and recreates every table the
@@ -484,6 +507,34 @@ try
         return 1;
     }
 
+    // Transit (hosted-security-hardening Part 2, FR-2.5): on either HOSTED kind, refuse to start unless the
+    // database hop is verified-TLS and the object-store hop is TLS. Placed here, immediately after the
+    // connection string is known and BEFORE Hangfire is handed it — Hangfire opens its own connection from the
+    // same string, so a check after this line would leave one cleartext consumer behind the guard.
+    var transitAssurance = TransportAssurance.Inspect(builder.Configuration, profile, DateTime.UtcNow);
+    if (transitAssurance.Applies && !transitAssurance.IsSatisfied)
+    {
+        StartupDiagnostics.ReportFatal(TransportAssurance.RefusalMessage(transitAssurance));
+        return 1;
+    }
+
+    // Evidence (hosted-security-hardening Part 4, FR-4.1): resolve the audit chain's key now, so a deployment
+    // that cannot chain its ledger refuses to start with the setting named — rather than booting and failing on
+    // whichever clinical save happens to be first, where the message reaches nobody who can act on it.
+    //
+    // ⚠️ Here and not inside `AddInfrastructure`: that method is also called by the console verbs and by test
+    // fixtures, so throwing while the container is being built would surface as an unrelated resolution error
+    // instead of this sentence. The provider caches, so this resolution is also the one every save later uses.
+    try
+    {
+        _ = new ClinicManagement.Infrastructure.Security.AuditChainKeyProvider(builder.Configuration, profile).Key;
+    }
+    catch (InvalidOperationException ex)
+    {
+        StartupDiagnostics.ReportFatal(ex.Message);
+        return 1;
+    }
+
     builder.Services.AddHangfire(config =>
         config.UsePostgreSqlStorage(hangfireConnectionString));
     builder.Services.AddHangfireServer();
@@ -706,15 +757,83 @@ try
         app.UseSwaggerUI();
     }
 
-    // Redirect HTTP → HTTPS everywhere the front door is NOT self-hosted. Where it is, we must not redirect:
-    // the only HTTP consumer is the co-located Next BFF calling the API over http://localhost:5000 (loopback).
-    // Redirecting that to the self-signed HTTPS front door makes Node reject the untrusted cert, surfacing as
-    // "cannot reach the clinic server" on login. That LAN surface is HTTPS-only by bind (5001) and the HTTP
-    // port is loopback-only, so there is no external HTTP client that needs redirecting.
+    // FIRST, before anything can substitute the peer (hosted-security-hardening Part 2, FR-2.4 / R-5). The two
+    // loopback-only gates — first-run `setup` and the Hangfire dashboard — read the captured value through
+    // LocalRequest, so they stay a property of the real TCP peer rather than of a header's trust bound.
+    app.UseOriginalPeerCapture();
+
+    // Honour the reverse proxy's X-Forwarded-For and X-Forwarded-Proto, BOUNDED to the proxy's own address
+    // (FR-2.4). Only where the front door is not self-hosted: SelfHostedLan terminates TLS in this process and
+    // FR-2.7 says nothing about that path may change.
+    //
+    // ⚠️ An empty or unparseable Security:TrustedProxies means the headers are IGNORED ENTIRELY and the log says
+    // so — never an unbounded header. `ForwardedHeadersOptions` defaults to trusting loopback only, which sounds
+    // safe and is useless here: behind a proxy every request arrives from a bridge address, so the middleware
+    // would rewrite nothing while looking active. Refusing to register it at all is the honest version of the
+    // same outcome, and it leaves ClientIp — which never stopped resolving the address separately — in charge.
+    //
+    // ⚠️ ForwardLimit stays at its default of 1: exactly one hop in front of the API is ours. A larger limit
+    // walks further left along X-Forwarded-For, which is caller-supplied text, so a client could inject an
+    // extra entry and choose the address it is attributed to.
+    //
+    // ⚠️ XForwardedHost is deliberately NOT processed. Request.Host feeds the Google OAuth redirect-uri
+    // fall-back, and a forged host there would build a redirect URI pointing somewhere else.
     if (!profile.SelfHostsFrontDoor)
     {
-        app.UseHttpsRedirection();
+        var forwardedFrom = ClinicManagement.Infrastructure.TrustedProxies.FromConfiguration(builder.Configuration);
+        if (forwardedFrom.Networks.Count == 0)
+        {
+            Log.Warning(
+                "Forwarded headers are IGNORED because {Key} {Reason}. Behind a reverse proxy this means every "
+                + "request is attributed to the proxy's own address — the rate limiter, the login lockout and "
+                + "the OAuth state cookie's Secure flag all see the hop, not the client. Set {Key}__0 to the "
+                + "network the proxy reaches this service from.",
+                ClinicManagement.Infrastructure.TrustedProxies.ConfigurationKey,
+                forwardedFrom.ConfiguredEntryCount == 0
+                    ? "is not set"
+                    : $"holds {forwardedFrom.ConfiguredEntryCount} entry(ies) and none of them parsed");
+        }
+        else
+        {
+            var forwardedOptions = new ForwardedHeadersOptions
+            {
+                ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+            };
+
+            // The same parsed set the rate limiter and the login lockout believe, taken from TrustedProxies
+            // rather than re-read here: two parsers of one setting is how the header middleware and the
+            // limiter end up trusting different hops. The framework's loopback defaults are left in place —
+            // the co-located BFF hop is real in every profile, and TrustedProxies trusts loopback too.
+            foreach (var network in forwardedFrom.Networks)
+            {
+                forwardedOptions.KnownNetworks.Add(new IPNetwork(network.Network, network.PrefixLength));
+            }
+
+            app.UseForwardedHeaders(forwardedOptions);
+
+            Log.Information(
+                "Forwarded headers honoured from {RangeCount} configured range(s) ({Ranges}).",
+                forwardedFrom.Networks.Count,
+                string.Join(", ", forwardedFrom.Networks.Select(n => $"{n.Network}/{n.PrefixLength}")));
+        }
     }
+
+    // ── FR-4.6: the HTTPS redirect is REMOVED, not configured, and this comment is the decision.
+    //
+    // It was registered on both hosted kinds and did nothing. `UseHttpsRedirection` needs a target port, which
+    // `AddHttpsRedirection` supplies only in the two certificate-bearing branches above — neither of which runs
+    // in a container, where TLS terminates at Caddy — and `HTTPS_PORT` is set nowhere. With no port it logs
+    // « Failed to determine the https port for redirect » once and passes every request through for ever.
+    //
+    // Configuring it would have been worse than removing it. Behind the proxy every request arrives on plain
+    // HTTP by design, and since Part 2 `UseForwardedHeaders` makes `Request.IsHttps` true — so a redirect would
+    // either fire on nothing or, if the headers were ever misread, bounce the proxy's own hop into a loop.
+    // Caddy already redirects HTTP → HTTPS at the edge, which is the only place a browser is listening.
+    //
+    // ⚠️ Removing it is the point rather than a tidy-up: a security control that is present and inert is worse
+    // than an absent one, because it reads as present — to a reviewer, to an operator, and to whoever next asks
+    // « do we redirect? ». `SelfHostedLan` never registered it (the loopback BFF hop would break), so this
+    // deletes the only registration that existed and no profile loses a behaviour it actually had.
     app.UseCors("AllowAll");
     
     // Exception handling middleware (must be before authentication/authorization)
@@ -867,6 +986,24 @@ try
     // evaluated INSIDE the !DefersMigrations branch, so for SelfHostedLan it was unreachable — and a future profile
     // declaring `DefersMigrations: true, RunsStartupBackfills: true` would have silently skipped both, which is
     // precisely the "correct only by accident" the split was made to prevent.
+    // FR-3.9 — which key-ring generations this deployment can read, for the backup sidecar to stamp beside each
+    // dump. Best-effort: an unwritable marker volume must not take a whole deployment's clinics off the air.
+    {
+        var markerPath = ClinicManagement.API.Startup.KeyRingGenerationMarker.TryWrite(
+            app.Services, builder.Configuration, out var markerProblem);
+        if (markerPath is not null)
+        {
+            Log.Information("Marqueur de génération du trousseau écrit dans {Path} (FR-3.9).", markerPath);
+        }
+        else if (markerProblem is not null)
+        {
+            Log.Warning(
+                "Le marqueur de génération du trousseau n'a pas pu être écrit ({Problem}). Les sauvegardes "
+                + "seront estampillées « unknown » et une restauration sera refusée faute de pouvoir vérifier "
+                + "la génération (FR-3.9).", markerProblem);
+        }
+    }
+
     if (!profile.DefersMigrations || profile.RunsStartupBackfills)
     {
         using var scope = app.Services.CreateScope();
@@ -905,6 +1042,18 @@ try
                     // active admin. New clinics already get an admin at creation.
                     var adminBackfill = scope.ServiceProvider.GetRequiredService<IClinicAdminBackfill>();
                     await adminBackfill.BackfillAsync();
+
+                    // Encrypt every Google Calendar refresh token still held in the clear (FR-3.4). A startup
+                    // pass and not SQL in the migration, because encrypting needs the key ring — see the file.
+                    var converted = await ClinicManagement.API.Startup.GoogleTokenProtectionBackfill.RunAsync(
+                        context,
+                        scope.ServiceProvider.GetRequiredService<IGoogleTokenProtector>(),
+                        scope.ServiceProvider.GetRequiredService<IUnitOfWork>());
+                    if (converted > 0)
+                    {
+                        Log.Information(
+                            "Chiffrement au repos : {Count} jeton(s) Google Agenda convertis (FR-3.4).", converted);
+                    }
                 }
             });
     }

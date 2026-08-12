@@ -1,7 +1,9 @@
 using ClinicManagement.Application.Common;
+using Microsoft.Extensions.Configuration;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Services;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -23,11 +25,37 @@ public class SchemaVerificationReader : ISchemaVerificationReader
 {
     private readonly ApplicationDbContext _context;
     private readonly IVendorMessagingAvailability _vendorMessaging;
+    private readonly IConfiguration? _configuration;
+    private readonly IDataProtectionProvider? _dataProtection;
+    private readonly Security.IAuditChainKeyProvider? _auditChainKey;
 
-    public SchemaVerificationReader(ApplicationDbContext context, IVendorMessagingAvailability vendorMessaging)
+    /// <param name="configuration">
+    /// Read only for the internal root certificate's remaining life (FR-2.6) — a third "side" beside the model
+    /// and the catalog. Optional so a caller that has none reports « not applicable » rather than failing to
+    /// construct; the <c>verify-schema</c> verb always passes it.
+    /// </param>
+    /// <param name="dataProtection">
+    /// The fourth side (FR-3.1): which generation of the key ring each stored secret is encrypted under. Optional
+    /// for the same reason — and where it is absent the report says « not applicable » rather than « 0 left »,
+    /// which would authorise deleting the old key files on the strength of a measurement nobody took.
+    /// </param>
+    /// <param name="auditChainKey">
+    /// The fifth side (FR-4.1): the secret each audit entry's hash is keyed on. Optional for the same reason as
+    /// the two above — and where it is absent the walk is « not applicable » rather than « intact », which would
+    /// be a clean bill of health on a chain nobody checked.
+    /// </param>
+    public SchemaVerificationReader(
+        ApplicationDbContext context,
+        IVendorMessagingAvailability vendorMessaging,
+        IConfiguration? configuration = null,
+        IDataProtectionProvider? dataProtection = null,
+        Security.IAuditChainKeyProvider? auditChainKey = null)
     {
         _context = context;
         _vendorMessaging = vendorMessaging;
+        _configuration = configuration;
+        _dataProtection = dataProtection;
+        _auditChainKey = auditChainKey;
     }
 
     public async Task<SchemaFacts> ReadAsync(CancellationToken cancellationToken = default)
@@ -52,7 +80,256 @@ public class SchemaVerificationReader : ISchemaVerificationReader
 
         return new SchemaFacts(
             extensions, constraints, model, database, mappedDecimals, dataMigrations, auditLedger,
-            subscriptionLedgers, coverKindPresent, messagingAllowances);
+            subscriptionLedgers, coverKindPresent, messagingAllowances, ReadInternalCertificate(),
+            await ReadSecretProtectionAsync(connection, cancellationToken),
+            await ReadAuditChainAsync(connection, cancellationToken));
+    }
+
+    /// <summary>
+    /// Walks every audit chain with the <b>real</b> <c>AuditChain.Walk</c> (FR-4.1) — never re-expressed in SQL,
+    /// which is what stops the check and the thing it checks drifting apart.
+    ///
+    /// <para>⚠️ <b>Read chain by chain, ordered, and walked as it streams.</b> This is the only fact here bounded
+    /// by a practice's whole history rather than by its cabinet or account count, so materialising the ledger
+    /// would put a deployment's every save in memory at once. One ordered read plus a walk that keeps only the
+    /// previous entry costs a constant.</para>
+    ///
+    /// <para>⚠️ Guarded on the column, like every count below it: against a database predating the migration the
+    /// answer is « not applicable », not a walk of zero chains reporting everything intact.</para>
+    /// </summary>
+    private async Task<AuditChainFacts?> ReadAuditChainAsync(
+        NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        if (_auditChainKey is null
+            || !await ColumnExistsAsync(connection, "AuditEntries", "EntryHash", cancellationToken))
+        {
+            return null;
+        }
+
+        const string sql = """
+            SELECT "Id", "ChainKey", "Sequence", "UserId", "EntityType", "EntityId", "Action",
+                   "ChangedFields", "OccurredAt", "IsDeclaredGap", "PreviousHash", "EntryHash"
+            FROM "AuditEntries"
+            ORDER BY "ChainKey", "Sequence"
+            """;
+
+        var chains = new List<AuditChainWalkResult>();
+        var buffer = new List<AuditChainEntry>();
+        Guid? currentChain = null;
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var chainKey = reader.GetGuid(1);
+
+            if (currentChain is { } open && open != chainKey)
+            {
+                chains.Add(Domain.Services.AuditChain.Walk(open, buffer, _auditChainKey.Key));
+                buffer.Clear();
+            }
+
+            currentChain = chainKey;
+            buffer.Add(new AuditChainEntry(
+                reader.GetGuid(0),
+                chainKey,
+                reader.GetInt64(2),
+                reader.GetString(3),
+                reader.GetString(4),
+                reader.GetString(5),
+                reader.GetInt32(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.GetDateTime(8),
+                reader.GetBoolean(9),
+                reader.IsDBNull(10) ? null : reader.GetString(10),
+                reader.IsDBNull(11) ? null : reader.GetString(11)));
+        }
+
+        if (currentChain is { } last)
+        {
+            chains.Add(Domain.Services.AuditChain.Walk(last, buffer, _auditChainKey.Key));
+        }
+
+        return new AuditChainFacts(chains);
+    }
+
+    /// <summary>
+    /// FR-3.1's coverage figure: per family, how many stored ciphertexts are not yet under the key ring's
+    /// current generation — the only thing that says <c>reprotect-secrets</c> finished.
+    ///
+    /// <para>⚠️ <b>The generation is learned from a live <c>Protect</c>, not from configuration</b>
+    /// (<c>DataProtectionKeyGeneration</c>): what matters is the key this process would write with right now, and
+    /// a settings-derived answer would disagree with it in exactly the situation the check exists for.</para>
+    ///
+    /// <para>⚠️ <b>Every family is guarded on its own column, exactly like the data-migration counts here.</b>
+    /// The first version read through EF unconditionally and the whole verb died with
+    /// <c>column c.GoogleRefreshTokenProtected does not exist</c> against any database predating the migration —
+    /// which is precisely the « before » half of the before-and-after run this verb exists to support. A family
+    /// whose column is absent is <b>omitted</b>, never reported as zero outstanding.</para>
+    ///
+    /// <para>⚠️ It reads the ciphertext of every protected row, which is why every family here is small and
+    /// bounded by the number of cabinets or accounts — never by a practice's history.</para>
+    /// </summary>
+    private async Task<SecretProtectionFacts?> ReadSecretProtectionAsync(
+        NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        if (_dataProtection is null)
+        {
+            return null;
+        }
+
+        Security.DataProtectionKeyGeneration.Generation generation;
+        try
+        {
+            generation = Security.DataProtectionKeyGeneration.Current(
+                _dataProtection.CreateProtector("ClinicManagement.KeyRingGeneration.Probe.v1"));
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+
+        var families = new List<SecretFamilyFact>();
+        foreach (var (table, column, sql) in SecretColumns)
+        {
+            var ciphertexts = await ReadCiphertextsAsync(connection, table, column, sql, cancellationToken);
+            if (ciphertexts is null)
+            {
+                continue;
+            }
+
+            families.Add(new SecretFamilyFact(
+                $"{table}.{column}", ciphertexts.Count, ciphertexts.Count(c => !generation.Covers(c))));
+        }
+
+        var certificates = _configuration is null
+            ? null
+            : TryResolveProtectingCertificates();
+
+        return new SecretProtectionFacts(
+            certificates?.IsConfigured ?? false,
+            certificates?.Active is { } active
+                ? (int)Math.Floor((active.NotAfter.ToUniversalTime() - DateTime.UtcNow).TotalDays)
+                : null,
+            families);
+    }
+
+    /// <summary>
+    /// The six protected column families. The SQL is written out per family rather than composed from the table
+    /// and column names, so this file's own rule still holds: every catalog and data query here is a
+    /// <b>constant string with no interpolated input</b>.
+    /// </summary>
+    private static readonly (string Table, string Column, string Sql)[] SecretColumns =
+    {
+        ("ClinicReminderSettings", "SmsApiKeyEncrypted",
+            """SELECT "SmsApiKeyEncrypted" FROM "ClinicReminderSettings" WHERE "SmsApiKeyEncrypted" IS NOT NULL"""),
+        ("ClinicReminderSettings", "WhatsAppAccessTokenEncrypted",
+            """SELECT "WhatsAppAccessTokenEncrypted" FROM "ClinicReminderSettings" WHERE "WhatsAppAccessTokenEncrypted" IS NOT NULL"""),
+        ("ClinicReminderSettings", "SmtpPasswordEncrypted",
+            """SELECT "SmtpPasswordEncrypted" FROM "ClinicReminderSettings" WHERE "SmtpPasswordEncrypted" IS NOT NULL"""),
+        ("Users", "ProtectedTotpSecret",
+            """SELECT "ProtectedTotpSecret" FROM "Users" WHERE "ProtectedTotpSecret" IS NOT NULL"""),
+        ("PlatformAccounts", "ProtectedTotpSecret",
+            """SELECT "ProtectedTotpSecret" FROM "PlatformAccounts" WHERE "ProtectedTotpSecret" IS NOT NULL"""),
+        ("Clinics", "GoogleRefreshTokenProtected",
+            """SELECT "GoogleRefreshTokenProtected" FROM "Clinics" WHERE "GoogleRefreshTokenProtected" IS NOT NULL"""),
+    };
+
+    /// <summary>Every non-null ciphertext of one column, or <c>null</c> where the column does not exist yet.</summary>
+    private static async Task<List<string>?> ReadCiphertextsAsync(
+        NpgsqlConnection connection,
+        string table,
+        string column,
+        string sql,
+        CancellationToken cancellationToken)
+    {
+        if (!await ColumnExistsAsync(connection, table, column, cancellationToken))
+        {
+            return null;
+        }
+
+        var values = new List<string>();
+        await using var command = new NpgsqlCommand(sql, connection);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (!reader.IsDBNull(0))
+            {
+                values.Add(reader.GetString(0));
+            }
+        }
+
+        return values;
+    }
+
+    /// <summary>
+    /// The key ring's protecting certificate, or null where none is configured or it cannot be read. A refusal
+    /// is <b>startup's</b> to raise, not this report's — reaching this verb means the deployment already passed
+    /// that gate — so an exception here is swallowed into « pas de certificat » rather than failing the run.
+    /// </summary>
+    private Security.KeyRingProtectionCertificates.Resolution? TryResolveProtectingCertificates()
+    {
+        try
+        {
+            return Security.KeyRingProtectionCertificates.Resolve(_configuration!, DateTime.UtcNow);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The deployment's internal root certificate, or <c>null</c> where it configures none (FR-2.6).
+    ///
+    /// <para>The path is taken from the <b>database connection string's</b> <c>Root Certificate</c> first and
+    /// from <c>MinIO:RootCertificate</c> second, because those are the two settings that actually name it — and
+    /// asking them, rather than introducing a third key, is what stops this report describing a file no hop uses.
+    /// The shipped compose files point both at the same <c>/certs/ca.crt</c>.</para>
+    /// </summary>
+    private InternalCertificateFact? ReadInternalCertificate()
+    {
+        if (_configuration is null)
+        {
+            return null;
+        }
+
+        var path = ResolveRootCertificatePath();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        var inspection = Security.InternalCertificate.Inspect(path, DateTime.UtcNow);
+        return new InternalCertificateFact(
+            inspection.Path ?? path,
+            inspection.DaysRemaining ?? 0,
+            inspection.IsUsable,
+            inspection.Detail);
+    }
+
+    private string? ResolveRootCertificatePath()
+    {
+        var connectionString = _context.Database.GetConnectionString();
+        if (!string.IsNullOrWhiteSpace(connectionString))
+        {
+            try
+            {
+                var fromConnection = new NpgsqlConnectionStringBuilder(connectionString).RootCertificate;
+                if (!string.IsNullOrWhiteSpace(fromConnection))
+                {
+                    return fromConnection;
+                }
+            }
+            catch (Exception ex) when (ex is ArgumentException or FormatException)
+            {
+                // An unparseable connection string is TransportAssurance's refusal to word, not this report's:
+                // fall through to the object store's key so the certificate line still says something.
+            }
+        }
+
+        return _configuration?[Security.InternalCertificate.MinioRootCertificateKey];
     }
 
     // ------------------------------------------------------------------ the EF model side
@@ -542,6 +819,53 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                        AND "ConsumedAtUtc" < NOW() - INTERVAL '31 days')
                 """);
 
+        // FR-1.6's third check — Info only, and honest about what it cannot see (see the DTO's own note).
+        // `NOW()` is the database's clock; the difference against ours is the whole reading.
+        double? clockOffsetSeconds = null;
+        try
+        {
+            await using var clockCommand = connection.CreateCommand();
+            clockCommand.CommandText = "SELECT EXTRACT(EPOCH FROM (NOW() AT TIME ZONE 'UTC'))";
+            var dbEpoch = await clockCommand.ExecuteScalarAsync(cancellationToken);
+            if (dbEpoch is not null && dbEpoch is not DBNull)
+            {
+                var dbSeconds = Convert.ToDouble(dbEpoch, System.Globalization.CultureInfo.InvariantCulture);
+                var appSeconds = (DateTime.UtcNow - DateTime.UnixEpoch).TotalSeconds;
+                clockOffsetSeconds = Math.Round(appSeconds - dbSeconds, 3);
+            }
+        }
+        catch
+        {
+            // A reading we could not take is reported as « not applicable », never as zero drift.
+        }
+
+        // hosted-security-hardening FR-1.1. Deliberately NOT « admins without a factor »: that is a state the
+        // product allows (they are refused at the ladder and sent to enrol). What must never exist is one still
+        // holding a LIVE session — which is what the per-request check in LocalAuthEnforcementMiddleware
+        // prevents, and the only thing here able to notice if it stops.
+        var adminsWithoutFactorLive = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "SessionFamilies",
+            requiredColumn: "CurrentCredentialHash",
+            sql: """
+                SELECT COUNT(DISTINCT u."Id")
+                FROM "Users" u
+                JOIN "SessionFamilies" f ON f."UserId" = u."Id"
+                WHERE LOWER(u."Role") = 'admin'
+                  AND u."TotpEnrolledAt" IS NULL
+                  AND u."IsActive"
+                  AND f."EndedAtUtc" IS NULL
+                  AND f."ExpiresAtUtc" > NOW()
+                """);
+
+        var sessionFamilyOrphans = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "SessionFamilies",
+            requiredColumn: "UserId",
+            sql: """
+                SELECT COUNT(*)
+                FROM "SessionFamilies" f
+                WHERE NOT EXISTS (SELECT 1 FROM "Users" u WHERE u."Id" = f."UserId")
+                """);
+
         // The seven clinical children of Patients, each checked against the patient it hangs off. One figure over
         // seven UNIONed counts rather than seven findings: the operator's question is « does any clinical row name
         // the wrong clinic? », and seven lines of zeros answer it worse than one. `PatientFiles` is the required
@@ -625,6 +949,14 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             requiredColumn: "Kind",
             sql: """SELECT COUNT(*) FROM "SubscriptionPeriods" WHERE "Kind" = 3""");
 
+        // FR-3.4. Guarded on the PROTECTED column, not the plaintext one: the plaintext column has existed since
+        // the per-clinic Google connection shipped, so guarding on it would report a reassuring count of
+        // « still plaintext » rows on a database where the feature has not been deployed at all.
+        var plaintextGoogleTokens = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "Clinics",
+            requiredColumn: "GoogleRefreshTokenProtected",
+            sql: """SELECT COUNT(*) FROM "Clinics" WHERE "GoogleRefreshToken" IS NOT NULL""");
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
@@ -632,7 +964,13 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             attributableButUnattributed, pushClinicMismatch,
             signupOrphans, clinicalChildrenWrongClinic,
             enrolledWithoutSecret, clinicsWithoutSnapshot, incoherentSnapshots,
-            clinicsWithoutEntitlement, grandfatheredEntries);
+            clinicsWithoutEntitlement, grandfatheredEntries,
+            // NAMED, not positional — this record's own test file records how a merge that appends
+            // positionally lands a zero in the wrong slot with every assertion still passing.
+            AdminsWithoutFactorHoldingLiveSession: adminsWithoutFactorLive,
+            SessionFamilyOrphans: sessionFamilyOrphans,
+            AppToDatabaseClockOffsetSeconds: clockOffsetSeconds,
+            ClinicsWithPlaintextGoogleToken: plaintextGoogleTokens);
     }
 
     /// <summary>

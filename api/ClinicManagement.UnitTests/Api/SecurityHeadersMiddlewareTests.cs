@@ -169,4 +169,49 @@ public class SecurityHeadersMiddlewareTests
 
         Assert.False(headers.ContainsKey("Strict-Transport-Security"));
     }
+
+    /// <summary>
+    /// ⚠️ <b>Behind a reverse proxy the edge owns HSTS, and this is the case that keeps it true</b>
+    /// (hosted-security-hardening Part 2, step 7). It could not fail before that part, because
+    /// <c>Request.IsHttps</c> was false for every proxied request; once <c>UseForwardedHeaders</c> makes it true,
+    /// emitting here puts a <b>second</b> <c>Strict-Transport-Security</c> beside <c>deploy/Caddyfile</c>'s —
+    /// Caddy appends rather than replaces, which was verified over the wire.
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(DeploymentKind.HostedMultiTenant))]
+    [InlineData(nameof(DeploymentKind.CloudBrowser))]
+    public async Task Hsts_Is_Left_To_The_Reverse_Proxy_On_Every_Hosted_Kind(string kind)
+    {
+        // Even over HTTPS — which is what a forwarded X-Forwarded-Proto now makes a proxied request look like —
+        // and even with the operator's opt-in set, because the edge is not this process.
+        var headers = await HeadersFor(
+            Config(
+                (DeploymentProfile.ProfileKey, kind),
+                (SecurityHeadersMiddleware.EnableHstsKey, "true")),
+            https: true);
+
+        Assert.False(
+            headers.ContainsKey("Strict-Transport-Security"),
+            "deploy/Caddyfile sets HSTS at the edge; emitting it here too sends the client two headers whose "
+            + "values differ, and RFC 6797 § 8.1 makes it honour only the first.");
+    }
+
+    // The other direction, so the change above cannot widen into « never emit HSTS ». Where the front door IS
+    // this process there is no edge in front of it, and the opt-in is what turns it on.
+    [Fact]
+    public async Task Where_This_Process_Is_The_Edge_The_Operators_Opt_In_Turns_Hsts_On()
+    {
+        var withOptIn = await HeadersFor(
+            Config(
+                (DeploymentProfile.ProfileKey, nameof(DeploymentKind.SelfHostedLan)),
+                (SecurityHeadersMiddleware.EnableHstsKey, "true")),
+            https: true);
+
+        var withoutOptIn = await HeadersFor(
+            Config((DeploymentProfile.ProfileKey, nameof(DeploymentKind.SelfHostedLan))),
+            https: true);
+
+        Assert.Equal("max-age=31536000", withOptIn["Strict-Transport-Security"].ToString());
+        Assert.False(withoutOptIn.ContainsKey("Strict-Transport-Security"));
+    }
 }

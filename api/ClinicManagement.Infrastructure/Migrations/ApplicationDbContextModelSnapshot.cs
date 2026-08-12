@@ -162,6 +162,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<int>("Action")
                         .HasColumnType("integer");
 
+                    b.Property<Guid>("ChainKey")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("ChangedFields")
                         .HasColumnType("text");
 
@@ -178,8 +181,22 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("EntryHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool>("IsDeclaredGap")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime>("OccurredAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PreviousHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("UserEmail")
                         .HasMaxLength(320)
@@ -197,6 +214,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnName("xmin");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ChainKey", "Sequence")
+                        .IsUnique()
+                        .HasFilter("\"Sequence\" > 0");
 
                     b.HasIndex("ClinicId", "OccurredAt");
 
@@ -294,6 +315,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnType("character varying(256)");
 
                     b.Property<string>("GoogleRefreshToken")
+                        .HasColumnType("text");
+
+                    b.Property<string>("GoogleRefreshTokenProtected")
                         .HasColumnType("text");
 
                     b.Property<string>("LogoUrl")
@@ -2858,6 +2882,65 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("RecurringAppointments", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.SessionFamily", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CurrentCredentialHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("DeviceLabel")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("EndedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EndedReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastRotatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PreviousCredentialHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<uint>("Version")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CurrentCredentialHash")
+                        .IsUnique()
+                        .HasDatabaseName("IX_SessionFamilies_CurrentCredentialHash");
+
+                    b.HasIndex("PreviousCredentialHash")
+                        .HasDatabaseName("IX_SessionFamilies_PreviousCredentialHash");
+
+                    b.HasIndex("UserId", "ExpiresAtUtc")
+                        .HasDatabaseName("IX_SessionFamilies_UserId_ExpiresAtUtc");
+
+                    b.ToTable("SessionFamilies", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.StaffNotification", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3377,6 +3460,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("ProtectedTotpSecret")
+                        .HasColumnType("text");
+
                     b.Property<string>("Role")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -3386,6 +3472,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
+
+                    b.Property<DateTime?>("TotpEnrolledAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -3434,6 +3523,44 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("UserDashboardPreferences", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.UserRecoveryCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsUsed")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "IsUsed")
+                        .HasDatabaseName("IX_UserRecoveryCodes_UserId_IsUsed");
+
+                    b.ToTable("UserRecoveryCodes", (string)null);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.WaitingListEntry", b =>
@@ -4197,6 +4324,17 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Navigation("Patient");
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.SessionFamily", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.StaffNotification", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
@@ -4293,6 +4431,17 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasForeignKey("ClinicManagement.Domain.Entities.UserDashboardPreference", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.UserRecoveryCode", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.User", "User")
+                        .WithMany("RecoveryCodes")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.WaitingListEntry", b =>
@@ -4397,6 +4546,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Navigation("Installments");
 
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.User", b =>
+                {
+                    b.Navigation("RecoveryCodes");
                 });
 #pragma warning restore 612, 618
         }

@@ -45,6 +45,12 @@ public static class StaffNotificationRules
         // AC-3.4: a forfait running low waits for somebody at the desk, and the person who can act on it is the
         // vendor rather than whoever is holding the phone.
         NotificationCategory.MessagingAllowanceLow => false,
+        // In-app only: what it asks for is done at a keyboard, at the next sign-in — a lock-screen banner
+        // would add urgency to something nobody can act on from the lock screen.
+        NotificationCategory.SecondFactorReset => false,
+        // The export has already happened by the time this is written, so a banner would announce something
+        // nobody can intervene in — and it is read by whoever next opens the app, which is when it is actionable.
+        NotificationCategory.ClinicArchiveExported => false,
         // A new category does not silently start pushing. Deciding is the point — a default of `true` would put
         // an unreviewed message on a lock screen, and `false` would look like a decision nobody made.
         _ => throw new ArgumentOutOfRangeException(

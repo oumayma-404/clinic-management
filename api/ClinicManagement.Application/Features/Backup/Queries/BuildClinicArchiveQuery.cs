@@ -37,7 +37,13 @@ public class BuildClinicArchiveQuery : IRequest<Result<ClinicArchiveFile>>
 /// outright — so AC-8's « a cabinet must always be able to take its data out » failed for exactly the practices
 /// with the most to lose. The caller disposes it; a temp file deletes itself on close.</para>
 /// </summary>
-public sealed record ClinicArchiveFile(Stream Content, string FileName, ClinicArchiveManifest Manifest);
+/// <param name="LedgerEntryId">
+/// The audit row this download was recorded against (FR-4.2). The caller names it when it records whether the
+/// body actually completed, so « demandée » and « livrée » read as one story rather than two unrelated rows.
+/// </param>
+/// <param name="ClinicId">Whose archive it is — the delivery row is written outside the request scope.</param>
+public sealed record ClinicArchiveFile(
+    Stream Content, string FileName, ClinicArchiveManifest Manifest, Guid LedgerEntryId, Guid ClinicId);
 
 public class BuildClinicArchiveQueryHandler
     : IRequestHandler<BuildClinicArchiveQuery, Result<ClinicArchiveFile>>
@@ -47,6 +53,10 @@ public class BuildClinicArchiveQueryHandler
     private readonly IClinicContext _clinicContext;
     private readonly IClinicArchiveStore _store;
     private readonly IFileStorage _fileStorage;
+    private readonly IAuditEntryRepository _auditEntries;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IAuditActorProvider _auditActor;
+    private readonly INotificationGenerator _notifications;
     private readonly ILogger<BuildClinicArchiveQueryHandler> _logger;
 
     public BuildClinicArchiveQueryHandler(
@@ -55,6 +65,10 @@ public class BuildClinicArchiveQueryHandler
         IClinicContext clinicContext,
         IClinicArchiveStore store,
         IFileStorage fileStorage,
+        IAuditEntryRepository auditEntries,
+        IUnitOfWork unitOfWork,
+        IAuditActorProvider auditActor,
+        INotificationGenerator notifications,
         ILogger<BuildClinicArchiveQueryHandler> logger)
     {
         _userRepository = userRepository;
@@ -62,6 +76,10 @@ public class BuildClinicArchiveQueryHandler
         _clinicContext = clinicContext;
         _store = store;
         _fileStorage = fileStorage;
+        _auditEntries = auditEntries;
+        _unitOfWork = unitOfWork;
+        _auditActor = auditActor;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -93,6 +111,31 @@ public class BuildClinicArchiveQueryHandler
         {
             return Result<ClinicArchiveFile>.Failure("Cabinet introuvable.");
         }
+
+        // FR-4.2 — recorded BEFORE the archive is built (R-14: it is buffered and uncapped, so recording
+        // afterwards would mean building a cabinet's whole record only to refuse it), and **not** best-effort:
+        // an unrecorded export succeeding is what makes the guarantee false. `GetPlatformClinicDetailQuery`'s
+        // precedent, including being a Query that writes — a Command here would broadcast into the clinic's
+        // group on every download, since RealtimeBroadcastBehavior derives its key from the namespace.
+        Guid ledgerEntryId;
+        try
+        {
+            ledgerEntryId = await ArchiveAccessLedger.RecordRequestedAsync(
+                _auditEntries, _unitOfWork, _auditActor.Current, clinic.Id, DateTime.UtcNow, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Refused an archive download for clinic {ClinicId}: the ledger row failed.", clinic.Id);
+            return Result<ClinicArchiveFile>.Failure(
+                ArchiveAccessLedger.UnrecordableMessage, ArchiveAccessLedger.UnrecordableCode);
+        }
+
+        // Stated Assumption 9 — the practice's administrators are told, and this one IS best-effort: the export
+        // is already recorded, so a feed failure must not refuse a download the ledger has accounted for.
+        // `FullName` is nullable on `User`; the generator renders a blank one as « Un administrateur », which is
+        // the honest fallback — the row still names the action and the ledger still names the account.
+        await _notifications.ClinicArchiveExportedAsync(
+            clinic.Id, caller.Id, caller.FullName ?? string.Empty, cancellationToken);
 
         // Buffered rather than written straight to the response, and to a TEMP FILE rather than to RAM.
         //
@@ -127,7 +170,9 @@ public class BuildClinicArchiveQueryHandler
             return Result<ClinicArchiveFile>.Success(new ClinicArchiveFile(
                 buffer,
                 ClinicArchiveFormat.FileName(clinic.Name, ClinicClock.ClinicToday()),
-                manifest));
+                manifest,
+                ledgerEntryId,
+                clinic.Id));
         }
         catch
         {

@@ -484,7 +484,9 @@ public class PdfGenerationService : IPdfGenerationService
     {
         try
         {
-            _logger.LogInformation("Generating payment receipt PDF for {Patient}", data.PatientName);
+            // FR-4.4 — the document it is FOR, not who it is for. `Reference` names the invoice or the
+            // échéance precisely, which is what a reader chasing a failed render actually needs.
+            _logger.LogInformation("Generating payment receipt PDF for {Reference}", data.Reference ?? "(none)");
 
             var pdfBytes = await Task.Run(() =>
             {
@@ -586,7 +588,7 @@ public class PdfGenerationService : IPdfGenerationService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error generating receipt PDF for {Patient}", data.PatientName);
+            _logger.LogError(ex, "Error generating receipt PDF for {Reference}", data.Reference ?? "(none)");
             throw;
         }
     }
@@ -595,7 +597,9 @@ public class PdfGenerationService : IPdfGenerationService
     {
         try
         {
-            _logger.LogInformation("Generating avoir PDF {Number} for {Patient}", data.Number, data.PatientName);
+            // The avoir's own number identifies it uniquely and per clinic — there was never anything the
+            // patient's name added here that the document number does not.
+            _logger.LogInformation("Generating avoir PDF {Number}", data.Number);
 
             var pdfBytes = await Task.Run(() =>
             {

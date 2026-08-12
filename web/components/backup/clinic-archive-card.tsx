@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Archive, ArrowDownToLine, ArrowUpFromLine, Loader2, ShieldAlert, TriangleAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -14,9 +14,19 @@ import {
 } from "@/components/ui/dialog"
 import { ApiError } from "@/lib/api/client"
 import { ARCHIVE_ERROR_CODES, backupApi, type ClinicArchiveRestoreReport } from "@/lib/api/backup"
+import { securityApi } from "@/lib/api/security"
+import { StepUpDialog } from "@/components/security/step-up-dialog"
 import { downloadBlob } from "@/lib/download"
 import { showErrorToast } from "@/lib/errors"
 import { formatDateTime, todayLocalIso } from "@/lib/format"
+
+/**
+ * The action names the server mints a confirmation for. They are **different** on purpose: download and restore
+ * are opposite operations on the same records, and one token good for both would let « je vais télécharger une
+ * copie » become « j'ai écrasé le cabinet » on a single click.
+ */
+const DOWNLOAD_ACTION = "download-clinic-archive"
+const RESTORE_ACTION = "restore-clinic-archive"
 
 /**
  * « Archive du cabinet » — download every record this practice holds as one file, and put one back
@@ -44,10 +54,47 @@ export function ClinicArchiveCard() {
 
   const fileInput = useRef<HTMLInputElement>(null)
 
-  const handleDownload = async () => {
+  // FR-4.3 — which action the open step-up is confirming, or null. One dialog for both, because the surface is
+  // identical and only the sentence and the action name differ.
+  const [stepUpFor, setStepUpFor] = useState<typeof DOWNLOAD_ACTION | typeof RESTORE_ACTION | null>(null)
+  const [hasTotp, setHasTotp] = useState(false)
+
+  // Which proof the step-up offers first.
+  //
+  // ⚠️ A failed read is NOT rendered as « this account has no second factor » — that is the collapse
+  // `check:responsive`'s `failed-read-as-empty` exists to stop. It is rendered as « we do not know », and not
+  // knowing means offering **both** proofs: the password every account has, and the code an enrolled one may
+  // prefer. Refusing the export over an unreadable probe would be the worse error by far, so this never gates
+  // anything — the server re-checks whichever proof arrives.
+  const [totpKnown, setTotpKnown] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const read = async () => {
+      try {
+        const state = await securityApi.getTotpState()
+        if (!cancelled) {
+          setHasTotp(state.enrolledAt !== null)
+          setTotpKnown(true)
+        }
+      } catch {
+        // Left unknown on purpose — see above. Nothing is disabled and nothing is asserted about the account.
+        if (!cancelled) setTotpKnown(false)
+      }
+    }
+
+    void read()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleDownload = async (confirmationToken: string) => {
     setDownloading(true)
     try {
-      const { blob, filename } = await backupApi.downloadArchive()
+      const { blob, filename } = await backupApi.downloadArchive(confirmationToken)
       // The server names the file after the cabinet and the clinic-local day; inventing one here gave every
       // cabinet's archive the same name, so two files in one Downloads folder differed only by the browser's
       // `(1)`. The local name stays as a fall-back for a response that carries no disposition header.
@@ -77,12 +124,12 @@ export function ClinicArchiveCard() {
     }
   }
 
-  const handleRestore = async () => {
+  const handleRestore = async (confirmationToken: string) => {
     if (!pending) return
 
     setRestoring(true)
     try {
-      const result = await backupApi.restoreArchive(pending)
+      const result = await backupApi.restoreArchive(pending, confirmationToken)
       setReport(result)
       setPending(null)
 
@@ -126,11 +173,22 @@ export function ClinicArchiveCard() {
         </p>
       </div>
 
+      {/* ⚠️ Said on a coarse pointer and nowhere else, and it is a NOTE rather than a refusal (§ 0: no capability
+          is removed by a layout decision). The archive is routinely a multi-gigabyte file and a phone browser
+          will frequently fail to keep one — but « frequently » is not « always », nothing here can measure it in
+          advance, and disabling the button would take a practice's own records away from the one device its
+          owner has on them. Saying so before the tap is the whole mitigation; the alternative the spec names is
+          a silent failure or a spinner left running. */}
+      <p className="hidden text-xs leading-relaxed text-muted-foreground coarse:block">
+        Téléchargez l&apos;archive depuis un ordinateur : le fichier peut peser plusieurs gigaoctets, et un
+        téléphone interrompt souvent un téléchargement de cette taille.
+      </p>
+
       {/* Stacked and full-width up to `sm:`, so at 320 px neither control is a half-width strip. `coarse:h-11`
           because `size="sm"` is 32 px, well under the 44 px floor on a finger. */}
       <div className="flex flex-col gap-2 sm:flex-row">
         <Button
-          onClick={handleDownload}
+          onClick={() => setStepUpFor(DOWNLOAD_ACTION)}
           size="sm"
           disabled={downloading}
           className="h-8 w-full text-xs coarse:h-11 sm:w-auto"
@@ -237,12 +295,42 @@ export function ClinicArchiveCard() {
             >
               Annuler
             </Button>
-            <Button type="button" onClick={handleRestore} disabled={restoring} className="coarse:h-11">
+            <Button
+              type="button"
+              onClick={() => setStepUpFor(RESTORE_ACTION)}
+              disabled={restoring}
+              className="coarse:h-11"
+            >
               {restoring ? "Restauration en cours..." : "Restaurer"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* FR-4.3 — the password (or a current code) immediately before either action. One dialog, two actions:
+          the token it mints names the action it was minted for, so neither can authorise the other. */}
+      <StepUpDialog
+        open={stepUpFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setStepUpFor(null)
+        }}
+        action={stepUpFor ?? DOWNLOAD_ACTION}
+        purpose={
+          stepUpFor === RESTORE_ACTION
+            ? "Vous allez remettre en place les enregistrements manquants de ce cabinet."
+            : "Vous allez télécharger l'intégralité du dossier médical de ce cabinet dans un fichier non chiffré."
+        }
+        hasTotp={totpKnown ? hasTotp : true}
+        onConfirmed={(confirmationToken) => {
+          const action = stepUpFor
+          setStepUpFor(null)
+          if (action === RESTORE_ACTION) {
+            void handleRestore(confirmationToken)
+          } else {
+            void handleDownload(confirmationToken)
+          }
+        }}
+      />
     </div>
   )
 }

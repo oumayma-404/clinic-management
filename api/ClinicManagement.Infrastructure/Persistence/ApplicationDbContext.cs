@@ -5,20 +5,26 @@ using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Infrastructure.Persistence.Configurations;
+using ClinicManagement.Infrastructure.Security;
 
 namespace ClinicManagement.Infrastructure.Persistence;
 
 public class ApplicationDbContext : DbContext
 {
     private readonly ICurrentClinicProvider? _clinicProvider;
+    private readonly IAuditChainKeyProvider? _auditChainKey;
 
     // The clinic provider is optional so the design-time factory and any manual construction still work (they
     // pass no provider → the filters return everything, as before). At runtime AddDbContext always injects it.
+    // The chain-key provider is optional for the same reason and is required only to *write* the ledger — see
+    // SaveChangesAsync, which refuses rather than leaving a row unchained.
     public ApplicationDbContext(
         DbContextOptions<ApplicationDbContext> options,
-        ICurrentClinicProvider? clinicProvider = null) : base(options)
+        ICurrentClinicProvider? clinicProvider = null,
+        IAuditChainKeyProvider? auditChainKey = null) : base(options)
     {
         _clinicProvider = clinicProvider;
+        _auditChainKey = auditChainKey;
     }
 
     // Exposed for the global query filters below. Accessed through the context instance so EF Core treats them
@@ -119,6 +125,14 @@ public class ApplicationDbContext : DbContext
     // TenantScopeFilterTests — that guard derives its clinic-owned set from the column neither of them has.
     public DbSet<PlatformAccount> PlatformAccounts { get; set; }
     public DbSet<PlatformRecoveryCode> PlatformRecoveryCodes { get; set; }
+
+    // The clinic second factor (hosted-security-hardening FR-1.4/FR-1.6). Both hang off `User` and neither
+    // carries a ClinicId — the same position the two above are in, and for `SessionFamily` the absence is
+    // load-bearing rather than incidental: its hot read is by credential hash on the refresh path, which runs
+    // before any clinic scope exists, so a query filter would match nothing and replay detection would never
+    // fire. See the property's own note.
+    public DbSet<UserRecoveryCode> UserRecoveryCodes { get; set; }
+    public DbSet<SessionFamily> SessionFamilies { get; set; }
 
     // The console's activity counters (platform-console Part 2). These DO carry a ClinicId, so unlike the two
     // above they are named decisions in TenantScopeFilterTests rather than absent from it: they are the VENDOR's
@@ -385,9 +399,27 @@ public class ApplicationDbContext : DbContext
     /// does not belong in this set.
     /// </para>
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="SessionFamily"/> is the second entry, and it satisfies that argument for a different reason
+    /// (<c>hosted-security-hardening</c> FR-1.6). Two tabs — or a shell and a browser — legitimately exchange a
+    /// refresh credential within moments of each other, and both must keep working: that is the whole point of
+    /// accepting the immediate predecessor. With the token on, both writers UPDATE the family row, the loser
+    /// raises <c>DbUpdateConcurrencyException</c>, <c>UnitOfWork</c> translates it to <c>ConflictException</c>,
+    /// and <c>/api/auth/refresh</c> answers <b>409</b> to precisely the case FR-1.6 exists to preserve —
+    /// signing a working user out for using the product normally.
+    /// </para>
+    /// <para>
+    /// The set's required argument holds: <b>a lost rotation loses no information a user typed.</b> The row
+    /// records which credential is current, both writers are the same person on the same account, and the cost
+    /// is one generation of slack in replay detection — which FR-1.6 states as its own tolerance, because the
+    /// rule is about <i>ordering</i>, not elapsed time.
+    /// </para>
+    /// </remarks>
     private static readonly HashSet<Type> SkipsConcurrencyToken = new()
     {
         typeof(UserDashboardPreference),
+        typeof(SessionFamily),
     };
 
     /// <summary>
@@ -524,14 +556,71 @@ public class ApplicationDbContext : DbContext
     public override int SaveChanges()
     {
         ConvertDateTimesToUtc();
+
+        // The synchronous path exists for completeness — the whole application saves asynchronously — and no
+        // audit row has ever reached it. Refusing beats chaining without a lock, which is the one failure this
+        // whole mechanism is built to prevent.
+        if (PendingAuditRows().Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Le journal d'audit ne peut être chaîné que sur le chemin asynchrone : utilisez SaveChangesAsync.");
+        }
+
         return base.SaveChanges();
     }
 
+    /// <summary>
+    /// Saves, chaining any new audit rows on the way (<c>hosted-security-hardening</c> FR-4.1 step 4).
+    ///
+    /// <para>⚠️ <b>The chaining is HERE and not in the interceptor that collects the rows</b>, and the reason is
+    /// that the interceptor is not the only writer: <c>ClinicArchiveRestorer</c> stages a summary row per table
+    /// through <c>IAuditEntryRepository</c>, into its caller's own transaction, on purpose. Chaining at the point
+    /// of collection would leave those rows unchained after chained ones — which is precisely the signature
+    /// <c>AuditChain.Walk</c> reports as tampering. Chaining where the rows are <i>saved</i> catches every
+    /// writer, present and future, by construction: the interceptor's own argument one level down.</para>
+    ///
+    /// <para>⚠️ <b>A transaction is opened when the caller has none</b>, because the advisory lock the appender
+    /// takes is <c>xact</c>-scoped: outside a transaction it would be released before the insert it protects, and
+    /// serialise nothing. Where the caller already has one — the restorer, and the interceptor's own — this rides
+    /// it, so the ledger row and the operation it records commit together or not at all.</para>
+    /// </summary>
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         ConvertDateTimesToUtc();
-        return await base.SaveChangesAsync(cancellationToken);
+
+        var auditRows = PendingAuditRows();
+        if (auditRows.Count == 0)
+        {
+            return await base.SaveChangesAsync(cancellationToken);
+        }
+
+        if (_auditChainKey is null)
+        {
+            // Unreachable through DI — AddInfrastructure registers the provider — so this is the design-time
+            // factory or a hand-built context trying to write the ledger. Silently leaving the rows unchained
+            // would put a permanent unverifiable hole in a chain nobody would think to look at.
+            throw new InvalidOperationException(
+                "Aucune clé de chaînage n'est disponible : ce contexte ne peut pas écrire au journal d'audit.");
+        }
+
+        if (Database.CurrentTransaction is not null)
+        {
+            await AuditChainAppender.AssignAsync(this, auditRows, _auditChainKey.Key, cancellationToken);
+            return await base.SaveChangesAsync(cancellationToken);
+        }
+
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        await AuditChainAppender.AssignAsync(this, auditRows, _auditChainKey.Key, cancellationToken);
+        var written = await base.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return written;
     }
+
+    private List<AuditEntry> PendingAuditRows() =>
+        ChangeTracker.Entries<AuditEntry>()
+            .Where(e => e.State == EntityState.Added && e.Entity.Sequence == 0)
+            .Select(e => e.Entity)
+            .ToList();
 }
 
 

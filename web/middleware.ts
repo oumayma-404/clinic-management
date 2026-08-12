@@ -1,7 +1,8 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { auth0 } from './lib/auth0';
-import { SESSION_COOKIE, MUST_CHANGE_COOKIE, resolveAuthMode } from './lib/auth/local-auth';
+import { resolveAuthMode } from './lib/auth/local-auth';
+import { readSessionCookie, readMustChangeCookie } from './lib/auth/session-cookie';
 
 // ⚠️ Matched by EXACT path (`includes`), so a route with a child needs both entries — `/signup/verifier` is
 // where the emailed link lands and is reached with no session by definition, which is the whole point of it.
@@ -33,14 +34,14 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     }
 
-    const token = request.cookies.get(SESSION_COOKIE)?.value;
+    const token = readSessionCookie((name) => request.cookies.get(name)?.value);
     if (!token) {
       return frontDoorRedirect(request, `/login?returnTo=${encodeURIComponent(pathname)}`);
     }
 
     // AC-5.2: a user whose password was reset must change it before using the app. While the
     // flag cookie is set, force them onto /change-password (the route clears it on success).
-    const mustChange = request.cookies.get(MUST_CHANGE_COOKIE)?.value === '1';
+    const mustChange = readMustChangeCookie((name) => request.cookies.get(name)?.value) === '1';
     if (mustChange && pathname !== CHANGE_PASSWORD_ROUTE) {
       return frontDoorRedirect(request, CHANGE_PASSWORD_ROUTE);
     }

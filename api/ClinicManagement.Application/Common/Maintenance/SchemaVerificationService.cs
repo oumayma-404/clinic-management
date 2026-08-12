@@ -96,9 +96,12 @@ public class SchemaVerificationService
         VerifyForeignKeys(facts, findings);
         VerifyDecimalPrecision(facts, findings);
         VerifyAuditLedger(facts, findings);
+        VerifyAuditChain(facts, findings);
         VerifyDataMigrations(facts, findings);
         VerifySubscriptions(facts, findings);
         VerifyMessagingAllowances(facts, findings);
+        VerifyInternalCertificate(facts, findings);
+        VerifySecretProtection(facts, findings);
 
         return new SchemaVerificationReport(findings);
     }
@@ -304,6 +307,68 @@ public class SchemaVerificationService
             unexpected.Count == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
     }
 
+    // ------------------------------------------------------------------ the audit chain
+
+    /// <summary>
+    /// FR-4.1's two readings of the same walk, reported <b>apart</b>: a break is drift, a declared gap is not.
+    ///
+    /// <para>That separation is the requirement, not a presentation choice. A gap is something the product itself
+    /// recorded — an audit write that failed, or a restore — so counting it as drift would leave a deployment
+    /// permanently at exit 2 over an event it handled correctly, and an alarm that is always on is one nobody
+    /// reads. A <b>break</b> is the opposite: nobody declared it, and it names the first entry that does not add
+    /// up.</para>
+    ///
+    /// <para>⚠️ <b>Nothing refuses to serve on a break.</b> An audit break is an alarm, not an outage — the
+    /// spec's own edge case — so this reports and the application keeps running.</para>
+    /// </summary>
+    private static void VerifyAuditChain(SchemaFacts facts, List<SchemaVerificationFinding> findings)
+    {
+        if (facts.AuditChain is not { } chain)
+        {
+            foreach (var check in new[] { "audit-chain-intact", "audit-declared-gaps" })
+            {
+                findings.Add(NotApplicableIn(
+                    "Audit chain", check, "the chain columns or the chaining key are not present"));
+            }
+
+            return;
+        }
+
+        var broken = chain.Chains.Where(c => !c.IsIntact).ToList();
+        var verified = chain.Chains.Sum(c => c.Checked);
+        var unchained = chain.Chains.Sum(c => c.Unchained);
+
+        // The deployment-wide chain is named as its own scope: it carries every background job's and every vendor
+        // verb's writes, which belong to no cabinet, and reading « 1 chaîne » with no idea which would send an
+        // operator looking through the clinics for it.
+        findings.Add(new SchemaVerificationFinding(
+            "Audit chain",
+            "audit-chain-intact",
+            broken.Count == 0
+                ? $"{chain.Chains.Count} chaîne(s) intactes — {verified} entrée(s) vérifiées, "
+                  + $"{unchained} antérieure(s) au chaînage"
+                : $"{broken.Count} chaîne(s) rompue(s). Première rupture : "
+                  + string.Join(" ; ", broken.Take(3).Select(Describe)),
+            broken.Count == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+
+        var gaps = chain.Chains.Sum(c => c.DeclaredGaps);
+        findings.Add(new SchemaVerificationFinding(
+            "Audit chain",
+            "audit-declared-gaps",
+            gaps == 0
+                ? "0 interruption déclarée"
+                : $"{gaps} interruption(s) déclarée(s) — écritures de journal ayant échoué, ou restaurations. "
+                  + "Signalées ici sans être une dérive : le produit les a lui-même consignées",
+            SchemaVerificationSeverity.Info));
+    }
+
+    private static string Describe(AuditChainWalkResult result) =>
+        $"{ScopeOf(result.ChainKey)} n° {result.FirstBrokenSequence} ({result.FirstBrokenEntryId}) — "
+        + Domain.Services.AuditChain.Describe(result.Break);
+
+    private static string ScopeOf(Guid chainKey) =>
+        chainKey == Guid.Empty ? "chaîne hors cabinet" : $"cabinet {chainKey}";
+
     // ------------------------------------------------------------------ data migrations
 
     private static void VerifyDataMigrations(SchemaFacts facts, List<SchemaVerificationFinding> findings)
@@ -416,6 +481,48 @@ public class SchemaVerificationService
                 : $"{n} clinic signup(s) can no longer become anything — a pending row whose address already "
                   + "has an account, or a consumed row past retention that the signup-path purge never reached",
             n => n == 0);
+
+        // hosted-security-hardening FR-1.1. ⚠️ Deliberately not « every admin has a factor or is unenrolled »,
+        // which the plan proposed and which is a TAUTOLOGY — every administrator satisfies one branch or the
+        // other, so it could never go red. What is falsifiable is an admin still *working* without one.
+        Add("admins-without-a-factor-holding-a-live-session", counts.AdminsWithoutFactorHoldingLiveSession,
+            n => n == 0
+                ? "0 administrator(s) hold a live session without a verified second factor"
+                : $"{n} administrator(s) are still working with a live session and no second factor — the "
+                  + "per-request enrolment check is not refusing them",
+            n => n == 0);
+
+        // FR-3.4. Reaching zero is what authorises the later migration that drops the plaintext column — and it
+        // is a backfill, so nothing else in the product can see it: an unconverted clinic syncs perfectly from
+        // the cleartext nobody encrypted, and every layer reports the feature present.
+        Add("google-token-protected", counts.ClinicsWithPlaintextGoogleToken,
+            n => n == 0
+                ? "0 cabinet(s) still hold a Google Agenda token in the clear"
+                : $"{n} cabinet(s) still hold a Google Agenda token in the clear — the FR-3.4 startup backfill "
+                  + "has not reached them; do not drop Clinics.GoogleRefreshToken until this reads zero",
+            n => n == 0);
+
+        Add("session-families-have-no-orphans", counts.SessionFamilyOrphans,
+            n => n == 0
+                ? "0 session family(ies) outlive their account"
+                : $"{n} session family(ies) name an account that no longer exists — the cascade is not what the "
+                  + "model declares",
+            n => n == 0);
+
+        // ⚠️ Info, ALWAYS — never a drift verdict. The comparison is ~0 by construction (one host, one clock),
+        // and the failure that actually breaks every TOTP code at once — the host drifting from real time —
+        // moves both sides together and cannot be seen from here. Said out loud rather than left implied,
+        // because a check reporting « ok » about a thing it cannot measure is worse than no check.
+        findings.Add(counts.AppToDatabaseClockOffsetSeconds is { } offset
+            ? new SchemaVerificationFinding(
+                "Data migrations",
+                "server-clock-drift",
+                $"application clock is {offset:0.###}s from the database's. ⚠️ Both run on one host and read one "
+                + "clock, so this cannot detect the case that matters — the HOST drifting from real time, which "
+                + "fails every second-factor code at once with the same message as a wrong password. NTP on the "
+                + "host is the real control.",
+                SchemaVerificationSeverity.Info)
+            : NotApplicable("server-clock-drift", "the database clock could not be read"));
 
         // The invariant the seven clinical query filters rest on. A non-zero count is one of two failures and
         // both are silent: a backfill that covered nothing (rows stuck at Guid.Empty, so a patient's whole
@@ -757,6 +864,103 @@ public class SchemaVerificationService
     /// <c>verify-schema</c> exit non-zero for unbuilt work would train the operator to ignore its exit code, which
     /// is the one thing a gate must not do.</para>
     /// </summary>
+    // ------------------------------------------------------------------ internal transit
+
+    /// <summary>
+    /// Reports how much life the deployment's internal root certificate has left
+    /// (<c>hosted-security-hardening</c> FR-2.6). Not a schema check at all — it is here because this verb is
+    /// the one thing an operator already runs before and after every schema change, and a ten-year certificate
+    /// needs somewhere its expiry will be noticed years before it arrives.
+    ///
+    /// <para>⚠️ <b>Usable is Info with the count; configured-but-unusable is Drift.</b> The story specified
+    /// Info, and that holds for the case it was about — an alarm that is always on is one nobody reads, and a
+    /// certificate with 3 400 days left must not flip this verb to exit 2. But an <i>expired</i> or unreadable
+    /// root reported as <c>[ ok ]</c> is the exact failure shape this file exists to prevent, so that one case
+    /// is drift.</para>
+    ///
+    /// <para>⚠️ Absent means <b>not applicable</b>, not broken: on <c>SelfHostedLan</c> and on a developer
+    /// machine there is no internal CA to have. Where there should be one, the API refuses to start without it
+    /// (<c>TransportAssurance</c>) — so a deployment that reaches this verb has already passed that gate.</para>
+    /// </summary>
+    private static void VerifyInternalCertificate(SchemaFacts facts, List<SchemaVerificationFinding> findings)
+    {
+        const string scope = "Internal transit";
+        const string check = "internal-certificate-days-remaining";
+
+        if (facts.InternalCertificate is not { } certificate)
+        {
+            findings.Add(NotApplicableIn(
+                scope, check, "this deployment configures no internal root certificate"));
+            return;
+        }
+
+        findings.Add(new SchemaVerificationFinding(
+            scope,
+            check,
+            certificate.Usable
+                ? $"{certificate.DaysRemaining} day(s) remaining on {certificate.Path}"
+                : $"the internal root certificate is unusable — {certificate.Detail}",
+            certificate.Usable ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+    }
+
+    /// <summary>
+    /// FR-3.1 — is the key ring encrypted at rest, and has every stored secret moved onto its current
+    /// generation? Together these are the <b>only</b> thing that authorises deleting the superseded plaintext
+    /// key files, and deleting one early is R-2's data loss reached from the other direction.
+    ///
+    /// <para>⚠️ <b>« Absent » is « not applicable » and never « 0 remaining ».</b> This whole side is null on a
+    /// caller with no Data Protection provider, and reporting a reassuring zero there would say « the re-protect
+    /// finished » about a measurement nobody took — on the strength of which an operator deletes the key that
+    /// opens every clinic's credentials.</para>
+    /// </summary>
+    private static void VerifySecretProtection(SchemaFacts facts, List<SchemaVerificationFinding> findings)
+    {
+        const string scope = "Secret protection";
+
+        if (facts.SecretProtection is not { } protection)
+        {
+            findings.Add(NotApplicableIn(
+                scope, "key-ring-protection", "this run has no Data Protection provider to read the ring with"));
+            findings.Add(NotApplicableIn(
+                scope, "secrets-protected-under-current-ring", "the key ring's generation could not be read"));
+            return;
+        }
+
+        findings.Add(new SchemaVerificationFinding(
+            scope,
+            "key-ring-protection",
+            protection.KeyRingIsCertificateProtected
+                ? "the key ring is encrypted by the deployment's certificate"
+                  + (protection.ProtectingCertificateDaysRemaining is { } days
+                      ? $" ({days} day(s) remaining on it)"
+                      : string.Empty)
+                : "the key ring is NOT encrypted at rest — its keys, which decrypt every cabinet's reminder "
+                  + "credentials and every administrator's second factor, are readable from a copy of the volume "
+                  + "(set DataProtection:CertificatePath — deploy/KEY-CUSTODY.md)",
+            protection.KeyRingIsCertificateProtected
+                ? SchemaVerificationSeverity.Info
+                : SchemaVerificationSeverity.Drift));
+
+        // Per family, never one total: « 3 remaining » does not say which recovery an operator needs, and the
+        // six families recover four different ways.
+        var outstanding = protection.Families.Sum(f => f.NotUnderCurrentGeneration);
+        var detail = string.Join(" · ", protection.Families
+            .Where(f => f.Rows > 0)
+            .Select(f => $"{f.Name} {f.Rows - f.NotUnderCurrentGeneration}/{f.Rows}"));
+
+        findings.Add(new SchemaVerificationFinding(
+            scope,
+            "secrets-protected-under-current-ring",
+            outstanding == 0
+                ? $"every stored secret is under the ring's current generation{Detail(detail)}"
+                : $"{outstanding} stored secret(s) are still under a superseded generation{Detail(detail)} — run "
+                  + "« reprotect-secrets » and do NOT delete any key file until this reads zero",
+            outstanding == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+
+        static string Detail(string detail) =>
+            string.IsNullOrEmpty(detail) ? " (no secret is stored yet)" : $" — {detail}";
+    }
+
     private static SchemaVerificationFinding NotApplicableIn(string scope, string check, string why) =>
         new(scope, check, $"not applicable — {why}", SchemaVerificationSeverity.Info);
 

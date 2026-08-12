@@ -82,7 +82,11 @@ public class SmtpDocumentEmailSender : IDocumentEmailSender
         catch (Exception ex)
         {
             // PII: the recipient address is not logged — the row id is enough to find it.
-            _logger.LogWarning(ex, "SMTP send failed for document email attachment {FileName}", message.AttachmentFileName);
+            // FR-4.4 — `DocumentFileNaming` composes this from the patient's name, so the stem is PHI. The
+            // extension is the only part that ever diagnosed anything.
+            _logger.LogWarning(
+                ex, "SMTP send failed for a document email attachment ({FileName})",
+                LogMask.FileName(message.AttachmentFileName));
             return DocumentEmailSendResult.Transient(ex.Message);
         }
     }

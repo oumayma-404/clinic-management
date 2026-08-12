@@ -76,6 +76,13 @@ export const ApiErrorCode = {
    */
   MustChangePassword: 'must_change_password',
   /**
+   * This administrator must enrol a second factor before the API will serve them anything else
+   * (`hosted-security-hardening` FR-1.2). Emitted by `ClinicAuthRefusals.TotpEnrolmentRequired`, on the login
+   * ladder **and** per-request by `LocalAuthEnforcementMiddleware` — the second is why the client half below
+   * exists at all: a session predating the requirement gets it on an ordinary call, not at sign-in.
+   */
+  TotpEnrolmentRequired: 'totp_enrolment_required',
+  /**
    * The cabinet's entitlement has ended, so **writes** are refused with 402 until it is renewed
    * (`clinic-subscription` AC-4.4). Every read, every CSV export and every PDF keep working — the gate never
    * inspects a GET — so this is never a reason to take the screen.
@@ -148,6 +155,31 @@ export function onMustChangePassword(listener: MustChangePasswordListener): () =
   mustChangePasswordListeners.add(listener);
   return () => {
     mustChangePasswordListeners.delete(listener);
+  };
+}
+
+type SecondFactorRequiredListener = () => void;
+const secondFactorRequiredListeners = new Set<SecondFactorRequiredListener>();
+
+/**
+ * Subscribe to « this administrator must enrol a second factor first » (403 +
+ * {@link ApiErrorCode.TotpEnrolmentRequired}). Returns an unsubscribe function.
+ *
+ * <p>Same shape as {@link onMustChangePassword}, and the same necessity. The refusal can arrive on <b>any</b>
+ * call, because the requirement is re-checked per request — so a user whose session predates it, or who was
+ * promoted to administrator while signed in, meets it in the middle of ordinary work. Without a destination
+ * the app looks perfectly usable and every request fails, which is the worst version of this.</p>
+ *
+ * <p>⚠️ Two consequences worth writing down. The login screen's <b>enrol</b> mode has to be reachable while
+ * holding a session the API refuses — it is, because `/login` is public in `middleware.ts` and the enrolment
+ * endpoint is anonymous. And this makes the module's **second** message replacement, where its own docs said
+ * there was exactly one: the server's sentence is already French and correct, so the message travels verbatim
+ * and only the <i>destination</i> is added.</p>
+ */
+export function onSecondFactorRequired(listener: SecondFactorRequiredListener): () => void {
+  secondFactorRequiredListeners.add(listener);
+  return () => {
+    secondFactorRequiredListeners.delete(listener);
   };
 }
 
@@ -422,6 +454,12 @@ async function throwIfNotOk(response: Response): Promise<void> {
       mustChangePasswordListeners.forEach((listener) => listener());
     }
 
+    // Its sibling one requirement along. ⚠️ The message is NOT replaced: the server's sentence is French and
+    // already names the way out (« depuis l'écran de connexion »), so only the destination is added.
+    if (errorCode === ApiErrorCode.TotpEnrolmentRequired) {
+      secondFactorRequiredListeners.forEach((listener) => listener());
+    }
+
     throw new ApiError(response.status, errorMessage, undefined, errorCode);
   }
 }
@@ -693,7 +731,18 @@ function deadline(ms: number): AbortSignal | undefined {
     : undefined
 }
 
-export function apiHeaders(accessToken?: string | null, contentType: ApiContentType = 'json'): HeadersInit {
+/**
+ * The header a step-up confirmation travels in (`hosted-security-hardening` FR-4.3).
+ *
+ * ⚠️ A header and **not** a query parameter: this app's URLs are logged, and FR-4.4 is about exactly that.
+ */
+export const STEP_UP_HEADER = 'X-Step-Up-Confirmation'
+
+export function apiHeaders(
+  accessToken?: string | null,
+  contentType: ApiContentType = 'json',
+  stepUpToken?: string | null,
+): HeadersInit {
   const headers: Record<string, string> = {};
 
   if (contentType === 'json') {
@@ -701,6 +750,9 @@ export function apiHeaders(accessToken?: string | null, contentType: ApiContentT
   }
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  if (stepUpToken) {
+    headers[STEP_UP_HEADER] = stepUpToken;
   }
 
   const shellVersion = typeof window !== 'undefined' ? window.__clinicShell?.version : undefined;
@@ -796,12 +848,12 @@ export async function apiDelete<T>(endpoint: string, accessToken?: string | null
  * `timeoutMs` exists for that last one: the archive is built in full before a byte is sent, so its deadline is a
  * property of the *operation*, not of the transfer.
  */
-export async function apiGetFile(endpoint: string, params?: Record<string, any>, accessToken?: string | null, timeoutMs: number = TRANSFER_TIMEOUT_MS): Promise<DownloadedFile> {
+export async function apiGetFile(endpoint: string, params?: Record<string, any>, accessToken?: string | null, timeoutMs: number = TRANSFER_TIMEOUT_MS, stepUpToken?: string | null): Promise<DownloadedFile> {
   const url = buildUrl(endpoint, params);
 
   return handleRequest<DownloadedFile>(accessToken, (token) => fetch(url, {
     method: 'GET',
-    headers: apiHeaders(token, 'none'),
+    headers: apiHeaders(token, 'none', stepUpToken),
     credentials: 'include',
     signal: deadline(timeoutMs),
   }), readDownloadedFile);
@@ -824,13 +876,17 @@ export async function apiPostBlob(endpoint: string, data: any, accessToken?: str
   }), readBlob);
 }
 
-export async function apiPostFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null, timeoutMs: number = TRANSFER_TIMEOUT_MS): Promise<T> {
+export async function apiPostFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null, timeoutMs: number = TRANSFER_TIMEOUT_MS, stepUpToken?: string | null): Promise<T> {
   // Headers are built INSIDE the callback so a 401 retry rebuilds them with the renewed token. Uploads are
   // exactly where a stale token bites — they are user-initiated after a period of reading, so they are the
   // most likely request to be the first one past the access token's expiry.
+  //
+  // ⚠️ A step-up confirmation is SINGLE-USE, so it survives that retry only because the retry re-sends the same
+  // request rather than re-authenticating: a 401 refresh does not spend the confirmation, and a 403 is not
+  // retried at all.
   return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
-    headers: apiHeaders(token, 'none'),
+    headers: apiHeaders(token, 'none', stepUpToken),
     body: formData,
     credentials: 'include',
     signal: deadline(timeoutMs),

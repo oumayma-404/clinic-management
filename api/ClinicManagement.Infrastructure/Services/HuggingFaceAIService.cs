@@ -158,13 +158,19 @@ public class HuggingFaceAIService : IHuggingFaceAIService
                     }
                     else
                     {
-                        _logger.LogWarning("Message object found but no content property: {Message}", message.GetRawText());
+                        // FR-4.4 — the raw model payload echoes back the clinic-context prompt, which carries patient data.
+                        // What diagnoses an unexpected shape is the property names, not the values.
+                        _logger.LogWarning(
+                            "The model returned a message object with no content property (properties: {Properties}).",
+                            string.Join(", ", message.EnumerateObject().Select(p => p.Name)));
                         responseMessage = "I apologize, but I couldn't generate a response.";
                     }
                 }
                 else
                 {
-                    _logger.LogWarning("Choices found but no message property: {Choice}", firstChoice.GetRawText());
+                    _logger.LogWarning(
+                        "The model returned a choice with no message property (properties: {Properties}).",
+                        string.Join(", ", firstChoice.EnumerateObject().Select(p => p.Name)));
                     responseMessage = "I apologize, but I couldn't generate a response.";
                 }
             }

@@ -18,15 +18,32 @@
 name: clinic-management
 
 services:
+  # The deployment's internal certificate authority (hosted-security-hardening Part 2). One definition, in the
+  # prod file, because both hosted kinds run the identical one-shot — see ./certs/issue.sh.
+  certs:
+    extends:
+      file: docker-compose.prod.yml
+      service: certs
+
   postgres:
     extends:
       file: docker-compose.prod.yml
       service: postgres
+    # Restated: `extends` does not carry depends_on, and without this postgres starts before the certificates
+    # exist — then fails on a missing ssl_cert_file, in a message about a file rather than about ordering.
+    depends_on:
+      certs:
+        condition: service_completed_successfully
 
   minio:
     extends:
       file: docker-compose.prod.yml
       service: minio
+    # Restated for the same reason: MinIO with `--certs-dir` and no certificate serves plain HTTP, and the API
+    # then refuses to start against it — correct, and diagnosed two containers away from the cause.
+    depends_on:
+      certs:
+        condition: service_completed_successfully
 
   api:
     build:
@@ -35,6 +52,8 @@ services:
     container_name: clinic-api-prod
     restart: unless-stopped
     depends_on:
+      certs:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       minio:
@@ -57,15 +76,24 @@ services:
       # ⚠️ NEVER the clinic's Auth__Local__SigningKey. Distinct issuer, audience and key are what make a console
       # token and a clinic token fail each other's validation — AC-1.4's « refused as unauthenticated » is a
       # property of the signature, not of a policy. Startup FAILS LOUD if this is absent while Console__Port > 0.
-      Console__SigningKey: ${CONSOLE_SIGNING_KEY}
-      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Console__SigningKey_FILE: /run/secrets/console_signing_key
+      # ⚠️ `SSL Mode=VerifyFull` + `Root Certificate=`, and startup FAILS LOUD without both (FR-2.1/FR-2.5 —
+      # Startup/TransportAssurance.cs). `Require` would encrypt and accept any certificate, which stops a
+      # packet capture and not an impostor on this bridge network; only verify-full checks identity. The host
+      # must stay `postgres`: that is the name in the internal leaf's SAN and what verify-full compares.
+      # ⚠️ FR-3.10 deliberately stops here, and the reason is worth stating: this string and MinIO__SecretKey
+      # below carry secrets SHARED with containers that are not .NET — postgres, minio, and both backup
+      # sidecars, each of which needs its own *_FILE convention. Moving only the API's copy would leave the same
+      # password in three other containers' environments while the compose file implied it had left, which is
+      # worse than not moving it. They move with their sidecars — see follow-up/hosted-secrets-to-files.md.
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=VerifyFull;Root Certificate=/certs/ca.crt"
       # This profile owns its accounts, so THIS is what signs and validates every bearer token and every 12-hour
       # refresh cookie. Absent, LocalAuthConfig generates a key into /app/.local/ — on the container's ephemeral
       # layer, silently — so every `up -d --build` mints a new one and signs the whole fleet out mid-shift with
       # nothing in any log naming the cause, and scaling `api` past one replica breaks authentication outright
       # (a token minted by one replica fails signature validation on the other). Same defect the key ring below
       # required a volume for; this is the other per-install secret in the container.
-      Auth__Local__SigningKey: ${AUTH_LOCAL_SIGNING_KEY}
+      Auth__Local__SigningKey_FILE: /run/secrets/auth_local_signing_key
       # Whose X-Forwarded-For may be believed. Caddy and the web container are the only hops in front of the API,
       # and both reach it over this bridge network — without this every address-keyed partition (the auth
       # limiter's ceiling, the API limiter's fall-back, the per-source login lockout) collapses into ONE bucket
@@ -78,17 +106,41 @@ services:
       # after which every clinic's reminder channel reports « non configuré » because the ring that
       # encrypted its credentials is gone.
       DataProtection__KeyRingPath: /keys
+      # FR-3.1 — the certificate the key ring is ENCRYPTED WITH. Startup FAILS LOUD without it outside
+      # Development, and that is deliberate: supplying a custom key repository (the volume above) disables the
+      # framework's own key encryption, so before this the ring sat in CLEARTEXT on that volume — the master
+      # keys that decrypt every cabinet's reminder credentials and every administrator's second factor, readable
+      # from a copy of the disk with no key at all.
+      #
+      # ⚠️ Configuring this protects keys the ring writes FROM THEN ON and re-wraps nothing already there. Run
+      # `docker exec clinic-api-prod dotnet ClinicManagement.API.dll reprotect-secrets --rotate`, confirm
+      # `verify-schema` reports secrets-protected-under-current-ring at zero, and ONLY THEN remove the old
+      # plaintext key files. The reverse order destroys every second factor at once (R-2). deploy/KEY-CUSTODY.md.
+      #
+      # ⚠️ Back up the CERTIFICATE separately from postgres_data — it is now the thing that must travel apart,
+      # not the ring (FR-3.11).
+      DataProtection__CertificatePath: /run/secrets/keyring_certificate
+      DataProtection__CertificatePassword_FILE: /run/secrets/keyring_certificate_password
+      # Superseded generations kept so ciphertext written under them still opens (FR-3.2). Two is what
+      # KEY-CUSTODY.md tells operators to keep; leave these unset until the first rotation.
+      # DataProtection__PreviousCertificates__0__Path: /run/secrets/keyring_certificate_previous
+      # DataProtection__PreviousCertificates__0__Password_FILE: /run/secrets/keyring_certificate_previous_password
+      # FR-3.9 — which generations this deployment can read, stamped beside each dump by the backup sidecar.
+      DataProtection__GenerationMarkerPath: /keyring-marker/generation
       GoogleCalendar__ClientId: ${GOOGLE_CLIENT_ID}
-      GoogleCalendar__ClientSecret: ${GOOGLE_CLIENT_SECRET}
+      GoogleCalendar__ClientSecret_FILE: /run/secrets/google_client_secret
       GoogleCalendar__RedirectUri: "https://${DOMAIN}/api/googlecalendar/callback"
       # No GoogleCalendar__RefreshToken / __CalendarId: each clinic connects its own calendar and the
       # token is stored per-clinic on the Clinic row. A shared one here would sync every clinic's
       # appointments into one operator calendar.
-      HuggingFace__ApiKey: ${HUGGINGFACE_API_KEY}
+      HuggingFace__ApiKey_FILE: /run/secrets/huggingface_api_key
       MinIO__Endpoint: "minio:9000"
       MinIO__AccessKey: ${MINIO_ROOT_USER}
       MinIO__SecretKey: ${MINIO_ROOT_PASSWORD}
-      MinIO__UseSSL: "false"
+      # FR-2.2. The root below is what the Minio client verifies MinIO's leaf against; the container's system
+      # trust store knows nothing about a CA minted for this deployment, so without it TLS fails closed.
+      MinIO__UseSSL: "true"
+      MinIO__RootCertificate: /certs/ca.crt
       # ── Abonnements (clinic-subscription) ────────────────────────────────────────────────────────
       # ⚠️ **This is the ONLY deployment kind where the subscription gate exists, and « Abonnement » is where a
       # refused save sends the cabinet.** Left unset, `appsettings.json` ships every price at 0 — which that file's
@@ -108,6 +160,19 @@ services:
       Subscription__PaymentInstructions: ${SUBSCRIPTION_PAYMENT_INSTRUCTIONS:-}
       Subscription__ContactEmail: ${SUBSCRIPTION_CONTACT_EMAIL:-}
       Subscription__ContactPhone: ${SUBSCRIPTION_CONTACT_PHONE:-}
+      # FR-4.4 / OQ-5 — 30 days of retention, one file a day. Stated here rather than left at appsettings'
+      # default of 7, because the volume below is what makes retention mean anything at all.
+      Serilog__WriteTo__1__Args__retainedFileCountLimit: "30"
+      # FR-4.5 — the policy is ENFORCING here. It has existed and been unset for the life of this deployment,
+      # which is the failure mode AC-5 exists to prevent: a security control that is present and inert reads as
+      # present. `UnitTests/Deploy/TransportConfigurationTests` asserts this file carries it.
+      Security__EnforceCsp: "true"
+      # FR-4.1 — the audit chain's key, and the deployment REFUSES TO START without it (AuditChainKeyProvider).
+      # ⚠️ Deliberately NOT the Data Protection ring: Part 3 re-protects that ring and FR-3.9 makes it the thing
+      # a restore may fail to read, so chain verification has to stay independently checkable.
+      # ⚠️ Losing it does not lose data — it makes every entry written under it unverifiable, which reads exactly
+      # like tampering. Back it up with the key-ring certificate; deploy/KEY-CUSTODY.md.
+      Audit__ChainKey_FILE: /run/secrets/audit_chain_key
 
       # ── Meta / WhatsApp ────────────────────────────────────────────────────────────────────────────────────
       # ⚠️ **The Graph version is read from the SAME key as the web image's build arg below**, and that is the
@@ -149,6 +214,27 @@ services:
       Messaging__ContactPhone: ${MESSAGING_CONTACT_PHONE:-}
     volumes:
       - dataprotection_keys:/keys
+      # The internal root the connection string and the Minio client above both name. Read-only: this
+      # container verifies against the CA and never issues anything.
+      - internal_certs:/certs:ro
+      # Read-WRITE — the API is the only writer of the FR-3.9 marker. Every other consumer mounts it `:ro`.
+      - keyring_marker:/keyring-marker
+      # FR-4.4 — logs survive the container. Until this they lived on the container's ephemeral layer plus
+      # stdout, so every restart erased the record of what the deployment had just done, which is the opposite
+      # of what an audit needs from the one file nobody can edit through the application.
+      #
+      # ⚠️ It lands in the SAME change as the PHI scrub above it, and FR-4.4 says so out loud: making logs
+      # durable persists what was previously ephemeral, so a patient's name written to a file that now survives
+      # is strictly worse than one written to a file that vanished.
+      - api_logs:/app/logs
+    secrets:
+      - keyring_certificate
+      - keyring_certificate_password
+      - audit_chain_key
+      - console_signing_key
+      - auth_local_signing_key
+      - google_client_secret
+      - huggingface_api_key
     networks: [internal]
     # No `ports:` — Caddy proxies /api/*, /hub/* and /health to this service over the internal network.
     #
@@ -265,6 +351,8 @@ services:
       file: docker-compose.prod.yml
       service: backup
     depends_on:
+      certs:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
 
@@ -273,6 +361,8 @@ services:
       file: docker-compose.prod.yml
       service: pitr
     depends_on:
+      certs:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
 
@@ -285,7 +375,42 @@ networks:
       config:
         - subnet: ${INTERNAL_SUBNET:-172.20.0.0/16}
 
+# FR-3.10 — secrets reach the process as FILES, not as environment variables.
+#
+# ⚠️ Why this is not cosmetic: an environment variable is visible to `docker inspect`, to
+# /proc/<pid>/environ, to every child process the app spawns and to any crash dump — and it is what an ops
+# tool prints by accident. A file is read by the process and merely NAMED everywhere else.
+#
+# ⚠️ Each entry points at a path on the HOST, kept out of git. `docker compose` mounts them read-only under
+# /run/secrets/<name>. The application reads a `*_FILE` variable's file through the configuration layer
+# added in InstallConfiguration.AddInstallLayers — which the host and every console verb share, so a verb
+# cannot resolve a different connection string from the app it is maintaining.
+#
+# ⚠️ A `*_FILE` variable WINS over a literal of the same name, and startup REFUSES a named file that is
+# missing or empty rather than yielding "". Moving a secret is two edits (set the file, drop the literal); if
+# the literal won, the state between them would keep reading the old value while appearing to have moved.
+secrets:
+  keyring_certificate:
+    file: ${KEYRING_CERTIFICATE_FILE:-./secrets/keyring-certificate.pfx}
+  keyring_certificate_password:
+    file: ${KEYRING_CERTIFICATE_PASSWORD_FILE:-./secrets/keyring-certificate-password}
+  # FR-4.1 — at least 32 bytes, base64. Generate once and keep it: `openssl rand -base64 48`.
+  # ⚠️ Replacing it does not lose data; it makes every entry written under the old one read as tampering.
+  audit_chain_key:
+    file: ${AUDIT_CHAIN_KEY_FILE:-./secrets/audit-chain-key}
+  console_signing_key:
+    file: ${CONSOLE_SIGNING_KEY_FILE:-./secrets/console-signing-key}
+  auth_local_signing_key:
+    file: ${AUTH_LOCAL_SIGNING_KEY_FILE:-./secrets/auth-local-signing-key}
+  google_client_secret:
+    file: ${GOOGLE_CLIENT_SECRET_FILE:-./secrets/google-client-secret}
+  huggingface_api_key:
+    file: ${HUGGINGFACE_API_KEY_FILE:-./secrets/huggingface-api-key}
+
 volumes:
+  # FR-4.4 — the API's rolling log files, 30 days of them. On the container layer they vanished on every
+  # restart; a log an audit can rely on has to outlive the process that wrote it.
+  api_logs:
   postgres_data:
   minio_data:
   caddy_data:
@@ -294,9 +419,21 @@ volumes:
   # The Data Protection key ring. Everything encrypted at rest — each clinic's reminder credentials, and from US-4
   # its TTN secrets — is unreadable without it, so it must be backed up.
   #
-  # ⚠️ Back it up SEPARATELY from postgres_data, never into the same archive. The ring is stored in cleartext (a
-  # custom key repository disables the framework's automatic key encryption, and DPAPI is Windows-only), so one
-  # off-site archive holding both the ciphertext and the key that opens it means the encryption protects nothing
-  # against the most likely exposure — a leaked or stolen backup. Whoever holds that archive can forge auth cookies
-  # and impersonate any clinic's e-invoicing identity.
+  # ⚠️ Since Part 3 the ring is ENCRYPTED by DataProtection__CertificatePath, so it may travel with postgres_data —
+  # and what must now travel apart is that CERTIFICATE (FR-3.11). This comment used to say the opposite, which was
+  # true only while the ring sat in cleartext; deploy/KEY-CUSTODY.md is the one voice on it.
   dataprotection_keys:
+  # The internal CA + the postgres and minio leaves (hosted-security-hardening Part 2). Written once by the
+  # `certs` one-shot above, mounted read-only by everything else.
+  #
+  # ⚠️ Back it up SEPARATELY from postgres_data too, and for a sharper reason than the ring above: this volume
+  # holds the CA's PRIVATE KEY, so one archive with both means whoever holds it can impersonate the database
+  # and the object store to any container that trusts this root.
+  #
+  # ⚠️ Losing the volume is recoverable — the one-shot mints a fresh set and every consumer reads the new root
+  # from the same place, so they move together. Recreating it while containers are already running against the
+  # old root is not: those keep verifying against a CA that no longer signs anything they can reach.
+  internal_certs:
+  # Which key-ring generations this deployment can read (FR-3.9) — key IDs only, no key material, which is what
+  # makes mounting it into the backup sidecar safe where dataprotection_keys must never go.
+  keyring_marker:

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Infrastructure.Auth;
@@ -82,6 +83,20 @@ public static class Extensions
             provider.GetRequiredService<IServiceScopeFactory>(),
             provider.GetRequiredService<ILogger<AuditSaveChangesInterceptor>>()));
 
+        // The audit chain's key (hosted-security-hardening FR-4.1). A **singleton** because it is immutable and
+        // resolved from startup configuration, the same lifetime reasoning as the deployment profile it reads —
+        // and because resolving it per request would re-read (or, on a clinic's own PC, re-generate) a file on
+        // every save. Registered here rather than in `AddApplication` so the console verbs, whose container is
+        // this method alone, can write the ledger too.
+        //
+        // ⚠️ Registered as a FACTORY, not an instance, and the difference matters twice. `AddInfrastructure` is
+        // called by the console verbs and by several test fixtures, so constructing it here would make a missing
+        // key throw while the container is being *built* — surfacing as an unrelated resolution failure rather
+        // than as the operator sentence it carries. A missing key must still be a **startup** failure and not a
+        // 500 on whichever clinical save happens to be first, so `Program.cs` resolves it once at startup
+        // (beside TransportAssurance) and the refusal lands there, loud and named.
+        services.AddSingleton<IAuditChainKeyProvider>(_ => new AuditChainKeyProvider(configuration));
+
         services.AddDbContext<ApplicationDbContext>((provider, options) =>
             options
                 .UseNpgsql(connectionString)
@@ -135,6 +150,7 @@ public static class Extensions
         // container from this method alone, and it creates a cabinet — which must not come into existence without
         // an entitlement (FR-4), so it has to be able to resolve this and the policy below.
         services.AddScoped<IClinicSubscriptionRepository, ClinicSubscriptionRepository>();
+        services.AddScoped<ISessionFamilyRepository, SessionFamilyRepository>();
         // vendor-whatsapp-messaging-quota — the allocation ledger and the per-month counters. Here for the same
         // load-bearing reason as the line above: `provision-clinic` creates a cabinet from a container built out of
         // this method alone, and a cabinet must not exist without an allowance (FR-3).
@@ -171,6 +187,18 @@ public static class Extensions
         // Singleton like IReminderSecretProtector, and for the same reason: an IDataProtector is thread-safe and
         // deriving one per request would re-run the key derivation on every sign-in.
         services.AddSingleton<IPlatformSecretProtector, PlatformSecretProtector>();
+        // The clinic half of the same seam, with its own purpose string so a clinic ciphertext and a console
+        // one are not interchangeable. Registered here — inside AddInfrastructure — so the `reset-user-totp`
+        // verb, whose container is this method alone, can resolve it.
+        services.AddSingleton<IUserSecretProtector, UserSecretProtector>();
+        // The third sibling (FR-3.4): the Google Calendar refresh token, the last credential this database held
+        // in the clear. Registered here for the same reason — `reprotect-secrets` resolves it from this method.
+        services.AddSingleton<IGoogleTokenProtector, GoogleTokenProtector>();
+        // ⚠️ SINGLETON, and the lifetime is load-bearing: a step-up confirmation is minted by one request and
+        // consumed by another, so a scoped registration builds a fresh store per request, the confirmation is
+        // never found, and EVERY guarded action refuses with a French « mot de passe incorrect » that is not
+        // incorrect — silently. See IStepUpConfirmations' own note.
+        services.AddSingleton<IStepUpConfirmations, StepUpConfirmations>();
 
         // The console's activity counters (platform-console Part 2). Registered unconditionally for the reason
         // above: the counter job runs on any deployment and its rows cost nothing where no console reads them,
@@ -241,6 +269,10 @@ public static class Extensions
                 !string.IsNullOrWhiteSpace(minioAccessKey) &&
                 !string.IsNullOrWhiteSpace(minioSecretKey))
             {
+                // The internal root the object store's leaf is verified against (hosted-security-hardening
+                // Part 2, FR-2.2). Absent on SelfHostedLan and in dev, where MinIO:UseSSL is false anyway.
+                var minioRootCertificate = configuration[InternalCertificate.MinioRootCertificateKey];
+
                 services.AddSingleton<IMinioClient>(sp =>
                 {
                     var minioClient = new MinioClient()
@@ -250,6 +282,16 @@ public static class Extensions
                     if (minioUseSSL)
                     {
                         minioClient = minioClient.WithSSL();
+
+                        // A CA minted for this deployment is in no system trust store, so without this the
+                        // first upload fails validation. The handler VERIFIES against that root — it does not
+                        // skip verification, which is why a name mismatch still refuses.
+                        var trustedRoot = InternalCertificate.TryLoad(minioRootCertificate);
+                        if (trustedRoot is not null)
+                        {
+                            minioClient = minioClient.WithHttpClient(
+                                InternalRootTrust.CreateHttpClient(trustedRoot), disposeHttpClient: true);
+                        }
                     }
 
                     return minioClient.Build();
@@ -295,6 +337,8 @@ public static class Extensions
         // Application, which references Domain alone and so cannot name DeploymentProfile. Singletons for the same
         // reason as the profile: both are derived from startup configuration and immutable.
         services.AddSingleton<ISubscriptionPolicy, SubscriptionPolicy>();
+        // Same lifetime reasoning as the profile it reads: immutable and derived from startup configuration.
+        services.AddSingleton<ISecondFactorPolicy, SecondFactorPolicy>();
         services.AddSingleton<ISubscriptionPricing, SubscriptionPricing>();
 
         // vendor-whatsapp-messaging-quota — the same two kinds of seam, for the same structural reason (Application

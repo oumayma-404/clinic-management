@@ -79,7 +79,12 @@ public class DisconnectGoogleCalendarCommandHandler : IRequestHandler<Disconnect
 
             // Idempotent: nothing connected is a successful no-op, not an error. Reconnecting and disconnecting
             // twice in a row is a normal thing for an admin to do while fixing a wrong account.
-            if (string.IsNullOrEmpty(clinic.GoogleRefreshToken) && string.IsNullOrEmpty(clinic.GoogleCalendarId))
+            // ⚠️ Both token columns are tested, not just one: a clinic connected before FR-3.4 holds only the
+            // legacy plaintext and one connected after holds only the ciphertext, so checking either alone makes
+            // « Déconnecter » a silent no-op for half the deployment.
+            if (string.IsNullOrEmpty(clinic.GoogleRefreshToken)
+                && string.IsNullOrEmpty(clinic.GoogleRefreshTokenProtected)
+                && string.IsNullOrEmpty(clinic.GoogleCalendarId))
             {
                 return Result<bool>.Success(true);
             }

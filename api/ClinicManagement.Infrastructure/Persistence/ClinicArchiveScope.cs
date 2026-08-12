@@ -117,6 +117,9 @@ public static class ClinicArchiveScope
             [nameof(Clinic)] = new HashSet<string>(StringComparer.Ordinal)
             {
                 nameof(Clinic.GoogleRefreshToken),
+                // Ciphertext, and redacted all the same: the archive deliberately does not carry the key ring, so
+                // it would restore as an undecryptable token that reads as « connecté » and syncs nothing.
+                nameof(Clinic.GoogleRefreshTokenProtected),
                 nameof(Clinic.GoogleCalendarId),
                 nameof(Clinic.Code),
             },

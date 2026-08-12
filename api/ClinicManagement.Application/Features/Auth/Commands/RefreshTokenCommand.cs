@@ -2,7 +2,10 @@ using MediatR;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Auth;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Application.Features.Auth.Commands;
 
@@ -33,11 +36,25 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
 
     private readonly IUserRepository _userRepository;
     private readonly ILocalAuthService _localAuthService;
+    private readonly ISessionFamilyRepository _sessionFamilies;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly INotificationGenerator _notifications;
+    private readonly ILogger<RefreshTokenCommandHandler> _logger;
 
-    public RefreshTokenCommandHandler(IUserRepository userRepository, ILocalAuthService localAuthService)
+    public RefreshTokenCommandHandler(
+        IUserRepository userRepository,
+        ILocalAuthService localAuthService,
+        ISessionFamilyRepository sessionFamilies,
+        IUnitOfWork unitOfWork,
+        INotificationGenerator notifications,
+        ILogger<RefreshTokenCommandHandler> logger)
     {
         _userRepository = userRepository;
         _localAuthService = localAuthService;
+        _sessionFamilies = sessionFamilies;
+        _unitOfWork = unitOfWork;
+        _notifications = notifications;
+        _logger = logger;
     }
 
     public async Task<Result<LoginResultDto>> Handle(RefreshTokenCommand request, CancellationToken cancellationToken)
@@ -71,6 +88,37 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
                 return Result<LoginResultDto>.Failure(InvalidSessionError);
             }
 
+            // ── Replay detection (FR-1.6) ──────────────────────────────────────────────────────────────────
+            //
+            // The credential is a stateless JWT, so before families nothing could notice one being presented
+            // twice. A family records which credential is current; presenting an OLDER one is evidence the
+            // chain forked — either the user's copy or a thief's — and that device's session is ended.
+            var family = principal.SessionFamilyId is { } familyId
+                ? await _sessionFamilies.GetByIdAsync(familyId, cancellationToken)
+                : null;
+
+            if (family is not null)
+            {
+                if (family.UserId != user.Id)
+                {
+                    // A family belonging to somebody else: the token was forged or transplanted.
+                    return Result<LoginResultDto>.Failure(InvalidSessionError);
+                }
+
+                var match = family.Match(SessionCredential.Hash(request.RefreshToken));
+
+                if (match == SessionCredentialMatch.None)
+                {
+                    // ⚠️ ONE device's session ends, never the account. Revoking globally would hand anyone
+                    // holding a single stale credential the ability to sign a whole practice out at will,
+                    // mid-consultation — `User.TokenVersion` stays untouched here deliberately.
+                    family.End("Un identifiant de session déjà remplacé a été présenté.");
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    await NotifyReplayAsync(user, family, cancellationToken);
+                    return Result<LoginResultDto>.Failure(InvalidSessionError);
+                }
+            }
+
             // A pending forced password change is NOT a refusal: the change-password screen itself needs a
             // working access token to submit. The enforcement middleware already restricts such a token to
             // that one endpoint, so surfacing the flag is enough.
@@ -79,7 +127,16 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
             // The durable credential is re-minted too, and the BFF re-sets its cookie with it. Returning only an
             // access token left the cookie holding the token issued at login, so the session died 12 h after
             // sign-in whatever the user was doing — a password prompt mid-afternoon, every afternoon.
-            var refreshToken = _localAuthService.GenerateRefreshToken(user);
+            var refreshToken = _localAuthService.GenerateRefreshToken(user, family?.Id);
+
+            if (family is not null)
+            {
+                // previous ← current, current ← the new one. Run on EVERY successful exchange, including one
+                // that presented the predecessor: the racing tab is a legitimate user and gets a working
+                // credential of its own.
+                family.Rotate(SessionCredential.Hash(refreshToken.AccessToken), refreshToken.ExpiresAtUtc);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
 
             return Result<LoginResultDto>.Success(new LoginResultDto
             {
@@ -103,6 +160,23 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
         {
             // Anonymous endpoint: never echo internal detail.
             return Result<LoginResultDto>.Failure(InvalidSessionError);
+        }
+    }
+
+    /// <summary>
+    /// Tells the user their device's session was ended. Best-effort and post-commit, like every other side
+    /// effect here: the family is already closed, and a failed notification must not undo that.
+    /// </summary>
+    private async Task NotifyReplayAsync(User user, SessionFamily family, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _notifications.SessionEndedForReplayAsync(
+                user.ClinicId, user.Id, family.DeviceLabel, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Impossible de signaler la fin d'une session pour rejeu.");
         }
     }
 }

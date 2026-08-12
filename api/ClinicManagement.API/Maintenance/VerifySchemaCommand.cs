@@ -4,7 +4,9 @@ using ClinicManagement.Application.Common.Maintenance;
 using ClinicManagement.Infrastructure;
 using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Persistence;
+using ClinicManagement.Infrastructure.Security;
 using ClinicManagement.API.Startup;
+using Microsoft.AspNetCore.DataProtection;
 
 namespace ClinicManagement.API.Maintenance;
 
@@ -66,9 +68,19 @@ public static class VerifySchemaCommand
             scope.ServiceProvider.GetRequiredService<ITenantScope>()
                 .UseSystemWide($"{CommandName} verifies the schema and counts backfilled rows across every clinic");
 
+            // Configuration is passed for the internal-certificate line alone (FR-2.6) — it names the root the
+            // database and object-store hops verify against, so the report reads the deployment's real setting
+            // rather than a third key of its own.
+            // The Data Protection provider is passed for FR-3.1's coverage figure: which key-ring generation each
+            // stored secret is encrypted under, read from a live Protect rather than from configuration.
+            // The chain key is passed for FR-4.1's walk. It is the same instance the appender writes with — a
+            // report resolving its own would verify a chain nothing wrote.
             var reader = new SchemaVerificationReader(
                 scope.ServiceProvider.GetRequiredService<ApplicationDbContext>(),
-                scope.ServiceProvider.GetRequiredService<IVendorMessagingAvailability>());
+                scope.ServiceProvider.GetRequiredService<IVendorMessagingAvailability>(),
+                configuration,
+                scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>(),
+                scope.ServiceProvider.GetRequiredService<IAuditChainKeyProvider>());
             var service = new SchemaVerificationService(reader);
 
             var report = await service.RunAsync(cancellationToken);

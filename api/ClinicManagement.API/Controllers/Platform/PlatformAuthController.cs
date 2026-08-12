@@ -41,6 +41,24 @@ public class PlatformAuthController : ApiControllerBase
         _mediator = mediator;
     }
 
+    /// <summary>
+    /// The password floor, so the console states the server's number instead of its own
+    /// (<c>hosted-security-hardening</c> FR-1.9).
+    ///
+    /// <para><b>Authenticated, not anonymous</b> — its only reader is « Changer le mot de passe », which is
+    /// behind a session, and the sign-in screen has no length rule to state (it checks a password, it does not
+    /// choose one). Leaving it on the class policy also keeps it off
+    /// <c>ControllerAuthorizationCoverageTests</c>' reviewed anonymous list, where every entry should be there
+    /// because it must be.</para>
+    /// </summary>
+    [HttpGet("meta")]
+    public async Task<ActionResult> Meta(CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new GetPlatformAuthMetaQuery(), cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : Refuse(result);
+    }
+
     /// <summary>E-mail + password + a one-time code (AC-1.2).</summary>
     [HttpPost("login")]
     [AllowAnonymous]

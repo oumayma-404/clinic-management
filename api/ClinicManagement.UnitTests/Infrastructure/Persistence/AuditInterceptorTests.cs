@@ -339,6 +339,13 @@ public class AuditInterceptorTests
     /// [I6] A failure in the flush is swallowed **and logged at Error**. The operation being audited has already
     /// committed; nothing here may disturb it. Error rather than Warning because a hole in the ledger is the
     /// exact thing the ledger was built to make impossible.
+    ///
+    /// <para>⚠️ <b>Two errors now, not one</b> (<c>hosted-security-hardening</c> FR-4.1). A failed write is
+    /// followed by an attempt to record a <b>declared gap</b> — the entry that lets a later chain walk tell « a
+    /// gap we know about » from « a break nobody declared » — and this harness's scope factory throws for that
+    /// attempt too, which is the genuinely worst case: nothing is recorded and the chain is really broken. What
+    /// the test is for is unchanged and is the important half: <b>the flush still does not throw</b>, and the
+    /// pending rows are dropped rather than re-attributed to a later save.</para>
     /// </summary>
     [Fact]
     public async Task A_Failing_Audit_Write_Is_Swallowed_But_Logged_At_Error()
@@ -355,8 +362,11 @@ public class AuditInterceptorTests
             .Invoke(harness.Interceptor, new object?[] { db, CancellationToken.None })!;
 
         await flush; // must NOT throw
-        Assert.Single(harness.Errors);
         Assert.Empty(Pending(harness.Interceptor, db));
+
+        Assert.Equal(2, harness.Errors.Count);
+        Assert.Contains(harness.Errors, e => e.Contains("Failed to write", StringComparison.Ordinal));
+        Assert.Contains(harness.Errors, e => e.Contains("declared gap", StringComparison.Ordinal));
     }
 
     /// <summary>

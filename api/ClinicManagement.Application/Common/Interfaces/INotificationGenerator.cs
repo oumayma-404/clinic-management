@@ -184,4 +184,46 @@ public interface INotificationGenerator
     Task ReminderDeliveryFailedAsync(
         Guid clinicId, Guid? appointmentId, string patientName, string channel, string? reason,
         bool patientRequiresRecontact, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tells one user that an administrator reset their second factor
+    /// (<c>hosted-security-hardening</c> FR-1.4).
+    ///
+    /// <para>⚠️ <b>Targeted at that user alone</b>, unlike most rows here: it is a fact about their credential,
+    /// and broadcasting « le second facteur de X a été réinitialisé » to the whole practice would publish a
+    /// security event about one colleague to everybody.</para>
+    ///
+    /// <para>Its whole purpose is to make a quiet action loud — without it, stripping a colleague's protection
+    /// is a step a stolen admin session could take unobserved before signing in as them.</para>
+    /// </summary>
+    Task SecondFactorResetAsync(
+        Guid clinicId, string targetUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tells one user that a device's session was ended because a superseded credential was presented
+    /// (<c>hosted-security-hardening</c> FR-1.6).
+    ///
+    /// <para>Targeted, like <see cref="SecondFactorResetAsync"/>: it is a fact about their session, and the
+    /// practice at large has no use for it. Its value is that the user learns a replay happened at all —
+    /// otherwise the only symptom is one device asking for a password again, which reads as an ordinary
+    /// timeout.</para>
+    /// </summary>
+    Task SessionEndedForReplayAsync(
+        Guid clinicId, string targetUserId, string? deviceLabel, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tells the practice that its <b>whole record</b> was downloaded as one file
+    /// (<c>hosted-security-hardening</c> FR-4.2, Stated Assumption 9).
+    ///
+    /// <para>⚠️ <b>Clinic-wide with the actor excluded, unlike the two targeted security notices above.</b> The
+    /// spec asks for « les administrateurs », which the feed cannot express — one shared row carries at most one
+    /// target user — and the superset is the right side to err on here: the event is not private to one
+    /// colleague, it is every patient of the practice leaving the building in a file. The exporter is excluded
+    /// as everywhere, so nobody is told about their own action.</para>
+    ///
+    /// <para>Best-effort, unlike the ledger row it accompanies: by the time this runs the export is already
+    /// recorded, so a feed failure must not refuse a download the ledger has accounted for.</para>
+    /// </summary>
+    Task ClinicArchiveExportedAsync(
+        Guid clinicId, string actorUserId, string actorName, CancellationToken cancellationToken = default);
 }

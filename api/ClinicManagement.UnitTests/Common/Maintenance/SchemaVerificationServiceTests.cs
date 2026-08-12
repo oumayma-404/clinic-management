@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common;
+﻿using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Maintenance;
 using ClinicManagement.Domain.Enums;
@@ -34,7 +34,9 @@ public class SchemaVerificationServiceTests
         IReadOnlyList<ClinicSubscriptionLedgerFact>? subscriptionLedgers = null,
         bool coverKindColumnPresent = true,
         MessagingAllowanceFacts? messagingAllowances = null,
-        bool messagingTablesExist = true)
+        bool messagingTablesExist = true,
+        InternalCertificateFact? internalCertificate = null,
+        SecretProtectionFacts? secretProtection = null)
     {
         _reader
             .Setup(r => r.ReadAsync(It.IsAny<CancellationToken>()))
@@ -54,7 +56,15 @@ public class SchemaVerificationServiceTests
                 coverKindColumnPresent,
                 // Default: one cabinet whose stored month equals its ledger's fold and which is covered for the
                 // current month, so the three messaging checks pass and tests override just this facet.
-                messagingTablesExist ? messagingAllowances ?? AgreeingMessaging() : null));
+                MessagingAllowances: messagingTablesExist ? messagingAllowances ?? AgreeingMessaging() : null,
+                // Default: no internal root configured — the SelfHostedLan and developer-machine state, which
+                // reads « not applicable ». Passed BY NAME: this record's own comment warns that appending a
+                // value positionally lands it in the wrong slot.
+                InternalCertificate: internalCertificate,
+                // Default: no Data Protection provider, which reads « not applicable » — the state of every
+                // caller that is not the verb itself, and never « 0 remaining », which would authorise deleting
+                // the key that opens every cabinet's credentials on the strength of a measurement nobody took.
+                SecretProtection: secretProtection));
     }
 
     private static readonly Guid MessagingCabinet = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
@@ -133,7 +143,8 @@ public class SchemaVerificationServiceTests
     // twenty-first zero lands in the wrong slot and every assertion still passes.
     private static DataMigrationCounts CleanCounts =>
         new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            ClinicsWithoutEntitlement: 0, GrandfatheredEntitlementEntries: 3);
+            ClinicsWithoutEntitlement: 0, GrandfatheredEntitlementEntries: 3,
+            ClinicsWithPlaintextGoogleToken: 0);
 
     private static SchemaVerificationFinding Finding(SchemaVerificationReport report, string check) =>
         report.Findings.Single(f => f.Check == check);
@@ -934,7 +945,8 @@ public class SchemaVerificationServiceTests
                 new AuditLedgerFacts(TableExists: true, ClinicIdIsNullable: true),
                 SubscriptionLedgers: null,
                 SubscriptionCoverKindColumnPresent: false,
-                MessagingAllowances: null));
+                MessagingAllowances: null,
+                InternalCertificate: null));
 
         var report = await CreateService().RunAsync();
 
@@ -959,6 +971,171 @@ public class SchemaVerificationServiceTests
         var finding = Finding(report, "subscription-grandfathered-entries");
         Assert.False(IsDrift(finding));
         Assert.Contains(count.ToString(), finding.Detail, StringComparison.Ordinal);
+    }
+
+    // ---- The internal root certificate (hosted-security-hardening FR-2.6) ------------------------
+
+    // A deployment with no internal CA — SelfHostedLan, and every developer machine — must read « not
+    // applicable ». Reporting 0 days there would be a permanent false alarm on the two topologies that
+    // correctly have no certificate to expire.
+    [Fact]
+    public async Task A_Deployment_With_No_Internal_Certificate_Reads_Not_Applicable()
+    {
+        Arrange(internalCertificate: null);
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "internal-certificate-days-remaining");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("not applicable", finding.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // [FR-2.6] The count is the point: a ten-year certificate has to become visible years before it matters,
+    // on the tool somebody already runs. Info, never drift, whatever the number — 3 400 days left must not
+    // turn `verify-schema` into exit 2.
+    [Theory]
+    [InlineData(3650)]
+    [InlineData(40)]
+    [InlineData(1)]
+    public async Task A_Usable_Certificate_Reports_Its_Remaining_Days_As_Info(int daysRemaining)
+    {
+        Arrange(internalCertificate: new InternalCertificateFact(
+            "/certs/ca.crt", daysRemaining, Usable: true, Detail: $"valide ({daysRemaining} jour(s))"));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "internal-certificate-days-remaining");
+        Assert.False(IsDrift(finding));
+        Assert.Contains(daysRemaining.ToString(), finding.Detail, StringComparison.Ordinal);
+        Assert.Contains("/certs/ca.crt", finding.Detail, StringComparison.Ordinal);
+    }
+
+    // The one case that IS drift, and the reason the severity is not simply « always Info »: an expired or
+    // unreadable root rendered as `[  ok ]` is the failure shape this whole report exists to prevent. The
+    // negative day count is kept rather than clamped — « expired 12 days ago » and « expires today » are
+    // different operator situations.
+    [Fact]
+    public async Task An_Unusable_Certificate_Is_Drift_And_Says_Why()
+    {
+        Arrange(internalCertificate: new InternalCertificateFact(
+            "/certs/ca.crt", -12, Usable: false, Detail: "le certificat « /certs/ca.crt » a expiré le 2026-07-31 UTC"));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "internal-certificate-days-remaining");
+        Assert.True(IsDrift(finding));
+        Assert.Contains("expiré", finding.Detail, StringComparison.Ordinal);
+    }
+
+    // ---------------------------------------------------------------- FR-3.1 / FR-3.4 (Part 3, Custody)
+
+    private static SecretProtectionFacts Protection(
+        bool certificateProtected = true, params (string Name, int Rows, int Outstanding)[] families) =>
+        new(certificateProtected,
+            certificateProtected ? 3600 : null,
+            families.Length == 0
+                ? new[] { new SecretFamilyFact("User.ProtectedTotpSecret", 4, 0) }
+                : families.Select(f => new SecretFamilyFact(f.Name, f.Rows, f.Outstanding)).ToArray());
+
+    // ⚠️ The single most important case in this pair. `secrets-protected-under-current-ring` reading zero is what
+    // authorises DELETING the superseded plaintext key files — so « we could not measure » must never render as
+    // « nothing left to do ». Getting this backwards destroys every second factor on the deployment at once.
+    [Fact]
+    public async Task Secret_Protection_Is_Not_Applicable_Rather_Than_Zero_When_It_Cannot_Be_Read() // [FR-3.1]
+    {
+        Arrange(secretProtection: null);
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "secrets-protected-under-current-ring");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("not applicable", finding.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("every stored secret", finding.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_Unencrypted_Key_Ring_Is_Drift() // [FR-3.1]
+    {
+        Arrange(secretProtection: Protection(certificateProtected: false));
+
+        var report = await CreateService().RunAsync();
+
+        Assert.True(IsDrift(Finding(report, "key-ring-protection")));
+    }
+
+    [Fact]
+    public async Task An_Encrypted_Key_Ring_Reports_Its_Remaining_Life() // [FR-3.1 / FR-3.2]
+    {
+        Arrange(secretProtection: Protection());
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "key-ring-protection");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("3600", finding.Detail, StringComparison.Ordinal);
+    }
+
+    // Per family, never one total — the six families recover four different ways, so « 3 remaining » does not
+    // tell an operator which recovery they need.
+    [Fact]
+    public async Task Secrets_Under_A_Superseded_Generation_Are_Drift_And_Named_Per_Family() // [FR-3.1]
+    {
+        Arrange(secretProtection: Protection(
+            certificateProtected: true,
+            ("User.ProtectedTotpSecret", 10, 3),
+            ("PlatformAccount.ProtectedTotpSecret", 2, 0)));
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "secrets-protected-under-current-ring");
+        Assert.True(IsDrift(finding));
+        Assert.Contains("User.ProtectedTotpSecret 7/10", finding.Detail, StringComparison.Ordinal);
+        Assert.Contains("PlatformAccount.ProtectedTotpSecret 2/2", finding.Detail, StringComparison.Ordinal);
+        Assert.Contains("reprotect-secrets", finding.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Every_Secret_Under_The_Current_Generation_Is_Clean() // [FR-3.1]
+    {
+        Arrange(secretProtection: Protection(true, ("User.ProtectedTotpSecret", 10, 0)));
+
+        var report = await CreateService().RunAsync();
+
+        Assert.False(IsDrift(Finding(report, "secrets-protected-under-current-ring")));
+    }
+
+    // FR-3.4. A backfill is invisible to every other layer — an unconverted clinic syncs perfectly from the
+    // cleartext nobody encrypted — so the count is what says it finished, and it gates dropping the column.
+    [Fact]
+    public async Task A_Google_Token_Still_In_The_Clear_Is_Drift() // [FR-3.4]
+    {
+        Arrange(counts: CleanCounts with { ClinicsWithPlaintextGoogleToken = 2 });
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "google-token-protected");
+        Assert.True(IsDrift(finding));
+        Assert.Contains("GoogleRefreshToken", finding.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Google_Tokens_All_Protected_Is_Clean() // [FR-3.4]
+    {
+        Arrange(counts: CleanCounts with { ClinicsWithPlaintextGoogleToken = 0 });
+
+        var report = await CreateService().RunAsync();
+
+        Assert.False(IsDrift(Finding(report, "google-token-protected")));
+    }
+
+    [Fact]
+    public async Task Google_Token_Protection_Is_Not_Applicable_Before_The_Column_Exists() // [FR-3.4]
+    {
+        Arrange(counts: CleanCounts with { ClinicsWithPlaintextGoogleToken = null });
+
+        var report = await CreateService().RunAsync();
+
+        Assert.Contains("not applicable", Finding(report, "google-token-protected").Detail, StringComparison.Ordinal);
     }
 
     // ------------------------------------------------------------------ the WhatsApp reminder forfait (§ 39)

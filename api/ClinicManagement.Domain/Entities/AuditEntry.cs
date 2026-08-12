@@ -1,5 +1,6 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -29,6 +30,16 @@ public class AuditEntry : Entity<Guid>
     /// aggregate tells an owner less than four field names do.
     /// </summary>
     public const int MaxChangedFieldsLength = 512;
+
+    /// <summary>
+    /// The <see cref="EntityType"/> the two declaration factories write. Constants rather than literals because
+    /// « Journal d'activité » renders them and <c>verify-schema</c> counts them, so a retyped string in either
+    /// place would show a French screen an untranslated word or count nothing at all.
+    /// </summary>
+    public const string GapEntityType = "AuditGap";
+
+    /// <inheritdoc cref="GapEntityType"/>
+    public const string BoundaryEntityType = "AuditBoundary";
 
     /// <summary>
     /// The clinic the mutated aggregate belongs to — <b>nullable</b>, and that is a decision worth explaining.
@@ -78,6 +89,50 @@ public class AuditEntry : Entity<Guid>
     /// <summary>When it happened, UTC. Ordered on descending — the ledger is read newest-first.</summary>
     public DateTime OccurredAt { get; private set; }
 
+    /// <summary>
+    /// Which chain this entry belongs to: the clinic, or <see cref="Guid.Empty"/> for the deployment-wide chain
+    /// (<c>hosted-security-hardening</c> FR-4.1).
+    ///
+    /// <para>⚠️ <b>Its own column, and <see cref="ClinicId"/> is left exactly as it is.</b> A unique
+    /// <c>(ClinicId, Sequence)</c> index cannot cover the null-clinic rows at all — PostgreSQL treats each
+    /// <c>NULL</c> as distinct, so every one of them would be free to collide — while writing a
+    /// <c>Guid.Empty</c> sentinel <i>into</i> <c>ClinicId</c> would break the nullable semantics that
+    /// <c>GetAuditEntriesQuery</c> and the deliberate absence of a query filter on this table both rest on,
+    /// turning « unattributed » into « belongs to a clinic that does not exist ».</para>
+    ///
+    /// <para>⚠️ <b>The null-clinic rows get a chain rather than being left out of one.</b> A job or console verb
+    /// mutates rows with no clinic derivable from them — which is why this is the one clinic-owned table
+    /// deliberately unfiltered — so « the chain is per clinic » alone would leave every background and every
+    /// vendor write outside any chain, i.e. removable without breaking anything.</para>
+    /// </summary>
+    public Guid ChainKey { get; private set; }
+
+    /// <summary>
+    /// This entry's position in its chain, 1-based. <b>0 means not yet chained</b>, which is the state a row is
+    /// constructed in and the state every row written before this feature shipped is left in.
+    /// </summary>
+    public long Sequence { get; private set; }
+
+    /// <summary>The predecessor's <see cref="EntryHash"/>; null at the start of a chain.</summary>
+    public string? PreviousHash { get; private set; }
+
+    /// <summary>
+    /// This entry's own keyed hash, or null for a row predating the chain. See <c>AuditChain.Walk</c> on why an
+    /// unhashed row is counted rather than read as tampering — and why one appearing <em>after</em> a hashed row
+    /// is not.
+    /// </summary>
+    public string? EntryHash { get; private set; }
+
+    /// <summary>
+    /// This entry declares a discontinuity rather than describing a mutation: an audit write that failed (so the
+    /// rows it carried are missing), or a restore that legitimately re-inserted records.
+    ///
+    /// <para>⚠️ <b>It is inside the chain, not a hole in it.</b> That is what lets a later walk tell « a gap we
+    /// know about » from « a break nobody declared » — the distinction FR-4.1 asks for, and the reason
+    /// <c>verify-schema</c> reports the two apart.</para>
+    /// </summary>
+    public bool IsDeclaredGap { get; private set; }
+
     private AuditEntry() { } // For EF Core
 
     public AuditEntry(
@@ -88,7 +143,8 @@ public class AuditEntry : Entity<Guid>
         string entityId,
         AuditAction action,
         string? changedFields,
-        DateTime occurredAt)
+        DateTime occurredAt,
+        bool isDeclaredGap = false)
         : base(Guid.NewGuid())
     {
         if (string.IsNullOrWhiteSpace(userId))
@@ -99,6 +155,7 @@ public class AuditEntry : Entity<Guid>
             throw new ArgumentException("L'identifiant de l'entité est requis pour une entrée d'audit.", nameof(entityId));
 
         ClinicId = clinicId;
+        ChainKey = clinicId ?? Guid.Empty;
         UserId = userId;
         UserEmail = userEmail;
         EntityType = entityType;
@@ -106,7 +163,56 @@ public class AuditEntry : Entity<Guid>
         Action = action;
         ChangedFields = Truncate(changedFields);
         OccurredAt = occurredAt;
+        IsDeclaredGap = isDeclaredGap;
     }
+
+    /// <summary>
+    /// The entry that says « entries are missing here » — written when the ledger's own write failed, so the
+    /// operation it described committed with nothing recorded (FR-4.1).
+    ///
+    /// <para>A named factory rather than a flag on the constructor: a declared gap has no aggregate behind it, so
+    /// the four identity parameters would be four values every ordinary caller has and this one has to invent.</para>
+    /// </summary>
+    public static AuditEntry DeclaredGap(
+        Guid? clinicId, string userId, string? userEmail, int lostEntries, string reason, DateTime occurredAt) =>
+        new(clinicId, userId, userEmail, GapEntityType,
+            lostEntries.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            AuditAction.Insert,
+            $"{lostEntries} entrée(s) n'ont pas pu être écrites : {reason}",
+            occurredAt,
+            isDeclaredGap: true);
+
+    /// <summary>
+    /// The entry a restore leaves behind (FR-4.1's last clause). A restore genuinely re-inserts records that were
+    /// written elsewhere, so the history either side of this point describes two different runs of events — saying
+    /// so is what stops it reading as tampering.
+    /// </summary>
+    public static AuditEntry DeclaredBoundary(
+        Guid? clinicId, string userId, string? userEmail, string reason, DateTime occurredAt) =>
+        new(clinicId, userId, userEmail, BoundaryEntityType, "1", AuditAction.Insert, reason, occurredAt,
+            isDeclaredGap: true);
+
+    /// <summary>
+    /// Fixes this entry's place in its chain. Called once, by the single appender that holds the chain's advisory
+    /// lock — which is why there is no guard against re-chaining beyond the one below: a second caller would have
+    /// had to take a lock it cannot reach.
+    /// </summary>
+    public void Chain(long sequence, string? previousHash, string entryHash)
+    {
+        if (Sequence != 0)
+        {
+            throw new InvalidOperationException("Cette entrée de journal est déjà chaînée.");
+        }
+
+        Sequence = sequence;
+        PreviousHash = previousHash;
+        EntryHash = entryHash;
+    }
+
+    /// <summary>Projects this entry into the shape <c>AuditChain</c> hashes and walks.</summary>
+    public AuditChainEntry ToChainEntry() =>
+        new(Id, ChainKey, Sequence, UserId, EntityType, EntityId, (int)Action, ChangedFields, OccurredAt,
+            IsDeclaredGap, PreviousHash, EntryHash);
 
     /// <summary>
     /// Truncation is the entity's business, not the interceptor's: the cap is a property of the column and the

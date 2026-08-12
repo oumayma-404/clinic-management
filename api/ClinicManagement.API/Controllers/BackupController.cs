@@ -1,14 +1,20 @@
 using Microsoft.AspNetCore.Mvc;
 using MediatR;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Backup;
 using ClinicManagement.Application.Features.Backup.Archive;
 using ClinicManagement.Application.Features.Backup.Commands;
 using ClinicManagement.Application.Features.Backup.Queries;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.API.Filters;
 using ClinicManagement.API.Models;
+using ClinicManagement.API.Startup;
+using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Deployment;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 
 namespace ClinicManagement.API.Controllers;
@@ -34,15 +40,71 @@ namespace ClinicManagement.API.Controllers;
 [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
 public class BackupController : ApiControllerBase
 {
+    /// <summary>
+    /// Where the step-up confirmation travels (FR-4.3). A header rather than the query string because this
+    /// application's URLs are logged and FR-4.4 is about exactly that; and rather than the body because the
+    /// download is a <c>GET</c>.
+    /// </summary>
+    public const string StepUpHeader = "X-Step-Up-Confirmation";
+
+    /// <summary>The action a download's confirmation must have been minted for.</summary>
+    public const string ArchiveStepUpAction = "download-clinic-archive";
+
+    /// <summary>
+    /// And the restore's — a <b>different</b> action, so one confirmation cannot authorise the other. They are
+    /// opposite operations on the same records, and a token good for both would let « je vais télécharger une
+    /// copie » become « j'ai écrasé le cabinet » on one click.
+    /// </summary>
+    public const string RestoreStepUpAction = "restore-clinic-archive";
+
     private readonly IMediator _mediator;
     private readonly DeploymentProfile _deployment;
     private readonly IConfiguration _configuration;
+    private readonly IStepUpConfirmations _stepUp;
+    private readonly IClinicContext _clinicContext;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ILogger<BackupController> _logger;
 
-    public BackupController(IMediator mediator, DeploymentProfile deployment, IConfiguration configuration)
+    public BackupController(
+        IMediator mediator,
+        DeploymentProfile deployment,
+        IConfiguration configuration,
+        IStepUpConfirmations stepUp,
+        IClinicContext clinicContext,
+        IServiceScopeFactory scopeFactory,
+        ILogger<BackupController> logger)
     {
         _mediator = mediator;
         _deployment = deployment;
         _configuration = configuration;
+        _stepUp = stepUp;
+        _clinicContext = clinicContext;
+        _scopeFactory = scopeFactory;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Spends the caller's confirmation for <paramref name="action"/>, or refuses with 403.
+    ///
+    /// <para>⚠️ <b>Enforced here rather than in the handler</b>, and single-use per action: an unlocked machine
+    /// with an admin session open must not be enough to take a practice's whole record out, so the confirmation
+    /// proves somebody is present <i>now</i>. The refusal is deliberately not the login lockout's — three wrong
+    /// attempts refuse this action on the step-up's own counter and leave the session untouched, which is what
+    /// stops a mistyped password at the export card locking a practice's only administrator out mid-day.</para>
+    /// </summary>
+    private ActionResult? RequireStepUp(string? confirmation, string action)
+    {
+        var callerId = _clinicContext.GetUserId();
+
+        if (string.IsNullOrWhiteSpace(callerId)
+            || !_stepUp.Consume(callerId, action, confirmation ?? string.Empty))
+        {
+            return Failure(
+                "Cette action demande une confirmation récente de votre identité. Veuillez réessayer.",
+                StatusCodes.Status403Forbidden);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -140,12 +202,25 @@ public class BackupController : ApiControllerBase
     /// AC-4.2 guarantee that a practice can always take its data out. The attribute below states that rather than
     /// leaving a reader to re-derive it.</para>
     /// </summary>
+    /// <param name="confirmation">
+    /// The step-up token minted by <c>POST /api/auth/step-up</c> for <see cref="ArchiveStepUpAction"/>
+    /// (FR-4.3). ⚠️ <b>A header, never the query string</b>: this application's URLs are logged, and FR-4.4 is
+    /// about exactly that.
+    /// </param>
     [HttpGet("archive")]
+    [EnableRateLimiting(RateLimiting.ArchivePolicy)]
     [AllowsWithoutSubscription(
         "A cabinet must always be able to take its own data out — recovering records that already exist is not "
         + "recording new work (AC-8, the AC-4.2 argument).")]
-    public async Task<IActionResult> DownloadArchive(CancellationToken cancellationToken)
+    public async Task<IActionResult> DownloadArchive(
+        [FromHeader(Name = StepUpHeader)] string? confirmation, CancellationToken cancellationToken)
     {
+        var refusal = RequireStepUp(confirmation, ArchiveStepUpAction);
+        if (refusal != null)
+        {
+            return refusal;
+        }
+
         var result = await _mediator.Send(new BuildClinicArchiveQuery(), cancellationToken);
 
         if (result.IsFailure)
@@ -155,10 +230,53 @@ public class BackupController : ApiControllerBase
 
         var archive = result.Value!;
 
+        // FR-4.2 — « delivered », not « requested ». The response body has not been written yet, so the only
+        // moment that can tell them apart is after it completes: `RequestAborted` is what a download abandoned at
+        // 90 % looks like from here. The write needs its OWN scope — the request's is being torn down as this
+        // runs — and it is best-effort, unlike the request row, because the archive has already left and there is
+        // nobody left to refuse.
+        var length = archive.Content.CanSeek ? archive.Content.Length : 0;
+        var aborted = HttpContext.RequestAborted;
+        Response.OnCompleted(() => RecordDeliveryAsync(archive, length, !aborted.IsCancellationRequested));
+
         // The stream overload, so the framework copies the temp file to the response in chunks and disposes it
         // afterwards. `File(byte[], …)` would hold the whole archive — twenty years of radiographs — in memory
         // for the life of the response, on a process shared with every other cabinet.
         return File(archive.Content, ClinicArchiveFormat.ContentType, archive.FileName);
+    }
+
+    private async Task RecordDeliveryAsync(ClinicArchiveFile archive, long bytes, bool delivered)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+
+            // A fresh scope starts with no tenant scope at all, and the clinic query filters REFUSE an unset one
+            // — they return nothing rather than everything (multi-tenant-cloud US-2). The ledger itself is
+            // unfiltered, so today this write would work either way; declaring it is what keeps that true if the
+            // row ever grows a filtered read, and it states which cabinet this belongs to at the one point in
+            // the request where nobody is left to ask.
+            scope.ServiceProvider.GetRequiredService<ITenantScope>().UseClinic(archive.ClinicId);
+
+            await ArchiveAccessLedger.RecordDeliveryAsync(
+                scope.ServiceProvider.GetRequiredService<IAuditEntryRepository>(),
+                scope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+                scope.ServiceProvider.GetRequiredService<IAuditActorProvider>().Current,
+                archive.ClinicId,
+                archive.LedgerEntryId,
+                delivered,
+                bytes,
+                DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Could not record the delivery of archive {LedgerEntryId} for clinic {ClinicId}; the request "
+                + "itself is recorded.",
+                archive.LedgerEntryId,
+                archive.ClinicId);
+        }
     }
 
     /// <summary>
@@ -177,12 +295,23 @@ public class BackupController : ApiControllerBase
     [HttpPost("archive/restore")]
     [DisableRequestSizeLimit]
     [ArchiveUploadLimit]
+    [EnableRateLimiting(RateLimiting.ArchivePolicy)]
     [AllowsWithoutSubscription(
         "Putting back records the cabinet already had is not recording new work (AC-8) — and an expired cabinet "
         + "that has also lost data is exactly the one that must be able to recover it.")]
     public async Task<ActionResult<ClinicArchiveRestoreReport>> RestoreArchive(
-        [FromForm] IFormFile archive, CancellationToken cancellationToken)
+        [FromForm] IFormFile archive,
+        [FromHeader(Name = StepUpHeader)] string? confirmation,
+        CancellationToken cancellationToken)
     {
+        // FR-4.3 — checked before the form is read, so a request with no confirmation resolves no handler and
+        // touches no row, the shape `UsersController.ResetTotp` already uses.
+        var stepUp = RequireStepUp(confirmation, RestoreStepUpAction);
+        if (stepUp != null)
+        {
+            return stepUp;
+        }
+
         var refusal = ValidateUpload(archive);
         if (refusal != null)
         {
