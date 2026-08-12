@@ -160,6 +160,19 @@ services:
       Subscription__PaymentInstructions: ${SUBSCRIPTION_PAYMENT_INSTRUCTIONS:-}
       Subscription__ContactEmail: ${SUBSCRIPTION_CONTACT_EMAIL:-}
       Subscription__ContactPhone: ${SUBSCRIPTION_CONTACT_PHONE:-}
+      # FR-4.4 / OQ-5 — 30 days of retention, one file a day. Stated here rather than left at appsettings'
+      # default of 7, because the volume below is what makes retention mean anything at all.
+      Serilog__WriteTo__1__Args__retainedFileCountLimit: "30"
+      # FR-4.5 — the policy is ENFORCING here. It has existed and been unset for the life of this deployment,
+      # which is the failure mode AC-5 exists to prevent: a security control that is present and inert reads as
+      # present. `UnitTests/Deploy/TransportConfigurationTests` asserts this file carries it.
+      Security__EnforceCsp: "true"
+      # FR-4.1 — the audit chain's key, and the deployment REFUSES TO START without it (AuditChainKeyProvider).
+      # ⚠️ Deliberately NOT the Data Protection ring: Part 3 re-protects that ring and FR-3.9 makes it the thing
+      # a restore may fail to read, so chain verification has to stay independently checkable.
+      # ⚠️ Losing it does not lose data — it makes every entry written under it unverifiable, which reads exactly
+      # like tampering. Back it up with the key-ring certificate; deploy/KEY-CUSTODY.md.
+      Audit__ChainKey_FILE: /run/secrets/audit_chain_key
     volumes:
       - dataprotection_keys:/keys
       # The internal root the connection string and the Minio client above both name. Read-only: this
@@ -167,9 +180,18 @@ services:
       - internal_certs:/certs:ro
       # Read-WRITE — the API is the only writer of the FR-3.9 marker. Every other consumer mounts it `:ro`.
       - keyring_marker:/keyring-marker
+      # FR-4.4 — logs survive the container. Until this they lived on the container's ephemeral layer plus
+      # stdout, so every restart erased the record of what the deployment had just done, which is the opposite
+      # of what an audit needs from the one file nobody can edit through the application.
+      #
+      # ⚠️ It lands in the SAME change as the PHI scrub above it, and FR-4.4 says so out loud: making logs
+      # durable persists what was previously ephemeral, so a patient's name written to a file that now survives
+      # is strictly worse than one written to a file that vanished.
+      - api_logs:/app/logs
     secrets:
       - keyring_certificate
       - keyring_certificate_password
+      - audit_chain_key
       - console_signing_key
       - auth_local_signing_key
       - google_client_secret
@@ -324,6 +346,10 @@ secrets:
     file: ${KEYRING_CERTIFICATE_FILE:-./secrets/keyring-certificate.pfx}
   keyring_certificate_password:
     file: ${KEYRING_CERTIFICATE_PASSWORD_FILE:-./secrets/keyring-certificate-password}
+  # FR-4.1 — at least 32 bytes, base64. Generate once and keep it: `openssl rand -base64 48`.
+  # ⚠️ Replacing it does not lose data; it makes every entry written under the old one read as tampering.
+  audit_chain_key:
+    file: ${AUDIT_CHAIN_KEY_FILE:-./secrets/audit-chain-key}
   console_signing_key:
     file: ${CONSOLE_SIGNING_KEY_FILE:-./secrets/console-signing-key}
   auth_local_signing_key:
@@ -334,6 +360,9 @@ secrets:
     file: ${HUGGINGFACE_API_KEY_FILE:-./secrets/huggingface-api-key}
 
 volumes:
+  # FR-4.4 — the API's rolling log files, 30 days of them. On the container layer they vanished on every
+  # restart; a log an audit can rely on has to outlive the process that wrote it.
+  api_logs:
   postgres_data:
   minio_data:
   caddy_data:
@@ -342,11 +371,9 @@ volumes:
   # The Data Protection key ring. Everything encrypted at rest — each clinic's reminder credentials, and from US-4
   # its TTN secrets — is unreadable without it, so it must be backed up.
   #
-  # ⚠️ Back it up SEPARATELY from postgres_data, never into the same archive. The ring is stored in cleartext (a
-  # custom key repository disables the framework's automatic key encryption, and DPAPI is Windows-only), so one
-  # off-site archive holding both the ciphertext and the key that opens it means the encryption protects nothing
-  # against the most likely exposure — a leaked or stolen backup. Whoever holds that archive can forge auth cookies
-  # and impersonate any clinic's e-invoicing identity.
+  # ⚠️ Since Part 3 the ring is ENCRYPTED by DataProtection__CertificatePath, so it may travel with postgres_data —
+  # and what must now travel apart is that CERTIFICATE (FR-3.11). This comment used to say the opposite, which was
+  # true only while the ring sat in cleartext; deploy/KEY-CUSTODY.md is the one voice on it.
   dataprotection_keys:
   # The internal CA + the postgres and minio leaves (hosted-security-hardening Part 2). Written once by the
   # `certs` one-shot above, mounted read-only by everything else.

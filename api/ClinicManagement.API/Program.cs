@@ -492,6 +492,23 @@ try
         return 1;
     }
 
+    // Evidence (hosted-security-hardening Part 4, FR-4.1): resolve the audit chain's key now, so a deployment
+    // that cannot chain its ledger refuses to start with the setting named — rather than booting and failing on
+    // whichever clinical save happens to be first, where the message reaches nobody who can act on it.
+    //
+    // ⚠️ Here and not inside `AddInfrastructure`: that method is also called by the console verbs and by test
+    // fixtures, so throwing while the container is being built would surface as an unrelated resolution error
+    // instead of this sentence. The provider caches, so this resolution is also the one every save later uses.
+    try
+    {
+        _ = new ClinicManagement.Infrastructure.Security.AuditChainKeyProvider(builder.Configuration, profile).Key;
+    }
+    catch (InvalidOperationException ex)
+    {
+        StartupDiagnostics.ReportFatal(ex.Message);
+        return 1;
+    }
+
     builder.Services.AddHangfire(config =>
         config.UsePostgreSqlStorage(hangfireConnectionString));
     builder.Services.AddHangfireServer();
@@ -775,15 +792,22 @@ try
         }
     }
 
-    // Redirect HTTP → HTTPS everywhere the front door is NOT self-hosted. Where it is, we must not redirect:
-    // the only HTTP consumer is the co-located Next BFF calling the API over http://localhost:5000 (loopback).
-    // Redirecting that to the self-signed HTTPS front door makes Node reject the untrusted cert, surfacing as
-    // "cannot reach the clinic server" on login. That LAN surface is HTTPS-only by bind (5001) and the HTTP
-    // port is loopback-only, so there is no external HTTP client that needs redirecting.
-    if (!profile.SelfHostsFrontDoor)
-    {
-        app.UseHttpsRedirection();
-    }
+    // ── FR-4.6: the HTTPS redirect is REMOVED, not configured, and this comment is the decision.
+    //
+    // It was registered on both hosted kinds and did nothing. `UseHttpsRedirection` needs a target port, which
+    // `AddHttpsRedirection` supplies only in the two certificate-bearing branches above — neither of which runs
+    // in a container, where TLS terminates at Caddy — and `HTTPS_PORT` is set nowhere. With no port it logs
+    // « Failed to determine the https port for redirect » once and passes every request through for ever.
+    //
+    // Configuring it would have been worse than removing it. Behind the proxy every request arrives on plain
+    // HTTP by design, and since Part 2 `UseForwardedHeaders` makes `Request.IsHttps` true — so a redirect would
+    // either fire on nothing or, if the headers were ever misread, bounce the proxy's own hop into a loop.
+    // Caddy already redirects HTTP → HTTPS at the edge, which is the only place a browser is listening.
+    //
+    // ⚠️ Removing it is the point rather than a tidy-up: a security control that is present and inert is worse
+    // than an absent one, because it reads as present — to a reviewer, to an operator, and to whoever next asks
+    // « do we redirect? ». `SelfHostedLan` never registered it (the loopback BFF hop would break), so this
+    // deletes the only registration that existed and no profile loses a behaviour it actually had.
     app.UseCors("AllowAll");
     
     // Exception handling middleware (must be before authentication/authorization)

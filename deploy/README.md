@@ -344,6 +344,93 @@ Nobody is looking at the console in a datacentre, and two of this product's fail
 
 ---
 
+## Evidence — the audit chain, the export ledger and the content policy
+
+Part 4 of `hosted-security-hardening`. Three things an operator has to know about, and one they have to hold.
+
+### The audit ledger is tamper-evident
+
+Every audit entry carries a value derived from itself **and its predecessor**, keyed by `Audit:ChainKey` — a
+secret **the database does not hold**. An entry cannot be altered or removed without breaking the sequence, and
+`verify-schema` is what walks it:
+
+```bash
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll verify-schema | grep audit-
+```
+
+```
+[  ok ] audit-chain-intact: 6 chaîne(s) intactes — 179 entrée(s) vérifiées, 1104 antérieure(s) au chaînage
+[  ok ] audit-declared-gaps: 5 interruption(s) déclarée(s) — écritures de journal ayant échoué, ou restaurations
+```
+
+Three lines of that output need reading carefully:
+
+- **« antérieures au chaînage »** — entries written before this feature shipped. They carry no hash and none can
+  be invented for them, so they are **counted, never reported as tampering**. What *is* reported is an unchained
+  entry appearing **after** a chained one, which is what erasing a hash to hide an edit looks like.
+- **« interruptions déclarées »** — the product's own record that entries are missing here: an audit write that
+  failed, or a restore. Reported **apart from breaks and never as drift**, because the product consigned them
+  itself. That distinction is the whole point: « a gap we know about » is not « a break nobody declared ».
+- **A break is drift** (exit 2) and names the cabinet, the sequence number and the entry id. ⚠️ **Nothing refuses
+  to serve.** An audit break is an alarm, not an outage.
+
+⚠️ **`Audit__ChainKey_FILE` is required and the API refuses to start without it.** Generate it once
+(`openssl rand -base64 48 > secrets/audit-chain-key`) and keep it — see `KEY-CUSTODY.md`, key 5. Replacing it
+loses no data and makes every earlier entry read as tampered.
+
+### Exporting a cabinet's whole record is recorded, and gated
+
+`GET /api/backup/archive` — the file containing every patient record the practice holds — now:
+
+- **writes an attributable ledger entry before it builds anything**, and **refuses the download if it cannot**.
+  Not best-effort: an unrecorded export succeeding would make the guarantee false. A second entry records whether
+  the archive was **delivered** or the download was abandoned part way.
+- **requires the password (or a current second-factor code) immediately beforehand**, single-use, per action.
+  ⚠️ Failures there spend the **step-up's own** counter and never the login lockout — a mistyped password at the
+  export card cannot lock a practice's only administrator out mid-day.
+- **has its own rate limit**: 3 in 10 minutes per user (`RateLimiting:Archive:*`). It used to fall to the general
+  API window, which permitted **600 full-practice exports a minute**.
+
+The practice's staff see « Archive du cabinet exportée » in the bell. Per-list CSV exports are deliberately
+**not** gated — they are already role-restricted and are a daily action, and daily friction is what gets a
+control routed around.
+
+### The content-security policy is enforcing
+
+`Security__EnforceCsp: "true"` ships in both hosted compose files, `'unsafe-eval'` is gone, and the third-party
+analytics script has been removed from the web bundle — it loaded from an external origin, so an enforcing
+`script-src 'self'` could not have been switched on with it present.
+
+Violations arrive at **`POST /api/csp-report`** and are logged as `CSP violation: …`:
+
+```bash
+docker exec clinic-api-prod grep -a "CSP violation" /app/logs/clinic-management-*.log | tail
+```
+
+⚠️ **The reported address is stripped to its route pattern** (`/patients/{id}/files`) before anything is
+recorded. This application's URLs contain patient identifiers, so a violation report is itself patient data. The
+endpoint is anonymous — a violation on the login page is the one that matters most — bounded per address, and
+**excess is dropped rather than stored**.
+
+The policy is stated in three places (the API middleware, `Caddyfile`'s two sites, `console/next.config.ts`) and
+they are held **byte-identical** by a build-failing test. Change one and the build tells you about the others.
+
+### Logs are durable, and carry no patient names
+
+The `api_logs` volume keeps 30 days of daily files. Before it, logs lived on the container layer and every
+restart erased them.
+
+```bash
+docker exec clinic-api-prod grep -aEi "PatientName|Patient=" /app/logs/ -r || echo "none — expected"
+```
+
+⚠️ The scrub and the volume landed in **one change**, deliberately: making logs durable persists what was
+previously ephemeral, so a patient's name in a file that now survives is strictly worse than one in a file that
+vanished. `LogTemplateCoverageTests` is what keeps it that way — it scans every log statement in the solution and
+fails the build on a patient-identifying placeholder that is not masked.
+
+---
+
 ## The vendor console
 
 A private back-office where you see how much each cabinet actually uses the product and record its payments. It

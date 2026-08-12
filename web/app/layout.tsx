@@ -1,7 +1,6 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
-import { Analytics } from "@vercel/analytics/next"
 import { resolveAuthMode } from "@/lib/auth/local-auth"
 import { CloudSessionProvider, LocalSessionProvider } from "@/lib/auth/session"
 import { ConnectivityProvider } from "@/lib/connectivity/connectivity"
@@ -124,7 +123,12 @@ export default function RootLayout({
               browser, which sends no version header and can never be refused. */}
           <ClientVersionGate />
         </ThemeProvider>
-        <Analytics />
+        {/* ⚠️ `@vercel/analytics` was removed here by hosted-security-hardening FR-4.5, and it is worth stating
+            so it does not come back. Two independent reasons: it loads a script from a third-party ORIGIN, which
+            breaks an enforcing `script-src 'self'` before any other work — so the policy this deployment now
+            enforces could not have been turned on with it present — and it sent page views from a medical-records
+            application to a third party, on a self-hosted deployment that got nothing back from it. This app's
+            URLs contain patient identifiers (FR-4.4), which is what makes a page view here PHI. */}
       </body>
     </html>
   )

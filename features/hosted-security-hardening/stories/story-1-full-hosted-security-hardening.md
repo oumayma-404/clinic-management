@@ -1,7 +1,7 @@
 # Story 1: Full — Hosted security hardening
 
 **Status:** APPROVED
-**Story Status:** not-started
+**Story Status:** implemented — A, B, C and D all landed. Outstanding items are verification, not code; each is named in `progress.md`.
 **Layer:** Full — Domain · Application · Infrastructure · API · Deploy · UI · Docs
 **Depends On:** None
 **Blocks:** None

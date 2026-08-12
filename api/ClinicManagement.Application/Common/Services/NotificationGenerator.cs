@@ -464,6 +464,31 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task ClinicArchiveExportedAsync(
+        Guid clinicId, string actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var who = string.IsNullOrWhiteSpace(actorName) ? "Un administrateur" : actorName.Trim();
+
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.ClinicArchiveExported,
+                "Archive du cabinet exportée",
+                $"{who} a téléchargé une archive complète du cabinet : l'ensemble des dossiers patients, des "
+                + "documents et de la comptabilité, dans un seul fichier non chiffré. Si vous n'êtes pas au "
+                + "courant de cette exportation, prévenez immédiatement votre administrateur.",
+                DateTime.UtcNow,
+                NotificationTargetKind.Security,
+                // Clinic-wide (no target) with the actor excluded — see the interface on why this is the one
+                // security notice that is not targeted.
+                actorUserId: actorUserId);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
     public async Task SecondFactorResetAsync(
         Guid clinicId, string targetUserId, CancellationToken cancellationToken = default)
     {

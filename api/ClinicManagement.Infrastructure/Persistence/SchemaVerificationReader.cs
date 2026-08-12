@@ -25,6 +25,7 @@ public class SchemaVerificationReader : ISchemaVerificationReader
     private readonly ApplicationDbContext _context;
     private readonly IConfiguration? _configuration;
     private readonly IDataProtectionProvider? _dataProtection;
+    private readonly Security.IAuditChainKeyProvider? _auditChainKey;
 
     /// <param name="configuration">
     /// Read only for the internal root certificate's remaining life (FR-2.6) — a third "side" beside the model
@@ -36,14 +37,21 @@ public class SchemaVerificationReader : ISchemaVerificationReader
     /// for the same reason — and where it is absent the report says « not applicable » rather than « 0 left »,
     /// which would authorise deleting the old key files on the strength of a measurement nobody took.
     /// </param>
+    /// <param name="auditChainKey">
+    /// The fifth side (FR-4.1): the secret each audit entry's hash is keyed on. Optional for the same reason as
+    /// the two above — and where it is absent the walk is « not applicable » rather than « intact », which would
+    /// be a clean bill of health on a chain nobody checked.
+    /// </param>
     public SchemaVerificationReader(
         ApplicationDbContext context,
         IConfiguration? configuration = null,
-        IDataProtectionProvider? dataProtection = null)
+        IDataProtectionProvider? dataProtection = null,
+        Security.IAuditChainKeyProvider? auditChainKey = null)
     {
         _context = context;
         _configuration = configuration;
         _dataProtection = dataProtection;
+        _auditChainKey = auditChainKey;
     }
 
     public async Task<SchemaFacts> ReadAsync(CancellationToken cancellationToken = default)
@@ -68,7 +76,77 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         return new SchemaFacts(
             extensions, constraints, model, database, mappedDecimals, dataMigrations, auditLedger,
             subscriptionLedgers, coverKindPresent, ReadInternalCertificate(),
-            await ReadSecretProtectionAsync(connection, cancellationToken));
+            await ReadSecretProtectionAsync(connection, cancellationToken),
+            await ReadAuditChainAsync(connection, cancellationToken));
+    }
+
+    /// <summary>
+    /// Walks every audit chain with the <b>real</b> <c>AuditChain.Walk</c> (FR-4.1) — never re-expressed in SQL,
+    /// which is what stops the check and the thing it checks drifting apart.
+    ///
+    /// <para>⚠️ <b>Read chain by chain, ordered, and walked as it streams.</b> This is the only fact here bounded
+    /// by a practice's whole history rather than by its cabinet or account count, so materialising the ledger
+    /// would put a deployment's every save in memory at once. One ordered read plus a walk that keeps only the
+    /// previous entry costs a constant.</para>
+    ///
+    /// <para>⚠️ Guarded on the column, like every count below it: against a database predating the migration the
+    /// answer is « not applicable », not a walk of zero chains reporting everything intact.</para>
+    /// </summary>
+    private async Task<AuditChainFacts?> ReadAuditChainAsync(
+        NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        if (_auditChainKey is null
+            || !await ColumnExistsAsync(connection, "AuditEntries", "EntryHash", cancellationToken))
+        {
+            return null;
+        }
+
+        const string sql = """
+            SELECT "Id", "ChainKey", "Sequence", "UserId", "EntityType", "EntityId", "Action",
+                   "ChangedFields", "OccurredAt", "IsDeclaredGap", "PreviousHash", "EntryHash"
+            FROM "AuditEntries"
+            ORDER BY "ChainKey", "Sequence"
+            """;
+
+        var chains = new List<AuditChainWalkResult>();
+        var buffer = new List<AuditChainEntry>();
+        Guid? currentChain = null;
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var chainKey = reader.GetGuid(1);
+
+            if (currentChain is { } open && open != chainKey)
+            {
+                chains.Add(Domain.Services.AuditChain.Walk(open, buffer, _auditChainKey.Key));
+                buffer.Clear();
+            }
+
+            currentChain = chainKey;
+            buffer.Add(new AuditChainEntry(
+                reader.GetGuid(0),
+                chainKey,
+                reader.GetInt64(2),
+                reader.GetString(3),
+                reader.GetString(4),
+                reader.GetString(5),
+                reader.GetInt32(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.GetDateTime(8),
+                reader.GetBoolean(9),
+                reader.IsDBNull(10) ? null : reader.GetString(10),
+                reader.IsDBNull(11) ? null : reader.GetString(11)));
+        }
+
+        if (currentChain is { } last)
+        {
+            chains.Add(Domain.Services.AuditChain.Walk(last, buffer, _auditChainKey.Key));
+        }
+
+        return new AuditChainFacts(chains);
     }
 
     /// <summary>

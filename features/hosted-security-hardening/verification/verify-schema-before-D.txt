@@ -1,0 +1,305 @@
+
+=== Schema verification ===
+Generated : 2026-08-12 16:04:04 UTC
+
+Extensions
+  [  ok ] btree_gist: installed
+  [  ok ] unaccent: installed
+
+Booking integrity
+  [  ok ] exclusion-constraint: EX_Appointments_NoDoubleBooking — partial (cancelled / no-show slots stay rebookable)
+
+Indexes
+  [  ok ] AppointmentProcedures(AppointmentId): present
+  [  ok ] AppointmentProcedures(ProcedureTypeId): present
+  [  ok ] AppointmentProcedures(TreatmentPlanItemId): present
+  [  ok ] Appointments(ClinicId): present
+  [  ok ] Appointments(DoctorId): present
+  [  ok ] Appointments(PatientId): present
+  [  ok ] Appointments(ProcedureTypeId): present
+  [  ok ] Appointments(TreatmentPlanItemId): present
+  [  ok ] AuditEntries(ClinicId, OccurredAt): present
+  [  ok ] AuditEntries(EntityType, EntityId): present
+  [  ok ] BackupRuns(ClinicId, StartedAt): present
+  [  ok ] ClinicActivityDays(ClinicId, Day): present (unique)
+  [  ok ] ClinicActivitySnapshots(ClinicId): present (unique)
+  [  ok ] ClinicActivitySnapshots(Writes30d): present
+  [  ok ] Clinics(Code): present (unique)
+  [  ok ] ClinicSignups(ConsumedAtUtc, ExpiresAtUtc): present
+  [  ok ] ClinicSignups(Email): present (unique)
+  [  ok ] ClinicSignups(TokenHash): present (unique)
+  [  ok ] ClinicSubscriptions(ClinicId): present (unique)
+  [  ok ] CnamLetterValues(ClinicId, LettreCle): present (unique)
+  [  ok ] CnamNomenclatureEntries(ClinicId, CodeActe): present (unique)
+  [  ok ] CreditNotes(ClinicId, Number): present (unique)
+  [  ok ] CreditNotes(ClinicId, RefundedOn): present
+  [  ok ] CreditNotes(InvoiceId): present
+  [  ok ] DentalActCodes(ClinicId, CodeActe): present (unique)
+  [  ok ] DentalRecordActs(DentalRecordId): present
+  [  ok ] DentalRecords(AppointmentId): present
+  [  ok ] DentalRecords(ClinicId): present
+  [  ok ] DentalRecords(DoctorId): present
+  [  ok ] DentalRecords(PatientId): present
+  [  ok ] DentalRecordTeeth(DentalRecordId, ToothNumber): present (unique)
+  [  ok ] DeviceRegistrations(ClinicId, UserId, IsActive): present
+  [  ok ] DeviceRegistrations(Token): present (unique)
+  [  ok ] Doctors(ClinicId): present
+  [  ok ] Doctors(UserId): present (unique)
+  [  ok ] DocumentEmails(ClinicId, DocumentKind, DocumentId): present
+  [  ok ] DocumentEmails(Status, QueuedAt): present
+  [  ok ] Expenses(ClinicId, ExpenseDate): present
+  [  ok ] InstallmentPayments(ChequeDueDate): present
+  [  ok ] InstallmentPayments(InstallmentId): present
+  [  ok ] InstallmentPayments(PaidOn): present
+  [  ok ] Installments(DueDate): present
+  [  ok ] Installments(TreatmentPlanId): present
+  [  ok ] InvoiceLines(DentalRecordId): present
+  [  ok ] InvoiceLines(InvoiceId): present
+  [  ok ] Invoices(ClinicId, IssueDate): present
+  [  ok ] Invoices(ClinicId, Number): present (unique)
+  [  ok ] Invoices(DoctorId): present
+  [  ok ] Invoices(PatientId): present
+  [  ok ] LabWorkOrders(AppointmentId): present
+  [  ok ] LabWorkOrders(ClinicId, Status): present
+  [  ok ] LabWorkOrders(PatientId): present
+  [  ok ] MedicalDocuments(AppointmentId): present
+  [  ok ] MedicalDocuments(ClinicId): present
+  [  ok ] MedicalDocuments(PatientId): present
+  [  ok ] MedicationActiveIngredients(MedicationId, Dci): present (unique)
+  [  ok ] Medications(ClinicId, BrandName): present
+  [  ok ] NotificationReads(UserId): present
+  [  ok ] Notifications(AppointmentId): present
+  [  ok ] Notifications(PatientId): present
+  [  ok ] Notifications(Status, ScheduledFor): present
+  [  ok ] PatientFamilyHistories(ClinicId): present
+  [  ok ] PatientFamilyHistories(PatientId): present
+  [  ok ] PatientFiles(ClinicId): present
+  [  ok ] PatientFiles(FolderId): present
+  [  ok ] PatientFiles(PatientId): present
+  [  ok ] PatientFlags(PatientId): present
+  [  ok ] PatientFolders(ClinicId): present
+  [  ok ] PatientFolders(ParentFolderId): present
+  [  ok ] PatientFolders(PatientId): present
+  [  ok ] PatientMedicalHistories(ClinicId): present
+  [  ok ] PatientMedicalHistories(PatientId): present
+  [  ok ] Patients(ClinicId, IsArchived): present
+  [  ok ] Payments(ChequeDueDate): present
+  [  ok ] Payments(InvoiceId): present
+  [  ok ] Payments(InvoiceId, PaidOn): present
+  [  ok ] PlatformAccessEntries(ClinicId, OccurredAt): present
+  [  ok ] PlatformAccessEntries(IdempotencyKey): present (unique)
+  [  ok ] PlatformAccessEntries(PlatformAccountId, OccurredAt): present
+  [  ok ] PlatformAccounts(Email): present (unique)
+  [  ok ] PlatformRecoveryCodes(PlatformAccountId, IsUsed): present
+  [  ok ] ProcedureTypeMaterials(ProcedureTypeId, StockItemId): present (unique)
+  [  ok ] ProcedureTypeMaterials(StockItemId): present
+  [  ok ] ProcedureTypes(ClinicId, Category, Name): present
+  [  ok ] ProcedureTypes(ClinicId, Name): present (unique)
+  [  ok ] PushDeliveries(ClinicId): present
+  [  ok ] PushDeliveries(DeviceRegistrationId): present
+  [  ok ] PushDeliveries(Status, SendNotBefore): present
+  [  ok ] RecurringAppointments(ClinicId): present
+  [  ok ] RecurringAppointments(PatientId): present
+  [  ok ] SessionFamilies(CurrentCredentialHash): present (unique)
+  [  ok ] SessionFamilies(PreviousCredentialHash): present
+  [  ok ] SessionFamilies(UserId, ExpiresAtUtc): present
+  [  ok ] StaffNotifications(AppointmentId): present
+  [  ok ] StaffNotifications(ClinicId, EffectiveFeedTime): present
+  [  ok ] StockBatches(StockItemId, ExpiryDate): present
+  [  ok ] StockItems(ClinicId): present
+  [  ok ] StockMovements(ClinicId): present
+  [  ok ] StockMovements(StockItemId, CreatedAt): present
+  [  ok ] SubscriptionPeriods(ClinicId, RecordedAtUtc): present
+  [  ok ] ToothStates(ClinicId): present
+  [  ok ] ToothStates(DentalRecordId): present
+  [  ok ] ToothStates(PatientId, ToothNumber): present
+  [  ok ] TreatmentPlanItems(TreatmentPlanId): present
+  [  ok ] TreatmentPlans(ClinicId, Number): present (unique)
+  [  ok ] TreatmentPlans(ClinicId, PatientId): present
+  [  ok ] TreatmentPlans(DoctorId): present
+  [  ok ] UserRecoveryCodes(UserId, IsUsed): present
+  [  ok ] Users(ClinicId): present
+  [  ok ] Users(ClinicId, Role): present
+  [  ok ] Users(Email): present (unique)
+  [  ok ] WaitingListEntries(ClinicId, Status): present
+  [  ok ] WaitingListEntries(PatientId): present
+  [  ok ] WaitingListEntries(PreferredDoctorId): present
+
+Foreign keys
+  [  ok ] AppointmentProcedures(AppointmentId) -> Appointments: present
+  [  ok ] AppointmentProcedures(ProcedureTypeId) -> ProcedureTypes: present
+  [  ok ] Appointments(ClinicId) -> Clinics: present
+  [  ok ] Appointments(DoctorId) -> Doctors: present
+  [  ok ] Appointments(PatientId) -> Patients: present
+  [  ok ] Appointments(ProcedureTypeId) -> ProcedureTypes: present
+  [  ok ] BackupRuns(ClinicId) -> Clinics: present
+  [  ok ] ClinicActivityDays(ClinicId) -> Clinics: present
+  [  ok ] ClinicActivitySnapshots(ClinicId) -> Clinics: present
+  [  ok ] ClinicReminderSettings(ClinicId) -> Clinics: present
+  [  ok ] ClinicSubscriptions(ClinicId) -> Clinics: present
+  [  ok ] CnamLetterValues(ClinicId) -> Clinics: present
+  [  ok ] CnamNomenclatureEntries(ClinicId) -> Clinics: present
+  [  ok ] DentalActCodes(ClinicId) -> Clinics: present
+  [  ok ] DentalRecordActs(DentalRecordId) -> DentalRecords: present
+  [  ok ] DentalRecords(DoctorId) -> Doctors: present
+  [  ok ] DentalRecords(PatientId) -> Patients: present
+  [  ok ] DentalRecordTeeth(DentalRecordId) -> DentalRecords: present
+  [  ok ] DeviceRegistrations(ClinicId) -> Clinics: present
+  [  ok ] Doctors(ClinicId) -> Clinics: present
+  [  ok ] DocumentEmails(ClinicId) -> Clinics: present
+  [  ok ] Expenses(ClinicId) -> Clinics: present
+  [  ok ] InstallmentPayments(InstallmentId) -> Installments: present
+  [  ok ] Installments(TreatmentPlanId) -> TreatmentPlans: present
+  [  ok ] InvoiceLines(InvoiceId) -> Invoices: present
+  [  ok ] Invoices(DoctorId) -> Doctors: present
+  [  ok ] LabWorkOrders(AppointmentId) -> Appointments: present
+  [  ok ] LabWorkOrders(ClinicId) -> Clinics: present
+  [  ok ] LabWorkOrders(PatientId) -> Patients: present
+  [  ok ] MedicalDocuments(PatientId) -> Patients: present
+  [  ok ] MedicationActiveIngredients(MedicationId) -> Medications: present
+  [  ok ] Medications(ClinicId) -> Clinics: present
+  [  ok ] NotificationReads(NotificationId) -> StaffNotifications: present
+  [  ok ] Notifications(AppointmentId) -> Appointments: present
+  [  ok ] Notifications(PatientId) -> Patients: present
+  [  ok ] PatientFamilyHistories(PatientId) -> Patients: present
+  [  ok ] PatientFiles(FolderId) -> PatientFolders: present
+  [  ok ] PatientFiles(PatientId) -> Patients: present
+  [  ok ] PatientFlags(PatientId) -> Patients: present
+  [  ok ] PatientFolders(ParentFolderId) -> PatientFolders: present
+  [  ok ] PatientFolders(PatientId) -> Patients: present
+  [  ok ] PatientMedicalHistories(PatientId) -> Patients: present
+  [  ok ] Patients(ClinicId) -> Clinics: present
+  [  ok ] Payments(InvoiceId) -> Invoices: present
+  [  ok ] PlatformRecoveryCodes(PlatformAccountId) -> PlatformAccounts: present
+  [  ok ] ProcedureTypeMaterials(ProcedureTypeId) -> ProcedureTypes: present
+  [  ok ] ProcedureTypeMaterials(StockItemId) -> StockItems: present
+  [  ok ] PushDeliveries(ClinicId) -> Clinics: present
+  [  ok ] PushDeliveries(DeviceRegistrationId) -> DeviceRegistrations: present
+  [  ok ] RecurringAppointments(ClinicId) -> Clinics: present
+  [  ok ] RecurringAppointments(PatientId) -> Patients: present
+  [  ok ] SessionFamilies(UserId) -> Users: present
+  [  ok ] StaffNotifications(ClinicId) -> Clinics: present
+  [  ok ] StockBatches(StockItemId) -> StockItems: present
+  [  ok ] StockItems(ClinicId) -> Clinics: present
+  [  ok ] StockMovements(ClinicId) -> Clinics: present
+  [  ok ] SubscriptionPeriods(ClinicId) -> Clinics: present
+  [  ok ] ToothStates(DentalRecordId) -> DentalRecords: present
+  [  ok ] ToothStates(PatientId) -> Patients: present
+  [  ok ] TreatmentPlanItems(TreatmentPlanId) -> TreatmentPlans: present
+  [  ok ] TreatmentPlans(DoctorId) -> Doctors: present
+  [  ok ] UserDashboardPreferences(UserId) -> Users: present
+  [  ok ] UserRecoveryCodes(UserId) -> Users: present
+  [  ok ] Users(ClinicId) -> Clinics: present
+  [  ok ] WaitingListEntries(ClinicId) -> Clinics: present
+  [  ok ] WaitingListEntries(PatientId) -> Patients: present
+  [  ok ] WaitingListEntries(PreferredDoctorId) -> Doctors: present
+
+Decimal precision
+  [  ok ] ClinicActivitySnapshots.CollectedThisMonth: (18,3)
+  [  ok ] Clinics.StampDutyAmount: (18,3)
+  [  ok ] Clinics.VatRate: (5,2) — rate column, deliberately not money precision
+  [  ok ] CnamLetterValues.Value: (18,3)
+  [  ok ] CnamNomenclatureEntries.Coefficient: (18,3)
+  [  ok ] CreditNotes.Amount: (18,3)
+  [  ok ] DentalActCodes.Coefficient: (18,3)
+  [  ok ] DentalActCodes.DefaultFee: (18,3)
+  [  ok ] DentalRecordActs.Cost: (18,3)
+  [  ok ] DentalRecordActs.UnitCost: (18,3)
+  [  ok ] DentalRecords.AmountPaid: (18,3)
+  [  ok ] DentalRecords.Cost: (18,3)
+  [  ok ] Expenses.Amount: (18,3)
+  [  ok ] InstallmentPayments.Amount: (18,3)
+  [  ok ] Installments.Amount: (18,3)
+  [  ok ] Installments.AmountPaid: (18,3)
+  [  ok ] InvoiceLines.LineTotalHt: (18,3)
+  [  ok ] InvoiceLines.UnitPriceHt: (18,3)
+  [  ok ] Invoices.AmountCollected: (18,3)
+  [  ok ] Invoices.StampDutyAmount: (18,3)
+  [  ok ] Invoices.TotalHt: (18,3)
+  [  ok ] Invoices.TotalTtc: (18,3)
+  [  ok ] Invoices.TotalVat: (18,3)
+  [  ok ] Invoices.VatRate: (5,2) — rate column, deliberately not money precision
+  [  ok ] LabWorkOrders.Cost: (18,3)
+  [  ok ] MessagingAllowanceEntries.Amount: (18,3)
+  [  ok ] Patients.CnamAnnualCeilingOverride: (18,3)
+  [  ok ] Payments.Amount: (18,3)
+  [  ok ] ProcedureTypes.DefaultCost: (18,3)
+  [  ok ] StockItems.UnitPrice: (18,3)
+  [  ok ] SubscriptionPeriods.Amount: (18,3)
+  [  ok ] TreatmentPlanItems.PlannedCost: (18,3)
+  [  ok ] TreatmentPlans.TotalPlanned: (18,3)
+
+Decimal precision (EF model)
+  [  ok ] Clinic.StampDutyAmount: numeric(18,3)
+  [  ok ] ClinicActivitySnapshot.CollectedThisMonth: numeric(18,3)
+  [  ok ] CnamInfo.AnnualCeilingOverride: numeric(18,3)
+  [  ok ] CnamLetterValue.Value: numeric(18,3)
+  [  ok ] CnamNomenclatureEntry.Coefficient: numeric(18,3)
+  [  ok ] CreditNote.Amount: numeric(18,3)
+  [  ok ] DentalActCode.Coefficient: numeric(18,3)
+  [  ok ] DentalActCode.DefaultFee: numeric(18,3)
+  [  ok ] DentalRecord.AmountPaid: numeric(18,3)
+  [  ok ] DentalRecord.Cost: numeric(18,3)
+  [  ok ] DentalRecordAct.Cost: numeric(18,3)
+  [  ok ] DentalRecordAct.UnitCost: numeric(18,3)
+  [  ok ] Expense.Amount: numeric(18,3)
+  [  ok ] Installment.Amount: numeric(18,3)
+  [  ok ] Installment.AmountPaid: numeric(18,3)
+  [  ok ] InstallmentPayment.Amount: numeric(18,3)
+  [  ok ] Invoice.AmountCollected: numeric(18,3)
+  [  ok ] Invoice.StampDutyAmount: numeric(18,3)
+  [  ok ] Invoice.TotalHt: numeric(18,3)
+  [  ok ] Invoice.TotalTtc: numeric(18,3)
+  [  ok ] Invoice.TotalVat: numeric(18,3)
+  [  ok ] InvoiceLine.LineTotalHt: numeric(18,3)
+  [  ok ] InvoiceLine.UnitPriceHt: numeric(18,3)
+  [  ok ] LabWorkOrder.Cost: numeric(18,3)
+  [  ok ] Payment.Amount: numeric(18,3)
+  [  ok ] ProcedureType.DefaultCost: numeric(18,3)
+  [  ok ] StockItem.UnitPrice: numeric(18,3)
+  [  ok ] SubscriptionPeriod.Amount: numeric(18,3)
+  [  ok ] TreatmentPlan.TotalPlanned: numeric(18,3)
+  [  ok ] TreatmentPlanItem.PlannedCost: numeric(18,3)
+
+Audit ledger
+  [  ok ] audit-ledger-clinic-nullable: AuditEntries.ClinicId is nullable — an unattributable mutation can still be recorded
+  [  ok ] audit-ledger-has-no-foreign-keys: AuditEntries references nothing — the ledger outlives the clinics and accounts it describes
+
+Data migrations
+  [  ok ] type-prefix-removed: 0 appointment note(s) still start with a 'Type: ' prefix
+  [  ok ] overlapping-appointment-pairs: 0 overlapping pair(s) under the constraint's own predicate
+  [  ok ] appointment-act-rows: 0 appointment(s) name an act with no AppointmentProcedures row
+  [  ok ] procedure-type-category-move: 0 procedure type(s) still carry a discipline in Description
+  [  ok ] backup-schedule-backfill: 0 clinic(s) have a non-positive backup retention or staleness threshold
+  [  ok ] cheque-details-only-on-cheques: 0 payment(s) carry cheque details on a non-cheque method, across both ledgers
+  [  ok ] cheque-banked-only-on-cheques: 0 payment(s) carry a banked stamp on a non-cheque method, across both ledgers
+  [  ok ] practitioner-attribution-backfill: 0 invoice/fiche row is unattributed while its appointment names a practitioner
+  [  ok ] push-delivery-clinic-matches-device: 0 queued push(es) disagree with their device's clinic
+  [  ok ] clinic-signup-has-no-orphans: 0 stale or superseded clinic signup(s)
+  [  ok ] admins-without-a-factor-holding-a-live-session: 0 administrator(s) hold a live session without a verified second factor
+  [  ok ] google-token-protected: not applicable — what it measures does not exist yet
+  [  ok ] session-families-have-no-orphans: 0 session family(ies) outlive their account
+  [  ok ] server-clock-drift: application clock is 0.005s from the database's. ⚠️ Both run on one host and read one clock, so this cannot detect the case that matters — the HOST drifting from real time, which fails every second-factor code at once with the same message as a wrong password. NTP on the host is the real control.
+  [  ok ] platform-account-has-totp-or-unenrolled: 0 console account(s) are marked enrolled without a second-factor secret
+  [  ok ] clinic-activity-snapshot-covers-every-clinic: every cabinet has an activity snapshot
+  [  ok ] clinic-activity-snapshot-is-internally-consistent: every activity snapshot's figures agree with each other
+  [  ok ] clinical-child-clinic-matches-patient: every fiche, document, file, folder, antécédent and tooth state names its patient's clinic
+  [  ok ] stock-batch-backfill: not applicable — the legacy expiry column is gone; superseded by every-stocked-item-has-a-batch
+  [  ok ] every-stocked-item-has-a-batch: every item holding stock has at least one lot
+  [  ok ] normalized-name-populated: not applicable — the normalized-name column does not exist yet
+
+Cabinet entitlements
+  [  ok ] every-clinic-has-an-entitlement: every cabinet has an entitlement
+  [  ok ] subscription-end-date-matches-ledger: 5 entitlement(s), each ending exactly where its ledger folds to
+  [  ok ] subscription-cover-kind-matches-ledger: 5 entitlement(s), each naming the cover its ledger actually folds to
+  [  ok ] subscription-grandfathered-entries: 4 cabinet(s) were grandfathered open-ended; compare against the pre-deployment cabinet count
+
+Internal transit
+  [  ok ] internal-certificate-days-remaining: not applicable — this deployment configures no internal root certificate
+
+Secret protection
+  [DRIFT] key-ring-protection: the key ring is NOT encrypted at rest — its keys, which decrypt every cabinet's reminder credentials and every administrator's second factor, are readable from a copy of the volume (set DataProtection:CertificatePath — deploy/KEY-CUSTODY.md)
+  [DRIFT] secrets-protected-under-current-ring: 1 stored secret(s) are still under a superseded generation — PlatformAccounts.ProtectedTotpSecret 0/1 — run « reprotect-secrets » and do NOT delete any key file until this reads zero
+
+Result: 2 check(s) found drift. See the DRIFT lines above.
+

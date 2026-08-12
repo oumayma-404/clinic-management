@@ -178,11 +178,26 @@ services:
       # beside each dump. Best-effort: an unwritable path warns and never stops the API, because refusing to
       # serve a whole deployment's clinics over a restore aid is a far larger outage than the risk it guards.
       DataProtection__GenerationMarkerPath: /keyring-marker/generation
+      # ── hosted-security-hardening Part 4. Three of its five GLOBAL changes reach this profile, and the audit
+      # chain is why the first one is not optional here: `AuditChainKeyProvider` REFUSES TO START on any
+      # deployment that does not host its own front door, which is both hosted kinds. A generated key would work
+      # and then be replaced by the first redeploy, silently making every entry written before it unverifiable —
+      # a failure whose signature is identical to tampering.
+      Audit__ChainKey_FILE: /run/secrets/audit_chain_key
+      # FR-4.4 — 30 days of retention, over the durable volume below.
+      Serilog__WriteTo__1__Args__retainedFileCountLimit: "30"
+      # FR-4.5. Enforcing rather than report-only, now that the third-party analytics script that would have
+      # broken `script-src 'self'` is gone from the web bundle both profiles build.
+      Security__EnforceCsp: "true"
     volumes:
       - internal_certs:/certs:ro
       # Read-WRITE here — the API is the only writer. Every other consumer mounts it `:ro`.
       - keyring_marker:/keyring-marker
+      # FR-4.4 — logs outlive the container. The scrub that stops a patient's name reaching them lands in the
+      # same change, because durability persists what was previously ephemeral.
+      - api_logs:/app/logs
     secrets:
+      - audit_chain_key
       - auth0_mgmt_client_secret
       - google_client_secret
       - huggingface_api_key
@@ -347,6 +362,10 @@ services:
 # startup REFUSAL rather than an empty value: moving a secret is two edits, and if the literal won, the state
 # between them would keep reading the old value while appearing to have moved.
 secrets:
+  # FR-4.1 — at least 32 bytes, base64: `openssl rand -base64 48`. Keep it with the deployment's other keys;
+  # replacing it makes every entry written under the old one read as tampering.
+  audit_chain_key:
+    file: ${AUDIT_CHAIN_KEY_FILE:-./secrets/audit-chain-key}
   auth0_mgmt_client_secret:
     file: ${AUTH0_MGMT_CLIENT_SECRET_FILE:-./secrets/auth0-mgmt-client-secret}
   google_client_secret:
@@ -359,6 +378,8 @@ networks:
     driver: bridge
 
 volumes:
+  # The API's rolling log files, 30 days of them (FR-4.4).
+  api_logs:
   postgres_data:
   minio_data:
   caddy_data:

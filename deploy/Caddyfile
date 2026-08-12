@@ -77,7 +77,11 @@
 			X-Content-Type-Options nosniff
 			X-Frame-Options DENY
 			Referrer-Policy strict-origin-when-cross-origin
-			Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+			Permissions-Policy "accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), usb=(), xr-spatial-tracking=()"
+			Reporting-Endpoints `csp-endpoint="/api/csp-report"`
+			Cross-Origin-Opener-Policy same-origin
+			Cross-Origin-Resource-Policy same-site
+			Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; report-uri /api/csp-report; report-to csp-endpoint"
 		}
 
 		reverse_proxy web:3000
@@ -117,10 +121,29 @@ https://127.0.0.1:9443 {
 	}
 
 	handle {
+		# The console had THREE headers and NO policy at all (hosted-security-hardening FR-4.5). It is a
+		# second Next application on a second origin, reached by the account that can read every cabinet in
+		# the deployment — so it is the surface where an injected script is worth the most, and it was the
+		# one without a policy.
+		#
+		# Byte-identical to the public site's above and to `SecurityHeadersMiddleware.ContentSecurityPolicy`;
+		# `UnitTests/Common/ContentSecurityPolicyAgreementTests` fails the build if the three drift. Identical
+		# rather than console-specific because both bundles are Next: the same inline hydration payload, the
+		# same `next/font` inline style, the same `blob:` exports.
+		#
+		# ⚠️ `report-uri /api/csp-report` resolves against THIS site, where `/api/platform/*` is the only
+		# proxied API path — so a console violation report reaches Next and 404s rather than reaching the
+		# sink. Deliberate, and stated rather than hidden: routing it would mean a second `/api/*` rule here,
+		# and the whole point of `ConsolePortGate` is that no proxy rule decides what this port serves. The
+		# report is lost; the enforcement, which is what matters, is not.
 		header {
 			X-Content-Type-Options nosniff
 			X-Frame-Options DENY
 			Referrer-Policy strict-origin-when-cross-origin
+			Permissions-Policy "accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), usb=(), xr-spatial-tracking=()"
+			Cross-Origin-Opener-Policy same-origin
+			Cross-Origin-Resource-Policy same-site
+			Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; report-uri /api/csp-report; report-to csp-endpoint"
 		}
 
 		reverse_proxy console:3000

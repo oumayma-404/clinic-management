@@ -167,4 +167,20 @@ public interface INotificationGenerator
     /// </summary>
     Task SessionEndedForReplayAsync(
         Guid clinicId, string targetUserId, string? deviceLabel, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tells the practice that its <b>whole record</b> was downloaded as one file
+    /// (<c>hosted-security-hardening</c> FR-4.2, Stated Assumption 9).
+    ///
+    /// <para>⚠️ <b>Clinic-wide with the actor excluded, unlike the two targeted security notices above.</b> The
+    /// spec asks for « les administrateurs », which the feed cannot express — one shared row carries at most one
+    /// target user — and the superset is the right side to err on here: the event is not private to one
+    /// colleague, it is every patient of the practice leaving the building in a file. The exporter is excluded
+    /// as everywhere, so nobody is told about their own action.</para>
+    ///
+    /// <para>Best-effort, unlike the ledger row it accompanies: by the time this runs the export is already
+    /// recorded, so a feed failure must not refuse a download the ledger has accounted for.</para>
+    /// </summary>
+    Task ClinicArchiveExportedAsync(
+        Guid clinicId, string actorUserId, string actorName, CancellationToken cancellationToken = default);
 }

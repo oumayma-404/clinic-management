@@ -99,8 +99,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 return;
             }
             
-            _logger.LogDebug("Appointment found: Patient={PatientName}, DateTime={DateTime}, Status={Status}, GoogleEventId={GoogleEventId}",
-                appointment.Patient?.GetFullName() ?? "Occupé", appointment.AppointmentDateTime, appointment.Status, appointment.GoogleCalendarEventId);
+            // FR-4.4 — the appointment's own id, never its patient. A reader chasing a sync problem needs to find
+            // the row; the name only told them who it belonged to.
+            _logger.LogDebug("Appointment found: {AppointmentId}, HasPatient={HasPatient}, DateTime={DateTime}, Status={Status}, GoogleEventId={GoogleEventId}",
+                appointment.Id, appointment.PatientId is not null, appointment.AppointmentDateTime, appointment.Status, appointment.GoogleCalendarEventId);
 
             // Resolve THIS appointment's clinic connection (#4). No global/shared account any more — if the
             // owning clinic has not connected Google, skip silently (nothing to sync, no cross-clinic leak).
@@ -351,7 +353,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 var patientName = ExtractPatientNameFromSummary(googleEvent.Summary);
                 if (!string.IsNullOrEmpty(patientName))
                 {
-                    _logger.LogDebug("Extracted patient name from event: {PatientName}", patientName);
+                    _logger.LogDebug("Extracted a patient name from the event: {PatientName}", LogMask.Name(patientName));
                     
                     var matchingAppointment = allAppointments
                         .FirstOrDefault(a => 
@@ -650,7 +652,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                     if (patientById != null && patientById.ClinicId == clinicId)
                     {
                         patientName = patientById.GetFullName();
-                        _logger.LogInformation("Found patient by ID from Google Calendar event description: {PatientName}", patientName);
+                        _logger.LogInformation("Found patient {PatientId} by id in the Google Calendar event description.", patientById.Id);
                     }
                 }
             }
@@ -701,8 +703,8 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             if (patient == null)
             {
                 // Patient not found - create it automatically
-                _logger.LogInformation("Patient '{PatientName}' not found. Creating new patient automatically from Google Calendar event {EventId}", 
-                    patientName, googleEvent.Id);
+                _logger.LogInformation("Patient {PatientName} not found. Creating one automatically from Google Calendar event {EventId}",
+                    LogMask.Name(patientName), googleEvent.Id);
                 
                 var nameParts = patientName.Split(new[] { ' ', '-' }, StringSplitOptions.RemoveEmptyEntries);
                 string firstName;
@@ -721,8 +723,8 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 }
                 else
                 {
-                    _logger.LogWarning("Cannot extract patient name from '{PatientName}' for Google Calendar event {EventId}", 
-                        patientName, googleEvent.Id);
+                    _logger.LogWarning("Cannot extract a patient name from {PatientName} for Google Calendar event {EventId}",
+                        LogMask.Name(patientName), googleEvent.Id);
                     return false;
                 }
 
@@ -753,13 +755,13 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
                 
                 patient = newPatient;
-                _logger.LogInformation("Created new patient: '{PatientName}' (ID: {PatientId}) from Google Calendar event {EventId}", 
-                    patient.GetFullName(), patient.Id, googleEvent.Id);
+                _logger.LogInformation("Created patient {PatientId} from Google Calendar event {EventId}",
+                    patient.Id, googleEvent.Id);
             }
             else
             {
-                _logger.LogInformation("Found matching patient: '{PatientName}' (ID: {PatientId}) for Google Calendar event {EventId}", 
-                    patient.GetFullName(), patient.Id, googleEvent.Id);
+                _logger.LogInformation("Found matching patient {PatientId} for Google Calendar event {EventId}",
+                    patient.Id, googleEvent.Id);
             }
 
             var duration = googleEvent.EndDateTime - googleEvent.StartDateTime;
@@ -814,8 +816,8 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             await _appointmentRepository.AddAsync(appointment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            _logger.LogInformation("Created appointment {AppointmentId} from Google Calendar event {EventId} for patient {PatientName}",
-                appointment.Id, googleEvent.Id, patientName);
+            _logger.LogInformation("Created appointment {AppointmentId} from Google Calendar event {EventId}",
+                appointment.Id, googleEvent.Id);
 
             // L3b — an appointment created in Google is an appointment, and it used to enqueue no reminder at
             // all: the dentist who types a visit into their own calendar got a silently reminder-less booking.

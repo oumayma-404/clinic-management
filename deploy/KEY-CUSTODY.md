@@ -9,7 +9,7 @@ machine-scoped DPAPI instead of a certificate and none of this applies to it.
 
 ---
 
-## The four keys
+## The five keys
 
 | # | Key | Encrypts | Where it lives | Losing it costs |
 |---|---|---|---|---|
@@ -17,6 +17,7 @@ machine-scoped DPAPI instead of a certificate and none of this applies to it.
 | 2 | **Backup encryption key** (`age` key pair) | the nightly dump + the object-store archive | public half in `.env` (`BACKUP_AGE_RECIPIENT`); **private half off this host** | **every off-site backup, permanently** |
 | 3 | **PITR stream key** (`WALG_LIBSODIUM_KEY`) | every WAL segment + every base backup | `.env` on the host | **every archived base backup and WAL segment, permanently** |
 | 4 | **Volume keyfile** (LUKS) | the disk holding `postgres_data` + `minio_data` | the host's own boot volume, `/etc/clinic/luks.key`, mode `0400 root:root` | the data volume cannot be unlocked at boot |
+| 5 | **Audit chain key** (`Audit:ChainKey`) | *nothing* — it **signs** the audit ledger (FR-4.1) | `secrets/audit-chain-key` on the host, mounted read-only at `/run/secrets/audit_chain_key` | no data at all — but every entry written under it becomes **unverifiable**, which reads exactly like tampering |
 
 **Fill this in before go-live.** Each row needs a real answer, not a placeholder:
 
@@ -26,6 +27,18 @@ machine-scoped DPAPI instead of a certificate and none of this applies to it.
 | 2 | _(name, role)_ | _(name, role)_ | _(must NOT be the same place as the backups themselves)_ |
 | 3 | _(name, role)_ | _(name, role)_ | _(must NOT be the same place as the WAL archive)_ |
 | 4 | _(name, role)_ | _(name, role)_ | _(must NOT be on the encrypted volume it unlocks)_ |
+| 5 | _(name, role)_ | _(name, role)_ | _(with key 1's certificate — but NOT inside the database it signs)_ |
+
+⚠️ **Key 5 is the odd one out, and it is worth understanding why it is here at all.** It encrypts nothing, so
+losing it loses no records — what it costs is the *evidence*. Each audit entry carries a value derived from itself
+and its predecessor, keyed by this secret, which is what makes an entry impossible to alter or remove without
+`verify-schema` naming the first broken one. Replace the key and every entry written under the old one fails that
+walk — indistinguishable, from the outside, from somebody having edited the ledger. So: generate it once
+(`openssl rand -base64 48`), keep it, and treat a request to "just regenerate it" as the destructive act it is.
+
+⚠️ **It is deliberately NOT the Data Protection ring (key 1).** Part 3 re-protects that ring, and FR-3.9 makes it
+the thing a restore may fail to read — so if the chain were keyed on it, the ledger would become unverifiable at
+exactly the moment somebody wanted to check it. Two keys, kept in the same place, doing different jobs.
 
 ⚠️ **Keys 2 and 3 must not be stored with what they encrypt.** An archive holding both the ciphertext and the key
 that opens it is not encrypted in any way that matters — the likeliest exposure is a leaked or stolen backup, and

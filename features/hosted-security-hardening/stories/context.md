@@ -1,6 +1,6 @@
 # Context — Hosted Security Hardening
 
-**Written:** 2026-08-12 at `cbccbe0` (tip of Part B) · **Last verified:** 2026-08-12, end of **Part C**
+**Written:** 2026-08-12 at `cbccbe0` (tip of Part B) · **Last verified:** 2026-08-12, end of **Part D** (all four parts landed)
 
 Durable **codebase pointers** for this four-part story. Status and deviations live in `progress.md`; this file
 only says *where things are*. It caches **paths, commands and which file owns which rule** — never a signature,
@@ -18,6 +18,10 @@ git diff --stat <last-verified-sha>..HEAD -- \
   api/ClinicManagement.API/Program.cs \
   api/ClinicManagement.API/Startup/InstallConfiguration.cs \
   api/ClinicManagement.API/Maintenance/ \
+  api/ClinicManagement.Domain/Services/AuditChain.cs \
+  api/ClinicManagement.Infrastructure/Persistence/AuditChainAppender.cs \
+  api/ClinicManagement.Infrastructure/Persistence/ApplicationDbContext.cs \
+  api/ClinicManagement.API/Middleware/SecurityHeadersMiddleware.cs \
   deploy/
 ```
 
@@ -62,6 +66,9 @@ confirming it exists.
 | Config layers (host **and** every console verb) | `API/Startup/InstallConfiguration.cs` → `AddInstallLayers()` / `BuildForConsoleVerb()` |
 | A derived guard test (docstring criterion · reflected candidate set · `Assert.NotEmpty` · both-direction exception map · executed red proof) | `exploration.md` § 5.1 names the house style; live examples are `ClinicStorageKeyTests`, `TenantScopeFilterTests`, `PlatformReadShapeTests` |
 | Fail-loud startup refusal naming the setting **and** the file | `API/Startup/TransportAssurance.cs` (Part B) |
+| Adding a row to the audit ledger from OUTSIDE the interceptor | `Application/Features/Backup/ArchiveAccessLedger.cs` — stage through `IAuditEntryRepository`, then save. The chain is assigned by `ApplicationDbContext.SaveChangesAsync`, so **no caller ever touches `AuditChainAppender`** (progress.md DEV-14) |
+| The one CSP string, and what holds its three copies together | `API/Middleware/SecurityHeadersMiddleware.ContentSecurityPolicy` is the authority; `deploy/Caddyfile` (**two** sites) and `console/next.config.ts` copy it, and `UnitTests/Common/ContentSecurityPolicyAgreementTests` fails the build on drift |
+| Masking a value that must not reach a log file | `Infrastructure/Services/LogMask.cs` (names, file names) beside `ReminderPhone.Mask` (phones); `UnitTests/Common/LogTemplateCoverageTests` is the derived guard, and its exemption map is **empty** |
 | A « required, except in Development » gate | `Infrastructure/Storage/MinioCredentials.TolerateUnconfigured` — the repo's precedent, followed by `LocalDataProtection.TolerateUnprotectedKeyRing` (Part C) |
 | A secret supplied as a **file** rather than an env var | `API/Startup/FileBackedSecrets.cs`; the layer is added inside `AddInstallLayers()` so the host and every verb share it |
 | A **derived** guard with a decision map + reasons + both directions + an in-test red proof | `UnitTests/Common/SecretProtectionCoverageTests.cs` and `UnitTests/Api/ConsoleVerbDispatchTests.cs` (Part C) |
@@ -98,6 +105,6 @@ breaks every FR-3.9 comparison.
 | Fact | Checked |
 |---|---|
 | Part status (which parts have landed) | read `progress.md`, never this file |
-| Whether a symbol a later part depends on exists yet | grep for it. `reprotect-secrets` **now exists**; Part D's audit chain does not |
+| Whether a symbol a later part depends on exists yet | grep for it. `reprotect-secrets`, `AuditChain`, `AuditChainAppender`, `ArchiveAccessLedger`, `LogMask` and `CspReportController` **all now exist** |
 | A scratch container left behind by a verification run (`hshb-c-pg`, Part C — removed; `hshb` project, Part B) | `docker compose -p hshb -f deploy/docker-compose.hosted.yml down -v`. It holds an **empty** database; the dev one is the main checkout's `clinic-postgres` on 5432 |
 | Working-tree cleanliness in the worktree | `git status` — it should be clean between parts |

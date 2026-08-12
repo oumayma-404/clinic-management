@@ -70,9 +70,9 @@ public class SecurityHeadersMiddleware
     /// alone, so the page-side copy of this policy lives in <c>deploy/Caddyfile</c>'s page-response block. The two
     /// are byte-identical and must be changed together.</para>
     /// </summary>
-    private const string ContentSecurityPolicy =
+    public const string ContentSecurityPolicy =
         "default-src 'self'; "
-        + "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+        + "script-src 'self' 'unsafe-inline'; "
         + "style-src 'self' 'unsafe-inline'; "
         + "img-src 'self' data: blob:; "
         + "font-src 'self' data:; "
@@ -81,7 +81,30 @@ public class SecurityHeadersMiddleware
         + "frame-src 'self' blob:; "
         + "frame-ancestors 'none'; "
         + "base-uri 'self'; "
-        + "form-action 'self'";
+        + "form-action 'self'; "
+        + "report-uri /api/csp-report; "
+        + "report-to csp-endpoint";
+
+    /// <summary>
+    /// Where a violation is sent (FR-4.5). <c>report-to</c> is the current mechanism and <c>report-uri</c> the
+    /// deprecated one, and <b>both</b> are in the policy above deliberately: Chromium honours the first, Firefox
+    /// and Safari still only implement the second, and a report nobody receives is the state this replaces.
+    ///
+    /// <para>⚠️ The reports are <b>scrubbed and bounded</b> at the endpoint — see <c>CspReportController</c>. A
+    /// report body carries the page address, and this application's addresses contain patient identifiers, so
+    /// reports are themselves subject to FR-4.4.</para>
+    /// </summary>
+    private const string ReportingEndpoints = "csp-endpoint=\"/api/csp-report\"";
+
+    /// <summary>
+    /// What this application never asks the browser for. An empty allow-list is stronger than an origin list:
+    /// there is no camera, microphone, geolocation or payment surface in the product, so the honest declaration
+    /// is that nobody may use them — including an injected script that got past everything above.
+    /// </summary>
+    private const string PermissionsPolicy =
+        "accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(self), "
+        + "geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), "
+        + "picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), usb=(), xr-spatial-tracking=()";
 
     private readonly RequestDelegate _next;
     private readonly bool _hstsEnabled;
@@ -110,6 +133,19 @@ public class SecurityHeadersMiddleware
             headers["X-Content-Type-Options"] = "nosniff";
             headers["X-Frame-Options"] = "DENY";
             headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+            headers["Permissions-Policy"] = PermissionsPolicy;
+            headers["Reporting-Endpoints"] = ReportingEndpoints;
+
+            // Cross-Origin-Opener-Policy severs the `window.opener` link, so a page this app opens — or one that
+            // opened it — cannot reach into its context. Cross-Origin-Resource-Policy stops another site
+            // embedding this one's responses as a subresource, which is what makes a PDF or a radiograph
+            // readable cross-origin despite every other header here.
+            //
+            // ⚠️ `same-site`, not `same-origin`, on the second: the Local front door serves the pages and the
+            // API from one origin, but the hosted deployment's console site is a different origin on the same
+            // registrable domain, and `same-origin` would break it while looking like a tightening.
+            headers["Cross-Origin-Opener-Policy"] = "same-origin";
+            headers["Cross-Origin-Resource-Policy"] = "same-site";
 
             // Do not overwrite a policy an upstream component already set — in Cloud, Next emits its own for
             // page responses, and two CSP headers make the browser enforce the INTERSECTION rather than

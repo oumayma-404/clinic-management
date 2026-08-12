@@ -95,6 +95,7 @@ public class SchemaVerificationService
         VerifyForeignKeys(facts, findings);
         VerifyDecimalPrecision(facts, findings);
         VerifyAuditLedger(facts, findings);
+        VerifyAuditChain(facts, findings);
         VerifyDataMigrations(facts, findings);
         VerifySubscriptions(facts, findings);
         VerifyInternalCertificate(facts, findings);
@@ -303,6 +304,68 @@ public class SchemaVerificationService
                   + "— a cascade from Clinics or Users would erase the evidence with its subject",
             unexpected.Count == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
     }
+
+    // ------------------------------------------------------------------ the audit chain
+
+    /// <summary>
+    /// FR-4.1's two readings of the same walk, reported <b>apart</b>: a break is drift, a declared gap is not.
+    ///
+    /// <para>That separation is the requirement, not a presentation choice. A gap is something the product itself
+    /// recorded — an audit write that failed, or a restore — so counting it as drift would leave a deployment
+    /// permanently at exit 2 over an event it handled correctly, and an alarm that is always on is one nobody
+    /// reads. A <b>break</b> is the opposite: nobody declared it, and it names the first entry that does not add
+    /// up.</para>
+    ///
+    /// <para>⚠️ <b>Nothing refuses to serve on a break.</b> An audit break is an alarm, not an outage — the
+    /// spec's own edge case — so this reports and the application keeps running.</para>
+    /// </summary>
+    private static void VerifyAuditChain(SchemaFacts facts, List<SchemaVerificationFinding> findings)
+    {
+        if (facts.AuditChain is not { } chain)
+        {
+            foreach (var check in new[] { "audit-chain-intact", "audit-declared-gaps" })
+            {
+                findings.Add(NotApplicableIn(
+                    "Audit chain", check, "the chain columns or the chaining key are not present"));
+            }
+
+            return;
+        }
+
+        var broken = chain.Chains.Where(c => !c.IsIntact).ToList();
+        var verified = chain.Chains.Sum(c => c.Checked);
+        var unchained = chain.Chains.Sum(c => c.Unchained);
+
+        // The deployment-wide chain is named as its own scope: it carries every background job's and every vendor
+        // verb's writes, which belong to no cabinet, and reading « 1 chaîne » with no idea which would send an
+        // operator looking through the clinics for it.
+        findings.Add(new SchemaVerificationFinding(
+            "Audit chain",
+            "audit-chain-intact",
+            broken.Count == 0
+                ? $"{chain.Chains.Count} chaîne(s) intactes — {verified} entrée(s) vérifiées, "
+                  + $"{unchained} antérieure(s) au chaînage"
+                : $"{broken.Count} chaîne(s) rompue(s). Première rupture : "
+                  + string.Join(" ; ", broken.Take(3).Select(Describe)),
+            broken.Count == 0 ? SchemaVerificationSeverity.Info : SchemaVerificationSeverity.Drift));
+
+        var gaps = chain.Chains.Sum(c => c.DeclaredGaps);
+        findings.Add(new SchemaVerificationFinding(
+            "Audit chain",
+            "audit-declared-gaps",
+            gaps == 0
+                ? "0 interruption déclarée"
+                : $"{gaps} interruption(s) déclarée(s) — écritures de journal ayant échoué, ou restaurations. "
+                  + "Signalées ici sans être une dérive : le produit les a lui-même consignées",
+            SchemaVerificationSeverity.Info));
+    }
+
+    private static string Describe(AuditChainWalkResult result) =>
+        $"{ScopeOf(result.ChainKey)} n° {result.FirstBrokenSequence} ({result.FirstBrokenEntryId}) — "
+        + Domain.Services.AuditChain.Describe(result.Break);
+
+    private static string ScopeOf(Guid chainKey) =>
+        chainKey == Guid.Empty ? "chaîne hors cabinet" : $"cabinet {chainKey}";
 
     // ------------------------------------------------------------------ data migrations
 

@@ -286,16 +286,20 @@ Contents (`Application/Features/Backup/Archive/ClinicArchiveFormat.cs`): `manife
 
 **Recording today: none.** No audit row (the interceptor only sees `SaveChanges`, and the GET writes nothing), no `PlatformAccessEntry`, no dedicated rate limit — it falls to the **global** limiter, 600 requests / 60 s per `sub`, so one admin may pull 600 full-cabinet archives a minute. The only trace is one `LogInformation` (`BuildClinicArchiveQuery:97-99`).
 
-**⚠️ LIVE DEFECT, uncommitted work on this branch:** `Application/Features/Backup/Archive/ClinicArchiveRestorer.cs:79` —
+**✅ RESOLVED — the defect this section recorded was already reverted, and Part D verified it rather than "fixing" it again.** The block below is what `ClinicArchiveRestorer` looked like while a red proof was in the tree:
 ```csharp
 if (outcome.Restored > 0)
 {
-    store.ForgetRestoredRows(); // RED PROOF — revert
+    store.ForgetRestoredRows(); // RED PROOF — revert   ← this line no longer exists
     await unitOfWork.SaveChangesAsync(cancellationToken);
     store.ForgetRestoredRows();
 }
 ```
-`ForgetRestoredRows()` is `ChangeTracker.Clear()`, so the staged inserts are discarded **before** the save: the restore reports rows as restored and persists none. Fix independently of this feature.
+`ForgetRestoredRows()` is `ChangeTracker.Clear()`, so the pre-save call discarded the staged inserts: the restore reported rows as restored and persisted none.
+
+⚠️ **The surviving call — the one *after* the save — is the guard, not the defect. Deleting "the call before the save" now deletes working code.** It exists for `IUnitOfWork.StopTracking`'s reason: EF re-scans every tracked entry on each later save, so a full-cabinet restore across thirty tables would otherwise be quadratic in exactly the case the feature is written for.
+
+Verified in Part D (D.0): exactly one `ForgetRestoredRows()`, after the save, and `git diff HEAD` on that file empty. **Anchor on the symbols, never on line numbers** — the citations in this section were already ~22 lines stale when Part D read them, which is how a line reference misleads a later reader. The property is now held by a test rather than by a reading: `UnitTests/Features/Backup/ClinicArchiveRestorerTests` asserts against **what reached the store**, not against `outcome.Restored` — which is precisely what the defect left truthful while the data vanished — and it was proven red by re-inserting the line above (2 of its 4 cases went red, and only those two).
 
 ### 4.3 CSP — what enforcing costs today
 

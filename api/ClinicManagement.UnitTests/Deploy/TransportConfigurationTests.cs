@@ -235,23 +235,67 @@ public class TransportConfigurationTests
     }
 
     /// <summary>
-    /// <b>Reserved for Part D</b>, and asserted in the only way that is honest today: the enforcing-CSP key is
-    /// either absent — Part D has not landed — or <c>true</c>. Never present-and-false, which is the state
-    /// AC-5's own example describes, where the switch exists and nothing enforces anything.
+    /// The policy is <b>enforcing</b> on both hosted deployments (FR-4.5).
     ///
-    /// <para>When Part D adds it, this case starts asserting the full requirement with no edit.</para>
+    /// <para><b>This is the case AC-5 is written about.</b> <c>Security:EnforceCsp</c> existed and was unset for
+    /// the life of the deployment — a guarantee held by a configuration key somebody was supposed to remember,
+    /// which is exactly the failure mode that criterion exists to prevent. Part B asserted only « never
+    /// present-and-false », because Part D had not landed; now that it has, the key must be there and be true.</para>
+    ///
+    /// <para>⚠️ It reads the compose file rather than a constant, so it fails on the thing that actually gets
+    /// deployed. A test over the middleware's own default would pass whatever the operator ships.</para>
     /// </summary>
     [Theory]
     [InlineData(HostedFile)]
     [InlineData(ProdFile)]
-    public void The_Enforcing_Csp_Key_Is_Never_Present_And_Off(string composeFile)
+    public void The_Content_Security_Policy_Is_Enforced(string composeFile)
     {
         var environment = Services(composeFile)["api"].Environment;
 
-        if (environment.TryGetValue("Security__EnforceCsp", out var enforceCsp))
-        {
-            Assert.Equal("true", enforceCsp);
-        }
+        Assert.True(
+            environment.TryGetValue("Security__EnforceCsp", out var enforceCsp),
+            $"{composeFile} does not set Security__EnforceCsp — the policy ships report-only, i.e. inert.");
+        Assert.Equal("true", enforceCsp);
+    }
+
+    /// <summary>
+    /// The audit chain's key reaches both hosted deployments (FR-4.1).
+    ///
+    /// <para>⚠️ <b>Its absence is a startup failure, not a degraded mode</b> — <c>AuditChainKeyProvider</c>
+    /// refuses to start on any deployment that does not host its own front door. So this case is not about the
+    /// guarantee being weaker without it; it is about the deployment not booting at all, which makes the compose
+    /// file the only place it can be caught before an operator finds out.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(HostedFile)]
+    [InlineData(ProdFile)]
+    public void The_Audit_Chain_Key_Is_Supplied(string composeFile)
+    {
+        var environment = Services(composeFile)["api"].Environment;
+
+        var supplied = environment.ContainsKey("Audit__ChainKey")
+                       || environment.ContainsKey("Audit__ChainKey_FILE");
+
+        Assert.True(
+            supplied,
+            $"{composeFile} supplies no Audit__ChainKey — the API refuses to start on this deployment kind.");
+    }
+
+    /// <summary>
+    /// Logs are written to a durable volume (FR-4.4), on <b>both</b> hosted files.
+    ///
+    /// <para>The scrub that keeps a patient's name out of them is held by <c>LogTemplateCoverageTests</c>; what
+    /// that class cannot see is whether the file survives the container, which is the half that makes the scrub
+    /// load-bearing rather than tidy.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(HostedFile)]
+    [InlineData(ProdFile)]
+    public void The_Api_Logs_To_A_Durable_Volume(string composeFile)
+    {
+        var volumes = Services(composeFile)["api"].Volumes;
+
+        Assert.Contains(volumes, v => v.EndsWith(":/app/logs", StringComparison.Ordinal));
     }
 
     // ---- the reader ---------------------------------------------------------------------------------

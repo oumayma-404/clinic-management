@@ -57,8 +57,12 @@ public class ClinicArchiveEndpointTests
         _users.Setup(r => r.GetByAuth0SubAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
     }
 
+    // FR-4.2 — the download now records an audit row before it builds anything, and refuses if it cannot. The
+    // real ledger runs here over the same fake repository the restore path uses, so the rows it produces are
+    // assertable rather than mocked away.
     private BuildClinicArchiveQueryHandler Download() => new(
         _users.Object, _clinics.Object, _context.Object, _store, _blobs,
+        _auditEntries, _unitOfWork, new ProcessAuditActorProvider(), Mock.Of<INotificationGenerator>(),
         NullLogger<BuildClinicArchiveQueryHandler>.Instance);
 
     private readonly FakeAuditEntryRepository _auditEntries = new();
@@ -81,6 +85,10 @@ public class ClinicArchiveEndpointTests
         await using var content = result.Value!.Content;
         using var buffer = new MemoryStream();
         await content.CopyToAsync(buffer);
+
+        // FR-4.2 — the download itself is recorded, on its own save. Everything the restore cases assert about
+        // « nothing was written » is measured from here.
+        _savesBeforeRestore = _unitOfWork.Saves;
 
         return buffer.ToArray();
     }
@@ -237,10 +245,22 @@ public class ClinicArchiveEndpointTests
         AssertNothingWasWritten();
     }
 
+    /// <summary>
+    /// Saves already made by the time the restore under test began — which since
+    /// <c>hosted-security-hardening</c> FR-4.2 is not always zero: building the fixture archive goes through the
+    /// real download handler, and a download now records an audit row <b>before</b> it builds anything, on its
+    /// own save. That row is the feature working, not the restore writing.
+    /// </summary>
+    private int _savesBeforeRestore;
+
+    /// <summary>
+    /// The <b>restore</b> wrote nothing. Measured as a delta rather than against zero, so it keeps meaning the
+    /// same thing now that producing the fixture legitimately writes.
+    /// </summary>
     private void AssertNothingWasWritten()
     {
         Assert.DoesNotContain(_store.Calls, c => c.StartsWith("restore:", StringComparison.Ordinal));
-        Assert.Equal(0, _unitOfWork.Saves);
+        Assert.Equal(_savesBeforeRestore, _unitOfWork.Saves);
         Assert.Empty(_blobs.RestoredKeys);
     }
 

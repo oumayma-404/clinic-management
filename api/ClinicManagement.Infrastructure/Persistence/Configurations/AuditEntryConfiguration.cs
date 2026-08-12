@@ -47,8 +47,41 @@ public class AuditEntryConfiguration : IEntityTypeConfiguration<AuditEntry>
         builder.Property(a => a.OccurredAt)
             .IsRequired();
 
+        // The tamper-evidence columns (hosted-security-hardening FR-4.1). `ChainKey` is required and `ClinicId`
+        // stays nullable beside it — see the entity on why they are two columns and not one.
+        builder.Property(a => a.ChainKey)
+            .IsRequired();
+
+        builder.Property(a => a.Sequence)
+            .IsRequired();
+
+        // Base64 of a SHA-256 HMAC: 44 characters. Bounded so a value that is not one is refused by the column.
+        builder.Property(a => a.PreviousHash)
+            .HasMaxLength(64);
+
+        builder.Property(a => a.EntryHash)
+            .HasMaxLength(64);
+
+        // No `HasDefaultValue(false)` here, deliberately: the migration needs a default to add a NOT NULL column
+        // to a populated table, but declaring one on the *model* marks the property `ValueGenerated.OnAdd`, and
+        // EF then omits it from an INSERT whenever it equals the sentinel — a store-generated column the archive
+        // feature's own review found four ways to get wrong. The column is written by the constructor on every
+        // row; nothing needs a default at runtime.
+        builder.Property(a => a.IsDeclaredGap)
+            .IsRequired();
+
         // The screen's query shape: one clinic's ledger, newest first, optionally within a window.
         builder.HasIndex(a => new { a.ClinicId, a.OccurredAt });
+
+        // The walk's own order, and the backstop the advisory lock cannot be. The lock is what stops ordinary
+        // concurrency producing declared gaps; this is what makes a missed or mis-scoped lock impossible to hide —
+        // two appenders reading the same predecessor collide here instead of both committing sequence N.
+        //
+        // ⚠️ Partial on `Sequence > 0`: every row written before this feature shipped carries 0, and there are
+        // many of them per chain. A total index would refuse the migration outright.
+        builder.HasIndex(a => new { a.ChainKey, a.Sequence })
+            .IsUnique()
+            .HasFilter("\"Sequence\" > 0");
 
         // « Tout ce qui est arrivé à CE dossier » — the second question the ledger is opened for, and the one a
         // clinic-and-date index cannot serve without scanning the clinic's whole history.

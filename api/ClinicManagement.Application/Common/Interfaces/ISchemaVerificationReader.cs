@@ -52,7 +52,24 @@ public sealed record SchemaFacts(
     /// provider — a fourth "side", beside the model, the catalog and the internal certificate, and null is
     /// « not applicable » rather than « zero left to do ».
     /// </summary>
-    SecretProtectionFacts? SecretProtection = null);
+    SecretProtectionFacts? SecretProtection = null,
+    /// <summary>
+    /// What walking each audit chain found (<c>hosted-security-hardening</c> FR-4.1), or <b>null</b> where the
+    /// chain columns do not exist yet or the caller supplied no chain key — a fifth "side", and null is « not
+    /// applicable » rather than « no breaks », which would be a clean bill of health nobody measured.
+    /// </summary>
+    AuditChainFacts? AuditChain = null);
+
+/// <summary>
+/// The audit chains as walked, one result per chain.
+///
+/// <para>⚠️ <b>The walk happens in the reader, not here.</b> Every other fact on <see cref="SchemaFacts"/> is a
+/// count or a small projection; this one would be the ledger — every row a practice has ever written — carried
+/// into Application so the service could re-derive it. The reader walks it streaming, per chain, and hands over
+/// the verdicts. It still calls the <b>real</b> <c>AuditChain.Walk</c> and never re-expresses the arithmetic in
+/// SQL, which is the property that matters (the <c>subscription-cover-kind-matches-ledger</c> precedent).</para>
+/// </summary>
+public sealed record AuditChainFacts(IReadOnlyList<AuditChainWalkResult> Chains);
 
 /// <summary>
 /// The figure that says the <c>reprotect-secrets</c> verb finished — and therefore the only thing that

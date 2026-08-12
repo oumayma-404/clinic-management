@@ -11,7 +11,7 @@
 | A | Identity | Part 1 | **implemented** (A.1–A.4 landed; eye pass owed) |
 | B | Transit | Part 2 | **implemented** (steps 1–11; two walks owed, both named below) |
 | C | Custody | Part 3 | **implemented** (C.1–C.5; the host-level items are owed, all named below) |
-| D | Evidence & surface | Part 0 + Part 4 | not-started |
+| D | Evidence & surface | Part 0 + Part 4 | **implemented** (D.0–D.4; the eye pass is owed and named below) |
 
 ### Part A sub-parts
 
@@ -43,8 +43,9 @@ OAuth round trip needs real credentials). The `SameSite` decision was taken on t
 
 ## Resuming — read this first
 
-**Parts A, B and C are landed in full and the tree is green.** Start at **Part D** (Evidence & surface), whose
-opening step is D.0 — the plan's Part 0, first because D's own gate depends on it. Nothing is half-applied.
+**All four parts are landed and the tree is green.** What remains is not implementation: the **eye pass**, the
+**flow walks** and the **host-level items** listed under each part below, plus **one PR for the whole story**.
+Nothing is half-applied.
 
 ⚠️ **Read `context.md` first** (written during Part C): the gate commands that work here, the reference
 implementation for each shape, and the ⚠️ Volatile rows to re-check every session. Run its staleness diff rather
@@ -504,3 +505,187 @@ is a refactor of Part A's work in the middle of Part C, on the code path that de
 in. Following the established pattern is the smaller risk.
 **Impact:** one more small class. Noted as worth collapsing later, deliberately not here.
 **Approved:** auto (matches the three siblings exactly; the alternative touches Part A's sign-in path)
+
+---
+
+# Part D — Evidence & surface
+
+**Status:** implemented, gate green. **One commit**, D.0 through D.4 together — the log scrub and the durable-log
+volume cannot be split (FR-4.4 says so in as many words), and the enforcing policy cannot land without the
+analytics removal that unblocks it.
+
+## What landed, step by step
+
+| Step | Delivered |
+|------|-----------|
+| D.0 | **Verification, not a fix.** `ClinicArchiveRestorer` holds exactly one `ForgetRestoredRows()`, **after** the save; `git diff HEAD` on that file was empty. `UnitTests/Features/Backup/ClinicArchiveRestorerTests` now holds the property — asserting **what reached the store**, never `outcome.Restored` — and `exploration.md` § 4.2's « LIVE DEFECT » block is rewritten to say the surviving call *is* the guard |
+| 1 | `Domain/Services/AuditChain.cs` — `Hash(previousHash, entry, key)` (HMAC-SHA256, length-prefixed fields, **microsecond-canonical** timestamp) + `Walk`. One arithmetic, called by the appender and by `verify-schema`, never re-expressed in SQL |
+| 2 | `AuditEntry` gains `ChainKey` · `Sequence` · `PreviousHash` · `EntryHash` · `IsDeclaredGap`, two declaration factories and `ToChainEntry()`; `AuditEntryConfiguration` adds a **partial-unique** `(ChainKey, Sequence)` index filtered on `Sequence > 0`. Migration **`AddAuditChain`**: all DDL first, three backfill statements last |
+| 3 | `Infrastructure/Security/AuditChainKey.cs` — **throws** where `!SelfHostsFrontDoor`, self-generates and persists on `SelfHostedLan` and in Development (DEV-9's precedent). Resolved once in `Program.cs`, so a missing key is a **startup** refusal naming the setting |
+| 4 | `Infrastructure/Persistence/AuditChainAppender.cs` — per-chain `pg_advisory_xact_lock(5314, hash(ChainKey))`, keys locked in **ascending order**, tip read, sequences and hashes assigned. Wired into `ApplicationDbContext.SaveChangesAsync`, which opens a transaction when the caller has none — see **DEV-14** |
+| 4b | `AuditSaveChangesInterceptor` records a **declared gap** when its write fails, on a fresh scope; if that fails too the chain is genuinely broken, which is the honest outcome |
+| 5 | `ClinicArchiveRestorer` stages a **declared boundary** before anything else, so a restore's discontinuity does not read as tampering |
+| 6 | `verify-schema` gains **`audit-chain-intact`** (drift) and **`audit-declared-gaps`** (Info, reported apart) over a fifth "side" on `SchemaFacts`. ⚠️ The walk happens in the **reader**, streaming per chain — see DEV-15 |
+| 7 | `Application/Features/Backup/ArchiveAccessLedger.cs` — the request row is written **before** the archive is built and is **not** best-effort (refusal carries `archive_not_recorded`); a second row records **delivered vs interrupted** from `Response.OnCompleted` + `RequestAborted`, in its own scope, declaring `UseClinic`. Plus `NotificationCategory.ClinicArchiveExported` (DEV-16) |
+| 8 | `RateLimiting.ArchivePolicy` — 3 per 10 min per user. It fell to the API window: **600 full-practice exports a minute** |
+| 9 | Step-up on **both** archive doors, with **different** action names, in an `X-Step-Up-Confirmation` header (never the query string — FR-4.4). `apiHeaders` stays the single writer. The archive card wires `StepUpDialog`, which had **no caller at all** until now, and states the phone limitation in French rather than refusing |
+| 10 | The eleven PHI templates scrubbed — three in `PdfGenerationService` (→ the document's own number), eight in `GoogleCalendarSyncService` (→ ids where one is in hand, `LogMask.Name` where none is) — plus `HuggingFaceAIService`'s raw payload (→ property names) and `SmtpDocumentEmailSender`'s name-composed `{FileName}` (→ `LogMask.FileName`) |
+| 11 | `api_logs:/app/logs` + `retainedFileCountLimit: 30` on **both** hosted compose files, in the same commit as the scrub |
+| 12 | `UnitTests/Common/LogTemplateCoverageTests` — derived source scan, both a red proof and a masked-value proof, and **an empty exemption map** |
+| 13 | `Security__EnforceCsp: "true"` on both hosted files; **`'unsafe-eval'` dropped**; **`@vercel/analytics` removed** from `web/app/layout.tsx`, `package.json` and the lockfile |
+| 14 | `API/Controllers/CspReportController.cs` — anonymous, its own rate-limit policy, body capped **before** it is read, both report shapes parsed, and the `document-uri` **stripped to its route pattern** |
+| 15 | `Permissions-Policy` (empty allow-list), `Reporting-Endpoints`, COOP/CORP; `deploy/Caddyfile`'s page block updated and **the console site given its first policy at all**; `console/next.config.ts` gains `headers()` |
+| 16 | `UnitTests/Common/ContentSecurityPolicyAgreementTests` — parses the real `Caddyfile` (both sites) and the real console config and asserts byte-identity with the middleware's constant, with two red proofs |
+| 17 | **FR-4.6 — `UseHttpsRedirection` removed**, with the reasoning left in its place. It had no port configured on either hosted kind and silently did nothing; Caddy already redirects at the edge (confirmed by `caddy validate`'s own « enabling automatic HTTP->HTTPS redirects ») |
+
+## Part D gate
+
+| Gate | Result |
+|------|--------|
+| Backend suite (Release, `BaseOutputPath` outside the repo) | **2974 passed, 0 failed** (baseline 2943 + 31 new) |
+| Backend build, `--no-incremental` | 0 errors · **110 warnings, none in a file this part added or changed**. One genuinely new `CS8604` in `BuildClinicArchiveQuery` was found by this census and fixed; the only remaining hit on a touched file is the standing Hangfire `CS0618` in `Program.cs`, moved 17 lines by an insertion |
+| `web/` `check:responsive` · `tsc --noEmit` · `build` | **15/15**, clean, compiled |
+| `console/` `check:responsive` · `tsc --noEmit` · `build` | **14/14**, clean, compiled |
+| `verify-schema` before → after the migration | captures in `../verification/verify-schema-{before,after}-D.txt`; the diff is below |
+| The chain walk turns **red** on a hand-edited entry | **executed** — see below |
+| Compose files parse | all three through PyYAML (9 / 8 / 3 services) |
+| `deploy/Caddyfile` | **`caddy validate` → « Valid configuration »** |
+
+## Executed verification — what was actually run
+
+| Item | Result |
+|---|---|
+| The D.0 test **red with a pre-save `ForgetRestoredRows()`** | **executed**: exactly 2 of its 4 cases went red (`…Persists_Them`, `Each_Table_Is_Persisted_Before…`), the other two stayed green; reverted, all 4 green |
+| The migration applies | `AddAuditChain` applied to the dev database. Backfill outcome: **5 chains, 1104 pre-chain entries, 5 declared boundaries** — one per chain, exactly as designed |
+| Entries written after the migration are **chained** | `provision-clinic` created a cabinet through the real write path → `audit-chain-intact: 6 chaîne(s) intactes — 179 entrée(s) vérifiées, 1104 antérieure(s) au chaînage` |
+| **A hand-edited entry turns the walk red** | `UPDATE "AuditEntries" SET "ChangedFields" = '…' WHERE "Id" = '33ae153b-…'` → **`[DRIFT] audit-chain-intact: 1 chaîne(s) rompue(s). Première rupture : cabinet e1bc853b-… n° 179 (33ae153b-…) — cette entrée a été modifiée après son écriture`**. Value restored → intact again |
+| `audit-declared-gaps` is reported **apart from** breaks and is never drift | both runs above: 5 declared gaps, `[ ok ]`, while the break was `[DRIFT]` |
+| `LogTemplateCoverageTests` proven red | its own `The_Guard_Rejects_A_Template_That_Names_A_Patient` runs the real scanner over `{PatientName}`/`{Phone}`; the masked twin proves the accept side |
+| `ContentSecurityPolicyAgreementTests` proven red | two cases run the real parsers over a Caddyfile with `frame-ancestors` changed and a console config with `object-src` widened |
+| The suite catches the constructor cascade | `ClinicArchiveEndpointTests` failed to **compile** on the handler's new dependencies and was updated in lock-step |
+
+### verify-schema, before → after
+
+⚠️ **The before-baseline was taken on a dev database that had not had Part C's migration applied either**, so the
+diff carries two migrations rather than one. Both are accounted for:
+
+| Line | Before | After |
+|---|---|---|
+| `AuditEntries(ChainKey, Sequence)` | absent | `present (unique)` |
+| `audit-chain-intact` | *(the check did not exist)* | `6 chaîne(s) intactes — 179 vérifiées, 1104 antérieures` |
+| `audit-declared-gaps` | *(the check did not exist)* | `5 interruption(s) déclarée(s)` |
+| `google-token-protected` | « not applicable » | **`1 cabinet(s) … en clair`** — Part C's column now exists and its backfill runs at **startup**, which this dev machine's own transit check refuses. Not a Part D regression |
+| `key-ring-protection`, `secrets-protected-under-current-ring` | DRIFT | DRIFT — unchanged, and expected on a developer machine with no PKCS#12 (DEV-9's Development exemption) |
+
+## Findings — things that were wrong before this part, or wrong in it
+
+### F-11: `StepUpDialog` shipped in Part A with no caller at all
+
+`web/components/security/step-up-dialog.tsx` is complete — sheet below `md:`, `dvh`-sized, focus on the field,
+both proofs, the « votre session reste ouverte » sentence — and `grep -rn "StepUpDialog" web/` matched **only its
+own definition**. Part A built FR-1.8's mechanism and Part D is its first consumer, which is what the story's own
+split intended (« the step-up itself ships here; Part D applies it to the archive ») — but it means the component
+was **unexercised** for two parts, and `UsersController.ResetTotp`'s step-up gate had no client path either. The
+archive now wires it; **the admin factor reset still has none**, and that is a real gap in Part A recorded here
+rather than quietly fixed under Part D's heading.
+
+### F-12: the enforcing-CSP guard Part B *reserved* was written permissively, and would have stayed green
+
+`TransportConfigurationTests.The_Enforcing_Csp_Key_Is_Never_Present_And_Off` asserted « absent **or** true », with
+a docstring promising it would start asserting the full requirement « with no edit » once Part D landed. It would
+not have: absent passes. Renamed to `The_Content_Security_Policy_Is_Enforced` and made mandatory, with two
+siblings for the chain key and the durable log volume. Worth generalising — a placeholder assertion that tolerates
+the absent case cannot become load-bearing on its own.
+
+### F-13: the compose file still claimed the key ring was cleartext
+
+`deploy/docker-compose.hosted.yml`'s `dataprotection_keys` comment said « back it up SEPARATELY from
+`postgres_data` … the ring is stored in cleartext », which Part C's F-6 made false — the ring is now encrypted and
+what must travel apart is the **certificate**. Part C fixed `README.md`, `.env.hosted.example` and
+`KEY-CUSTODY.md` and missed this one. Corrected while adding the logs volume beside it.
+
+### F-14: eager construction turned a startup guard into a container-build failure
+
+The chain-key provider was first registered as an **instance** (`AddSingleton(new AuditChainKeyProvider(…))`), so
+`AddInfrastructure` threw for any hosted-profile caller without a key — three test fixtures and every console
+verb. The refusal is correct; its *timing* was not, and it surfaced as an unrelated resolution error instead of
+the operator sentence it carries. Registered as a factory, with `Program.cs` resolving it once at startup beside
+`TransportAssurance`. Found by running the full suite, not by reading the code.
+
+## Still owed (verification, not code)
+
+- **The eye pass at 320 / 390 / 820 / 1180 / 1440 plus a landscape phone and the on-screen keyboard.** No browser
+  was driven in this session, so it is recorded as **not done** rather than claimed. The surfaces are the archive
+  card (« Paramètres » → Sauvegarde) and the step-up sheet it now opens. Owed for Part A too.
+- **Walking the whole app under the enforcing policy with zero violations**, including a PDF preview, a document
+  print, a CSV export and a patient-file download — the four `blob:` paths. The policy is enforcing in the compose
+  files and the analytics script is gone; what has not happened is somebody loading the pages with it on.
+- **« No patient name in any log file after a full day of use. »** The static half is held by
+  `LogTemplateCoverageTests`; a day of real traffic is not something this session can produce.
+- **The archive refused in French when the ledger cannot be written**, and **an aborted download recorded as not
+  delivered** — both implemented and covered at the handler, neither walked over the wire.
+- **Lock contention measured on a seeded clinic (R-7).** The appender takes one advisory lock per chain per save;
+  no measurement was taken.
+- **A test cabinet was left on the dev database** — « Cabinet Chaîne Test », created by `provision-clinic` so the
+  chain had genuinely chained rows to tamper with. Harmless local test data; named so nobody wonders.
+
+## Deviations
+
+### DEV-14: the chain is assigned in `ApplicationDbContext.SaveChangesAsync`, not in `AuditSaveChangesInterceptor.FlushAsync`
+**Date:** 2026-08-12 · **Story:** Part D, step 4 · **Category:** Technical
+**Original plan:** *« In `AuditSaveChangesInterceptor.FlushAsync`, open an explicit transaction on the audit
+context and inside it … `pg_advisory_xact_lock(chainKey)` → read the tip → assign → insert → commit. »*
+**Actual implementation:** the lock, the tip read and the assignment happen in
+`ApplicationDbContext.SaveChangesAsync`, which opens a transaction when the caller has none. `FlushAsync` is
+unchanged apart from the declared-gap fallback.
+**Justification:** **the interceptor is not the only writer of the ledger.** `ClinicArchiveRestorer` stages a
+summary row per table through `IAuditEntryRepository`, into its caller's own transaction, deliberately — and Part
+D adds two more direct writers (the archive ledger's request and delivery rows). Chaining at the point of
+*collection* would leave every one of those **unchained after chained rows**, which is precisely the signature
+`AuditChain.Walk` reports as tampering: the feature would manufacture its own alarm. Chaining where the rows are
+**saved** catches every writer, present and future, by construction — the interceptor's own argument (« every
+write funnels through `SaveChangesAsync`, so this sees them all ») applied one level down. The plan's requirement
+that the transaction span the whole append is **met**, and is what the override exists to guarantee.
+**Impact:** synchronous `SaveChanges` now throws if audit rows are pending — unreachable (the product saves
+asynchronously) and refusing beats chaining without a lock. `ApplicationDbContext` takes a third optional
+constructor parameter.
+**Approved:** auto (the plan's literal placement makes three of the feature's own writers unchainable)
+
+### DEV-15: the chain walk runs in the reader, not in `SchemaVerificationService`
+**Date:** 2026-08-12 · **Story:** Part D, step 6 · **Category:** Technical
+**Original plan:** the two checks « both call the real `AuditChain`, never SQL ».
+**Actual implementation:** they do — but `SchemaVerificationReader` calls `AuditChain.Walk` as it streams, and
+`SchemaFacts` carries the **verdicts** rather than the entries.
+**Justification:** every other fact on `SchemaFacts` is a count or a small projection bounded by the number of
+cabinets or accounts. This one is bounded by a practice's **whole history**: carrying it into Application so the
+service could re-derive it would put every audit row a deployment has ever written in memory at once. The property
+the plan protects — one arithmetic, never re-expressed in SQL — is untouched, and the split matches the project's
+own testing seam (Domain tests the walk, the service tests the rendering).
+**Impact:** `AuditChainFacts` holds `IReadOnlyList<AuditChainWalkResult>`. The reader takes an optional
+`IAuditChainKeyProvider`; absent ⇒ « not applicable », never « intact ».
+**Approved:** auto (the plan's property is preserved; only where the loop runs changed)
+
+### DEV-16: the export notification is clinic-wide, not addressed to administrators
+**Date:** 2026-08-12 · **Story:** Part D, step 7 · **Category:** Technical
+**Original plan / spec:** Stated Assumption 9 — « Notify administrators (for the export). »
+**Actual implementation:** one clinic-wide `StaffNotification` with the actor excluded.
+**Justification:** the feed carries **one shared row per event with at most one target user**, so « les
+administrateurs » is not expressible without a fan-out mechanism the model does not have — and building one for a
+single category is a schema change in the last step of the last part. A clinic-wide row reaches every
+administrator (a superset) and is the right side to err on: an export is not a private fact about one colleague,
+it is every patient of the practice leaving the building in an unencrypted file. The actor is excluded as
+everywhere, so nobody is told about their own action.
+**Impact:** doctors and secretaries see it too. Recorded on the enum member, where a reader finds it.
+**Approved:** auto (the literal is unbuildable without a schema change; the substitute is strictly wider)
+
+### DEV-17: FR-4.6 is resolved by REMOVING the redirect, not configuring it
+**Date:** 2026-08-12 · **Story:** Part D, step 17 · **Category:** Technical
+**Original plan / spec:** « It is either configured or removed. »
+**Actual implementation:** removed, with the reasoning left in its place in `Program.cs`.
+**Justification:** the spec offers both and this is the one that is *correct* rather than merely allowed. Behind
+Caddy the API receives plain HTTP by design and, since Part 2's `UseForwardedHeaders`, reports `IsHttps` true — so
+a configured redirect would either fire on nothing or, on a misread header, bounce the proxy's own hop. Caddy
+already redirects at the edge, which `caddy validate` states in its own output. `SelfHostedLan` never registered
+it, so no profile loses a behaviour it had.
+**Impact:** none observable. One registration deleted.
+**Approved:** auto (the spec offers the choice; this is the choice with a reason)

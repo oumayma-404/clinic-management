@@ -83,6 +83,20 @@ public static class Extensions
             provider.GetRequiredService<IServiceScopeFactory>(),
             provider.GetRequiredService<ILogger<AuditSaveChangesInterceptor>>()));
 
+        // The audit chain's key (hosted-security-hardening FR-4.1). A **singleton** because it is immutable and
+        // resolved from startup configuration, the same lifetime reasoning as the deployment profile it reads —
+        // and because resolving it per request would re-read (or, on a clinic's own PC, re-generate) a file on
+        // every save. Registered here rather than in `AddApplication` so the console verbs, whose container is
+        // this method alone, can write the ledger too.
+        //
+        // ⚠️ Registered as a FACTORY, not an instance, and the difference matters twice. `AddInfrastructure` is
+        // called by the console verbs and by several test fixtures, so constructing it here would make a missing
+        // key throw while the container is being *built* — surfacing as an unrelated resolution failure rather
+        // than as the operator sentence it carries. A missing key must still be a **startup** failure and not a
+        // 500 on whichever clinical save happens to be first, so `Program.cs` resolves it once at startup
+        // (beside TransportAssurance) and the refusal lands there, loud and named.
+        services.AddSingleton<IAuditChainKeyProvider>(_ => new AuditChainKeyProvider(configuration));
+
         services.AddDbContext<ApplicationDbContext>((provider, options) =>
             options
                 .UseNpgsql(connectionString)

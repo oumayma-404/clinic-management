@@ -731,7 +731,18 @@ function deadline(ms: number): AbortSignal | undefined {
     : undefined
 }
 
-export function apiHeaders(accessToken?: string | null, contentType: ApiContentType = 'json'): HeadersInit {
+/**
+ * The header a step-up confirmation travels in (`hosted-security-hardening` FR-4.3).
+ *
+ * ⚠️ A header and **not** a query parameter: this app's URLs are logged, and FR-4.4 is about exactly that.
+ */
+export const STEP_UP_HEADER = 'X-Step-Up-Confirmation'
+
+export function apiHeaders(
+  accessToken?: string | null,
+  contentType: ApiContentType = 'json',
+  stepUpToken?: string | null,
+): HeadersInit {
   const headers: Record<string, string> = {};
 
   if (contentType === 'json') {
@@ -739,6 +750,9 @@ export function apiHeaders(accessToken?: string | null, contentType: ApiContentT
   }
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  if (stepUpToken) {
+    headers[STEP_UP_HEADER] = stepUpToken;
   }
 
   const shellVersion = typeof window !== 'undefined' ? window.__clinicShell?.version : undefined;
@@ -834,12 +848,12 @@ export async function apiDelete<T>(endpoint: string, accessToken?: string | null
  * `timeoutMs` exists for that last one: the archive is built in full before a byte is sent, so its deadline is a
  * property of the *operation*, not of the transfer.
  */
-export async function apiGetFile(endpoint: string, params?: Record<string, any>, accessToken?: string | null, timeoutMs: number = TRANSFER_TIMEOUT_MS): Promise<DownloadedFile> {
+export async function apiGetFile(endpoint: string, params?: Record<string, any>, accessToken?: string | null, timeoutMs: number = TRANSFER_TIMEOUT_MS, stepUpToken?: string | null): Promise<DownloadedFile> {
   const url = buildUrl(endpoint, params);
 
   return handleRequest<DownloadedFile>(accessToken, (token) => fetch(url, {
     method: 'GET',
-    headers: apiHeaders(token, 'none'),
+    headers: apiHeaders(token, 'none', stepUpToken),
     credentials: 'include',
     signal: deadline(timeoutMs),
   }), readDownloadedFile);
@@ -862,13 +876,17 @@ export async function apiPostBlob(endpoint: string, data: any, accessToken?: str
   }), readBlob);
 }
 
-export async function apiPostFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null, timeoutMs: number = TRANSFER_TIMEOUT_MS): Promise<T> {
+export async function apiPostFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null, timeoutMs: number = TRANSFER_TIMEOUT_MS, stepUpToken?: string | null): Promise<T> {
   // Headers are built INSIDE the callback so a 401 retry rebuilds them with the renewed token. Uploads are
   // exactly where a stale token bites — they are user-initiated after a period of reading, so they are the
   // most likely request to be the first one past the access token's expiry.
+  //
+  // ⚠️ A step-up confirmation is SINGLE-USE, so it survives that retry only because the retry re-sends the same
+  // request rather than re-authenticating: a 401 refresh does not spend the confirmation, and a 403 is not
+  // retried at all.
   return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
-    headers: apiHeaders(token, 'none'),
+    headers: apiHeaders(token, 'none', stepUpToken),
     body: formData,
     credentials: 'include',
     signal: deadline(timeoutMs),

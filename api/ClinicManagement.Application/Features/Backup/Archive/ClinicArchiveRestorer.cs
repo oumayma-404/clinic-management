@@ -66,6 +66,12 @@ public static class ClinicArchiveRestorer
         // restore rather than reading as one colleague typing three thousand fiches in an afternoon.
         auditActor.RestoringAnArchive();
 
+        // hosted-security-hardening FR-4.1 — a restore legitimately breaks the story a chain tells: records
+        // written elsewhere, at other moments, land here as new rows. Saying so is what stops the discontinuity
+        // reading as tampering. Staged before anything else so it carries the lowest sequence of the run, i.e. it
+        // precedes the rows it is about.
+        await RecordBoundaryAsync(auditEntries, auditActor, clinicId, manifest, cancellationToken);
+
         var restored = new Dictionary<string, int>(StringComparer.Ordinal);
         var alreadyPresent = new Dictionary<string, int>(StringComparer.Ordinal);
         var conflicts = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -165,6 +171,34 @@ public static class ClinicArchiveRestorer
     /// <para>Best-effort would be the wrong contract too: these rows ride the caller's transaction, so they land
     /// exactly when the rows they describe do.</para>
     /// </summary>
+    /// <summary>
+    /// The one entry that says « records were put back here » (FR-4.1's last clause).
+    ///
+    /// <para>Written whatever the run then finds — including a restore that turns out to change nothing — because
+    /// the boundary records that an archive was <i>applied</i>, and « nothing was missing » is a fact worth having
+    /// in the ledger rather than a reason to leave no trace.</para>
+    /// </summary>
+    private static Task RecordBoundaryAsync(
+        IAuditEntryRepository auditEntries,
+        IAuditActorProvider auditActor,
+        Guid clinicId,
+        ClinicArchiveManifest manifest,
+        CancellationToken cancellationToken)
+    {
+        var actor = auditActor.Current;
+
+        return auditEntries.AddRangeAsync(new[]
+        {
+            AuditEntry.DeclaredBoundary(
+                clinicId,
+                actor.UserId,
+                actor.Email,
+                $"Restauration d'une archive du {manifest.CreatedAtUtc:dd/MM/yyyy} : les entrées qui suivent "
+                + "décrivent des enregistrements remis en place, pas des saisies.",
+                DateTime.UtcNow),
+        }, cancellationToken);
+    }
+
     private static async Task RecordAsync(
         IAuditEntryRepository auditEntries,
         IAuditActorProvider auditActor,

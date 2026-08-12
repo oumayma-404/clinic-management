@@ -194,6 +194,12 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         Guid clinicId, string targetUserId, string? deviceLabel, CancellationToken cancellationToken = default) =>
         _inner.SessionEndedForReplayAsync(clinicId, targetUserId, deviceLabel, cancellationToken);
 
+    // Pass-through: the export has already completed by the time this is written, so there is nothing a banner
+    // could let anybody intervene in.
+    public Task ClinicArchiveExportedAsync(
+        Guid clinicId, string actorUserId, string actorName, CancellationToken cancellationToken = default) =>
+        _inner.ClinicArchiveExportedAsync(clinicId, actorUserId, actorName, cancellationToken);
+
     // ---- The fan-out ------------------------------------------------------------------------------
 
     /// <summary>
