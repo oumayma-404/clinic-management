@@ -8,7 +8,7 @@
 
 | Part | Name | Plan part | Status |
 |------|------|-----------|--------|
-| A | Identity | Part 1 | in-progress |
+| A | Identity | Part 1 | **implemented** (A.1–A.4 landed; eye pass owed) |
 | B | Transit | Part 2 | not-started |
 | C | Custody | Part 3 | not-started |
 | D | Evidence & surface | Part 0 + Part 4 | not-started |
@@ -18,28 +18,40 @@
 | Sub-part | Covers | Steps | Status |
 |----------|--------|-------|--------|
 | A.1 | The capability and the served password floor | 1–7 | **implemented** · committed `3c8d2fe` |
-| A.2 | The factor itself, and the login screen that enrols it | 8–19 | not-started |
-| A.3 | « Sécurité », step-up, and the three ways back | 20–26 | not-started |
-| A.4 | Session replay, cookie hardening, the guards | 27–32 | not-started |
+| A.2 | The factor itself, and the login screen that enrols it | 8–19 | **implemented** · `07d40d8` + `1aef203` |
+| A.3 | « Sécurité », step-up, and the three ways back | 20–26 | **implemented** · `3b7b6c8` |
+| A.4 | Session replay, cookie hardening, the guards | 27–32 | **implemented** · `03d0ea5` |
+
+## Part A gate — final run
+
+| Gate | Result |
+|------|--------|
+| Backend suite (Release, `BaseOutputPath` outside the repo) | **2825 passed, 0 failed** (baseline 2800 + 25 new) |
+| `web/` `check:responsive` · `tsc --noEmit` · `build` | **15/15**, clean, compiled |
+| `console/` `check:responsive` · `typecheck` · `build` | **14/14**, clean, compiled |
+| `verify-schema` before → after the migration | **263 → 269 ok, 0 drift, exit 0** — the diff is exactly the 4 new indexes + 2 FKs |
+| `verify-schema` with A.4's three checks | all three live and green against the running database |
+| Backend warnings | no new ones; the pre-existing `CS8618`/`CS8602` baseline is untouched |
+
+**Owed:** the eye pass at 320 / 390 / 820 / 1180 / 1440 + landscape + keyboard. No browser was driven in this
+session, so it is recorded as **not done** rather than claimed — the surfaces needing it are `/login`'s four
+modes, `/securite`, and the step-up sheet.
+
+**Also owed (verification, not code):** the two flow walks of step 30 could not be executed here (the Google
+OAuth round trip needs real credentials). The `SameSite` decision was taken on the defined behaviour of
+`Strict` rather than on an observation — see DEV-3.
 
 ## Resuming — read this first
 
-**A.1 is landed and the tree is green.** Start at **A.2 step 8**. Nothing is half-applied: there is no
-migration in the tree yet, and `verify-schema` is clean.
+**Part A is landed in full and the tree is green.** Start at **Part B** (Transit), whose entry section is
+`exploration.md` § 2. Nothing is half-applied.
 
-The `verify-schema` **before-baseline for A.2's migration is already captured** —
-`features/hosted-security-hardening/verification/verify-schema-before-A2.txt` (263 checks ok, **0 drift**,
-exit 0), taken against the live `clinic-postgres` container on 2026-08-12. Run the verb again *after*
-`AddUserSecondFactorAndSessionFamilies` and diff against that file; do not re-take the "before".
+The migration `AddUserSecondFactorAndSessionFamilies` is **applied to the local database** and its before/after
+`verify-schema` runs are committed under `features/hosted-security-hardening/verification/`. Take a fresh
+"before" for Part C's migrations rather than reusing those.
 
-```bash
-# the before-baseline was taken with:
-ASPNETCORE_ENVIRONMENT=Development dotnet run --project api/ClinicManagement.API/ClinicManagement.API.csproj \
-  -c Release -p:BaseOutputPath=<temp> -- verify-schema
-```
-
-⚠️ **A.2 step 10's migration must delete the scaffolded `xmin` line from every `CreateTable`** — PostgreSQL
-rejects it outright — and the model snapshot is committed with it.
+Two items are owed from Part A and are verification, not code — see *Part A gate* above: the eye pass, and the
+two flow walks of step 30.
 
 ## Session log
 
@@ -115,6 +127,29 @@ was already wrong when it was written, and only a check deriving its own candida
 | `DeploymentProfileTests` | `Every_capability_is_covered_by_the_matrix` reflects every `bool`; the new capability failed it until the `ExpectedMatrix` row was added, and `Both_pre_existing_kinds_reproduce_the_old_IsLocalMode_truth_table` failed until `hostedOnlyCapabilities` gained it |
 | `PlatformReadShapeTests` | Both directions — the new `PasswordMinLength` leaf had to be declared, and a declared-but-unreturned name fails too |
 
+## A.2 – A.4 — what the guards caught
+
+Every one of these was a derived check doing its job on arrival, not a review finding:
+
+| Guard | What it caught |
+|-------|----------------|
+| EF's own scaffolder | An `xmin` column in **both** `CreateTable` blocks — PostgreSQL rejects it outright. Removed by hand, reason recorded at each site |
+| `SubscriptionExemptionCoverageTests` | The five new `/api/auth` writes inheriting the class-level exemption — i.e. step 26's FR-1.10 requirement, arriving before I reached that step |
+| `SystemWideCallerCoverageTests` | The console verb's filename not matching its type, so its tenant-scope declaration was invisible to the scan |
+| `StaffNotificationRules` | **Throws** on an unclassified category — so adding `SecondFactorReset` without classifying it would have broken *every* notification write in the product, not only the new one |
+| `PushNotificationGeneratorDecorator` | The compiler forced the new generator methods onto the decorator — which is exactly the `fixes-dont-propagate` shape that decorator exists to prevent |
+| Moq expression trees | An optional `Guid?` parameter cannot appear in `It.IsAny` setups; making it required is better anyway — an explicit `null` says « no family » |
+| `LoginCommandHandlerTests` | A second `SaveChangesAsync` — which made me stage the family **before** the existing single save, so login and family land in one transaction |
+| `SchemaVerificationServiceTests` | Its own comment warns that appending positionally lands a zero in the wrong slot; the three new counts went to the end of the record **with defaults** and are passed by **name** |
+
+### Red proofs executed
+
+| Guard | Proof |
+|-------|-------|
+| `ClinicTotpAuthTests` | Dropped the admin term from `SecondFactorApplies` → **exactly one** test red (`An_Admin_With_No_Factor_Cannot_Obtain_A_Token`), source restored |
+| `SecondFactorCoverageTests` | In-file: the real regexes run over a minting path that ignores the requirement, and over one that consults it. ⚠️ A **file-level** probe was also attempted; the run timed out at 10 min and the probe was removed. The in-file proof is what the house style asks for, but the stronger one is not claimed |
+| `PasswordFloorSingleSourceTests` | (A.1) throwaway probe file → red, naming the file; removed in the same command |
+
 ## Deviations
 
 ### DEV-1: `/api/auth/mode` is a controller action, not `GetAuthModeQuery.cs`
@@ -146,3 +181,25 @@ Part A's own exit criterion (*« The floor is 12, served, and stated identically
 server »*) is unmet without it.
 **Impact:** one file outside the story's *Modify* list is edited; `sign-in-form.tsx` needs no change.
 **Approved:** auto (the step's stated goal is preserved exactly; only the file name was wrong)
+
+### DEV-3: `SameSite` stays `Lax`; `Strict` was considered and rejected
+**Date:** 2026-08-12 · **Story:** Part A, steps 29–30 · **Category:** Technical
+**Original plan:** step 29 hardens the cookies and step 30 says to walk the Google Calendar OAuth callback and
+the e-mailed signup link, keeping `Lax` **and recording the reason** if either breaks.
+**Actual implementation:** `__Host-` prefixing landed; `SameSite` is left at `lax`, with the reason written into
+`session-cookie.ts` beside the attribute.
+**Justification:** `SameSite=Strict` withholds the cookie on any cross-site-initiated top-level navigation,
+redirect chains included. The Google Calendar OAuth return is exactly that — accounts.google.com →
+`/api/googlecalendar/callback` → `FrontendUrl` — so under `strict` the chain arrives with no session cookie,
+`middleware.ts` (which gates on cookie presence alone) sees an anonymous request, and connecting a calendar
+signs the user out every time. `lax` already blocks cross-site POSTs and subresource requests; what `strict`
+adds is protection against a cross-site *link* carrying the session, which is not worth breaking a shipped
+integration for — especially as `__Host-` is the larger win here and costs nothing. The signup link is
+unaffected either way: `/signup/verifier` is public and issues no session.
+⚠️ **Stated honestly: this is reasoning from `SameSite`'s defined behaviour, not from an observed walk.** The
+OAuth round trip needs real Google credentials and was not executed in this session. The story permits `Lax`
+with a recorded reason, and this is that record — but the walk itself remains owed, and if it is ever run and
+contradicts this, the setting is the thing to change.
+**Impact:** the spec's FR-1.7 and `plan.md` should carry the same note; only `session-cookie.ts` and this file
+do so far.
+**Approved:** auto (the story pre-authorises `Lax` provided the reason is written down)
