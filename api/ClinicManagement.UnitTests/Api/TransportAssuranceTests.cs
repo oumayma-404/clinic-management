@@ -216,6 +216,10 @@ public class TransportAssuranceTests
             [TransportAssurance.ConnectionStringKey] = "Host=postgres;Database=clinic;Username=u;Password=p",
             [TransportAssurance.MinioUseSslKey] = "false",
             [InternalCertificate.MinioRootCertificateKey] = null,
+            // The store has to EXIST for its transit to be a fault — see Configured()'s note.
+            ["MinIO:Endpoint"] = "minio:9000",
+            ["MinIO:AccessKey"] = "minioadmin",
+            ["MinIO:SecretKey"] = "minioadmin",
         });
 
         Assert.False(result.IsSatisfied);
@@ -262,11 +266,19 @@ public class TransportAssuranceTests
 
     private static DeploymentProfile Hosted => DeploymentProfile.For(DeploymentKind.HostedMultiTenant);
 
+    /// <summary>
+    /// A deployment with everything set. ⚠️ The three MinIO credentials are part of « configured » now: the
+    /// object-store check is skipped where no store exists at all, so a fixture that omits them would exercise
+    /// the skip and every assertion about object-store transit would pass vacuously.
+    /// </summary>
     private static Dictionary<string, string?> Configured() => new()
     {
         [TransportAssurance.ConnectionStringKey] = VerifiedConnection,
         [TransportAssurance.MinioUseSslKey] = "true",
         [InternalCertificate.MinioRootCertificateKey] = "/certs/ca.crt",
+        ["MinIO:Endpoint"] = "minio:9000",
+        ["MinIO:AccessKey"] = "minioadmin",
+        ["MinIO:SecretKey"] = "minioadmin",
     };
 
     private static TransportAssurance.Result Inspect(

@@ -518,6 +518,20 @@ try
         return 1;
     }
 
+    // ⚠️ An accepted reduction has to be LOUD, every boot, or it becomes the deployment's forgotten default —
+    // which is the failure shape Security:EnforceCsp was left in for a whole release. Warning level, naming the
+    // key, so it is visible in Render's log stream and in `docker logs` without anyone going looking.
+    if (transitAssurance.Applies && TransportAssurance.AllowsUnverifiedTls(builder.Configuration))
+    {
+        Log.Warning(
+            "{Key} est activé : la connexion à la base de données est CHIFFRÉE mais son identité n'est PAS "
+            + "vérifiée (SSL Mode=Require). Un imposteur entre cette application et la base ne serait pas "
+            + "détecté. Acceptable seulement sur un hébergeur qui ne publie aucune autorité de certification et "
+            + "ne permet pas de monter de fichier ; à retirer dès que l'un des deux devient possible — voir "
+            + "follow-up/render-free-tier-transit-relaxation.md.",
+            TransportAssurance.AllowUnverifiedTlsKey);
+    }
+
     // Evidence (hosted-security-hardening Part 4, FR-4.1): resolve the audit chain's key now, so a deployment
     // that cannot chain its ledger refuses to start with the setting named — rather than booting and failing on
     // whichever clinical save happens to be first, where the message reaches nobody who can act on it.

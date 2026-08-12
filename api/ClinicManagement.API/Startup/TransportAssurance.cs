@@ -1,5 +1,6 @@
 using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Security;
+using ClinicManagement.Infrastructure.Storage;
 using Npgsql;
 
 namespace ClinicManagement.API.Startup;
@@ -41,6 +42,40 @@ public static class TransportAssurance
 
     /// <summary>The only <see cref="SslMode"/> that verifies the server's identity as well as encrypting.</summary>
     public const SslMode RequiredSslMode = SslMode.VerifyFull;
+
+    /// <summary>
+    /// Accepts an <b>encrypted but unverified</b> database hop (<see cref="SslMode.Require"/>) on a host that
+    /// publishes no CA certificate and offers no way to mount one.
+    ///
+    /// <para><b>This is a reduction, and it is opt-in, non-default and logged on every boot so it cannot become
+    /// invisible.</b> What is kept: the traffic is still encrypted, so a passive tap on the internal network
+    /// reads nothing. What is given up: <i>identity</i> — <see cref="SslMode.Require"/> accepts whatever
+    /// certificate it is handed, so an impostor between this process and the database would not be detected.</para>
+    ///
+    /// <para><b>Why it exists.</b> <see cref="RequiredSslMode"/> needs a root-certificate <b>file</b>, and a
+    /// managed platform's free tier offers neither a durable disk nor a published CA for its own database
+    /// (verified against Render's documentation: external connections use "Render-managed TLS certificates",
+    /// with no CA download and nothing stated about internal ones). The alternative was shipping nothing, or
+    /// pretending the check passed.</para>
+    ///
+    /// <para>⚠️ <b>It never accepts an UNENCRYPTED hop.</b> <c>Disable</c>, <c>Allow</c> and <c>Prefer</c> stay
+    /// refused with this set, because « no patient data crosses the internal network in clear » is the promise
+    /// this class exists for and it is not the promise being traded away here.</para>
+    ///
+    /// <para>⚠️ <b>Temporary by intent</b> — <c>follow-up/render-free-tier-transit-relaxation.md</c> records it as
+    /// the thing to remove on a host that can mount a certificate.</para>
+    /// </summary>
+    public const string AllowUnverifiedTlsKey = "Security:AllowUnverifiedInternalTls";
+
+    /// <summary>Whether the operator explicitly accepted an encrypted-but-unverified internal hop.</summary>
+    public static bool AllowsUnverifiedTls(IConfiguration configuration) =>
+        bool.TryParse(configuration[AllowUnverifiedTlsKey]?.Trim(), out var value) && value;
+
+    /// <summary>
+    /// The <see cref="SslMode"/>s that at least encrypt. Anything outside this set is refused whatever
+    /// <see cref="AllowUnverifiedTlsKey"/> says.
+    /// </summary>
+    private static readonly SslMode[] EncryptingModes = { SslMode.Require, SslMode.VerifyCA, SslMode.VerifyFull };
 
     /// <summary>
     /// The outcome. <see cref="Problems"/> is empty exactly when the deployment may start; each entry is an
@@ -105,21 +140,38 @@ public static class TransportAssurance
             return;
         }
 
+        var allowUnverified = AllowsUnverifiedTls(configuration);
+
         if (builder.SslMode != RequiredSslMode)
         {
-            problems.Add(
-                $"{ConnectionStringKey} utilise SSL Mode={builder.SslMode} : seul {RequiredSslMode} vérifie "
-                + "l'identité du serveur en plus de chiffrer. Ajoutez « SSL Mode=VerifyFull » à la chaîne de "
-                + "connexion (docker-compose : ConnectionStrings__DefaultConnection).");
+            // The relaxation trades IDENTITY, never ENCRYPTION: a mode that does not guarantee a cipher is
+            // refused whatever the operator set, because « rien en clair sur le réseau interne » is the promise
+            // this class exists for and is not the one being traded.
+            if (!allowUnverified || !EncryptingModes.Contains(builder.SslMode))
+            {
+                problems.Add(
+                    $"{ConnectionStringKey} utilise SSL Mode={builder.SslMode} : seul {RequiredSslMode} vérifie "
+                    + "l'identité du serveur en plus de chiffrer. Ajoutez « SSL Mode=VerifyFull » à la chaîne de "
+                    + "connexion (docker-compose : ConnectionStrings__DefaultConnection)."
+                    + (allowUnverified
+                        ? $" ⚠️ {AllowUnverifiedTlsKey} est activé, mais ce mode ne chiffre pas : seuls "
+                          + "Require, VerifyCA et VerifyFull sont acceptés."
+                        : string.Empty));
+            }
         }
 
-        var inspection = InternalCertificate.Inspect(builder.RootCertificate, nowUtc, store);
-        if (!inspection.IsUsable)
+        // Where the operator accepted an unverified hop there is, by definition, no root certificate to name —
+        // demanding one anyway would make the acceptance unusable and is the check this relaxation is about.
+        if (!allowUnverified)
         {
-            problems.Add(
-                $"Le certificat racine interne de la base de données est inutilisable : {inspection.Detail}. "
-                + $"Renseignez « Root Certificate=<fichier> » dans {ConnectionStringKey} et vérifiez que le "
-                + "volume internal_certs est monté (docker-compose : internal_certs:/certs:ro).");
+            var inspection = InternalCertificate.Inspect(builder.RootCertificate, nowUtc, store);
+            if (!inspection.IsUsable)
+            {
+                problems.Add(
+                    $"Le certificat racine interne de la base de données est inutilisable : {inspection.Detail}. "
+                    + $"Renseignez « Root Certificate=<fichier> » dans {ConnectionStringKey} et vérifiez que le "
+                    + "volume internal_certs est monté (docker-compose : internal_certs:/certs:ro).");
+            }
         }
     }
 
@@ -129,6 +181,17 @@ public static class TransportAssurance
         InternalCertificate.Store? store,
         List<string> problems)
     {
+        // ⚠️ A hop that does not exist cannot be unencrypted. Where no object store is configured at all, this
+        // check used to refuse startup over the transit of a connection the deployment never opens — and
+        // `AddInfrastructure` already registers a storage stub that throws on use there, so the absence is a
+        // known, handled state rather than a misconfiguration. Demanding TLS to nothing blocked exactly the
+        // deployments that have not wired object storage up yet.
+        if (!MinioCredentials.IsConfigured(
+                configuration["MinIO:Endpoint"], configuration["MinIO:AccessKey"], configuration["MinIO:SecretKey"]))
+        {
+            return;
+        }
+
         // Read by hand rather than with GetValue<bool>, which THROWS on a value it cannot convert — a typo in
         // this key would then crash with a binding error instead of the refusal that names the key.
         var configured = configuration[MinioUseSslKey];
@@ -139,6 +202,14 @@ public static class TransportAssurance
             problems.Add(
                 $"{MinioUseSslKey} vaut « {configured ?? "(absent)"} » : la connexion au stockage d'objets doit "
                 + $"être chiffrée. Mettez {MinioUseSslKey} à « true » (docker-compose : MinIO__UseSSL).");
+        }
+
+        // Same trade as the database hop: with the relaxation set there is no internal CA to name, and an
+        // object store reached over public TLS verifies against the system trust store rather than against a
+        // file this deployment mounts.
+        if (AllowsUnverifiedTls(configuration))
+        {
+            return;
         }
 
         var inspection = InternalCertificate.Inspect(
