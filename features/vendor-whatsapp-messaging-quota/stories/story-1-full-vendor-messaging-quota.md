@@ -1,7 +1,7 @@
 # Story 1: FULL — Vendor-purchased WhatsApp messaging quota
 
 **Status:** APPROVED
-**Story Status:** not-started
+**Story Status:** in-progress — **Parts 0 and 1 done** (see [`../progress.md`](../progress.md)); Parts 2–5 outstanding
 **Layer:** **Full** (BE · jobs · console verbs · clinic UI · console UI) — see the departure note below
 **Depends On:** 0
 **Blocks:** None

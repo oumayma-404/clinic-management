@@ -55,7 +55,16 @@ graph TD
 | Story | Layer | Name | Status | Depends On | Blocks |
 |-------|-------|------|--------|------------|--------|
 | 0 | Spike | Embedded Signup version confirmation | **done** ✅ | – | 1 |
-| 1 | **Full** | Vendor-purchased WhatsApp messaging quota | not-started (**unblocked**) | 0 | – |
+| 1 | **Full** | Vendor-purchased WhatsApp messaging quota | **in-progress** — Parts 0 ✅ · 1 ✅ · 2–5 ⬜ | 0 | – |
+
+> **Parts 0 and 1 landed on `feature/windows-desktop-app`** (`57cfd73`, `241dd0b`), at R-1's own split point. Part 0
+> gave `ClinicClock` the month concept it had none of and moved the two private copies into it; Part 1 shipped the
+> ledger, the fold, the migration with its rollout backfill, `OutboxMessagingGate` and the four `NotificationJob`
+> changes. `verify-schema` went exit 2 → **0** against a live database with a before/after diff showing only the
+> intended objects, and the unit suite stands at **2886 / 0**. Four deviations are recorded in
+> [`../progress.md`](../progress.md) — two settled by the user (the `PlatformAccessAction` members deferred to Part 3;
+> no `PushLabel` for a category that never pushes) and two technical (the held-row bound keyed on `ScheduledFor`;
+> three fixtures corrected for AC-4.5a).
 
 > ✅ **Story 0 is closed, and it answered with a third outcome neither branch covered.** Meta's current Embedded
 > Signup version is **v4**; the 15 Oct 2026 deprecation names **v2 only**; we are on **v3**. Part 4 **§ 31 migrates
