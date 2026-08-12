@@ -2,7 +2,7 @@
 
 **Feature:** [features/vendor-whatsapp-messaging-quota/](../)
 **Written:** 2026-08-12 at commit `4e59462`
-**Last verified:** 2026-08-12 at commit `6cdd2a2` (end of Part 5 — the story is complete)
+**Last verified:** 2026-08-12 at commit `64998f1` (end of Part 5 — the story is complete)
 **Scope:** durable facts only. Anything marked ⚠️ is volatile and MUST be re-checked.
 
 > Written during **Part 4** (the fifth session of Story 1). Parts 0–3 had no `context.md`, so the facts below
@@ -11,7 +11,7 @@
 ## Staleness check (run this first — one command)
 
 ```bash
-git diff --stat 6cdd2a2..HEAD -- \
+git diff --stat 64998f1..HEAD -- \
   api/ClinicManagement.Application/Features/Messaging \
   api/ClinicManagement.Application/Common/ClinicClock.cs \
   api/ClinicManagement.Application/Common/Interfaces \
