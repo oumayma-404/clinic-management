@@ -17,10 +17,29 @@
 
 | Sub-part | Covers | Steps | Status |
 |----------|--------|-------|--------|
-| A.1 | The capability and the served password floor | 1–7 | in-progress |
+| A.1 | The capability and the served password floor | 1–7 | **implemented** · committed `3c8d2fe` |
 | A.2 | The factor itself, and the login screen that enrols it | 8–19 | not-started |
 | A.3 | « Sécurité », step-up, and the three ways back | 20–26 | not-started |
 | A.4 | Session replay, cookie hardening, the guards | 27–32 | not-started |
+
+## Resuming — read this first
+
+**A.1 is landed and the tree is green.** Start at **A.2 step 8**. Nothing is half-applied: there is no
+migration in the tree yet, and `verify-schema` is clean.
+
+The `verify-schema` **before-baseline for A.2's migration is already captured** —
+`features/hosted-security-hardening/verification/verify-schema-before-A2.txt` (263 checks ok, **0 drift**,
+exit 0), taken against the live `clinic-postgres` container on 2026-08-12. Run the verb again *after*
+`AddUserSecondFactorAndSessionFamilies` and diff against that file; do not re-take the "before".
+
+```bash
+# the before-baseline was taken with:
+ASPNETCORE_ENVIRONMENT=Development dotnet run --project api/ClinicManagement.API/ClinicManagement.API.csproj \
+  -c Release -p:BaseOutputPath=<temp> -- verify-schema
+```
+
+⚠️ **A.2 step 10's migration must delete the scaffolded `xmin` line from every `CreateTable`** — PostgreSQL
+rejects it outright — and the model snapshot is committed with it.
 
 ## Session log
 
