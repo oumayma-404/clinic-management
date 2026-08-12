@@ -1,11 +1,15 @@
 using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.Messaging;
 using ClinicManagement.Application.Features.Subscriptions;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 using ClinicManagement.Infrastructure.Services;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Hangfire;
@@ -20,6 +24,15 @@ namespace ClinicManagement.API.BackgroundJobs;
 ///
 /// <para>A cabinet that may not record new work sends nothing either: its rows are <b>parked</b> through
 /// <see cref="OutboxSubscriptionGate"/> and released only once the entitlement is (<c>clinic-subscription</c> FR-8).</para>
+///
+/// <para>And a cabinet that has spent its <b>WhatsApp reminder forfait</b> has those rows parked through
+/// <see cref="OutboxMessagingGate"/>, counted here as they are sent (FR-1) and released the moment the vendor grants
+/// more (<c>vendor-whatsapp-messaging-quota</c> FR-4). Its SMS reminders are untouched (AC-4.6).</para>
+///
+/// <para>⚠️ <b>Three drains keep the parked pile bounded</b>, and none of them alone is enough (R-5): a held row whose
+/// appointment has passed fails as obsolete at dispatch, the month rollover re-evaluates the rest, and a
+/// <b>reason-agnostic age bound</b> (<c>Reminders:HeldMaxDays</c>) covers the rows the first two structurally cannot
+/// reach — a recall row carries no appointment at all.</para>
 /// </summary>
 public class NotificationJob
 {
@@ -34,6 +47,8 @@ public class NotificationJob
     private readonly INotificationGenerator _notificationGenerator;
     private readonly ISubscriptionPolicy _subscriptionPolicy;
     private readonly IClinicSubscriptionRepository _subscriptions;
+    private readonly IVendorMessagingAvailability _messagingAvailability;
+    private readonly IMessagingAllowanceRepository _allowances;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
     private readonly ILogger<NotificationJob> _logger;
@@ -50,6 +65,8 @@ public class NotificationJob
         INotificationGenerator notificationGenerator,
         ISubscriptionPolicy subscriptionPolicy,
         IClinicSubscriptionRepository subscriptions,
+        IVendorMessagingAvailability messagingAvailability,
+        IMessagingAllowanceRepository allowances,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
         ILogger<NotificationJob> logger)
@@ -65,6 +82,8 @@ public class NotificationJob
         _notificationGenerator = notificationGenerator;
         _subscriptionPolicy = subscriptionPolicy;
         _subscriptions = subscriptions;
+        _messagingAvailability = messagingAvailability;
+        _allowances = allowances;
         _auditActor = auditActor;
         _tenantScope = tenantScope;
         _logger = logger;
@@ -103,16 +122,31 @@ public class NotificationJob
         var pendingNotifications = await _notificationRepository.GetDueForDispatchAsync(batchSize, perClinicBound);
         var maxRetries = RemindersConfig.MaxRetries(_configuration);
 
+        // ⚠️ Both gates and the whole tick share ONE clinic-local day and therefore one Tunisian month. Read once
+        // here rather than inside either gate: it is what stops two rows of the same batch being measured against
+        // different days (or charged to different months across a rollover), and it is what makes the boundary
+        // testable at all (EC-7).
+        var clinicToday = ClinicClock.ClinicToday();
+        var nowUtc = DateTime.UtcNow;
+
         // FR-8 — one gate for the whole tick, dispatch and review alike, so a cabinet's entitlement is read once
-        // however many of its rows are in the batch and two of them cannot be measured against different days.
-        var entitlements = new OutboxSubscriptionGate(
-            _subscriptionPolicy, _subscriptions, ClinicClock.ClinicToday());
+        // however many of its rows are in the batch.
+        var entitlements = new OutboxSubscriptionGate(_subscriptionPolicy, _subscriptions, clinicToday);
+
+        // FR-4 + FR-7 — the same shape for the WhatsApp reminder forfait, and asked *after* the entitlement gate at
+        // both call sites (AC-4.7): a cabinet that may not record new work at all is told that, not that its forfait
+        // ran out. Where the deployment does not sell vendor messaging this reads nothing (EC-16).
+        var forfait = new OutboxMessagingGate(_messagingAvailability, _allowances, clinicToday);
+
+        // The counting rows this tick has already ensured, per cabinet — so a practice with twenty rows in one batch
+        // reads and creates its month row once rather than twenty times.
+        var countingRows = new Dictionary<Guid, ClinicMessagingMonth?>();
 
         foreach (var notification in pendingNotifications)
         {
             try
             {
-                await DispatchAsync(notification, maxRetries, entitlements);
+                await DispatchAsync(notification, maxRetries, nowUtc, entitlements, forfait, countingRows);
             }
             catch (Exception ex)
             {
@@ -121,7 +155,7 @@ public class NotificationJob
             }
         }
 
-        await ReviewBlockedRowsAsync(batchSize, perClinicBound, entitlements);
+        await ReviewBlockedRowsAsync(batchSize, perClinicBound, nowUtc, entitlements, forfait);
         await PurgeExpiredRowsAsync();
     }
 
@@ -145,16 +179,49 @@ public class NotificationJob
     /// park it again for the other reason.</para>
     /// </summary>
     private async Task ReviewBlockedRowsAsync(
-        int batchSize, int perClinicBound, OutboxSubscriptionGate entitlements)
+        int batchSize,
+        int perClinicBound,
+        DateTime nowUtc,
+        OutboxSubscriptionGate entitlements,
+        OutboxMessagingGate forfait)
     {
         try
         {
             var blocked = await _notificationRepository.GetBlockedForReviewAsync(batchSize, perClinicBound);
+            var heldCutoff = nowUtc.AddDays(-RemindersConfig.HeldMaxDays(_configuration));
             var unblocked = 0;
+            var expired = 0;
 
             foreach (var notification in blocked)
             {
+                // Step 15a, R-5 — the age bound, asked FIRST and whatever parked the row. A row that has waited a
+                // whole allowance cycle is not going to become useful, and this is the only drain that reaches a
+                // recall row: those carry no appointment, so nothing else here can ever make one obsolete, they are
+                // non-terminal and the purge excludes them by construction. Failing it makes it an ordinary terminal
+                // row the purge collects, and the failure is recorded so « Rappels » shows it like any other.
+                //
+                // ⚠️ Keyed on ScheduledFor — when the send became DUE — not on when it happened to be parked. There
+                // is no « parked at » column, and inventing one resettable by Unblock/re-park would re-arm the very
+                // starvation this bound exists to stop: a row released by one term and parked by another would start
+                // its 30 days over on every cycle. `ScheduledFor` is monotonic, is already the column both scans
+                // order by, and « how long may a send wait? » is measured from when it was due.
+                if (notification.ScheduledFor < heldCutoff)
+                {
+                    await FailAsync(notification, "Rappel en attente depuis trop longtemps — obsolète, non envoyé");
+                    expired++;
+                    continue;
+                }
+
                 if (await entitlements.ReviewAsync(notification.ClinicId) is not null)
+                {
+                    continue;
+                }
+
+                // AC-4.8 — asked here too, and asked for EVERY parked row rather than only a forfait-parked one. A
+                // row parked because its template is not ready or its forfait is spent passes every channel check
+                // below, so without this it would be released and sent within a minute; and a channel-parked row must
+                // not be released into a queue that is about to park it again for the other reason.
+                if (await forfait.ReviewAsync(notification.Type, notification.ClinicId) is not null)
                 {
                     continue;
                 }
@@ -184,6 +251,13 @@ public class NotificationJob
                 _logger.LogInformation(
                     "Returned {Unblocked} blocked reminder(s) to the queue: their channel is sendable again.",
                     unblocked);
+            }
+
+            if (expired > 0)
+            {
+                _logger.LogInformation(
+                    "Failed {Expired} reminder(s) held longer than {HeldMaxDays} day(s) as obsolete.",
+                    expired, RemindersConfig.HeldMaxDays(_configuration));
             }
         }
         catch (Exception ex)
@@ -233,8 +307,18 @@ public class NotificationJob
         }
     }
 
+    /// <param name="nowUtc">
+    /// The tick's own instant, a parameter rather than a fresh <c>DateTime.UtcNow</c> — step 15's « the appointment
+    /// has already started » boundary (D-3) is otherwise untestable, and two rows of one batch would be judged
+    /// against two different nows.
+    /// </param>
     private async Task DispatchAsync(
-        Notification notification, int maxRetries, OutboxSubscriptionGate entitlements)
+        Notification notification,
+        int maxRetries,
+        DateTime nowUtc,
+        OutboxSubscriptionGate entitlements,
+        OutboxMessagingGate forfait,
+        Dictionary<Guid, ClinicMessagingMonth?> countingRows)
     {
         if (!_senders.TryGetValue(notification.Type, out var sender))
         {
@@ -273,6 +357,20 @@ public class NotificationJob
             {
                 await FailAsync(notification, "Rendez-vous déplacé — rappel obsolète, non envoyé");
                 await SurfaceStaleAsync(notification, appointment.AppointmentDateTime);
+                return;
+            }
+
+            // AC-4.5/4.5a — and never send one whose visit has already started. A reminder announces something about
+            // to happen; once the patient is due in the chair it announces nothing (D-3).
+            //
+            // ⚠️ It sits here, at DISPATCH, for EVERY appointment-bearing reminder — not on the release path of any
+            // one gate. A row released by a subscription extension, by a forfait top-up or by a channel being
+            // switched back on all reach this point, so one guard covers every present and future release reason;
+            // a check on the un-park side would have to be written once per reason, which is `fixes-dont-propagate`.
+            // It also closes the same hole for the two pre-existing channel reasons, which had it already.
+            if (appointment.AppointmentDateTime <= nowUtc)
+            {
+                await FailAsync(notification, "Rendez-vous déjà passé — rappel obsolète, non envoyé");
                 return;
             }
         }
@@ -320,11 +418,47 @@ public class NotificationJob
             return;
         }
 
+        // § 14a — the counting row is ensure-created HERE, before the gate that meters against it and before the
+        // send, in its OWN save. Two reasons, and both are the point rather than housekeeping:
+        //
+        //  (a) A cabinet's first WhatsApp reminder of each month must not be held. If the row were left to the daily
+        //      pass, every rollover would park a practice's reminders for up to 24 h — and the first sends of a month
+        //      are the ones most likely to still be useful, since their visits are a day away rather than in the past.
+        //      A cabinet with NO ledger gets no row created, so AC-4.3's « aucun forfait » is still reached below.
+        //
+        //  (b) It must not be staged into the send's own commit. That save is the one carrying MarkAsSent(), so a
+        //      unique violation on (ClinicId, MonthKey) — raised by the daily provisioning pass inserting the same row
+        //      in this window — would throw AFTER Meta had accepted the message: the row stays un-Sent, the next tick
+        //      re-sends it, and one message is paid for and uncounted while its duplicate counts twice (EC-15).
+        //      [DisableConcurrentExecution] does not cover this — it serialises this job against *itself*, not against
+        //      the daily one — and the window is exactly month rollover, which is when that pass runs.
+        var countingRow = await EnsureCountingRowAsync(notification, forfait, countingRows);
+
+        // FR-4 + FR-7, AC-4.1/4.3 — the forfait is spent, missing, or (from Part 4) the template is not usable, so the
+        // row waits: parked with a stated reason rather than sent or dropped, released by the review pass the moment
+        // the vendor grants more. Asked after the entitlement gate (AC-4.7) and immediately before the sender, so a
+        // row that could never send parks for its own reason and consumes nothing.
+        if (await forfait.ReviewAsync(notification.Type, notification.ClinicId) is { } withheld)
+        {
+            await BlockAsync(notification, withheld.Reason, withheld.Sentence);
+            return;
+        }
+
         var result = await sender.SendAsync(phone, notification.Message, settings);
         switch (result.Outcome)
         {
             case ReminderSendOutcome.Sent:
                 notification.MarkAsSent();
+
+                // FR-1, EC-14 — the unit and the Sent mark ride ONE commit, so a crash loses both or neither. The row
+                // is only ever UPDATED here: § 14a's ensure-create above means the INSERT has already committed
+                // separately, which is what keeps a collision from costing a send.
+                if (countingRow is { } month)
+                {
+                    month.RecordSend(nowUtc);
+                    await _allowances.UpdateMonthAsync(month);
+                }
+
                 await SaveAsync(notification);
                 break;
 
@@ -360,6 +494,81 @@ public class NotificationJob
                     OutboxBlockReason.ChannelUnconfigured,
                     $"Canal « {ChannelLabel(notification.Type)} » non configuré — identifiants manquants");
                 break;
+        }
+    }
+
+    /// <summary>
+    /// § 14a — the (cabinet, month) counting row this send will be charged to, created from the <b>fold</b> if this is
+    /// the cabinet's first WhatsApp reminder of the month. Null for anything the forfait does not meter: a non-WhatsApp
+    /// row (AC-4.6), a row with no cabinet, a deployment that does not sell vendor messaging (EC-16), or a cabinet
+    /// whose ledger reaches this month with nothing at all — which is left for the gate to refuse under AC-4.3's own
+    /// reason rather than papered over with a zeroed row.
+    ///
+    /// <para><b>Committed in its own save</b>, and a unique violation is caught and re-read rather than propagated:
+    /// the daily provisioning pass inserts the same row at exactly this moment of the month, and losing that race must
+    /// cost nothing. See the ⚠️ at the call site for what staging it into the send's commit would cost instead.</para>
+    ///
+    /// <para>Cached per cabinet for the tick, so a practice with twenty rows in one batch reads once.</para>
+    /// </summary>
+    private async Task<ClinicMessagingMonth?> EnsureCountingRowAsync(
+        Notification notification,
+        OutboxMessagingGate forfait,
+        Dictionary<Guid, ClinicMessagingMonth?> cache)
+    {
+        if (!_messagingAvailability.SellsVendorMessaging
+            || notification.Type != NotificationType.WhatsApp
+            || notification.ClinicId is not { } clinicId)
+        {
+            return null;
+        }
+
+        if (cache.TryGetValue(clinicId, out var cached))
+        {
+            return cached;
+        }
+
+        var row = await ResolveCountingRowAsync(clinicId, forfait.MonthKey);
+        cache[clinicId] = row;
+        return row;
+    }
+
+    private async Task<ClinicMessagingMonth?> ResolveCountingRowAsync(Guid clinicId, string monthKey)
+    {
+        var existing = await _allowances.GetMonthAsync(clinicId, monthKey);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        // The figure comes from the real fold, never from the policy's default: a cabinet whose vendor has changed its
+        // standing allowance must not have the configured number written back over it, and the snapshot has to equal
+        // the fold or `monthly-allowance-matches-ledger` reports drift the moment this row is created.
+        var entries = await _allowances.GetEntriesAsync(clinicId);
+        if (MessagingAllowanceLedger.Fold(entries.Select(e => e.ToLedgerEntry()), monthKey) is not { } allowance)
+        {
+            // AC-4.3: no allowance record reaches this month. Deliberately creates nothing — a zeroed row would turn
+            // our own bookkeeping gap into a statement that the vendor allowed this practice nothing, and it would
+            // make « non mesuré » unreachable on the history screen for ever.
+            return null;
+        }
+
+        var row = ClinicMessagingMonth.For(clinicId, monthKey, allowance, DateTime.UtcNow);
+
+        try
+        {
+            await _allowances.AddMonthAsync(row);
+            await _unitOfWork.SaveChangesAsync();
+            return row;
+        }
+        catch (Exception ex) when (ex is ConflictException or DbUpdateException)
+        {
+            // The daily pass inserted it first. Detach ours and read theirs — the row is the same row either way, and
+            // the alternative (letting this bubble) would abort a send that was about to succeed.
+            _logger.LogInformation(
+                "Counting row for clinic {ClinicId} month {MonthKey} was created concurrently; re-reading.",
+                clinicId, monthKey);
+            _unitOfWork.StopTracking(row);
+            return await _allowances.GetMonthAsync(clinicId, monthKey);
         }
     }
 

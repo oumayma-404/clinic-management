@@ -94,6 +94,8 @@ public static class LocalClinicProvisioning
         IProcedureTypeRepository procedureTypeRepository,
         IClinicSubscriptionRepository subscriptionRepository,
         ISubscriptionPolicy subscriptionPolicy,
+        IMessagingAllowanceRepository messagingAllowanceRepository,
+        IMessagingAllowancePolicy messagingAllowancePolicy,
         IUnitOfWork unitOfWork,
         IClinicCatalogSeeder clinicCatalogSeeder,
         ILogger logger,
@@ -172,6 +174,12 @@ public static class LocalClinicProvisioning
         await StageEntitlementAsync(
             clinic.Id, subscriptionRepository, subscriptionPolicy, cancellationToken);
 
+        // The cabinet's WhatsApp reminder forfait, into the SAME save for the same reason (FR-3). Construction
+        // door 1 of 2; door 2 is CreateClinicCommand's Auth0 branch, which builds its own Clinic and never
+        // reaches this helper — which is exactly why it is the door easiest to forget.
+        await StageMessagingAllowanceAsync(
+            clinic.Id, messagingAllowanceRepository, messagingAllowancePolicy, cancellationToken);
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         var catalogsSeeded = await TrySeedCatalogsAsync(
@@ -206,6 +214,47 @@ public static class LocalClinicProvisioning
 
         await subscriptionRepository.AddAsync(entitlement.Subscription, cancellationToken);
         await subscriptionRepository.AddEntryAsync(entitlement.OpeningEntry, cancellationToken);
+    }
+
+    /// <summary>
+    /// Stages the cabinet's WhatsApp reminder forfait: the opening <b>standing</b> ledger entry <i>and</i> the current
+    /// Tunisian month's counting row (FR-3).
+    ///
+    /// <para><b>Both rows, not just the entry</b>, and that is the point rather than convenience: the gate meters
+    /// against the <i>month row</i>, and a cabinet whose row does not exist yet is held under
+    /// <c>MessagingAllowanceMissing</c> — so provisioning only the ledger would make every brand-new cabinet's first
+    /// reminders wait until the daily pass ran, up to 24 h, on the reminders most likely to still be useful.</para>
+    ///
+    /// <para><b>Public because the Auth0 door cannot reach this helper</b> — <c>CreateClinicCommand</c>'s Cloud branch
+    /// builds its own <c>Clinic</c> and calls this directly, exactly as it does <see cref="StageEntitlementAsync"/>.
+    /// Sharing the body rather than copying it is what stops « what forfait does a new cabinet get » having two
+    /// answers, and <c>ClinicCreationMessagingAllowanceTests</c> derives the door set by scanning for
+    /// <c>new Clinic(</c> rather than listing today's two.</para>
+    ///
+    /// <para>Stages only: the caller's existing single <c>SaveChangesAsync</c> commits both, so a cabinet and its
+    /// forfait arrive in one transaction or neither does.</para>
+    /// </summary>
+    public static async Task StageMessagingAllowanceAsync(
+        Guid clinicId,
+        IMessagingAllowanceRepository messagingAllowanceRepository,
+        IMessagingAllowancePolicy messagingAllowancePolicy,
+        CancellationToken cancellationToken = default)
+    {
+        var messagesPerMonth = messagingAllowancePolicy.DefaultMessagesPerMonth;
+        var monthKey = ClinicClock.CurrentMonthKey();
+        var now = DateTime.UtcNow;
+
+        await messagingAllowanceRepository.AddEntryAsync(
+            MessagingAllowanceEntry.Provisioned(
+                clinicId, messagesPerMonth, monthKey, now, recordedBy: "job|provisioning"),
+            cancellationToken);
+
+        // ⚠️ The month's figure comes from the SAME value the entry carries, not from a second read of the policy:
+        // the snapshot must equal the fold of the ledger from the first instant, or `monthly-allowance-matches-ledger`
+        // is red on every newly created cabinet — the shape most likely to be dismissed as « the new check is noisy ».
+        await messagingAllowanceRepository.AddMonthAsync(
+            ClinicMessagingMonth.For(clinicId, monthKey, messagesPerMonth, now),
+            cancellationToken);
     }
 
     /// <summary>

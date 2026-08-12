@@ -140,6 +140,12 @@ public class ApplicationDbContext : DbContext
     public DbSet<ClinicSubscription> ClinicSubscriptions { get; set; }
     public DbSet<SubscriptionPeriod> SubscriptionPeriods { get; set; }
 
+    // The vendor-purchased WhatsApp reminder forfait: the append-only allocation ledger, and one counting row per
+    // cabinet per Tunisian month (vendor-whatsapp-messaging-quota FR-1, FR-2). Both clinic-owned with non-nullable
+    // ClinicIds, so both are filtered; the three messaging-* verbs declare UseSystemWide to reach every cabinet.
+    public DbSet<MessagingAllowanceEntry> MessagingAllowanceEntries { get; set; }
+    public DbSet<ClinicMessagingMonth> ClinicMessagingMonths { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         // The clinic-scoping query filters are applied to the directly-clinic-owned AGGREGATE ROOTS — 19 of
@@ -275,6 +281,13 @@ public class ApplicationDbContext : DbContext
         // in the hosted deployment, so an unfiltered one would be the widest cross-clinic read in the product.
         modelBuilder.Entity<ClinicSubscription>().HasQueryFilter(s => IsSystemWide || s.ClinicId == ScopedClinicId);
         modelBuilder.Entity<SubscriptionPeriod>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
+
+        // vendor-whatsapp-messaging-quota — the allocation ledger and the per-month counters. The counting row is a
+        // plain Entity<Guid> rather than an aggregate root (D-6, so the minutely increment writes no audit row), but
+        // it carries its own ClinicId and is filtered exactly like every other clinic-owned table: what decides the
+        // filter is owning a clinic, not being a root.
+        modelBuilder.Entity<MessagingAllowanceEntry>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ClinicMessagingMonth>().HasQueryFilter(m => IsSystemWide || m.ClinicId == ScopedClinicId);
 
         // Optimistic concurrency for every entity, with no schema change: map Entity<T>.Version onto
         // PostgreSQL's xmin system column. EF then appends it to the WHERE of each UPDATE/DELETE, so a row a

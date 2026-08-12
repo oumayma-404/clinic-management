@@ -135,6 +135,10 @@ public static class Extensions
         // container from this method alone, and it creates a cabinet — which must not come into existence without
         // an entitlement (FR-4), so it has to be able to resolve this and the policy below.
         services.AddScoped<IClinicSubscriptionRepository, ClinicSubscriptionRepository>();
+        // vendor-whatsapp-messaging-quota — the allocation ledger and the per-month counters. Here for the same
+        // load-bearing reason as the line above: `provision-clinic` creates a cabinet from a container built out of
+        // this method alone, and a cabinet must not exist without an allowance (FR-3).
+        services.AddScoped<IMessagingAllowanceRepository, MessagingAllowanceRepository>();
 
         // HttpClient for Auth0 Management API
         services.AddHttpClient();

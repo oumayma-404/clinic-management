@@ -116,6 +116,10 @@ public static class ProvisionClinicCommand
                 // scope declared above, so there is nothing extra to declare.
                 scope.ServiceProvider.GetRequiredService<IClinicSubscriptionRepository>(),
                 scope.ServiceProvider.GetRequiredService<ISubscriptionPolicy>(),
+                // vendor-whatsapp-messaging-quota FR-3: and none creates one without a WhatsApp reminder forfait.
+                // Both are registered by `AddInfrastructure` for exactly the reason stated above.
+                scope.ServiceProvider.GetRequiredService<IMessagingAllowanceRepository>(),
+                scope.ServiceProvider.GetRequiredService<IMessagingAllowancePolicy>(),
                 scope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
                 scope.ServiceProvider.GetRequiredService<IClinicCatalogSeeder>(),
                 scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(CommandName),

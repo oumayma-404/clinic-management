@@ -348,6 +348,81 @@ projects whose warnings it would have re-emitted.
 
 ---
 
+## Part 1 — The allowance exists, sends are counted, reminders are held ✅
+
+| Step | Outcome |
+|---|---|
+| 7 · Domain | ✅ `MessagingAllowanceEntry` (AggregateRoot) · `ClinicMessagingMonth` (plain `Entity<Guid>`, D-6) · `MessagingAllowanceKind` · `IMessagingAllowanceRepository` · `MessagingAllowanceLedger` (pure, total, clock-free, `monthKey` a parameter) |
+| 8 · EF + repository + migration | ✅ two configurations · `MessagingAllowanceRepository` · both tables filtered in `ApplicationDbContext` · `20260812114707_AddClinicMessagingAllowances` with **both scaffolded `xmin` columns removed by hand** |
+| 9 · The rollout backfill | ✅ below every DDL statement, gated on « no **standing** entry » (R-13), figure read back out of the ledger |
+| 10 · Provisioning | ✅ `StageMessagingAllowanceAsync` — entry **and** month row in the same save; **all four doors** wired (a compile error by design, R-11) |
+| 11 · Refold + refusals | ✅ `MessagingAllowanceRefold` (5-attempt `ConflictException` retry, detaching **both** the ledger and the month rows) · `MessagingRefusals` |
+| 12 · The gate | ✅ `OutboxMessagingGate` — WhatsApp only, per-tick instance, per-cabinet cache, ordered terms with Part 4's template slot declared |
+| 13 · Wired in both places | ✅ `DispatchAsync` after the subscription gate **and** `ReviewBlockedRowsAsync` for every parked row |
+| 14 · FR-1's counting | ✅ `RecordSend()` staged into the **existing** `SaveAsync(notification)` — one commit |
+| 14a · Ensure-create before the send | ✅ its own save, unique violation caught and re-read |
+| 15 · AC-4.5a | ✅ the past-appointment guard at dispatch, `nowUtc` a parameter |
+| 15a · The held-row age bound | ✅ `Reminders:HeldMaxDays` (default 30), reason-agnostic, asked first in the review pass |
+
+### Deviations
+
+#### DEV-3: The held-row age bound is keyed on `ScheduledFor`, not on a « parked at » column
+**Date:** 2026-08-12 · **Story:** 1 (Part 1, step 15a) · **Category:** Technical
+
+**Original plan:** « a row parked longer than `Reminders:HeldMaxDays` … keyed on the **parked age**, not the reason ».
+
+**Actual implementation:** keyed on `Notification.ScheduledFor` — when the send became **due**.
+
+**Justification:** `Notification` carries **no** `BlockedAtUtc` and no `UpdatedAt`, so there is no parked-age column to
+read. Adding one is worse than it looks: `Unblock()` would have to clear it, and a row released by one term and parked
+by another — which is the *normal* case now that two gates park rows — would restart its 30 days on every cycle,
+**re-arming exactly the starvation the bound exists to stop**. `ScheduledFor` is monotonic, is already the column both
+the due scan and the blocked scan order by (and the column each derives its per-clinic « oldest » from), and it is what
+the plan's own gloss asks for: « one rule for *how long may a send wait?* » — waiting starts when the send was due, not
+when we noticed.
+
+**Impact:** No schema column. A row scheduled in the future is never aged out (the subtraction is negative), which is
+correct. `NotificationJobMessagingTests` pins both directions — a row past the window drains, a row inside it is still
+held — plus the configured-window case, so the setting is shown to be read rather than compiled in.
+
+**Approved:** Implemented and flagged; grounded in the plan's own R-5 reasoning.
+
+#### DEV-4: Three `NotificationJobTests` fixtures corrected — appointments moved from « now » to tomorrow
+**Date:** 2026-08-12 · **Story:** 1 (Part 1, step 15) · **Category:** Technical
+
+Step 15 is the plan's own **Breaking Change 3** (« a reminder for an appointment that has already started is no longer
+sent »), and seven pre-existing tests went red on it. All seven stubbed the appointment at `DateTime.UtcNow` — which is
+*by definition* already started — so they described a reminder for a patient already in the chair, i.e. precisely the
+row the guard exists to stop. The fixtures were corrected (`AddDays(1)`), not the implementation.
+
+⚠️ One of them, `A_Reminder_Still_Naming_The_Right_Moment_Sends_Normally`, pinned a **fixed literal**
+`2026-03-10` that had silently become the past. It is now relative and **truncated to the minute** — relative because a
+literal rots, truncated because the message carries `dd/MM/yyyy HH:mm` and the staleness check compares the formatted
+round-trip.
+
+### Part 1 gate
+
+| Check | Result |
+|---|---|
+| `dotnet build` (`--no-incremental`, outside the repo) | ✅ **0 errors**, 55 warnings — the identical pre-existing baseline, **0 in changed files** |
+| Unit suite (`-c Release`, outside the repo) | ✅ **2886 passed / 0 failed** (2823 before Part 1; **63 new**) |
+| `MessagingAllowanceLedgerTests` | ✅ 31 — no entry folds to **`null` not 0`**; a raise is effective this month and a lowering next (EC-3); a cancellation applies to **every** month the entry fed including the current one (AC-7.4, EC-4); remaining floored at 0; idempotent and order-independent; **no `DateTime.UtcNow` in the file** |
+| `OutboxMessagingGateTests` | ✅ 13 — SMS never consulted (AC-4.6); the capability off issues **zero** queries (EC-16); a missing row holds under its **own** reason and sentence (AC-4.3); one query per cabinet per tick; EC-7's 31 Aug / 1 Sep boundary |
+| `NotificationJobMessagingTests` | ✅ 17 — send-and-count is **one commit** (EC-14); **a unique-violation collision on the month row's creation cannot cost a send** (§ 14a, EC-15); a **recall row (`appointmentId: null`) held past `HeldMaxDays` drains** while one inside the window stays held; a released reminder whose visit has passed fails as obsolete |
+| `ClinicCreationMessagingAllowanceTests` | ✅ 2 — the door set **derived** by scanning for `new Clinic(`, with its own red-proof |
+| `verify-schema` **before** | exit **2** — 5 DRIFT, every one a `MISSING` index or FK of the two new tables |
+| `verify-schema` **after** | exit **0** — « schema matches the model » |
+| The **diff** | ✅ **only the intended objects**: the 3 indexes and 2 FKs move `MISSING → present`, plus `MessagingAllowanceEntries.Amount: (18,3)` arriving from the model-wide convention. Nothing else changed. |
+| Backfill applied for real | ✅ **5 clinics = 5 entries = 5 month rows**; `Kind = 1` (Standing), `Messages = 200`, `EffectiveMonth = 2026-08` (the **Tunisian** month), `Consumed = 0`; the snapshot equals the fold |
+| R-13 idempotence, **proven by re-running** | ✅ both backfill statements re-executed against the populated database → **`INSERT 0 0`** twice, counts unchanged, zero probe rows |
+| `reconcile-money` | ✅ exit **0**, « no drift detected »; the monthly « encaissé » baseline is unchanged. ⚠️ **The `before` side was not captured** — only `verify-schema` was run beforehand. The migration adds two tables and touches **no** money table, so there was nothing it could have moved, but the prescribed before/after pair is only half-satisfied for this verb. |
+
+⚠️ **The scaffolder emitted `xmin` in both `CreateTable` blocks**, exactly as the plan predicted — PostgreSQL rejects it
+(`column name "xmin" conflicts with a system column name`). Removed by hand; the only three `xmin` mentions left in the
+file are in its doc comment.
+
+---
+
 ## Verification owed before Story 0 closes
 
 - [ ] `dotnet build` clean + the two Meta test classes green (`WhatsAppOnboardingServiceTests`,
