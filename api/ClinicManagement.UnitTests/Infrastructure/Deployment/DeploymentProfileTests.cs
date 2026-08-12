@@ -73,7 +73,11 @@ public class DeploymentProfileTests
             [nameof(DeploymentProfile.BacksUpItsOwnData)] = (true, false, false),
             // vendor-whatsapp-messaging-quota FR-9. The FOURTH hosted-only capability, so it joins the
             // `hostedOnlyCapabilities` set below for the same reason the three before it did.
-            [nameof(DeploymentProfile.SellsVendorMessaging)] = (false, true, false)
+            [nameof(DeploymentProfile.SellsVendorMessaging)] = (false, true, false),
+            // hosted-security-hardening FR-1.1. The FIFTH hosted-only capability, so it joins the
+            // `hostedOnlyCapabilities` set below. Both ✗ are decisions: a LAN admin locked out has nobody to
+            // call (AC-7 is unsatisfiable there), and Auth0 owns CloudBrowser's identities and its MFA policy.
+            [nameof(DeploymentProfile.RequiresAdminSecondFactor)] = (false, true, false)
         };
 
     private static IEnumerable<PropertyInfo> Capabilities() =>
@@ -123,7 +127,8 @@ public class DeploymentProfileTests
             nameof(DeploymentProfile.AllowsPublicClinicSignup),
             nameof(DeploymentProfile.ServesPlatformConsole),
             nameof(DeploymentProfile.RequiresSubscription),
-            nameof(DeploymentProfile.SellsVendorMessaging)
+            nameof(DeploymentProfile.SellsVendorMessaging),
+            nameof(DeploymentProfile.RequiresAdminSecondFactor)
         };
 
         foreach (var capability in Capabilities())

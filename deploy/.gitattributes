@@ -1,0 +1,20 @@
+# Everything in this folder is read by a Linux container, so it must arrive with LF endings even on a Windows
+# checkout (hosted-security-hardening Part 2).
+#
+# ⚠️ Why this file exists. The repository sets `core.autocrlf=true` and carries no other `.gitattributes`, so on
+# Windows every script here lands in the working tree as CRLF. Git stores LF and normalises again on a Linux
+# checkout, so an operator deploying from a clone is unaffected — but anyone who builds these images ON Windows
+# gets `exec /usr/local/bin/backup.sh: no such file or directory`, because the shebang line ends `#!/bin/sh\r`
+# and there is no such interpreter. The message names a file that plainly exists, which is why it costs a cycle
+# every time somebody meets it.
+#
+# ⚠️ `pg_hba.conf` is the sharper case: PostgreSQL parses it token by token, so a trailing `\r` corrupts the
+# authentication METHOD on every line — and that file is the whole of FR-2.3's cleartext refusal.
+#
+# Deliberately scoped to `deploy/` rather than added at the repository root: `packaging/` ships PowerShell and
+# Inno Setup files that are read by Windows tools, and one of them (an `.iss` with French dialog strings) needs
+# a BOM. Those have their own encoding rules and are not this file's business.
+*.sh        text eol=lf
+*.conf      text eol=lf
+Dockerfile  text eol=lf
+Caddyfile   text eol=lf

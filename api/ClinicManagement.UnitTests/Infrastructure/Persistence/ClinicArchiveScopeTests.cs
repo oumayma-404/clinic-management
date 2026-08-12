@@ -1,4 +1,5 @@
-using ClinicManagement.Domain.Entities;
+﻿using ClinicManagement.Domain.Entities;
+using ClinicManagement.UnitTests.Common;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -236,13 +237,13 @@ public class ClinicArchiveScopeTests
     }
 
     /// <summary>
-    /// What a column name has to look like before it must be argued about. Deliberately broad and deliberately
-    /// crude: it is a prompt to make a decision, not a classifier, and the cost of a false positive is one line
-    /// in <c>Redacted</c> or one exclusion — while a false negative is a practice's credentials on a USB stick.
+    /// What a column name has to look like before it must be argued about — <see cref="SecretShapedNames"/>,
+    /// shared with <c>SecretProtectionCoverageTests</c>. Two guards ask different questions of the <b>same</b>
+    /// candidate set (« redacted from the archive? » and « encrypted at rest? »), and two copies of the rule
+    /// would drift in the worst direction: a marker added to one leaves the other blind to precisely the columns
+    /// somebody has just decided are sensitive.
     /// </summary>
-    private static bool LooksLikeASecret(string name) =>
-        new[] { "Token", "Secret", "Password", "Credential", "ApiKey", "Encrypted", "Refresh" }
-            .Any(marker => name.Contains(marker, StringComparison.OrdinalIgnoreCase));
+    private static bool LooksLikeASecret(string name) => SecretShapedNames.Matches(name);
 
     // [EC] Nothing is dropped in silence: every table of the model is planned, excluded by name, or reported as
     // unreachable. Derived in both directions, so a table the walk stops reaching becomes a French warning rather

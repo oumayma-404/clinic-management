@@ -46,6 +46,33 @@ public static class LocalDataProtection
     public const string KeyRingPathKey = "DataProtection:KeyRingPath";
 
     /// <summary>
+    /// Whether this deployment must supply a certificate to encrypt the key ring with (FR-3.1). True on
+    /// <see cref="DeploymentKind.HostedMultiTenant"/> and false everywhere else — a Windows install protects the
+    /// same ring with machine-scoped DPAPI, and <see cref="DeploymentKind.CloudBrowser"/> may still opt in by
+    /// setting <see cref="KeyRingProtectionCertificates.CertificatePathKey"/>.
+    /// </summary>
+    public static bool RequiresProtectingCertificate(DeploymentProfile profile) =>
+        profile.Kind == DeploymentKind.HostedMultiTenant;
+
+    /// <summary>
+    /// Whether an unencrypted key ring is tolerated here. True in <c>Development</c> alone, exactly as
+    /// <c>MinioCredentials.TolerateUnconfigured</c> decides the same question for object-store credentials.
+    /// </summary>
+    public static bool TolerateUnprotectedKeyRing(IConfiguration configuration) =>
+        string.Equals(
+            (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? configuration["Environment"])?.Trim(),
+            "Development",
+            StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The operator-facing refusal. Names what to set, not merely what is wrong.</summary>
+    public const string UnprotectedKeyRingMessage =
+        "DataProtection:CertificatePath n'est pas renseigné. Le trousseau de protection des données reste alors "
+        + "en clair sur son volume : les clés qui déchiffrent les identifiants de rappel de chaque cabinet et le "
+        + "second facteur de chaque administrateur seraient lisibles depuis un disque volé ou une copie du "
+        + "volume. Fournissez un fichier PKCS#12 (et son mot de passe dans "
+        + "DataProtection:CertificatePassword) — voir deploy/KEY-CUSTODY.md.";
+
+    /// <summary>
     /// The directory the key ring is persisted to, or <c>null</c> when the deployment has not configured one and
     /// may fall back to the framework default location.
     /// </summary>
@@ -98,16 +125,71 @@ public static class LocalDataProtection
             // automatic key-at-rest protection, which would leave the master keys (that encrypt every clinic's
             // credentials, and the DB passwords) in cleartext on disk. On the Local Windows install, protect
             // them with machine-scoped DPAPI so a stolen/copied key-ring folder is useless off the host —
-            // this is what makes the protected db-credentials file machine-bound (spec AC-3.1). DPAPI is
-            // Windows-only; a hosted key ring at DataProtection:KeyRingPath relies on that directory's ACLs
-            // (ops responsibility).
+            // this is what makes the protected db-credentials file machine-bound (spec AC-3.1).
             if (profile.RunsAsWindowsService && OperatingSystem.IsWindows())
             {
                 builder.ProtectKeysWithDpapi(protectToLocalMachine: true);
             }
+            else
+            {
+                ApplyCertificateProtection(builder, configuration, profile);
+            }
         }
 
         return builder;
+    }
+
+    /// <summary>
+    /// FR-3.1 — encrypts the key ring with the deployment's own certificate, the Linux answer to the DPAPI
+    /// branch above.
+    ///
+    /// <para>⚠️ <b>This protects keys the ring WRITES from here on; it re-wraps nothing already on the volume.</b>
+    /// Data Protection encrypts key XML only at the moment it persists it, so a key created before this was
+    /// configured stays in cleartext for the rest of its life <i>and</i> remains a valid decryptor long after.
+    /// FR-3.1 would read satisfied while a stolen volume still yields a readable master key. Closing that is the
+    /// <c>reprotect-secrets</c> verb's job (re-encrypt the ciphertext under a fresh key), followed by deleting the
+    /// superseded plaintext key files — in that order, and only once
+    /// <c>verify-schema</c>'s <c>secrets-protected-under-current-ring</c> reads zero.</para>
+    ///
+    /// <para>⚠️ <b>Re-minting the ring is forbidden</b> (R-2): the old keys must stay as decryptors or every
+    /// second factor Part A enrolled, and every clinic's reminder credentials, become unreadable at once.</para>
+    /// </summary>
+    private static void ApplyCertificateProtection(
+        IDataProtectionBuilder builder, IConfiguration configuration, DeploymentProfile profile)
+    {
+        var certificates = KeyRingProtectionCertificates.Resolve(configuration, DateTime.UtcNow);
+
+        if (!certificates.IsConfigured)
+        {
+            if (!RequiresProtectingCertificate(profile))
+            {
+                return;
+            }
+
+            // Development is exempt on MinioCredentials.TolerateUnconfigured's precedent, one file over and in
+            // this same startup path: appsettings.Development.json selects HostedMultiTenant deliberately (it is
+            // the only profile where public signup is open), and no developer has a PKCS#12 — so failing here
+            // would break `dotnet run` and `dotnet ef` on a fresh clone for everyone.
+            if (!TolerateUnprotectedKeyRing(configuration))
+            {
+                throw new InvalidOperationException(UnprotectedKeyRingMessage);
+            }
+
+            Console.Error.WriteLine(
+                "[warn] The Data Protection key ring is NOT encrypted at rest. Acceptable in Development only — "
+                + "a non-Development environment will refuse to start. " + UnprotectedKeyRingMessage);
+            return;
+        }
+
+        // No logger exists this early — registration runs before the host is built — so an approaching expiry
+        // goes to stderr, where `docker logs` shows it. verify-schema's `key-ring-protection` is the durable read.
+        foreach (var warning in certificates.Warnings)
+        {
+            Console.Error.WriteLine($"[data-protection] {warning}");
+        }
+
+        builder.ProtectKeysWithCertificate(certificates.Active!);
+        builder.UnprotectKeysWithAnyCertificate(certificates.Decryptors.ToArray());
     }
 
     /// <summary>

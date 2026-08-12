@@ -3,7 +3,9 @@ using MediatR;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Users.Queries;
 using ClinicManagement.Application.Features.Users.Commands;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.API.Models;
 using ClinicManagement.Infrastructure.Deployment;
 using Microsoft.AspNetCore.Authorization;
@@ -23,12 +25,25 @@ public class UsersController : ApiControllerBase
 
     private readonly DeploymentProfile _deployment;
 
-    public UsersController(IMediator mediator, IConfiguration configuration, DeploymentProfile deployment)
+    private readonly IStepUpConfirmations _stepUp;
+    private readonly IClinicContext _clinicContext;
+
+    public UsersController(
+        IMediator mediator,
+        IConfiguration configuration,
+        DeploymentProfile deployment,
+        IStepUpConfirmations stepUp,
+        IClinicContext clinicContext)
     {
         _mediator = mediator;
         _configuration = configuration;
         _deployment = deployment;
+        _stepUp = stepUp;
+        _clinicContext = clinicContext;
     }
+
+    /// <summary>The action name a step-up confirmation must have been minted for.</summary>
+    public const string ResetTotpStepUpAction = "reset-user-totp";
 
     /// <summary>
     /// Get all users for the current admin's clinic, with account status (AC-5.1).
@@ -94,6 +109,36 @@ public class UsersController : ApiControllerBase
     /// Reset a user's password to a temporary one and force a change at next login (AC-5.2).
     /// The temporary password is returned once for the admin to relay.
     /// </summary>
+    /// <summary>
+    /// An administrator removes a colleague's second factor so they can enrol a new one
+    /// (<c>hosted-security-hardening</c> FR-1.4) — way back #2 of three.
+    ///
+    /// <para>⚠️ <b>A step-up confirmation is required, and it is enforced HERE rather than in the handler.</b>
+    /// This is the action that strips another person's protection, so an unlocked machine with an admin session
+    /// open must not be enough — the confirmation proves somebody is present now. It is checked before the
+    /// mediator is reached, so a request without one resolves no handler and touches no row.</para>
+    ///
+    /// <para>⚠️ <b>Deliberately NOT <c>[AllowsWithoutSubscription]</c></b>, unlike the password reset above.
+    /// That one is about regaining <i>read</i> access an expired cabinet keeps by right; this one is about a
+    /// colleague who can still sign in with a recovery code, and there is no read at stake.</para>
+    /// </summary>
+    [HttpPost("{id}/totp/reset")]
+    public async Task<IActionResult> ResetTotp(string id, [FromBody] StepUpConfirmationRequest request)
+    {
+        var callerId = _clinicContext.GetUserId();
+        if (string.IsNullOrWhiteSpace(callerId)
+            || !_stepUp.Consume(callerId, ResetTotpStepUpAction, request.ConfirmationToken ?? string.Empty))
+        {
+            return Failure(
+                "Cette action demande une confirmation récente de votre identité. Veuillez réessayer.",
+                StatusCodes.Status403Forbidden);
+        }
+
+        var result = await _mediator.Send(new ResetUserTotpCommand { UserId = id });
+
+        return result.IsSuccess ? Ok(new { }) : HandleFailure(result);
+    }
+
     [HttpPost("{id}/reset-password")]
     [AllowsWithoutSubscription(
         "FR-3, AC-4.1/4.2 — regaining READ access must not depend on payment. A staff member who has forgotten "

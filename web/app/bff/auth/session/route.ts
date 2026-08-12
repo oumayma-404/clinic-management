@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SESSION_COOKIE, resolveAuthMode } from '@/lib/auth/local-auth';
+import { resolveAuthMode } from '@/lib/auth/local-auth';
+import { readSessionCookie } from '@/lib/auth/session-cookie';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -11,7 +12,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Not in local mode' }, { status: 404 });
   }
 
-  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  const token = readSessionCookie((name) => request.cookies.get(name)?.value);
   if (!token) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }

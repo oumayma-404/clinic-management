@@ -20,11 +20,18 @@ namespace ClinicManagement.Infrastructure;
 /// reproduces the previous rule exactly. Trust is opt-in per deployment because only the operator knows what sits
 /// in front of the API.</para>
 ///
-/// <para><b>⚠️ This is deliberately NOT <c>UseForwardedHeaders</c>.</b> That middleware overwrites
-/// <c>Connection.RemoteIpAddress</c>, which is what <see cref="LocalRequest.IsLoopback"/> reads to gate the
-/// first-run <c>setup</c> endpoint and the Hangfire dashboard — so widening proxy trust would silently make those
-/// two gates spoofable. Resolving the *rate-limiting* address separately keeps the loopback guarantee a property of
-/// the real TCP peer.</para>
+/// <para><b>⚠️ Since hosted-security-hardening Part 2 this set ALSO bounds <c>UseForwardedHeaders</c></b>, which
+/// the codebase previously refused to register at all. The reason it refused was sound and has not gone away —
+/// that middleware overwrites <c>Connection.RemoteIpAddress</c>, which is what
+/// <see cref="LocalRequest.IsLoopback"/> reads to gate the first-run <c>setup</c> endpoint and the Hangfire
+/// dashboard — so the two gates now read <see cref="OriginalPeer"/>, captured <i>before</i> the substitution.
+/// The loopback guarantee stays a property of the real TCP peer; what changed is that the scheme and the client
+/// address are now available to everything else, which is what makes the OAuth state cookie's <c>Secure</c>
+/// flag and the API's own HSTS header correct behind a TLS-terminating proxy.</para>
+///
+/// <para>⚠️ <b>One parse, one authority.</b> <see cref="Networks"/> exposes the ranges so the API can hand the
+/// same set to <c>ForwardedHeadersOptions</c> rather than re-reading the key — two parsers of one setting is how
+/// the limiter and the header middleware end up trusting different hops.</para>
 /// </summary>
 public sealed class TrustedProxies
 {
@@ -32,11 +39,36 @@ public sealed class TrustedProxies
     public const string ConfigurationKey = "Security:TrustedProxies";
 
     /// <summary>The previous behaviour, and the default: only a loopback peer is believed.</summary>
-    public static readonly TrustedProxies LoopbackOnly = new(Array.Empty<Range>());
+    public static readonly TrustedProxies LoopbackOnly = new(Array.Empty<Range>(), configuredEntryCount: 0);
 
     private readonly IReadOnlyList<Range> _ranges;
 
-    private TrustedProxies(IReadOnlyList<Range> ranges) => _ranges = ranges;
+    private TrustedProxies(IReadOnlyList<Range> ranges, int configuredEntryCount)
+    {
+        _ranges = ranges;
+        ConfiguredEntryCount = configuredEntryCount;
+    }
+
+    /// <summary>
+    /// How many raw entries <see cref="ConfigurationKey"/> held, parseable or not. It separates "the operator
+    /// configured nothing" from "the operator configured three ranges and none of them parsed" — identical in
+    /// effect, opposite in what the startup log should say.
+    /// </summary>
+    public int ConfiguredEntryCount { get; }
+
+    /// <summary>
+    /// The parsed ranges, empty when the setting was absent or held nothing parseable. Loopback is trusted
+    /// regardless and is deliberately not in here: it is not a configured range, it is the BFF hop that exists
+    /// in every profile.
+    /// </summary>
+    public IReadOnlyList<ProxyNetwork> Networks =>
+        _ranges.Select(r => new ProxyNetwork(r.NetworkAddress, r.PrefixLength)).ToList();
+
+    /// <summary>
+    /// One trusted range, in a shape that carries no ASP.NET Core type — this project has no framework
+    /// reference, so the API maps these onto <c>ForwardedHeadersOptions.KnownNetworks</c> itself.
+    /// </summary>
+    public sealed record ProxyNetwork(IPAddress Network, int PrefixLength);
 
     /// <summary>
     /// Reads <see cref="ConfigurationKey"/>. Unparseable entries are **skipped**, never fatal: a typo in a proxy
@@ -58,7 +90,9 @@ public sealed class TrustedProxies
             .Select(r => r!)
             .ToList();
 
-        return ranges.Count == 0 ? LoopbackOnly : new TrustedProxies(ranges);
+        return ranges.Count == 0
+            ? new TrustedProxies(Array.Empty<Range>(), configured.Length)
+            : new TrustedProxies(ranges, configured.Length);
     }
 
     /// <summary>
@@ -101,6 +135,10 @@ public sealed class TrustedProxies
             _prefixLength = prefixLength;
             _family = family;
         }
+
+        public int PrefixLength => _prefixLength;
+
+        public IPAddress NetworkAddress => new(_network);
 
         public static Range? TryParse(string? value)
         {

@@ -42,3 +42,10 @@ RUN set -eux; \
 # Used only by the pitr sidecar (the postgres service keeps the stock entrypoint).
 COPY pitr-entrypoint.sh pitr-backup.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/pitr-entrypoint.sh /usr/local/bin/pitr-backup.sh
+
+# The cleartext refusal (hosted-security-hardening Part 2, FR-2.3). Baked into the image and reached through
+# `-c hba_file=` in the compose `command:` rather than written into $PGDATA, so a volume that already has an
+# initdb-written pg_hba.conf still gets the rule and nothing on a live host can edit it away. Read
+# pg_hba.conf itself: it contains no `host` line, which is what makes the server refuse cleartext.
+COPY pg_hba.conf /etc/postgresql/pg_hba.conf
+RUN chmod 644 /etc/postgresql/pg_hba.conf

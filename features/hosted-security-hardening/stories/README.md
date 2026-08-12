@@ -82,12 +82,12 @@ From the plan's *Deploy order*:
 
 | Part | Name | Plan part | Status |
 |------|------|-----------|--------|
-| A | Identity | Part 1 | not-started |
-| B | Transit | Part 2 | not-started |
-| C | Custody | Part 3 | not-started |
-| D | Evidence & surface | Part 0 + Part 4 | not-started |
+| A | Identity | Part 1 | **implemented** |
+| B | Transit | Part 2 | **implemented** |
+| C | Custody | Part 3 | **implemented** |
+| D | Evidence & surface | Part 0 + Part 4 | **implemented** |
 
-**Story Status:** not-started · **Layer:** Full · **Depends On:** None
+**Story Status:** implemented — all four parts landed. What remains is verification (the eye pass, the flow walks, the host-level items) and **one PR for the whole story**; each outstanding item is named in `progress.md`. · **Layer:** Full · **Depends On:** None
 
 ### Part A's internal sub-parts
 

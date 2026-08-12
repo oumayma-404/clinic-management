@@ -539,6 +539,79 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task ClinicArchiveExportedAsync(
+        Guid clinicId, string actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var who = string.IsNullOrWhiteSpace(actorName) ? "Un administrateur" : actorName.Trim();
+
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.ClinicArchiveExported,
+                "Archive du cabinet exportée",
+                $"{who} a téléchargé une archive complète du cabinet : l'ensemble des dossiers patients, des "
+                + "documents et de la comptabilité, dans un seul fichier non chiffré. Si vous n'êtes pas au "
+                + "courant de cette exportation, prévenez immédiatement votre administrateur.",
+                DateTime.UtcNow,
+                NotificationTargetKind.Security,
+                // Clinic-wide (no target) with the actor excluded — see the interface on why this is the one
+                // security notice that is not targeted.
+                actorUserId: actorUserId);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
+    public async Task SecondFactorResetAsync(
+        Guid clinicId, string targetUserId, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.SecondFactorReset,
+                "Second facteur réinitialisé",
+                "Un administrateur a réinitialisé votre second facteur. Vous devrez en enrôler un nouveau à "
+                + "votre prochaine connexion. Si vous n'êtes pas à l'origine de cette demande, prévenez "
+                + "immédiatement votre administrateur.",
+                DateTime.UtcNow,
+                NotificationTargetKind.Security,
+                // ⚠️ A TARGET and no actor exclusion. The one person who must see this is the affected user —
+                // broadcasting « le second facteur de X a été réinitialisé » to the whole practice would
+                // publish a security event about one colleague to everybody.
+                actorUserId: null,
+                targetUserId: targetUserId);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
+    public async Task SessionEndedForReplayAsync(
+        Guid clinicId, string targetUserId, string? deviceLabel, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var where = string.IsNullOrWhiteSpace(deviceLabel) ? null : $" ({deviceLabel.Trim()})";
+
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.SecondFactorReset,
+                "Session interrompue",
+                $"Une session{where} a été interrompue : un identifiant déjà remplacé a été présenté. "
+                + "Vos autres appareils restent connectés. Si ce n'était pas vous, changez votre mot de passe.",
+                DateTime.UtcNow,
+                NotificationTargetKind.Security,
+                actorUserId: null,
+                targetUserId: targetUserId);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
     // Resolves the post-visit target: the appointment's DoctorId → its linked User; any miss → null = all staff.
     // The rule itself lives in StaffNotificationRules, because the push fan-out must target the same person.
     private Task<string?> ResolveTargetUserIdAsync(Guid clinicId, Guid? doctorId, CancellationToken cancellationToken) =>

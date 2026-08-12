@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers'
 import { ChangePasswordForm } from '@/components/change-password-form'
-import { MUST_CHANGE_COOKIE } from '@/lib/auth/local-auth'
+import { readMustChangeCookie } from '@/lib/auth/session-cookie'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 // server-side so the copy matches the situation; the form posts to /bff/auth/change-password.
 export default async function ChangePasswordPage() {
   const cookieStore = await cookies()
-  const forced = cookieStore.get(MUST_CHANGE_COOKIE)?.value === '1'
+  const forced = readMustChangeCookie((name) => cookieStore.get(name)?.value) === '1'
 
   return <ChangePasswordForm forced={forced} />
 }

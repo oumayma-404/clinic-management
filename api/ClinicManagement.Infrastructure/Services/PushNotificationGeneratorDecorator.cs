@@ -196,6 +196,24 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         _inner.ReminderDeliveryFailedAsync(
             clinicId, appointmentId, patientName, channel, reason, patientRequiresRecontact, cancellationToken);
 
+    // Pass-through, like its neighbours above: `StaffNotificationRules.ReachesALockedPhone` answers false for
+    // this category, so there is nothing to fan out. Enrolling again happens at a keyboard on the next
+    // sign-in, which a lock-screen banner cannot make any more actionable.
+    public Task SecondFactorResetAsync(
+        Guid clinicId, string targetUserId, CancellationToken cancellationToken = default) =>
+        _inner.SecondFactorResetAsync(clinicId, targetUserId, cancellationToken);
+
+    // Pass-through for the same reason as the one above: not a locked-phone category.
+    public Task SessionEndedForReplayAsync(
+        Guid clinicId, string targetUserId, string? deviceLabel, CancellationToken cancellationToken = default) =>
+        _inner.SessionEndedForReplayAsync(clinicId, targetUserId, deviceLabel, cancellationToken);
+
+    // Pass-through: the export has already completed by the time this is written, so there is nothing a banner
+    // could let anybody intervene in.
+    public Task ClinicArchiveExportedAsync(
+        Guid clinicId, string actorUserId, string actorName, CancellationToken cancellationToken = default) =>
+        _inner.ClinicArchiveExportedAsync(clinicId, actorUserId, actorName, cancellationToken);
+
     // ---- The fan-out ------------------------------------------------------------------------------
 
     /// <summary>

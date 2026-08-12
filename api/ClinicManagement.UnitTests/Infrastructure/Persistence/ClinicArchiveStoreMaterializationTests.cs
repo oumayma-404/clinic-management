@@ -156,6 +156,10 @@ public class ClinicArchiveStoreMaterializationTests
 
         Assert.True(archived.ContainsKey(nameof(Clinic.GoogleRefreshToken)));
         Assert.Null(archived[nameof(Clinic.GoogleRefreshToken)]);
+        // The ciphertext column is redacted for the same reason plus one of its own: the archive deliberately
+        // does not carry the key ring, so a restored token would read as « connecté » and decrypt to nothing.
+        Assert.True(archived.ContainsKey(nameof(Clinic.GoogleRefreshTokenProtected)));
+        Assert.Null(archived[nameof(Clinic.GoogleRefreshTokenProtected)]);
         Assert.Null(archived[nameof(Clinic.GoogleCalendarId)]);
         // And the rest of the row is exactly what a restored cabinet must come back with.
         Assert.Equal("Cabinet Ben Ali", archived[nameof(Clinic.Name)]!.GetValue<string>());

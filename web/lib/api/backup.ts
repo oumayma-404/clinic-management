@@ -143,8 +143,8 @@ export const backupApi = {
    * ⚠️ Its own deadline, not the transfer one: the whole archive is built before a byte is sent, so three
    * minutes was a limit on the *server's work* rather than on the download.
    */
-  downloadArchive: async (): Promise<DownloadedFile> =>
-    apiGetFile('/backup/archive', undefined, undefined, ARCHIVE_TIMEOUT_MS),
+  downloadArchive: async (stepUpToken: string): Promise<DownloadedFile> =>
+    apiGetFile('/backup/archive', undefined, undefined, ARCHIVE_TIMEOUT_MS, stepUpToken),
 
   /**
    * Restores an archive into this cabinet (`POST /api/backup/archive/restore`).
@@ -152,7 +152,7 @@ export const backupApi = {
    * ⚠️ **Additive**: missing rows are re-inserted with their original ids, rows still present are left untouched,
    * and a row that exists but differs is skipped and counted apart. Nothing is ever overwritten or deleted.
    */
-  restoreArchive: async (archive: File): Promise<ClinicArchiveRestoreReport> => {
+  restoreArchive: async (archive: File, stepUpToken: string): Promise<ClinicArchiveRestoreReport> => {
     const form = new FormData();
     form.append('archive', archive);
 
@@ -160,7 +160,7 @@ export const backupApi = {
     // can take several minutes on a full cabinet, so the three-minute default aborted the client while the
     // server kept committing — the user got the network wording and lost the per-entity report.
     return apiPostFormData<ClinicArchiveRestoreReport>(
-      '/backup/archive/restore', form, undefined, ARCHIVE_TIMEOUT_MS);
+      '/backup/archive/restore', form, undefined, ARCHIVE_TIMEOUT_MS, stepUpToken);
   },
 
   // AC-8.1: admin-only one-click backup. An empty destination lets the server use its configured default.

@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Clinics.Commands;
@@ -15,6 +16,17 @@ namespace ClinicManagement.UnitTests.Features.Clinics;
 /// </summary>
 public class CreateClinicLocalSetupTests
 {
+    /// <summary>
+    /// A password that clears the policy floor, <b>derived from it</b> rather than a literal that happens to.
+    ///
+    /// <para>⚠️ This fixture said <c>"s3cret!!"</c> — 8 characters — so every test in the class went red the day
+    /// <see cref="PasswordPolicy.MinLength"/> rose to 12, none of which is about passwords: they assert that a
+    /// clinic, an admin and a linked <c>Doctor</c> are created. Padding to the floor keeps the credential
+    /// incidental, which is what it is meant to be. The « too short » case below states its own literal, because
+    /// there the length <i>is</i> the subject.</para>
+    /// </summary>
+    private static readonly string ValidPassword = "s3cret!!".PadRight(PasswordPolicy.MinLength, 'x');
+
     private readonly Mock<IClinicRepository> _clinics = new();
     private readonly Mock<IProcedureTypeRepository> _procedureTypes = new();
     private readonly Mock<IUserRepository> _users = new();
@@ -64,7 +76,7 @@ public class CreateClinicLocalSetupTests
     {
         Name = "Cabinet Dentaire",
         Email = "Admin@Clinic.com",
-        Password = "s3cret!!",
+        Password = ValidPassword,
         FullName = "Dr Admin",
         Role = "admin",
         GenerateCode = true
@@ -88,7 +100,7 @@ public class CreateClinicLocalSetupTests
         Assert.Equal("HASHED", _capturedUser.PasswordHash);
         Assert.Equal("admin@clinic.com", _capturedUser.Email); // normalized
         Assert.StartsWith("local|", _capturedUser.Id);
-        _localAuth.Verify(a => a.HashPassword("s3cret!!"), Times.Once);
+        _localAuth.Verify(a => a.HashPassword(ValidPassword), Times.Once);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         // First-run must not touch Auth0 (no-op in Local mode anyway).
         _auth0.Verify(a => a.UpdateUserMetadataAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -108,7 +120,7 @@ public class CreateClinicLocalSetupTests
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // [FR-B2] Password policy: minimum 8 characters, enforced at the API.
+    // [FR-B2] Password policy: at least `PasswordPolicy.MinLength` characters, enforced at the API.
     [Fact]
     public async Task Setup_Should_Reject_Short_Password()
     {

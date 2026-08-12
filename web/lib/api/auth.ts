@@ -67,6 +67,29 @@ export interface AuthModeDto {
    * for a default deployment rather than nothing at all.
    */
   trialDays?: number | null;
+  /**
+   * The minimum length a **new** password must have (`hosted-security-hardening` FR-1.9).
+   *
+   * ⚠️ **Served rather than restated, and that is the whole point of the field.** Four screens that collect a new
+   * password each carried their own `8`, so raising `PasswordPolicy.MinLength` server-side would have left them
+   * refusing at one number while the API refused at another — and quoting the stale one in a French sentence to
+   * the user. `PasswordFloorSingleSourceTests` fails the build on a re-introduced literal in `web/` or `console/`.
+   *
+   * ⚠️ **Optional, and an absent value means « do not pre-check »** rather than a fallback number, following
+   * `publicSignupEnabled`'s rolling-deploy convention. A hardcoded default here would be exactly the second
+   * authority this field deletes; the server enforces the floor on every one of the five set-paths regardless, so
+   * an unknown floor costs a courtesy check and never a wrong refusal.
+   */
+  passwordMinLength?: number;
+  /**
+   * Whether an **administrator** on this deployment must present a second factor to obtain a session
+   * (`hosted-security-hardening` FR-1.1).
+   *
+   * ⚠️ **Read as `=== true`**, and never used to decide whether to *send* a code — the login ladder is the
+   * server's, and the client learns what is required from the refusal's `code`. This exists so the login screen
+   * can say what is coming before the first refusal rather than after it.
+   */
+  requiresSecondFactor?: boolean;
 }
 
 /** What `POST /api/auth/signup` requests. Mirrors the backend `ClinicSignUpRequest`. */

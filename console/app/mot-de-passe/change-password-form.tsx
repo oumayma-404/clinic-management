@@ -7,7 +7,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { readRefusal } from "@/lib/refusal";
 
-export function ChangePasswordForm() {
+interface ChangePasswordFormProps {
+  /**
+   * The server's minimum length, or `null` when it could not be read.
+   *
+   * ⚠️ **`null` means « say nothing and check nothing », never a default number.** A literal here would be
+   * exactly the second authority this prop exists to delete — the server enforces the floor on every set-path,
+   * so an unread value costs a courtesy hint rather than a wrong refusal.
+   */
+  passwordMinLength: number | null;
+}
+
+export function ChangePasswordForm({ passwordMinLength }: ChangePasswordFormProps) {
   const router = useRouter();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -71,7 +82,9 @@ export function ChangePasswordForm() {
           value={newPassword}
           onChange={(event) => setNewPassword(event.target.value)}
         />
-        <p className="text-sm text-muted-foreground">Au moins 8 caractères.</p>
+        {passwordMinLength !== null && (
+          <p className="text-sm text-muted-foreground">Au moins {passwordMinLength} caractères.</p>
+        )}
       </div>
 
       <Button type="submit" className="w-full" disabled={busy}>

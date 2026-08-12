@@ -65,5 +65,31 @@ public enum NotificationCategory
     /// evaluated where the counter is incremented as well as by the daily pass — 80 % is announced when it happens
     /// rather than the next morning.</para>
     /// </summary>
-    MessagingAllowanceLow = 11
+    MessagingAllowanceLow = 11,
+
+    /// <summary>
+    /// An administrator reset this account's second factor (<c>hosted-security-hardening</c> FR-1.4).
+    ///
+    /// <para>⚠️ <b>Targeted at the affected user, and it exists to make a quiet action loud.</b> Without it,
+    /// stripping a colleague's protection is a silent step a stolen admin session could take before signing in
+    /// as them. It stays <b>in-app</b> (and by e-mail): waking a dentist's lock screen adds nothing, because
+    /// the action they must take — enrol again — happens at the machine, at their next sign-in.</para>
+    /// </summary>
+    SecondFactorReset = 12,
+
+    /// <summary>
+    /// Somebody downloaded the cabinet's <b>whole record</b> as one file
+    /// (<c>hosted-security-hardening</c> FR-4.2, Stated Assumption 9).
+    ///
+    /// <para>⚠️ <b>Clinic-wide rather than targeted, which is a superset of what the spec asks for.</b> The feed
+    /// has one shared row per event with an optional <i>single</i> target user, so « les administrateurs » is not
+    /// expressible without a fan-out mechanism the model does not have. A clinic-wide row reaches every
+    /// administrator — plus the rest of the staff, which is the right side to err on for an event that carries
+    /// every patient of the practice out of the building on a laptop. The actor is excluded, as everywhere, so
+    /// the person who pressed it is not told about themselves.</para>
+    ///
+    /// <para>In-app only: the export is already finished by the time this is written, so a lock-screen banner
+    /// would announce something nobody can intervene in.</para>
+    /// </summary>
+    ClinicArchiveExported = 13
 }

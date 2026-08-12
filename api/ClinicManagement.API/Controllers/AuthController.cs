@@ -3,9 +3,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
 using MediatR;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.Auth;
 using ClinicManagement.Application.Features.Auth.Commands;
+using ClinicManagement.Application.Features.Auth.Queries;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.API.Models;
 using ClinicManagement.Infrastructure.Auth;
@@ -94,6 +98,15 @@ public class AuthController : ApiControllerBase
             // in the wizard would be a second one, and this product's own landing copy already says « 2 semaines ».
             // Null where nothing expires, so no screen can quote a trial that deployment does not grant.
             trialDays = deployment.RequiresSubscription ? _subscriptionPolicy.TrialDays : (int?)null,
+            // hosted-security-hardening FR-1.9. The floor, served rather than restated: every screen that
+            // collects a NEW password used to carry its own `8`, so raising the constant would have left four
+            // client-side rules disagreeing with the server that refuses them — and the user reading a French
+            // sentence quoting the old number. `PasswordFloorSingleSourceTests` fails on a re-introduced literal.
+            passwordMinLength = PasswordPolicy.MinLength,
+            // hosted-security-hardening FR-1.1. Whether an ADMINISTRATOR is refused a session without a second
+            // factor. Served so the login screen can say so before the first refusal rather than after it; the
+            // server enforces it regardless, and no client reads this to decide whether to send the code.
+            requiresSecondFactor = deployment.RequiresAdminSecondFactor,
         });
     }
 
@@ -186,18 +199,159 @@ public class AuthController : ApiControllerBase
         var command = new LoginCommand
         {
             Email = request.Email,
-            Password = request.Password
+            Password = request.Password,
+            TotpCode = request.TotpCode
         };
 
         var result = await _mediator.Send(command);
 
         if (!result.IsSuccess)
         {
-            return Unauthorized(result);
+            // ⚠️ The status now comes from the refusal's CODE, not a flat 401
+            // (`hosted-security-hardening` FR-1.2). « Ce compte doit d'abord enrôler » is a **403**: a 401
+            // reads to every client as « wrong password », and the one thing this refusal has to convey is
+            // that the password was right and something else is owed.
+            return RefuseAuth(result);
         }
 
         return Ok(result);
     }
+
+    /// <summary>
+    /// Enrols a second factor from the login screen itself (FR-1.3). Two calls: the first returns a secret to
+    /// scan, the second confirms it with a code and returns the recovery codes <b>once</b>.
+    ///
+    /// <para><b>Anonymous by necessity</b> — an account told « enrol first » has no session, that being the
+    /// point. It falls under <c>/api/auth</c>, so <c>RateLimiting.IsAnonymousAuthPath</c>'s prefix already gives
+    /// it the tight per-account window and the <c>AuthAttemptAccount</c> capture; no list needed.</para>
+    ///
+    /// <para>It issues <b>no session</b>: enrolling is not signing in.</para>
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [HttpPost("totp/enrol")]
+    public async Task<IActionResult> EnrolTotp([FromBody] EnrolTotpRequest request)
+    {
+        if (!Deployment.UsesLocalAccounts)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new EnrolTotpCommand
+        {
+            Email = request.Email,
+            Password = request.Password,
+            TotpCode = request.TotpCode
+        });
+
+        return result.IsSuccess ? Ok(result) : RefuseAuth(result);
+    }
+
+    /// <summary>
+    /// Signs in with a single-use recovery code (FR-1.4) — the way back the user can take without anybody else.
+    ///
+    /// <para>Anonymous for the same reason as <see cref="EnrolTotp"/>, and inside the same rate-limit window.</para>
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [HttpPost("recovery")]
+    public async Task<IActionResult> RedeemRecoveryCode([FromBody] RedeemRecoveryCodeRequest request)
+    {
+        if (!Deployment.UsesLocalAccounts)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new RedeemRecoveryCodeCommand
+        {
+            Email = request.Email,
+            Password = request.Password,
+            RecoveryCode = request.RecoveryCode
+        });
+
+        return result.IsSuccess ? Ok(result) : RefuseAuth(result);
+    }
+
+    /// <summary>
+    /// « Sécurité » — this account's own second factor (FR-1.5). Reachable by <b>every</b> role: a doctor or a
+    /// secretary may enrol voluntarily on any deployment, and the screen is where they do it.
+    /// </summary>
+    [HttpGet("totp")]
+    public async Task<IActionResult> GetTotpState()
+    {
+        var result = await _mediator.Send(new GetTotpStateQuery());
+        return result.IsSuccess ? Ok(result) : HandleFailure(result);
+    }
+
+    /// <summary>Replaces every recovery code with a fresh set. Requires a current code, not just the session.</summary>
+    [HttpPost("totp/recovery-codes")]
+    public async Task<IActionResult> RegenerateRecoveryCodes([FromBody] TotpCodeRequest request)
+    {
+        var result = await _mediator.Send(new RegenerateRecoveryCodesCommand { TotpCode = request.TotpCode });
+        return result.IsSuccess ? Ok(result) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// Removes the second factor. Refused for an administrator <b>where the deployment requires one</b> — never
+    /// on the role alone, which would strand a voluntarily-enrolled admin on the other two profiles.
+    /// </summary>
+    // A POST and not a DELETE: it carries a body (the current code, which is what authorises it), and DELETE
+    // with a body is unevenly supported end to end — `apiDelete` in the web client sends none at all.
+    [HttpPost("totp/disable")]
+    public async Task<IActionResult> DisableTotp([FromBody] TotpCodeRequest request)
+    {
+        var result = await _mediator.Send(new DisableTotpCommand { TotpCode = request.TotpCode });
+        return result.IsSuccess ? Ok(new { }) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// Re-authenticates the signed-in user for one sensitive action (FR-1.8).
+    ///
+    /// <para>⚠️ It spends its <b>own</b> failure counter, never the login lockout: three wrong attempts refuse
+    /// this action with the session untouched, because the user is already signed in and doing ordinary work.</para>
+    /// </summary>
+    [HttpPost("step-up")]
+    public async Task<IActionResult> StepUp([FromBody] StepUpRequest request)
+    {
+        var result = await _mediator.Send(new StepUpCommand
+        {
+            Action = request.Action,
+            Password = request.Password,
+            TotpCode = request.TotpCode
+        });
+
+        return result.IsSuccess ? Ok(result) : HandleFailure(result);
+    }
+
+    /// <summary>Renders a refusal with the status its code carries.</summary>
+    private IActionResult RefuseAuth(Result result) => HandleFailure(result, StatusForRefusal(result.Code));
+
+    /// <summary>
+    /// The HTTP status a clinic-auth refusal code carries.
+    ///
+    /// <para>⚠️ <b>The status is decided here and never derived inside the handler</b> — <c>Result.Code</c> says
+    /// what happened, and how that maps onto HTTP is a presentation decision.
+    /// <c>PlatformAuthController.StatusFor</c> is the same split for the other population.</para>
+    ///
+    /// <para>⚠️ An <b>unmapped</b> code falls to 401 rather than throwing: this is the sign-in endpoint, and a
+    /// refusal nobody mapped must still be readable rather than a 500. <c>ClinicTotpAuthTests</c> asserts every
+    /// code <c>ClinicAuthRefusals</c> declares is mapped here explicitly, so the fallback stays unreachable.</para>
+    /// </summary>
+    private static int StatusForRefusal(string? code) => code switch
+    {
+        ClinicAuthRefusals.InvalidCredentials => StatusCodes.Status401Unauthorized,
+        ClinicAuthRefusals.TotpRequired => StatusCodes.Status401Unauthorized,
+        ClinicAuthRefusals.AccountDisabled => StatusCodes.Status401Unauthorized,
+        // 403 and not 401: the password was correct. A 401 here reads as « wrong password » and would leave the
+        // user retyping a credential that is already right, with no way to reach the enrolment step.
+        ClinicAuthRefusals.TotpEnrolmentRequired => StatusCodes.Status403Forbidden,
+        ClinicAuthRefusals.TotpInvalid => StatusCodes.Status400BadRequest,
+        ClinicAuthRefusals.TotpNotEnrolled => StatusCodes.Status400BadRequest,
+        ClinicAuthRefusals.TotpAlreadyEnrolled => StatusCodes.Status409Conflict,
+        ClinicAuthRefusals.TooManyAttempts => StatusCodes.Status429TooManyRequests,
+        ClinicAuthRefusals.PasswordPolicy => StatusCodes.Status400BadRequest,
+        _ => StatusCodes.Status401Unauthorized
+    };
 
     /// <summary>
     /// Exchanges the BFF's HttpOnly session cookie for a fresh short-lived access token (US-5).

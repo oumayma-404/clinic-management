@@ -407,7 +407,9 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
         try
         {
             // A scope of its own, and therefore a context of its own: reusing the caller's would put the inserts
-            // back inside the transaction this whole design exists to stay out of.
+            // back inside the transaction this whole design exists to stay out of. The chain's advisory lock and
+            // its transaction are opened by ApplicationDbContext.SaveChangesAsync — see the ⚠️ there on why the
+            // transaction has to span the whole append.
             using var scope = _scopeFactory.CreateScope();
             var auditContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             await auditContext.AuditEntries.AddRangeAsync(rows, cancellationToken);
@@ -423,6 +425,53 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
                 "Failed to write {Count} audit entr{Plural}. The audited operation committed; the ledger did not.",
                 rows.Count,
                 rows.Count == 1 ? "y" : "ies");
+
+            await TryDeclareGapAsync(rows, ex, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Records that entries are missing here (FR-4.1). One row per chain the lost rows belonged to.
+    ///
+    /// <para><b>Why this is worth a second attempt at the thing that just failed.</b> Without it a failed write
+    /// leaves a chain that is perfectly intact and quietly shorter — indistinguishable from a period in which the
+    /// practice did nothing. With it, a later walk can tell « a gap we know about » from « a break nobody
+    /// declared », which is the whole distinction FR-4.1 asks for. The gap row is a fraction of the size of what
+    /// failed, on a fresh connection, so the common causes (a transient timeout, one oversized row, a unique
+    /// collision on a duplicate sequence) do not recur.</para>
+    ///
+    /// <para>⚠️ <b>If this fails too, nothing is recorded and the chain is genuinely broken</b> — which is the
+    /// honest outcome, and is what the walk will say. It is still never allowed to throw: the operation being
+    /// audited has already committed.</para>
+    /// </summary>
+    private async Task TryDeclareGapAsync(
+        List<AuditEntry> rows, Exception cause, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var occurredAt = DateTime.UtcNow;
+            var gaps = rows
+                .GroupBy(r => r.ClinicId)
+                .Select(g => AuditEntry.DeclaredGap(
+                    g.Key,
+                    g.First().UserId,
+                    g.First().UserEmail,
+                    g.Count(),
+                    // The type only — a message can carry a row's own values, and this row is readable by the
+                    // clinic's admin on « Journal d'activité ».
+                    cause.GetType().Name,
+                    occurredAt))
+                .ToList();
+
+            using var scope = _scopeFactory.CreateScope();
+            var auditContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            await auditContext.AuditEntries.AddRangeAsync(gaps, cancellationToken);
+            await auditContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex, "Failed to record a declared gap; the audit chain is now genuinely broken at this point.");
         }
     }
 }

@@ -41,7 +41,83 @@ public sealed record SchemaFacts(
     /// <summary>
     /// The WhatsApp reminder forfait's three checks, or <b>null</b> before its tables exist.
     /// </summary>
-    MessagingAllowanceFacts? MessagingAllowances);
+    MessagingAllowanceFacts? MessagingAllowances,
+    /// <summary>
+    /// The deployment's internal root certificate, or <b>null</b> where none is configured — which is the
+    /// normal state on <c>SelfHostedLan</c> and on a developer machine, and is « not applicable » rather than
+    /// « expired ». Reported here because this verb is the one thing already run before and after every schema
+    /// change, so it is where a ten-year certificate's remaining life will actually be seen
+    /// (<c>hosted-security-hardening</c> FR-2.6).
+    /// </summary>
+    InternalCertificateFact? InternalCertificate,
+    /// <summary>
+    /// How much of the deployment's stored ciphertext has moved onto the key ring's current generation
+    /// (<c>hosted-security-hardening</c> FR-3.1), or <b>null</b> where the caller supplied no Data Protection
+    /// provider — a fourth "side", beside the model, the catalog and the internal certificate, and null is
+    /// « not applicable » rather than « zero left to do ».
+    /// </summary>
+    SecretProtectionFacts? SecretProtection = null,
+    /// <summary>
+    /// What walking each audit chain found (<c>hosted-security-hardening</c> FR-4.1), or <b>null</b> where the
+    /// chain columns do not exist yet or the caller supplied no chain key — a fifth "side", and null is « not
+    /// applicable » rather than « no breaks », which would be a clean bill of health nobody measured.
+    /// </summary>
+    AuditChainFacts? AuditChain = null);
+
+/// <summary>
+/// The audit chains as walked, one result per chain.
+///
+/// <para>⚠️ <b>The walk happens in the reader, not here.</b> Every other fact on <see cref="SchemaFacts"/> is a
+/// count or a small projection; this one would be the ledger — every row a practice has ever written — carried
+/// into Application so the service could re-derive it. The reader walks it streaming, per chain, and hands over
+/// the verdicts. It still calls the <b>real</b> <c>AuditChain.Walk</c> and never re-expresses the arithmetic in
+/// SQL, which is the property that matters (the <c>subscription-cover-kind-matches-ledger</c> precedent).</para>
+/// </summary>
+public sealed record AuditChainFacts(IReadOnlyList<AuditChainWalkResult> Chains);
+
+/// <summary>
+/// The figure that says the <c>reprotect-secrets</c> verb finished — and therefore the only thing that
+/// authorises deleting the superseded plaintext key files (FR-3.1).
+///
+/// <para>⚠️ <b>Deleting a key file before its ciphertext has moved is R-2's data loss from the other
+/// direction</b>: every second factor and every clinic's reminder credentials become unreadable at once, with no
+/// way back. Hence a per-family count rather than a single total — « 3 remaining » says nothing about which
+/// recovery an operator needs, and the six families recover four different ways.</para>
+/// </summary>
+/// <param name="KeyRingIsCertificateProtected">
+/// Whether the ring encrypts what it writes. <b>False is drift on a deployment that requires it</b> — that is
+/// FR-3.1's claim, and it is otherwise invisible: a cleartext ring works perfectly and says nothing.
+/// </param>
+/// <param name="ProtectingCertificateDaysRemaining">
+/// Whole days until the protecting certificate expires; null when none is configured. Reported for FR-3.2's
+/// rotation, on <see cref="InternalCertificateFact"/>'s precedent — this verb is the thing already run before and
+/// after every schema change, so it is where a remaining life is actually seen.
+/// </param>
+public sealed record SecretProtectionFacts(
+    bool KeyRingIsCertificateProtected,
+    int? ProtectingCertificateDaysRemaining,
+    IReadOnlyList<SecretFamilyFact> Families);
+
+/// <summary>
+/// One protected column family: how many rows hold ciphertext, and how many of those are not yet under the
+/// ring's current generation.
+/// </summary>
+public sealed record SecretFamilyFact(string Name, int Rows, int NotUnderCurrentGeneration);
+
+/// <summary>
+/// One reading of the deployment's internal root certificate. Deliberately a neutral shape: the reading itself
+/// is done in Infrastructure (which owns the file access and the X.509 parsing) and this project references
+/// Domain alone, so it cannot name that type.
+/// </summary>
+/// <param name="DaysRemaining">
+/// Whole days until <c>NotAfter</c>. Negative on an expired certificate, which is a more useful reading than
+/// clamping to zero — « expired 40 days ago » and « expires today » are different operator situations.
+/// </param>
+public sealed record InternalCertificateFact(
+    string Path,
+    int DaysRemaining,
+    bool Usable,
+    string Detail);
 
 /// <summary>
 /// Everything the three <c>vendor-whatsapp-messaging-quota</c> checks read, in one shape.
@@ -388,4 +464,50 @@ public sealed record DataMigrationCounts(
     /// on the deployment's first signup and be deleted as noisy. Null before the table exists.
     /// </para>
     /// </summary>
-    int? GrandfatheredEntitlementEntries);
+    int? GrandfatheredEntitlementEntries,
+    /// <summary>
+    /// Administrators who hold a <b>live session</b> while having no verified second factor, where the
+    /// deployment requires one (<c>hosted-security-hardening</c> FR-1.1). Zero is the claim. Null before the
+    /// tables exist.
+    /// <para>
+    /// ⚠️ <b>The plan's original name for this — « every admin has a factor or is unenrolled » — is a
+    /// tautology</b>: every administrator satisfies one branch or the other, so it could never go red. That is
+    /// exactly the unfalsifiability that got <c>clinic-activity-day-unique-per-clinic-day</c> replaced. What is
+    /// falsifiable, and what actually matters, is an admin who is <i>still working</i> without one: the login
+    /// ladder refuses a fresh sign-in, but a session minted before the requirement — or before that account was
+    /// promoted — would go on working until the per-request check was added. A non-zero count means that check
+    /// is not doing its job.
+    /// </para>
+    /// </summary>
+    int? AdminsWithoutFactorHoldingLiveSession = null,
+    /// <summary>
+    /// Session families whose owning account no longer exists. Zero is the claim; the FK cascades, so a non-zero
+    /// count means the cascade is not what the model says it is. Null before the table exists.
+    /// </summary>
+    int? SessionFamilyOrphans = null,
+    /// <summary>
+    /// The offset in seconds between the application's clock and PostgreSQL's, reported as <b>Info</b>.
+    /// <para>
+    /// ⚠️ <b>It cannot see the failure that matters, and says so in the check's own text.</b> The API and the
+    /// database run in containers on one host reading one clock, so this comparison is ~0 by construction. The
+    /// case that breaks TOTP — <i>the host</i> drifting from real time, which fails every code at once with the
+    /// same French sentence as a wrong password — moves both sides together and is invisible here. The real
+    /// control is NTP on the host, named beside this in <c>deploy/README.md</c>. It is reported anyway because
+    /// the one thing it <i>can</i> catch is a container started with a different <c>TZ</c> or a deliberately
+    /// skewed clock, and because a stated blind spot is worth more than a silent one.
+    /// </para>
+    /// </summary>
+    double? AppToDatabaseClockOffsetSeconds = null,
+    /// <summary>
+    /// Clinics whose Google Calendar refresh token is <b>still stored in the clear</b>
+    /// (<c>hosted-security-hardening</c> FR-3.4). Zero is the claim, and reaching zero is what authorises the
+    /// later migration that drops the column. Null before the protected column exists.
+    /// <para>
+    /// A backfill is invisible to every other layer, and this one especially: the column exists, the API returns
+    /// it, and a clinic whose token was never converted goes on syncing perfectly from the plaintext nobody
+    /// encrypted. Nothing errors, nothing degrades, and the credential the feature exists to protect stays
+    /// readable off a stolen disk — which is why the count, and not a green test, is what says it finished.
+    /// </para>
+    /// </summary>
+    int? ClinicsWithPlaintextGoogleToken = null
+);

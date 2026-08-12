@@ -26,6 +26,10 @@ cp .env.hosted.example .env          # then fill it in — .env is gitignored, n
 docker compose -f docker-compose.hosted.yml up -d --build
 ```
 
+The **first** container to run is `certs`, a one-shot that mints this deployment's internal certificate authority
+and exits; everything else waits for it. See *Transit inside the perimeter* below — the API **refuses to start** if
+the internal hops are not encrypted and verified, so a cold start is where that is either right or loud.
+
 Then check the front door before anything else:
 
 ```bash
@@ -52,8 +56,104 @@ every one of them fails **quietly** if wrong. Each is commented in place; in sho
 | `API_INTERNAL_URL=http://api:5000/api` (web) | login, refresh and change-password 500 — and only those, because only the BFF fetches server-side |
 | `AUTH_COOKIE_SECURE=true` (web) | Caddy speaks plain HTTP to the container, so the handler drops `Secure` from an **internet-facing** session cookie |
 
-⚠️ **Back up the `dataprotection_keys` volume alongside `postgres_data`.** A restored database whose key ring is
-gone has credentials nobody can decrypt.
+⚠️ **What is backed up together, and what is kept apart.** The Data Protection key ring
+(`dataprotection_keys`) is **encrypted** by the deployment's own certificate, so back it up **alongside**
+`postgres_data` — a restored database without it has credentials nobody can decrypt. What must travel
+**separately, never in the same archive**, is the **certificate** that decrypts the ring, together with the
+backup key and the PITR key.
+
+This reverses the rule that stood before the ring was encrypted, when the *ring* was the thing that had to travel
+apart. It is stated in full, once, in **[KEY-CUSTODY.md](./KEY-CUSTODY.md)** — that file is the authority, and it
+also covers what to do when each key is lost.
+
+⚠️ Configuring the certificate protects keys the ring writes **from then on** and re-wraps nothing already on the
+volume. The migration order (`reprotect-secrets --rotate` → `verify-schema` reads zero → *only then* delete the
+old key files) is in KEY-CUSTODY.md § 1; doing it the other way round destroys every administrator's second
+factor at once.
+
+---
+
+## Transit inside the perimeter
+
+Caddy terminates the internet's TLS. Everything **behind** it is encrypted and verified too: the API↔PostgreSQL
+hop, the API↔MinIO hop and both backup sidecars, against a certificate authority created for this deployment and
+trusted by nothing else.
+
+**A deployment that is not in that state refuses to start**, names the setting and the file, and says so on the
+console, in the log and (on Windows) in the Event Log. That is deliberate — transit failing *open* is invisible,
+and the whole point is that nobody is watching this console.
+
+### How it is wired
+
+| Piece | What it is |
+|---|---|
+| `certs` service (`./certs/`) | a **one-shot** container: mints a ten-year internal CA and one leaf each for `postgres` and `minio` into the `internal_certs` volume, then exits 0. **Idempotent** — an existing set that still chains is reused, so `up -d` never hands postgres an identity the API does not yet trust |
+| `internal_certs` volume | `ca.crt` (the one trust anchor) · `postgres/server.{crt,key}` · `minio/{public.crt,private.key}` · `minio/CAs/`. Mounted **`:ro`** by every consumer; the authority is the only writer |
+| `postgres` | `ssl=on` with its leaf, and `-c hba_file=/etc/postgresql/pg_hba.conf` — a `pg_hba.conf` baked into the image that offers **`hostssl` only** |
+| `api` | `SSL Mode=VerifyFull;Root Certificate=/certs/ca.crt` in the connection string · `MinIO__UseSSL=true` · `MinIO__RootCertificate=/certs/ca.crt` |
+| `backup`, `pitr` | `PGSSLMODE=verify-full` + `PGSSLROOTCERT=/certs/ca.crt`, and each **asks PostgreSQL whether its own connection is encrypted** before it dumps anything — a run that cannot negotiate **fails**, it never skips and reports success |
+
+⚠️ **The connection string uses Npgsql's spelling, `SSL Mode=VerifyFull` — not libpq's `sslmode=verify-full`**,
+which Npgsql rejects outright. Get that wrong and the API refuses to start rather than falling back, which is the
+intended outcome but reads as a puzzling refusal if you were copying a `psql` command line. The **sidecars** use
+libpq directly, so *there* the value genuinely is `verify-full`.
+
+⚠️ **`VerifyFull`, not `Require`.** `Require` encrypts and accepts *any* certificate: it stops a packet capture and
+not an impostor on the bridge network. Only `verify-full` checks the server's identity — which is also why
+`Host=postgres` must stay exactly that, since `postgres` is the name in the leaf's SAN.
+
+### Cold-start order
+
+Nothing needs doing by hand — `depends_on: { certs: { condition: service_completed_successfully } }` orders it —
+but the order is worth knowing when reading a failed boot:
+
+```
+certs (runs, exits 0)  →  postgres, minio  →  api, backup, pitr  →  web, console, caddy
+```
+
+⚠️ `extends` **does not carry `depends_on`**, so `docker-compose.hosted.yml` restates that dependency on every
+service that inherits from the prod file. A dropped one starts postgres before its certificate exists and fails
+on a *missing file*, two containers away from the real cause. `TransportConfigurationTests` derives the set of
+services that mount the volume and asserts each one waits for it.
+
+### Verifying it by hand
+
+```bash
+# Every hop over TLS, verified against the internal root:
+docker exec clinic-postgres-prod psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '\conninfo'
+# → SSL connection (protocol: TLSv1.3, cipher: TLS_AES_256_GCM_SHA384, compression: off)
+
+# The SERVER refuses cleartext — not merely "nothing uses it":
+docker run --rm --network clinic-management_internal postgres:16-alpine \
+  psql "host=postgres sslmode=disable user=$POSTGRES_USER dbname=$POSTGRES_DB" -c 'select 1'
+# → FATAL: no pg_hba.conf entry for host "...", no encryption
+
+# How long the internal CA has left, on the tool you already run around a migration:
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll verify-schema | grep internal-certificate
+```
+
+### Two things to know about the volume
+
+- **Back `internal_certs` up separately from `postgres_data`, or not at all.** It holds the CA's *private key*, so
+  one archive containing both hands whoever has it the means to impersonate the database and the object store to
+  any container that trusts this root.
+- **Losing it is recoverable and cheap**: delete the volume, `up -d`, and the one-shot mints a fresh set that every
+  consumer picks up from the same place. What is *not* recoverable is recreating it while containers are already
+  running against the old root — they keep verifying against a CA that no longer signs anything they can reach.
+  Bring the stack down first.
+
+### Forwarded headers
+
+`Security__TrustedProxies__0` is what makes the API believe Caddy's `X-Forwarded-For` and `X-Forwarded-Proto`.
+Left unset (or holding nothing parseable) **the headers are ignored entirely and a warning says so at startup** —
+never an unbounded header. The visible cost of ignoring them: every clinic in the deployment shares one
+rate-limit bucket, the per-account login lockout sees one address, and the Google OAuth state cookie loses its
+`Secure` flag.
+
+⚠️ **The two loopback-only gates — first-run `setup` and `/hangfire` — are decided by the real TCP peer and never
+by a header**, whatever this setting says. `curl -H 'X-Forwarded-For: 127.0.0.1' https://$DOMAIN/hangfire` is
+refused. That is a property of the code (the peer is captured before the headers are honoured), not of the proxy
+list being correct.
 
 ---
 
@@ -99,6 +199,7 @@ app uses — a verb run this way is looking at exactly the database the API is l
 | `subscription-grant` / `-cancel` / `-suspend` / `-unsuspend` | **yes** | `0` / `1` |
 | `messaging-report` | **yes** | `0` clean · `1` couldn't run · `2` findings |
 | `messaging-grant` / `-cancel` | **yes** | `0` / `1` |
+| `reprotect-secrets [--rotate]` | **yes** | `0` all current · `1` couldn't run · `2` work remains |
 | `restore-backup` | **no — refuses** | see below |
 
 ```bash
@@ -115,6 +216,64 @@ is listening », enforced by looking for a listener on the machine it runs on. I
 *different* container, so from a one-off `docker exec` the check finds nothing and passes — and
 `pg_restore --clean --if-exists` would then drop every table out from under a live application. Restore from the
 `backup`/`pitr` services' artifacts with the stack stopped instead.
+
+---
+
+## Key custody and encryption at rest
+
+Four keys hold this deployment together, and each one has a different answer to « what if it is lost? ».
+**[KEY-CUSTODY.md](./KEY-CUSTODY.md) is the authority** — where each lives, who holds a copy, and how to recover.
+Fill in its holder table before the deployment carries a real practice's records; it is a deliverable, not a note.
+
+| Key | Refuses to start / run without it? | Losing it costs |
+|---|---|---|
+| Key-ring certificate (`DataProtection__CertificatePath`) | **yes**, the API | every second factor and every cabinet's stored credentials |
+| Backup key (`BACKUP_AGE_RECIPIENT`) | **yes**, the `backup` sidecar | **every off-site backup, permanently** |
+| PITR key (`WALG_LIBSODIUM_KEY`) | **yes**, the `pitr` sidecar | **every archived base backup and WAL segment, permanently** |
+| LUKS keyfile | the volume will not unlock at boot | the data volume |
+
+Each refusal is deliberate. « Encrypt if a key happens to be set » is the version that ships a complete copy of
+every practice's medical records to somebody else's storage in the clear, while reporting success.
+
+### After configuring the certificate — the order matters
+
+```bash
+# Re-encrypt every stored secret under a fresh key. Idempotent without --rotate; names any row it cannot read.
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll reprotect-secrets --rotate
+
+# The figure that says it finished. BOTH lines must be clean before any key file is deleted.
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll verify-schema   | grep -E 'key-ring-protection|secrets-protected-under-current-ring|google-token-protected'
+
+# No plaintext key may remain in the ring afterwards:
+docker run --rm -v clinic-management_dataprotection_keys:/keys alpine grep -rl '<key ' /keys || echo "none — expected"
+
+# And no secret should remain in the API's environment (FR-3.10):
+docker exec clinic-api-prod env | grep -Ei 'password|apikey|token|secret' | grep -v '_FILE='
+```
+
+⚠️ **Deleting a plaintext key file before its ciphertext has moved destroys every administrator's second factor
+at once.** `reprotect-secrets` exits `2` and *names* every row it could not decrypt — while one is listed, its
+old key is exactly what is still needed.
+
+### Backups leave encrypted, and are verified by being decrypted
+
+The nightly dump and the object-store archive are encrypted with `age` **before** rclone touches them, and the
+PITR stream with libsodium. Each run also stamps the **key-ring generation** it belongs to beside the dump, and
+`backup/check-keyring.sh` refuses a restore whose generation this ring cannot read — without that, restoring
+against the wrong ring produces a practice whose every second factor is silently undecryptable.
+
+**A backup nobody can restore is not a backup.** The drill, its cadence (**quarterly, plus after each schema
+batch**) and its stated pass condition are in **[RESTORE-DRILL.md](./RESTORE-DRILL.md)**. ⚠️ No drill has been run
+on this deployment yet — the restore path is unproven until the log in that file has its first row.
+
+### The data volume
+
+LUKS on the volume holding `postgres_data` and `minio_data`, unlocked at boot by a keyfile on the host's own boot
+volume so the server still **reboots unattended**. Procedure in KEY-CUSTODY.md § 4.
+
+⚠️ **In these words:** it protects a **stolen, snapshotted or decommissioned disk**. It does **not** protect
+against someone who already has root on the running host — while the machine is up the volume is mounted and
+readable, and no disk encryption changes that.
 
 ---
 
@@ -286,6 +445,93 @@ Nobody is looking at the console in a datacentre, and two of this product's fail
 - **`/hangfire` is not reachable here, and that is not a misconfiguration.** The dashboard is loopback-only in
   every profile, and behind Caddy every request's peer address is the proxy container. `GET /api/outbox` exists
   because of that.
+
+---
+
+## Evidence — the audit chain, the export ledger and the content policy
+
+Part 4 of `hosted-security-hardening`. Three things an operator has to know about, and one they have to hold.
+
+### The audit ledger is tamper-evident
+
+Every audit entry carries a value derived from itself **and its predecessor**, keyed by `Audit:ChainKey` — a
+secret **the database does not hold**. An entry cannot be altered or removed without breaking the sequence, and
+`verify-schema` is what walks it:
+
+```bash
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll verify-schema | grep audit-
+```
+
+```
+[  ok ] audit-chain-intact: 6 chaîne(s) intactes — 179 entrée(s) vérifiées, 1104 antérieure(s) au chaînage
+[  ok ] audit-declared-gaps: 5 interruption(s) déclarée(s) — écritures de journal ayant échoué, ou restaurations
+```
+
+Three lines of that output need reading carefully:
+
+- **« antérieures au chaînage »** — entries written before this feature shipped. They carry no hash and none can
+  be invented for them, so they are **counted, never reported as tampering**. What *is* reported is an unchained
+  entry appearing **after** a chained one, which is what erasing a hash to hide an edit looks like.
+- **« interruptions déclarées »** — the product's own record that entries are missing here: an audit write that
+  failed, or a restore. Reported **apart from breaks and never as drift**, because the product consigned them
+  itself. That distinction is the whole point: « a gap we know about » is not « a break nobody declared ».
+- **A break is drift** (exit 2) and names the cabinet, the sequence number and the entry id. ⚠️ **Nothing refuses
+  to serve.** An audit break is an alarm, not an outage.
+
+⚠️ **`Audit__ChainKey_FILE` is required and the API refuses to start without it.** Generate it once
+(`openssl rand -base64 48 > secrets/audit-chain-key`) and keep it — see `KEY-CUSTODY.md`, key 5. Replacing it
+loses no data and makes every earlier entry read as tampered.
+
+### Exporting a cabinet's whole record is recorded, and gated
+
+`GET /api/backup/archive` — the file containing every patient record the practice holds — now:
+
+- **writes an attributable ledger entry before it builds anything**, and **refuses the download if it cannot**.
+  Not best-effort: an unrecorded export succeeding would make the guarantee false. A second entry records whether
+  the archive was **delivered** or the download was abandoned part way.
+- **requires the password (or a current second-factor code) immediately beforehand**, single-use, per action.
+  ⚠️ Failures there spend the **step-up's own** counter and never the login lockout — a mistyped password at the
+  export card cannot lock a practice's only administrator out mid-day.
+- **has its own rate limit**: 3 in 10 minutes per user (`RateLimiting:Archive:*`). It used to fall to the general
+  API window, which permitted **600 full-practice exports a minute**.
+
+The practice's staff see « Archive du cabinet exportée » in the bell. Per-list CSV exports are deliberately
+**not** gated — they are already role-restricted and are a daily action, and daily friction is what gets a
+control routed around.
+
+### The content-security policy is enforcing
+
+`Security__EnforceCsp: "true"` ships in both hosted compose files, `'unsafe-eval'` is gone, and the third-party
+analytics script has been removed from the web bundle — it loaded from an external origin, so an enforcing
+`script-src 'self'` could not have been switched on with it present.
+
+Violations arrive at **`POST /api/csp-report`** and are logged as `CSP violation: …`:
+
+```bash
+docker exec clinic-api-prod grep -a "CSP violation" /app/logs/clinic-management-*.log | tail
+```
+
+⚠️ **The reported address is stripped to its route pattern** (`/patients/{id}/files`) before anything is
+recorded. This application's URLs contain patient identifiers, so a violation report is itself patient data. The
+endpoint is anonymous — a violation on the login page is the one that matters most — bounded per address, and
+**excess is dropped rather than stored**.
+
+The policy is stated in three places (the API middleware, `Caddyfile`'s two sites, `console/next.config.ts`) and
+they are held **byte-identical** by a build-failing test. Change one and the build tells you about the others.
+
+### Logs are durable, and carry no patient names
+
+The `api_logs` volume keeps 30 days of daily files. Before it, logs lived on the container layer and every
+restart erased them.
+
+```bash
+docker exec clinic-api-prod grep -aEi "PatientName|Patient=" /app/logs/ -r || echo "none — expected"
+```
+
+⚠️ The scrub and the volume landed in **one change**, deliberately: making logs durable persists what was
+previously ephemeral, so a patient's name in a file that now survives is strictly worse than one in a file that
+vanished. `LogTemplateCoverageTests` is what keeps it that way — it scans every log statement in the solution and
+fails the build on a patient-identifying placeholder that is not masked.
 
 ---
 

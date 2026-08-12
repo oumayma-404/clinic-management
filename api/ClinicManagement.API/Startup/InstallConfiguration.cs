@@ -37,8 +37,12 @@ public static class InstallConfiguration
 
     /// <summary>
     /// Adds <c>appsettings.json</c> → <c>appsettings.Install.json</c> → <c>appsettings.{Environment}.json</c> →
-    /// environment variables, based at the <b>install directory</b> and not the CWD (a Windows service's CWD is
-    /// <c>System32</c>).
+    /// environment variables → <b>file-backed secrets</b>, based at the <b>install directory</b> and not the CWD
+    /// (a Windows service's CWD is <c>System32</c>).
+    ///
+    /// <para>⚠️ <see cref="FileBackedSecretsSource"/> is <b>last</b>, so a <c>*_FILE</c> variable beats a literal
+    /// of the same name (FR-3.10). Moving a secret to a file and removing its literal are two separate edits; if
+    /// the literal won, the state between them would keep reading the old value while appearing to have moved.</para>
     /// </summary>
     public static IConfigurationBuilder AddInstallLayers(
         this IConfigurationBuilder builder, bool baseSettingsOptional = true)
@@ -51,7 +55,8 @@ public static class InstallConfiguration
             // Installer-owned, before the operator layer so the operator can override anything in it.
             .AddJsonFile(InstallLayerFileName, optional: true)
             .AddJsonFile($"appsettings.{environment}.json", optional: true)
-            .AddEnvironmentVariables();
+            .AddEnvironmentVariables()
+            .Add(new FileBackedSecretsSource());
     }
 
     /// <summary>

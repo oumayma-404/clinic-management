@@ -62,7 +62,8 @@ public sealed class DeploymentProfile
         bool servesPlatformConsole,
         bool requiresSubscription,
         bool backsUpItsOwnData,
-        bool sellsVendorMessaging)
+        bool sellsVendorMessaging,
+        bool requiresAdminSecondFactor)
     {
         Kind = kind;
         UsesLocalAccounts = usesLocalAccounts;
@@ -83,6 +84,7 @@ public sealed class DeploymentProfile
         RequiresSubscription = requiresSubscription;
         BacksUpItsOwnData = backsUpItsOwnData;
         SellsVendorMessaging = sellsVendorMessaging;
+        RequiresAdminSecondFactor = requiresAdminSecondFactor;
     }
 
     /// <summary>Which topology this install is.</summary>
@@ -250,6 +252,34 @@ public sealed class DeploymentProfile
     public bool SellsVendorMessaging { get; }
 
     /// <summary>
+    /// A clinic <b>administrator</b> must present a second factor to obtain a session, and must enrol one before
+    /// they can obtain their first (<c>hosted-security-hardening</c> FR-1.1–FR-1.3).
+    ///
+    /// <para><b>True for <see cref="DeploymentKind.HostedMultiTenant"/> alone</b>, and each ✗ is its own decision
+    /// rather than a default.</para>
+    ///
+    /// <para><b><see cref="DeploymentKind.SelfHostedLan"/> ✗ — an administrator locked out with no vendor to call
+    /// is worse than the threat.</b> That deployment is one practice's own PC on its own network: reaching the
+    /// login form at all means standing in the surgery, and there is nobody to ring when the phone holding the
+    /// authenticator is lost or replaced. The three ways back this feature ships all assume somebody else — a
+    /// second administrator, or the vendor running a console verb — and on a single-dentist LAN install neither
+    /// exists. AC-7 (« no practice is ever locked out of its own records by a control introduced here ») is
+    /// therefore unsatisfiable there, which is what decides it.</para>
+    ///
+    /// <para><b><see cref="DeploymentKind.CloudBrowser"/> ✗ — Auth0 owns those identities.</b> The password is
+    /// not ours to gate and the second factor belongs in the identity provider's own policy, where that tenant
+    /// already configures it. Enforcing one here would be a second, weaker factor bolted onto a login this
+    /// product does not perform.</para>
+    ///
+    /// <para>⚠️ <b>This is the requirement, not the capability to enrol.</b> A doctor or secretary on any
+    /// deployment may enrol voluntarily from « Sécurité » — that surface is unconditional. What this decides is
+    /// whether an <i>administrator</i> is refused a session without one, and consequently whether such an
+    /// administrator is allowed to <i>disable</i> theirs: an unconditional refusal to disable would strand a
+    /// voluntarily-enrolled admin on the two profiles this is ✗ for, which is a control with no way out.</para>
+    /// </summary>
+    public bool RequiresAdminSecondFactor { get; }
+
+    /// <summary>
     /// May this topology deliver OS push to <paramref name="platform"/> at all? (spec FR-10, AC-51/AC-52.)
     ///
     /// <para><b>Per-platform, not one boolean</b>, because a deployment with a Firebase project and no Apple key
@@ -344,7 +374,10 @@ public sealed class DeploymentProfile
             backsUpItsOwnData: true,
             // The practice owns the machine, the Meta account and the bill. There is no vendor credit line here
             // to meter, and metering their own spend from their own PC is not a service.
-            sellsVendorMessaging: false),
+            sellsVendorMessaging: false,
+            // An admin locked out here has nobody to call: every way back this feature ships needs a second
+            // admin or the vendor, and a single-dentist LAN install has neither.
+            requiresAdminSecondFactor: false),
 
         DeploymentKind.HostedMultiTenant => new DeploymentProfile(
             kind,
@@ -376,7 +409,10 @@ public sealed class DeploymentProfile
             backsUpItsOwnData: false,
             // The one topology we host and bill, so the one where the vendor's own WhatsApp credit line is what
             // the cabinets' reminders are spent from.
-            sellsVendorMessaging: true),
+            sellsVendorMessaging: true,
+            // Reached over the internet, holding every cabinet's records, with a vendor on call: the one
+            // topology where a stolen admin password is the whole attack and a way back genuinely exists.
+            requiresAdminSecondFactor: true),
 
         DeploymentKind.CloudBrowser => new DeploymentProfile(
             kind,
@@ -406,7 +442,10 @@ public sealed class DeploymentProfile
             backsUpItsOwnData: false,
             // Predates the arrangement: these clinics supply their own WhatsApp credentials through the manual
             // fields the feature closes on the kind above.
-            sellsVendorMessaging: false),
+            sellsVendorMessaging: false,
+            // Auth0 issues these identities and performs the login: a second factor belongs in that tenant's
+            // own policy, not bolted on here over a password this product never checks.
+            requiresAdminSecondFactor: false),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled deployment kind.")
     };

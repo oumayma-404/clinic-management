@@ -9,6 +9,29 @@
 name: clinic-management
 
 services:
+  # The deployment's own internal certificate authority (hosted-security-hardening Part 2, FR-2.1/2.2/2.6).
+  # A one-shot container: it mints the CA + the postgres and minio leaves into `internal_certs`, exits 0, and
+  # every other service waits on `service_completed_successfully`. Idempotent — a still-chaining set is reused,
+  # so `up -d` does not hand postgres a new identity the API does not yet trust. See ./certs/issue.sh.
+  #
+  # ⚠️ Shared by BOTH hosted profiles: docker-compose.hosted.yml `extends` this file's infrastructure, so the
+  # internal CA, `ssl=on` and the hostssl-only pg_hba reach `CloudBrowser` too. That is why the API's
+  # fail-loud transit check gates on `!SelfHostsFrontDoor` — both hosted kinds — rather than on
+  # HostedMultiTenant alone: a check narrower than its own configuration lets transit fail open on the
+  # profile that received it. Transit is the fifth of this feature's global changes.
+  certs:
+    build:
+      context: ./certs
+      dockerfile: Dockerfile
+    image: clinic-internal-certs:1
+    container_name: clinic-certs-prod
+    # A one-shot must NOT be restarted: `restart: unless-stopped` would re-run it in a loop for ever, and
+    # `depends_on: service_completed_successfully` would never be satisfied.
+    restart: "no"
+    volumes:
+      - internal_certs:/certs
+    networks: [internal]
+
   postgres:
     # Custom image = postgres:16 + wal-g (PITR). Built here and tagged so the pitr sidecar reuses it.
     build:
@@ -17,6 +40,9 @@ services:
     image: clinic-postgres-pitr:16
     container_name: clinic-postgres-prod
     restart: unless-stopped
+    depends_on:
+      certs:
+        condition: service_completed_successfully
     # Continuous WAL archiving off-site (PITR). archive_command runs `wal-g wal-push`, inheriting
     # the WALG_*/AWS_* env below from the server process; a failed push is logged and retried by
     # Postgres (WAL is retained, never silently lost — AC-6). archive_timeout forces a WAL switch
@@ -29,6 +55,17 @@ services:
       - archive_command=wal-g wal-push %p
       - -c
       - archive_timeout=${PITR_ARCHIVE_TIMEOUT:-300}
+      # TLS with the internal leaf, and the hostssl-only pg_hba baked into the image (FR-2.3). `hba_file`
+      # points at an image path rather than $PGDATA's initdb-written copy, so the refusal applies to a volume
+      # that predates this change and cannot be edited away on a live host.
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/certs/postgres/server.crt
+      - -c
+      - ssl_key_file=/certs/postgres/server.key
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -40,10 +77,17 @@ services:
       AWS_ACCESS_KEY_ID: ${WALG_S3_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${WALG_S3_SECRET_KEY}
       AWS_S3_FORCE_PATH_STYLE: ${WALG_S3_FORCE_PATH_STYLE:-true}
+      # FR-3.6. This is the archive_command's OWN copy of the key: the server pushes each WAL segment itself, so
+      # setting it only on the `pitr` sidecar would encrypt the base backups and ship the WAL in the clear —
+      # which is the half that never stops flowing. Both must carry the SAME value or the stream cannot be read.
+      WALG_LIBSODIUM_KEY: ${WALG_LIBSODIUM_KEY}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - internal_certs:/certs:ro
     networks: [internal]
     # No `ports:` — not published to the host (AC-1).
+    # `pg_isready` with no host goes over the unix socket, which pg_hba's `local … trust` line covers — so
+    # the hostssl-only rule above does not turn the healthcheck red.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -54,16 +98,32 @@ services:
     image: minio/minio:latest
     container_name: clinic-minio-prod
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+    # `--certs-dir` is what turns 9000 into HTTPS: MinIO serves TLS as soon as it finds public.crt +
+    # private.key there, which is why issue.sh writes the leaf under exactly those two names (FR-2.2).
+    command: server /data --console-address ":9001" --certs-dir /certs/minio
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - minio_data:/data
+      - internal_certs:/certs:ro
     networks: [internal]
     # No `ports:` — not published to the host (AC-1). The bucket is auto-created by the API.
+    # ⚠️ `curl`, because **`minio/minio` ships no `wget`** — so the `wget --spider` line that stood here since
+    # the Cloud deployment was written has never once run: `/bin/sh: wget: command not found`, exit 1, for the
+    # life of both hosted profiles. It stayed invisible because nothing waits on `minio: service_healthy` (the
+    # API deliberately uses `service_started`), so the container simply sat at `health: starting` and no
+    # operator had a reason to look. Found while moving this line to HTTPS; fixed here rather than left,
+    # since the check that reports whether the object store is up should be one that can report.
+    #
+    # ⚠️ `--cacert`, never `--insecure`: a probe that skips verification proves the port answers and nothing
+    # about the chain, so a leaf that had stopped matching would read as healthy right up to the moment the
+    # API refused to talk to it. The leaf's SAN carries `localhost` for exactly this line.
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9000/minio/health/live || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS --cacert /certs/ca.crt https://localhost:9000/minio/health/live -o /dev/null || exit 1"]
       interval: 30s
       timeout: 20s
       retries: 3
@@ -75,6 +135,8 @@ services:
     container_name: clinic-api-prod
     restart: unless-stopped
     depends_on:
+      certs:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       minio:
@@ -84,23 +146,61 @@ services:
       ASPNETCORE_URLS: http://+:5000
       # Cloud mode: host/proxy (Caddy) terminates TLS; the API speaks plain HTTP on the internal net.
       Auth__Mode: Cloud
-      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # ⚠️ `sslmode=verify-full` + `Root Certificate=`, and the API REFUSES TO START without both on either
+      # hosted kind (FR-2.1/FR-2.5 — see Startup/TransportAssurance.cs). `verify-full` is the only mode that
+      # checks the server's identity as well as encrypting: `require` encrypts and accepts any certificate,
+      # so it stops a passive capture and not an impostor on the container network. The host in the string
+      # must stay `postgres` — that is the name in the leaf's SAN, and verify-full compares against it.
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=VerifyFull;Root Certificate=/certs/ca.crt"
       # OAuth success redirect + primary CORS origin (same-origin, so CORS is not exercised by the browser).
       FrontendUrl: "https://${DOMAIN}"
       Auth0__Domain: ${AUTH0_DOMAIN}
       Auth0__Audience: ${AUTH0_AUDIENCE}
       Auth0__ManagementApi__ClientId: ${AUTH0_MGMT_CLIENT_ID}
-      Auth0__ManagementApi__ClientSecret: ${AUTH0_MGMT_CLIENT_SECRET}
+      # FR-3.10 — supplied as FILES, not environment. See the `secrets:` block at the foot of this file for why,
+      # and docker-compose.hosted.yml for the two that deliberately stay in `environment:` (they are shared with
+      # containers that are not .NET and must move with them).
+      Auth0__ManagementApi__ClientSecret_FILE: /run/secrets/auth0_mgmt_client_secret
       GoogleCalendar__ClientId: ${GOOGLE_CLIENT_ID}
-      GoogleCalendar__ClientSecret: ${GOOGLE_CLIENT_SECRET}
+      GoogleCalendar__ClientSecret_FILE: /run/secrets/google_client_secret
       GoogleCalendar__RefreshToken: ${GOOGLE_REFRESH_TOKEN}
       GoogleCalendar__RedirectUri: "https://${DOMAIN}/api/googlecalendar/callback"
       GoogleCalendar__CalendarId: ${GOOGLE_CALENDAR_ID:-primary}
-      HuggingFace__ApiKey: ${HUGGINGFACE_API_KEY}
+      HuggingFace__ApiKey_FILE: /run/secrets/huggingface_api_key
       MinIO__Endpoint: "minio:9000"
       MinIO__AccessKey: ${MINIO_ROOT_USER}
       MinIO__SecretKey: ${MINIO_ROOT_PASSWORD}
-      MinIO__UseSSL: "false"
+      # FR-2.2, and the API refuses to start with this false on either hosted kind. The internal root below
+      # is what the Minio client verifies the leaf against — a system trust store knows nothing about it.
+      MinIO__UseSSL: "true"
+      MinIO__RootCertificate: /certs/ca.crt
+      # FR-3.9 — where the API writes which key-ring generations it can read, for the backup sidecar to stamp
+      # beside each dump. Best-effort: an unwritable path warns and never stops the API, because refusing to
+      # serve a whole deployment's clinics over a restore aid is a far larger outage than the risk it guards.
+      DataProtection__GenerationMarkerPath: /keyring-marker/generation
+      # ── hosted-security-hardening Part 4. Three of its five GLOBAL changes reach this profile, and the audit
+      # chain is why the first one is not optional here: `AuditChainKeyProvider` REFUSES TO START on any
+      # deployment that does not host its own front door, which is both hosted kinds. A generated key would work
+      # and then be replaced by the first redeploy, silently making every entry written before it unverifiable —
+      # a failure whose signature is identical to tampering.
+      Audit__ChainKey_FILE: /run/secrets/audit_chain_key
+      # FR-4.4 — 30 days of retention, over the durable volume below.
+      Serilog__WriteTo__1__Args__retainedFileCountLimit: "30"
+      # FR-4.5. Enforcing rather than report-only, now that the third-party analytics script that would have
+      # broken `script-src 'self'` is gone from the web bundle both profiles build.
+      Security__EnforceCsp: "true"
+    volumes:
+      - internal_certs:/certs:ro
+      # Read-WRITE here — the API is the only writer. Every other consumer mounts it `:ro`.
+      - keyring_marker:/keyring-marker
+      # FR-4.4 — logs outlive the container. The scrub that stops a patient's name reaching them lands in the
+      # same change, because durability persists what was previously ephemeral.
+      - api_logs:/app/logs
+    secrets:
+      - audit_chain_key
+      - auth0_mgmt_client_secret
+      - google_client_secret
+      - huggingface_api_key
     networks: [internal]
     # No `ports:` — Caddy proxies /api/* to this service over the internal network (AC-1).
 
@@ -159,6 +259,8 @@ services:
     container_name: clinic-backup-prod
     restart: unless-stopped
     depends_on:
+      certs:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     environment:
@@ -167,13 +269,35 @@ services:
       PGDATABASE: ${POSTGRES_DB}
       PGUSER: ${POSTGRES_USER}
       PGPASSWORD: ${POSTGRES_PASSWORD}
+      # ⚠️ The sidecar has its OWN credentials and its own connection, so it had to come across in the same
+      # change as the server-side refusal (FR-2.3's ⚠️) — left behind, the nightly dump starts failing at
+      # 02:00 and the only symptom is a missing file nobody looks for. libpq reads these two directly.
+      PGSSLMODE: verify-full
+      PGSSLROOTCERT: /certs/ca.crt
       BACKUP_REMOTE: ${BACKUP_REMOTE:-}
       BACKUP_CRON: ${BACKUP_CRON:-0 2 * * *}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      # ⚠️ The age PUBLIC key every archive is encrypted to (FR-3.6). backup.sh REFUSES to run without it —
+      # « encrypt if a key happens to be set » is the version that ships a complete copy of every practice's
+      # medical records to somebody else's storage in the clear while reporting success.
+      # ⚠️ Public on purpose: this container can encrypt and CANNOT decrypt what it wrote. A container reachable
+      # from the network holding the identity that opens every archive is the exposure the encryption prevents.
+      # ⚠️ Lose the matching PRIVATE key and every backup taken with it is unrecoverable — see KEY-CUSTODY.md.
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT}
+      # Optional, and normally NOT set here. Mounting the identity lets each run decrypt what it just uploaded
+      # and confirm it parses (FR-3.7) — at the cost of keeping the opening key beside the archives. Left unset,
+      # that verification is the quarterly drill in deploy/RESTORE-DRILL.md instead, and backup.sh says so out
+      # loud rather than letting « verified » quietly mean « not checked ».
+      BACKUP_AGE_IDENTITY_FILE: ${BACKUP_AGE_IDENTITY_FILE:-}
+      KEYRING_MARKER_FILE: /keyring-marker/generation
     volumes:
       - minio_data:/minio-data:ro   # MinIO object store, read-only, for the data archive
       - backups:/backups            # local staging of each dump (pruned by retention)
       - ./rclone:/config/rclone:ro  # operator's rclone.conf (gitignored) for the off-site remote
+      - internal_certs:/certs:ro    # the internal root pg_dump verifies the server against
+      # ⚠️ The MARKER, never the key ring (FR-3.9). It carries key IDs and no key material, and it is read-only
+      # here: one archive holding both the ciphertext and the key that opens it defeats the whole scheme.
+      - keyring_marker:/keyring-marker:ro
     networks: [internal]
 
   # PITR base backups + retention (complements the logical `backup` sidecar above — AC-5).
@@ -193,6 +317,8 @@ services:
     container_name: clinic-pitr-prod
     restart: unless-stopped
     depends_on:
+      certs:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     entrypoint: ["/usr/local/bin/pitr-entrypoint.sh"]
@@ -203,6 +329,10 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD}
       PGDATABASE: ${POSTGRES_DB}
       PGDATA: /var/lib/postgresql/data
+      # `wal-g backup-push` brackets its copy with pg_backup_start/stop over a real connection, so the PITR
+      # stream needs the same verified TLS as the logical sidecar — and for the same reason (FR-2.3's ⚠️).
+      PGSSLMODE: verify-full
+      PGSSLROOTCERT: /certs/ca.crt
       # Same off-site destination + shared prefix as the postgres archive_command (AC-3).
       WALG_S3_PREFIX: ${WALG_S3_PREFIX}
       AWS_ENDPOINT: ${WALG_S3_ENDPOINT}
@@ -210,19 +340,69 @@ services:
       AWS_ACCESS_KEY_ID: ${WALG_S3_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${WALG_S3_SECRET_KEY}
       AWS_S3_FORCE_PATH_STYLE: ${WALG_S3_FORCE_PATH_STYLE:-true}
+      # FR-3.6's other half, and the easier one to forget: WAL segments ship every few minutes, for ever,
+      # unattended — an unencrypted stream is a rolling complete copy of every practice's records off-site.
+      # wal-g reads this itself and encrypts both the WAL segments and the base backups with it.
+      # ⚠️ pitr-entrypoint.sh REFUSES to start without it, and ⚠️ losing it makes every archived backup
+      # unrecoverable. Generate with: wal-g libsodium-key-gen (or any 32-byte hex secret). See KEY-CUSTODY.md.
+      WALG_LIBSODIUM_KEY: ${WALG_LIBSODIUM_KEY}
       PITR_BASE_BACKUP_CRON: ${PITR_BASE_BACKUP_CRON:-0 1 * * *}
       PITR_RETAIN_BASE_BACKUPS: ${PITR_RETAIN_BASE_BACKUPS:-7}
     volumes:
       - postgres_data:/var/lib/postgresql/data:ro   # read the data dir for backup-push (never writes it)
+      - internal_certs:/certs:ro
     networks: [internal]
+
+# FR-3.10 — the API's own secrets reach it as FILES rather than environment variables, which are visible to
+# `docker inspect`, /proc/<pid>/environ, every child process and any crash dump. The application reads a
+# `*_FILE` variable's file through the layer added in InstallConfiguration.AddInstallLayers, shared by the host
+# and every console verb — so a verb cannot resolve a different value from the app it is maintaining.
+#
+# ⚠️ A `*_FILE` variable wins over a literal of the same name, and a named file that is missing or empty is a
+# startup REFUSAL rather than an empty value: moving a secret is two edits, and if the literal won, the state
+# between them would keep reading the old value while appearing to have moved.
+secrets:
+  # FR-4.1 — at least 32 bytes, base64: `openssl rand -base64 48`. Keep it with the deployment's other keys;
+  # replacing it makes every entry written under the old one read as tampering.
+  audit_chain_key:
+    file: ${AUDIT_CHAIN_KEY_FILE:-./secrets/audit-chain-key}
+  auth0_mgmt_client_secret:
+    file: ${AUTH0_MGMT_CLIENT_SECRET_FILE:-./secrets/auth0-mgmt-client-secret}
+  google_client_secret:
+    file: ${GOOGLE_CLIENT_SECRET_FILE:-./secrets/google-client-secret}
+  huggingface_api_key:
+    file: ${HUGGINGFACE_API_KEY_FILE:-./secrets/huggingface-api-key}
 
 networks:
   internal:
     driver: bridge
 
 volumes:
+  # The API's rolling log files, 30 days of them (FR-4.4).
+  api_logs:
   postgres_data:
   minio_data:
   caddy_data:
   caddy_config:
   backups:
+  # Which key-ring generations this deployment can read (hosted-security-hardening FR-3.9). The API writes it at
+  # every startup; the backup sidecar mounts it READ-ONLY and copies it beside each dump, so a restore can be
+  # refused before it produces a practice whose every second factor is silently undecryptable.
+  #
+  # ⚠️ It holds key IDs and NO key material, which is what makes mounting it into the backup container safe —
+  # unlike dataprotection_keys, which must never go near it.
+  #
+  # ⚠️ Losing it costs nothing: the API rewrites it on the next start. What it cannot reconstruct is the stamp
+  # already copied into an old backup, which is the point.
+  keyring_marker:
+  # The internal CA and the two server leaves (hosted-security-hardening Part 2). Written once by the `certs`
+  # one-shot, mounted read-only everywhere else.
+  #
+  # ⚠️ Do NOT back this up into the same archive as postgres_data — the same rule as dataprotection_keys, and
+  # for a sharper reason: this volume holds the CA's PRIVATE KEY, so whoever has both holds the ciphertext and
+  # the means to impersonate the database and the object store to any container that trusts the root.
+  #
+  # ⚠️ Deleting it (`down -v`) is recoverable and costs nothing: the one-shot mints a fresh set on the next
+  # `up -d`, and because every consumer reads the root from the same volume they all move together. What is
+  # NOT recoverable is deleting it while containers are already running against the old root.
+  internal_certs:

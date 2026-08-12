@@ -1,6 +1,7 @@
 import { auth0 } from '@/lib/auth0';
 import { NextRequest, NextResponse } from 'next/server';
-import { SESSION_COOKIE, resolveAuthMode } from '@/lib/auth/local-auth';
+import { resolveAuthMode } from '@/lib/auth/local-auth';
+import { readSessionCookie } from '@/lib/auth/session-cookie';
 import { clearSessionCookies, writeSessionCookies } from '@/lib/auth/session-cookie';
 import { forwardedForHeader } from '@/lib/auth/forwarded-for';
 
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
   // re-checks live account state on every call: a password change, admin reset or deactivation stops renewal
   // immediately (AC-5.6).
   if (resolveAuthMode() === 'local') {
-    const sessionCredential = request.cookies.get(SESSION_COOKIE)?.value;
+    const sessionCredential = readSessionCookie((name) => request.cookies.get(name)?.value);
     if (!sessionCredential) {
       // French like every other `{ error }` in this file. The body is not currently read by `client.ts`'s
       // `fetchAccessToken` (it branches on the status alone), but the contract here is the app-wide canonical

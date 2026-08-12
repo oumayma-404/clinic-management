@@ -4,7 +4,7 @@ import type React from "react"
 import { Auth0Provider, useUser } from "@auth0/nextjs-auth0/client"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { clinicsApi } from "@/lib/api/clinics"
-import { clearCachedAccessToken, onMustChangePassword } from "@/lib/api/client"
+import { clearCachedAccessToken, onMustChangePassword, onSecondFactorRequired } from "@/lib/api/client"
 import { canConfirmIdentityInShell, SessionLockGate } from "@/components/session-lock-gate"
 
 export type AuthMode = "cloud" | "local"
@@ -179,6 +179,28 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
       window.location.href = "/change-password"
     })
   }, [])
+
+  /*
+   * The same shape one requirement along (`hosted-security-hardening` FR-1.2): an administrator this
+   * deployment obliges to hold a second factor, who has none.
+   *
+   * ⚠️ **A refusal with no destination is an app that looks usable and is dead**, which is why this is not
+   * optional. The requirement is re-checked per request, so it does not only arrive at sign-in — a session
+   * that predates it, or an account promoted to administrator while signed in, meets it in the middle of
+   * ordinary work, on whatever call happens to be next.
+   *
+   * It carries the address so the enrolment step opens with it already filled: the user has just been told
+   * they cannot proceed, and asking them to retype what the app already knows is where people give up.
+   *
+   * Guarded against a redirect loop exactly as the one above is — `/login` itself makes calls.
+   */
+  useEffect(() => {
+    return onSecondFactorRequired(() => {
+      if (window.location.pathname.startsWith("/login")) return
+      const address = user?.email ? `&email=${encodeURIComponent(user.email)}` : ""
+      window.location.href = `/login?enrol=1${address}`
+    })
+  }, [user?.email])
 
   /*
    * Inactivity auto-logout — only armed while logged in (AC-42).

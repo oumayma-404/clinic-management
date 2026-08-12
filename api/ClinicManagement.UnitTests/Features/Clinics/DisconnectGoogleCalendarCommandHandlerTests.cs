@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -31,7 +31,8 @@ public class DisconnectGoogleCalendarCommandHandlerTests
         var clinic = new Clinic(ClinicId, "Cabinet Test", code: "CODE01", city: "Tunis");
         if (connected)
         {
-            clinic.SetGoogleCalendarConnection("refresh-token-value", "clinic@example.com");
+            // Ciphertext, as every caller now passes since FR-3.4 — the handler never decrypts it.
+            clinic.SetGoogleCalendarConnection("protected-refresh-token-value", "clinic@example.com");
         }
         return clinic;
     }
@@ -60,6 +61,7 @@ public class DisconnectGoogleCalendarCommandHandlerTests
 
         Assert.True(result.IsSuccess);
         Assert.Null(clinic.GoogleRefreshToken);
+        Assert.Null(clinic.GoogleRefreshTokenProtected);
         Assert.Null(clinic.GoogleCalendarId);
         _clinics.Verify(r => r.UpdateAsync(clinic, It.IsAny<CancellationToken>()), Times.Once);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
@@ -96,7 +98,7 @@ public class DisconnectGoogleCalendarCommandHandlerTests
         var result = await Handler().Handle(new DisconnectGoogleCalendarCommand(), CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        Assert.Equal("refresh-token-value", clinic.GoogleRefreshToken);
+        Assert.Equal("protected-refresh-token-value", clinic.GoogleRefreshTokenProtected);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 

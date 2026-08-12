@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
@@ -94,7 +95,7 @@ public class LocalAuthService : ILocalAuthService
         return new LocalAuthToken(accessToken, expiresAt);
     }
 
-    public LocalAuthToken GenerateRefreshToken(User user)
+    public LocalAuthToken GenerateRefreshToken(User user, Guid? sessionFamilyId)
     {
         var expiresAt = DateTime.UtcNow.AddMinutes(LocalAuthConfig.TokenLifetimeMinutes(_configuration));
 
@@ -108,6 +109,14 @@ public class LocalAuthService : ILocalAuthService
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new(LocalAuthClaims.TokenVersion, user.TokenVersion.ToString(CultureInfo.InvariantCulture))
         };
+
+        // FR-1.6 — which device's chain this credential belongs to. Only on the REFRESH token: an access token
+        // is never exchanged, so it has no chain. Absent on a token minted before families existed, which the
+        // exchange reads as « no chain to check » rather than as a replay.
+        if (sessionFamilyId is { } familyId)
+        {
+            claims.Add(new Claim(LocalAuthClaims.SessionFamily, familyId.ToString()));
+        }
 
         if (!string.IsNullOrWhiteSpace(user.Email))
         {
@@ -181,7 +190,14 @@ public class LocalAuthService : ILocalAuthService
                 return null;
             }
 
-            return new RefreshTokenPrincipal(subject, tokenVersion);
+            // ⚠️ An UNPARSEABLE or absent family is `null`, never a refusal: a credential minted before
+            // families existed is an ordinary in-flight session, and refusing it would sign the whole
+            // deployment out on the deploy that introduced replay detection.
+            var family = Guid.TryParse(Claim(result, LocalAuthClaims.SessionFamily), out var familyId)
+                ? familyId
+                : (Guid?)null;
+
+            return new RefreshTokenPrincipal(subject, tokenVersion, family);
         }
         catch
         {
@@ -193,10 +209,13 @@ public class LocalAuthService : ILocalAuthService
     private static string? Claim(Microsoft.IdentityModel.Tokens.TokenValidationResult result, string type) =>
         result.ClaimsIdentity?.FindFirst(type)?.Value;
 
-    // 12 chars from an unambiguous alphabet (no 0/O/1/I/l) — comfortably above the 8-char
-    // minimum and easy for an admin to read aloud to the user.
+    // An unambiguous alphabet (no 0/O/1/I/l) — an admin reads this aloud or writes it on paper.
     private const string TemporaryPasswordAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
-    private const int TemporaryPasswordLength = 12;
+
+    // ⚠️ Derived from the floor, never a literal that happens to match it: this was 12 while the floor was 8, so
+    // raising the floor past 12 would have silently minted temporary passwords the five set-paths then refused —
+    // an admin handing a colleague a credential the product will not accept, with nothing failing until they try.
+    private static int TemporaryPasswordLength => PasswordPolicy.MinLength;
 
     public string GenerateTemporaryPassword()
     {

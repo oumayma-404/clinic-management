@@ -10,9 +10,16 @@ namespace ClinicManagement.Infrastructure;
 /// exercised by <c>ClinicManagement.UnitTests</c>, which references Infrastructure but not the API.
 ///
 /// <para><b>Deliberately reads the raw TCP peer, never a forwarded header.</b> This is a security gate, so it
-/// must not be influenced by anything a client can send. That is also why the codebase resolves the
-/// rate-limiting client address through <see cref="ClientIp"/> instead of <c>UseForwardedHeaders</c>, which
-/// would overwrite <c>RemoteIpAddress</c> and make this gate depend on header trust.</para>
+/// must not be influenced by anything a client can send.</para>
+///
+/// <para>⚠️ <b>It reads <see cref="OriginalPeer"/> rather than <c>Connection.RemoteIpAddress</c> directly, and
+/// since hosted-security-hardening Part 2 that difference is load-bearing.</b> That part registers
+/// <c>UseForwardedHeaders</c> on the hosted kinds — bounded by <c>Security:TrustedProxies</c> — and that
+/// middleware <i>overwrites</i> <c>RemoteIpAddress</c> with whatever the trusted hop forwarded. Reading the
+/// field directly would therefore make this gate decidable by a header the moment the proxy bound was wrong
+/// or widened, which is precisely what a loopback gate must not be (risk R-5). <see cref="OriginalPeer"/> is
+/// captured before that substitution; where no substitution happens it is the same address, so nothing about
+/// <c>SelfHostedLan</c> changes.</para>
 /// </summary>
 public static class LocalRequest
 {
@@ -20,7 +27,7 @@ public static class LocalRequest
     public static bool IsLoopback(HttpContext context)
     {
         var connection = context.Connection;
-        var remoteIp = connection.RemoteIpAddress;
+        var remoteIp = OriginalPeer.Of(context);
         if (remoteIp is null)
         {
             // Fail CLOSED. A security gate must deny on missing or ambiguous information, not allow: this

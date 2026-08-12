@@ -35,5 +35,12 @@ public enum NotificationTargetKind
     /// about the cabinet, and everything it asks for — what is left, when it renews, who to contact and which
     /// patients were not prevented — is on that one screen.
     /// </summary>
-    MessagingAllowance = 6
+    MessagingAllowance = 6,
+
+    /// <summary>
+    /// The « Sécurité » screen (<c>hosted-security-hardening</c> FR-1.4/FR-1.5). Like <see cref="Recall"/>,
+    /// <see cref="BackupSettings"/> and <see cref="Subscription"/> it carries <b>no id</b>: the alert is about
+    /// this account, and everything it asks for is on that one screen.
+    /// </summary>
+    Security = 7
 }

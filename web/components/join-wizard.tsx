@@ -15,6 +15,7 @@ import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
 import { getErrorMessage } from "@/lib/errors"
 import JoinUnavailable from "@/components/join-unavailable"
+import { usePasswordMinLength } from "@/lib/hooks/use-password-policy"
 
 import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
 
@@ -54,6 +55,8 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
   const [lastName, setLastName] = useState("")
   const [specialty, setSpecialty] = useState("")
   const [personalPhone, setPersonalPhone] = useState("")
+  // The server's floor, never a literal here. `null` = not known yet, in which case nothing is pre-checked.
+  const minLength = usePasswordMinLength()
 
   const isStep1Valid = () => {
     const roleOk = role === "doctor" || role === "secretary"
@@ -63,7 +66,10 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
         roleOk &&
         regFullName.trim() !== "" &&
         /\S+@\S+\.\S+/.test(regEmail) &&
-        regPassword.length >= 8 &&
+        // An unknown floor (the probe has not answered, or failed) does not block the step: the server refuses a
+        // short password with its own sentence, and stalling « Continuer » on a metadata read would remove a
+        // working capability over a network hiccup.
+        (minLength === null || regPassword.length >= minLength) &&
         regPassword === regPasswordConfirm
       )
     }
@@ -277,7 +283,11 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                           <Input
                             id="reg-password"
                             type="password"
-                            placeholder="Au moins 8 caractères"
+                            // The floor was hardcoded here too, so the placeholder went on promising 8 while the
+                            // server refused at 12. Falls back to a sentence with no number when it is unknown.
+                            placeholder={
+                              minLength !== null ? `Au moins ${minLength} caractères` : "Choisissez un mot de passe"
+                            }
                             value={regPassword}
                             onChange={(e) => setRegPassword(e.target.value)}
                             required
@@ -297,8 +307,10 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                           />
                         </div>
                       </div>
-                      {regPassword.length > 0 && regPassword.length < 8 && (
-                        <p className="text-xs text-destructive">Le mot de passe doit contenir au moins 8 caractères.</p>
+                      {minLength !== null && regPassword.length > 0 && regPassword.length < minLength && (
+                        <p className="text-xs text-destructive">
+                          Le mot de passe doit contenir au moins {minLength} caractères.
+                        </p>
                       )}
                       {regPasswordConfirm.length > 0 && regPassword !== regPasswordConfirm && (
                         <p className="text-xs text-destructive">Les mots de passe ne correspondent pas.</p>

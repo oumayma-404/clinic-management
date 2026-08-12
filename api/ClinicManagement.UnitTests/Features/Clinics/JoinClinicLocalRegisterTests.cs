@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Clinics.Commands;
@@ -16,6 +17,15 @@ namespace ClinicManagement.UnitTests.Features.Clinics;
 public class JoinClinicLocalRegisterTests
 {
     private const string Code = "ABC123";
+
+    /// <summary>
+    /// A password that clears the policy floor, <b>derived from it</b> rather than a literal that happens to.
+    ///
+    /// <para>⚠️ This fixture said <c>"s3cret!!"</c> — 8 characters — so three tests here went red the day
+    /// <see cref="PasswordPolicy.MinLength"/> rose to 12, none of which is about passwords. The « too short »
+    /// case below keeps its own literal, because there the length <i>is</i> the subject.</para>
+    /// </summary>
+    private static readonly string ValidPassword = "s3cret!!".PadRight(PasswordPolicy.MinLength, 'x');
 
     private readonly Mock<IClinicRepository> _clinics = new();
     private readonly Mock<IUserRepository> _users = new();
@@ -51,7 +61,7 @@ public class JoinClinicLocalRegisterTests
         Code = Code,
         Role = "secretary",
         Email = "sec@clinic.com",
-        Password = "s3cret!!",
+        Password = ValidPassword,
         FullName = "Sam Secretary",
     };
 
@@ -205,7 +215,7 @@ public class JoinClinicLocalRegisterTests
         _users.Verify(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // [FR-B2] Password policy: minimum 8 characters.
+    // [FR-B2] Password policy: at least `PasswordPolicy.MinLength` characters.
     [Fact]
     public async Task Register_Should_Reject_Short_Password()
     {
