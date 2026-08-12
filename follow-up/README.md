@@ -21,6 +21,7 @@ Track incomplete work, bugs, and technical debt across all features.
 | [The archive restore's query path has no automated gate — add a `restore-dry-run` verb](./archive-restore-real-database-checks.md) | clinic-data-archive-and-restore | correctness | high | 2026-08-12 |
 | [Open after the WhatsApp forfait: the Graph bump, three unanswered Meta questions, and the walks still owed](./vendor-messaging-open-questions.md) | vendor-whatsapp-messaging-quota | incomplete | medium | 2026-08-12 |
 | [The sidecars' secrets still reach them as environment variables (FR-3.10, second half)](./hosted-secrets-to-files.md) | hosted-security-hardening | debt | medium | 2026-08-12 |
+| [The hosted security layer is running reduced on Render's free tier — restore it on a real VM](./render-free-tier-transit-relaxation.md) | hosted-security-hardening | debt | **high** | 2026-08-12 |
 
 ## Completed Items
 
