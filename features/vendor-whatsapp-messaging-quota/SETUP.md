@@ -6,8 +6,8 @@ appointment reminders, and when a cabinet runs out its reminders are **held** (n
 **Where it works:** only on the **hosted** deployment (`DEPLOYMENT_PROFILE=HostedMultiTenant`). On a clinic's own
 PC or the Auth0 cloud setup the whole feature is invisible — that is deliberate, not a bug.
 
-**Status right now:** all the code is written, tested and committed. **Nothing has ever talked to Meta.** Steps 1–3
-below are the part that has never been done.
+**Status right now:** all the code is written, tested and committed, but **not yet deployed**, and **nothing has
+ever talked to Meta.** Every step below is still to do.
 
 ---
 
@@ -27,14 +27,36 @@ below are the part that has never been done.
 
 > ⚠️ Meta's approval can take a few days. Start here, not last.
 
-## Step 2 — Tell Meta where to send updates
+> ⚠️ **Two settings people mix up.** Our code uses the **JS SDK popup** flow (`FB.login` with `response_type:
+> "code"`) — no OAuth redirect ever happens, and there is no redirect URI anywhere in this codebase. If Meta's
+> config screen insists on a « URI de redirection », the frontend's own URL is a harmless placeholder. What
+> actually has to be right is **« Allowed Domains for the JavaScript SDK »** under *Facebook Login for Business →
+> Settings*: it must contain the origin serving the app, or `FB.login` fails in the browser.
 
-- In the app's WhatsApp → **Webhooks** section, set the callback URL to:
-  `https://VOTRE-DOMAINE/api/meta/webhook`
-- Invent a random **verify token** (e.g. run `openssl rand -hex 24`) and paste it into Meta's form.
-- Subscribe to these two fields:
-  - `account_update` — **required**, or Embedded Signup won't work at all
-  - `message_template_status_update` — this is how a cabinet's message template gets approved
+## Step 2 — Deploy this branch first
+
+**The webhook cannot be set up before the code is live**, because Meta verifies the URL by calling it. Until the
+branch carrying `MetaWebhookController` is deployed, that path does not exist and Meta's « Verify and save » will
+fail.
+
+- Push and deploy the branch to the API host.
+- Set the environment variables from step 3 on the **host's own** env-var settings (Render's dashboard, not just a
+  `.env` file in the repo).
+- ⚠️ The two `NEXT_PUBLIC_*` values are **build-time** on the frontend service — set them and **rebuild**, or the
+  browser keeps the old values with nothing saying so.
+
+Confirm it landed:
+
+```bash
+curl -s https://YOUR-API-HOST/api/auth/mode      # requiresSubscription must be true
+curl -i "https://YOUR-API-HOST/api/meta/webhook?hub.mode=subscribe&hub.verify_token=x&hub.challenge=t"
+```
+
+| The second call gives | Meaning |
+|---|---|
+| **403** | ✅ The route is live. It refused a wrong token — which is exactly right. Go to step 4. |
+| **401** or **404** | The code isn't deployed yet (an unknown `/api` path answers this). Deploy first. |
+| **200** echoing `t` | The route is live *and* your token happened to be `x`. Go to step 4. |
 
 ## Step 3 — Put the values in `deploy/.env`
 
@@ -44,7 +66,7 @@ Copy them out of `deploy/.env.hosted.example`. The ones that matter:
 META_APP_ID=...              # from step 1
 META_CONFIG_ID=...           # from step 1
 META_APP_SECRET=...          # from step 1 — secret, never shared
-META_WEBHOOK_VERIFY_TOKEN=... # the random string from step 2
+META_WEBHOOK_VERIFY_TOKEN=... # invent one: `openssl rand -hex 24`
 META_GRAPH_API_VERSION=v21.0
 
 MESSAGING_DEFAULT_MESSAGES_PER_MONTH=200   # what each NEW cabinet starts with
@@ -52,25 +74,47 @@ MESSAGING_CONTACT_EMAIL=votre@email.tn     # shown to a cabinet that runs out
 MESSAGING_CONTACT_PHONE=+216 ...           # same
 ```
 
-Then restart **with a rebuild**, not a plain restart:
+**On Render** (or any managed host) these go in the service's own **Environment** settings, not in a `.env` file
+in the repo — the container never reads the repo. The `Meta__*` / `Messaging__*` names work as-is there; use the
+double underscore form (`Meta__AppId`, `Messaging__DefaultMessagesPerMonth`).
+
+**With docker-compose** it is the `.env` beside the compose file, then:
 
 ```bash
 docker compose -f docker-compose.hosted.yml up -d --build
 ```
 
-> ⚠️ **Why `--build` matters:** `META_APP_ID` and `META_CONFIG_ID` get baked into the website when it is built. A
-> normal restart leaves the browser using the old values and nothing tells you.
+> ⚠️ **Why a rebuild and not a restart:** `META_APP_ID` and `META_CONFIG_ID` are baked into the *website* when it
+> is built, so they belong to the **frontend** service and only take effect on a new build. A restart leaves the
+> browser on the old values and nothing tells you. The `Meta__*` values on the API are ordinary runtime variables
+> and a restart is enough for those.
 
-## Step 4 — Check it came up correctly
+## Step 4 — Now tell Meta where to send updates
+
+- In the app's WhatsApp → **Configuration → Webhooks**, set the callback URL to:
+  `https://YOUR-API-HOST/api/meta/webhook`
+- Paste the **same** verify token you put in `META_WEBHOOK_VERIFY_TOKEN`.
+- Press **Verify and save** — Meta calls the URL and expects the challenge echoed back.
+- Then **Manage** the fields and subscribe to:
+  - `account_update` — **required**, or Embedded Signup won't work at all
+  - `message_template_status_update` — how a cabinet's message template gets approved
+
+⚠️ **Getting this wrong fails silently.** Meta simply stops delivering, and cabinets sit at « en attente de
+validation » until the daily poll (06:00 Tunis) catches up — so nothing errors, it just runs a day late.
+
+## Step 5 — Check it came up correctly
 
 ```bash
+# docker-compose:
 docker exec clinic-api-prod dotnet ClinicManagement.API.dll verify-schema
+# Render: open the service's Shell and run
+dotnet ClinicManagement.API.dll verify-schema
 ```
 
 Look at the **« Messaging allowances »** section. You want three green lines. If it says *« not applicable — this
 deployment does not sell vendor messaging »*, your `DEPLOYMENT_PROFILE` is not `HostedMultiTenant`.
 
-## Step 5 — Connect one real cabinet (the first true test)
+## Step 6 — Connect one real cabinet (the first true test)
 
 - Log in as that cabinet, go to **« Rappels »**.
 - Press **« Connecter WhatsApp »** — a Meta popup opens and asks them to pick/create a WhatsApp number.
@@ -85,7 +129,8 @@ deployment does not sell vendor messaging »*, your `DEPLOYMENT_PROFILE` is not 
 
 ## Day-to-day: the three commands you'll use
 
-Run them all as `docker exec clinic-api-prod dotnet ClinicManagement.API.dll <command>`.
+Run them as `docker exec clinic-api-prod dotnet ClinicManagement.API.dll <command>`, or from the host's own shell
+as `dotnet ClinicManagement.API.dll <command>`.
 
 - **See who needs attention** — run this weekly:
   `messaging-report`
