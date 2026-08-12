@@ -244,6 +244,32 @@ let inFlightToken: Promise<string | null> | null = null;
  */
 let lastTokenFailureStatus: number | null = null;
 
+/**
+ * Earliest moment another token exchange may be attempted, and the consecutive-429 count that sets it.
+ *
+ * ⚠️ **Why this exists: without it a 429 is self-sustaining.** Every failed exchange used to drop the cache and
+ * let the very next API call open another one — so the moment the server said « trop de requêtes » the app
+ * answered by asking again immediately, several times a second, for as long as the page stayed open. That is not
+ * a hypothetical: it was observed on the hosted deployment, where the BFF calls the API server-side so *every*
+ * user's refresh arrives from one address and shares one rate-limit bucket. The loop then produced a second
+ * symptom that hid the first — no token means every call 401s, which reads as « je suis déconnecté » rather than
+ * as « j'ai été limité ».
+ *
+ * A 429 is the one refusal that says **ask later**, not **you are not allowed**: honouring it is how the bucket
+ * is allowed to refill. Exponential, capped, and cleared by the first success.
+ */
+let tokenBackoffUntilMs = 0;
+let consecutiveTokenRateLimits = 0;
+
+/** First backoff after a 429. Doubles per consecutive refusal, up to {@link TOKEN_BACKOFF_MAX_MS}. */
+const TOKEN_BACKOFF_BASE_MS = 2_000;
+const TOKEN_BACKOFF_MAX_MS = 30_000;
+
+/** Milliseconds until another exchange may be attempted; `0` when none is owed. */
+export function getTokenBackoffRemainingMs(): number {
+  return Math.max(0, tokenBackoffUntilMs - Date.now());
+}
+
 /** See {@link lastTokenFailureStatus}. */
 export function lastAccessTokenFailureStatus(): number | null {
   return lastTokenFailureStatus;
@@ -603,6 +629,14 @@ export async function getAccessToken(forceRenew = false): Promise<string | null>
     inFlightToken = null;
   }
 
+  // ⚠️ The backoff is honoured by a FORCED renewal too, and that is the point rather than an oversight: a forced
+  // renewal is what the one-shot 401 retry asks for, so exempting it would rebuild the very loop this prevents —
+  // 429 → no token → 401 → force → 429. Returning null here costs that one request, which was going to fail
+  // anyway, and lets the bucket refill instead of holding it empty.
+  if (getTokenBackoffRemainingMs() > 0) {
+    return null;
+  }
+
   // Single-flight: a page load fires many parallel API calls, and without this each one would open its
   // own exchange.
   if (inFlightToken) {
@@ -621,6 +655,12 @@ export async function getAccessToken(forceRenew = false): Promise<string | null>
 export function clearCachedAccessToken(): void {
   cachedToken = null;
   inFlightToken = null;
+  // A deliberate session change is a new situation, so it does not inherit the old one's pause — otherwise
+  // signing back in after a rate-limited spell leaves the app inert for up to 30 s with nothing explaining it.
+  // Safe to reset here because this is only reached on an explicit sign-out, and the login endpoint carries its
+  // own per-account limiter.
+  tokenBackoffUntilMs = 0;
+  consecutiveTokenRateLimits = 0;
 }
 
 async function fetchAccessToken(): Promise<string | null> {
@@ -635,6 +675,11 @@ async function fetchAccessToken(): Promise<string | null> {
       const token: string | null = data.accessToken || null;
       lastTokenFailureStatus = token ? null : response.status;
       if (token) {
+        // The bucket has refilled — start from zero, so one bad minute does not lengthen every later pause.
+        consecutiveTokenRateLimits = 0;
+        tokenBackoffUntilMs = 0;
+      }
+      if (token) {
         // Renew a minute early so a request can't leave with a token that expires in flight. When the
         // server does not report an expiry (Cloud, where the Auth0 SDK does its own caching), fall back to
         // a short TTL — still enough to collapse a page load's burst into one exchange.
@@ -648,8 +693,25 @@ async function fetchAccessToken(): Promise<string | null> {
       }
       return token;
     }
-    // A refusal invalidates the cache: never serve a token the server has stopped standing behind.
     lastTokenFailureStatus = response.status;
+
+    if (response.status === 429) {
+      // ⚠️ The cache is deliberately LEFT ALONE here, unlike every other refusal below. A 429 is not the server
+      // withdrawing the token it issued — it is declining to issue another one yet — so a still-valid cached
+      // token stays perfectly good and dropping it would force an exchange the server has just asked us not to
+      // make. `Retry-After` wins when the server sends one, because it knows its own window.
+      const retryAfter = Number.parseInt(response.headers.get('Retry-After') ?? '', 10);
+      const advisedMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1_000 : 0;
+      const backoffMs =
+        advisedMs ||
+        Math.min(TOKEN_BACKOFF_BASE_MS * 2 ** consecutiveTokenRateLimits, TOKEN_BACKOFF_MAX_MS);
+
+      consecutiveTokenRateLimits += 1;
+      tokenBackoffUntilMs = Date.now() + backoffMs;
+      return null;
+    }
+
+    // A refusal invalidates the cache: never serve a token the server has stopped standing behind.
     cachedToken = null;
   } catch {
     // Network failure — keep any cached token. A blip must not look like a lost session.
