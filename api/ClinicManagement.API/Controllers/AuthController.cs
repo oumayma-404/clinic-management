@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
 using MediatR;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Auth.Commands;
@@ -94,6 +95,15 @@ public class AuthController : ApiControllerBase
             // in the wizard would be a second one, and this product's own landing copy already says « 2 semaines ».
             // Null where nothing expires, so no screen can quote a trial that deployment does not grant.
             trialDays = deployment.RequiresSubscription ? _subscriptionPolicy.TrialDays : (int?)null,
+            // hosted-security-hardening FR-1.9. The floor, served rather than restated: every screen that
+            // collects a NEW password used to carry its own `8`, so raising the constant would have left four
+            // client-side rules disagreeing with the server that refuses them — and the user reading a French
+            // sentence quoting the old number. `PasswordFloorSingleSourceTests` fails on a re-introduced literal.
+            passwordMinLength = PasswordPolicy.MinLength,
+            // hosted-security-hardening FR-1.1. Whether an ADMINISTRATOR is refused a session without a second
+            // factor. Served so the login screen can say so before the first refusal rather than after it; the
+            // server enforces it regardless, and no client reads this to decide whether to send the code.
+            requiresSecondFactor = deployment.RequiresAdminSecondFactor,
         });
     }
 

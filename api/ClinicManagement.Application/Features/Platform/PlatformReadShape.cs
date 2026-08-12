@@ -40,6 +40,9 @@ public static class PlatformReadShape
         "ExpiresAt",
         "RecoveryCodesRemaining",
         "RecoveryCodes",
+        // hosted-security-hardening FR-1.9. The password floor, so the console states the server's number rather
+        // than its own. A policy constant — it names no cabinet, no account and nobody a practice treats.
+        "PasswordMinLength",
 
         // ── A cabinet's identity. Its own name and city — never a person's.
         "ClinicId",

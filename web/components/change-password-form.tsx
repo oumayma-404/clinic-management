@@ -6,9 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { FormErrorBanner } from '@/components/ui/form-error-banner'
-
-// Minimum password length policy (FR-B2), matching the backend.
-const MIN_PASSWORD_LENGTH = 8
+import { usePasswordMinLength } from '@/lib/hooks/use-password-policy'
 
 interface ChangePasswordFormProps {
   /** True when the user was forced here by an admin password reset (AC-5.2). */
@@ -21,13 +19,16 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // null while unknown (or if the probe failed) — the server still refuses a short password with its own
+  // sentence, so an unread floor costs a courtesy check rather than letting a weak password through.
+  const minLength = usePasswordMinLength()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
 
-    if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      setError(`Le nouveau mot de passe doit contenir au moins ${MIN_PASSWORD_LENGTH} caractères.`)
+    if (minLength !== null && newPassword.length < minLength) {
+      setError(`Le nouveau mot de passe doit contenir au moins ${minLength} caractères.`)
       return
     }
     if (newPassword !== confirmPassword) {

@@ -123,6 +123,25 @@ export async function fetchSummary(token: string): Promise<PlatformSummary> {
   return consoleFetch<PlatformSummary>("/platform/summary", { token });
 }
 
+// ── The password policy (hosted-security-hardening FR-1.9) ──────────────────────────────────────────────────
+
+/** What the console needs before it asks anybody to **choose** a password. */
+export interface PlatformAuthMeta {
+  passwordMinLength: number;
+}
+
+/**
+ * The server's minimum password length.
+ *
+ * ⚠️ **Read rather than restated.** « Changer le mot de passe » used to print « Au moins 8 caractères. » as a
+ * literal, so raising `PasswordPolicy.MinLength` server-side would have left the console telling an operator a
+ * number the API no longer accepts — and the console cannot read the clinic app's `GET /api/auth/mode`, because
+ * `ConsolePortGate` 404s anything outside `/api/platform` on this listener. Hence a platform-side read.
+ */
+export async function fetchAuthMeta(token: string): Promise<PlatformAuthMeta> {
+  return consoleFetch<PlatformAuthMeta>("/platform/auth/meta", { token });
+}
+
 // ── One cabinet, opened (US-3) ──────────────────────────────────────────────────────────────────────────────
 
 /** One month of a cabinet's activity. */

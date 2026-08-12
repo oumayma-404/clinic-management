@@ -141,7 +141,7 @@ price must not be compiled in); every member may be absent, and an unpublished p
   namespace. **The reason is a mandatory constructor argument**: the exempt set is stated as *what each endpoint is*,
   so every entry has to answer « why may an unpaid cabinet still do this? » where a reader finds it, and a bare
   boolean flag would let the set grow by copy-paste.
-- **Constants** — `ErrorMessages` (`Generic`, **`Conflict`**, **`RepeatedConflict`**), `PasswordPolicy` (`MinLength = 8`), `PaymentMethodLabels` (French `PaymentMethod` labels for receipts).
+- **Constants** — `ErrorMessages` (`Generic`, **`Conflict`**, **`RepeatedConflict`**), `PasswordPolicy` (**`MinLength = 12`** since `hosted-security-hardening` FR-1.9 — enforced on the five *set* paths only, never on a check, so an existing shorter password keeps working until its owner next changes it; served to the clients as `passwordMinLength` rather than restated by them, and `PasswordFloorSingleSourceTests` fails on a re-introduced literal in `web/` or `console/`), `PaymentMethodLabels` (French `PaymentMethod` labels for receipts).
 - **Maintenance** (`Common/Maintenance/`) also holds **`MoneyReconciliationService`** — the core of the
   `reconcile-money` console verb (nine cross-checks over both payment ledgers, plan échéanciers, monthly
   attribution old-vs-new, orphans, sentinels, over-credited invoices, duplicate bridge invoices). Like

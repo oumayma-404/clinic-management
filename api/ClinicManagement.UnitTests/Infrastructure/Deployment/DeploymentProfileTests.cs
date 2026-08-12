@@ -70,7 +70,11 @@ public class DeploymentProfileTests
             // application backs itself up on a clinic's own PC and nowhere else. Both ✗ are decisions with
             // reasons (an off-server sidecar already runs there, and one database holds every cabinet, so an
             // in-app `pg_dump` would be a cross-tenant read) — see the capability's own doc comment.
-            [nameof(DeploymentProfile.BacksUpItsOwnData)] = (true, false, false)
+            [nameof(DeploymentProfile.BacksUpItsOwnData)] = (true, false, false),
+            // hosted-security-hardening FR-1.1. The FOURTH hosted-only capability, so it joins the
+            // `hostedOnlyCapabilities` set below. Both ✗ are decisions: a LAN admin locked out has nobody to
+            // call (AC-7 is unsatisfiable there), and Auth0 owns CloudBrowser's identities and its MFA policy.
+            [nameof(DeploymentProfile.RequiresAdminSecondFactor)] = (false, true, false)
         };
 
     private static IEnumerable<PropertyInfo> Capabilities() =>
@@ -119,7 +123,8 @@ public class DeploymentProfileTests
         {
             nameof(DeploymentProfile.AllowsPublicClinicSignup),
             nameof(DeploymentProfile.ServesPlatformConsole),
-            nameof(DeploymentProfile.RequiresSubscription)
+            nameof(DeploymentProfile.RequiresSubscription),
+            nameof(DeploymentProfile.RequiresAdminSecondFactor)
         };
 
         foreach (var capability in Capabilities())
