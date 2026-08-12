@@ -580,6 +580,42 @@ check(
   () => scanLines(tsx(), /réseau local/i),
 );
 
+check(
+  "next-public-build-args",
+  "N8",
+  "Every `NEXT_PUBLIC_*` the code reads is declared as an `ARG` in `web/Dockerfile`",
+  "`NEXT_PUBLIC_*` is substituted into the bundle by `npm run build`, so a Docker image can only receive one as a " +
+    "**build arg** — and Docker **silently discards** a build arg the Dockerfile does not declare. So a compose " +
+    "file can pass a value, the deploy can succeed, and the bundle still holds an empty string. This has now " +
+    "happened three times in this file's history: `NEXT_PUBLIC_API_URL` baked `http://localhost:5000/api` into " +
+    "every production image, and `NEXT_PUBLIC_META_APP_ID`/`_CONFIG_ID` shipped empty for the whole of the " +
+    "WhatsApp forfait — « Connecter WhatsApp » answering « pas encore prête » for ever, which reads as a " +
+    "transient hiccup rather than a value the build never got. Nothing typed can see it and no test can: the " +
+    "code is correct, the deployment is correct, and only the image is wrong. Add the `ARG`/`ENV` pair.",
+  () => {
+    // Derived from BOTH sides rather than a list: a variable added to the code tomorrow is covered the day it is
+    // written, which is the only kind of check that survives (an enumerated list cannot fail on the new case).
+    const dockerfile = read(join(WEB_ROOT, "Dockerfile"));
+    const declared = new Set(
+      [...dockerfile.matchAll(/^\s*ARG\s+(NEXT_PUBLIC_[A-Z0-9_]+)/gm)].map((m) => m[1]),
+    );
+
+    const hits = [];
+    for (const file of tsx()) {
+      read(file)
+        .split(/\r?\n/)
+        .forEach((line, i) => {
+          for (const m of line.matchAll(/process\.env\.(NEXT_PUBLIC_[A-Z0-9_]+)/g)) {
+            if (!declared.has(m[1])) {
+              hits.push({ file: rel(file), line: i + 1, text: m[1], full: line.trim() });
+            }
+          }
+        });
+    }
+    return hits;
+  },
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
