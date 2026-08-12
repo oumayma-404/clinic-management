@@ -218,8 +218,8 @@ public class TransportAssuranceTests
             [InternalCertificate.MinioRootCertificateKey] = null,
             // The store has to EXIST for its transit to be a fault — see Configured()'s note.
             ["MinIO:Endpoint"] = "minio:9000",
-            ["MinIO:AccessKey"] = "minioadmin",
-            ["MinIO:SecretKey"] = "minioadmin",
+            ["MinIO:AccessKey"] = "clinic-access-key",
+            ["MinIO:SecretKey"] = "clinic-secret-key",
         });
 
         Assert.False(result.IsSatisfied);
@@ -277,8 +277,8 @@ public class TransportAssuranceTests
         [TransportAssurance.MinioUseSslKey] = "true",
         [InternalCertificate.MinioRootCertificateKey] = "/certs/ca.crt",
         ["MinIO:Endpoint"] = "minio:9000",
-        ["MinIO:AccessKey"] = "minioadmin",
-        ["MinIO:SecretKey"] = "minioadmin",
+        ["MinIO:AccessKey"] = "clinic-access-key",
+        ["MinIO:SecretKey"] = "clinic-secret-key",
     };
 
     private static TransportAssurance.Result Inspect(
