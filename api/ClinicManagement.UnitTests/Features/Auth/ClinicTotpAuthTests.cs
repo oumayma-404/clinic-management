@@ -29,6 +29,7 @@ public class ClinicTotpAuthTests
     private readonly Mock<ITotpService> _totp = new();
     private readonly Mock<IUserSecretProtector> _secrets = new();
     private readonly Mock<ISecondFactorPolicy> _policy = new();
+    private readonly Mock<IQrCodeGenerator> _qr = new();
 
     public ClinicTotpAuthTests()
     {
@@ -59,7 +60,7 @@ public class ClinicTotpAuthTests
         _totp.Object, _secrets.Object, _policy.Object);
 
     private EnrolTotpCommandHandler EnrolHandler() => new(
-        _users.Object, _clinics.Object, _auth.Object, _totp.Object, _secrets.Object, _uow.Object);
+        _users.Object, _clinics.Object, _auth.Object, _totp.Object, _secrets.Object, _qr.Object, _uow.Object);
 
     private RedeemRecoveryCodeCommandHandler RecoveryHandler() => new(
         _users.Object, _auth.Object, _attempts.Object, _uow.Object);

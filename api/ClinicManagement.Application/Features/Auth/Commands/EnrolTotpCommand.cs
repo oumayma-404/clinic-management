@@ -11,8 +11,22 @@ namespace ClinicManagement.Application.Features.Auth.Commands;
 /// </summary>
 /// <param name="SecretUri">The <c>otpauth://</c> URI to render as a QR — step one only.</param>
 /// <param name="Secret">The same secret in readable groups, for typing it in by hand — step one only.</param>
+/// <param name="SecretQrPng">
+/// The same URI as a <c>data:image/png;base64,…</c> QR — step one only.
+///
+/// <para>⚠️ <b>Rendered server-side and inlined, rather than served from an image endpoint or drawn in the
+/// browser.</b> An <c>&lt;img src="/api/…"&gt;</c> cannot carry a credential here — the caller has no session
+/// yet, which is the whole reason this flow exists — and a client-side renderer would be a new runtime
+/// dependency in a project with no test runner or CI to vet it. A data URI is not an image *request*: it
+/// travels inside this response, which already carries the secret in two other fields, so it widens nothing.
+/// The generator is the one already live for the LAN trust page.</para>
+/// </param>
 /// <param name="RecoveryCodes">The eight codes, shown <b>once</b> — step two only.</param>
-public record TotpEnrolmentDto(string? SecretUri, string? Secret, IReadOnlyList<string>? RecoveryCodes);
+public record TotpEnrolmentDto(
+    string? SecretUri,
+    string? Secret,
+    string? SecretQrPng,
+    IReadOnlyList<string>? RecoveryCodes);
 
 /// <summary>
 /// Enrols a clinic account's second factor from the login screen itself
@@ -51,6 +65,7 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
     private readonly ILocalAuthService _localAuthService;
     private readonly ITotpService _totpService;
     private readonly IUserSecretProtector _secretProtector;
+    private readonly IQrCodeGenerator _qrCodeGenerator;
     private readonly IUnitOfWork _unitOfWork;
 
     public EnrolTotpCommandHandler(
@@ -59,6 +74,7 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
         ILocalAuthService localAuthService,
         ITotpService totpService,
         IUserSecretProtector secretProtector,
+        IQrCodeGenerator qrCodeGenerator,
         IUnitOfWork unitOfWork)
     {
         _userRepository = userRepository;
@@ -66,6 +82,7 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
         _localAuthService = localAuthService;
         _totpService = totpService;
         _secretProtector = secretProtector;
+        _qrCodeGenerator = qrCodeGenerator;
         _unitOfWork = unitOfWork;
     }
 
@@ -114,9 +131,25 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
                 // The practice's name, so somebody working at two of them can tell the entries apart.
                 var clinic = await _clinicRepository.GetByIdAsync(user.ClinicId, cancellationToken);
 
+                var uri = TotpEnrolmentUri.Build(
+                    clinic?.Name ?? string.Empty, user.Email ?? string.Empty, secret);
+
+                // A failed render must not cost the enrolment: the readable secret below is a complete way in,
+                // and the screen shows an explicit retry rather than an empty box.
+                string? qr = null;
+                try
+                {
+                    qr = "data:image/png;base64," + Convert.ToBase64String(_qrCodeGenerator.GeneratePng(uri));
+                }
+                catch
+                {
+                    // Left null — see above.
+                }
+
                 return Result<TotpEnrolmentDto>.Success(new TotpEnrolmentDto(
-                    SecretUri: TotpEnrolmentUri.Build(clinic?.Name ?? string.Empty, user.Email ?? string.Empty, secret),
+                    SecretUri: uri,
                     Secret: TotpEnrolmentUri.ForReading(secret),
+                    SecretQrPng: qr,
                     RecoveryCodes: null));
             }
 
@@ -143,7 +176,7 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             // The only moment these exist in readable form. Nothing stores them but the user.
-            return Result<TotpEnrolmentDto>.Success(new TotpEnrolmentDto(null, null, codes));
+            return Result<TotpEnrolmentDto>.Success(new TotpEnrolmentDto(null, null, null, codes));
         }
         catch (Exception)
         {
