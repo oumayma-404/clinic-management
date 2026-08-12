@@ -43,6 +43,14 @@ public class SubscriptionExemptionCoverageTests
         "Auth.Setup",
         "Auth.Register",
         "Auth.ChangePassword",
+        // hosted-security-hardening FR-1.10. The second factor's own two anonymous doors, and they belong to the
+        // group above for the same reason: neither records clinical work, and an expired cabinet keeps every
+        // read, export and PDF (AC-4.1/4.2) — which it cannot reach at all if it cannot sign in. Enrolment
+        // matters most here: an administrator refused `totp_enrolment_required` has NO other way in, so gating
+        // it on the entitlement would turn a lapsed subscription into a total lockout from records the cabinet
+        // is still entitled to read.
+        "Auth.EnrolTotp",
+        "Auth.RedeemRecoveryCode",
 
         // --- Compute-only POSTs (AC-4.9): a POST for a read, each persisting nothing.
         "CnamNomenclature.GetReimbursementEstimates",   // an estimate per act row; a GET could not carry the list

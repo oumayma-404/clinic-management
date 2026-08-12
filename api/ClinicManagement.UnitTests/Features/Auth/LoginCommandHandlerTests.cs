@@ -19,6 +19,13 @@ public class LoginCommandHandlerTests
     // cases exercise the same paths as before; the per-source cases below drive it explicitly.
     private readonly Mock<ILoginAttemptTracker> _attempts = new();
 
+    // hosted-security-hardening FR-1.1. Default: this deployment does NOT require a second factor of admins and
+    // the fixture's user has not enrolled one, so every pre-existing case below exercises exactly the ladder it
+    // did before. The second-factor cases live in `ClinicTotpAuthTests`, which drives these explicitly.
+    private readonly Mock<ITotpService> _totp = new();
+    private readonly Mock<IUserSecretProtector> _secrets = new();
+    private readonly Mock<ISecondFactorPolicy> _secondFactor = new();
+
     public LoginCommandHandlerTests()
     {
         // Every successful login now also issues the durable refresh token stored in the BFF cookie
@@ -28,7 +35,9 @@ public class LoginCommandHandlerTests
             .Returns(new LocalAuthToken("refresh-jwt", DateTime.UtcNow.AddHours(12)));
     }
 
-    private LoginCommandHandler Handler() => new(_users.Object, _auth.Object, _uow.Object, _attempts.Object);
+    private LoginCommandHandler Handler() => new(
+        _users.Object, _auth.Object, _uow.Object, _attempts.Object,
+        _totp.Object, _secrets.Object, _secondFactor.Object);
 
     private static User LocalUser(bool mustChangePassword = false) =>
         User.CreateLocalUser(ClinicId, "doctor", "Doc@Clinic.com", "STORED-HASH", "Dr House", mustChangePassword);
@@ -128,7 +137,9 @@ public class LoginCommandHandlerTests
         var users2 = new Mock<IUserRepository>();
         users2.Setup(r => r.GetByEmailAsync("doc@clinic.com", It.IsAny<CancellationToken>())).ReturnsAsync(accountLocked);
         var attempts2 = new Mock<ILoginAttemptTracker>(); // not locked for this source
-        var perAccount = await new LoginCommandHandler(users2.Object, _auth.Object, _uow.Object, attempts2.Object)
+        var perAccount = await new LoginCommandHandler(
+                users2.Object, _auth.Object, _uow.Object, attempts2.Object,
+                _totp.Object, _secrets.Object, _secondFactor.Object)
             .Handle(Command(), CancellationToken.None);
 
         Assert.Equal(perSource.Error, perAccount.Error);

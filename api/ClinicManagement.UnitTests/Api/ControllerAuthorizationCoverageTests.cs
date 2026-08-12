@@ -56,6 +56,15 @@ public class ControllerAuthorizationCoverageTests
                                      // the refresh token IS the credential, and it is signed, audience-bound,
                                      // lifetime-bound, and re-checked against live account state on every use.
                                      // Rate-limited like the other anonymous auth endpoints.
+        "Auth.EnrolTotp",            // enrols a second factor from the login screen (hosted-security-hardening
+                                     // FR-1.3). Anonymous by necessity: an account refused with
+                                     // `totp_enrolment_required` has no session, which is the whole point of
+                                     // that refusal. It verifies the PASSWORD before minting anything — so it
+                                     // is not an unauthenticated write — and issues no session in exchange.
+        "Auth.RedeemRecoveryCode",   // signs in with a single-use recovery code (FR-1.4), the one way back the
+                                     // user can take alone. Anonymous for the reason Login is; the password is
+                                     // verified FIRST so a wrong one burns no code, and both lockout tiers and
+                                     // the per-account rate limit apply exactly as they do to Login.
         "Connectivity.Get",          // non-sensitive online/offline poll (Local-only; 404s in Cloud)
         "Meta.ClientRequirements",   // the client-version floor + both store URLs (mobile-native-shells AC-28).
                                      // Anonymous by necessity: a shell below the floor must be able to ask

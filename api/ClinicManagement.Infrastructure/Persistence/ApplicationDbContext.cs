@@ -120,6 +120,14 @@ public class ApplicationDbContext : DbContext
     public DbSet<PlatformAccount> PlatformAccounts { get; set; }
     public DbSet<PlatformRecoveryCode> PlatformRecoveryCodes { get; set; }
 
+    // The clinic second factor (hosted-security-hardening FR-1.4/FR-1.6). Both hang off `User` and neither
+    // carries a ClinicId — the same position the two above are in, and for `SessionFamily` the absence is
+    // load-bearing rather than incidental: its hot read is by credential hash on the refresh path, which runs
+    // before any clinic scope exists, so a query filter would match nothing and replay detection would never
+    // fire. See the property's own note.
+    public DbSet<UserRecoveryCode> UserRecoveryCodes { get; set; }
+    public DbSet<SessionFamily> SessionFamilies { get; set; }
+
     // The console's activity counters (platform-console Part 2). These DO carry a ClinicId, so unlike the two
     // above they are named decisions in TenantScopeFilterTests rather than absent from it: they are the VENDOR's
     // measurements about a cabinet, written by the counter job and read only by the console — no clinic-facing
@@ -372,9 +380,27 @@ public class ApplicationDbContext : DbContext
     /// does not belong in this set.
     /// </para>
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="SessionFamily"/> is the second entry, and it satisfies that argument for a different reason
+    /// (<c>hosted-security-hardening</c> FR-1.6). Two tabs — or a shell and a browser — legitimately exchange a
+    /// refresh credential within moments of each other, and both must keep working: that is the whole point of
+    /// accepting the immediate predecessor. With the token on, both writers UPDATE the family row, the loser
+    /// raises <c>DbUpdateConcurrencyException</c>, <c>UnitOfWork</c> translates it to <c>ConflictException</c>,
+    /// and <c>/api/auth/refresh</c> answers <b>409</b> to precisely the case FR-1.6 exists to preserve —
+    /// signing a working user out for using the product normally.
+    /// </para>
+    /// <para>
+    /// The set's required argument holds: <b>a lost rotation loses no information a user typed.</b> The row
+    /// records which credential is current, both writers are the same person on the same account, and the cost
+    /// is one generation of slack in replay detection — which FR-1.6 states as its own tolerance, because the
+    /// rule is about <i>ordering</i>, not elapsed time.
+    /// </para>
+    /// </remarks>
     private static readonly HashSet<Type> SkipsConcurrencyToken = new()
     {
         typeof(UserDashboardPreference),
+        typeof(SessionFamily),
     };
 
     /// <summary>

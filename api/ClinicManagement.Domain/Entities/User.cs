@@ -204,10 +204,158 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         return AssignableRoles.FirstOrDefault(r => r.Equals(trimmed, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>Promote this user to the clinic "admin" role, preserving email/full name (Cloud admin backfill).</summary>
+    /// <summary>
+    /// Promote this user to the clinic "admin" role, preserving email/full name (Cloud admin backfill).
+    ///
+    /// <para>⚠️ <b>Bumps <see cref="TokenVersion"/>, and it was the one mutator on this class that did not</b>
+    /// (<c>hosted-security-hardening</c> FR-1.2). The role travels <i>in the JWT</i>, so without this a promotion
+    /// left the old token — carrying the old role — live for its full lifetime: the account becomes an
+    /// administrator whose current session is still a doctor's, which on a deployment that requires a second
+    /// factor of administrators means a session that never had to present one. <see cref="ChangeRole"/> has
+    /// always bumped it for exactly this reason; this path simply did not.</para>
+    /// </summary>
     public void PromoteToAdmin()
     {
         Role = RoleAdmin;
+        TokenVersion++;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    // ── Second factor (hosted-security-hardening FR-1.1 – FR-1.4) ────────────────────────────────────────
+
+    /// <summary>
+    /// The TOTP secret, <b>already encrypted</b>. Domain references nothing, so the protection is
+    /// <c>IUserSecretProtector</c>'s job and this only ever holds the ciphertext.
+    ///
+    /// <para>Non-null with <see cref="TotpEnrolledAt"/> still null is the « secret issued, not yet confirmed »
+    /// state — a sign-in presenting a password alone must refuse there, carrying nothing else.</para>
+    /// </summary>
+    public string? ProtectedTotpSecret { get; private set; }
+
+    /// <summary>When the issued secret was confirmed by a code generated from it. Null until then.</summary>
+    public DateTime? TotpEnrolledAt { get; private set; }
+
+    private readonly List<UserRecoveryCode> _recoveryCodes = new();
+
+    public IReadOnlyCollection<UserRecoveryCode> RecoveryCodes => _recoveryCodes;
+
+    /// <summary>Both halves, deliberately: a secret with no confirmation is not an enrolment.</summary>
+    public bool IsTotpEnrolled => TotpEnrolledAt is not null && !string.IsNullOrEmpty(ProtectedTotpSecret);
+
+    public int UnusedRecoveryCodeCount => _recoveryCodes.Count(c => !c.IsUsed);
+
+    /// <summary>
+    /// Issues (or re-issues) the enrolment secret, leaving it <b>unconfirmed</b>.
+    ///
+    /// <para>Re-issuing clears the previous enrolment <i>and every recovery code</i> and bumps
+    /// <see cref="TokenVersion"/>: a factor recovered this way (an admin reset, or the vendor's verb) must not
+    /// leave the old authenticator working, old codes spendable, or a session minted before the reset alive.</para>
+    /// </summary>
+    public void IssueTotpSecret(string protectedSecret)
+    {
+        if (string.IsNullOrWhiteSpace(protectedSecret))
+        {
+            throw new ArgumentException("Le secret du second facteur est obligatoire.", nameof(protectedSecret));
+        }
+
+        ProtectedTotpSecret = protectedSecret;
+        TotpEnrolledAt = null;
+        _recoveryCodes.Clear();
+        TokenVersion++;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Confirms the issued secret with a code generated from it, and binds the recovery codes shown once in the
+    /// same response. Refuses a second enrolment — that is <c>totp_already_enrolled</c>.
+    /// </summary>
+    public void CompleteTotpEnrolment(IEnumerable<string> recoveryCodes)
+    {
+        if (string.IsNullOrEmpty(ProtectedTotpSecret))
+        {
+            throw new InvalidOperationException("Aucun secret n'a été émis pour ce compte.");
+        }
+
+        if (IsTotpEnrolled)
+        {
+            throw new InvalidOperationException("Le second facteur est déjà enrôlé pour ce compte.");
+        }
+
+        _recoveryCodes.Clear();
+        foreach (var code in recoveryCodes)
+        {
+            _recoveryCodes.Add(new UserRecoveryCode(Id, code));
+        }
+
+        TotpEnrolledAt = DateTime.UtcNow;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Replaces every recovery code with a fresh set, leaving the enrolment itself intact.
+    ///
+    /// <para>Unlike <see cref="IssueTotpSecret"/> this does <b>not</b> bump <see cref="TokenVersion"/>: the
+    /// authenticator has not changed, so no live session is any less trustworthy than it was a moment ago, and
+    /// signing the user out of every device for regenerating their own codes would be a punishment for good
+    /// hygiene.</para>
+    /// </summary>
+    public void ReplaceRecoveryCodes(IEnumerable<string> recoveryCodes)
+    {
+        if (!IsTotpEnrolled)
+        {
+            throw new InvalidOperationException("Le second facteur n'est pas enrôlé pour ce compte.");
+        }
+
+        _recoveryCodes.Clear();
+        foreach (var code in recoveryCodes)
+        {
+            _recoveryCodes.Add(new UserRecoveryCode(Id, code));
+        }
+
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Spends a recovery code if it matches an unused one, and reports whether it did.
+    ///
+    /// <para>⚠️ <b>The caller must persist the result whether or not the sign-in then completes.</b> A code that
+    /// has been transmitted has been spent; treating it as unspent because the attempt failed for some other
+    /// reason would let it be replayed, which is exactly what a single-use credential must not allow.</para>
+    /// </summary>
+    public bool ConsumeRecoveryCode(string presentedCode)
+    {
+        if (string.IsNullOrWhiteSpace(presentedCode))
+        {
+            return false;
+        }
+
+        var hash = UserRecoveryCode.Hash(presentedCode);
+        var match = _recoveryCodes.FirstOrDefault(c => !c.IsUsed && c.CodeHash == hash);
+
+        if (match is null)
+        {
+            return false;
+        }
+
+        match.Consume();
+        UpdatedAt = DateTime.UtcNow;
+        return true;
+    }
+
+    /// <summary>
+    /// Removes the second factor entirely, secret and codes.
+    ///
+    /// <para>Bumps <see cref="TokenVersion"/>: the account's protection has been <i>reduced</i>, so every session
+    /// established under the stronger rule is re-established under the weaker one deliberately rather than by
+    /// inheritance. Whether an administrator may call this at all is the deployment's decision, not the
+    /// entity's — see <c>DeploymentProfile.RequiresAdminSecondFactor</c>.</para>
+    /// </summary>
+    public void DisableTotp()
+    {
+        ProtectedTotpSecret = null;
+        TotpEnrolledAt = null;
+        _recoveryCodes.Clear();
+        TokenVersion++;
         UpdatedAt = DateTime.UtcNow;
     }
 

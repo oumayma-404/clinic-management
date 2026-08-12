@@ -14,12 +14,22 @@ public class LoginCommand : IRequest<Result<LoginResultDto>>
 {
     public string Email { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The one-time code, where the account holds a second factor
+    /// (<c>hosted-security-hardening</c> FR-1.1 – FR-1.2).
+    ///
+    /// <para>Absent is a real state and not an error: it is how the first request of a two-step sign-in looks,
+    /// and it earns <c>totp_required</c> so the screen knows to ask.</para>
+    /// </summary>
+    public string? TotpCode { get; set; }
 }
 
 public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginResultDto>>
 {
-    // Deliberately generic so we never reveal whether the email exists.
-    private const string InvalidCredentialsError = "Invalid email or password.";
+    // The generic refusal — which never reveals whether the address exists — now comes from
+    // `ClinicAuthRefusals` along with its code, so the sentence and the thing a client branches on cannot
+    // drift apart. It also stops being the one English string on this path.
 
     // Same wording for both lockout tiers: the caller must not learn which brake stopped them.
     private const string LockedOutError =
@@ -29,18 +39,41 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     private readonly ILocalAuthService _localAuthService;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILoginAttemptTracker _attemptTracker;
+    private readonly ITotpService _totpService;
+    private readonly IUserSecretProtector _secretProtector;
+    private readonly ISecondFactorPolicy _secondFactorPolicy;
 
     public LoginCommandHandler(
         IUserRepository userRepository,
         ILocalAuthService localAuthService,
         IUnitOfWork unitOfWork,
-        ILoginAttemptTracker attemptTracker)
+        ILoginAttemptTracker attemptTracker,
+        ITotpService totpService,
+        IUserSecretProtector secretProtector,
+        ISecondFactorPolicy secondFactorPolicy)
     {
         _userRepository = userRepository;
         _localAuthService = localAuthService;
         _unitOfWork = unitOfWork;
         _attemptTracker = attemptTracker;
+        _totpService = totpService;
+        _secretProtector = secretProtector;
+        _secondFactorPolicy = secondFactorPolicy;
     }
+
+    /// <summary>
+    /// Must this account present a code to sign in?
+    ///
+    /// <para>Two independent grounds, and the second is what makes voluntary enrolment meaningful: the
+    /// deployment requires it <b>of administrators</b>, or the account has enrolled one of its own accord. A
+    /// doctor who enrolled voluntarily is asked for their code on every deployment — offering it and then not
+    /// checking it would be worse than never offering it.</para>
+    /// </summary>
+    private bool SecondFactorApplies(Domain.Entities.User user) =>
+        user.IsTotpEnrolled || (_secondFactorPolicy.RequiresAdminSecondFactor && user.IsAdmin());
+
+    private static Result<LoginResultDto> Refuse(string code) =>
+        Result<LoginResultDto>.Failure(ClinicAuthRefusals.MessageFor(code)!, code);
 
     public async Task<Result<LoginResultDto>> Handle(LoginCommand request, CancellationToken cancellationToken)
     {
@@ -48,7 +81,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         {
             if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
             {
-                return Result<LoginResultDto>.Failure(InvalidCredentialsError);
+                return Refuse(ClinicAuthRefusals.InvalidCredentials);
             }
 
             var user = await _userRepository.GetByEmailAsync(request.Email.Trim(), cancellationToken);
@@ -56,7 +89,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             // No such account, or a Cloud (Auth0) account with no local password.
             if (user == null || !user.IsLocalAccount())
             {
-                return Result<LoginResultDto>.Failure(InvalidCredentialsError);
+                return Refuse(ClinicAuthRefusals.InvalidCredentials);
             }
 
             // Both lockouts are checked before the password so a brute-force attempt is actually
@@ -69,14 +102,14 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             // point: the previous account-only lockout let one hostile host lock the entire clinic out.
             if (_attemptTracker.IsLockedOutForCurrentSource(user.Id))
             {
-                return Result<LoginResultDto>.Failure(LockedOutError);
+                return Result<LoginResultDto>.Failure(LockedOutError, ClinicAuthRefusals.TooManyAttempts);
             }
 
             // Durable cross-source backstop (AC-4.3), at a threshold no single source can reach alone. Also
             // what survives the restart that clears the in-memory per-source counters.
             if (user.IsLockedOut())
             {
-                return Result<LoginResultDto>.Failure(LockedOutError);
+                return Result<LoginResultDto>.Failure(LockedOutError, ClinicAuthRefusals.TooManyAttempts);
             }
 
             var outcome = _localAuthService.VerifyPassword(user.PasswordHash!, request.Password);
@@ -86,7 +119,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 user.RecordFailedLogin();
                 _userRepository.Update(user);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
-                return Result<LoginResultDto>.Failure(InvalidCredentialsError);
+                return Refuse(ClinicAuthRefusals.InvalidCredentials);
             }
 
             // Disclosed only to a caller who supplied the correct password (the account owner).
@@ -98,9 +131,50 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             // person; only one of them is an accusation.
             if (!user.IsActive)
             {
-                return Result<LoginResultDto>.Failure(user.IsPendingActivation
-                    ? "Votre compte a bien été créé mais doit encore être activé par un administrateur de la clinique. Vous pourrez vous connecter dès qu'il l'aura fait."
-                    : "Ce compte a été désactivé. Veuillez contacter l'administrateur de votre clinique.");
+                return Result<LoginResultDto>.Failure(
+                    user.IsPendingActivation
+                        ? "Votre compte a bien été créé mais doit encore être activé par un administrateur de la clinique. Vous pourrez vous connecter dès qu'il l'aura fait."
+                        : "Ce compte a été désactivé. Veuillez contacter l'administrateur de votre clinique.",
+                    ClinicAuthRefusals.AccountDisabled);
+            }
+
+            // ── The second factor (hosted-security-hardening FR-1.1 – FR-1.2) ──────────────────────────────
+            //
+            // Placed here, after the password and after the active check, in PlatformLoginCommand's own order.
+            // Before the password it would be an oracle: « ce compte doit enrôler » to anyone who guesses an
+            // address tells them the account exists and is an administrator.
+            if (SecondFactorApplies(user))
+            {
+                // Required of this account but never set up. 403, carrying nothing else — the client routes to
+                // the enrolment step, which re-presents the password it already has.
+                if (!user.IsTotpEnrolled)
+                {
+                    return Refuse(ClinicAuthRefusals.TotpEnrolmentRequired);
+                }
+
+                // No code offered yet: the ordinary first half of a two-step sign-in, not a failure. It spends
+                // no attempt — the password was correct, and the user has simply not been asked yet.
+                if (string.IsNullOrWhiteSpace(request.TotpCode))
+                {
+                    return Refuse(ClinicAuthRefusals.TotpRequired);
+                }
+
+                // ⚠️ An undecryptable secret REFUSES and is logged; it never falls through to « no factor
+                // required ». The key ring is the only thing that can cause it, the recovery is
+                // `reset-user-totp`, and the alternative degradation would silently disarm the whole feature
+                // for every administrator at once.
+                if (!_secretProtector.TryUnprotect(user.ProtectedTotpSecret!, out var secret)
+                    || !_totpService.VerifyCode(secret, request.TotpCode!))
+                {
+                    // A present-but-wrong code is deliberately indistinguishable from a wrong password: it
+                    // spends an attempt and answers `invalid_credentials`, so the ladder cannot be used to
+                    // learn which half was right.
+                    _attemptTracker.RecordFailure(user.Id);
+                    user.RecordFailedLogin();
+                    _userRepository.Update(user);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    return Refuse(ClinicAuthRefusals.InvalidCredentials);
+                }
             }
 
             // The stored hash used an outdated format — upgrade it now that we have the plaintext.

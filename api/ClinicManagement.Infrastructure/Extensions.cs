@@ -135,6 +135,7 @@ public static class Extensions
         // container from this method alone, and it creates a cabinet — which must not come into existence without
         // an entitlement (FR-4), so it has to be able to resolve this and the policy below.
         services.AddScoped<IClinicSubscriptionRepository, ClinicSubscriptionRepository>();
+        services.AddScoped<ISessionFamilyRepository, SessionFamilyRepository>();
 
         // HttpClient for Auth0 Management API
         services.AddHttpClient();
@@ -167,6 +168,10 @@ public static class Extensions
         // Singleton like IReminderSecretProtector, and for the same reason: an IDataProtector is thread-safe and
         // deriving one per request would re-run the key derivation on every sign-in.
         services.AddSingleton<IPlatformSecretProtector, PlatformSecretProtector>();
+        // The clinic half of the same seam, with its own purpose string so a clinic ciphertext and a console
+        // one are not interchangeable. Registered here — inside AddInfrastructure — so the `reset-user-totp`
+        // verb, whose container is this method alone, can resolve it.
+        services.AddSingleton<IUserSecretProtector, UserSecretProtector>();
 
         // The console's activity counters (platform-console Part 2). Registered unconditionally for the reason
         // above: the counter job runs on any deployment and its rows cost nothing where no console reads them,
@@ -291,6 +296,8 @@ public static class Extensions
         // Application, which references Domain alone and so cannot name DeploymentProfile. Singletons for the same
         // reason as the profile: both are derived from startup configuration and immutable.
         services.AddSingleton<ISubscriptionPolicy, SubscriptionPolicy>();
+        // Same lifetime reasoning as the profile it reads: immutable and derived from startup configuration.
+        services.AddSingleton<ISecondFactorPolicy, SecondFactorPolicy>();
         services.AddSingleton<ISubscriptionPricing, SubscriptionPricing>();
         services.AddScoped<IReminderScheduler, ReminderScheduler>();
         services.AddScoped<IReminderChannelSender, HttpSmsSender>();
