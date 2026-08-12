@@ -8,10 +8,10 @@
 
 | Part | Name | Plan part | Status |
 |------|------|-----------|--------|
-| A | Identity | Part 1 | **implemented** (A.1–A.4 landed; eye pass owed) |
+| A | Identity | Part 1 | **implemented** (A.1–A.4 landed; eye pass **done** 2026-08-12 — found **F-15**; the three second-factor login modes still owed, Route B only) |
 | B | Transit | Part 2 | **implemented** (steps 1–11; two walks owed, both named below) |
 | C | Custody | Part 3 | **implemented** (C.1–C.5; the host-level items are owed, all named below) |
-| D | Evidence & surface | Part 0 + Part 4 | **implemented** (D.0–D.4; the eye pass is owed and named below) |
+| D | Evidence & surface | Part 0 + Part 4 | **implemented** (D.0–D.4; enforcing-policy walk + eye pass **done** 2026-08-12, 0 CSP violations — found **F-15**, **F-16**) |
 
 ### Part A sub-parts
 
@@ -33,13 +33,20 @@
 | `verify-schema` with A.4's three checks | all three live and green against the running database |
 | Backend warnings | no new ones; the pre-existing `CS8618`/`CS8602` baseline is untouched |
 
-**Owed:** the eye pass at 320 / 390 / 820 / 1180 / 1440 + landscape + keyboard. No browser was driven in that
-session, so it is recorded as **not done** rather than claimed — the surfaces needing it are `/login`'s four
-modes, `/securite`, and the step-up sheet.
+**Owed → mostly DONE**, see *Browser verification (session of 2026-08-12)* at the end of this file. The eye pass
+ran at 320 / 390 / 820 / 1180 / 1440 + landscape (844×390) + a keyboard-shrunk viewport (390×380) over `/login`
+(password mode), `/securite` and the step-up sheet: no horizontal overflow anywhere, the submit 44 px and reachable
+at every viewport, typed input surviving the `md:` resize. **It found F-15** (the step-up renders two overlays at
+once).
 
-**Also owed (verification, not code):** the two flow walks of step 30 could not be executed here (the Google
-OAuth round trip needs real credentials). The `SameSite` decision was taken on the defined behaviour of
-`Strict` rather than on an observation — see DEV-3.
+**Still owed from Part A:** `/login`'s **code / enrolment / recovery-code** modes, which `SelfHostedLan` cannot
+reach — `RequiresAdminSecondFactor` is false there, so they need Route B (`HostedMultiTenant`). Plus 200 % zoom and
+a physical device.
+
+**The two flow walks of step 30 are CLOSED AS MOOT.** The cookie ships **`SameSite=Lax`** (verified on the wire),
+and the decision plus its reasoning is written down in `web/lib/auth/session-cookie.ts:113-131` — so the risk those
+walks existed to test cannot arise as shipped. They become owed again only if the cookie is ever moved to `Strict`.
+DEV-3's note that the decision rested on defined behaviour rather than observation still stands for `Strict` itself.
 
 ## Resuming — read this first
 
@@ -614,12 +621,12 @@ the operator sentence it carries. Registered as a factory, with `Program.cs` res
 
 ## Still owed (verification, not code)
 
-- **The eye pass at 320 / 390 / 820 / 1180 / 1440 plus a landscape phone and the on-screen keyboard.** No browser
-  was driven in this session, so it is recorded as **not done** rather than claimed. The surfaces are the archive
-  card (« Paramètres » → Sauvegarde) and the step-up sheet it now opens. Owed for Part A too.
-- **Walking the whole app under the enforcing policy with zero violations**, including a PDF preview, a document
-  print, a CSV export and a patient-file download — the four `blob:` paths. The policy is enforcing in the compose
-  files and the analytics script is gone; what has not happened is somebody loading the pages with it on.
+- ~~**The eye pass**~~ — **DONE**, see *Browser verification (session of 2026-08-12)*. Seven viewports over the
+  archive card and the step-up sheet. It is what found **F-15** and **F-16**.
+- ~~**Walking the whole app under the enforcing policy**~~ — **DONE**: 30 routes with real data + 5 signed-out,
+  **0 CSP violations, 0 page errors**, and all four `blob:` paths exercised (PDF preview · document print through
+  the `blob:` iframe · CSV export · patient-file download). `POST /api/csp-report` verified as receiving **and**
+  scrubbing the address to `/patients/{id}/files`.
 - **« No patient name in any log file after a full day of use. »** The static half is held by
   `LogTemplateCoverageTests`; a day of real traffic is not something this session can produce.
 - **The archive refused in French when the ledger cannot be written**, and **an aborted download recorded as not
@@ -689,3 +696,215 @@ already redirects at the edge, which `caddy validate` states in its own output. 
 it, so no profile loses a behaviour it had.
 **Impact:** none observable. One registration deleted.
 **Approved:** auto (the spec offers the choice; this is the choice with a reason)
+
+---
+
+# Browser verification (session of 2026-08-12)
+
+**What this session was:** the items Parts A and D listed as owed, driven in a real browser. **No implementation.**
+Three defects were found; **none is fixed here** — PR #18 is open and a silent change to it is worse than a named
+finding.
+
+## How it was run — Route A
+
+`Deployment__Profile=SelfHostedLan` + `Security__EnforceCsp=true`, API in Release from a `BaseOutputPath` outside
+the repo, Kestrel the browser-facing front door on **https://localhost:5001**, proxying every non-`/api` route to
+the worktree's own `next start` on 3210. Chrome 151 via `playwright-core` 1.62.1 (`channel: "chrome"`).
+
+The main checkout's stack (:3000, :5000, :5443) was left running throughout and was **not** used.
+
+⚠️ **Three harness traps cost the first three runs, and each produced a *confidently wrong* green.** Worth knowing
+because the next session will meet all three.
+1. **Git Bash rewrites a `/api`-shaped env value into a Windows path.** `NEXT_PUBLIC_API_URL=/api npm run build`
+   baked `C:/Program Files/Git/api` into the bundle, so every call went to `file:///…` and was blocked by
+   `connect-src`. Build the web bundle from **PowerShell**, or set `MSYS_NO_PATHCONV=1`.
+2. **`API_INTERNAL_URL` defaults to `http://localhost:5000/api`** (`web/app/bff/auth/token/route.ts`) — the *main
+   checkout's* API. Without overriding it the BFF authenticates against the wrong process, every `/api` call 401s,
+   the client's one-shot retry burns the auth limiter to 429, and **every screen renders « Réessayer »**. A CSP walk
+   over that state reports zero violations and means nothing.
+3. **`web/scripts/shots.mjs` reuses one saved `storageState` across all six viewports**, and every authenticated
+   screen came back « Votre session a expiré ». Cause not diagnosed (not this session's scope); the eye pass below
+   signs in per context instead. Recorded because that script is the repo's own screenshot harness.
+
+## 1. The enforcing policy — the highest-value item
+
+### On the wire
+
+| Header | before (the running pre-Part-D build, `:5000`) | after (`https://localhost:5001`) |
+|---|---|---|
+| CSP | `Content-Security-Policy-Report-Only`, **with `'unsafe-eval'`** | **`Content-Security-Policy`** (enforcing), **no `'unsafe-eval'`**, `report-uri` + `report-to` |
+| `Permissions-Policy` | absent | present (empty allow-list, 17 features) |
+| `Reporting-Endpoints` | absent | `csp-endpoint="/api/csp-report"` |
+| `Cross-Origin-Opener-Policy` | absent | `same-origin` |
+| `Cross-Origin-Resource-Policy` | absent | `same-site` |
+
+Confirmed on **a page response**, not only on `/api`: `SecurityHeadersMiddleware` covers the proxied Next bundle
+(AC-12.5), and there is **exactly one** CSP header — `web/next.config.ts` correctly emits none under
+`AUTH_MODE=local`, so there is nothing to intersect with. No HSTS, which is right (`SelfHostedLan` opt-in, unset).
+
+### The walk
+
+**30 routes rendered with real data + 5 public routes rendered signed-out → 0 CSP violations, 0 page errors.**
+Collected both ways the prompt requires: a `console` listener *and* a `securitypolicyviolation` listener installed
+through `addInitScript` (before first byte), drained after every navigation including sub-frames.
+
+Routes: `/` · `/abonnement` · `/appointments` · `/caisse` · `/cheques` · `/cnam-nomenclature` · `/creances` ·
+`/dental-acts` · `/documents` · `/factures` · `/journal` · `/lab-orders` · `/medications` · `/mon-profil` ·
+`/patients` · `/procedure-types` · `/rappels` · `/recurring-series` · `/securite` · `/settings` · `/stock` ·
+`/treatment-plans` · `/users` · `/waiting-list` · `/patients/{id}` · `/patients/{id}/files` ·
+`/documents/{ordonnance,certificat,bulletin-cnam,arret-travail}`; signed-out: `/login` · `/signup` ·
+`/signup/verifier` · `/setup` · `/join`.
+
+### The four `blob:` paths — all four exercised, all clean
+
+| Path | Result |
+|---|---|
+| PDF preview on a patient file | **1 `blob:` frame/object rendered**, 0 violations |
+| Patient-file download | `walk.pdf` delivered, 0 violations |
+| CSV export (`/patients`) | `patients-2026-08-12.csv` delivered, 0 violations |
+| Document print | **`bulletin-cnam` and `arret-travail` each render 1 `blob:` iframe**, and « Imprimer » calls `print()` **inside that frame** (K4's primary path), 0 popups, 0 violations |
+
+⚠️ A free-form type (`ordonnance`) does **not** use a `blob:` iframe — `handlePrint` clones a DOM subtree into a
+`window.open` popup. The `blob:` iframe path is the two **official forms** only, which is where it was tested.
+
+### `POST /api/csp-report` — received and scrubbed
+
+A deliberate `<img src="https://example.com/…">` injected on **`/patients/94f8e65a-…/files`** produced, in the
+API's own log:
+
+```
+CSP violation: img-src blocked https://example.com/deliberate-violation.png on /patients/{id}/files
+```
+
+The address is reduced to its **route pattern** — FR-4.4 holding on the surface that matters, since this
+application's URLs carry patient identifiers.
+
+## 2. The eye pass — Parts A and D
+
+**Widths actually checked: 320 · 390 · 820 · 1180 · 1440, plus a landscape phone (844×390), plus a
+keyboard-shrunk viewport (390×380).** Coarse-pointer contexts for 320→1180 and the two phone shapes
+(`pointer: coarse` asserted true, not assumed); a fine-pointer context for 1440.
+
+| Check | Result |
+|---|---|
+| Horizontal overflow (§ 11) on `/login`, `/securite`, `/settings` | **none at any of the 7 viewports** |
+| `/login` submit | **44 px** and reachable at every viewport, including 844×390 and 390×380 — the documented vertical-clipping trap does **not** fire |
+| Typed input survives a resize across the `md:` hinge (§ 5) | **kept** (390 → 1180, e-mail and password both) |
+| Step-up: `Escape` closes | yes, at every viewport |
+| Archive card's `coarse:`-only « Téléchargez l'archive depuis un ordinateur » | **correct** — present under `pointer: coarse`, absent on a fine pointer |
+| Archive card renders | yes at every viewport |
+
+⚠️ An earlier run of this pass reported the `coarse:` note as *absent everywhere*; that was **my** emulation
+(`isMobile: false` leaves `pointer: fine`), not a defect. It was re-run with the media query asserted.
+
+**Not covered:** `/login`'s code / enrolment / recovery-code modes. `RequiresAdminSecondFactor` is false on
+`SelfHostedLan`, so those three modes are unreachable on Route A — they need `HostedMultiTenant` (Route B).
+200 % browser zoom and a physical device were not exercised either.
+
+## 3. FR-1.7 — the two flows, and why the question is already closed
+
+**The cookie ships `SameSite=Lax`, not `Strict`**, and the decision is written down in
+`web/lib/auth/session-cookie.ts:113-131`. Observed on the wire:
+
+```
+Set-Cookie: __Host-local_session=…; Path=/; Expires=…; Secure; HttpOnly; SameSite=lax
+```
+
+So the risk the two walks existed to test — `Strict` withholding the session cookie on a cross-site top-level
+navigation into the app — **cannot arise as shipped**. The spec's own escape hatch (« if either breaks, the relaxed
+form stays and the reason is recorded ») is already taken, in the source, with its reasoning. The `__Host-` prefix
++ `Secure` + `HttpOnly` are all present.
+
+**Neither flow was walked end to end, and neither can be on Route A:** the Google OAuth round trip needs real
+credentials, and public signup is `HostedMultiTenant`-only (`publicSignupEnabled: false` here), so
+`/signup/verifier` has no token to receive. Both are **moot for the cookie question** and are recorded as owed only
+if the cookie is ever moved to `Strict`.
+
+## Findings
+
+### F-15: the step-up renders TWO overlays at once, at every width
+
+`components/security/step-up-dialog.tsx:130-157` wraps a `<Sheet>` in `div.md:hidden` and a `<Dialog>` in
+`div.hidden md:block` — but Radix **portals `SheetContent`/`DialogContent` to `document.body`**, so the wrapper's
+`display` rule never reaches the rendered overlay. The responsive switch is inert.
+
+Measured with both open (`data-state="open"`, `display: flex`, `opacity: 1`):
+
+- **1440 px:** a centred dialog `448×354` **and** a full-width bottom sheet `1440×297`, both visible — screenshot
+  shows « Confirmer votre identité » twice, each with its own « Code de vérification » field and its own
+  Annuler/Confirmer pair.
+- **390 px:** two stacked sheets, `390×409` and `390×425`.
+
+Consequences, all observed:
+- **Duplicate DOM id `totp-code`** (and duplicate title ids), so `<Label htmlFor>` binds only the first copy.
+- **Focus lands on the `<h2>` title, not the field** — two focus scopes competing. Note the spec's *Device &
+  Interface Behaviour* table says « Focus lands on the password field » while `.claude/rules/frontend-web.md` § 5
+  says « Focus lands on the **title**, not the first field ». **The two documents disagree**; that contradiction is
+  worth settling independently of this defect.
+- **`Escape` returns focus to `<body>`, not to the trigger**, with the trigger still in the DOM — required by both
+  the spec's Device table and § 5. Reproduced on both a coarse and a fine pointer.
+
+This is exactly the class of defect the eye pass exists for: no test in the repo can see it, and it is a broken
+screen for a clinic.
+
+### F-16: the archive step-up always demands an authenticator code, so the export is unreachable without a factor
+
+`lib/api/security.ts:36-37` — `getTotpState` is `apiGet<TotpState>('/auth/totp')`, but that endpoint returns a
+**`Result<T>` envelope** (`{ value: { isEnrolled, enrolledAt, … }, isSuccess: true, … }`), which was confirmed on
+the wire. So `state.enrolledAt` is `undefined`, and `clinic-archive-card.tsx`'s `state.enrolledAt !== null` is
+`undefined !== null` → **`true` for every account**, enrolled or not. `hasTotp` is then true, and
+`StepUpDialog` branches **either/or** (`:84`), rendering the TOTP field and never the password one.
+
+Observed end to end on an account with **no** second factor (`GET /api/auth/totp` → `isEnrolled: false`,
+`enrolledAt: null`, and `/securite` correctly says « Second facteur non activé »): the step-up asks for « le code
+affiché par votre application d'authentification ». There is no such code, so **`GET /api/backup/archive` and the
+restore cannot be reached from the UI at all** — and on `SelfHostedLan` and `CloudBrowser` *no* account has a
+factor, because `RequiresAdminSecondFactor` is false there.
+
+⚠️ `tsc` cannot catch this: `apiGet<TotpState>` asserts a shape the server does not send. `web/lib/CLAUDE.md`
+already records that `clinics`, `users` and `reminder-settings` unwrap `Result<T>`; `security.ts` does not.
+
+⚠️ The card's own comment (`:62-68`) says an unknown state should offer **both** proofs — but `StepUpDialog` has no
+"both" branch, so the `hasTotp={totpKnown ? hasTotp : true}` fallback at `:323` resolves to *code-only* rather than
+to the intended pair. Both halves need fixing together.
+
+### F-17: `/documents/bs1` is not a route — the official form is `bulletin-cnam`
+
+`documentType === "bulletin-cnam"` is the slug (`document-editor-content.tsx:590`). `/documents/bs1` renders the
+**generic** editor — a `<Card>` preview, « Télécharger Word » on offer — rather than the BS1 overlay. Harmless as a
+bookmark (any unknown slug renders the generic editor) and out of this story's scope, but it is why the first print
+attempt found no `blob:` iframe. Noted so the next reader does not repeat it.
+
+## Rows this session closes
+
+**Part A — « Owed »:** the eye pass is **done** at the seven viewports named above, for `/login` (password mode) and
+`/securite`. The three second-factor login modes remain owed and now have a stated reason (Route A cannot reach
+them). The two flow walks of step 30 are **closed as moot**: the cookie ships `Lax`.
+
+**Part D — « Still owed »:** the enforcing-policy walk is **done** (30 routes, 4 `blob:` paths, 0 violations); the
+CSP report endpoint is **verified including its scrub**; the eye pass on the archive card and the step-up sheet is
+**done** — and it is what found F-15 and F-16.
+
+**Still owed after this session**, unchanged and not attempted: Route B (the full hosted stack — Caddy's own header
+emission, the console site's first policy, and every `HostedMultiTenant`-only surface), « no patient name in any log
+file after a full day of use », the archive's French refusal when the ledger cannot be written, an aborted download
+recorded as not delivered, lock contention on a seeded clinic (R-7), and every host-level item under Part C.
+
+## What this session left on the dev database
+
+Both inside « Cabinet Chaîne Test », the cabinet Part D already flagged as local test data:
+
+- **`chain-proof@example.test`'s password is now `VerifWalk2026Sec!`** — the account carried `MustChangePassword`,
+  so the forced-change screen had to be walked to get in. That flow works.
+- A patient « **Walk Verification** » (`94f8e65a-…`) with one 399-byte `walk.pdf` attached, created because the
+  cabinet had zero patients and the four `blob:` paths need a real file.
+
+⚠️ The API was run once with `RateLimiting__Auth__PermitLimit=2000` **for the route walk only** — 30 full page
+reloads each refresh the token and would otherwise trip the 30-per-5-minutes account limiter mid-walk. Every other
+observation, including both findings, was taken at the **shipped** limits. The limiter itself behaves correctly:
+« Trop de tentatives. Veuillez réessayer dans 5 minutes. », in French, naming the wait. And a **client-side**
+navigation does *not* re-fetch the token — only a full reload does — so the limit is not a problem for real use.
+
+⚠️ Running a second API against the shared dev database re-registers Hangfire's recurring jobs for the
+`SelfHostedLan` profile (`SubscriptionWarningJob` is removed there). The main checkout's API restores its own set on
+its next start.
