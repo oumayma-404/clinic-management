@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -9,8 +10,23 @@ using ClinicManagement.Infrastructure.Security;
 
 namespace ClinicManagement.Infrastructure.Persistence;
 
-public class ApplicationDbContext : DbContext
+public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 {
+    /// <summary>
+    /// The Data Protection key ring, where <c>DataProtection:PersistToDatabase</c> puts it instead of a volume.
+    ///
+    /// <para><b>Deployment-wide key material, not a clinic's data.</b> It is therefore excluded from the
+    /// per-clinic archive (<c>ClinicArchiveScope.Excluded</c>) — a cabinet's zip is deliberately unencrypted and
+    /// travels on a laptop, and these rows decrypt every administrator's second factor and every clinic's
+    /// reminder credentials. It carries no <c>ClinicId</c> and so is outside the tenant filter by construction.</para>
+    ///
+    /// <para>⚠️ The rows are still encrypted by the deployment's certificate
+    /// (<c>DataProtection:CertificatePath</c> / <c>:CertificateBase64</c>) exactly as on a volume, so moving the
+    /// ring into the database changes <i>where</i> it lives and nothing about what protects it. A database dump
+    /// is not a way to read it.</para>
+    /// </summary>
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
+
     private readonly ICurrentClinicProvider? _clinicProvider;
     private readonly IAuditChainKeyProvider? _auditChainKey;
 

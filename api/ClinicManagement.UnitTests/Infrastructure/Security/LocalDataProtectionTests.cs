@@ -127,4 +127,66 @@ public class LocalDataProtectionTests
             Assert.Null(path);
         }
     }
+
+    // ---- The ring in the database, for a host that sells no durable disk -----------------------
+    //
+    // Why this option exists at all: on HostedMultiTenant an ephemeral ring is not « reminders stop working ».
+    // RequiresAdminSecondFactor is true there, so every administrator holds a TOTP secret this ring encrypts, and
+    // the first redeploy would lock every one of them out of their own cabinet. Where the only durable thing is
+    // the database, that is where the ring belongs.
+
+    [Fact]
+    public void Persisting_To_The_Database_Needs_No_Directory_And_Does_Not_Refuse()
+    {
+        var path = LocalDataProtection.ResolveKeyRingPath(Configuration(
+            (DeploymentProfile.ProfileKey, nameof(DeploymentKind.HostedMultiTenant)),
+            (LocalDataProtection.PersistToDatabaseKey, "true")));
+
+        // Null is the answer, not a failure: the ring has a home, and it is not a folder.
+        Assert.Null(path);
+    }
+
+    // ⚠️ The case worth having: two homes for one ring means half the keys are written where the other half is
+    // not looked for, and the symptom is decryption that works until it abruptly does not. Refused, not resolved
+    // by precedence.
+    [Fact]
+    public void Naming_Both_A_Database_And_A_Directory_Refuses()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            LocalDataProtection.ResolveKeyRingPath(Configuration(
+                (DeploymentProfile.ProfileKey, nameof(DeploymentKind.HostedMultiTenant)),
+                (LocalDataProtection.PersistToDatabaseKey, "true"),
+                (LocalDataProtection.KeyRingPathKey, Path.Combine(Path.GetTempPath(), "both")))));
+
+        Assert.Contains(LocalDataProtection.PersistToDatabaseKey, ex.Message, StringComparison.Ordinal);
+        Assert.Contains(LocalDataProtection.KeyRingPathKey, ex.Message, StringComparison.Ordinal);
+    }
+
+    // The other direction, so the new option cannot quietly become a way to skip the requirement: with neither a
+    // path nor the database, HostedMultiTenant still refuses — and now names both ways out.
+    [Fact]
+    public void Hosted_Still_Refuses_When_Neither_Home_Is_Configured()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            LocalDataProtection.ResolveKeyRingPath(Configuration(
+                (DeploymentProfile.ProfileKey, nameof(DeploymentKind.HostedMultiTenant)))));
+
+        Assert.Contains(LocalDataProtection.KeyRingPathKey, ex.Message, StringComparison.Ordinal);
+        Assert.Contains(LocalDataProtection.PersistToDatabaseKey, ex.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    [InlineData("false", false)]
+    [InlineData("no", false)]          // not a bool: absent rather than an error, like the MinIO:UseSSL read
+    [InlineData("true", true)]
+    [InlineData("  TRUE  ", true)]     // an environment variable routinely arrives padded
+    public void The_Database_Flag_Is_Read_Conservatively(string? configured, bool expected)
+    {
+        Assert.Equal(
+            expected,
+            LocalDataProtection.PersistsToDatabase(
+                Configuration((LocalDataProtection.PersistToDatabaseKey, configured))));
+    }
 }

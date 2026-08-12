@@ -1,6 +1,7 @@
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Deployment;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -83,6 +84,29 @@ public static class LocalDataProtection
     /// <c>DataProtection:KeyRingPath</c> is unset in <see cref="DeploymentKind.HostedMultiTenant"/>, where the
     /// ephemeral fallback loses every clinic's encrypted credentials on the next redeploy.
     /// </exception>
+    /// <summary>
+    /// Puts the key ring in PostgreSQL instead of on a volume, for a host that offers no durable disk.
+    ///
+    /// <para><b>Why this is a real option and not a shortcut.</b> <see cref="KeyRingPathKey"/> requires a durable
+    /// volume, which a free PaaS plan does not sell — and on <see cref="DeploymentKind.HostedMultiTenant"/> an
+    /// ephemeral ring is not "reminders stop working": <c>RequiresAdminSecondFactor</c> is true there, so every
+    /// administrator holds a TOTP secret this ring encrypts, and the first redeploy would lock every one of them
+    /// out of their own cabinet. Where the only durable thing is the database, the ring belongs in the database.</para>
+    ///
+    /// <para>⚠️ <b>It changes where the ring lives and nothing about what protects it.</b> The certificate
+    /// protection below applies identically, so the rows are encrypted at rest in PostgreSQL just as they were on
+    /// the volume — a database dump is not a way to read them. FR-3.1 is untouched.</para>
+    ///
+    /// <para>⚠️ Setting this <i>and</i> <see cref="KeyRingPathKey"/> is refused rather than resolved by
+    /// precedence: two homes for one ring means half the keys are written where the other half is not looked for,
+    /// and the symptom is data that decrypts until it suddenly does not.</para>
+    /// </summary>
+    public const string PersistToDatabaseKey = "DataProtection:PersistToDatabase";
+
+    /// <summary>Whether the deployment asked for the key ring to live in the database.</summary>
+    public static bool PersistsToDatabase(IConfiguration configuration) =>
+        bool.TryParse(configuration[PersistToDatabaseKey]?.Trim(), out var value) && value;
+
     public static string? ResolveKeyRingPath(IConfiguration configuration)
     {
         var profile = DeploymentProfile.Resolve(configuration);
@@ -94,14 +118,31 @@ public static class LocalDataProtection
 
         var configured = configuration[KeyRingPathKey];
 
+        if (PersistsToDatabase(configuration))
+        {
+            if (!string.IsNullOrWhiteSpace(configured))
+            {
+                throw new InvalidOperationException(
+                    $"{PersistToDatabaseKey} et {KeyRingPathKey} sont tous deux renseignés. Le trousseau ne peut "
+                    + "avoir qu'un seul domicile : la moitié des clés serait écrite là où l'autre moitié n'est "
+                    + "pas cherchée, et le symptôme est un déchiffrement qui fonctionne jusqu'à ce qu'il cesse. "
+                    + "N'en gardez qu'un.");
+            }
+
+            // The database is the ring's home; no directory is involved at all.
+            return null;
+        }
+
         if (string.IsNullOrWhiteSpace(configured) && profile.Kind == DeploymentKind.HostedMultiTenant)
         {
             throw new InvalidOperationException(
                 $"{KeyRingPathKey} is required in the {nameof(DeploymentKind.HostedMultiTenant)} deployment "
                 + "profile. Without it the Data Protection key ring is per-instance and ephemeral, so every "
                 + "clinic's encrypted reminder credentials become unreadable after a redeploy "
-                + "and each channel silently reports « non configuré ». Point it at a directory backed by a "
-                + "durable volume (see deploy/docker-compose.hosted.yml).");
+                + "and each channel silently reports « non configuré » — and every administrator's second factor "
+                + "goes with them, locking them out of their own cabinet. Point it at a directory backed by a "
+                + $"durable volume (see deploy/docker-compose.hosted.yml), or set {PersistToDatabaseKey}=true "
+                + "where the host offers no durable disk and the database is the only durable thing there is.");
         }
 
         return configured;
@@ -119,7 +160,16 @@ public static class LocalDataProtection
         var profile = DeploymentProfile.Resolve(configuration);
         var keyRingPath = ResolveKeyRingPath(configuration);
 
-        if (!string.IsNullOrWhiteSpace(keyRingPath))
+        if (PersistsToDatabase(configuration))
+        {
+            builder.PersistKeysToDbContext<Persistence.ApplicationDbContext>();
+
+            // Same protection as the volume branch below, and for the same reason: naming a custom key
+            // repository disables the framework's own key-at-rest encryption, so without this the master keys
+            // would sit in cleartext — in a database table rather than on a disk, which is not an improvement.
+            ApplyCertificateProtection(builder, configuration, profile);
+        }
+        else if (!string.IsNullOrWhiteSpace(keyRingPath))
         {
             Directory.CreateDirectory(keyRingPath);
             builder.PersistKeysToFileSystem(new DirectoryInfo(keyRingPath));
@@ -203,6 +253,27 @@ public static class LocalDataProtection
     public static IDataProtectionProvider CreateStandaloneProvider(IConfiguration configuration)
     {
         var services = new ServiceCollection();
+
+        // ⚠️ Where the ring lives in the database, the key repository resolves an ApplicationDbContext — and this
+        // container has none, because a console verb builds it by hand. Without this registration
+        // `reprotect-secrets` (whose whole job is to re-encrypt under the current generation) and
+        // `verify-schema`'s coverage figure would fail to resolve a provider at all, on exactly the deployment
+        // that chose this option. The context is registered here rather than in AddConfiguredDataProtection so
+        // the web host, which already has one, does not get a second.
+        if (PersistsToDatabase(configuration))
+        {
+            var connectionString = configuration.GetConnectionString("DefaultConnection");
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                throw new InvalidOperationException(
+                    $"{PersistToDatabaseKey} est activé mais aucune chaîne de connexion n'est configurée : le "
+                    + "trousseau est dans la base, donc sans elle ce verbe ne peut lire aucune clé.");
+            }
+
+            services.AddDbContext<Persistence.ApplicationDbContext>(options =>
+                options.UseNpgsql(connectionString));
+        }
+
         AddConfiguredDataProtection(services, configuration);
         return services.BuildServiceProvider().GetRequiredService<IDataProtectionProvider>();
     }

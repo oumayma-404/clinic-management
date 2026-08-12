@@ -9,6 +9,14 @@
     <PackageReference Include="Google.Apis.Calendar.v3" Version="1.68.0.3536" />
     <PackageReference Include="Google.Apis.Auth" Version="1.68.0" />
     <PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="8.0.0" />
+    <!--
+      Lets the Data Protection key ring live in PostgreSQL rather than on a volume, for a host that offers no
+      durable disk (Render's free tier, and every PaaS shaped like it). The database is then the only durable
+      thing the deployment has, and an ephemeral ring is not a degradation there: on HostedMultiTenant every
+      administrator MUST hold a second factor, whose secret this ring encrypts, so a redeploy would lock every
+      administrator out of their own cabinet. See LocalDataProtection.PersistToDatabaseKey.
+    -->
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="8.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

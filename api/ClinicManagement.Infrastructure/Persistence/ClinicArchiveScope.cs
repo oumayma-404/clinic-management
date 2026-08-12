@@ -85,6 +85,12 @@ public static class ClinicArchiveScope
         nameof(ClinicActivityDay),
         nameof(ClinicActivitySnapshot),
         nameof(ClinicSignup),
+        // The Data Protection key ring, where DataProtection:PersistToDatabase puts it. Deployment-wide key
+        // material and the single most dangerous thing that could travel in a cabinet's zip: the archive is
+        // deliberately UNENCRYPTED and kept on a practice's laptop, and these rows decrypt every administrator's
+        // second factor and every clinic's reminder credentials — including other cabinets'. It has no path to a
+        // clinic either, so without this entry it would be *reported* as unarchivable on every export.
+        "DataProtectionKey",
     };
 
     /// <summary>
