@@ -59,18 +59,46 @@ public sealed class DirectoryAclHardener
 
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// The three SIDs <see cref="Harden"/> always grants, in bare form (no <c>*</c> prefix) so they can be
+    /// compared against a resolved identity. A process already running as one of them needs no extra grant.
+    /// </summary>
+    private static readonly string[] WellKnownGrantedSids =
+    {
+        SidLocalSystem.TrimStart('*'),
+        SidNetworkService.TrimStart('*'),
+        SidAdministrators.TrimStart('*')
+    };
+
+    /// <summary>
+    /// The two SIDs this class exists to <b>remove</b>, in bare form. Never granted, whatever is handed in.
+    /// </summary>
+    private static readonly string[] NeverGrantedSids =
+    {
+        SidUsers.TrimStart('*'),
+        SidEveryone.TrimStart('*')
+    };
+
     private readonly Func<IReadOnlyList<string>, AclCommandResult> _runIcacls;
+    private readonly Func<string?> _currentIdentitySid;
 
     /// <summary>Production constructor — runs the real <c>icacls</c>.</summary>
     public DirectoryAclHardener() : this(RunIcacls)
     {
     }
 
-    /// <summary>Test seam: supply a fake runner to assert the invocations issued.</summary>
-    public DirectoryAclHardener(Func<IReadOnlyList<string>, AclCommandResult> runIcacls)
+    /// <summary>
+    /// Test seam: supply a fake runner to assert the invocations issued, and optionally a fake identity so the
+    /// grant list does not depend on whichever account happens to be running the suite. Production resolves the
+    /// identity through <see cref="CurrentIdentitySid"/>.
+    /// </summary>
+    public DirectoryAclHardener(
+        Func<IReadOnlyList<string>, AclCommandResult> runIcacls,
+        Func<string?>? currentIdentitySid = null)
     {
         ArgumentNullException.ThrowIfNull(runIcacls);
         _runIcacls = runIcacls;
+        _currentIdentitySid = currentIdentitySid ?? CurrentIdentitySid;
     }
 
     /// <summary>
@@ -109,12 +137,31 @@ public sealed class DirectoryAclHardener
 
         // `/grant:r` replaces any previous grant for the same SID rather than adding a second ACE, so
         // re-running this (a reinstall) converges instead of accumulating.
+        //
+        // ⚠️ The account THIS PROCESS runs as is granted too, and that is load-bearing rather than defensive.
+        // Step 2 below removes the inherited ACEs — which is the whole point, it is what drops the
+        // `Users: Read & Execute` inherited from `{autopf}` — but an inherited ACE is also where the running
+        // account's own access comes from unless it happens to be LocalSystem, NetworkService or an *elevated*
+        // administrator. Under a de-privileged service account, or an unelevated one (a developer run, where an
+        // administrator's SID is present but deny-only), the three grants above leave the process locked out of
+        // the directory it is hardening. Two things then break, in this order:
+        //
+        //   (a) the backup writes `database.dump` into that folder immediately afterwards, so a *successful*
+        //       hardening breaks the very operation it is protecting; and
+        //   (b) when a later step fails, `PgDumpBackupService`'s catch calls `TryDeleteDirectory` to remove the
+        //       partial folder (AC-14.4) — and that is refused for the same reason, so the half-written backup
+        //       survives, unreadable and undeletable, with only a logged warning behind it.
+        //
+        // (b) is not hypothetical: it is how three orphaned `clinic-backup-*` folders came to sit permanently in
+        // a destination, where they also consume `PruneOldBackupsAsync`'s per-pass deletion budget for ever —
+        // oldest-first, so retention stops pruning anything real and the destination grows without bound.
+        //
+        // This widens nothing the policy cares about: the policy excludes `Users` and `Everyone`, and where the
+        // process already runs as one of the three SIDs above this grant is a no-op.
         Execute(
             "l'attribution des droits au service",
             directory,
-            "/grant:r", $"{SidLocalSystem}:(OI)(CI)F",
-            "/grant:r", $"{SidAdministrators}:(OI)(CI)F",
-            "/grant:r", $"{SidNetworkService}:(OI)(CI)F");
+            ComposeGrantArguments(_currentIdentitySid()).ToArray());
 
         Execute("la suppression des droits hérités", directory, "/inheritance:r");
 
@@ -147,6 +194,71 @@ public sealed class DirectoryAclHardener
         catch (Exception ex)
         {
             return $"(impossible de lire les droits : {ex.Message})";
+        }
+    }
+
+    /// <summary>
+    /// The <c>/grant:r</c> arguments for step 1: the three well-known SIDs, plus
+    /// <paramref name="currentIdentitySid"/> when it is neither null nor already one of them.
+    ///
+    /// <para>Extracted so the rule is assertable <b>on any platform</b>. <see cref="Harden"/> returns
+    /// <see cref="AclHardeningOutcome.SkippedNotWindows"/> before it ever composes these, so a test that went
+    /// through <c>Harden</c> could only exercise this on Windows — and the case that matters most (the process
+    /// already running as <c>LocalSystem</c>, i.e. the packaged install) is unreachable there anyway without
+    /// actually being <c>LocalSystem</c>.</para>
+    ///
+    /// <para><c>public</c> rather than <c>internal</c> because this solution has no <c>InternalsVisibleTo</c> —
+    /// the alternative is reaching in by reflection, which <c>CnamVlcTests</c> documents as the workaround it is.
+    /// « What does hardening grant? » is a fair question to ask this class anyway.</para>
+    /// </summary>
+    public static IReadOnlyList<string> ComposeGrantArguments(string? currentIdentitySid)
+    {
+        var grants = new List<string>
+        {
+            "/grant:r", $"{SidLocalSystem}:(OI)(CI)F",
+            "/grant:r", $"{SidAdministrators}:(OI)(CI)F",
+            "/grant:r", $"{SidNetworkService}:(OI)(CI)F"
+        };
+
+        // ⚠️ `Users`/`Everyone` are excluded explicitly, so « this method never grants either » is true by
+        // construction rather than by the observation that `WindowsIdentity.GetCurrent().User` returns an account
+        // and those two are groups. Step 3 removes them a few lines later; granting one here would have this
+        // method quietly undo its own policy, and that is too load-bearing to rest on an argument about which
+        // SIDs a token can hold.
+        if (!string.IsNullOrWhiteSpace(currentIdentitySid)
+            && !WellKnownGrantedSids.Contains(currentIdentitySid)
+            && !NeverGrantedSids.Contains(currentIdentitySid))
+        {
+            grants.Add("/grant:r");
+            grants.Add($"*{currentIdentitySid}:(OI)(CI)F");
+        }
+
+        return grants;
+    }
+
+    /// <summary>
+    /// The SID of the account this process runs as, or <c>null</c> when it cannot be read.
+    ///
+    /// <para>A <b>SID and not a name</b>, for this file's stated reason: account names are localized, so a
+    /// name-based ACE would silently no-op on exactly the French Windows installs this ships to. Null on any
+    /// failure — the three well-known grants still apply, which is the behaviour that shipped before, so an
+    /// unreadable identity degrades to the old posture rather than failing a backup.</para>
+    /// </summary>
+    private static string? CurrentIdentitySid()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+
+        try
+        {
+            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            return identity.User?.Value;
+        }
+        catch
+        {
+            return null;
         }
     }
 

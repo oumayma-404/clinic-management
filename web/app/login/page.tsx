@@ -60,6 +60,14 @@ function LocalLoginForm() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // A successful password change revokes its own session (SetPassword bumps TokenVersion), so
+  // /change-password lands here rather than in the app. Without this the user meets a bare login form
+  // and cannot tell whether the change was saved — the one fact they came here to establish.
+  const [passwordChanged, setPasswordChanged] = useState(false)
+
+  useEffect(() => {
+    setPasswordChanged(new URLSearchParams(window.location.search).get('passwordChanged') === '1')
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -99,6 +107,14 @@ function LocalLoginForm() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {passwordChanged && !error && (
+              <div
+                role="status"
+                className="rounded-lg border border-success/20 bg-success-wash p-3 text-sm text-success"
+              >
+                Mot de passe enregistré. Connectez-vous avec votre nouveau mot de passe.
+              </div>
+            )}
             {error && (
               <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
                 {error}

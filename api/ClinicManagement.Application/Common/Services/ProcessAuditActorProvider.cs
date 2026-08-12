@@ -21,6 +21,7 @@ namespace ClinicManagement.Application.Common.Services;
 public class ProcessAuditActorProvider : IAuditActorProvider
 {
     private AuditActor _actor = AuditActor.Unknown;
+    private bool _restoring;
     private bool _read;
 
     public AuditActor Current
@@ -28,7 +29,7 @@ public class ProcessAuditActorProvider : IAuditActorProvider
         get
         {
             _read = true;
-            return _actor;
+            return _restoring ? _actor.AsRestore() : _actor;
         }
     }
 
@@ -42,4 +43,15 @@ public class ProcessAuditActorProvider : IAuditActorProvider
 
         _actor = AuditActor.Process(processName);
     }
+
+    /// <summary>
+    /// Decorates rather than replaces, so — unlike <see cref="RunAs"/> — it is honoured after the first read too.
+    ///
+    /// <para>⚠️ The flag is held <b>beside</b> the identity rather than folded into it, mirroring
+    /// <see cref="AuditActorProvider"/>. Stored in <c>_actor</c>, a later <c>RunAs</c> — permitted whenever the
+    /// actor has not been read — overwrote the decoration with a bare process name and the restore mark was lost
+    /// silently. Two implementations of one interface disagreeing about whether a declared restore survives is
+    /// the divergence shape this repository names as its dominant defect.</para>
+    /// </summary>
+    public void RestoringAnArchive() => _restoring = true;
 }

@@ -186,6 +186,8 @@ public class ApplicationDbContext : DbContext
         // has to be matched by the database or it only ever sees the page the user is already looking at.
         SqlSearch.MapUnaccent(modelBuilder);
 
+        AlignSentinelsWithDatabaseDefaults(modelBuilder);
+
         // Multi-tenant isolation layer: scope the directly-clinic-owned entities to the scope's clinic.
         //
         // ⚠️ These filters used to be **fail-open** — no clinic in scope meant no filter — which made them a
@@ -374,6 +376,42 @@ public class ApplicationDbContext : DbContext
     {
         typeof(UserDashboardPreference),
     };
+
+    /// <summary>
+    /// Makes each column's <b>sentinel</b> equal to the database default it carries, so « the caller did not
+    /// supply a value » and « the caller supplied the same value the database would » stop being the same thing.
+    ///
+    /// <para><b>What it fixes.</b> EF omits a store-generated column from the INSERT whenever the value equals the
+    /// property's sentinel — the CLR default unless told otherwise — and <c>HasDefaultValue(…)</c> makes a column
+    /// store-generated. So inserting a <c>ProcedureType</c> with <c>IsActive = false</c>, a <c>Clinic</c> with VAT
+    /// switched off, or a <c>PatientFlag</c> that is inactive stored the <i>opposite</i> of what was asked for:
+    /// EF sent nothing and PostgreSQL wrote <c>true</c>. Found through the archive restore, where every row is an
+    /// insert and the symptom is a deactivated acte coming back active — but it was never restricted to it.</para>
+    ///
+    /// <para><b>Why the default is the right sentinel, and why this changes nothing else.</b> A value equal to the
+    /// database default is written explicitly instead of being left out, and the row lands identical either way;
+    /// every other value now reaches the column instead of being replaced. There is no schema change — a sentinel
+    /// is model metadata and emits no migration.</para>
+    ///
+    /// <para>⚠️ <b>Derived, never listed.</b> Eleven configurations declare a default today and the twelfth would
+    /// otherwise arrive with the defect intact and nothing to notice it. The concurrency token is skipped: it maps
+    /// onto <c>xmin</c> and is the database's in every sense.</para>
+    /// </summary>
+    private static void AlignSentinelsWithDatabaseDefaults(ModelBuilder modelBuilder)
+    {
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetProperties())
+            {
+                if (property.IsConcurrencyToken || property.GetDefaultValue() is not { } value)
+                {
+                    continue;
+                }
+
+                property.Sentinel = value;
+            }
+        }
+    }
 
     /// <summary>
     /// Walks the base chain looking for the open generic <c>Entity&lt;&gt;</c>. Checking for the property by

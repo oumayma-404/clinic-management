@@ -60,8 +60,15 @@ public static class PlatformCounterPass
             return false;
         }
 
+        // ⚠️ The restore prefix is a DECORATION and therefore matches neither of the two below: a console-driven
+        // restore is `restore|console|{guid}`, which starts with neither `job|` nor `console|`. Left out, the
+        // vendor putting a dead cabinet back made it read as the portfolio's most active practice the next
+        // morning — poisoning `sort=activity` and the « dormant » filter on exactly the cabinet the filter had
+        // just surfaced, which is the « responding to the signal destroys the signal » failure the console
+        // exclusion was written to prevent, at far greater magnitude.
         return !userId.StartsWith(AuditActor.ProcessPrefix, StringComparison.Ordinal)
-               && !userId.StartsWith(AuditActor.ConsolePrefix, StringComparison.Ordinal);
+               && !userId.StartsWith(AuditActor.ConsolePrefix, StringComparison.Ordinal)
+               && !userId.StartsWith(AuditActor.RestorePrefix, StringComparison.Ordinal);
     }
 
     /// <summary>

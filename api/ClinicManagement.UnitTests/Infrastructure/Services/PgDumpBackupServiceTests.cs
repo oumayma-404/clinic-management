@@ -37,13 +37,30 @@ public sealed class PgDumpBackupServiceTests : IDisposable
         return new AclCommandResult(exitCode, exitCode == 0 ? string.Empty : "Accès refusé.");
     });
 
-    private PgDumpBackupService Service(Dictionary<string, string?> settings, DirectoryAclHardener? hardener = null)
+    /// <summary>
+    /// A machine with <b>no discoverable PostgreSQL tools</b> — only the files this test class created itself
+    /// exist, and no probe directory lists any children.
+    ///
+    /// <para>⚠️ Required since tool discovery landed. <c>PostgresToolLocator</c> searches <c>PATH</c> and the
+    /// well-known install directories, and both a developer Windows box and GitHub's ubuntu runner have the client
+    /// installed — so « pg_dump is missing » would otherwise be true or false depending on where the suite ran,
+    /// and the refusal test below would be worse than absent. The real filesystem is reached only through this
+    /// seam, so every case here means the same thing everywhere.</para>
+    /// </summary>
+    private static PostgresToolLocator.FileSystem OnlyTheseFiles() =>
+        new(File.Exists, _ => Array.Empty<string>());
+
+    private PgDumpBackupService Service(
+        Dictionary<string, string?> settings,
+        DirectoryAclHardener? hardener = null,
+        PostgresToolLocator.FileSystem? toolFileSystem = null)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
         return new PgDumpBackupService(
             configuration,
             NullLogger<PgDumpBackupService>.Instance,
-            hardener ?? RecordingHardener());
+            hardener ?? RecordingHardener(),
+            toolFileSystem ?? OnlyTheseFiles());
     }
 
     /// <summary>
@@ -75,6 +92,15 @@ public sealed class PgDumpBackupServiceTests : IDisposable
         Assert.Contains("connexion", ex.Message);
     }
 
+    /// <summary>
+    /// A server with no PostgreSQL client tools at all fails loud, and the message names what to do about it.
+    ///
+    /// <para>⚠️ The configured path here points at a file that does not exist, which since discovery landed
+    /// <b>falls through</b> rather than refusing on the spot — the packaged-upgrade case, where a bundled
+    /// PostgreSQL moved and a working tool on PATH is a better answer than a refusal quoting a stale key. The
+    /// refusal now means « configured path unusable <i>and</i> nothing discoverable », which is why this class
+    /// injects a filesystem that discovers nothing.</para>
+    /// </summary>
     [Fact]
     public async Task Missing_pg_dump_fails_loud()
     {
@@ -86,6 +112,48 @@ public sealed class PgDumpBackupServiceTests : IDisposable
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateBackupAsync(_dir));
         Assert.Contains("pg_dump", ex.Message);
+        // The operator has to be able to act on it: the message names the client package AND the override key.
+        Assert.Contains("PostgreSQL", ex.Message);
+        Assert.Contains("Backup:PgDumpPath", ex.Message);
+    }
+
+    /// <summary>
+    /// The case the whole change exists for: with <b>nothing configured</b>, a discoverable pair is used and the
+    /// backup gets past tool resolution.
+    ///
+    /// <para>Before discovery, `Backup:PgDumpPath` was the only route to the tools and it is written by exactly one
+    /// of the four ways this product is deployed — so this configuration (the one that ships in
+    /// <c>appsettings.json</c>) refused every backup, on every Docker deployment, for the life of the product.</para>
+    /// </summary>
+    [Fact]
+    public async Task Discovered_tools_are_used_when_nothing_is_configured()
+    {
+        // A "PATH" directory holding both tools, as `api/Dockerfile`'s postgresql-client-16 produces.
+        var binDirectory = Path.Combine(_dir, "bin");
+        Directory.CreateDirectory(binDirectory);
+        var suffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
+        var pgDump = Path.Combine(binDirectory, $"pg_dump{suffix}");
+        var pgRestore = Path.Combine(binDirectory, $"pg_restore{suffix}");
+        File.WriteAllText(pgDump, "dummy");
+        File.WriteAllText(pgRestore, "dummy");
+
+        var service = Service(
+            new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = "Host=localhost;Database=clinic;Username=u;Password=p",
+            },
+            toolFileSystem: new PostgresToolLocator.FileSystem(
+                File.Exists,
+                // Stand in for a PATH entry: the locator asks for directory children only when walking the
+                // versioned install roots, so pointing those at our bin directory is what puts it in the search.
+                path => path.Contains("postgres", StringComparison.OrdinalIgnoreCase)
+                    ? new[] { _dir }
+                    : Array.Empty<string>()));
+
+        // It gets PAST tool resolution — the dummies are not executables, so it fails at launching pg_dump, which
+        // is precisely what proves the tools were found rather than refused.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateBackupAsync(_dir));
+        Assert.DoesNotContain("est introuvable", ex.Message);
     }
 
     /// <summary>

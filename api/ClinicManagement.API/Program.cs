@@ -920,10 +920,26 @@ try
     // serves the case a fixed 02:00 cron cannot: a clinic PC switched off overnight would simply never be backed
     // up, silently, for ever. The job itself decides whether each clinic is due, and will not back one up twice
     // in its own local day.
-    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.BackupJob>(
-        "run-scheduled-backups",
-        job => job.RunScheduledBackups(),
-        Cron.Hourly);
+    //
+    // ⚠️ Registered ONLY where the application backs its own data up (`BacksUpItsOwnData`). On the two hosted kinds
+    // the `deploy/` `backup` sidecar already dumps the database and the object store off-server on a schedule, and
+    // one database holds every cabinet — so an in-app `pg_dump` there is both weaker than what is running and a
+    // cross-tenant read. Left registered it did real harm rather than nothing: with no `pg_dump` in the image it
+    // wrote a failure row per clinic per attempt for ever AND raised a « sauvegarde périmée » alert that no action
+    // available to the clinic could clear.
+    if (profile.BacksUpItsOwnData)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.BackupJob>(
+            "run-scheduled-backups",
+            job => job.RunScheduledBackups(),
+            Cron.Hourly);
+    }
+    else
+    {
+        // Defensively drop it, as the two jobs below do: a deployment reprofiled onto hosted infrastructure would
+        // otherwise keep an hourly registration pointing at work it must no longer do.
+        RecurringJob.RemoveIfExists("run-scheduled-backups");
+    }
 
     // The vendor console's activity counters (platform-console FR-3) — daily, and deliberately NOT
     // connectivity-gated: its output is a database row, exactly like the expiry scan above. Gating it on egress

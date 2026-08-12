@@ -49,5 +49,19 @@ public enum PlatformAccessAction
     /// design, since a lifted suspension must not keep reading as one — so « qui a suspendu ce cabinet en mars, et
     /// pourquoi ? » is answerable here and nowhere else.</para>
     /// </summary>
-    Unsuspended = 4
+    Unsuspended = 4,
+
+    /// <summary>
+    /// A console account restored a cabinet from an archive the practice supplied
+    /// (<c>clinic-data-archive-and-restore</c>).
+    ///
+    /// <para>⚠️ <b>The heaviest row in this ledger, and the reason it must exist.</b> This is the one console
+    /// action that writes a practice's <i>clinical</i> records rather than its entitlement — and it runs precisely
+    /// when the cabinet's own accounts are gone, so nobody at the practice can see it happen. The cabinet's own
+    /// « Journal d'activité » carries the individual rows under a <c>restore|</c> actor; this row is what says
+    /// <i>which vendor account</i> put them there.</para>
+    ///
+    /// <para>No <c>SubscriptionPeriodId</c>: no money changed hands and no entitlement was extended.</para>
+    /// </summary>
+    RestoredClinic = 5
 }

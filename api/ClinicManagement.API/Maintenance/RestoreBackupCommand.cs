@@ -2,6 +2,7 @@
 using System.Net.NetworkInformation;
 using ClinicManagement.Infrastructure;
 using ClinicManagement.Infrastructure.Deployment;
+using ClinicManagement.Infrastructure.Services;
 using Npgsql;
 using ClinicManagement.API.Startup;
 
@@ -116,8 +117,9 @@ public static class RestoreBackupCommand
             if (pgRestore == null || pgDump == null)
             {
                 Console.Error.WriteLine(
-                    "pg_restore ou pg_dump est introuvable. Vérifiez 'Backup:PgDumpPath' "
-                    + "(les deux outils sont fournis avec PostgreSQL, dans le même dossier).");
+                    "pg_restore ou pg_dump est introuvable sur ce serveur. Les deux outils sont fournis avec "
+                    + "PostgreSQL, dans le même dossier : installez le client PostgreSQL ou indiquez son "
+                    + "emplacement dans 'Backup:PgDumpPath'.");
                 return 1;
             }
 
@@ -238,32 +240,21 @@ public static class RestoreBackupCommand
     // ------------------------------------------------------------------ tooling & config
 
     /// <summary>
-    /// <c>pg_restore</c> and <c>pg_dump</c>, resolved the same way the backup writer resolves them: an explicit
-    /// override, else the sibling of the configured <c>pg_dump</c>. One rule, so the verb cannot find a different
-    /// PostgreSQL from the one that wrote the dump.
+    /// <c>pg_restore</c> and <c>pg_dump</c>, through the <b>shared</b> <see cref="PostgresToolLocator"/> — the same
+    /// object <c>PgDumpBackupService</c> resolves them with, so the verb cannot find a different PostgreSQL from
+    /// the one that wrote the dump it is restoring.
+    ///
+    /// <para>This method used to be a hand-rolled copy of that rule, under a docstring claiming to be « one rule ».
+    /// The two then drifted in the way that matters: neither could find the tools at all unless
+    /// <c>Backup:PgDumpPath</c> was set, and only the Windows installer sets it — so on every other deployment the
+    /// restore verb's first act was to refuse.</para>
     /// </summary>
     private static (string? PgRestore, string? PgDump) ResolveTools(IConfiguration configuration)
     {
-        var pgDump = configuration["Backup:PgDumpPath"];
-        if (string.IsNullOrWhiteSpace(pgDump) || !File.Exists(pgDump))
-        {
-            return (null, null);
-        }
+        var pgDump = PostgresToolLocator.LocatePgDump(configuration);
+        var pgRestore = PostgresToolLocator.LocatePgRestore(configuration, pgDump);
 
-        var configuredRestore = configuration["Backup:PgRestorePath"];
-        if (!string.IsNullOrWhiteSpace(configuredRestore) && File.Exists(configuredRestore))
-        {
-            return (configuredRestore, pgDump);
-        }
-
-        var directory = Path.GetDirectoryName(Path.GetFullPath(pgDump));
-        if (string.IsNullOrEmpty(directory))
-        {
-            return (null, pgDump);
-        }
-
-        var candidate = Path.Combine(directory, $"pg_restore{Path.GetExtension(pgDump)}");
-        return (File.Exists(candidate) ? candidate : null, pgDump);
+        return (pgRestore, pgDump);
     }
 
     private static string ResolveBackupRoot(IConfiguration configuration)

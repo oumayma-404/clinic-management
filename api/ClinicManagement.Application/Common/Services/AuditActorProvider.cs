@@ -30,6 +30,7 @@ public class AuditActorProvider : IAuditActorProvider
     private readonly IClinicContext _clinicContext;
     private readonly IPlatformSessionContext _platformSession;
     private string? _processName;
+    private bool _restoring;
     private AuditActor? _resolved;
 
     public AuditActorProvider(IClinicContext clinicContext, IPlatformSessionContext platformSession)
@@ -52,7 +53,22 @@ public class AuditActorProvider : IAuditActorProvider
         _processName = processName;
     }
 
+    public void RestoringAnArchive()
+    {
+        // Unlike RunAs this decorates rather than replaces, so it is safe after the actor has been read — and it
+        // has to be, since the restore declares itself once and then writes in batches.
+        _restoring = true;
+        _resolved = _resolved?.AsRestore();
+    }
+
     private AuditActor Resolve()
+    {
+        var actor = ResolveIdentity();
+
+        return _restoring ? actor.AsRestore() : actor;
+    }
+
+    private AuditActor ResolveIdentity()
     {
         // The console first: its principal also carries a `sub`, so asking the clinic context first would claim a
         // console write as a clinic user's. See the class remarks.

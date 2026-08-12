@@ -110,14 +110,31 @@ services:
       # refusal to boot, never a silent downgrade to HTTP.
       Https__CertPath: "/app/.local/server.pfx"
       Https__CertPassword: "${LAN_CERT_PASSWORD:?run deploy/lan-cert.sh and export LAN_CERT_PASSWORD}"
+      # Where « Sauvegarder maintenant » and the hourly `BackupJob` write. The image now carries the PostgreSQL 16
+      # client, so `PostgresToolLocator` finds `pg_dump`/`pg_restore` on PATH and **no tool path is configured
+      # here** — that key existing at all is what made the backup look configurable while being dead.
+      #
+      # ⚠️ This must point at the mounted volume below. The install-relative default (`/app/Backups`) resolves
+      # inside the container, so without the mount every backup would be written into the writable layer and
+      # destroyed by the next `docker compose up` — silently, with the history still reporting « réussie ».
+      #
+      # ⚠️ And it is still the SAME DISK as the live database (`lan-postgres` is a volume on this host too), so the
+      # backup carries `PgDumpBackupService`'s same-volume warning. Copy the volume off the machine on a schedule;
+      # a backup that dies with the disk it protects is not one. This is a LAN install's standing homework, not a
+      # defect — see `packaging/README.md`.
+      Backup__DefaultDestination: "/app/Backups"
     volumes:
       # The self-generated CA and server certificate. Without a volume, every restart mints a new CA and every
       # phone that trusted the old one has to be re-enrolled.
       - lan-certs:/app/.local
       # Patient files: `LocalDiskFileStorage` writes under `FileStorage:BasePath`, relative to the install dir.
       - lan-files:/app/Files
+      # The backup destination. `api/Dockerfile` creates and chowns `/app/Backups` before this mounts over it, so
+      # Docker propagates the ownership to the new volume and the non-root process can write into it.
+      - lan-backups:/app/Backups
 
 volumes:
   lan-postgres:
   lan-certs:
   lan-files:
+  lan-backups:

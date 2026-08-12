@@ -57,6 +57,24 @@ public static class AuditLabels
         nameof(Medication) => "Médicament",
         nameof(StaffNotification) => "Notification interne",
         nameof(DocumentEmail) => "Envoi de document",
+        // The child tables. They never appear in « Journal d'activité » — the interceptor writes one row per
+        // aggregate root — but the archive's restore report is keyed on the same CLR names and is read by a
+        // cabinet owner, so « InstallmentPayment · 3 ignorés » had to stop being the sentence they meet.
+        nameof(InvoiceLine) => "Ligne de facture",
+        nameof(Payment) => "Paiement",
+        nameof(Installment) => "Échéance",
+        nameof(InstallmentPayment) => "Paiement d'échéance",
+        nameof(TreatmentPlanItem) => "Acte du devis",
+        nameof(AppointmentProcedure) => "Acte du rendez-vous",
+        nameof(DentalRecordTooth) => "Dent d'une fiche de soins",
+        nameof(DentalRecordAct) => "Acte d'une fiche de soins",
+        nameof(ToothState) => "État d'une dent",
+        nameof(PatientMedicalHistory) => "Antécédent médical",
+        nameof(PatientFamilyHistory) => "Antécédent familial",
+        nameof(PatientFlag) => "Étiquette patient",
+        nameof(StockBatch) => "Lot de stock",
+        nameof(ProcedureTypeMaterial) => "Consommable d'un acte",
+        nameof(MedicationActiveIngredient) => "Principe actif",
         _ => entityType
     };
 
@@ -64,9 +82,29 @@ public static class AuditLabels
     /// Who to show. A process is named as such — « Tâche automatique (NotificationJob) » — because a row an owner
     /// cannot attribute to a colleague should say so plainly rather than leave them looking for one. A person shows
     /// their email; failing that, their raw id, which is at least traceable.
+    ///
+    /// <para>⚠️ <b>The restore decoration is unwrapped here, and without that the mark was write-only.</b>
+    /// <c>AuditActor.AsRestore()</c> <i>prepends</i> to whatever identity was in scope and preserves the e-mail, so
+    /// a restored row fell through to the address branch and rendered as the named admin's own — verbatim the
+    /// outcome the decoration exists to prevent: three thousand <c>Insert</c> rows against a colleague, on a day
+    /// they typed nothing. On the console path it is worse, since the address shown to the practice belongs to the
+    /// vendor.</para>
     /// </summary>
     public static string Actor(string userId, string? userEmail)
     {
+        if (userId.StartsWith(AuditActor.RestorePrefix, StringComparison.Ordinal))
+        {
+            var inner = Actor(userId[AuditActor.RestorePrefix.Length..], userEmail);
+            return $"Restauration d'archive ({inner})";
+        }
+
+        if (userId.StartsWith(AuditActor.ConsolePrefix, StringComparison.Ordinal))
+        {
+            return string.IsNullOrWhiteSpace(userEmail)
+                ? "Assistance éditeur"
+                : $"Assistance éditeur ({userEmail})";
+        }
+
         if (userId.StartsWith(AuditActor.ProcessPrefix, StringComparison.Ordinal))
         {
             var name = userId[AuditActor.ProcessPrefix.Length..];

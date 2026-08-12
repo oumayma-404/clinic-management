@@ -43,6 +43,20 @@ public class GetBackupHistoryQuery : IRequest<Result<BackupHistoryDto>>
 /// <param name="BackupEnabled">Whether the nightly schedule is on.</param>
 /// <param name="BackupHourLocal">The clinic-local hour it runs at.</param>
 /// <param name="RetentionCount">How many folders are kept.</param>
+/// <param name="ManagedByHost">
+/// <b>This deployment does not back itself up — its host does</b>, and the screen says so instead of offering a
+/// button that cannot work. True on the two hosted kinds (see <c>DeploymentProfile.BacksUpItsOwnData</c>): the
+/// <c>deploy/</c> <c>backup</c> sidecar already dumps the database and the object store off-server on a schedule,
+/// and one database holds every cabinet, so an in-app <c>pg_dump</c> would be a cross-tenant read.
+///
+/// <para>⚠️ It is a field on this DTO rather than the screen inferring it from an empty page, because « aucune
+/// sauvegarde » and « les sauvegardes ne sont pas gérées ici » are the same picture and opposite facts — and the
+/// first is the one that would send an owner looking for a button to press. The same reasoning as the portfolio's
+/// « jamais mesuré » and the caisse's refund split.</para>
+///
+/// <para>When true, every other field is the neutral empty value and none of them is a claim: there is no schedule
+/// to report and no destination on this machine to name.</para>
+/// </param>
 public record BackupHistoryDto(
     PagedResult<BackupRunDto> Page,
     DateTime? LastSuccessAt,
@@ -51,7 +65,25 @@ public record BackupHistoryDto(
     int StaleAfterHours,
     bool BackupEnabled,
     int BackupHourLocal,
-    int RetentionCount);
+    int RetentionCount,
+    bool ManagedByHost = false)
+{
+    /// <summary>
+    /// The whole response for a deployment whose backups belong to its host. Built here rather than in the
+    /// controller so the shape has one definition — a hand-assembled literal at the call site is how
+    /// <c>ManagedByHost</c> would end up beside a `backupEnabled: true` nobody meant.
+    /// </summary>
+    public static BackupHistoryDto ManagedByTheHost() => new(
+        new PagedResult<BackupRunDto>(Array.Empty<BackupRunDto>(), page: 1, pageSize: 0, totalCount: 0),
+        LastSuccessAt: null,
+        LastSuccessSizeBytes: null,
+        DefaultDestination: string.Empty,
+        StaleAfterHours: 0,
+        BackupEnabled: false,
+        BackupHourLocal: 0,
+        RetentionCount: 0,
+        ManagedByHost: true);
+}
 
 public class GetBackupHistoryQueryHandler : IRequestHandler<GetBackupHistoryQuery, Result<BackupHistoryDto>>
 {

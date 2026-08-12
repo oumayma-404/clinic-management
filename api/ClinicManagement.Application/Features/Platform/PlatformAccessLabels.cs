@@ -25,6 +25,10 @@ public static class PlatformAccessLabels
         // state, and the journal is read by whoever asks why a practice cannot record work.
         PlatformAccessAction.Suspended => "Cabinet suspendu",
         PlatformAccessAction.Unsuspended => "Suspension levée",
+        // The fall-through below is for a member a LATER part adds; this one arrives with the write that
+        // produces it, and it is the heaviest row in the ledger — the only console action that writes a
+        // practice's clinical records.
+        PlatformAccessAction.RestoredClinic => "Cabinet restauré",
         _ => action.ToString()
     };
 

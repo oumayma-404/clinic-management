@@ -35,6 +35,33 @@ public class ClinicStorageKeyTests
         }
     }
 
+    // [AC-5] The restore's write is deliberately NOT an UploadAsync overload, and the name is what keeps the guard
+    // above true by construction: a third upload taking no clinic would silently restore the defect US-5 closed.
+    // This one takes no clinic because it mints no key — it names the key a row already holds, which may be a flat
+    // pre-US-5 one that composing would move out from under its own row (clinic-data-archive-and-restore, EC-4).
+    [Fact]
+    public void Restoring_A_Blob_At_Its_Own_Key_Is_Not_An_Upload()
+    {
+        var restore = typeof(IFileStorage).GetMethod(nameof(IFileStorage.RestoreAtKeyAsync))!;
+
+        Assert.DoesNotContain(restore.GetParameters(), p => p.ParameterType == typeof(Guid));
+        Assert.Contains(restore.GetParameters(), p => p.Name == "storageKey");
+
+        // ⚠️ The property worth pinning is the DERIVED one, in the direction a regression arrives: a later
+        // clinic-less write added as an `UploadAsync` overload would silently restore the defect US-5 closed,
+        // and the guard above passes it because it only checks the members it already knows about. Comparing
+        // `nameof(UploadAsync)` against a method fetched by `nameof(RestoreAtKeyAsync)` — which is what stood
+        // here — is two compile-time constants that can never be equal.
+        var clinicLessWrites = typeof(IFileStorage)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(m => m.GetParameters().Any(p => p.Name == "storageKey"))
+            .Where(m => !m.GetParameters().Any(p => p.ParameterType == typeof(Guid)))
+            .ToList();
+
+        Assert.NotEmpty(clinicLessWrites);
+        Assert.DoesNotContain(clinicLessWrites, m => m.Name == nameof(IFileStorage.UploadAsync));
+    }
+
     // [US-5] The generated key: clinics/{clinicId}/ then a unique leaf.
     [Fact]
     public void A_Generated_Key_Is_Prefixed_And_Unique()

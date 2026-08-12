@@ -90,6 +90,44 @@ public class LocalDiskFileStorage : IFileStorage
         }
     }
 
+    /// <summary>
+    /// Writes bytes back at a key a row already holds. <see cref="ResolveWithinBase"/> still applies, so a
+    /// crafted key inside an archive cannot write outside the storage root — the archive is a file a practice
+    /// keeps on a laptop, so it is untrusted input by the time it comes back.
+    /// </summary>
+    public async Task RestoreAtKeyAsync(
+        Stream file, string contentType, string storageKey, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var fullPath = ResolveWithinBase(storageKey);
+
+            var directory = Path.GetDirectoryName(fullPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            await using var destination = new FileStream(
+                fullPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            await file.CopyToAsync(destination, cancellationToken);
+
+            _logger.LogInformation(
+                "Blob restored to local disk at its original key. Storage key: {StorageKey}, ContentType: {ContentType}",
+                storageKey, contentType);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error restoring blob to local disk. Storage key: {StorageKey}", storageKey);
+            throw;
+        }
+    }
+
+    public Task<bool> ExistsAsync(string storageKey, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(File.Exists(ResolveWithinBase(storageKey)));
+    }
+
     public Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default)
     {
         try

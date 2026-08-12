@@ -162,6 +162,30 @@ public static class PlatformReadShape
         "PatientsCreated",
         "DaysMeasured",
 
+        // ── Re-creating a cabinet from its own archive (`clinic-data-archive-and-restore`). ⚠️ `OneTimePassword` is
+        // the credential of the ADMINISTRATOR ACCOUNT the vendor just minted for the practice — it unlocks no
+        // record that existed before, it is shown once and never stored readably, and the account must change it
+        // on first use; `platform-account create` and `provision-clinic` already answer this way. Everything else
+        // here is arithmetic about the restore: `Entity` is a TABLE's name (« Patient », « Invoice »), never a
+        // person's, and the three counts beside it are rows. The per-entity rows are a declared shape rather than
+        // the report's own dictionary precisely so no `Key`/`Value` pair is pre-approved on this surface.
+        //
+        // ⚠️ `Warnings` is French prose the SERVER composes about files and tables it could not put back — it can
+        // quote a storage key, which is a GUID, and nothing a practice typed. That was **false when written**:
+        // the report concatenated the uploaded manifest's own warnings, so whoever supplied the archive controlled
+        // unbounded prose here — a patient's name included, which is exactly what a closed set of field names is
+        // for. The restorer no longer carries them; this entry is only sound because of that.
+        "OneTimePassword",
+        "ArchivedAtUtc",
+        "Tables",
+        "Entity",
+        "EntityLabel",
+        "Restored",
+        "AlreadyPresent",
+        "Conflicts",
+        "BlobsRestored",
+        "Warnings",
+
         // ── The console's own access ledger (Part 3, FR-5). Its subject is a CONSOLE ACCOUNT and a cabinet, so
         // nothing here can name anyone at the practice at all.
         "Actors",

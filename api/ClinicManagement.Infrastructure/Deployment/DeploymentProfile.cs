@@ -60,7 +60,8 @@ public sealed class DeploymentProfile
         bool allowsSelfRegistration,
         bool allowsPublicClinicSignup,
         bool servesPlatformConsole,
-        bool requiresSubscription)
+        bool requiresSubscription,
+        bool backsUpItsOwnData)
     {
         Kind = kind;
         UsesLocalAccounts = usesLocalAccounts;
@@ -79,6 +80,7 @@ public sealed class DeploymentProfile
         AllowsPublicClinicSignup = allowsPublicClinicSignup;
         ServesPlatformConsole = servesPlatformConsole;
         RequiresSubscription = requiresSubscription;
+        BacksUpItsOwnData = backsUpItsOwnData;
     }
 
     /// <summary>Which topology this install is.</summary>
@@ -191,6 +193,38 @@ public sealed class DeploymentProfile
     public bool RequiresSubscription { get; }
 
     /// <summary>
+    /// The <b>application</b> backs its own database up — « Sauvegarder maintenant », the hourly
+    /// <c>BackupJob</c>, the schedule on the clinic and the staleness alert. Where this is false, protecting the
+    /// data is the <i>host's</i> job and the product says so rather than offering a button.
+    ///
+    /// <para><b>True for <see cref="DeploymentKind.SelfHostedLan"/> alone</b>, and the ✗ on the two hosted kinds is
+    /// a decision with two independent reasons behind it, not a default.</para>
+    ///
+    /// <para><b>(1) There is a real backup there already, and it is better.</b> <c>deploy/docker-compose.prod.yml</c>
+    /// runs a <c>backup</c> sidecar on <c>postgres:16-alpine</c> that dumps the database, archives the object store
+    /// and pushes both <b>off-server</b> through rclone on a schedule. An in-app dump onto the same host is strictly
+    /// weaker than what is already running.</para>
+    ///
+    /// <para><b>(2) On a shared database an in-app backup is a cross-tenant read.</b> <c>pg_dump</c> takes
+    /// <c>--dbname</c> and has no tenant predicate — the whole point of <see cref="DeploymentKind.HostedMultiTenant"/>
+    /// is that every cabinet's rows live in one database behind the query filters — so « Dr X clicks Sauvegarder »
+    /// would dump <b>every other practice's patients</b>. Nothing today could exfiltrate it (there is no download
+    /// endpoint, and the file lands on a disk only the operator can reach), which is exactly why this must be a
+    /// capability rather than a comment: the day somebody adds « télécharger la sauvegarde » to that screen, the
+    /// leak arrives with it.</para>
+    ///
+    /// <para>⚠️ <b>What a clinic can still do is unaffected</b>, and that distinction is the whole design: every
+    /// <b>CSV export</b> and every PDF stays exactly as it was on all three kinds, because those are per-clinic
+    /// reads that go through the tenant filter. « A cabinet can always take its own data out » is served by those,
+    /// not by <c>pg_dump</c>.</para>
+    ///
+    /// <para>⚠️ <b>Derived from the kind, like every capability here.</b> There is deliberately no
+    /// <c>Backup:Enabled</c> — a key able to flip this would let a hosted deployment be configured into offering
+    /// one cabinet a dump of all the others.</para>
+    /// </summary>
+    public bool BacksUpItsOwnData { get; }
+
+    /// <summary>
     /// May this topology deliver OS push to <paramref name="platform"/> at all? (spec FR-10, AC-51/AC-52.)
     ///
     /// <para><b>Per-platform, not one boolean</b>, because a deployment with a Firebase project and no Apple key
@@ -279,7 +313,10 @@ public sealed class DeploymentProfile
             servesPlatformConsole: false,
             // The data is on the practice's own PC. Refusing writes there would hold their patient records
             // hostage on hardware we neither own nor host.
-            requiresSubscription: false),
+            requiresSubscription: false,
+            // One clinic per database on hardware nobody else administers: an in-app dump is the only backup
+            // this topology can have, and it is the topology the whole feature was written for.
+            backsUpItsOwnData: true),
 
         DeploymentKind.HostedMultiTenant => new DeploymentProfile(
             kind,
@@ -305,7 +342,10 @@ public sealed class DeploymentProfile
             // The one topology with a portfolio to administer: many cabinets, one backend, one vendor behind it.
             servesPlatformConsole: true,
             // The only topology we host and bill: 30 free days, then read-only until a payment is recorded.
-            requiresSubscription: true),
+            requiresSubscription: true,
+            // The `backup` sidecar already dumps this deployment off-server on a schedule — and one database
+            // holds every cabinet, so an in-app `pg_dump` would hand one practice all the others.
+            backsUpItsOwnData: false),
 
         DeploymentKind.CloudBrowser => new DeploymentProfile(
             kind,
@@ -329,7 +369,10 @@ public sealed class DeploymentProfile
             // console administers.
             servesPlatformConsole: false,
             // Predates the arrangement; its clinics are not on it.
-            requiresSubscription: false),
+            requiresSubscription: false,
+            // Same hosted infrastructure and the same shared database as above: the sidecar backs it up, and an
+            // in-app dump would cross tenants.
+            backsUpItsOwnData: false),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled deployment kind.")
     };

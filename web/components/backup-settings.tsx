@@ -17,6 +17,7 @@ import {
   Clock,
   RotateCcw,
 } from "lucide-react"
+import { ClinicArchiveCard } from "@/components/backup/clinic-archive-card"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { backupApi, type BackupHistoryDto, type BackupRunDto, type BackupRunOutcome } from "@/lib/api/backup"
 import { ApiError } from "@/lib/api/client"
@@ -33,6 +34,31 @@ function formatSize(bytes: number): string {
 
 /** How many attempts to list. A short window: this is a settings card, not a log viewer. */
 const HISTORY_PAGE_SIZE = 8
+
+/**
+ * The card's header, shared by the two things this component can be: the clinic's own backup panel, and the
+ * « gérées par l'hébergeur » statement. Extracted rather than duplicated so the two cannot drift into looking
+ * like different sections of « Paramètres ».
+ */
+function BackupCardHeader() {
+  return (
+    <CardHeader className="pb-3">
+      {/*
+        The icon chip — `app/documents/page.tsx`'s template-tile idiom, sized for a header. The hue is the
+        `config` zone's, matching the four sections of « Paramètres » this card is stacked under.
+      */}
+      <CardTitle className="flex min-w-0 items-center gap-2.5 text-base leading-snug">
+        <span
+          aria-hidden="true"
+          className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`}
+        >
+          <DatabaseBackup className="size-4" strokeWidth={1.75} />
+        </span>
+        Sauvegarde
+      </CardTitle>
+    </CardHeader>
+  )
+}
 
 /**
  * Admin-only « Sauvegarde » card (US-8 / FR-G / AC-8.1–8.3, extended by L4).
@@ -177,24 +203,60 @@ export function BackupSettings() {
     (lastSuccess === null ||
       Date.now() - new Date(lastSuccess).getTime() > history.staleAfterHours * 3_600_000)
 
+  /*
+    ── This deployment's backups belong to its host ──────────────────────────────────────────────────────────
+    `managedByHost` comes from the server (`DeploymentProfile.BacksUpItsOwnData`), and the card becomes a
+    statement rather than a control panel: there is no button, no schedule and no history, because on a hosted
+    deployment none of the three is this clinic's to operate.
+
+    ⚠️ This branch exists because the alternative was actively misleading, not merely useless. The `POST` and the
+    schedule now 404 there, and before that they answered « L'outil pg_dump est introuvable » — an error naming a
+    tool and a config key, on a screen whose reader cannot install software on our servers — while a
+    « sauvegarde périmée » alert sat unclearable in the bell.
+
+    ⚠️ It claims **nothing about whether a backup has happened** — not a date, and not the fact either. The first
+    draft said « vos données sont sauvegardées automatiquement par l'hébergeur », which this application cannot
+    verify and which is outright false in two ordinary cases: the dev compose runs no `backup` sidecar at all, and
+    a hosted deployment whose operator never set `BACKUP_REMOTE` gets `backup.sh`'s own « kept LOCAL ONLY — not
+    off-server » warning. A reassurance nobody checked is worse than no reassurance, because it is read by the one
+    person who would otherwise go and ask. So the card states only what is true here — the control is not on this
+    screen — and names who can answer the rest.
+
+    ⚠️ It is **no longer a dead end**, which is what the interim note here used to say it was. The per-clinic
+    archive (`clinic-data-archive-and-restore`) is exactly the two copies the product owner asked for — the server's,
+    kept by the host, and the practice's own, downloaded from here — and its restore is what the « Exporter » CSVs
+    could never be. The statement about the *server's* backups stays, because it is still true and still the thing
+    an owner arriving on this card is confused about; what changed is that the card now answers « et de mon côté ? »
+    with a control instead of a suggestion.
+  */
+  if (history?.managedByHost) {
+    return (
+      <Card>
+        <BackupCardHeader />
+        <CardContent className="space-y-3">
+          <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/40 p-3">
+            <ShieldAlert className="mt-0.5 size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+            <div className="min-w-0 space-y-1.5">
+              <p className="text-sm font-medium leading-snug">
+                La sauvegarde du serveur relève de votre hébergeur
+              </p>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Il n&apos;y a rien à planifier ni à lancer ici pour le serveur lui-même. Pour savoir quand vos
+                données ont été sauvegardées pour la dernière fois, et où, contactez votre hébergeur.
+              </p>
+            </div>
+          </div>
+
+          <ClinicArchiveCard />
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     // No border override: `Card` already renders `border`, which the base layer paints `--border`.
     <Card>
-      <CardHeader className="pb-3">
-        {/*
-          The icon chip — `app/documents/page.tsx`'s template-tile idiom, sized for a header. The hue is the
-          `config` zone's, matching the four sections of « Paramètres » this card is stacked under.
-        */}
-        <CardTitle className="flex min-w-0 items-center gap-2.5 text-base leading-snug">
-          <span
-            aria-hidden="true"
-            className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`}
-          >
-            <DatabaseBackup className="size-4" strokeWidth={1.75} />
-          </span>
-          Sauvegarde
-        </CardTitle>
-      </CardHeader>
+      <BackupCardHeader />
       <CardContent className="space-y-4">
         {/*
           ── The headline (L4d) ───────────────────────────────────────────────────────────────────────────────
@@ -451,6 +513,15 @@ export function BackupSettings() {
             )}
           </div>
         )}
+
+        {/*
+          ── The portable copy (clinic-data-archive-and-restore) ──────────────────────────────────────────────
+          Offered here too, beside the machine-level backup rather than instead of it, because the two answer
+          different questions: `pg_dump` protects *this installation* and is restored by stopping the service,
+          while the archive is one cabinet's own records in a file that can be carried to another machine and put
+          back through the application. A practice that loses the PC has the second and not the first.
+        */}
+        <ClinicArchiveCard />
 
         {/*
           ── Restore (L4g) ────────────────────────────────────────────────────────────────────────────────────

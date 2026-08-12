@@ -9,7 +9,14 @@ rendering, Auth0 management (Cloud) / local JWT auth (Local), and — for offlin
 self-generated HTTPS trust material, and per-clinic reference-catalog seeding. All wiring lives in
 `Extensions.cs` (`AddInfrastructure`).
 
-> **16 capabilities now** — `clinic-subscription` Part A added **`RequiresSubscription`** (`HostedMultiTenant`
+> **17 capabilities now** — the newest is **`BacksUpItsOwnData`** (`SelfHostedLan` only): does the *application*
+> back its own database up, or does its **host**? Where false the hourly `BackupJob` is not registered and the two
+> write endpoints 404, because `deploy/`'s `backup` sidecar already dumps the database and the object store
+> off-server on a schedule **and** one database holds every cabinet — so an in-app `pg_dump`, which has no tenant
+> predicate, would hand one practice every other practice's patients. Reads are untouched: a clinic still takes its
+> own data out through the per-clinic **CSV exports** and PDFs, which go through the tenant filter.
+>
+> Before it, `clinic-subscription` Part A added **`RequiresSubscription`** (`HostedMultiTenant`
 > only), which decides whether a cabinet's right to record new work is a dated entitlement. ⚠️ It reads **no
 > configuration key at all** (AC-7.3): `SubscriptionPolicy.RequiresSubscription` returns `_profile.RequiresSubscription`
 > and there is deliberately no `Subscription:Enabled` to find, because a key able to flip it would put a clinic's own
@@ -96,6 +103,66 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
     noise from filtering roots but not their children).
 - **`ApplicationDbContextFactory.cs`** — `IDesignTimeDbContextFactory` for `dotnet ef` (reads the API project's
   connection string).
+- **`ClinicArchiveScope.cs`** / **`ClinicArchiveStore.cs`** (`clinic-data-archive-and-restore`) — the per-clinic
+  archive's row access: read a cabinet's tables out to JSON, put the **missing** ones back. The one part of the
+  feature that knows about EF, which is why it is here and not in Application.
+  ⚠️ **Nothing goes through a domain constructor, and it cannot.** Every PK is a GUID minted *inside* the
+  constructor and many timestamps are stamped there from `DateTime.UtcNow`, so building entities the ordinary way
+  would give every restored row a **new identity and today's date** — the opposite of a restore, and it breaks the
+  one property the feature rests on (a row still present is recognisable as the same row). Rows are materialised
+  onto the model's own properties instead, through the **private parameterless ctor** — not
+  `GetUninitializedObject`, which leaves the `List<T>` fields backing collection navigations null and NREs inside
+  EF's own fix-up the moment the entry is marked `Added`.
+  ⚠️ **The entity set is derived from the model, never listed**: every non-owned type with a path to a clinic,
+  minus `ClinicArchiveScope.Excluded`. Three scopes and no fourth — `Self` (the `Clinic` row, matched on its PK: it
+  has no `ClinicId` because it *is* the clinic), `Direct` (its own `ClinicId`), `Child` (through the parent's ids,
+  over **required, single-column** FKs — an optional FK is a reference, not ownership). A table with no path is
+  *reported*, never silently dropped.
+  ⚠️ **Scoping and ordering are two questions, and conflating them cost a total-loss restore.** Which rows belong
+  to a cabinet is decided by *required* FKs; what order the tables are *applied* in is decided by **every** FK,
+  optional ones included — `Appointment.PatientId` is nullable and still enforced when set. The directly-owned
+  tables used to be appended in `GetEntityTypes()`' own order with no regard for the keys between them, so on a
+  full restore `DentalRecord` reached the database before `Patient` and the operation died part way. One fixpoint
+  walk now settles both, with a second relaxed pass breaking a cycle and *saying so* rather than dropping the
+  tables. `ClinicArchiveScopeTests.Every_Foreign_Key_Points_At_A_Table_Already_Planned` is the derived guard; its
+  predecessor asserted only `Scope == Child` and was vacuous exactly where the defect was.
+  ⚠️ **`Redacted` is completeness-checked, not remembered.** Inclusion is derived and exclusion is hand-written, so
+  the archive was fail-open for every secret added from now on — a credential-bearing column would travel into a
+  deliberately **unencrypted** zip with no compile error and no failing test. A derived guard reflects over every
+  *planned* entity for a secret-shaped property name and fails unless the entity is excluded or the property
+  redacted, asserted in both directions. `Clinic.Code` joined the set: it is the six characters
+  `POST /api/auth/register` accepts, i.e. a credential rather than a record on the one profile where that door is
+  open — and that is the profile whose archive travels on a USB stick. A property bag rather than ~35 DTOs for the same reason: a new column is
+  archived the day it is written, where a DTO per entity is a second definition that rots.
+  ⚠️ **Every export branch states its clinic predicate explicitly** rather than leaning on the global query filter —
+  the filter is a backstop, `Clinic` carries none at all, and this is the read whose miss puts another cabinet's
+  patients in a file the practice keeps on a laptop. The `RestoreTableAsync` existence check, by contrast,
+  **`IgnoreQueryFilters()` deliberately**: on the console path the cabinet is being re-created and no clinic is in
+  scope, so a filtered read would report every existing row as missing and turn « déjà présent » into a
+  duplicate-key crash.
+  ⚠️ `Entity<T>.Version` is **not archived** — it maps onto PostgreSQL's `xmin`, so writing one back would assert a
+  transaction id from another database.
+  ⚠️ **« Store-generated » is not « has a database default », and reading it as one cost the feature its two worst
+  defects.** `ArchivedProperties` excluded `ValueGenerated.OnAdd` wholesale — but EF marks *every* property
+  configured with `HasDefaultValue(…)` that way, and so is a single `Guid` key on a configuration that omits
+  `ValueGeneratedNever()`. So `Payment.IsVoided` and `InstallmentPayment.IsVoided` were neither archived, restored
+  nor compared (**a voided payment restored as live money**, inflating every money read), along with
+  `Patient.IsArchived`, the clinic's whole billing block, `TreatmentPlanItem.SequenceNumber` and both `IsActive`
+  flags — and, for `MedicalDocument`, `PatientMedicalHistory` and `PatientFamilyHistory`, the **primary key**, which
+  made every ordonnance, certificat and antécédent médical silently unrestorable while the manifest declared their
+  row counts. Only the concurrency token, `OnAddOrUpdate`/`OnUpdate` and computed columns are genuinely the
+  database's. ⚠️ **The other half is in `ApplicationDbContext.AlignSentinelsWithDatabaseDefaults`**: EF omits a
+  store-generated column whose value equals the property's *sentinel*, so an archived `false` on a column
+  defaulting to `true` still reached PostgreSQL as `true`. Each sentinel is now the column's own default —
+  derived over the model, no migration, and it fixes the same trap for every ordinary insert in the product.
+  ⚠️ **Restoring a row is a tenancy decision, not just a lookup.** `Self` refuses any row whose key is not the
+  target cabinet (`Clinic` has no `ClinicId` for the re-stamp to reach — its identity *is* the trusted column, so
+  a hand-edited `data/Clinic.json` inserted a new practice per row); `Child` refuses a row whose parent is not one
+  of this cabinet's, which is the **only** guard the twelve `ClinicId`-less child tables have; a primary key held
+  by another cabinet is refused rather than met as a duplicate-key crash; and a row colliding on a **unique index**
+  (`Invoices(ClinicId, Number)` and its siblings) is counted a conflict and *named*, never inserted. The existence
+  read is scoped by the export's own predicate, so « déjà présent » vs « conflit » can no longer be used as a
+  confirm-or-deny oracle over another practice's column values.
 - **`MoneyReconciliationReader.cs`** / **`SchemaVerificationReader.cs`** — the read sides of the two console
   report verbs (`reconcile-money`, `verify-schema`). Both are read-only and cross-clinic: their verbs build a
   container from `AddInfrastructure` alone, so no `ICurrentClinicProvider` exists, the context's optional provider
@@ -394,7 +461,13 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
   `UseSystemWide` (no clinic in scope at all) and would have written an unattributed key, silently.
   ⚠️ **Reading is deliberately not symmetrical**: `DownloadAsync`/`DeleteAsync` pass the stored key through
   **verbatim**, so a row written before US-5 keeps resolving with **no backfill** (amendment M2). Composing on the
-  read side would strand every one of them. A path that would climb out of its clinic is refused *in the composer*,
+  read side would strand every one of them.
+  ⚠️ **`RestoreAtKeyAsync` (+ `ExistsAsync`) joined that verbatim side** for the per-clinic archive
+  (`clinic-data-archive-and-restore` AC-5/EC-4), and its **name is load-bearing**: `ClinicStorageKeyTests` reflects
+  over every `UploadAsync` for a `Guid`, so a third *upload* overload without one would silently restore the defect
+  US-5 closed. This is not an upload — it mints no key, it names the key a row **already holds**, and that key may
+  legitimately be a flat pre-US-5 one that composing would move out from under its own row. It writes only where
+  nothing exists, the blob half of the restore's additive rule. A path that would climb out of its clinic is refused *in the composer*,
   so MinIO — which has no traversal semantics and would have stored the literal name — refuses it too.
 - **`Storage/MinioFileStorage`** (Cloud + hosted) — MinIO blob store; auto-creates bucket. Uses a singleton
   `IMinioClient`.
@@ -454,14 +527,47 @@ SANs cover the hostname, `localhost`, `127.0.0.1`, and every non-loopback IPv4. 
 **Not DI-registered** — constructed manually pre-`builder.Build()` in `Program.cs` (Kestrel needs the cert before
 the container exists) and by the `ProvisionCertCommand` CLI.
 
-### Backup (`Services/PgDumpBackupService`, `IBackupService`, scoped) — Local, Phase 5
-One-click "Backup now": `pg_dump.exe` custom-format (`-Fc`, `pg_restore`-able) then a recursive file-storage copy,
+### Backup (`Services/PgDumpBackupService`, `IBackupService`, scoped) — where `BacksUpItsOwnData`
+One-click "Backup now": `pg_dump` custom-format (`-Fc`, `pg_restore`-able) then a recursive file-storage copy,
 both into a **unique** timestamped `clinic-backup-<yyyyMMdd-HHmmss>[-N]` folder (DB first). The codebase's only
 `Process` shell-out: argument **list** (no injection), password via `PGPASSWORD` env (never on the cmdline/logs),
-bounded timeout that kills the process tree. **Fails loud** (missing `pg_dump`, unwritable dest, insufficient free
-space — pre-check factors the live DB size via `pg_database_size` — or a non-zero exit → `InvalidOperationException`
-with a French operator message); a partial folder is deleted before rethrow. Registered unconditionally; on Cloud
-a call fails cleanly ("pg_dump introuvable").
+bounded timeout that kills the process tree. **Fails loud** (no `pg_dump` on the machine, unwritable dest,
+insufficient free space — pre-check factors the live DB size via `pg_database_size` — or a non-zero exit →
+`InvalidOperationException` with a French operator message); a partial folder is deleted before rethrow.
+
+- **`Services/PostgresToolLocator`** is the **single** answer to « where are `pg_dump`/`pg_restore`? », shared with
+  the API's `restore-backup` verb: explicit config → beside the app (the installer's bundled `postgres\bin`) →
+  **`PATH`** → the well-known per-version install roots, **newest first**. ⚠️ **Nothing needs configuring any
+  more, and that was the whole defect**: both tools were reached through `Backup:PgDumpPath` alone, which is
+  written by exactly **one** of the four ways this product is deployed (the Windows installer). Everywhere else it
+  is the `""` that ships in `appsettings.json`, so « Sauvegarder maintenant », the hourly `BackupJob`, the
+  pre-migration safety dump **and** the restore verb answered « L'outil pg_dump est introuvable » for the life of
+  the product while every other layer reported the feature present. `api/Dockerfile` now installs
+  `postgresql-client-16`, so the containers resolve it off `PATH`. ⚠️ `RestoreBackupCommand` held a **copy** of the
+  rule under a docstring claiming to be « one rule » — the `fixes-dont-propagate` shape — and now calls this.
+  ⚠️ Newest-first matters: `pg_dump` refuses a server whose major version is *newer* than its own while the reverse
+  works, and the version is compared as an **integer** (`9` outranks `16` lexicographically). ⚠️ A directory holding
+  only `pg_dump` is **not** a candidate — a dump this product cannot verify is a failed backup.
+  ⚠️ It takes a **`FileSystem` seam**, and `PgDumpBackupService` has a second constructor for it, because discovery
+  made « this machine has no `pg_dump` » untestable through configuration: a developer Windows box *and* GitHub's
+  ubuntu runner both have the client installed, so the refusal test would pass or fail by machine.
+- ⚠️ **Registered unconditionally, but the *job* and the two write endpoints are gated** on the 17th capability
+  `DeploymentProfile.BacksUpItsOwnData` (`SelfHostedLan` only) — see that property's own note for the two reasons
+  the hosted kinds are ✗ (an off-server sidecar already runs there; one database holds every cabinet, so an in-app
+  `pg_dump` would be a cross-tenant read). `GET /api/backup/history` deliberately still answers, reporting
+  `managedByHost`, because it is the read that *explains* why there is no button.
+
+⚠️ **`Security/DirectoryAclHardener` also grants the account the process runs as**, and that fixed two stacked
+defects rather than tidying one. Step 2 (`/inheritance:r`) removes the inherited ACEs — the point of the method —
+and an inherited ACE is *also* where the running account's access comes from unless it is one of the three
+well-known SIDs. Under an unelevated or de-privileged account a **successful** hardening therefore broke the dump
+that writes into the folder immediately afterwards, **and** `TryDeleteDirectory`'s AC-14.4 cleanup was refused for
+the same reason — leaving an unreadable, undeletable `clinic-backup-*` folder behind with only a logged warning
+(three were found in a real destination). Those orphans then permanently consumed `PruneOldBackupsAsync`'s
+oldest-first deletion budget, so **retention had silently stopped pruning anything**. `Users`/`Everyone` are
+excluded from that grant explicitly, so « this method never grants either » is true by construction rather than by
+an argument about which SIDs a token can hold; `ComposeGrantArguments` is public so the rule is assertable on the
+ubuntu runner, where `Harden` itself short-circuits.
 
 ## DI Registration (`Extensions.cs` — `AddInfrastructure(services, configuration)`)
 - `ApplicationDbContext` via `UseNpgsql("DefaultConnection")` **+ `AddInterceptors(AuditSaveChangesInterceptor)`**;

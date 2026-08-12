@@ -1,6 +1,7 @@
 using ClinicManagement.Application.Common.Interfaces;
 using Microsoft.Extensions.Logging;
 using Minio;
+using Minio.Exceptions;
 
 namespace ClinicManagement.Infrastructure.Storage;
 
@@ -124,6 +125,113 @@ public class MinioFileStorage : IFileStorage
         {
             _logger.LogError(ex, "Error downloading file from MinIO. Storage key: {StorageKey}", storageKey);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Writes bytes back at a key a row already holds. MinIO object names are flat strings, so a key restored
+    /// verbatim names exactly the object the row points at — including a pre-US-5 flat one (EC-4).
+    /// </summary>
+    public async Task RestoreAtKeyAsync(
+        Stream file, string contentType, string storageKey, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await EnsureBucketAsync(cancellationToken);
+
+            // PutObjectArgs needs the length up front, and an archive entry's stream is not seekable.
+            MemoryStream? buffered = null;
+            Stream source;
+            long length;
+
+            if (file.CanSeek)
+            {
+                length = file.Length - file.Position;
+                source = file;
+            }
+            else
+            {
+                buffered = new MemoryStream();
+                await file.CopyToAsync(buffered, cancellationToken);
+                buffered.Position = 0;
+                length = buffered.Length;
+                source = buffered;
+            }
+
+            try
+            {
+                await _minioClient.PutObjectAsync(
+                    new PutObjectArgs()
+                        .WithBucket(_bucketName)
+                        .WithObject(storageKey)
+                        .WithStreamData(source)
+                        .WithObjectSize(length)
+                        .WithContentType(contentType),
+                    cancellationToken);
+
+                _logger.LogInformation(
+                    "Blob restored at its original key. Storage key: {StorageKey}, ContentType: {ContentType}",
+                    storageKey, contentType);
+            }
+            finally
+            {
+                buffered?.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error restoring blob to MinIO. Storage key: {StorageKey}", storageKey);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Whether an object already exists, through <c>StatObject</c>. A missing object raises rather than returning
+    /// null, and <b>that particular refusal</b> is the answer.
+    ///
+    /// <para>⚠️ <b>Only a genuine not-found reads as « absent ».</b> A catch-all read every failure that way — a
+    /// network blip, an expired credential, a bucket-policy refusal, a throttle, a 5xx — and this single boolean
+    /// is the whole of the archive restore's « existing bytes are left alone », with <c>RestoreAtKeyAsync</c>
+    /// overwriting unconditionally behind it. So during any MinIO instability a restore silently replaced a
+    /// radiograph or a scanned consent the practice had put there <i>after</i> the archive was taken, and counted
+    /// it as a success: the exact rollback of recent work the additive design exists to prevent. Everything else
+    /// propagates and is recorded as a French warning against the file it belongs to.</para>
+    /// </summary>
+    public async Task<bool> ExistsAsync(string storageKey, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _minioClient.StatObjectAsync(
+                new StatObjectArgs()
+                    .WithBucket(_bucketName)
+                    .WithObject(storageKey),
+                cancellationToken);
+
+            return true;
+        }
+        catch (ObjectNotFoundException)
+        {
+            return false;
+        }
+        catch (BucketNotFoundException)
+        {
+            // Nothing can be there if the bucket is not: UploadAsync creates it on demand, so this is « absent »
+            // rather than « unreachable » — the same reading ProbeAsync gives a missing bucket.
+            return false;
+        }
+    }
+
+    /// <summary>Creates the bucket on demand, exactly as <see cref="UploadAsync(Stream, string, Guid, string?, CancellationToken)"/> does.</summary>
+    private async Task EnsureBucketAsync(CancellationToken cancellationToken)
+    {
+        var bucketExists = await _minioClient.BucketExistsAsync(
+            new BucketExistsArgs().WithBucket(_bucketName), cancellationToken);
+
+        if (!bucketExists)
+        {
+            await _minioClient.MakeBucketAsync(
+                new MakeBucketArgs().WithBucket(_bucketName), cancellationToken);
+            _logger.LogInformation("Created bucket: {BucketName}", _bucketName);
         }
     }
 

@@ -29,6 +29,34 @@ public interface IFileStorage
     /// </summary>
     Task<Stream> DownloadAsync(string storageKey, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Writes a blob back at <paramref name="storageKey"/> <b>verbatim</b>, restoring bytes that already had a key
+    /// (<c>clinic-data-archive-and-restore</c> AC-5).
+    ///
+    /// <para>⚠️ <b>Deliberately not an <c>UploadAsync</c> overload, and the name is load-bearing.</b> US-5's
+    /// guarantee is that « an unprefixed key is not something a caller can write », held by every <c>UploadAsync</c>
+    /// requiring a clinic id — a property <c>ClinicStorageKeyTests</c> reflects off this interface rather than off a
+    /// list, so a third upload overload taking no clinic would silently restore the defect US-5 closed. This is not
+    /// an upload: it takes no clinic because it mints no key, it names the key a row <i>already</i> holds, and that
+    /// key may legitimately be a flat pre-US-5 one (EC-4) which composing would move out from under its own row.</para>
+    ///
+    /// <para>It is the write-side mirror of <see cref="DownloadAsync"/>, and the asymmetry is the same one: new
+    /// keys are composed, existing keys are honoured.</para>
+    /// </summary>
+    Task RestoreAtKeyAsync(
+        Stream file,
+        string contentType,
+        string storageKey,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether a blob already exists at <paramref name="storageKey"/>, verbatim.
+    ///
+    /// <para>What makes a restore's blob half additive like its rows: bytes that are already there are left alone,
+    /// so a re-restore neither re-uploads nor overwrites a file the practice has since replaced.</para>
+    /// </summary>
+    Task<bool> ExistsAsync(string storageKey, CancellationToken cancellationToken = default);
+
     /// <summary>Removes the blob stored under <paramref name="storageKey"/>, verbatim — see <see cref="DownloadAsync"/>.</summary>
     Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default);
 

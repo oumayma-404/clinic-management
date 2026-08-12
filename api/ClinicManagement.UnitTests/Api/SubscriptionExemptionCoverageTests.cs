@@ -61,6 +61,11 @@ public class SubscriptionExemptionCoverageTests
 
         // --- Getting your data out, and getting a colleague out (FR-3).
         "Backup.BackupNow",                              // the AC-4.2 argument; the scheduled one already keeps going
+        // ⚠️ A POST that puts back records the cabinet already HAD (`clinic-data-archive-and-restore` AC-8). It is a
+        // write by verb and by mechanism, and exempt anyway because recovering rows that once existed is not
+        // recording new work — an expired cabinet that has also lost data is exactly the one that must recover it.
+        // Its sibling download is a GET the gate never inspects, which is why only this half appears here.
+        "Backup.RestoreArchive",
         "Users.SetStatus",                               // offboarding must not wait on an invoice; the handler
                                                          // refuses the RE-activation direction, which the reason
                                                          // on the attribute never covered
@@ -86,6 +91,11 @@ public class SubscriptionExemptionCoverageTests
         // mistaken suspension has to stay liftable on the same cabinet.
         "PlatformSubscriptions.Suspend",
         "PlatformSubscriptions.LiftSuspension",
+
+        // --- Putting a cabinet back that no longer exists (`clinic-data-archive-and-restore` AC-8). There is no
+        // entitlement to read for a cabinet that is gone, and this is the action that gives it one — so a gate
+        // consulting the cabinet's own cover would refuse exactly the request meant to create it.
+        "PlatformClinicRestore.RestoreClinic",
     };
 
     /// <summary>

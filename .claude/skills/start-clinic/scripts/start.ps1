@@ -129,14 +129,26 @@ if (Test-Listening 5000) {
     Ok "API already running on http://localhost:5000 (skipping start)."
 } else {
     if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw "dotnet not found on PATH." }
-    Info "Starting .NET API (dotnet run -c $ApiConfig, profile 'http') ..."
+        # ⚠️ Build first, then launch the DLL through the `dotnet` host -- NOT `dotnet run`, which
+    #    starts the apphost ClinicManagement.API.exe. Smart App Control blocks freshly-built
+    #    binaries (0x800711C7) and the .exe is the one it refuses most often; the DLL route has
+    #    proved reliable where `dotnet run` was not. It also means no launchSettings, so the
+    #    environment and the URL are set here.
+    Info "Building the API ($ApiConfig) ..."
+    Push-Location $ApiDir
+    try { & dotnet build -c $ApiConfig --nologo -v quiet | Out-Null } finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { throw "API build failed ($ApiConfig). Run 'dotnet build' in $ApiDir to see why." }
+
+    $env:ASPNETCORE_ENVIRONMENT = 'Development'
+    $env:ASPNETCORE_URLS = 'http://localhost:5000'
+    Info "Starting .NET API ($ApiConfig) ..."
     Start-Process -FilePath 'dotnet' `
-        -ArgumentList 'run','-c',$ApiConfig,'--launch-profile','http' `
+        -ArgumentList "bin\$ApiConfig\net8.0\ClinicManagement.API.dll" `
         -WorkingDirectory $ApiDir `
         -RedirectStandardOutput (Join-Path $LogDir 'api.out.log') `
         -RedirectStandardError  (Join-Path $LogDir 'api.err.log') `
         -WindowStyle Hidden | Out-Null
-    if (-not (Wait-Http 'http://localhost:5000/swagger/index.html' 'API (Swagger)' 180)) {
+    if (-not (Wait-Http 'http://localhost:5000/swagger/index.html' 'API (Swagger)' 120)) {
         $errLog = Join-Path $LogDir 'api.err.log'
         if ((Test-Path $errLog) -and (Select-String -Path $errLog -Pattern '0x800711C7' -Quiet)) {
             Warn "Smart App Control blocked the freshly-built API assembly (0x800711C7). Retry -- it is intermittent -- or, if you passed -ApiDebug, drop it: a Release build emits different bytes and SAC judges a different file."

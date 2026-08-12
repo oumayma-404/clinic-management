@@ -26,6 +26,21 @@ public interface IAuditActorProvider
     /// signed-in caller's identity must not be overwritten by a helper that happens to run inside their request.
     /// </summary>
     void RunAs(string processName);
+
+    /// <summary>
+    /// Mark this scope's rows as written by an <b>archive restore</b> rather than by hand
+    /// (<c>clinic-data-archive-and-restore</c> AC-9).
+    ///
+    /// <para><b>Why not <see cref="RunAs"/>.</b> That one is deliberately ignored while a real user is in scope,
+    /// and a restore always has one — an admin clicked it, or a console account did. Losing that identity would be
+    /// the wrong trade: re-inserting three thousand patient rows is exactly the operation an owner needs to be able
+    /// to attribute to a person afterwards. So this <i>decorates</i> whoever is in scope rather than replacing them,
+    /// through <see cref="AuditActor.AsRestore"/>.</para>
+    ///
+    /// <para>Without it a restore is indistinguishable from mass data entry in « Journal d'activité »: three
+    /// thousand <c>Insert</c> rows against a named colleague, on a day they typed nothing.</para>
+    /// </summary>
+    void RestoringAnArchive();
 }
 
 /// <summary>
@@ -56,6 +71,17 @@ public readonly record struct AuditActor(string UserId, string? Email)
     public const string ConsolePrefix = "console|";
 
     /// <summary>
+    /// The prefix marking a row an <b>archive restore</b> re-inserted rather than anyone typed
+    /// (<c>clinic-data-archive-and-restore</c> AC-9).
+    ///
+    /// <para><b>A decoration, not a fourth kind.</b> It wraps whichever identity was already in scope — a clinic
+    /// admin, or the vendor's console — so « qui a restauré ? » stays answerable while « ces trois mille fiches
+    /// ont-elles été saisies ? » answers no. A restore that erased the actor would trade the second question's
+    /// answer for the first's, and the ledger needs both.</para>
+    /// </summary>
+    public const string RestorePrefix = "restore|";
+
+    /// <summary>
     /// What a mutation with neither a token nor a declared process name is recorded as. Deliberately a value and
     /// not a null: the row exists either way, and « we do not know » is information, whereas a missing row is
     /// indistinguishable from nothing having happened.
@@ -69,8 +95,18 @@ public readonly record struct AuditActor(string UserId, string? Email)
     public static AuditActor Console(Guid accountId, string? email = null) =>
         new($"{ConsolePrefix}{accountId}", email);
 
+    /// <summary>
+    /// This same actor, marked as restoring an archive. Idempotent, so a nested declaration cannot produce
+    /// <c>restore|restore|…</c>. See <see cref="RestorePrefix"/>.
+    /// </summary>
+    public AuditActor AsRestore() =>
+        IsRestore ? this : new($"{RestorePrefix}{UserId}", Email);
+
     /// <summary>True when this is a process rather than a person — what lets the read side label the row.</summary>
     public bool IsProcess => UserId.StartsWith(ProcessPrefix, StringComparison.Ordinal);
+
+    /// <summary>True when an archive restore wrote this row, rather than anybody entering it.</summary>
+    public bool IsRestore => UserId.StartsWith(RestorePrefix, StringComparison.Ordinal);
 
     /// <summary>True when the vendor's console wrote this row, rather than anyone at the cabinet.</summary>
     public bool IsConsole => UserId.StartsWith(ConsolePrefix, StringComparison.Ordinal);

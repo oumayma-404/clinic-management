@@ -64,7 +64,13 @@ public class DeploymentProfileTests
             [nameof(DeploymentProfile.ServesPlatformConsole)] = (false, true, false),
             // clinic-subscription AC-7.1–7.3. The THIRD hosted-only capability: the two other kinds are ✗ for
             // their own reasons (the clinic's own disk; a topology that predates the arrangement), not by default.
-            [nameof(DeploymentProfile.RequiresSubscription)] = (false, true, false)
+            [nameof(DeploymentProfile.RequiresSubscription)] = (false, true, false),
+            // Backup ownership. ⚠️ NOT a hosted-only capability and NOT inverted — it answers exactly as
+            // `IsLocalMode` did, which is why it needs no entry in either set in the R-2 test below: the
+            // application backs itself up on a clinic's own PC and nowhere else. Both ✗ are decisions with
+            // reasons (an off-server sidecar already runs there, and one database holds every cabinet, so an
+            // in-app `pg_dump` would be a cross-tenant read) — see the capability's own doc comment.
+            [nameof(DeploymentProfile.BacksUpItsOwnData)] = (true, false, false)
         };
 
     private static IEnumerable<PropertyInfo> Capabilities() =>

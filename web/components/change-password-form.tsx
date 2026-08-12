@@ -52,8 +52,11 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
         setIsSubmitting(false)
         return
       }
-      // Full navigation so the cleared forced-change cookie is picked up by the middleware.
-      window.location.href = '/'
+      // Full navigation, and to /login rather than /: `User.SetPassword` bumps `TokenVersion`, so the
+      // session that submitted this change is revoked by the change itself (AC-5.2) and the BFF route has
+      // just dropped both cookies. Sending the user to / would land them on a page whose first API call
+      // 401s and bounces them here anyway, with nothing saying the password was actually saved.
+      window.location.href = '/login?passwordChanged=1'
     } catch {
       setError('Impossible de joindre le serveur de la clinique. Veuillez réessayer.')
       setIsSubmitting(false)

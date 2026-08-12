@@ -18,6 +18,7 @@ Track incomplete work, bugs, and technical debt across all features.
 | [BS1 overlay — deferred review findings (font bundling, job failure surfacing, non-retryable fail-fast)](./cnam-bs1-overlay-deferred-review.md) | cnam-bs1-official-overlay | debt | medium | 2026-07-20 |
 | [Embed the real BS1 in the document-editor preview](./cnam-bs1-live-preview.md) | cnam-bs1-official-overlay | enhancement | medium | 2026-07-20 |
 | [Patient merge — dropped in favour of duplicate prevention; design already done](./patient-merge.md) | audit-sections-3-to-10 | enhancement | low | 2026-07-28 |
+| [The archive restore's query path has no automated gate — add a `restore-dry-run` verb](./archive-restore-real-database-checks.md) | clinic-data-archive-and-restore | correctness | high | 2026-08-12 |
 
 ## Completed Items
 

@@ -36,15 +36,37 @@ public sealed class PgDumpBackupService : IBackupService
     private readonly IConfiguration _configuration;
     private readonly ILogger<PgDumpBackupService> _logger;
     private readonly DirectoryAclHardener _aclHardener;
+    private readonly PostgresToolLocator.FileSystem _toolFileSystem;
 
+    /// <summary>The DI constructor. Tool discovery reads the real filesystem.</summary>
     public PgDumpBackupService(
         IConfiguration configuration,
         ILogger<PgDumpBackupService> logger,
         DirectoryAclHardener aclHardener)
+        : this(configuration, logger, aclHardener, PostgresToolLocator.FileSystem.Real)
+    {
+    }
+
+    /// <summary>
+    /// Test seam for <b>tool discovery only</b>.
+    ///
+    /// <para>⚠️ It exists because discovery made « this machine has no <c>pg_dump</c> » untestable through
+    /// configuration alone: pointing <c>Backup:PgDumpPath</c> at a non-existent file now correctly falls through
+    /// to PATH, and both a developer Windows box and GitHub's ubuntu runner <i>have</i> the client installed — so
+    /// the refusal test would have passed or failed depending on the machine, which is worse than not having it.
+    /// A separate constructor rather than an optional parameter because the DI container picks the greediest
+    /// constructor it can satisfy, and a defaulted one it cannot resolve is a startup failure.</para>
+    /// </summary>
+    public PgDumpBackupService(
+        IConfiguration configuration,
+        ILogger<PgDumpBackupService> logger,
+        DirectoryAclHardener aclHardener,
+        PostgresToolLocator.FileSystem toolFileSystem)
     {
         _configuration = configuration;
         _logger = logger;
         _aclHardener = aclHardener;
+        _toolFileSystem = toolFileSystem;
     }
 
     public async Task<BackupResultDto> CreateBackupAsync(string? destinationFolder, CancellationToken cancellationToken = default)
@@ -56,11 +78,15 @@ public sealed class PgDumpBackupService : IBackupService
             throw new InvalidOperationException("La chaîne de connexion à la base de données est introuvable (ConnectionStrings:DefaultConnection).");
         }
 
-        var pgDumpPath = _configuration["Backup:PgDumpPath"];
-        if (string.IsNullOrWhiteSpace(pgDumpPath) || !File.Exists(pgDumpPath))
+        // Resolved, not configured: `PostgresToolLocator` looks beside the application, on PATH and in the
+        // well-known per-version install directories before giving up, so every deployment that *ships* the
+        // client tools works with no operator setting at all. An explicit `Backup:PgDumpPath` still wins.
+        var pgDumpPath = PostgresToolLocator.LocatePgDump(_configuration, _toolFileSystem);
+        if (pgDumpPath == null)
         {
             throw new InvalidOperationException(
-                "L'outil pg_dump est introuvable. Vérifiez le paramètre 'Backup:PgDumpPath' (chemin vers pg_dump.exe fourni avec PostgreSQL).");
+                "L'outil pg_dump est introuvable sur ce serveur. Il est fourni avec PostgreSQL ; installez le client "
+                + "PostgreSQL ou indiquez son emplacement dans le paramètre 'Backup:PgDumpPath'.");
         }
 
         // L4b — resolved, never refused. This used to throw when both the argument and
@@ -376,29 +402,13 @@ public sealed class PgDumpBackupService : IBackupService
             .Count(line => line.Length > 0 && !line.StartsWith(';'));
 
     /// <summary>
-    /// <c>pg_restore.exe</c>: the explicit override, else the sibling of <c>pg_dump.exe</c>. Null when neither
-    /// exists, which the caller turns into a failed backup.
+    /// <c>pg_restore</c>: the explicit override, else the sibling of the <c>pg_dump</c> in hand, else a discovered
+    /// copy — all through the one <see cref="PostgresToolLocator"/> the <c>restore-backup</c> verb also uses, so
+    /// the two cannot disagree about where this machine's PostgreSQL tools are. Null when there are none, which
+    /// the caller turns into a failed backup.
     /// </summary>
-    private string? ResolvePgRestorePath(string pgDumpPath)
-    {
-        var configured = _configuration["Backup:PgRestorePath"];
-        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
-        {
-            return configured;
-        }
-
-        var directory = Path.GetDirectoryName(Path.GetFullPath(pgDumpPath));
-        if (string.IsNullOrEmpty(directory))
-        {
-            return null;
-        }
-
-        // The dump tool's own extension, so this works on Linux (no `.exe`) as well as on the Windows install
-        // the feature targets.
-        var extension = Path.GetExtension(pgDumpPath);
-        var candidate = Path.Combine(directory, $"pg_restore{extension}");
-        return File.Exists(candidate) ? candidate : null;
-    }
+    private string? ResolvePgRestorePath(string pgDumpPath) =>
+        PostgresToolLocator.LocatePgRestore(_configuration, pgDumpPath, _toolFileSystem);
 
     /// <summary>
     /// Is the destination on the same volume as the live data? Compared on the path <b>root</b>, which is what a

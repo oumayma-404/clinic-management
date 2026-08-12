@@ -25,6 +25,38 @@ FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
 
+# The PostgreSQL CLIENT tools, so the in-app backup works with NO operator configuration.
+#
+# ⚠️ Without this the whole backup subsystem was dead on every Docker deployment and reported itself present at
+# every other layer: `Backup:PgDumpPath` ships as `""` and is written by exactly one of the four ways this product
+# is deployed (the Windows installer, which bundles its own PostgreSQL), so « Sauvegarder maintenant », the hourly
+# `BackupJob`, the pre-migration safety dump and the `restore-backup` verb all answered « L'outil pg_dump est
+# introuvable » — for the life of the product. `PostgresToolLocator` searches PATH, which is why nothing needs
+# configuring once the binaries are here.
+#
+# ⚠️ Version 16 SPECIFICALLY, from PGDG rather than Debian's own archive: `pg_dump` refuses a server whose major
+# version is newer than its own, and bookworm ships the 15 client. It must track the `postgres:16-alpine` server in
+# `deploy/`, so bumping one means bumping the other.
+#
+# The codename is read from the base image rather than hardcoded, so a bookworm→trixie base bump does not silently
+# point at a repository suite that does not exist. `curl`/`gnupg` are purged again in the same layer.
+USER root
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg; \
+    codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"; \
+    install -d /usr/share/postgresql-common/pgdg; \
+    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+        -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc; \
+    echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${codename}-pgdg main" \
+        > /etc/apt/sources.list.d/pgdg.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends postgresql-client-16; \
+    apt-get purge -y --auto-remove curl gnupg; \
+    rm -rf /var/lib/apt/lists/*; \
+    pg_dump --version; \
+    pg_restore --version
+
 # Runs as a non-root user (review finding 28). This is the container that mounts the Data Protection key ring and
 # holds the Postgres and MinIO root credentials in its environment, so any RCE or escape was immediately
 # root-with-the-keys — while the `web` container had correctly dropped to uid 1001 all along. `APP_UID` (1654) is
@@ -40,9 +72,14 @@ COPY --from=publish /app/publish .
 # created them **owned by root** and the non-root process crash-looped on
 # « Access to the path '/app/.local/dataprotection-keys' is denied ». Creating and chowning them first is what
 # makes the ownership propagate to the new volume.
+#
+# ⚠️ `/app/Backups` is here for the same reason and was missing: `deploy/docker-compose.selfhosted-lan.yml` mounts
+# a named volume over it (`Backup__DefaultDestination`), and a backup written into the container's own writable
+# layer instead is destroyed by the next `docker compose up` — a backup that does not survive a redeploy is not a
+# backup, and nothing would have said so.
 USER root
-RUN mkdir -p /keys /app/.local /app/Files \
-    && chown $APP_UID:$APP_UID /keys /app /app/.local /app/Files
+RUN mkdir -p /keys /app/.local /app/Files /app/Backups \
+    && chown $APP_UID:$APP_UID /keys /app /app/.local /app/Files /app/Backups
 USER $APP_UID
 
 ENTRYPOINT ["dotnet", "ClinicManagement.API.dll"]

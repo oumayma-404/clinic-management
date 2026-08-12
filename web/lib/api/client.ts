@@ -670,6 +670,22 @@ const REQUEST_TIMEOUT_MS = 20_000
  */
 const TRANSFER_TIMEOUT_MS = 180_000
 
+/**
+ * The cabinet **archive**, in either direction, gets its own deadline again — and this one is not about the
+ * uplink.
+ *
+ * ⚠️ A restore's own confirmation says « L'opération peut durer plusieurs minutes sur un cabinet complet », so
+ * the UI was explicitly warning that the operation outlasts the deadline guarding it. Past three minutes the
+ * client aborted while the server carried on committing table after table: the user got the *network* wording —
+ * indistinguishable from « serveur injoignable » — the per-entity report was lost, and they had no way to tell
+ * whether anything had been written. The download has the same shape, since the whole archive is built before a
+ * single byte is sent.
+ *
+ * `TRANSFER_TIMEOUT_MS` was itself split out of `REQUEST_TIMEOUT_MS` for exactly this reason; this is the same
+ * split one step further, rather than raising the ceiling for every upload in the product.
+ */
+export const ARCHIVE_TIMEOUT_MS = 900_000
+
 /** `undefined` where the runtime lacks it, so an old renderer loses the deadline rather than every request. */
 function deadline(ms: number): AbortSignal | undefined {
   return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
@@ -774,15 +790,20 @@ export async function apiDelete<T>(endpoint: string, accessToken?: string | null
   }));
 }
 
-/** `apiGetBlob` for a download whose filename the server dictates — the CSV exports. */
-export async function apiGetFile(endpoint: string, params?: Record<string, any>, accessToken?: string | null): Promise<DownloadedFile> {
+/**
+ * `apiGetBlob` for a download whose filename the server dictates — the CSV exports, and the cabinet archive.
+ *
+ * `timeoutMs` exists for that last one: the archive is built in full before a byte is sent, so its deadline is a
+ * property of the *operation*, not of the transfer.
+ */
+export async function apiGetFile(endpoint: string, params?: Record<string, any>, accessToken?: string | null, timeoutMs: number = TRANSFER_TIMEOUT_MS): Promise<DownloadedFile> {
   const url = buildUrl(endpoint, params);
 
   return handleRequest<DownloadedFile>(accessToken, (token) => fetch(url, {
     method: 'GET',
     headers: apiHeaders(token, 'none'),
     credentials: 'include',
-    signal: deadline(TRANSFER_TIMEOUT_MS),
+    signal: deadline(timeoutMs),
   }), readDownloadedFile);
 }
 
@@ -803,7 +824,7 @@ export async function apiPostBlob(endpoint: string, data: any, accessToken?: str
   }), readBlob);
 }
 
-export async function apiPostFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null): Promise<T> {
+export async function apiPostFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null, timeoutMs: number = TRANSFER_TIMEOUT_MS): Promise<T> {
   // Headers are built INSIDE the callback so a 401 retry rebuilds them with the renewed token. Uploads are
   // exactly where a stale token bites — they are user-initiated after a period of reading, so they are the
   // most likely request to be the first one past the access token's expiry.
@@ -812,7 +833,7 @@ export async function apiPostFormData<T>(endpoint: string, formData: FormData, a
     headers: apiHeaders(token, 'none'),
     body: formData,
     credentials: 'include',
-    signal: deadline(TRANSFER_TIMEOUT_MS),
+    signal: deadline(timeoutMs),
   }));
 }
 

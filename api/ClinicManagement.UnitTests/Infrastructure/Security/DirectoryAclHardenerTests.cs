@@ -86,6 +86,92 @@ public class DirectoryAclHardenerTests : IDisposable
         Assert.Contains("/t", removal);
     }
 
+    // ---- The running account keeps its access (backup-works-everywhere) --------------------------------------
+
+    /// <summary>
+    /// The account the process runs as is granted too, so hardening never locks the process out of the directory
+    /// it is hardening.
+    ///
+    /// <para><b>Why this matters more than it looks.</b> Step 2 (<c>/inheritance:r</c>) removes the inherited ACEs
+    /// — the point of the whole method — and an inherited ACE is where the running account's access comes from
+    /// unless it happens to be one of the three well-known SIDs. Under a de-privileged service account, or an
+    /// unelevated one (a developer run: an administrator's SID is present but deny-only), the old three grants
+    /// left the process unable to write the directory it had just secured. Two failures followed, both silent:
+    /// <c>PgDumpBackupService</c> writes <c>database.dump</c> into that folder immediately afterwards, and its
+    /// failure path calls <c>TryDeleteDirectory</c> to remove the partial folder (AC-14.4) — which was refused for
+    /// the same reason, leaving an unreadable, undeletable <c>clinic-backup-*</c> folder behind with only a logged
+    /// warning. Three of those were found sitting in a real destination, where they also consumed
+    /// <c>PruneOldBackupsAsync</c>'s per-pass deletion budget for ever (oldest-first), so retention had silently
+    /// stopped pruning anything.</para>
+    ///
+    /// <para>Asserted against <see cref="DirectoryAclHardener.ComposeGrantArguments"/> rather than through
+    /// <c>Harden</c>, so it holds on every platform — see that method's own note.</para>
+    /// </summary>
+    [Fact]
+    public void The_account_the_process_runs_as_is_granted_so_hardening_cannot_lock_it_out()
+    {
+        // A perfectly ordinary unelevated user SID — the developer-run and de-privileged-service case.
+        const string serviceAccount = "S-1-5-21-1004336348-1177238915-682003330-1001";
+
+        var grants = DirectoryAclHardener.ComposeGrantArguments(serviceAccount);
+
+        Assert.Contains($"*{serviceAccount}:(OI)(CI)F", grants);
+        // Inheritable, exactly like the three well-known grants: the dump and the file copy write into
+        // subdirectories of this folder, so a non-inheritable ACE would fail one step later instead.
+        Assert.Equal(4, grants.Count(argument => argument == "/grant:r"));
+    }
+
+    /// <summary>
+    /// In the packaged install the process <b>is</b> <c>LocalSystem</c>, which is already granted — so no fourth
+    /// ACE is added and the posture is byte-identical to what shipped. This is the case that makes the fix above
+    /// safe to land, and it cannot be reached through <c>Harden</c> without actually running as <c>LocalSystem</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("S-1-5-18")] // LocalSystem — the API and PostgreSQL services' default account
+    [InlineData("S-1-5-20")] // NetworkService
+    [InlineData("S-1-5-32-544")] // Administrators
+    public void A_process_already_running_as_a_granted_account_adds_no_further_ace(string wellKnownSid)
+    {
+        var grants = DirectoryAclHardener.ComposeGrantArguments(wellKnownSid);
+
+        Assert.Equal(3, grants.Count(argument => argument == "/grant:r"));
+        Assert.Equal(DirectoryAclHardener.ComposeGrantArguments(null), grants);
+    }
+
+    /// <summary>
+    /// An unreadable identity degrades to the three well-known grants — the posture that shipped — rather than
+    /// failing a backup over a diagnostic detail.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void An_unreadable_identity_falls_back_to_the_three_well_known_grants(string? sid)
+    {
+        var grants = DirectoryAclHardener.ComposeGrantArguments(sid);
+
+        Assert.Equal(3, grants.Count(argument => argument == "/grant:r"));
+        Assert.Contains($"{DirectoryAclHardener.SidLocalSystem}:(OI)(CI)F", grants);
+        Assert.Contains($"{DirectoryAclHardener.SidAdministrators}:(OI)(CI)F", grants);
+        Assert.Contains($"{DirectoryAclHardener.SidNetworkService}:(OI)(CI)F", grants);
+    }
+
+    /// <summary>
+    /// The widening this fix does <b>not</b> do: whatever the running identity is, neither <c>Users</c> nor
+    /// <c>Everyone</c> is ever granted. That is the policy this class exists for, and the one an extra grant
+    /// could have quietly undone.
+    /// </summary>
+    [Theory]
+    [InlineData("S-1-5-32-545")] // Users, handed in as if it were the process identity
+    [InlineData("S-1-1-0")] // Everyone
+    public void Neither_users_nor_everyone_is_ever_granted_whatever_the_process_runs_as(string forbiddenSid)
+    {
+        var grants = DirectoryAclHardener.ComposeGrantArguments(forbiddenSid);
+
+        Assert.DoesNotContain(grants, argument =>
+            argument.StartsWith($"*{forbiddenSid}:", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Harden_uses_well_known_sids_not_localized_account_names() // French Windows has BUILTIN\Utilisateurs
     {

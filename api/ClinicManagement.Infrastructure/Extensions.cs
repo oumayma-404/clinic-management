@@ -354,6 +354,15 @@ public static class Extensions
         services.AddSingleton<DirectoryAclHardener>();
         services.AddScoped<IBackupService, PgDumpBackupService>();
 
+        // The per-clinic archive (clinic-data-archive-and-restore) — what `pg_dump` cannot be on a shared
+        // database, since it takes --dbname and has no tenant predicate. Scoped, because it shares the request's
+        // DbContext: the restore stages rows the caller's own IUnitOfWork commits, so a second context would put
+        // the rows and their audit rows in two different transactions.
+        //
+        // ⚠️ Registered HERE and not in AddApplication, alongside the tenant scope and the subscription seams
+        // above, for the same reason they are: it resolves the EF model, which only this assembly can see.
+        services.AddScoped<IClinicArchiveStore, ClinicArchiveStore>();
+
         // Per-clinic reference-catalog seeder (feature cloud-security-and-tenant-isolation, #5): clones the
         // shared default CNAM/medication/dental-act catalogs into each clinic on creation + a startup backfill.
         services.AddScoped<IClinicCatalogSeeder, ClinicCatalogSeeder>();
