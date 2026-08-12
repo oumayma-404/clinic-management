@@ -538,6 +538,53 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                        AND "ConsumedAtUtc" < NOW() - INTERVAL '31 days')
                 """);
 
+        // FR-1.6's third check — Info only, and honest about what it cannot see (see the DTO's own note).
+        // `NOW()` is the database's clock; the difference against ours is the whole reading.
+        double? clockOffsetSeconds = null;
+        try
+        {
+            await using var clockCommand = connection.CreateCommand();
+            clockCommand.CommandText = "SELECT EXTRACT(EPOCH FROM (NOW() AT TIME ZONE 'UTC'))";
+            var dbEpoch = await clockCommand.ExecuteScalarAsync(cancellationToken);
+            if (dbEpoch is not null && dbEpoch is not DBNull)
+            {
+                var dbSeconds = Convert.ToDouble(dbEpoch, System.Globalization.CultureInfo.InvariantCulture);
+                var appSeconds = (DateTime.UtcNow - DateTime.UnixEpoch).TotalSeconds;
+                clockOffsetSeconds = Math.Round(appSeconds - dbSeconds, 3);
+            }
+        }
+        catch
+        {
+            // A reading we could not take is reported as « not applicable », never as zero drift.
+        }
+
+        // hosted-security-hardening FR-1.1. Deliberately NOT « admins without a factor »: that is a state the
+        // product allows (they are refused at the ladder and sent to enrol). What must never exist is one still
+        // holding a LIVE session — which is what the per-request check in LocalAuthEnforcementMiddleware
+        // prevents, and the only thing here able to notice if it stops.
+        var adminsWithoutFactorLive = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "SessionFamilies",
+            requiredColumn: "CurrentCredentialHash",
+            sql: """
+                SELECT COUNT(DISTINCT u."Id")
+                FROM "Users" u
+                JOIN "SessionFamilies" f ON f."UserId" = u."Id"
+                WHERE LOWER(u."Role") = 'admin'
+                  AND u."TotpEnrolledAt" IS NULL
+                  AND u."IsActive"
+                  AND f."EndedAtUtc" IS NULL
+                  AND f."ExpiresAtUtc" > NOW()
+                """);
+
+        var sessionFamilyOrphans = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "SessionFamilies",
+            requiredColumn: "UserId",
+            sql: """
+                SELECT COUNT(*)
+                FROM "SessionFamilies" f
+                WHERE NOT EXISTS (SELECT 1 FROM "Users" u WHERE u."Id" = f."UserId")
+                """);
+
         // The seven clinical children of Patients, each checked against the patient it hangs off. One figure over
         // seven UNIONed counts rather than seven findings: the operator's question is « does any clinical row name
         // the wrong clinic? », and seven lines of zeros answer it worse than one. `PatientFiles` is the required
@@ -628,7 +675,12 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             attributableButUnattributed, pushClinicMismatch,
             signupOrphans, clinicalChildrenWrongClinic,
             enrolledWithoutSecret, clinicsWithoutSnapshot, incoherentSnapshots,
-            clinicsWithoutEntitlement, grandfatheredEntries);
+            clinicsWithoutEntitlement, grandfatheredEntries,
+            // NAMED, not positional — this record's own test file records how a merge that appends
+            // positionally lands a zero in the wrong slot with every assertion still passing.
+            AdminsWithoutFactorHoldingLiveSession: adminsWithoutFactorLive,
+            SessionFamilyOrphans: sessionFamilyOrphans,
+            AppToDatabaseClockOffsetSeconds: clockOffsetSeconds);
     }
 
     /// <summary>

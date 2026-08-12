@@ -13,4 +13,19 @@ public static class LocalAuthClaims
     /// is what marks a token as pre-upgrade and therefore invalid (security-hardening AC-5.15).
     /// </summary>
     public const string TokenVersion = "token_version";
+
+    /// <summary>
+    /// Which <c>SessionFamily</c> — one device's chain of refresh credentials — this token belongs to
+    /// (<c>hosted-security-hardening</c> FR-1.6).
+    ///
+    /// <para>⚠️ <b>Carried as a claim rather than derived by hashing the token</b>, and that is what makes
+    /// replay detection possible at all. Hashing finds a family only while the credential is still the current
+    /// one or its immediate predecessor; a credential <i>three</i> generations back — exactly the replay this
+    /// exists to catch — hashes to nothing, and « unknown credential » and « stolen credential » become the same
+    /// answer. With the family named, an older credential is recognised as belonging to a live chain and that
+    /// chain alone is ended.</para>
+    ///
+    /// <para>Only on the <b>refresh</b> token: an access token is never exchanged, so it has no chain.</para>
+    /// </summary>
+    public const string SessionFamily = "family_id";
 }

@@ -415,6 +415,38 @@ public class SchemaVerificationService
                   + "has an account, or a consumed row past retention that the signup-path purge never reached",
             n => n == 0);
 
+        // hosted-security-hardening FR-1.1. ⚠️ Deliberately not « every admin has a factor or is unenrolled »,
+        // which the plan proposed and which is a TAUTOLOGY — every administrator satisfies one branch or the
+        // other, so it could never go red. What is falsifiable is an admin still *working* without one.
+        Add("admins-without-a-factor-holding-a-live-session", counts.AdminsWithoutFactorHoldingLiveSession,
+            n => n == 0
+                ? "0 administrator(s) hold a live session without a verified second factor"
+                : $"{n} administrator(s) are still working with a live session and no second factor — the "
+                  + "per-request enrolment check is not refusing them",
+            n => n == 0);
+
+        Add("session-families-have-no-orphans", counts.SessionFamilyOrphans,
+            n => n == 0
+                ? "0 session family(ies) outlive their account"
+                : $"{n} session family(ies) name an account that no longer exists — the cascade is not what the "
+                  + "model declares",
+            n => n == 0);
+
+        // ⚠️ Info, ALWAYS — never a drift verdict. The comparison is ~0 by construction (one host, one clock),
+        // and the failure that actually breaks every TOTP code at once — the host drifting from real time —
+        // moves both sides together and cannot be seen from here. Said out loud rather than left implied,
+        // because a check reporting « ok » about a thing it cannot measure is worse than no check.
+        findings.Add(counts.AppToDatabaseClockOffsetSeconds is { } offset
+            ? new SchemaVerificationFinding(
+                "Data migrations",
+                "server-clock-drift",
+                $"application clock is {offset:0.###}s from the database's. ⚠️ Both run on one host and read one "
+                + "clock, so this cannot detect the case that matters — the HOST drifting from real time, which "
+                + "fails every second-factor code at once with the same message as a wrong password. NTP on the "
+                + "host is the real control.",
+                SchemaVerificationSeverity.Info)
+            : NotApplicable("server-clock-drift", "the database clock could not be read"));
+
         // The invariant the seven clinical query filters rest on. A non-zero count is one of two failures and
         // both are silent: a backfill that covered nothing (rows stuck at Guid.Empty, so a patient's whole
         // record reads as empty rather than as an error), or a write path that named a clinic other than the

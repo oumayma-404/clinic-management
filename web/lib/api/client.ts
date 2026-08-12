@@ -76,6 +76,13 @@ export const ApiErrorCode = {
    */
   MustChangePassword: 'must_change_password',
   /**
+   * This administrator must enrol a second factor before the API will serve them anything else
+   * (`hosted-security-hardening` FR-1.2). Emitted by `ClinicAuthRefusals.TotpEnrolmentRequired`, on the login
+   * ladder **and** per-request by `LocalAuthEnforcementMiddleware` — the second is why the client half below
+   * exists at all: a session predating the requirement gets it on an ordinary call, not at sign-in.
+   */
+  TotpEnrolmentRequired: 'totp_enrolment_required',
+  /**
    * The cabinet's entitlement has ended, so **writes** are refused with 402 until it is renewed
    * (`clinic-subscription` AC-4.4). Every read, every CSV export and every PDF keep working — the gate never
    * inspects a GET — so this is never a reason to take the screen.
@@ -148,6 +155,31 @@ export function onMustChangePassword(listener: MustChangePasswordListener): () =
   mustChangePasswordListeners.add(listener);
   return () => {
     mustChangePasswordListeners.delete(listener);
+  };
+}
+
+type SecondFactorRequiredListener = () => void;
+const secondFactorRequiredListeners = new Set<SecondFactorRequiredListener>();
+
+/**
+ * Subscribe to « this administrator must enrol a second factor first » (403 +
+ * {@link ApiErrorCode.TotpEnrolmentRequired}). Returns an unsubscribe function.
+ *
+ * <p>Same shape as {@link onMustChangePassword}, and the same necessity. The refusal can arrive on <b>any</b>
+ * call, because the requirement is re-checked per request — so a user whose session predates it, or who was
+ * promoted to administrator while signed in, meets it in the middle of ordinary work. Without a destination
+ * the app looks perfectly usable and every request fails, which is the worst version of this.</p>
+ *
+ * <p>⚠️ Two consequences worth writing down. The login screen's <b>enrol</b> mode has to be reachable while
+ * holding a session the API refuses — it is, because `/login` is public in `middleware.ts` and the enrolment
+ * endpoint is anonymous. And this makes the module's **second** message replacement, where its own docs said
+ * there was exactly one: the server's sentence is already French and correct, so the message travels verbatim
+ * and only the <i>destination</i> is added.</p>
+ */
+export function onSecondFactorRequired(listener: SecondFactorRequiredListener): () => void {
+  secondFactorRequiredListeners.add(listener);
+  return () => {
+    secondFactorRequiredListeners.delete(listener);
   };
 }
 
@@ -420,6 +452,12 @@ async function throwIfNotOk(response: Response): Promise<void> {
     if (errorCode === ApiErrorCode.MustChangePassword) {
       errorMessage = MUST_CHANGE_PASSWORD_MESSAGE_FR;
       mustChangePasswordListeners.forEach((listener) => listener());
+    }
+
+    // Its sibling one requirement along. ⚠️ The message is NOT replaced: the server's sentence is French and
+    // already names the way out (« depuis l'écran de connexion »), so only the destination is added.
+    if (errorCode === ApiErrorCode.TotpEnrolmentRequired) {
+      secondFactorRequiredListeners.forEach((listener) => listener());
     }
 
     throw new ApiError(response.status, errorMessage, undefined, errorCode);

@@ -489,6 +489,29 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task SessionEndedForReplayAsync(
+        Guid clinicId, string targetUserId, string? deviceLabel, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var where = string.IsNullOrWhiteSpace(deviceLabel) ? null : $" ({deviceLabel.Trim()})";
+
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.SecondFactorReset,
+                "Session interrompue",
+                $"Une session{where} a été interrompue : un identifiant déjà remplacé a été présenté. "
+                + "Vos autres appareils restent connectés. Si ce n'était pas vous, changez votre mot de passe.",
+                DateTime.UtcNow,
+                NotificationTargetKind.Security,
+                actorUserId: null,
+                targetUserId: targetUserId);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
     // Resolves the post-visit target: the appointment's DoctorId → its linked User; any miss → null = all staff.
     // The rule itself lives in StaffNotificationRules, because the push fan-out must target the same person.
     private Task<string?> ResolveTargetUserIdAsync(Guid clinicId, Guid? doctorId, CancellationToken cancellationToken) =>

@@ -30,6 +30,7 @@ public class ClinicTotpAuthTests
     private readonly Mock<IUserSecretProtector> _secrets = new();
     private readonly Mock<ISecondFactorPolicy> _policy = new();
     private readonly Mock<IQrCodeGenerator> _qr = new();
+    private readonly Mock<ISessionFamilyRepository> _sessionFamilies = new();
 
     public ClinicTotpAuthTests()
     {
@@ -37,7 +38,7 @@ public class ClinicTotpAuthTests
             .Returns(PasswordVerificationOutcome.Success);
         _auth.Setup(a => a.GenerateToken(It.IsAny<User>()))
             .Returns(new LocalAuthToken("access-jwt", DateTime.UtcNow.AddMinutes(30)));
-        _auth.Setup(a => a.GenerateRefreshToken(It.IsAny<User>()))
+        _auth.Setup(a => a.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<Guid?>()))
             .Returns(new LocalAuthToken("refresh-jwt", DateTime.UtcNow.AddHours(12)));
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
         _clinics.Setup(r => r.GetByIdAsync(ClinicId, It.IsAny<CancellationToken>()))
@@ -57,13 +58,13 @@ public class ClinicTotpAuthTests
 
     private LoginCommandHandler LoginHandler() => new(
         _users.Object, _auth.Object, _uow.Object, _attempts.Object,
-        _totp.Object, _secrets.Object, _policy.Object);
+        _totp.Object, _secrets.Object, _policy.Object, _sessionFamilies.Object);
 
     private EnrolTotpCommandHandler EnrolHandler() => new(
         _users.Object, _clinics.Object, _auth.Object, _totp.Object, _secrets.Object, _qr.Object, _uow.Object);
 
     private RedeemRecoveryCodeCommandHandler RecoveryHandler() => new(
-        _users.Object, _auth.Object, _attempts.Object, _uow.Object);
+        _users.Object, _auth.Object, _attempts.Object, _uow.Object, _sessionFamilies.Object);
 
     private User Account(string role)
     {

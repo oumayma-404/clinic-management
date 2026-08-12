@@ -40,6 +40,9 @@ public class SessionFamilyRepository : ISessionFamilyRepository
                 cancellationToken);
     }
 
+    public async Task<SessionFamily?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        await _context.SessionFamilies.FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
+
     public async Task<IReadOnlyList<SessionFamily>> GetLiveForUserAsync(
         string userId, CancellationToken cancellationToken = default) =>
         await _context.SessionFamilies

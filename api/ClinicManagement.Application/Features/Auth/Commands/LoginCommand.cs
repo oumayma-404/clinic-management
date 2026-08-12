@@ -2,6 +2,7 @@ using MediatR;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Auth.Commands;
@@ -42,6 +43,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     private readonly ITotpService _totpService;
     private readonly IUserSecretProtector _secretProtector;
     private readonly ISecondFactorPolicy _secondFactorPolicy;
+    private readonly ISessionFamilyRepository _sessionFamilies;
 
     public LoginCommandHandler(
         IUserRepository userRepository,
@@ -50,7 +52,8 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         ILoginAttemptTracker attemptTracker,
         ITotpService totpService,
         IUserSecretProtector secretProtector,
-        ISecondFactorPolicy secondFactorPolicy)
+        ISecondFactorPolicy secondFactorPolicy,
+        ISessionFamilyRepository sessionFamilies)
     {
         _userRepository = userRepository;
         _localAuthService = localAuthService;
@@ -59,6 +62,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         _totpService = totpService;
         _secretProtector = secretProtector;
         _secondFactorPolicy = secondFactorPolicy;
+        _sessionFamilies = sessionFamilies;
     }
 
     /// <summary>
@@ -188,12 +192,29 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
             user.RecordSuccessfulLogin();
             var token = _localAuthService.GenerateToken(user);
 
+            // ── The durable session credential, and the chain it belongs to ───────────────────────────────
+            //
+            // Both are staged BEFORE the single save, so the account's login stamp and its new session family
+            // land in one transaction. A second save here would leave a window in which the user is recorded
+            // as signed in with no family to rotate — and it would break the one-save invariant this handler's
+            // own test asserts.
+            //
+            // FR-1.6: the credential names its own family, so a later exchange can tell « the one I issued »
+            // from « one I replaced three rotations ago ».
+            var family = new SessionFamily(
+                user.Id,
+                // A placeholder, replaced two lines down: the family needs an id before the token can name it,
+                // and the token must exist before it can be hashed into the family. Deliberately an already-
+                // expired instant, so a row that somehow escaped the rotation is purged rather than trusted.
+                SessionCredential.Hash(Guid.NewGuid().ToString()),
+                DateTime.UtcNow);
+            await _sessionFamilies.AddAsync(family, cancellationToken);
+
+            var refreshToken = _localAuthService.GenerateRefreshToken(user, family.Id);
+            family.Rotate(SessionCredential.Hash(refreshToken.AccessToken), refreshToken.ExpiresAtUtc);
+
             _userRepository.Update(user);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-            // The durable session credential the BFF stores in its HttpOnly cookie; the access token above is
-            // held only in browser memory and renewed from this (US-5).
-            var refreshToken = _localAuthService.GenerateRefreshToken(user);
 
             var result = new LoginResultDto
             {

@@ -95,7 +95,7 @@ public class LocalAuthService : ILocalAuthService
         return new LocalAuthToken(accessToken, expiresAt);
     }
 
-    public LocalAuthToken GenerateRefreshToken(User user)
+    public LocalAuthToken GenerateRefreshToken(User user, Guid? sessionFamilyId)
     {
         var expiresAt = DateTime.UtcNow.AddMinutes(LocalAuthConfig.TokenLifetimeMinutes(_configuration));
 
@@ -109,6 +109,14 @@ public class LocalAuthService : ILocalAuthService
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new(LocalAuthClaims.TokenVersion, user.TokenVersion.ToString(CultureInfo.InvariantCulture))
         };
+
+        // FR-1.6 — which device's chain this credential belongs to. Only on the REFRESH token: an access token
+        // is never exchanged, so it has no chain. Absent on a token minted before families existed, which the
+        // exchange reads as « no chain to check » rather than as a replay.
+        if (sessionFamilyId is { } familyId)
+        {
+            claims.Add(new Claim(LocalAuthClaims.SessionFamily, familyId.ToString()));
+        }
 
         if (!string.IsNullOrWhiteSpace(user.Email))
         {
@@ -182,7 +190,14 @@ public class LocalAuthService : ILocalAuthService
                 return null;
             }
 
-            return new RefreshTokenPrincipal(subject, tokenVersion);
+            // ⚠️ An UNPARSEABLE or absent family is `null`, never a refusal: a credential minted before
+            // families existed is an ordinary in-flight session, and refusing it would sign the whole
+            // deployment out on the deploy that introduced replay detection.
+            var family = Guid.TryParse(Claim(result, LocalAuthClaims.SessionFamily), out var familyId)
+                ? familyId
+                : (Guid?)null;
+
+            return new RefreshTokenPrincipal(subject, tokenVersion, family);
         }
         catch
         {

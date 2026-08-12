@@ -20,7 +20,12 @@ public record LocalAuthToken(string AccessToken, DateTime ExpiresAtUtc);
 /// What a validated refresh token asserts. The version must still be checked against the account before a
 /// new access token is issued — the signature only proves the token was ours, not that the session is live.
 /// </summary>
-public record RefreshTokenPrincipal(string Subject, int TokenVersion);
+/// <param name="SessionFamilyId">
+/// The <c>SessionFamily</c> this credential belongs to (<c>hosted-security-hardening</c> FR-1.6), or
+/// <c>null</c> on a token minted before families existed — which is treated as « no chain to check » rather
+/// than as a replay, so an in-flight session survives the deploy.
+/// </param>
+public record RefreshTokenPrincipal(string Subject, int TokenVersion, Guid? SessionFamilyId);
 
 /// <summary>
 /// Local (offline) authentication primitives: password hashing/verification and
@@ -48,7 +53,11 @@ public interface ILocalAuthService
     /// <para>It still carries <c>email</c>, <c>name</c> and <c>role</c>, because the BFF decodes this token to
     /// render the header identity without a server round trip (AC-5.12).</para>
     /// </summary>
-    LocalAuthToken GenerateRefreshToken(User user);
+    /// <param name="sessionFamilyId">
+    /// The chain this credential belongs to (FR-1.6). Stamped into the token so a replayed credential can be
+    /// traced back to its device even when it is too old to match either stored hash.
+    /// </param>
+    LocalAuthToken GenerateRefreshToken(User user, Guid? sessionFamilyId);
 
     /// <summary>
     /// Validates a refresh token's signature, issuer, refresh audience and lifetime, returning the subject and

@@ -155,4 +155,16 @@ public interface INotificationGenerator
     /// </summary>
     Task SecondFactorResetAsync(
         Guid clinicId, string targetUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tells one user that a device's session was ended because a superseded credential was presented
+    /// (<c>hosted-security-hardening</c> FR-1.6).
+    ///
+    /// <para>Targeted, like <see cref="SecondFactorResetAsync"/>: it is a fact about their session, and the
+    /// practice at large has no use for it. Its value is that the user learns a replay happened at all —
+    /// otherwise the only symptom is one device asking for a password again, which reads as an ordinary
+    /// timeout.</para>
+    /// </summary>
+    Task SessionEndedForReplayAsync(
+        Guid clinicId, string targetUserId, string? deviceLabel, CancellationToken cancellationToken = default);
 }

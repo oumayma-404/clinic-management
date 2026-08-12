@@ -189,6 +189,11 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         Guid clinicId, string targetUserId, CancellationToken cancellationToken = default) =>
         _inner.SecondFactorResetAsync(clinicId, targetUserId, cancellationToken);
 
+    // Pass-through for the same reason as the one above: not a locked-phone category.
+    public Task SessionEndedForReplayAsync(
+        Guid clinicId, string targetUserId, string? deviceLabel, CancellationToken cancellationToken = default) =>
+        _inner.SessionEndedForReplayAsync(clinicId, targetUserId, deviceLabel, cancellationToken);
+
     // ---- The fan-out ------------------------------------------------------------------------------
 
     /// <summary>

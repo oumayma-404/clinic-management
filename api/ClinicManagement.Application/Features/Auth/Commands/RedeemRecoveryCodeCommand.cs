@@ -1,6 +1,7 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using MediatR;
 
@@ -33,17 +34,20 @@ public class RedeemRecoveryCodeCommandHandler
     private readonly ILocalAuthService _localAuthService;
     private readonly ILoginAttemptTracker _attemptTracker;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ISessionFamilyRepository _sessionFamilies;
 
     public RedeemRecoveryCodeCommandHandler(
         IUserRepository userRepository,
         ILocalAuthService localAuthService,
         ILoginAttemptTracker attemptTracker,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ISessionFamilyRepository sessionFamilies)
     {
         _userRepository = userRepository;
         _localAuthService = localAuthService;
         _attemptTracker = attemptTracker;
         _unitOfWork = unitOfWork;
+        _sessionFamilies = sessionFamilies;
     }
 
     private static Result<LoginResultDto> Refuse(string code) =>
@@ -119,10 +123,17 @@ public class RedeemRecoveryCodeCommandHandler
             user.RecordSuccessfulLogin();
             var token = _localAuthService.GenerateToken(user);
 
+            // A sign-in, so it opens a chain exactly as the ordinary ladder does (FR-1.6) — staged before the
+            // single save, for the reason `LoginCommand` states.
+            var family = new SessionFamily(
+                user.Id, SessionCredential.Hash(Guid.NewGuid().ToString()), DateTime.UtcNow);
+            await _sessionFamilies.AddAsync(family, cancellationToken);
+
+            var refreshToken = _localAuthService.GenerateRefreshToken(user, family.Id);
+            family.Rotate(SessionCredential.Hash(refreshToken.AccessToken), refreshToken.ExpiresAtUtc);
+
             _userRepository.Update(user);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-            var refreshToken = _localAuthService.GenerateRefreshToken(user);
 
             return Result<LoginResultDto>.Success(new LoginResultDto
             {

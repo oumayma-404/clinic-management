@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SESSION_COOKIE } from '@/lib/auth/local-auth';
+import { readSessionCookie } from '@/lib/auth/session-cookie';
 import { clearSessionCookies } from '@/lib/auth/session-cookie';
 import { forwardedForHeader } from '@/lib/auth/forwarded-for';
 
@@ -14,7 +14,7 @@ const API_INTERNAL_URL = process.env.API_INTERNAL_URL || 'http://localhost:5000/
 // Local-mode change password: proxies to the .NET API, then clears the session on success (AC-5.2).
 // Used by the /change-password screen for both the forced (post-reset) change and voluntary changes.
 export async function POST(request: NextRequest) {
-  const sessionCredential = request.cookies.get(SESSION_COOKIE)?.value;
+  const sessionCredential = readSessionCookie((name) => request.cookies.get(name)?.value);
   if (!sessionCredential) {
     return NextResponse.json({ error: 'Session absente. Reconnectez-vous.' }, { status: 401 });
   }

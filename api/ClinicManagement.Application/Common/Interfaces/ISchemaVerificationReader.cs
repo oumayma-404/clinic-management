@@ -345,4 +345,38 @@ public sealed record DataMigrationCounts(
     /// on the deployment's first signup and be deleted as noisy. Null before the table exists.
     /// </para>
     /// </summary>
-    int? GrandfatheredEntitlementEntries);
+    int? GrandfatheredEntitlementEntries,
+    /// <summary>
+    /// Administrators who hold a <b>live session</b> while having no verified second factor, where the
+    /// deployment requires one (<c>hosted-security-hardening</c> FR-1.1). Zero is the claim. Null before the
+    /// tables exist.
+    /// <para>
+    /// ⚠️ <b>The plan's original name for this — « every admin has a factor or is unenrolled » — is a
+    /// tautology</b>: every administrator satisfies one branch or the other, so it could never go red. That is
+    /// exactly the unfalsifiability that got <c>clinic-activity-day-unique-per-clinic-day</c> replaced. What is
+    /// falsifiable, and what actually matters, is an admin who is <i>still working</i> without one: the login
+    /// ladder refuses a fresh sign-in, but a session minted before the requirement — or before that account was
+    /// promoted — would go on working until the per-request check was added. A non-zero count means that check
+    /// is not doing its job.
+    /// </para>
+    /// </summary>
+    int? AdminsWithoutFactorHoldingLiveSession = null,
+    /// <summary>
+    /// Session families whose owning account no longer exists. Zero is the claim; the FK cascades, so a non-zero
+    /// count means the cascade is not what the model says it is. Null before the table exists.
+    /// </summary>
+    int? SessionFamilyOrphans = null,
+    /// <summary>
+    /// The offset in seconds between the application's clock and PostgreSQL's, reported as <b>Info</b>.
+    /// <para>
+    /// ⚠️ <b>It cannot see the failure that matters, and says so in the check's own text.</b> The API and the
+    /// database run in containers on one host reading one clock, so this comparison is ~0 by construction. The
+    /// case that breaks TOTP — <i>the host</i> drifting from real time, which fails every code at once with the
+    /// same French sentence as a wrong password — moves both sides together and is invisible here. The real
+    /// control is NTP on the host, named beside this in <c>deploy/README.md</c>. It is reported anyway because
+    /// the one thing it <i>can</i> catch is a container started with a different <c>TZ</c> or a deliberately
+    /// skewed clock, and because a stated blind spot is worth more than a silent one.
+    /// </para>
+    /// </summary>
+    double? AppToDatabaseClockOffsetSeconds = null
+);

@@ -3,6 +3,9 @@ using System.Security.Claims;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Auth;
 
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Auth;
+
 namespace ClinicManagement.API.Middleware;
 
 /// <summary>
@@ -59,6 +62,28 @@ public class LocalAuthEnforcementMiddleware
                     "You must change your password before continuing.", "must_change_password");
                 return;
             }
+
+            // ── The second-factor requirement, re-checked PER REQUEST (hosted-security-hardening FR-1.2) ──
+            //
+            // ⚠️ Without this a session established *before* the requirement existed — or before this account
+            // was promoted to administrator — outlives it: the login ladder would refuse a fresh sign-in while
+            // the token already in the browser keeps working for its full lifetime. The requirement has to be
+            // a property of every request, not of the moment a token was minted.
+            //
+            // ⚠️ **After the forced-password-change gate, deliberately** (FR-1.7a): an account owing both is
+            // sent to the screen that unblocks it, and enrolment is checked once that is done. Reversing the
+            // two would route the user to enrolment and leave them stuck, since every call still 403s.
+            var policy = context.RequestServices.GetService<ISecondFactorPolicy>();
+            if (policy?.RequiresAdminSecondFactor == true
+                && account.IsAdmin()
+                && !account.IsTotpEnrolled
+                && !IsSecondFactorRequest(context.Request))
+            {
+                await WriteErrorAsync(context, StatusCodes.Status403Forbidden,
+                    ClinicAuthRefusals.MessageFor(ClinicAuthRefusals.TotpEnrolmentRequired)!,
+                    ClinicAuthRefusals.TotpEnrolmentRequired);
+                return;
+            }
         }
 
         await _next(context);
@@ -79,6 +104,17 @@ public class LocalAuthEnforcementMiddleware
 
     private static bool IsChangePasswordRequest(HttpRequest request) =>
         request.Path.StartsWithSegments(ChangePasswordPath, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The paths an account that still owes an enrolment must be able to reach, or the refusal above has no
+    /// destination and the app is « usable-looking and dead ».
+    ///
+    /// <para>The whole of <c>/api/auth</c>: enrolment, code verification, recovery redemption and step-up all
+    /// live there, as does signing out. Scoping it to the exact four actions would mean a list to keep in step
+    /// with the controller, and every other action on it is already anonymous or harmless.</para>
+    /// </summary>
+    private static bool IsSecondFactorRequest(HttpRequest request) =>
+        request.Path.StartsWithSegments("/api/auth", StringComparison.OrdinalIgnoreCase);
 
     private static Task WriteErrorAsync(HttpContext context, int statusCode, string error, string? code = null)
     {

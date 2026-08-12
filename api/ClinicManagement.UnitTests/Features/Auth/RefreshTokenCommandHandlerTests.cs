@@ -2,6 +2,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -26,7 +27,16 @@ public class RefreshTokenCommandHandlerTests
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<ILocalAuthService> _auth = new();
 
-    private RefreshTokenCommandHandler Handler() => new(_users.Object, _auth.Object);
+    // hosted-security-hardening FR-1.6. Default mock: the presented credential names NO family, which is the
+    // pre-upgrade case — so every pre-existing case below exercises exactly the exchange it did before. The
+    // replay cases in `SessionFamilyTests` drive these explicitly.
+    private readonly Mock<ISessionFamilyRepository> _sessionFamilies = new();
+    private readonly Mock<IUnitOfWork> _uow = new();
+    private readonly Mock<INotificationGenerator> _notifications = new();
+
+    private RefreshTokenCommandHandler Handler() => new(
+        _users.Object, _auth.Object, _sessionFamilies.Object, _uow.Object, _notifications.Object,
+        NullLogger<RefreshTokenCommandHandler>.Instance);
 
     private static RefreshTokenCommand Command() => new() { RefreshToken = Credential };
 
@@ -40,10 +50,10 @@ public class RefreshTokenCommandHandlerTests
     private void Arrange(User user, int? presentedVersion = null)
     {
         _auth.Setup(a => a.ValidateRefreshToken(Credential))
-            .Returns(new RefreshTokenPrincipal(user.Id, presentedVersion ?? user.TokenVersion));
+            .Returns(new RefreshTokenPrincipal(user.Id, presentedVersion ?? user.TokenVersion, null));
         _users.Setup(r => r.GetByAuth0SubAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _auth.Setup(a => a.GenerateToken(user)).Returns(new LocalAuthToken("access-jwt", AccessExpiry));
-        _auth.Setup(a => a.GenerateRefreshToken(user)).Returns(new LocalAuthToken("refresh-jwt-2", RefreshExpiry));
+        _auth.Setup(a => a.GenerateRefreshToken(user, It.IsAny<Guid?>())).Returns(new LocalAuthToken("refresh-jwt-2", RefreshExpiry));
     }
 
     // [AC-35] The exchange returns a NEW durable credential and its own later expiry. Without it the cookie kept
@@ -64,7 +74,7 @@ public class RefreshTokenCommandHandlerTests
         // The cookie's lifetime is keyed off the durable expiry, so equal expiries would collapse a 12 h
         // session to the access token's 30 minutes.
         Assert.True(result.Value.RefreshExpiresAt > result.Value.ExpiresAt);
-        _auth.Verify(a => a.GenerateRefreshToken(user), Times.Once);
+        _auth.Verify(a => a.GenerateRefreshToken(user, It.IsAny<Guid?>()), Times.Once);
     }
 
     // [AC-36] A token version bumped since the cookie was issued (password change, admin reset, role change,
@@ -135,16 +145,16 @@ public class RefreshTokenCommandHandlerTests
     public async Task Every_Refusal_Reports_The_Same_Message()
     {
         var forged = await Refusal(principal: null, account: null);
-        var unknown = await Refusal(new RefreshTokenPrincipal("local|ghost", 0), account: null);
+        var unknown = await Refusal(new RefreshTokenPrincipal("local|ghost", 0, null), account: null);
 
         var revoked = LocalUser();
         var versionInTheCookie = revoked.TokenVersion;
         revoked.SetPassword("NEW-HASH");
-        var revokedError = await Refusal(new RefreshTokenPrincipal(revoked.Id, versionInTheCookie), revoked);
+        var revokedError = await Refusal(new RefreshTokenPrincipal(revoked.Id, versionInTheCookie, null), revoked);
 
         var inactive = LocalUser();
         inactive.Deactivate();
-        var inactiveError = await Refusal(new RefreshTokenPrincipal(inactive.Id, inactive.TokenVersion), inactive);
+        var inactiveError = await Refusal(new RefreshTokenPrincipal(inactive.Id, inactive.TokenVersion, null), inactive);
 
         Assert.False(string.IsNullOrWhiteSpace(forged));
         Assert.Equal(forged, unknown);
@@ -165,7 +175,7 @@ public class RefreshTokenCommandHandlerTests
     {
         var user = LocalUser();
         Arrange(user);
-        _auth.SetupSequence(a => a.GenerateRefreshToken(user))
+        _auth.SetupSequence(a => a.GenerateRefreshToken(user, It.IsAny<Guid?>()))
             .Returns(new LocalAuthToken("refresh-jwt-2", RefreshExpiry))
             .Returns(new LocalAuthToken("refresh-jwt-3", RefreshExpiry));
 
@@ -192,7 +202,14 @@ public class RefreshTokenCommandHandlerTests
         users.Setup(r => r.GetByAuth0SubAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(account);
 
-        var result = await new RefreshTokenCommandHandler(users.Object, auth.Object)
+        // Fresh collaborators: this helper is static, and the refusals it exercises all happen before any
+        // session-family lookup, so an unconfigured mock is the honest arrangement.
+        var result = await new RefreshTokenCommandHandler(
+                users.Object, auth.Object,
+                new Mock<ISessionFamilyRepository>().Object,
+                new Mock<IUnitOfWork>().Object,
+                new Mock<INotificationGenerator>().Object,
+                NullLogger<RefreshTokenCommandHandler>.Instance)
             .Handle(Command(), CancellationToken.None);
 
         Assert.True(result.IsFailure);
@@ -202,6 +219,6 @@ public class RefreshTokenCommandHandlerTests
     private void AssertNothingWasIssued()
     {
         _auth.Verify(a => a.GenerateToken(It.IsAny<User>()), Times.Never);
-        _auth.Verify(a => a.GenerateRefreshToken(It.IsAny<User>()), Times.Never);
+        _auth.Verify(a => a.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<Guid?>()), Times.Never);
     }
 }

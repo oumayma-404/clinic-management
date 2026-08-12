@@ -16,6 +16,15 @@ public interface ISessionFamilyRepository
     /// </summary>
     Task<SessionFamily?> GetByCredentialAsync(string credentialHash, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The family a token NAMES, whether or not the credential it carries still matches either stored hash.
+    ///
+    /// <para>⚠️ This is the lookup replay detection actually uses, and why the family id is a claim: a
+    /// credential three generations old hashes to nothing, so without it « stolen credential » and « unknown
+    /// token » would be the same answer and the device's session could never be ended.</para>
+    /// </summary>
+    Task<SessionFamily?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+
     /// <summary>Every live family of one account, for « vos autres appareils restent connectés ».</summary>
     Task<IReadOnlyList<SessionFamily>> GetLiveForUserAsync(string userId, CancellationToken cancellationToken = default);
 
