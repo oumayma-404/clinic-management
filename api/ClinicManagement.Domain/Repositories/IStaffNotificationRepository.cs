@@ -67,6 +67,13 @@ public interface IStaffNotificationRepository
     Task<StaffNotification?> GetBackupStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The cabinet's live « archive ancienne » alert, if it has one (<c>clinic-recovery-points</c>). Keyed on the
+    /// clinic alone, for <see cref="GetBackupStaleAsync"/>'s reason: there is exactly one such fact per cabinet, which
+    /// is what makes its ensure/clear pair idempotent with no target row to hang off.
+    /// </summary>
+    Task<StaffNotification?> GetArchiveStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The cabinet's warning row for one expiry threshold, if it has one (<c>clinic-subscription</c> FR-5).
     /// Keyed on <b>(clinic, threshold)</b> and not on the clinic alone, which is the whole difference from
     /// <see cref="GetBackupStaleAsync"/>: the daily pass must be idempotent <i>within</i> a threshold while still

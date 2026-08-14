@@ -136,6 +136,7 @@ public static class Extensions
         // L4d — the backup ledger. Registered beside the other repositories rather than only for the job,
         // because « Paramètres » reads it too (« Dernière sauvegarde réussie ») and so does the history endpoint.
         services.AddScoped<IBackupRunRepository, BackupRunRepository>();
+        services.AddScoped<IClinicRecoveryPointRepository, ClinicRecoveryPointRepository>();
         services.AddScoped<IWaitingListRepository, WaitingListRepository>();
         services.AddScoped<ILabWorkOrderRepository, LabWorkOrderRepository>();
         services.AddScoped<IRecurringAppointmentRepository, RecurringAppointmentRepository>();

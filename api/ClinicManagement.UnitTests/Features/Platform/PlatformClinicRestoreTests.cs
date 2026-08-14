@@ -108,7 +108,7 @@ public class PlatformClinicRestoreTests
         var buffer = new MemoryStream();
 
         await ClinicArchivePackager.WriteAsync(
-            buffer, ArchivedClinic, ClinicName, _store, _blobs, NullLogger.Instance, CancellationToken.None);
+            buffer, ArchivedClinic, ClinicName, _store, _blobs, NullLogger.Instance, cancellationToken: CancellationToken.None);
 
         buffer.Position = 0;
         _store.Calls.Clear();
@@ -244,7 +244,7 @@ public class PlatformClinicRestoreTests
 
         var buffer = new MemoryStream();
         await ClinicArchivePackager.WriteAsync(
-            buffer, ArchivedClinic, ClinicName, store, _blobs, NullLogger.Instance, CancellationToken.None);
+            buffer, ArchivedClinic, ClinicName, store, _blobs, NullLogger.Instance, cancellationToken: CancellationToken.None);
         buffer.Position = 0;
         store.Calls.Clear();
 

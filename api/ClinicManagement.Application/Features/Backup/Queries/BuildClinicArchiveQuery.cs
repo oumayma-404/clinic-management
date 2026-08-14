@@ -2,6 +2,7 @@ using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Backup.Archive;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using MediatR;
 using Microsoft.Extensions.Logging;
@@ -158,8 +159,11 @@ public class BuildClinicArchiveQueryHandler
 
         try
         {
+            // The full archive: every row AND every blob. This is the copy a practice keeps on its own machine, and
+            // the only one that survives losing the deployment — the scheduled recovery point is rows-only.
             var manifest = await ClinicArchivePackager.WriteAsync(
-                buffer, clinic.Id, clinic.Name, _store, _fileStorage, _logger, cancellationToken);
+                buffer, clinic.Id, clinic.Name, _store, _fileStorage, _logger,
+                ClinicArchiveContents.RowsAndFiles, cancellationToken);
 
             _logger.LogInformation(
                 "Archive built for clinic {ClinicId}: {Tables} tables, {Blobs} blobs, {Bytes} bytes.",

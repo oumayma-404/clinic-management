@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Application.Features.Backup.Archive;
 
@@ -136,6 +137,20 @@ public sealed record ClinicArchiveManifest
 
     /// <summary>Blobs written, and how many the writer could not read — stated rather than silently dropped.</summary>
     public int BlobCount { get; init; }
+
+    /// <summary>
+    /// Whether this archive carries the blobs at all (<c>clinic-recovery-points</c>).
+    ///
+    /// <para>⚠️ <b>Without it, <see cref="BlobCount"/> of zero has two meanings</b> and the restore cannot tell them
+    /// apart: a rows-only recovery point carries no files by design, while a full archive whose every blob failed to
+    /// read carries none by accident — and the packager treats an unreadable blob as a warning, so both succeed. Only
+    /// the second is a reason to go and look at the object store.</para>
+    ///
+    /// <para><see cref="ClinicArchiveContents.RowsAndFiles"/> is the enum's <c>0</c>, so an archive written before this
+    /// field existed deserialises to it — which is true of every one of them. That is why adding it does <b>not</b>
+    /// bump <see cref="ClinicArchiveFormat.SchemaVersion"/>: no entry's meaning changed.</para>
+    /// </summary>
+    public ClinicArchiveContents Contents { get; init; } = ClinicArchiveContents.RowsAndFiles;
 
     /// <summary>What the writer could not include, in French, so the file explains its own gaps.</summary>
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();

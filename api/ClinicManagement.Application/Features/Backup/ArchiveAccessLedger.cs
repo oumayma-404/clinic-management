@@ -81,7 +81,19 @@ public static class ArchiveAccessLedger
     /// has completed, when there is no longer anybody to refuse — the archive has already left. Failing here
     /// would achieve nothing except an exception on a torn-down request; the honest handling is to log it, and
     /// the <i>request</i> row above is what makes the export attributable regardless.</para>
+    ///
+    /// <para>⚠️ <b>A delivered archive also stamps <see cref="Clinic.LastArchiveDownloadedAtUtc"/></b>
+    /// (<c>clinic-recovery-points</c>), and that is not a duplicate of these two rows. « Livrée » and « NON livrée »
+    /// are <i>both</i> <see cref="AuditAction.Update"/> and differ only in their French prose, so the staleness alert
+    /// deriving « la dernière archive réussie » from the ledger would mean matching a sentence — the
+    /// <c>Contains("déjà facturée")</c> defect this repository deleted. Only the <b>delivered</b> branch stamps it: a
+    /// download abandoned at 90 % really did not arrive, and telling a practice it holds a copy it does not have is
+    /// worse than telling it nothing.</para>
     /// </summary>
+    /// <param name="clinics">
+    /// Needed only to stamp the cabinet. Nullable so a caller with nothing to stamp — a test, or any future path that
+    /// records a delivery without a clinic row to hand — is not forced to resolve a repository it does not use.
+    /// </param>
     public static async Task RecordDeliveryAsync(
         IAuditEntryRepository auditEntries,
         IUnitOfWork unitOfWork,
@@ -91,6 +103,7 @@ public static class ArchiveAccessLedger
         bool delivered,
         long bytes,
         DateTime occurredAt,
+        IClinicRepository? clinics = null,
         CancellationToken cancellationToken = default)
     {
         var entry = new AuditEntry(
@@ -106,6 +119,18 @@ public static class ArchiveAccessLedger
             occurredAt);
 
         await auditEntries.AddRangeAsync(new[] { entry }, cancellationToken);
+
+        if (delivered && clinics != null)
+        {
+            var clinic = await clinics.GetByIdAsync(clinicId, cancellationToken);
+            if (clinic != null)
+            {
+                clinic.MarkArchiveDownloaded(occurredAt);
+                await clinics.UpdateAsync(clinic, cancellationToken);
+            }
+        }
+
+        // One save for both, so a cabinet can never be marked as holding a copy that the ledger does not record.
         await unitOfWork.SaveChangesAsync(cancellationToken);
     }
 }

@@ -210,6 +210,16 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
 
     // Pass-through: the export has already completed by the time this is written, so there is nothing a banner
     // could let anybody intervene in.
+    // Pass-through: ArchiveStale is in-app only (StaffNotificationRules.ReachesALockedPhone answers false), and
+    // what it asks for — download a multi-gigabyte file — cannot be done from a lock screen.
+    public Task EnsureArchiveStaleAsync(
+        Guid clinicId, DateTime? lastDownloadedUtc, int staleAfterDays,
+        CancellationToken cancellationToken = default) =>
+        _inner.EnsureArchiveStaleAsync(clinicId, lastDownloadedUtc, staleAfterDays, cancellationToken);
+
+    public Task ClearArchiveStaleAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
+        _inner.ClearArchiveStaleAsync(clinicId, cancellationToken);
+
     public Task ClinicArchiveExportedAsync(
         Guid clinicId, string actorUserId, string actorName, CancellationToken cancellationToken = default) =>
         _inner.ClinicArchiveExportedAsync(clinicId, actorUserId, actorName, cancellationToken);

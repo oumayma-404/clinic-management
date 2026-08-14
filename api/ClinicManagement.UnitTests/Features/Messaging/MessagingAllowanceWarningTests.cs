@@ -419,6 +419,8 @@ public class MessagingAllowanceWarningTests
             Guid stockItemId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<StaffNotification?> GetBackupStaleAsync(
             Guid clinicId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<StaffNotification?> GetArchiveStaleAsync(
+            Guid clinicId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<StaffNotification>> GetPendingReviewsForUserAsync(
             Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();

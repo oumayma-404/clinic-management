@@ -75,6 +75,11 @@ public static class ClinicArchiveScope
         nameof(NotificationRead),
         nameof(DeviceRegistration),
         nameof(BackupRun),
+        // ⚠️ Beside BackupRun, but for a sharper reason than transience: a ClinicRecoveryPoint names a STORAGE KEY.
+        // Restoring these rows would hand a practice a list of recovery points whose objects retention may have
+        // pruned months ago — offering a recovery that cannot be performed, which is worse than offering none. They
+        // are also measurements of the deployment rather than records of the practice, exactly like the backup ledger.
+        nameof(ClinicRecoveryPoint),
         nameof(AuditEntry),
         nameof(User),
         nameof(UserDashboardPreference),

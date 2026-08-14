@@ -31,7 +31,7 @@ public class ClinicArchivePackagerTests
         var buffer = new MemoryStream();
 
         await ClinicArchivePackager.WriteAsync(
-            buffer, ClinicA, ClinicName, store, blobs, NullLogger.Instance, CancellationToken.None);
+            buffer, ClinicA, ClinicName, store, blobs, NullLogger.Instance, cancellationToken: CancellationToken.None);
 
         buffer.Position = 0;
         return buffer;

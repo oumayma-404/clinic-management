@@ -124,6 +124,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     // which leaves the filter inactive — the same arrangement the reminder dispatcher and the per-clinic seeder
     // already rely on.
     public DbSet<BackupRun> BackupRuns { get; set; }
+    public DbSet<ClinicRecoveryPoint> ClinicRecoveryPoints { get; set; }
 
     // OS push (mobile-native-shells Part 6). Both clinic-scoped and filtered; PushDispatchJob declares
     // UseSystemWide to drain every clinic's queue, exactly as the reminder dispatcher does.
@@ -301,6 +302,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         // L4d — the backup ledger is clinic-owned with a NON-nullable ClinicId, so unlike AuditEntries it is
         // filtered like the rest. The hourly BackupJob declares UseSystemWide to iterate every clinic.
         modelBuilder.Entity<BackupRun>().HasQueryFilter(b => IsSystemWide || b.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ClinicRecoveryPoint>()
+            .HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
         // Part 6 — the push registry and its outbox, both clinic-owned with non-nullable ClinicIds (AC-53).
         // ⚠️ One read deliberately escapes this filter: IDeviceRegistrationRepository.GetByTokenAcrossClinicsAsync,
         // because the token is globally unique and a clinic-scoped lookup would miss another clinic's row and turn
