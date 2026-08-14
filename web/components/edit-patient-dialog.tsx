@@ -624,9 +624,14 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       newErrors.dentition = "La denture est requise"
     }
 
-    // The phone is optional — a walk-in who does not give one is an ordinary patient. A NON-BLANK number is
-    // still held to the reminder engine's rule, so anything accepted here can actually be delivered to.
-    if (phone.trim() && !isDeliverablePhone(phone.trim())) {
+    // Required on create only: a new patient without a deliverable number gets no rappel and no relance, and
+    // there is no second chance to ask. An existing record with none must still be editable, so there the rule
+    // stays « a non-blank number has to be deliverable ».
+    if (!phone.trim()) {
+      if (!patient) {
+        newErrors.phone = "Le numéro de téléphone est requis"
+      }
+    } else if (!isDeliverablePhone(phone.trim())) {
       newErrors.phone = PHONE_ERROR_FR
     }
 
@@ -1030,9 +1035,15 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
                 {/* Phone */}
                 <div className="space-y-2">
+                  {/* Required on create, not on edit — a patient already on file without a number must stay
+                      editable, or fixing their address means finding their phone first. */}
                   <Label htmlFor="phone">
                     Numéro de téléphone{" "}
-                    <span className="text-muted-foreground text-xs">(optionnel)</span>
+                    {patient ? (
+                      <span className="text-muted-foreground text-xs">(recommandé)</span>
+                    ) : (
+                      "*"
+                    )}
                   </Label>
                   <Input
                     id="phone"

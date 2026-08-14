@@ -28,6 +28,16 @@ public class AppointmentStatusTransitionTests
         duration: TimeSpan.FromMinutes(30));
 
     /// <summary>
+    /// The statuses a fixture can be walked to. <c>Confirmed</c> is absent because nothing can reach it any
+    /// more — see <see cref="Nothing_Can_Transition_To_Confirmed"/> — and building one by hand would assert a
+    /// state the product can no longer produce. Rows already stored in it are covered by the table, which
+    /// still declares their exits.
+    /// </summary>
+    private static readonly AppointmentStatus[] ReachableStatuses = Enum.GetValues<AppointmentStatus>()
+        .Where(s => s != AppointmentStatus.Confirmed)
+        .ToArray();
+
+    /// <summary>
     /// Walk an appointment to a state through legal steps only, so no fixture can beg the question by
     /// assigning a status the table would refuse.
     /// </summary>
@@ -38,15 +48,10 @@ public class AppointmentStatusTransitionTests
         {
             case AppointmentStatus.Scheduled:
                 break;
-            case AppointmentStatus.Confirmed:
-                appointment.Confirm();
-                break;
             case AppointmentStatus.InProgress:
-                appointment.Confirm();
                 appointment.Start();
                 break;
             case AppointmentStatus.Completed:
-                appointment.Confirm();
                 appointment.Start();
                 appointment.Complete();
                 break;
@@ -56,6 +61,8 @@ public class AppointmentStatusTransitionTests
             case AppointmentStatus.NoShow:
                 appointment.MarkAsNoShow();
                 break;
+            default:
+                throw new InvalidOperationException($"No legal path reaches {status}.");
         }
 
         Assert.Equal(status, appointment.Status);
@@ -77,7 +84,6 @@ public class AppointmentStatusTransitionTests
                     appointment.Reschedule(appointment.AppointmentDateTime);
                 }
                 break;
-            case AppointmentStatus.Confirmed: appointment.Confirm(); break;
             case AppointmentStatus.InProgress: appointment.Start(); break;
             case AppointmentStatus.Completed: appointment.Complete(); break;
             case AppointmentStatus.Cancelled: appointment.Cancel("motif"); break;
@@ -98,7 +104,7 @@ public class AppointmentStatusTransitionTests
     [Fact]
     public void Every_Declared_Transition_Is_Performable() // [AC-P1.3]
     {
-        foreach (var from in Enum.GetValues<AppointmentStatus>())
+        foreach (var from in ReachableStatuses)
         {
             foreach (var to in Appointment.NextStatusesFrom(from))
             {
@@ -119,18 +125,17 @@ public class AppointmentStatusTransitionTests
     [Fact]
     public void Every_Undeclared_Transition_Is_Refused() // [AC-P1.2 / AC-P1.3]
     {
-        foreach (var from in Enum.GetValues<AppointmentStatus>())
+        foreach (var from in ReachableStatuses)
         {
             var allowed = Appointment.NextStatusesFrom(from);
-            foreach (var to in Enum.GetValues<AppointmentStatus>())
+            foreach (var to in ReachableStatuses)
             {
                 if (to == from || allowed.Contains(to))
                 {
                     continue;
                 }
 
-                if (to == AppointmentStatus.Scheduled
-                    && (from == AppointmentStatus.Confirmed || from == AppointmentStatus.InProgress))
+                if (to == AppointmentStatus.Scheduled && from == AppointmentStatus.InProgress)
                 {
                     continue; // see the note above — asserted by the next test instead
                 }
@@ -151,18 +156,30 @@ public class AppointmentStatusTransitionTests
         Assert.False(Appointment.CanTransition(from, AppointmentStatus.Scheduled));
     }
 
-    // ...and rescheduling one of them keeps its status rather than quietly demoting it to Scheduled, which is
-    // the whole point of the A-2 fix and the reason the exclusion above exists.
-    [Theory]
-    [InlineData(AppointmentStatus.Confirmed)]
-    [InlineData(AppointmentStatus.InProgress)]
-    public void Rescheduling_Does_Not_Demote_To_Scheduled(AppointmentStatus from)
+    // « Confirmé » is retired: it distinguished « the patient said yes » from « we put them in the book » and
+    // nothing in the product ever read the difference. The member survives so stored rows still load and still
+    // move on, which is what this asserts is the ONLY thing left of it.
+    [Fact]
+    public void Nothing_Can_Transition_To_Confirmed()
     {
-        var appointment = AppointmentAt(from);
+        foreach (var from in Enum.GetValues<AppointmentStatus>())
+        {
+            Assert.DoesNotContain(AppointmentStatus.Confirmed, Appointment.NextStatusesFrom(from));
+        }
+
+        Assert.NotEmpty(Appointment.NextStatusesFrom(AppointmentStatus.Confirmed));
+    }
+
+    // ...and rescheduling one keeps its status rather than quietly demoting it to Scheduled, which is the whole
+    // point of the A-2 fix and the reason the exclusion above exists.
+    [Fact]
+    public void Rescheduling_Does_Not_Demote_To_Scheduled()
+    {
+        var appointment = AppointmentAt(AppointmentStatus.InProgress);
 
         appointment.Reschedule(SlotStart.AddDays(2));
 
-        Assert.Equal(from, appointment.Status);
+        Assert.Equal(AppointmentStatus.InProgress, appointment.Status);
     }
 
     // [AC-P1.2] A refusal names BOTH statuses, in French. The old messages were English and named neither
@@ -185,7 +202,6 @@ public class AppointmentStatusTransitionTests
     // no UI ever sets — so choosing « Terminé » hit the command layer's no-op arm.
     [Theory]
     [InlineData(AppointmentStatus.Scheduled)]
-    [InlineData(AppointmentStatus.Confirmed)]
     [InlineData(AppointmentStatus.InProgress)]
     public void Completing_Is_Allowed_From_Every_Open_State(AppointmentStatus from)
     {
@@ -221,32 +237,17 @@ public class AppointmentStatusTransitionTests
         Assert.DoesNotContain(target, Appointment.NextStatusesFrom(AppointmentStatus.Completed));
     }
 
-    // [AC-P1.8 / A-1] Confirm() only checked Cancelled, so a finished visit could be walked back to
-    // « Confirmé » — silently un-completing it for every read that keys off Completed.
-    [Theory]
-    [InlineData(AppointmentStatus.Completed)]
-    [InlineData(AppointmentStatus.Cancelled)]
-    public void Confirm_Is_Refused_From_A_Finished_Or_Void_Appointment(AppointmentStatus from)
+    // [AC-P1.9 / A-2] Reschedule() force-set Scheduled, so moving a visit that had already started silently
+    // discarded that fact. (It preserved « Confirmé » for the same reason, before that status was retired.)
+    [Fact]
+    public void Rescheduling_Preserves_InProgress()
     {
-        var appointment = AppointmentAt(from);
-
-        Assert.Throws<InvalidOperationException>(() => appointment.Confirm());
-        Assert.Equal(from, appointment.Status);
-    }
-
-    // [AC-P1.9 / A-2] Reschedule() force-set Scheduled, so moving a visit the patient had already confirmed
-    // silently discarded that confirmation and the desk would chase them for it again.
-    [Theory]
-    [InlineData(AppointmentStatus.Confirmed)]
-    [InlineData(AppointmentStatus.InProgress)]
-    public void Rescheduling_Preserves_Confirmed_And_InProgress(AppointmentStatus from)
-    {
-        var appointment = AppointmentAt(from);
+        var appointment = AppointmentAt(AppointmentStatus.InProgress);
         var moved = SlotStart.AddDays(3);
 
         appointment.Reschedule(moved);
 
-        Assert.Equal(from, appointment.Status);
+        Assert.Equal(AppointmentStatus.InProgress, appointment.Status);
         Assert.Equal(moved, appointment.AppointmentDateTime);
     }
 
@@ -296,7 +297,6 @@ public class AppointmentStatusTransitionTests
 
     [Theory]
     [InlineData(AppointmentStatus.Scheduled)]
-    [InlineData(AppointmentStatus.Confirmed)]
     [InlineData(AppointmentStatus.InProgress)]
     public void MarkVisitCompleted_Closes_An_Open_Visit(AppointmentStatus from) // [AC-P1.12]
     {
@@ -343,7 +343,7 @@ public class AppointmentStatusTransitionTests
     [Fact]
     public void MarkVisitCompleted_Never_Throws() // [AC-P1.12]
     {
-        foreach (var status in Enum.GetValues<AppointmentStatus>())
+        foreach (var status in ReachableStatuses)
         {
             var appointment = AppointmentAt(status);
             appointment.MarkVisitCompleted();

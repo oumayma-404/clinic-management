@@ -353,6 +353,9 @@ export function CreateAppointmentDialog({
   // Reset form when dialog closes
   useEffect(() => {
     if (!open) {
+      // ⚠️ `isBusySlot` belongs in this list and was the one field missing from it: the switch stayed on across
+      // openings, so the booking right after a « créneau occupé » silently offered no patient at all.
+      setIsBusySlot(false)
       setIsNewPatient(false)
       setSelectedPatientId("")
       setNewPatientFirstName("")
@@ -476,10 +479,15 @@ export function CreateAppointmentDialog({
           setError("Veuillez saisir le prénom et le nom du nouveau patient")
           return false
         }
-        // Optional, reconciled with the patient form: a non-blank number must still be deliverable, but a
-        // blank one is allowed. Requiring it here while the patient form does not would have made booking the
-        // one place in the app where a contact-less patient is impossible to create.
-        if (newPatientPhone.trim() && !isDeliverablePhone(newPatientPhone)) {
+        // Required, reconciled with the patient form: a new patient is created with a deliverable number or not
+        // at all. Without one the visit's reminder and every later relance have nowhere to go, and a fiche is
+        // easiest to reach for by phone — an existing contact-less patient is still editable, only new ones are
+        // refused.
+        if (!newPatientPhone.trim()) {
+          setError("Veuillez saisir le numéro de téléphone du nouveau patient")
+          return false
+        }
+        if (!isDeliverablePhone(newPatientPhone)) {
           setError(PHONE_ERROR_FR)
           return false
         }
@@ -817,7 +825,7 @@ export function CreateAppointmentDialog({
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="newPatientPhone" className="text-sm">
-                        Téléphone <span className="text-muted-foreground">(optionnel)</span>
+                        Téléphone *
                       </Label>
                       <Input
                         id="newPatientPhone"
@@ -827,11 +835,11 @@ export function CreateAppointmentDialog({
                         onChange={(e) => setNewPatientPhone(e.target.value)}
                         className="h-10"
                         disabled={patientAlreadyCreated}
+                        required
                       />
                       <p className="text-xs text-muted-foreground">
-                        {newPatientPhone.trim()
-                          ? "Numéro tunisien à 8 chiffres, ou +216…"
-                          : "Sans numéro, ce patient ne recevra ni rappel ni relance."}
+                        Numéro tunisien à 8 chiffres, ou +216… Sans lui, ce patient ne recevrait ni rappel ni
+                        relance.
                       </p>
                     </div>
                   </div>

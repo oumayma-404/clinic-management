@@ -81,23 +81,21 @@ public class TreatmentPlanWorkflowProjectionTests
         Assert.Equal(Future, workflow.NextAppointmentAtByPlanId[plan.Id]);
     }
 
-    // [AC-1] Confirmed and InProgress count as live bookings too, not just Scheduled.
-    [Theory]
-    [InlineData(AppointmentStatus.Confirmed)]
-    [InlineData(AppointmentStatus.InProgress)]
-    public async Task Confirmed_And_InProgress_Appointments_Are_Live(AppointmentStatus status)
+    // [AC-1] An InProgress appointment counts as a live booking too, not just Scheduled. (The projection also
+    // accepts Confirmed, for rows stored before that status was retired; nothing can produce one now.)
+    [Fact]
+    public async Task InProgress_Appointments_Are_Live()
     {
         var plan = PlanWithOneAct();
         var itemId = plan.Items.First().Id;
         var appointment = LinkedAppointment(itemId, Future);
-        appointment.Confirm();
-        if (status == AppointmentStatus.InProgress) appointment.Start();
+        appointment.Start();
         LinkedAppointments(appointment);
         NoInvoiceLinks();
 
         var workflow = await Build(plan);
 
-        Assert.Equal(status, appointment.Status);
+        Assert.Equal(AppointmentStatus.InProgress, appointment.Status);
         Assert.True(workflow.ScheduledByItemId.ContainsKey(itemId));
     }
 

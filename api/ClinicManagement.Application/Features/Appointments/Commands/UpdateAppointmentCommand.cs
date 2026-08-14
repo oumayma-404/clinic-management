@@ -423,9 +423,6 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                                 appointment.Reschedule(appointment.AppointmentDateTime);
                             }
                             break;
-                        case AppointmentStatus.Confirmed:
-                            appointment.Confirm();
-                            break;
                         case AppointmentStatus.InProgress:
                             appointment.Start();
                             break;
