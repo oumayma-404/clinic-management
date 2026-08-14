@@ -28,11 +28,12 @@ public class DashboardTenantIsolationTests
     private readonly Mock<IDashboardMoneyReader> _money = new();
     private readonly Mock<IDashboardAlertsReader> _alerts = new();
     private readonly Mock<IDashboardTrendReader> _trend = new();
+    private readonly Mock<IDashboardProcedureMixReader> _procedureMix = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
 
     private GetDashboardQueryHandler Handler() => new(
-        _activity.Object, _money.Object, _alerts.Object, _trend.Object, _clinicResolver.Object,
-        NullLogger<GetDashboardQueryHandler>.Instance);
+        _activity.Object, _money.Object, _alerts.Object, _trend.Object, _procedureMix.Object,
+        _clinicResolver.Object, NullLogger<GetDashboardQueryHandler>.Instance);
 
     private void WireResolved(Guid clinicId)
     {
@@ -48,6 +49,9 @@ public class DashboardTenantIsolationTests
         _trend.Setup(r => r.ReadAsync(
                 It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<MonthlyCollectedPointDto>());
+        _procedureMix.Setup(r => r.ReadAsync(
+                It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ProcedureMixPointDto>());
     }
 
     // [AC-1] Every reader is handed the resolved clinic, and no reader is ever asked about a different one.

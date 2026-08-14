@@ -60,6 +60,7 @@ public static class Extensions
         services.AddScoped<IDashboardMoneyReader, DashboardMoneyReader>();
         services.AddScoped<IDashboardAlertsReader, DashboardAlertsReader>();
         services.AddScoped<IDashboardTrendReader, DashboardTrendReader>();
+        services.AddScoped<IDashboardProcedureMixReader, DashboardProcedureMixReader>();
 
         return services;
     }

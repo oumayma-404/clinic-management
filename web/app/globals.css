@@ -123,6 +123,18 @@
   --hero-foreground: oklch(0.99 0.005 234);
 
   /*
+   * How much of an act's catalogue colour survives into a wide pastel surface — the dashboard's day ribbon and
+   * its legend keys. Consumed only through `lib/dashboard/act-colour.ts`, which mixes the stored hex toward
+   * `--card` rather than holding a second list of pastel equivalents; `ColorHex` in Domain stays the single
+   * authority on what colour an act is.
+   *
+   * ⚠️ Small marks — a 3 px row rail, an 8 px dot, a card's top edge — deliberately do NOT use these. At 22 %
+   * a hairline is invisible, so those keep the whole hue.
+   */
+  --act-tint: 22%;
+  --act-tint-edge: 44%;
+
+  /*
    * ── Zone hues ─────────────────────────────────────────────────────────────────────────────────────────────
    *
    * One colour per area of the app — see `lib/zones.ts` for what they mean and the three places they are allowed
@@ -205,6 +217,10 @@
   --hero-to: oklch(0.29 0.078 248);
   --hero-glow: oklch(0.55 0.112 232);
   --hero-foreground: oklch(0.99 0.005 234);
+
+  /* Stronger here, not inverted: a 22 % wash against a near-black card is indistinguishable from the card. */
+  --act-tint: 40%;
+  --act-tint-edge: 58%;
 
   /*
    * Zone hues, lifted for a dark ground. The card sits at L 0.185, and the 4.5:1 floor against it starts at

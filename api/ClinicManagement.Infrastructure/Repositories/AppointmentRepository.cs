@@ -123,6 +123,39 @@ public class AppointmentRepository : IAppointmentRepository
         return rows.ToDictionary(r => r.Status, r => r.Count);
     }
 
+    public async Task<IReadOnlyList<ProcedureMixRow>> GetProcedureMixBetweenAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime toInclusive,
+        Guid? doctorId = null,
+        CancellationToken cancellationToken = default)
+    {
+        // One GROUP BY over the child act rows. Cancelled and no-show visits are excluded for the same reason
+        // « RDV honorés » excludes them: an act nobody performed is not part of what the clinic did.
+        var rows = await _context.Appointments
+            .Where(a => a.ClinicId == clinicId
+                        && a.AppointmentDateTime >= from
+                        && a.AppointmentDateTime <= toInclusive
+                        && a.Status != AppointmentStatus.Cancelled
+                        && a.Status != AppointmentStatus.NoShow
+                        && (doctorId == null || a.DoctorId == doctorId))
+            .SelectMany(a => a.Procedures)
+            // Keyed on the snapshot pair rather than on a live-else-snapshot CASE: this shape is guaranteed to
+            // translate, and rows sharing an id are merged by the reader, which overlays the live name anyway.
+            .GroupBy(p => new { p.ProcedureTypeId, p.ProcedureName })
+            .Select(g => new ProcedureMixRow(
+                g.Key.ProcedureTypeId,
+                g.Key.ProcedureName,
+                // Any snapshot of the group will do — they only differ when the act was recoloured, and the live
+                // colour wins over all of them one layer up.
+                g.Max(p => p.ColorHex),
+                g.Count(),
+                g.Sum(p => p.DurationMinutes ?? 0)))
+            .ToListAsync(cancellationToken);
+
+        return rows;
+    }
+
     public async Task<IEnumerable<Appointment>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default)
     {
         return await _context.Appointments

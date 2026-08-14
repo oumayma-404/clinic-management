@@ -66,6 +66,9 @@ public static class DashboardKpiKeys
     /// <summary>The trend chart is hideable too — it is a section, but from the user's side it is one more block.</summary>
     public const string Trend = "trend";
 
+    /// <summary>« Répartition des actes » — the period's work by act type.</summary>
+    public const string ProcedureMix = "procedureMix";
+
     /// <summary>« Rendez-vous du jour », the appointment list under the figures.</summary>
     public const string TodayAppointments = "todayAppointments";
 
@@ -86,6 +89,7 @@ public static class DashboardKpiKeys
         OverdueLabOrders,
         LowStock,
         ExpiringStock,
+        ProcedureMix,
         Trend,
         TodayAppointments,
     };
