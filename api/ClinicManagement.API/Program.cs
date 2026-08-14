@@ -1147,6 +1147,19 @@ try
         job => job.CountClinicActivity(),
         Cron.Daily(3));
 
+    // The daily per-clinic recovery point (clinic-recovery-points) — 02:00 UTC = 03:00 in Tunis, before the counter
+    // pass above so the two do not contend for the same connection pool at the same instant.
+    //
+    // ⚠️ Registered UNCONDITIONALLY, unlike BackupJob beside it, and the asymmetry is the whole point: that one runs
+    // pg_dump — which takes --dbname and has no tenant predicate — so it is BacksUpItsOwnData-only. This goes through
+    // the tenant filter like every CSV export and carries one cabinet's rows, so it is correct on every deployment
+    // kind. On SelfHostedLan it is additionally the only *granular, online* recovery there is: the restore-backup verb
+    // stops the app and restores the whole database to undo one deleted fiche.
+    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.ClinicRecoveryPointJob>(
+        "take-recovery-points",
+        job => job.TakeRecoveryPoints(),
+        Cron.Daily(2));
+
     // OS push dispatcher (mobile-native-shells Part 6) — minutely, connectivity-gated, and registered ONLY where
     // the deployment can actually push (AC-51). Unlike its three siblings above, which are safe to register
     // unconditionally because they no-op until configured, this one is registered conditionally on purpose: a
