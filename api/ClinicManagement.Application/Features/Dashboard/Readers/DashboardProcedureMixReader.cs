@@ -64,10 +64,12 @@ public class DashboardProcedureMixReader : IDashboardProcedureMixReader
     /// booking snapshot, so « Détartrage » renamed to « Détartrage complet » mid-month arrives as two rows for one
     /// act. Rows with no id keep their own name as the key, since that is all a hand-typed devis line has.</para>
     ///
-    /// <para>Internal rather than private so <c>DashboardProcedureMixReaderTests</c> can exercise the merge
-    /// without a repository — it is the part with the decisions in it.</para>
+    /// <para>Public rather than private so <c>DashboardProcedureMixReaderTests</c> can exercise it without a
+    /// repository — it is the part with the decisions in it, and the test project has no
+    /// <c>InternalsVisibleTo</c>. Same reasoning as <c>DirectoryAclHardener.ComposeGrantArguments</c>: a rule worth
+    /// stating is worth asserting.</para>
     /// </summary>
-    internal static List<ProcedureMixPointDto> Merge(
+    public static List<ProcedureMixPointDto> Merge(
         IReadOnlyList<ProcedureMixRow> rows,
         IReadOnlyDictionary<Guid, Domain.Entities.ProcedureType> live)
     {
