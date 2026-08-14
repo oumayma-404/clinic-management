@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 using ClinicManagement.Application.Features.Backup.Archive;
+using ClinicManagement.Domain.Enums;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -32,6 +33,18 @@ public class ClinicArchivePackagerTests
 
         await ClinicArchivePackager.WriteAsync(
             buffer, ClinicA, ClinicName, store, blobs, NullLogger.Instance, cancellationToken: CancellationToken.None);
+
+        buffer.Position = 0;
+        return buffer;
+    }
+
+    private static async Task<MemoryStream> WriteRowsOnlyAsync(FakeArchiveStore store, FakeBlobStore blobs)
+    {
+        var buffer = new MemoryStream();
+
+        await ClinicArchivePackager.WriteAsync(
+            buffer, ClinicA, ClinicName, store, blobs, NullLogger.Instance,
+            ClinicArchiveContents.RowsOnly, CancellationToken.None);
 
         buffer.Position = 0;
         return buffer;
@@ -247,6 +260,83 @@ public class ClinicArchivePackagerTests
     public void A_Non_Blob_Entry_Names_No_Storage_Key(string entryName)
     {
         Assert.Null(ClinicArchiveFormat.StorageKeyOf(entryName));
+    }
+
+    // ------------------------------------------------------------------ rows-only (clinic-recovery-points)
+
+    // The daily recovery point carries the rows and NONE of the blobs. Asserted on the entry names rather than on
+    // BlobCount, because a count of zero is exactly what a full archive whose every blob failed also reports.
+    [Fact]
+    public async Task A_Rows_Only_Archive_Carries_No_Blob_Entry_At_All()
+    {
+        var (store, blobs) = CabinetWithOneBlobEach();
+
+        using var zip = new ZipArchive(await WriteRowsOnlyAsync(store, blobs), ZipArchiveMode.Read);
+
+        Assert.DoesNotContain(zip.Entries, e => e.FullName.StartsWith(ClinicArchiveFormat.BlobFolder, StringComparison.Ordinal));
+        Assert.Contains(zip.Entries, e => e.FullName == ClinicArchiveFormat.ManifestEntry);
+        Assert.Contains(zip.Entries, e => e.FullName.StartsWith(ClinicArchiveFormat.DataFolder, StringComparison.Ordinal));
+    }
+
+    // ⚠️ The distinction the whole enum exists for. Without `Contents` on the manifest, « this archive never carried
+    // the files » and « the files could not be read » are the same picture — both are BlobCount 0 — and only the
+    // second should send somebody to look at the object store.
+    [Fact]
+    public async Task The_Manifest_Says_Whether_The_Files_Travelled()
+    {
+        var (store, blobs) = CabinetWithOneBlobEach();
+
+        using var rowsOnly = new ZipArchive(await WriteRowsOnlyAsync(store, blobs), ZipArchiveMode.Read);
+        using var full = new ZipArchive(await WriteAsync(store, blobs), ZipArchiveMode.Read);
+
+        var rowsOnlyManifest = ClinicArchivePackager.ReadManifest(rowsOnly).Manifest!;
+        var fullManifest = ClinicArchivePackager.ReadManifest(full).Manifest!;
+
+        Assert.Equal(ClinicArchiveContents.RowsOnly, rowsOnlyManifest.Contents);
+        Assert.Equal(0, rowsOnlyManifest.BlobCount);
+
+        Assert.Equal(ClinicArchiveContents.RowsAndFiles, fullManifest.Contents);
+        Assert.Equal(2, fullManifest.BlobCount);
+    }
+
+    /// <summary>One cabinet with two real blobs — a flat pre-US-5 key and a prefixed one.</summary>
+    private static (FakeArchiveStore Store, FakeBlobStore Blobs) CabinetWithOneBlobEach()
+    {
+        var store = new FakeArchiveStore().Table("Patient", "[]", rows: 3);
+        store.StorageKeys.AddRange(new[] { FlatLegacyKey, PrefixedKey });
+
+        var blobs = new FakeBlobStore();
+        blobs.Put(FlatLegacyKey, "ordonnance");
+        blobs.Put(PrefixedKey, "panoramique");
+
+        return (store, blobs);
+    }
+
+    // ⚠️ Every archive already on a practice's laptop was written before this field existed, and every one of them
+    // carried its files. `RowsAndFiles` is therefore the enum's 0 so an absent field deserialises to the truth —
+    // which is what lets the field be added with NO SchemaVersion bump. Fed the shape a pre-change writer produced.
+    [Fact]
+    public void A_Manifest_Written_Before_This_Field_Existed_Reads_As_Carrying_Its_Files()
+    {
+        using var zip = ArchiveCarrying(new
+        {
+            // PascalCase, as the sibling cases above use: `ClinicArchiveFormat.Json` sets no naming policy and is
+            // case-SENSITIVE, so a camelCase fixture binds nothing and the manifest reads as schema version 0 —
+            // refused, which would make this case pass for the wrong reason.
+            SchemaVersion = ClinicArchiveFormat.SchemaVersion,
+            ClinicId = ClinicA,
+            ClinicName,
+            CreatedAtUtc = DateTime.UtcNow,
+            Tables = Array.Empty<object>(),
+            BlobCount = 0,
+            Warnings = Array.Empty<string>(),
+            // no `Contents` — the whole point of this case
+        });
+
+        var read = ClinicArchivePackager.ReadManifest(zip);
+
+        Assert.False(read.IsRefused);
+        Assert.Equal(ClinicArchiveContents.RowsAndFiles, read.Manifest!.Contents);
     }
 
     // ------------------------------------------------------------------ helpers

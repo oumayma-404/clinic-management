@@ -81,6 +81,10 @@ public class SubscriptionExemptionCoverageTests
         // recording new work — an expired cabinet that has also lost data is exactly the one that must recover it.
         // Its sibling download is a GET the gate never inspects, which is why only this half appears here.
         "Backup.RestoreArchive",
+        // clinic-recovery-points: putting back records the cabinet already had is not recording new work (AC-8), and
+        // an expired cabinet that has ALSO lost data is exactly the one that must be able to recover it. Same reason
+        // as RestoreArchive beside it — this is the same operation from a server-kept copy instead of an upload.
+        "Backup.RestoreFromRecoveryPoint",
         "Users.SetStatus",                               // offboarding must not wait on an invoice; the handler
                                                          // refuses the RE-activation direction, which the reason
                                                          // on the attribute never covered
