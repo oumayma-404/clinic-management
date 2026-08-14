@@ -819,6 +819,21 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                        AND "ConsumedAtUtc" < NOW() - INTERVAL '31 days')
                 """);
 
+        // clinic-recovery-points. Only the invariant MarkSucceeded enforces — a success names where it landed. Whether
+        // that object still EXISTS is a question about the object store, which this reader cannot ask and which the
+        // restore answers with its own named refusal.
+        var recoveryPointsWithNoKey = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "ClinicRecoveryPoints",
+            requiredColumn: "StorageKey",
+            // ⚠️ The ordinal is INTERPOLATED FROM THE ENUM, never typed as a literal: `Succeeded` is 2 and `Running`
+            // is 1, and a hand-typed 1 here would count crashed rows and report zero for ever — a check that has
+            // silently stopped checking. Same reasoning as the cheque indexes' refusal to filter on `Method = 1`.
+            sql: $"""
+                SELECT COUNT(*) FROM "ClinicRecoveryPoints"
+                WHERE "Outcome" = {(int)BackupOutcome.Succeeded}
+                  AND ("StorageKey" IS NULL OR TRIM("StorageKey") = '')
+                """);
+
         // FR-1.6's third check — Info only, and honest about what it cannot see (see the DTO's own note).
         // `NOW()` is the database's clock; the difference against ours is the whole reading.
         double? clockOffsetSeconds = null;
@@ -970,7 +985,8 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             AdminsWithoutFactorHoldingLiveSession: adminsWithoutFactorLive,
             SessionFamilyOrphans: sessionFamilyOrphans,
             AppToDatabaseClockOffsetSeconds: clockOffsetSeconds,
-            ClinicsWithPlaintextGoogleToken: plaintextGoogleTokens);
+            ClinicsWithPlaintextGoogleToken: plaintextGoogleTokens,
+            RecoveryPointsClaimingSuccessWithNoKey: recoveryPointsWithNoKey);
     }
 
     /// <summary>

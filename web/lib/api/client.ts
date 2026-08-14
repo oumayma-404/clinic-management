@@ -875,10 +875,18 @@ export async function apiGetBlob(endpoint: string, params?: Record<string, any>,
   }), readBlob);
 }
 
-export async function apiPost<T>(endpoint: string, data: any, accessToken?: string | null): Promise<T> {
+/**
+ * ⚠️ `stepUpToken` exists for the same reason it does on `apiGetFile` and `apiPostFormData`: a step-up confirmation
+ * travels in a **header** and never in the body or the query string, because this app's URLs are logged (FR-4.4).
+ * A step-up confirmation is also **single-use**, which survives `handleRequest`'s one-shot 401 retry only because
+ * that retry re-sends the *same* request rather than re-authenticating — a 403 is never retried.
+ */
+export async function apiPost<T>(
+  endpoint: string, data: any, accessToken?: string | null, stepUpToken?: string | null
+): Promise<T> {
   return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
-    headers: apiHeaders(token),
+    headers: apiHeaders(token, 'json', stepUpToken),
     body: JSON.stringify(data),
     credentials: 'include',
     signal: deadline(REQUEST_TIMEOUT_MS),

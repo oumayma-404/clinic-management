@@ -482,6 +482,20 @@ public class SchemaVerificationService
                   + "has an account, or a consumed row past retention that the signup-path purge never reached",
             n => n == 0);
 
+        // clinic-recovery-points. The table's shape is diffed against the catalog for free; what needs a line is the
+        // invariant `ClinicRecoveryPoint.MarkSucceeded` enforces — a success names where it landed. It is the one
+        // failure of this feature that is invisible everywhere else: such a row is listed on « Sauvegarde » as a
+        // moment the practice can go back to, and the refusal arrives only on the click, at the moment somebody has
+        // already lost data. ⚠️ Whether each key still RESOLVES is deliberately not asked — that is a question about
+        // the object store, this reader speaks only SQL, and the honest answer to a pruned object is the restore's
+        // own named refusal rather than a nightly report the operator cannot act on.
+        Add("recovery-point-success-names-its-archive", counts.RecoveryPointsClaimingSuccessWithNoKey,
+            n => n == 0
+                ? "0 recovery point(s) claim success without naming an archive"
+                : $"{n} recovery point(s) are listed as usable while naming no archive — « Restaurer depuis ce "
+                  + "point » will refuse on the click, at the moment a practice has already lost data",
+            n => n == 0);
+
         // hosted-security-hardening FR-1.1. ⚠️ Deliberately not « every admin has a factor or is unenrolled »,
         // which the plan proposed and which is a TAUTOLOGY — every administrator satisfies one branch or the
         // other, so it could never go red. What is falsifiable is an admin still *working* without one.

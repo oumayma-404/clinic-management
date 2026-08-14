@@ -294,6 +294,61 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task EnsureArchiveStaleAsync(
+        Guid clinicId, DateTime? lastDownloadedUtc, int staleAfterDays,
+        CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var title = ArchiveStaleTitle;
+            var message = ArchiveStaleMessage(lastDownloadedUtc, staleAfterDays);
+
+            var existing = await _notifications.GetArchiveStaleAsync(clinicId, cancellationToken);
+            if (existing != null)
+            {
+                // Matched on the stable prefix and not the whole message, exactly as the backup and expiry alerts
+                // are: the message carries an elapsed day count that ticks up every night, so comparing the whole
+                // thing would restate daily and make every open browser refetch on every pass.
+                if (existing.Message.StartsWith(ArchiveStaleKey(lastDownloadedUtc), StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                existing.Restate(title, message);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.ArchiveStale,
+                title, message,
+                DateTime.UtcNow,
+                NotificationTargetKind.BackupSettings,
+                actorUserId: null, // nobody "did" a staleness → visible to all staff, like its two siblings
+                stockItemId: null);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
+    public async Task ClearArchiveStaleAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var existing = await _notifications.GetArchiveStaleAsync(clinicId, cancellationToken);
+            if (existing == null)
+            {
+                return false; // nothing flagged — the common case on a cabinet that exports regularly
+            }
+
+            await _notifications.RemoveAsync(existing, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // the row left the feed → clients refetch
+        }, cancellationToken);
+    }
+
     public async Task EnsureSubscriptionWarningAsync(
         Guid clinicId, int thresholdDays, DateTime endsOn, CancellationToken cancellationToken = default)
     {
@@ -669,6 +724,44 @@ public class NotificationGenerator : INotificationGenerator
     /// things of the reader — and firing the alarming one on a clinic created this morning is how an alert gets
     /// dismissed permanently on day one.
     /// </summary>
+    private const string ArchiveStaleTitle = "Archive du cabinet à télécharger";
+
+    /// <summary>
+    /// The stable half the ensure matches on — the date and nothing that ticks.
+    ///
+    /// <para>« Jamais » is its own key rather than a formatted <c>null</c>, so a cabinet that has never exported does
+    /// not restate its alert every night.</para>
+    /// </summary>
+    private static string ArchiveStaleKey(DateTime? lastDownloadedUtc) =>
+        lastDownloadedUtc is DateTime last
+            ? $"Dernière archive téléchargée le {ClinicClock.ToClinicLocal(last):dd/MM/yyyy}"
+            : "Aucune archive de ce cabinet n'a encore été téléchargée";
+
+    /// <summary>
+    /// Two wordings, for <see cref="BackupStaleMessage"/>'s reason: « jamais » and « il y a six semaines » ask
+    /// different things of the reader, and the alarming version on a cabinet created this morning is how an alert gets
+    /// dismissed permanently on day one.
+    ///
+    /// <para>It says what the archive is <i>for</i> rather than only that it is old: a practice that does not know the
+    /// nightly recovery points die with the server cannot tell why this matters, and the sentence is the only place
+    /// that can say so.</para>
+    /// </summary>
+    private static string ArchiveStaleMessage(DateTime? lastDownloadedUtc, int staleAfterDays)
+    {
+        if (lastDownloadedUtc is not DateTime last)
+        {
+            return $"{ArchiveStaleKey(null)}. Les points de restauration automatiques sont conservés sur le "
+                   + "serveur : ils ne protègent pas d'une panne du serveur lui-même. Ouvrez « Paramètres » puis "
+                   + "« Sauvegarde » pour en télécharger une copie sur votre propre poste.";
+        }
+
+        // Whole days, derived here rather than passed in, so the count can never disagree with the date.
+        var days = Math.Max(0, (int)(DateTime.UtcNow - last).TotalDays);
+        return $"{ArchiveStaleKey(last)} (il y a {days} jours, seuil : {staleAfterDays} jours). "
+               + "Téléchargez-en une nouvelle copie depuis « Paramètres » puis « Sauvegarde » : une copie gardée "
+               + "sur votre poste est la seule qui survive à une panne du serveur.";
+    }
+
     private static string BackupStaleMessage(DateTime? lastSuccessUtc, int staleAfterHours)
     {
         if (lastSuccessUtc is not DateTime last)

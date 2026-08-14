@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Domain.Enums;
 using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Application.Features.Backup.Archive;
@@ -21,6 +22,13 @@ public static class ClinicArchivePackager
     /// est incomplète, voici ce qui manque » is a statement an owner can act on, where a refusal is not. The
     /// restore is additive, so a file that reappears is picked up by the next archive.</para>
     /// </summary>
+    /// <param name="contents">
+    /// Whether the blobs travel with the rows (<c>clinic-recovery-points</c>). It is written into the manifest, and
+    /// that is load-bearing rather than bookkeeping: an unreadable blob is a *warning* here, so a rows-only archive
+    /// and a full archive whose every blob failed both produce <c>BlobCount = 0</c> — « cette archive ne contient pas
+    /// les fichiers » and « les fichiers n'ont pas pu être lus » are opposite facts with the same picture, and only
+    /// the second should send somebody to look at the object store.
+    /// </param>
     public static async Task<ClinicArchiveManifest> WriteAsync(
         Stream output,
         Guid clinicId,
@@ -28,6 +36,7 @@ public static class ClinicArchivePackager
         IClinicArchiveStore store,
         IFileStorage fileStorage,
         ILogger logger,
+        ClinicArchiveContents contents = ClinicArchiveContents.RowsAndFiles,
         CancellationToken cancellationToken = default)
     {
         var export = await store.ExportAsync(clinicId, cancellationToken);
@@ -43,7 +52,13 @@ public static class ClinicArchivePackager
 
         var blobsWritten = 0;
 
-        foreach (var storageKey in export.StorageKeys)
+        // ⚠️ The keys are skipped rather than the download failing per key: a rows-only archive must carry no
+        // `blobs/` entry at all, so the restore's own blob loop finds nothing to look for and reports honestly.
+        var blobKeys = contents == ClinicArchiveContents.RowsOnly
+            ? Array.Empty<string>()
+            : export.StorageKeys.ToArray();
+
+        foreach (var storageKey in blobKeys)
         {
             try
             {
@@ -70,6 +85,7 @@ public static class ClinicArchivePackager
             CreatedAtUtc = DateTime.UtcNow,
             Tables = export.Tables.Select(t => new ClinicArchiveTableCount(t.Table, t.RowCount)).ToList(),
             BlobCount = blobsWritten,
+            Contents = contents,
             Warnings = warnings,
         };
 

@@ -86,6 +86,34 @@ public interface INotificationGenerator
     Task ClearBackupStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Ensures the cabinet carries exactly one live « archive ancienne » alert — no copy of its records has left the
+    /// building for <see cref="Domain.Entities.ClinicRecoveryPoint.ArchiveStaleAfterDays"/> days
+    /// (<c>clinic-recovery-points</c>). Deep-links to « Sauvegarde » in « Paramètres ».
+    ///
+    /// <para><b>Ensure/clear on <see cref="EnsureBackupStaleAsync"/>'s shape, not the subscription warnings'</b>: there
+    /// is one fact here (« la dernière archive date du … ») rather than four escalating thresholds, so a single row
+    /// that restates is right and four unread rows would be noise.</para>
+    ///
+    /// <para>⚠️ <b>It is about the copy the practice HOLDS, not about the nightly recovery points.</b> Those live
+    /// inside the deployment and die with it, so the only fact worth nagging about is the one that survives a total
+    /// loss. A cabinet whose recovery points are perfectly healthy still gets this alert, and that is correct.</para>
+    ///
+    /// <para><paramref name="lastDownloadedUtc"/> is <c>null</c> on a cabinet that has never taken one, and the wording
+    /// differs — « aucune archive » is not « la dernière remonte à six semaines ». The caller measures from the
+    /// clinic's creation in that case rather than from the epoch, or the alert fires on a practice created this
+    /// morning and gets dismissed permanently on day one (<see cref="EnsureBackupStaleAsync"/>'s own trap).</para>
+    /// </summary>
+    Task EnsureArchiveStaleAsync(
+        Guid clinicId, DateTime? lastDownloadedUtc, int staleAfterDays,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes the cabinet's archive-staleness alert if one exists — an archive has just been delivered. No-op when
+    /// there is nothing to clear, which is the common case on a daily pass.
+    /// </summary>
+    Task ClearArchiveStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ensures the cabinet carries exactly one warning row for <paramref name="thresholdDays"/> — 7, 3, 1 or 0 days
     /// before <paramref name="endsOn"/> (<c>clinic-subscription</c> AC-3.4). Visible to all staff (AC-3.7) and
     /// deep-links to « Abonnement ».

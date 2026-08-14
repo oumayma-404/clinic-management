@@ -124,7 +124,70 @@ export const ARCHIVE_ERROR_CODES = {
   schemaUnsupported: 'archive_schema_unsupported',
 } as const;
 
+/**
+ * One retained recovery point (`clinic-recovery-points`). Mirrors the backend `RecoveryPointDto`.
+ *
+ * ⚠️ **`carriesFiles` is a field and not something to infer from a zero.** A scheduled point is rows-only by design,
+ * while a full archive whose every blob failed to read also restores zero files — opposite facts with the same
+ * picture, and only the second is a reason to go looking at the object store.
+ */
+export interface RecoveryPointDto {
+  id: string;
+  startedAt: string;
+  completedAt: string | null;
+  /** `Running` | `Succeeded` | `Failed` — the backend `BackupOutcome`. */
+  outcome: string;
+  /**
+   * Whether this point can actually be restored from. The server's own answer (a success that still names an
+   * object), never re-derived here from `outcome`: a `Running` row left by a crash and a success whose object was
+   * pruned are both unusable, and only the server knows the second.
+   */
+  isRestorable: boolean;
+  carriesFiles: boolean;
+  sizeBytes: number | null;
+  tableCount: number | null;
+  rowCount: number | null;
+  error: string | null;
+}
+
+/**
+ * What the cabinet can restore from, and the state of the copy it holds itself (`clinic-recovery-points`).
+ *
+ * ⚠️ `archiveStaleAfterDays` is **served, not restated in the browser**, so the card's wording and the bell's alert
+ * cannot disagree about when a copy has gone stale.
+ */
+export interface RecoveryPointsDto {
+  points: RecoveryPointDto[];
+  /** When an archive last *reached* somebody. `null` on a cabinet that has never taken one — say « jamais ». */
+  lastArchiveDownloadedAtUtc: string | null;
+  archiveStaleAfterDays: number;
+  retentionCount: number;
+}
+
 export const backupApi = {
+  /**
+   * The cabinet's retained recovery points, newest first, plus its own off-server-copy state.
+   *
+   * Available on **every** deployment, like `downloadArchive` and unlike `backupNow`/`setSchedule`: a recovery point
+   * is a tenant-filtered per-clinic archive, not a `pg_dump`.
+   */
+  recoveryPoints: async (): Promise<RecoveryPointsDto> => {
+    return apiGet<RecoveryPointsDto>('/backup/recovery-points');
+  },
+
+  /**
+   * Restores from one retained point.
+   *
+   * ⚠️ Carries the **same** step-up action as `restoreArchive` (`restore-clinic-archive`) — it is the same operation
+   * on the same records — and the token is single-use, so each restore needs its own confirmation.
+   */
+  restoreFromRecoveryPoint: async (
+    recoveryPointId: string, stepUpToken: string
+  ): Promise<ClinicArchiveRestoreReport> => {
+    return apiPost<ClinicArchiveRestoreReport>(
+      `/backup/recovery-points/${recoveryPointId}/restore`, {}, undefined, stepUpToken);
+  },
+
   /**
    * Downloads the cabinet's own archive (`GET /api/backup/archive`) — every record it holds plus the blobs
    * behind them, tenant-filtered, as one `.zip`.

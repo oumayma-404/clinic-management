@@ -51,6 +51,9 @@ public static class StaffNotificationRules
         // The export has already happened by the time this is written, so a banner would announce something
         // nobody can intervene in — and it is read by whoever next opens the app, which is when it is actionable.
         NotificationCategory.ClinicArchiveExported => false,
+        // What it asks for is « téléchargez l'archive », which is done at a machine with somewhere to put a
+        // multi-gigabyte file. A lock-screen banner would add urgency to something nobody can do from a phone.
+        NotificationCategory.ArchiveStale => false,
         // A new category does not silently start pushing. Deciding is the point — a default of `true` would put
         // an unreviewed message on a lock screen, and `false` would look like a decision nobody made.
         _ => throw new ArgumentOutOfRangeException(

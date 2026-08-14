@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Archive, ArrowDownToLine, ArrowUpFromLine, Loader2, ShieldAlert, TriangleAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -13,9 +13,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { ApiError } from "@/lib/api/client"
-import { ARCHIVE_ERROR_CODES, backupApi, type ClinicArchiveRestoreReport } from "@/lib/api/backup"
+import {
+  ARCHIVE_ERROR_CODES,
+  backupApi,
+  type ClinicArchiveRestoreReport,
+  type RecoveryPointDto,
+  type RecoveryPointsDto,
+} from "@/lib/api/backup"
 import { securityApi } from "@/lib/api/security"
 import { StepUpDialog } from "@/components/security/step-up-dialog"
+import { RecoveryPointsList } from "@/components/backup/recovery-points-list"
 import { downloadBlob } from "@/lib/download"
 import { showErrorToast } from "@/lib/errors"
 import { formatDateTime, todayLocalIso } from "@/lib/format"
@@ -59,6 +66,14 @@ export function ClinicArchiveCard() {
   const [stepUpFor, setStepUpFor] = useState<typeof DOWNLOAD_ACTION | typeof RESTORE_ACTION | null>(null)
   const [hasTotp, setHasTotp] = useState(false)
 
+  // « Points de restauration » (clinic-recovery-points) — the copies the server keeps, and the one that is being
+  // restored from. `pendingPoint` is the confirmation's subject; `restoringId` is what shows the spinner on its row.
+  const [recovery, setRecovery] = useState<RecoveryPointsDto | null>(null)
+  const [recoveryLoading, setRecoveryLoading] = useState(true)
+  const [recoveryFailed, setRecoveryFailed] = useState(false)
+  const [pendingPoint, setPendingPoint] = useState<RecoveryPointDto | null>(null)
+  const [restoringId, setRestoringId] = useState<string | null>(null)
+
   // Which proof the step-up offers first.
   //
   // ⚠️ A failed read is NOT rendered as « this account has no second factor » — that is the collapse
@@ -90,6 +105,47 @@ export function ClinicArchiveCard() {
       cancelled = true
     }
   }, [])
+
+  const loadRecoveryPoints = useCallback(async () => {
+    setRecoveryLoading(true)
+    setRecoveryFailed(false)
+    try {
+      setRecovery(await backupApi.recoveryPoints())
+    } catch {
+      // A failed read is NOT « aucun point de restauration » — that is a confidently wrong answer on the screen
+      // somebody opens *because* they have lost data (§ 13, failed-read-as-empty).
+      setRecoveryFailed(true)
+    } finally {
+      setRecoveryLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadRecoveryPoints()
+  }, [loadRecoveryPoints])
+
+  const handleRestorePoint = async (confirmationToken: string) => {
+    if (!pendingPoint) return
+
+    const point = pendingPoint
+    setRestoringId(point.id)
+    setPendingPoint(null)
+    try {
+      const result = await backupApi.restoreFromRecoveryPoint(point.id, confirmationToken)
+      setReport(result)
+
+      toast.success("Restauration terminée", {
+        description: `${result.totalRestored} enregistrement(s) remis en place.`,
+      })
+
+      // Re-read: the restore writes rows, and « déjà présent » on a second attempt is what proves it worked.
+      void loadRecoveryPoints()
+    } catch (err) {
+      showErrorToast(err, restoreFallbackMessage(err))
+    } finally {
+      setRestoringId(null)
+    }
+  }
 
   const handleDownload = async (confirmationToken: string) => {
     setDownloading(true)
@@ -147,7 +203,22 @@ export function ClinicArchiveCard() {
   }
 
   return (
-    <div className="space-y-3 rounded-lg border p-3">
+    <div className="space-y-3">
+      {/* The server-kept copies come FIRST, and that ordering is the point: « j'ai supprimé une fiche » is the common
+          emergency and it is two clicks away here, while the archive below is the answer to the rarer, worse one. */}
+      <RecoveryPointsList
+        points={recovery?.points ?? []}
+        loading={recoveryLoading}
+        failed={recoveryFailed}
+        onRetry={() => void loadRecoveryPoints()}
+        restoringId={restoringId}
+        onRestore={setPendingPoint}
+        lastArchiveDownloadedAtUtc={recovery?.lastArchiveDownloadedAtUtc ?? null}
+        archiveStaleAfterDays={recovery?.archiveStaleAfterDays ?? 30}
+        retentionCount={recovery?.retentionCount ?? 7}
+      />
+
+      <div className="space-y-3 rounded-lg border p-3">
       <div className="min-w-0">
         <p className="flex items-center gap-1.5 text-xs font-medium">
           <Archive className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -325,12 +396,75 @@ export function ClinicArchiveCard() {
           const action = stepUpFor
           setStepUpFor(null)
           if (action === RESTORE_ACTION) {
-            void handleRestore(confirmationToken)
+            // One step-up action serves both restores — they are the same operation on the same records — so which
+            // one is running is decided by whether a recovery point is pending, never by a second action name.
+            if (pendingPoint) {
+              void handleRestorePoint(confirmationToken)
+            } else {
+              void handleRestore(confirmationToken)
+            }
           } else {
             void handleDownload(confirmationToken)
           }
         }}
       />
+
+      {/* Restoring from a stored point gets its own confirmation, and it names the moment it will go back to.
+          « Êtes-vous sûr ? » cannot say which of seven copies is about to be applied. */}
+      <Dialog
+        open={pendingPoint !== null}
+        onOpenChange={(open) => {
+          if (!open && restoringId === null) setPendingPoint(null)
+        }}
+      >
+        <DialogContent className="md:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Restaurer depuis ce point ?</DialogTitle>
+            <DialogDescription>
+              <span className="block font-medium text-foreground">
+                {pendingPoint ? formatDateTime(pendingPoint.startedAt) : ""}
+              </span>
+            </DialogDescription>
+            <DialogDescription>
+              Les enregistrements manquants seront remis en place avec leurs identifiants et leurs numéros
+              d&apos;origine. Ceux qui existent déjà ne sont pas touchés, et ceux qui ont été modifiés depuis sont
+              ignorés — rien de votre travail plus récent ne sera écrasé.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Said before the click, not discovered after it: a scheduled point carries no files, so a deleted
+              radiograph does not come back this way. The archive below is what does. */}
+          {pendingPoint && !pendingPoint.carriesFiles && (
+            <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning-wash p-2.5">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning-ink" aria-hidden="true" />
+              <p className="text-xs leading-relaxed text-warning-ink">
+                Ce point contient les <span className="font-medium">enregistrements</span> mais pas les fichiers
+                (radiographies, documents scannés). Les fiches, dossiers et documents supprimés reviendront ; les
+                images qu&apos;ils portaient, non.
+              </p>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingPoint(null)}
+              className="coarse:h-11"
+            >
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              onClick={() => setStepUpFor(RESTORE_ACTION)}
+              className="coarse:h-11"
+            >
+              Restaurer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      </div>
     </div>
   )
 }

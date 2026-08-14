@@ -91,5 +91,28 @@ public enum NotificationCategory
     /// <para>In-app only: the export is already finished by the time this is written, so a lock-screen banner
     /// would announce something nobody can intervene in.</para>
     /// </summary>
-    ClinicArchiveExported = 13
+    ClinicArchiveExported = 13,
+
+    /// <summary>
+    /// No archive of this cabinet has left the building for a while (<c>clinic-recovery-points</c>,
+    /// <see cref="Entities.ClinicRecoveryPoint.ArchiveStaleAfterDays"/>).
+    ///
+    /// <para><b>It is about the copy the practice holds, not about the nightly recovery points.</b> Those live
+    /// inside the deployment and die with it, so the fact worth nagging about is the one that survives a total loss —
+    /// a file on the owner's own machine. That makes this the exact counterpart of
+    /// <see cref="ClinicArchiveExported"/>: one says an archive left, this says none has.</para>
+    ///
+    /// <para>⚠️ <b>Distinct from <see cref="BackupStale"/></b>, which is about the machine-level <c>pg_dump</c> and
+    /// therefore never fires on a hosted deployment at all (its job is not registered there, so there is nothing to
+    /// go stale). Reading one as the other would leave the hosted profile — where this matters most — with no alert
+    /// of either kind.</para>
+    ///
+    /// <para>An ensure/clear pair on <see cref="BackupStale"/>'s shape, not <see cref="SubscriptionExpiring"/>'s
+    /// per-threshold one: there is a single fact here (« la dernière archive date du … ») rather than four
+    /// escalating ones, so one row that restates is right and four unread rows would be noise.</para>
+    ///
+    /// <para>In-app only. It waits for whoever next sits at a keyboard — a lock-screen banner about downloading a
+    /// multi-gigabyte file is a banner nobody can act on where they are standing.</para>
+    /// </summary>
+    ArchiveStale = 14
 }

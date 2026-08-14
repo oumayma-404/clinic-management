@@ -104,6 +104,26 @@ public class Clinic : AggregateRoot<Guid>
     public const int DefaultBackupRetentionCount = 7;
     public const int DefaultBackupStaleAfterHours = 48;
 
+    /// <summary>
+    /// When an archive of this cabinet was last <b>delivered</b> to somebody — the copy that left the building
+    /// (<c>clinic-recovery-points</c>).
+    ///
+    /// <para><b>Why a column at all.</b> The export is already recorded, twice, in the audit ledger
+    /// (<c>ArchiveAccessLedger</c>) — but « livrée » and « NON livrée » are <i>both</i> <c>AuditAction.Update</c> and
+    /// differ only in their French prose, so deriving « la dernière archive réussie » from it would mean matching a
+    /// sentence. That is the <c>Contains("déjà facturée")</c> defect this repository deleted: rewording a message
+    /// would silently change behaviour. One nullable column instead.</para>
+    ///
+    /// <para>⚠️ <b>Delivered, not requested.</b> A download that aborts at 90 % really did happen and really did not
+    /// arrive; stamping the request would tell a practice it holds a copy it does not have — on the one screen whose
+    /// whole job is to say whether it does.</para>
+    ///
+    /// <para>Null on a cabinet that has never taken one, and the staleness alert measures from
+    /// <see cref="CreatedAt"/> in that case rather than from the epoch — otherwise it fires on a practice created
+    /// five minutes ago, and an alert that is wrong on day one is one that gets dismissed for ever.</para>
+    /// </summary>
+    public DateTime? LastArchiveDownloadedAtUtc { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -328,6 +348,25 @@ public class Clinic : AggregateRoot<Guid>
         BackupRetentionCount = retentionCount;
         BackupStaleAfterHours = staleAfterHours;
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Records that an archive of this cabinet reached somebody (<c>clinic-recovery-points</c>).
+    ///
+    /// <para>⚠️ <b>It never moves the moment backwards</b>, and that is not defensiveness. The delivery row is written
+    /// <i>after</i> the response body completes, outside the request scope, best-effort — so two downloads started
+    /// together can finish in either order, and the older one landing last must not make the cabinet look staler
+    /// than it is.</para>
+    ///
+    /// <para>⚠️ It deliberately does <b>not</b> stamp <see cref="UpdatedAt"/>: nobody edited the cabinet, and
+    /// « modifié le » is read on a settings screen as « quelqu'un a changé quelque chose ».</para>
+    /// </summary>
+    public void MarkArchiveDownloaded(DateTime deliveredAtUtc)
+    {
+        if (LastArchiveDownloadedAtUtc == null || deliveredAtUtc > LastArchiveDownloadedAtUtc)
+        {
+            LastArchiveDownloadedAtUtc = deliveredAtUtc;
+        }
     }
 }
 

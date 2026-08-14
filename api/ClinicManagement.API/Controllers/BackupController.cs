@@ -245,6 +245,62 @@ public class BackupController : ApiControllerBase
         return File(archive.Content, ClinicArchiveFormat.ContentType, archive.FileName);
     }
 
+    /// <summary>
+    /// What the cabinet can restore from without a file: the retained recovery points, newest first, plus when an
+    /// archive last actually reached somebody (<c>clinic-recovery-points</c>).
+    ///
+    /// <para><b>Not gated on <c>BacksUpItsOwnData</c></b>, for <see cref="DownloadArchive"/>'s reason: recovery points
+    /// are tenant-filtered per-clinic archives, not a <c>pg_dump</c>, so they exist on every deployment kind.</para>
+    ///
+    /// <para>No step-up. Listing the moments a cabinet could be restored from discloses no record — the sizes and row
+    /// counts of its own points — and requiring a password to *read* the list would make the confirmation on the
+    /// action itself read as noise.</para>
+    /// </summary>
+    [HttpGet("recovery-points")]
+    [AllowsWithoutSubscription(
+        "Recovering records that already exist is not recording new work (AC-8, the AC-4.2 argument) — and a cabinet "
+        + "that has just lost data is exactly the one that must be able to see what it can restore from.")]
+    public async Task<ActionResult<RecoveryPointsDto>> RecoveryPoints(CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new ListRecoveryPointsQuery(), cancellationToken);
+
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Restores the cabinet from one of its own retained recovery points.
+    ///
+    /// <para>⚠️ <b>The same step-up action as the upload restore</b> (<see cref="RestoreStepUpAction"/>), deliberately:
+    /// it is the same operation on the same records, so a separate action name would suggest a different one. And it
+    /// is required — a stored point is one click closer than an upload, so without the confirmation this would be a
+    /// quieter route to the same records than the one FR-4.3 guards.</para>
+    ///
+    /// <para>⚠️ <b>Additive like every other restore</b>: missing rows come back with their original ids, rows still
+    /// present are untouched, and rows that *differ* are skipped and counted apart. A scheduled point carries no
+    /// files, and the report says so rather than reporting « 0 fichier ».</para>
+    /// </summary>
+    [HttpPost("recovery-points/{recoveryPointId:guid}/restore")]
+    [EnableRateLimiting(RateLimiting.ArchivePolicy)]
+    [AllowsWithoutSubscription(
+        "Putting back records the cabinet already had is not recording new work (AC-8) — and an expired cabinet that "
+        + "has also lost data is exactly the one that must be able to recover it.")]
+    public async Task<ActionResult<ClinicArchiveRestoreReport>> RestoreFromRecoveryPoint(
+        Guid recoveryPointId,
+        [FromHeader(Name = StepUpHeader)] string? confirmation,
+        CancellationToken cancellationToken)
+    {
+        var refusal = RequireStepUp(confirmation, RestoreStepUpAction);
+        if (refusal != null)
+        {
+            return refusal;
+        }
+
+        var result = await _mediator.Send(
+            new RestoreFromRecoveryPointCommand { RecoveryPointId = recoveryPointId }, cancellationToken);
+
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
     private async Task RecordDeliveryAsync(ClinicArchiveFile archive, long bytes, bool delivered)
     {
         try
@@ -259,6 +315,9 @@ public class BackupController : ApiControllerBase
             scope.ServiceProvider.GetRequiredService<ITenantScope>().UseClinic(archive.ClinicId);
 
             await ArchiveAccessLedger.RecordDeliveryAsync(
+                // The clinic repository is passed so a DELIVERED archive also stamps the cabinet's own
+                // « dernière archive téléchargée » — the fact the staleness alert reads, and the one thing the two
+                // ledger rows cannot answer without matching their French prose.
                 scope.ServiceProvider.GetRequiredService<IAuditEntryRepository>(),
                 scope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
                 scope.ServiceProvider.GetRequiredService<IAuditActorProvider>().Current,
@@ -266,7 +325,8 @@ public class BackupController : ApiControllerBase
                 archive.LedgerEntryId,
                 delivered,
                 bytes,
-                DateTime.UtcNow);
+                DateTime.UtcNow,
+                scope.ServiceProvider.GetRequiredService<IClinicRepository>());
         }
         catch (Exception ex)
         {

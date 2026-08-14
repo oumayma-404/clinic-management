@@ -132,6 +132,19 @@ public class StaffNotificationRepository : IStaffNotificationRepository
                 cancellationToken);
     }
 
+    public async Task<StaffNotification?> GetArchiveStaleAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // IgnoreQueryFilters for GetBackupStaleAsync's reason below: the daily pass runs UseSystemWide, while the
+        // clear fires inside an admin's own request after a delivered download. The clinicId parameter is the
+        // authoritative check either way.
+        return await _context.StaffNotifications
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
+                n => n.ClinicId == clinicId && n.Category == NotificationCategory.ArchiveStale,
+                cancellationToken);
+    }
+
     public async Task<StaffNotification?> GetBackupStaleAsync(
         Guid clinicId, CancellationToken cancellationToken = default)
     {
