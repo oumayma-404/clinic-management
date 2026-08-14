@@ -3,7 +3,7 @@
 Infrastructure layer (Clean Architecture). Implements the outbound interfaces declared in Domain
 (`Domain/Repositories`) and Application (`Application/Common/Interfaces`): EF Core/PostgreSQL data access +
 multi-tenant query filters, repository implementations, mode-branched file storage (MinIO vs local disk),
-per-clinic Google Calendar two-way sync, HuggingFace AI + agentic action dispatch, SMS/WhatsApp reminders
+per-clinic Google Calendar two-way sync, SMS/WhatsApp reminders
 (+ per-clinic settings, encrypted secrets), CNAM BS1 bulletin + French PDF
 rendering, Auth0 management (Cloud) / local JWT auth (Local), and — for offline installs — `pg_dump` backup,
 self-generated HTTPS trust material, and per-clinic reference-catalog seeding. All wiring lives in
@@ -378,16 +378,21 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
     appointments (may auto-create a placeholder patient). **No scheduled job** — reachable only via the manual
     `GoogleCalendarController` endpoint (runs with a clinic in scope).
 
-### AI
-- **`HuggingFaceAIService`** (`IHuggingFaceAIService`, scoped) — chat completions via the HuggingFace router
-  (`router.huggingface.co/v1/chat/completions`, OpenAI-compatible). Model `HuggingFace:Model` (default
-  `microsoft/Phi-3-mini-4k-instruct`); injects a clinic-context system prompt; retries once if the model is
-  loading. Sole wired chat/AI backend (also backs the patient AI-summary endpoint).
-- **`AIActionService`** (`IAIActionService`, scoped) — agentic layer: asks the AI to classify intent + extract
-  params (JSON), with a regex fallback, then dispatches to MediatR commands/repos for `create_appointment`,
-  `search_patient`, `view_patient`, `list_appointments`, `cancel_appointment`. Scoped to the caller's clinic via
-  `IClinicContext` + `IUserRepository`.
-- *(The Gemini `GoogleAIService` and the placeholder `PatientSummaryService` were removed as dead code.)*
+### AI — removed
+There is **no AI in this product any more.** `HuggingFaceAIService`, `AIActionService` and their two interfaces
+were deleted whole, along with `AIController`, `Features/AI/` and the browser's floating assistant (~2 400 lines).
+
+⚠️ **It went for a data-residency reason, not a cost one.** The agentic layer posted a clinic's own prompts — and
+whatever the user typed about a patient — to `router.huggingface.co`, a US-hosted third party, on every message.
+Under Tunisian law (loi organique **2004-63**, art. 51–52) that is a transfer abroad requiring **prior INPDP
+authorization**, and health data is separately sensitive; the practice, not the vendor, is the
+*responsable du traitement* carrying the art. 90 exposure. Deleting the caller removes the transfer outright,
+which no configuration flag can do.
+⚠️ **Do not reintroduce a hosted model without reading `follow-up/render-free-tier-transit-relaxation.md`.** The
+same argument applies to any inference endpoint outside Tunisia, and the earlier `GET /api/patients/{id}/ai-summary`
+— deleted by `adoption-qa-i` I4 — was the same defect one layer worse: it shipped a patient's *whole record*, with
+no consent flag and no audit of which patient was sent.
+*(The Gemini `GoogleAIService` and the placeholder `PatientSummaryService` had already been removed as dead code.)*
 
 ### OS push notifications (`mobile-native-shells` P6)
 - **`OsPushAvailability`** (`IOsPushAvailability`, **Singleton**) — the one « can this install push to this
@@ -640,8 +645,8 @@ ubuntu runner, where `Harden` itself short-circuits.
 - **Reminders** — `IReminderSettingsProvider`, `IReminderScheduler` (scoped); `IReminderChannelSender` ×2
   (`HttpSmsSender`, `WhatsAppSender`, scoped); `IWhatsAppOnboardingService` (scoped).
   `ITtnClient` ×2 (Sandbox + Http) scoped; `IQrCodeGenerator` + **`ITtnSecretProtector`** Singleton.
-- `IGoogleCalendarService`, `IGoogleCalendarSyncService`, `IPdfGenerationService`, `IHuggingFaceAIService`,
-  `IAIActionService`, `IClinicCatalogSeeder`, `IBackupService` — all scoped.
+- `IGoogleCalendarService`, `IGoogleCalendarSyncService`, `IPdfGenerationService`, `IClinicCatalogSeeder`,
+  `IBackupService` — all scoped.
 - **Not registered here:** `CertificateProvisioner` (constructed manually pre-Build in `Program.cs`);
   `AdminPasswordRecoveryService` (console-only). **Retired:** `IGoogleTokenStore`/`FileGoogleTokenStore` — Google
   refresh tokens now live per-clinic on the `Clinic` entity.
@@ -668,7 +673,7 @@ price feeds the one screen an expired cabinet opens. Anything unreadable, absent
 config file is not localised, and on an fr-TN host `"120.5"` would otherwise read as 1205. No secret-bearing key.
 `ConnectionStrings:DefaultConnection`; `FileStorage:BasePath`; `MinIO:{Endpoint,AccessKey,SecretKey,BucketName,
 UseSSL}`; `GoogleCalendar:{ClientId,ClientSecret}` (per-clinic refresh token/calendar id live on `Clinic`);
-`HuggingFace:{ApiKey,Model}`; `Auth0:{Domain,ManagementApi:ClientId,ManagementApi:ClientSecret}`;
+`Auth0:{Domain,ManagementApi:ClientId,ManagementApi:ClientSecret}`;
 **`Deployment:Profile`** (`SelfHostedLan`|`HostedMultiTenant`|`CloudBrowser`; absent ⇒ derived from `Auth:Mode`, an
 unrecognised value **fails startup loud**); `Auth:Mode` (`Cloud`|`Local`);
 `Auth:Local:{SigningKey,SigningKeyPath,Issuer,Audience,TokenLifetimeMinutes}`

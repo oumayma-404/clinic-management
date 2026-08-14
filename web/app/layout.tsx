@@ -9,7 +9,6 @@ import { SidebarProvider } from "@/contexts/sidebar-context"
 import { AppToaster } from "@/components/app-toaster"
 import { ClientVersionGate } from "@/components/client-version-gate"
 import { ThemeProvider } from "@/components/theme-provider"
-import { AIChat } from "@/components/ai-chat"
 import { PRODUCT_NAME } from "@/lib/brand"
 import "./globals.css"
 
@@ -110,8 +109,6 @@ export default function RootLayout({
                 <SidebarProvider>
                   {children}
                 </SidebarProvider>
-                {/* Inside ConnectivityProvider so it can gate on internet reachability (Local mode). */}
-                <AIChat />
               </ConnectivityProvider>
             </SubscriptionProvider>
           </SessionProvider>

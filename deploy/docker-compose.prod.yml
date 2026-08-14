@@ -166,7 +166,6 @@ services:
       GoogleCalendar__RefreshToken: ${GOOGLE_REFRESH_TOKEN}
       GoogleCalendar__RedirectUri: "https://${DOMAIN}/api/googlecalendar/callback"
       GoogleCalendar__CalendarId: ${GOOGLE_CALENDAR_ID:-primary}
-      HuggingFace__ApiKey_FILE: /run/secrets/huggingface_api_key
       MinIO__Endpoint: "minio:9000"
       MinIO__AccessKey: ${MINIO_ROOT_USER}
       MinIO__SecretKey: ${MINIO_ROOT_PASSWORD}
@@ -200,7 +199,6 @@ services:
       - audit_chain_key
       - auth0_mgmt_client_secret
       - google_client_secret
-      - huggingface_api_key
     networks: [internal]
     # No `ports:` — Caddy proxies /api/* to this service over the internal network (AC-1).
 
@@ -370,8 +368,6 @@ secrets:
     file: ${AUTH0_MGMT_CLIENT_SECRET_FILE:-./secrets/auth0-mgmt-client-secret}
   google_client_secret:
     file: ${GOOGLE_CLIENT_SECRET_FILE:-./secrets/google-client-secret}
-  huggingface_api_key:
-    file: ${HUGGINGFACE_API_KEY_FILE:-./secrets/huggingface-api-key}
 
 networks:
   internal:

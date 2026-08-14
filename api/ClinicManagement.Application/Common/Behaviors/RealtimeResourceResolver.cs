@@ -47,7 +47,7 @@ public static class RealtimeResourceResolver
     // which is not an aggregate root and emits nothing by design (D-6).
     private static readonly HashSet<string> ExcludedAreas = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Auth", "AI", "Backup", "Connectivity", "Dashboard", "Messaging", "Platform", "PushDevices", "Subscriptions"
+        "Auth", "Backup", "Connectivity", "Dashboard", "Messaging", "Platform", "PushDevices", "Subscriptions"
     };
 
     public static string? Resolve(Type requestType)

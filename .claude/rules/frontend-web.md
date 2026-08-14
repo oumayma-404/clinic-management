@@ -288,8 +288,9 @@ through `onClientTooOld` and taken over by `<ClientVersionGate>` — it is **nev
 deployment and returns `serverReachable` (did the server answer at all) separately from `internetReachable` (may the
 egress-dependent features run), with `egressSignalAvailable` saying whether the second is a reading or an assumption.
 Never gate a poll or a badge on `AUTH_MODE`: `mode === "local"` is true on a clinic's own PC **and** on the hosted
-multi-tenant backend, where the probe 404s — reading that 404 as "offline" is what pinned a hosted clinic's AI chat
-and Google controls off permanently. **Only a 200 that says so means "no egress".**
+multi-tenant backend, where the probe 404s — reading that 404 as "offline" is what pinned a hosted clinic's Google
+controls off permanently. **Only a 200 that says so means "no egress".** (Google Calendar is now the *only*
+egress-dependent feature; the AI assistant that used to be the other one is deleted.)
 
 **No user-facing string may name the « réseau local ».** The same server is reached over a LAN, over Wi-Fi and over a
 mobile network, so that wording is false everywhere but the offline-LAN install and points a dentist at something

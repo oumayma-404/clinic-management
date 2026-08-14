@@ -496,18 +496,17 @@ export default function AppointmentsPage() {
 
         `--bottom-inset` is the global bottom nav plus the home indicator, so the action clears navigation.
 
-        ⚠️ **Centred, and that is a collision fix, not a preference.** This used to be `right-4` at exactly
-        `bottom-[calc(1rem+var(--bottom-inset))]` — the *byte-identical* anchor `ai-chat.tsx` gives its minimised
-        launcher, at `z-50` against this `z-40`. So the assistant's 56 px Bot circle sat permanently on top of the
-        right-hand end of this pill, which is what made « Nouveau RDV » look misplaced. The comment that used to
-        live here claimed the shared offset was why "the three never stack": sharing an offset is precisely how
-        they stack. The centre is free, and it also reads correctly — the page's own action sits above the nav it
-        belongs to, while the global assistant keeps its corner.
+        ⚠️ **Centred, and it stays centred now that the collision it fixed is gone.** This used to be `right-4`
+        at exactly `bottom-[calc(1rem+var(--bottom-inset))]` — the *byte-identical* anchor the deleted AI
+        assistant gave its minimised launcher, at `z-50` against this `z-40` — so that 56 px circle sat
+        permanently on top of the right-hand end of this pill. The assistant is gone, so the right-hand corner is
+        free again; the centre is kept because it reads correctly on its own terms, the page's own action sitting
+        above the nav it belongs to. Moving it back would be churn for no gain, and this is now the *only*
+        floating element in the app — which is also why `AppShell` no longer pays for `md:pb-20`.
 
         A bottom-centre toast can still pass over this for its four seconds (`app-toaster.tsx` anchors there on a
         coarse pointer). That is left alone deliberately: a transient toast over a floating action is ordinary
-        mobile behaviour — it already happened to the AI launcher — whereas a button permanently under another
-        button is a defect.
+        mobile behaviour, whereas a button permanently under another button is a defect.
 
         The wrapper, rather than positioning classes on the `Button`: `ui/button.tsx` applies
         `active:scale-[0.97]`, so the press transform and a centring `-translate-x-1/2` would be arguing over the

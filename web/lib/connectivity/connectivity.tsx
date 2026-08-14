@@ -147,7 +147,7 @@ function notifyTransition(prev: Reachability, next: Reachability) {
   if (next.egressSignalAvailable && !next.internetReachable) {
     toast.warning("Pas de connexion internet", {
       description:
-        "Le serveur n'a pas accès à internet. L'assistant IA et Google Agenda sont temporairement désactivés ; les autres fonctions restent disponibles.",
+        "Le serveur n'a pas accès à internet. Google Agenda est temporairement désactivé ; les autres fonctions restent disponibles.",
     })
     return
   }
@@ -158,7 +158,7 @@ function notifyTransition(prev: Reachability, next: Reachability) {
   // Only reachable from a real egress reading that flipped back — never from a signal that was merely absent.
   if (prev.egressSignalAvailable && !prev.internetReachable) {
     toast.success("Connexion internet rétablie", {
-      description: "L'assistant IA et Google Agenda sont de nouveau disponibles.",
+      description: "Google Agenda est de nouveau disponible.",
     })
   }
 }

@@ -51,16 +51,16 @@ public class FileBackedSecretsTests
     public void Surrounding_Whitespace_Is_Trimmed_And_The_Value_Is_Not() // [FR-3.10]
     {
         var data = Read(
-            Env(("HuggingFace__ApiKey_FILE", "/run/secrets/hf")),
-            ("/run/secrets/hf", "  hf_abc def \r\n"));
+            Env(("GoogleCalendar__ClientSecret_FILE", "/run/secrets/gcal")),
+            ("/run/secrets/gcal", "  gcs_abc def \r\n"));
 
-        Assert.Equal("hf_abc def", data["HuggingFace:ApiKey"]);
+        Assert.Equal("gcs_abc def", data["GoogleCalendar:ClientSecret"]);
     }
 
     [Fact]
     public void A_Variable_Without_The_Suffix_Is_Ignored() // [FR-3.10]
     {
-        var data = Read(Env(("HuggingFace__ApiKey", "literal-value")));
+        var data = Read(Env(("GoogleCalendar__ClientSecret", "literal-value")));
 
         Assert.Empty(data);
     }

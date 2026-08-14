@@ -44,7 +44,7 @@ export function ConnectivityIndicator() {
   } else if (!internetReachable) {
     icon = <WifiOff className="h-3.5 w-3.5" />
     label = "Hors ligne"
-    description = "Le serveur n'a pas accès à internet. L'assistant IA et Google Agenda sont désactivés ; les autres fonctions restent disponibles."
+    description = "Le serveur n'a pas accès à internet. Google Agenda est désactivé ; les autres fonctions restent disponibles."
     // `active` = the amber wash + `--warning-ink`. The literal pair it replaces used `text-amber-800` on
     // `bg-amber-100`, i.e. exactly the pairing `--warning-ink` exists for.
     className = statusToneClass("active")
