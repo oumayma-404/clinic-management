@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.ProcedureTypes.Commands;
 using ClinicManagement.Application.Features.ProcedureTypes.Queries;
 using ClinicManagement.Domain.ValueObjects;
@@ -176,13 +177,17 @@ public class ProcedureTypesController : ApiControllerBase
     }
 
     /// <summary>
-    /// Get available color palette
+    /// The agenda-colour palette the <c>ColorHex</c> value object accepts, grouped by hue family and named.
     /// </summary>
+    /// <remarks>
+    /// Grouped rather than flat because the catalogue outgrew the ten colours this used to serve: the picker shows
+    /// one swatch per family and its nuances only once a family is chosen. Named because the client used to hold
+    /// its own hex→French map, so a colour added here appeared under its raw hex until somebody updated that copy.
+    /// </remarks>
     [HttpGet("colors")]
-    public IActionResult GetAvailableColors()
+    public ActionResult<List<ProcedureColorFamilyDto>> GetAvailableColors()
     {
-        var colors = ColorHex.GetAvailableColors().ToList();
-        return Ok(colors);
+        return Ok(ColorHex.GetPalette().ToDto());
     }
 
     /// <summary>

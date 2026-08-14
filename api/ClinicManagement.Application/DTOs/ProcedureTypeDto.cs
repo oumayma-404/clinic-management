@@ -34,6 +34,51 @@ public class ProcedureTypeMaterialDto
     public int QuantityPerAct { get; set; }
 }
 
+/// <summary>
+/// One hue family of the agenda-colour palette (<c>GET /api/procedure-types/colors</c>) — the unit the picker
+/// offers, so it shows twelve swatches at rest rather than every colour the server accepts.
+/// </summary>
+public class ProcedureColorFamilyDto
+{
+    public string Key { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public List<ProcedureColorDto> Colors { get; set; } = new();
+}
+
+/// <summary>One selectable colour: the value that is stored, and what to call it.</summary>
+public class ProcedureColorDto
+{
+    public string Hex { get; set; } = string.Empty;
+    /// <summary>
+    /// « Bleu moyen ». Composed server-side so the client needs no hex→name map of its own — it used to carry one,
+    /// which meant a colour added here rendered with its raw hex as its label until somebody remembered to name it.
+    /// </summary>
+    public string Label { get; set; } = string.Empty;
+    /// <summary>« Clair » / « Moyen » / « Foncé » — the nuance strip's own caption, once a family is picked.</summary>
+    public string Tone { get; set; } = string.Empty;
+}
+
+public static class ProcedureColorPaletteMapping
+{
+    public static List<ProcedureColorFamilyDto> ToDto(
+        this IEnumerable<Domain.ValueObjects.ColorFamily> families) =>
+        families
+            .Select(family => new ProcedureColorFamilyDto
+            {
+                Key = family.Key,
+                Label = family.LabelFr,
+                Colors = family.Tones
+                    .Select(tone => new ProcedureColorDto
+                    {
+                        Hex = tone.Hex,
+                        Label = $"{family.LabelFr} {tone.ToneFr.ToLowerInvariant()}",
+                        Tone = tone.ToneFr,
+                    })
+                    .ToList(),
+            })
+            .ToList();
+}
+
 public static class ProcedureTypeMappingExtensions
 {
     /// <summary>

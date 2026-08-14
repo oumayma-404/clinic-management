@@ -2,6 +2,25 @@ import { apiGet, apiPost, apiPut, apiDelete } from './client';
 import type { ProcedureTypeDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
+/** One selectable agenda colour: the value that is stored, and what the server calls it. */
+export interface ProcedureColor {
+  hex: string;
+  /** « Bleu moyen » — composed server-side, so no client holds a hex→French map of its own. */
+  label: string;
+  /** « Clair » / « Moyen » / « Foncé » — the nuance strip's caption once a family is picked. */
+  tone: string;
+}
+
+/**
+ * One hue family of the palette. These two types live here rather than in `types.ts` because only the colour
+ * picker reads them and they only make sense beside `getColorPalette` — the reasoning `paging.ts` follows.
+ */
+export interface ProcedureColorFamily {
+  key: string;
+  label: string;
+  colors: ProcedureColor[];
+}
+
 export const procedureTypesApi = {
   list: async (includeInactive: boolean = false): Promise<ProcedureTypeDto[]> => {
     return unwrapPaged(
@@ -69,23 +88,23 @@ export const procedureTypesApi = {
   },
 
   /**
-   * AC-P2.36: the palette the backend `ColorHex` value object actually accepts. Returns **bare hex strings with
-   * no names** (A-14), which is why the French labels stay client-side — the endpoint is the authority on
-   * *which* colours are valid, not on how they are called.
+   * AC-P2.36: the palette the backend `ColorHex` value object accepts, **grouped by hue family and named**.
    *
-   * It had zero callers, so the frontend carried its own hardcoded copy under a "must match backend" comment:
-   * the two could drift, and a colour added or retired server-side either vanished from the picker or was
-   * offered and then rejected with `ArgumentException`.
+   * Grouped because a clinic's act catalogue outgrows ten colours long before it outgrows twelve hues, and the
+   * picker offers one swatch per family with its nuances only once a family is chosen — 36 loose swatches is a
+   * wall rather than a choice. Named because this module's consumer used to carry its own hex→French map, so a
+   * colour added server-side rendered under its raw hex until somebody remembered to name it too; the endpoint is
+   * now the authority on *which* colours are valid **and** on what they are called.
    */
-  getColors: async (): Promise<string[]> => {
-    return apiGet<string[]>('/procedure-types/colors');
+  getColorPalette: async (): Promise<ProcedureColorFamily[]> => {
+    return apiGet<ProcedureColorFamily[]>('/procedure-types/colors');
   },
 
   /**
    * The categories to offer when filing or filtering an act: the suggested clinical disciplines in clinical order,
    * followed by any category this clinic invented for itself.
    *
-   * Fetched rather than hardcoded for the same reason `getColors` is — but with a stronger one: half the list is
+   * Fetched rather than hardcoded for the same reason `getColorPalette` is — but with a stronger one: half the list is
    * *data*. Only the server knows which categories the clinic has used, and a suggestion list missing them is what
    * makes the next admin retype « endodontie » and split a discipline in two.
    */

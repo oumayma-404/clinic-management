@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import {
   Dialog,
   DialogContent,
@@ -22,7 +22,7 @@ import { formatAmount, parseAmountInput } from "@/lib/format"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Check, ChevronsUpDown, Loader2, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { procedureTypesApi, type ProcedureColorFamily } from "@/lib/api/procedure-types"
 import type { ProcedureTypeDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { CONDITION_ORDER, conditionStyle } from "@/components/odontogram-conditions"
@@ -31,30 +31,12 @@ import { CONDITION_ORDER, conditionStyle } from "@/components/odontogram-conditi
 const NO_CONDITION = "__none__"
 
 /**
- * French labels for the palette hexes. **Not** the palette itself: which colours exist is
- * `GET /api/procedure-types/colors` (AC-P2.36), because the backend `ColorHex` value object rejects anything
- * off its own list. This map only names them — the endpoint returns bare hex strings with no names (A-14), so
- * the labels have to live somewhere, and a hex with no entry here renders with the hex as its label (never
- * blank, never dropped).
- *
- * This replaces a hardcoded array carried under a "must match backend" comment, which is the drift the endpoint
- * exists to prevent: a colour added server-side never appeared, and one retired server-side was still offered
- * and then refused on save.
+ * The nuance a family stands for in the swatch row, and what picking that family selects. « Moyen » where the
+ * server offers one — a family's own hue reads clearest in the middle of its range — else its first nuance, so a
+ * family whose tone names change server-side still has a representative rather than none.
  */
-const COLOR_LABELS_FR: Record<string, string> = {
-  "#4F83CC": "Bleu doux",
-  "#2A9D8F": "Sarcelle",
-  "#6BAA75": "Vert doux",
-  "#9B8EDC": "Lavande",
-  "#E9A23B": "Ambre chaud",
-  "#E76F51": "Corail",
-  "#6C757D": "Ardoise",
-  "#60A5FA": "Bleu ciel",
-  "#5EEAD4": "Menthe",
-  "#FB7185": "Rose",
-}
-
-const colorLabel = (hex: string) => COLOR_LABELS_FR[hex.toUpperCase()] ?? hex
+const familySwatch = (family: ProcedureColorFamily) =>
+  family.colors.find((c) => c.tone === "Moyen") ?? family.colors[0]
 
 interface ProcedureTypeFormModalProps {
   open: boolean
@@ -87,10 +69,11 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /**
-   * The valid palette, from the server. Starts empty and fills on open; the swatch grid renders nothing until
-   * it arrives rather than falling back to a local copy — a stale local list is exactly the drift this closes.
+   * The valid palette, from the server — hue families, each with its nuances. Starts empty and fills on open; the
+   * swatch row renders nothing until it arrives rather than falling back to a local copy, which is exactly the
+   * drift this closes.
    */
-  const [palette, setPalette] = useState<string[]>([])
+  const [palette, setPalette] = useState<ProcedureColorFamily[]>([])
   /**
    * The palette REQUEST's own state, tracked separately from `palette.length`.
    *
@@ -108,10 +91,10 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
     let active = true
     setPaletteState("loading")
     procedureTypesApi
-      .getColors()
-      .then((colors) => {
+      .getColorPalette()
+      .then((families) => {
         if (!active) return
-        setPalette(colors)
+        setPalette(families)
         setPaletteState("ready")
       })
       // A failed palette fetch must not block editing a procedure's name or fee — the rest of the form stays
@@ -173,13 +156,40 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
     setError(null)
   }, [editingProcedure, open])
 
-  // Preselect the first valid colour for a NEW procedure once the palette arrives. Kept separate from the
+  // Preselect the first family's own nuance for a NEW procedure once the palette arrives. Kept separate from the
   // reset above because the palette is fetched asynchronously — the reset runs before it is known.
   useEffect(() => {
     if (!editingProcedure && !selectedColor && palette.length > 0) {
-      setSelectedColor(palette[0])
+      setSelectedColor(familySwatch(palette[0]).hex)
     }
   }, [editingProcedure, selectedColor, palette])
+
+  /**
+   * Hex → its French name, from the palette the server sent.
+   *
+   * A colour the palette does not name still renders — under its own hex — rather than blank (AC-P2.37). Every
+   * hex the old flat palette accepted is still in the new one, so an existing act cannot land here; the fallback
+   * costs nothing and is what keeps a future retirement from showing an unlabelled swatch.
+   */
+  const colorNames = useMemo(() => {
+    const names = new Map<string, string>()
+    for (const family of palette) {
+      for (const color of family.colors) names.set(color.hex.toUpperCase(), color.label)
+    }
+    return names
+  }, [palette])
+
+  const colorLabel = (hex: string) => colorNames.get(hex.toUpperCase()) ?? hex
+
+  /**
+   * The family whose nuances are on show — **derived from the selection**, never its own state. That is what makes
+   * editing an act open on its own family already expanded, and what stops the strip and the swatch row from
+   * disagreeing about which hue is current.
+   */
+  const activeFamily = useMemo(
+    () => palette.find((family) => family.colors.some((c) => c.hex.toUpperCase() === selectedColor.toUpperCase())),
+    [palette, selectedColor],
+  )
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -492,7 +502,9 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm">
+            {/* `id`, not `htmlFor`: the control below is a group of buttons, so it names the group through
+                `aria-labelledby` rather than pointing at a single field. */}
+            <Label id="agenda-color-label" className="text-sm">
               Couleur de l'agenda <span className="text-destructive">*</span>
             </Label>
 
@@ -522,42 +534,87 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
             ) : palette.length === 0 ? (
               <p className="text-xs text-muted-foreground">Aucune couleur disponible.</p>
             ) : (
-              // `grid-cols-3` at the base: five columns of a 390px dialog is ~62px per cell for a 24px swatch
-              // plus a French label (« Ambre chaud »), which wraps to three lines and collides with its
-              // neighbours. Five only from `sm:` up.
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-                {palette.map((hex) => (
-                  <button
-                    key={hex}
-                    type="button"
-                    onClick={() => setSelectedColor(hex)}
-                    disabled={loading}
-                    className={cn(
-                      // Movement hover gated behind `hover-hover:` (AC-11).
-                      "relative flex flex-col items-center gap-1 rounded-lg border-2 p-2 transition-all hover-hover:hover:scale-105",
-                      selectedColor === hex
-                        ? "border-primary bg-accent"
-                        : "border-border bg-background hover:border-muted-foreground/50",
-                      loading && "opacity-50 cursor-not-allowed"
-                    )}
-                    title={colorLabel(hex)}
-                  >
-                    <div
-                      className="h-6 w-6 rounded-full border-2 border-background shadow-sm"
-                      style={{ backgroundColor: hex }}
-                    />
-                    {selectedColor === hex && (
-                      <div className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                        <Check className="h-2.5 w-2.5" />
-                      </div>
-                    )}
-                    {/* AC-P2.37: a colour the server offers but this map does not name still renders — with the
-                        hex as its label — rather than appearing as an unlabelled swatch. */}
-                    <span className="text-2xs text-center leading-tight text-muted-foreground">
-                      {colorLabel(hex)}
-                    </span>
-                  </button>
-                ))}
+              <div className="space-y-2">
+                {/*
+                  Two gestures, whatever the palette's size: the hue, then its nuance. It replaced one flat grid
+                  of every accepted colour — fine at ten, a wall at thirty-six — and the per-swatch French label
+                  went with it, since a name under every circle is what forced that grid to three columns.
+
+                  `flex-wrap` and not a grid: the buttons carry a fixed 40 px (44 px on a finger, § 2), so the row
+                  reflows to whatever fits instead of dividing a 320 px dialog into six 33 px cells that meet no
+                  touch floor. All twelve sit on one row from the dialog's `md:` width up.
+                */}
+                <div className="flex flex-wrap gap-2" role="group" aria-labelledby="agenda-color-label">
+                  {palette.map((family) => {
+                    const swatch = familySwatch(family)
+                    const isActive = activeFamily?.key === family.key
+                    return (
+                      <button
+                        key={family.key}
+                        type="button"
+                        onClick={() => setSelectedColor(swatch.hex)}
+                        disabled={loading}
+                        aria-pressed={isActive}
+                        aria-label={family.label}
+                        title={family.label}
+                        className={cn(
+                          "flex size-10 items-center justify-center rounded-lg border-2 transition-colors coarse:size-11",
+                          isActive
+                            ? "border-primary bg-accent"
+                            : "border-border bg-background hover:border-muted-foreground/50",
+                          loading && "cursor-not-allowed opacity-50",
+                        )}
+                      >
+                        <span
+                          className="size-6 rounded-full border-2 border-background shadow-sm"
+                          style={{ backgroundColor: swatch.hex }}
+                        />
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {activeFamily && (
+                  <div className="flex flex-wrap gap-2">
+                    {activeFamily.colors.map((color) => {
+                      const isSelected = selectedColor.toUpperCase() === color.hex.toUpperCase()
+                      return (
+                        <button
+                          key={color.hex}
+                          type="button"
+                          onClick={() => setSelectedColor(color.hex)}
+                          disabled={loading}
+                          aria-pressed={isSelected}
+                          aria-label={color.label}
+                          className={cn(
+                            "flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-xs transition-colors coarse:py-3",
+                            isSelected
+                              ? "border-primary bg-accent"
+                              : "border-border bg-background hover:border-muted-foreground/50",
+                            loading && "cursor-not-allowed opacity-50",
+                          )}
+                        >
+                          <span
+                            className="size-4 rounded-full border border-background shadow-sm"
+                            style={{ backgroundColor: color.hex }}
+                          />
+                          {color.tone}
+                          {isSelected && <Check className="size-3.5" aria-hidden="true" />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* The choice stated in words as well as in colour — a greyscale printout, a poor display and a
+                    screen reader all get the same fact, which a ring around a circle cannot carry. */}
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span
+                    className="size-3 shrink-0 rounded-full border border-border"
+                    style={{ backgroundColor: selectedColor || "transparent" }}
+                  />
+                  {selectedColor ? colorLabel(selectedColor) : "Aucune couleur sélectionnée"}
+                </p>
               </div>
             )}
           </div>

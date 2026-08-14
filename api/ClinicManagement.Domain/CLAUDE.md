@@ -104,7 +104,7 @@
 | `Address` | `Address.cs` | Street/City/State/Zip required, optional Country. |
 | `InsuranceInfo` | `InsuranceInfo.cs` | Provider + policy number required. |
 | `CnamInfo` | `CnamInfo.cs` | Optional CNAM identity owned by `Patient` (identifiant/régime/assuré/lien…). Every field optional; `IsEmpty` lets the handler clear it. Pre-fills the BS1 bulletin. |
-| `ColorHex` | `ColorHex.cs` | `#RRGGBB`, **must be in a curated palette that mirrors the frontend** `COLOR_PALETTE`. `IsValid`/`FromString`/`GetAvailableColors`. Used by `ProcedureType`. |
+| `ColorHex` | `ColorHex.cs` | `#RRGGBB` from a **closed curated palette this file alone owns** — 12 hue families × 3 nuances (`ColorFamily`/`ColorTone`, same file), served named by `GET /api/procedure-types/colors` and mirrored nowhere. `IsValid`/`FromString`/`GetPalette`/`GetAvailableColors` (flat, in **palette order** — hue then nuance, not alphabetical). Used by `ProcedureType`. ⚠️ **All ten hexes of the original flat palette are still in it, each as a family's nuance**: every `ProcedureType` row and every `ProcedureTypeCatalogSeed` colour holds one, so retiring a hex makes those rows unloadable through the ctor and unsaveable through the form — `ColorHexTests` pins that as literals, which is the one thing a palette-derived assertion cannot check. |
 
 ## Enums (`Enums/`)
 
@@ -247,5 +247,5 @@ The `Events/` folder, `IDomainEvent`, and `AggregateRoot`'s event list were remo
 - **Denormalized snapshots are intentional, not FKs**: `Appointment` snapshots procedure duration/color; `DentalRecord` derives its summary/cost/teeth from its acts; `InvoiceLine`/`TreatmentPlanItem` snapshot `CodeActe`; `MedicalDocument` snapshots patient/clinic/doctor.
 - **CNAM/DCH/medication catalogs are per-clinic** (each has `ClinicId` and a `HasQueryFilter`; every clinic is seeded the same default set, then edits stay private). ⚠️ Their in-source class/interface docstrings still say "global reference data (no ClinicId)" — that wording is stale; trust the `ClinicId` property + query filter.
 - Money everywhere is TND **millimes** (3 decimals). Round only through `InvoiceCalculator`.
-- `ColorHex`'s curated palette must stay in sync with the frontend `COLOR_PALETTE`.
+- **`ColorHex`'s curated palette has no frontend counterpart to keep in sync any more** — the browser had a hardcoded hex array, then just the French *names*, and now neither: `GET /api/procedure-types/colors` serves the families **and their labels**, so this file is the sole authority on which colours exist and on what they are called. Grouped rather than flat because an act catalogue outgrows ten colours long before it outgrows twelve hues, and the picker offers a hue first and its nuance second.
 - `ClinicReminderSettings` and `NotificationRead` are the two non-standard keys: the former's `Id` **is** the clinic id (1:1 shared PK); the latter is a plain composite-key class, not an `Entity`.

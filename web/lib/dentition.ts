@@ -93,8 +93,9 @@ export function dentitionViewForTeeth(
 /**
  * Age at which the permanent set is assumed complete.
  *
- * ⚠️ **Mirrors `DentitionRules.AdultFromAgeYears` on the server** — same rule, deliberately duplicated, the same way
- * `ColorHex`'s palette mirrors `COLOR_PALETTE`. It is only a *form default*: the value the user sees pre-selected and
+ * ⚠️ **Mirrors `DentitionRules.AdultFromAgeYears` on the server** — same rule, deliberately duplicated. (The agenda
+ * palette used to be cited here as the other example of that; it no longer is one — `ColorHex` is served, not
+ * mirrored.) It is only a *form default*: the value the user sees pre-selected and
  * is free to change. The server applies its own copy when a caller sends no dentition at all, so a drift here changes
  * what the form suggests, never what gets stored behind the user's back. Keep the two in sync anyway.
  */
