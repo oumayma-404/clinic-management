@@ -44,6 +44,24 @@ public interface IAppointmentRepository
     Task<IReadOnlyList<Appointment>> GetByTreatmentPlanItemIdsAsync(
         Guid clinicId, IReadOnlyCollection<Guid> treatmentPlanItemIds, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Every appointment whose slot is running <b>right now</b> and that nobody has started — across clinics, for
+    /// the minutely progress pass. Empty is the ordinary answer.
+    ///
+    /// <para><b>The window is cut in SQL, the end is checked in memory, and that split is forced.</b>
+    /// <c>Duration</c> is persisted as <b>ticks</b> (a <c>bigint</c> behind a value converter), so
+    /// <c>AppointmentDateTime + Duration</c> has no translation — the database's own
+    /// <c>AppointmentEndDateTime</c> column exists for the double-booking constraint but is deliberately unmapped.
+    /// So the query narrows to visits that began within <paramref name="longestVisit"/> and the exact end is
+    /// applied to that bounded set.</para>
+    ///
+    /// <para>The residual is stated rather than hidden: a booking <i>longer</i> than
+    /// <paramref name="longestVisit"/> is not picked up, and simply keeps the status it has today. The error only
+    /// ever runs that way — no appointment outside its own slot is returned.</para>
+    /// </summary>
+    Task<IReadOnlyList<Appointment>> GetRunningNotStartedAsync(
+        DateTime nowUtc, TimeSpan longestVisit, CancellationToken cancellationToken = default);
+
     Task<Appointment> AddAsync(Appointment appointment, CancellationToken cancellationToken = default);
     Task UpdateAsync(Appointment appointment, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);

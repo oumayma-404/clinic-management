@@ -1122,6 +1122,15 @@ try
         job => job.DispatchQueuedEmails(),
         Cron.Minutely);
 
+    // Auto-start a visit once its own slot has begun — minutely, because the resolution the agenda shows is the
+    // minute, and deliberately NOT connectivity-gated: it writes a status, so it must work on an offline LAN
+    // install (StockExpiryJob's reasoning). Unconditional like the three passes that no-op until there is work:
+    // on a clinic with nothing booked right now the read returns an empty set and the tick costs one query.
+    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.AppointmentProgressJob>(
+        "start-running-appointments",
+        job => job.StartRunningAppointments(),
+        Cron.Minutely);
+
     // Approaching-expiry stock alerts (AC-P4.6) — daily, deliberately NOT connectivity-gated: the alert is
     // in-app, so it has to work on an offline LAN install. An expiry is crossed by the passage of time rather
     // than by a write, so without this scan the notification would never fire for the case it exists for (a

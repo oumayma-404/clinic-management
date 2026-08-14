@@ -146,6 +146,36 @@ public class AppointmentRepository : IAppointmentRepository
             .ToListAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// The bounded candidate set behind <see cref="GetRunningNotStartedAsync"/>, exposed so
+    /// <c>AppointmentProgressQueryTranslationTests</c> compiles the <b>production</b> expression tree rather than
+    /// a copy of it. No <c>Include</c>s: the pass reads a status and a clinic id and writes a status.
+    /// </summary>
+    public static IQueryable<Appointment> RunningCandidateQuery(
+        ApplicationDbContext db, DateTime nowUtc, TimeSpan longestVisit)
+    {
+        var earliestStart = nowUtc - longestVisit;
+
+        return db.Appointments
+            .Where(a => (a.Status == AppointmentStatus.Scheduled || a.Status == AppointmentStatus.Confirmed)
+                        && a.AppointmentDateTime <= nowUtc
+                        && a.AppointmentDateTime > earliestStart)
+            // Unique column last: this read is not paged today, but an unstable order over a set the pass mutates
+            // makes a partial failure report a different subset every tick.
+            .OrderBy(a => a.AppointmentDateTime)
+            .ThenBy(a => a.Id);
+    }
+
+    public async Task<IReadOnlyList<Appointment>> GetRunningNotStartedAsync(
+        DateTime nowUtc, TimeSpan longestVisit, CancellationToken cancellationToken = default)
+    {
+        var candidates = await RunningCandidateQuery(_context, nowUtc, longestVisit)
+            .ToListAsync(cancellationToken);
+
+        // The half SQL cannot do — see the interface for why `AppointmentDateTime + Duration` has no translation.
+        return candidates.Where(a => a.AppointmentDateTime + a.Duration > nowUtc).ToList();
+    }
+
     public async Task<IEnumerable<Appointment>> GetAppointmentsForDateAsync(DateTime date, CancellationToken cancellationToken = default)
     {
         var startOfDay = date.Date;
