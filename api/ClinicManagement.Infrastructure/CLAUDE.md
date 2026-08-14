@@ -1,4 +1,4 @@
-﻿# ClinicManagement.Infrastructure
+# ClinicManagement.Infrastructure
 
 Infrastructure layer (Clean Architecture). Implements the outbound interfaces declared in Domain
 (`Domain/Repositories`) and Application (`Application/Common/Interfaces`): EF Core/PostgreSQL data access +
@@ -357,6 +357,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `IPlatformAccessEntryRepository` | `PlatformAccessEntryRepository` (`platform-console` Part 3). Add and one paged read; **no update and no delete**, which is the contract rather than an omission. `GetRecordedActorsAsync` is a plain `SELECT DISTINCT` over `(PlatformAccountId, AccountEmail)` and not a `GroupBy` picking one address per account: nothing renames a console account today, so it yields one row each — and if that changes, showing both addresses an account has acted under is the honest answer where `Max` would have chosen one by alphabet |
 | `IMessagingAllowanceRepository` | `MessagingAllowanceRepository` (`vendor-whatsapp-messaging-quota`). The forfait's ledger + counting rows; no `IgnoreQueryFilters()` and none needed — see the Domain guide |
 | `IPushDeliveryRepository` | `PushDeliveryRepository` (P6). The due scan mirrors `NotificationRepository`'s per-clinic fairness bound predicate for predicate |
+| `IClinicRecoveryPointRepository` | `ClinicRecoveryPointRepository` (`clinic-recovery-points`). No `IgnoreQueryFilters()` and none needed — the table carries a non-nullable `ClinicId` and is filtered, so a caller with no clinic in scope has to declare `UseSystemWide` (the daily pass does). Every ordered read ends on `Id`: a nightly pass can write two rows in the same tick (a failure and its retry), so ordering on `StartedAt` alone would leave their order to whatever PostgreSQL returns and the list would reshuffle between renders. Guarded `UpdateAsync` (the detached-`xmin`-0 trap `ClinicSignupRepository` documents) |
 
 ## External Services (`Services/`, `Storage/`, `Security/`, `Auth/`)
 
