@@ -509,5 +509,23 @@ public sealed record DataMigrationCounts(
     /// readable off a stolen disk — which is why the count, and not a green test, is what says it finished.
     /// </para>
     /// </summary>
-    int? ClinicsWithPlaintextGoogleToken = null
+    int? ClinicsWithPlaintextGoogleToken = null,
+    /// <summary>
+    /// Succeeded <c>ClinicRecoveryPoints</c> that name <b>no storage key</b> (<c>clinic-recovery-points</c>).
+    /// <para>
+    /// The table's shape — its columns, its FK cascade and its <c>(ClinicId, StartedAt)</c> index — is diffed against
+    /// the catalog for free by reading the EF model. What no model construct can state is that a row claiming success
+    /// actually points at something, and that is the one failure this feature has which is <b>invisible everywhere
+    /// else</b>: such a row is listed on « Sauvegarde » as a moment the practice can go back to, and the refusal only
+    /// arrives on the click — at the moment somebody has already lost data.
+    /// </para>
+    /// <para>
+    /// ⚠️ It deliberately does <b>not</b> try to verify that each key still resolves in the object store. That is a
+    /// question about another system, this reader speaks only SQL, and the honest answer to a pruned object is the
+    /// restore's own named refusal rather than a nightly report the operator cannot act on. What is checkable here is
+    /// the invariant <c>ClinicRecoveryPoint.MarkSucceeded</c> enforces, which is exactly what a hand-written INSERT or
+    /// a future write path could break. Null before the table exists.
+    /// </para>
+    /// </summary>
+    int? RecoveryPointsClaimingSuccessWithNoKey = null
 );

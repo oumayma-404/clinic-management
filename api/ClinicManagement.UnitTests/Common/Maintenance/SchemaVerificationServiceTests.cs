@@ -543,6 +543,7 @@ public class SchemaVerificationServiceTests
             PaymentsWithBankedStampOnNonCheque = null,
             PushDeliveriesWithMismatchedClinic = null,
             ClinicSignupOrphans = null,
+            RecoveryPointsClaimingSuccessWithNoKey = null,
         });
 
         var report = await CreateService().RunAsync();
