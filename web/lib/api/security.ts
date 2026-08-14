@@ -1,5 +1,23 @@
 import { apiGet, apiPost } from './client';
 
+/**
+ * The backend's `Result<T>` envelope, as `reminder-allowance.ts`, `reminder-settings.ts` and `clinics.ts` already
+ * declare it locally.
+ *
+ * ⚠️ **`AuthController` returns it on these three actions** (`Ok(result)`, not `Ok(result.Value)`) — the same shape
+ * `login`, `totp/enrol` and `recovery` return and the BFF routes already unwrap. Reading the DTO level instead was
+ * not a type error anywhere: `tsc` believed the annotation, so every field came back `undefined` and each of the
+ * three failed *differently and silently*. `stepUp` handed `undefined` to `apiHeaders`, whose `if (stepUpToken)`
+ * then omitted the header entirely, so « Télécharger l'archive » answered **403 « confirmation récente »** on a
+ * step-up that had just succeeded. `getTotpState` made `enrolledAt !== null` true for **every** account, so the
+ * step-up dialog offered a code field to users holding no second factor.
+ */
+interface Result<T> {
+  isSuccess: boolean;
+  value: T | null;
+  error: string | null;
+}
+
 /** What « Sécurité » shows about this account's second factor (`hosted-security-hardening` FR-1.5). */
 export interface TotpState {
   isEnrolled: boolean;
@@ -32,12 +50,31 @@ export interface StepUpResult {
  */
 export const LOW_RECOVERY_CODES = 2;
 
+/**
+ * Unwraps the envelope, throwing the server's own French sentence when it carries one.
+ *
+ * A wrapped success whose `value` is null is a contract violation rather than a business refusal, so it throws too:
+ * returning it would put `undefined` back into exactly the callers this exists to protect.
+ */
+function unwrap<T>(result: Result<T>, fallback: string): T {
+  if (!result.isSuccess || !result.value) {
+    throw new Error(result.error || fallback);
+  }
+  return result.value;
+}
+
 export const securityApi = {
   getTotpState: async (token?: string | null): Promise<TotpState> =>
-    apiGet<TotpState>('/auth/totp', undefined, token ?? undefined),
+    unwrap(
+      await apiGet<Result<TotpState>>('/auth/totp', undefined, token ?? undefined),
+      "L'état du second facteur n'a pas pu être lu.",
+    ),
 
   regenerateRecoveryCodes: async (totpCode: string, token?: string | null): Promise<RecoveryCodes> =>
-    apiPost<RecoveryCodes>('/auth/totp/recovery-codes', { totpCode }, token ?? undefined),
+    unwrap(
+      await apiPost<Result<RecoveryCodes>>('/auth/totp/recovery-codes', { totpCode }, token ?? undefined),
+      "Les codes de récupération n'ont pas pu être régénérés.",
+    ),
 
   disableTotp: async (totpCode: string, token?: string | null): Promise<void> => {
     // A POST, not a DELETE: it carries the current code, which is what authorises it.
@@ -55,7 +92,10 @@ export const securityApi = {
     proof: { password?: string; totpCode?: string },
     token?: string | null
   ): Promise<StepUpResult> =>
-    apiPost<StepUpResult>('/auth/step-up', { action, ...proof }, token ?? undefined),
+    unwrap(
+      await apiPost<Result<StepUpResult>>('/auth/step-up', { action, ...proof }, token ?? undefined),
+      "Votre identité n'a pas pu être confirmée.",
+    ),
 
   resetUserTotp: async (userId: string, confirmationToken: string, token?: string | null): Promise<void> => {
     await apiPost<unknown>(`/users/${userId}/totp/reset`, { confirmationToken }, token ?? undefined);
