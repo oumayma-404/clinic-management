@@ -1,12 +1,20 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { clinicsApi, type DoctorDto } from '@/lib/api/clinics'
+import { clinicsApi, type ClinicDto, type DoctorDto } from '@/lib/api/clinics'
 import { useClinicAccess } from './use-clinic-access'
 
 export interface UseDoctorsResult {
   doctors: DoctorDto[]
   currentUserDoctor: DoctorDto | null
+  /**
+   * The clinic this status read already carried.
+   *
+   * <p>Returned rather than thrown away because `useClinicAccess` has no cache — every caller is another request
+   * — and the dashboard needs the saved **working hours** to know how full a day is. A dedicated hook for that
+   * would be a third fetch of a payload this one has already paid for.</p>
+   */
+  clinic: ClinicDto | null
   isLoading: boolean
   error: string | null
   refresh: () => void
@@ -85,6 +93,7 @@ export function useDoctors(): UseDoctorsResult {
   return {
     doctors,
     currentUserDoctor,
+    clinic: status?.clinic ?? null,
     isLoading,
     error,
     refresh: loadDoctors,

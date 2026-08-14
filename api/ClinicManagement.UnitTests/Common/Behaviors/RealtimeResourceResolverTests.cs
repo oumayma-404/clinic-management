@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using ClinicManagement.Application.Common.Behaviors;
-using ClinicManagement.Application.Features.AI.Commands;
 using ClinicManagement.Application.Features.Appointments.Queries;
 using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Application.Features.Backup.Commands;
@@ -193,10 +192,9 @@ public class RealtimeResourceResolverTests
 
     // ---- The resolver's own rules ------------------------------------------------
 
-    // Non-data command areas → null: a login, AI chat, or backup must not emit a refetch signal.
+    // Non-data command areas → null: a login or a backup must not emit a refetch signal.
     [Theory]
     [InlineData(typeof(LoginCommand))]
-    [InlineData(typeof(ChatCommand))]
     [InlineData(typeof(BackupNowCommand))]
     public void Resolve_Returns_Null_For_Excluded_Area(Type command)
         => Assert.Null(RealtimeResourceResolver.Resolve(command));

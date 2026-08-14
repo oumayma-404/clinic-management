@@ -118,8 +118,8 @@ public class Appointment : AggregateRoot<Guid>
     /// (AC-P1.3). Every mutator below asks this table; nothing decides for itself, and the command layer asks
     /// it too instead of carrying a parallel <c>switch</c> that silently fell through to HTTP 200.
     /// <para>
-    /// Shape of the lifecycle: a booked visit may be confirmed, started, closed, cancelled or marked absent;
-    /// a started visit can no longer be un-started; and the two terminal-looking states are **not** dead ends —
+    /// Shape of the lifecycle: a booked visit may be started, closed, cancelled or marked absent; a started
+    /// visit can no longer be un-started; and the two terminal-looking states are **not** dead ends —
     /// <c>Cancelled → Scheduled</c> is the existing reactivation path, and <c>NoShow → Scheduled</c> is
     /// rebooking a patient who missed their slot.
     /// </para>
@@ -129,18 +129,24 @@ public class Appointment : AggregateRoot<Guid>
     /// that having no way back made a mis-saved fiche permanent. It is the ONLY exit from
     /// <c>Completed</c> — a closed visit cannot be re-opened, only voided.
     /// </para>
+    /// <para>
+    /// <b><c>Confirmed</c> is no longer reachable from anywhere</b>: it distinguished « the patient said yes »
+    /// from « we put them in the book » and nothing in the product ever acted on the difference — no read
+    /// branched on it, no reminder keyed off it, and it was set only by a human picking it out of a list. Its
+    /// row stays so the rows already stored in that state can still be moved on; deleting the member instead
+    /// would make them unloadable.
+    /// </para>
     /// </summary>
     private static readonly Dictionary<AppointmentStatus, AppointmentStatus[]> AllowedTransitions = new()
     {
         [AppointmentStatus.Scheduled] = new[]
         {
-            AppointmentStatus.Confirmed, AppointmentStatus.InProgress, AppointmentStatus.Completed,
+            AppointmentStatus.InProgress, AppointmentStatus.Completed,
             AppointmentStatus.Cancelled, AppointmentStatus.NoShow,
         },
-        // Deliberately NO Confirmed → Scheduled. "Withdrawing a confirmation" has no clinical meaning (the
-        // slot is booked either way) and it was already unreachable: the old command switch's Scheduled arm
-        // only ever acted on a Cancelled appointment. Adding it would also need a domain method that does not
-        // exist — Reschedule now *preserves* Confirmed (A-2), which is the whole point of that fix.
+        // Legacy-only, per the note above: no transition leads here any more, so this row exists for the rows
+        // already stored as Confirmed. Still no Confirmed → Scheduled — "withdrawing a confirmation" has no
+        // clinical meaning (the slot is booked either way) and Reschedule *preserves* Confirmed (A-2).
         [AppointmentStatus.Confirmed] = new[]
         {
             AppointmentStatus.InProgress, AppointmentStatus.Completed,
@@ -233,24 +239,8 @@ public class Appointment : AggregateRoot<Guid>
         CreatedAt = DateTime.UtcNow;
     }
 
-    /// <summary>
-    /// Confirm a booked visit. Refuses from <c>Completed</c> as well as <c>Cancelled</c> — adjacent defect
-    /// <b>A-1</b>: it only checked <c>Cancelled</c>, so a finished visit could be walked back to « Confirmé »,
-    /// silently un-completing it for every read that keys off <c>Completed</c> (the plan's act état, the recall
-    /// list's <c>lastVisit</c>).
-    /// </summary>
-    public void Confirm()
-    {
-        EnsureCanTransitionTo(AppointmentStatus.Confirmed);
-        if (Status == AppointmentStatus.Confirmed)
-        {
-            return;
-        }
-
-        Status = AppointmentStatus.Confirmed;
-        UpdatedAt = DateTime.UtcNow;
-    }
-
+    // `Confirm()` is deleted with the transition that reached it — see the table's note on `Confirmed`. Nothing
+    // can produce that status any more; a stored one still loads, still renders and still moves on.
     public void Start()
     {
         EnsureCanTransitionTo(AppointmentStatus.InProgress);

@@ -123,6 +123,39 @@ public class AppointmentRepository : IAppointmentRepository
         return rows.ToDictionary(r => r.Status, r => r.Count);
     }
 
+    public async Task<IReadOnlyList<ProcedureMixRow>> GetProcedureMixBetweenAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime toInclusive,
+        Guid? doctorId = null,
+        CancellationToken cancellationToken = default)
+    {
+        // One GROUP BY over the child act rows. Cancelled and no-show visits are excluded for the same reason
+        // « RDV honorés » excludes them: an act nobody performed is not part of what the clinic did.
+        var rows = await _context.Appointments
+            .Where(a => a.ClinicId == clinicId
+                        && a.AppointmentDateTime >= from
+                        && a.AppointmentDateTime <= toInclusive
+                        && a.Status != AppointmentStatus.Cancelled
+                        && a.Status != AppointmentStatus.NoShow
+                        && (doctorId == null || a.DoctorId == doctorId))
+            .SelectMany(a => a.Procedures)
+            // Keyed on the snapshot pair rather than on a live-else-snapshot CASE: this shape is guaranteed to
+            // translate, and rows sharing an id are merged by the reader, which overlays the live name anyway.
+            .GroupBy(p => new { p.ProcedureTypeId, p.ProcedureName })
+            .Select(g => new ProcedureMixRow(
+                g.Key.ProcedureTypeId,
+                g.Key.ProcedureName,
+                // Any snapshot of the group will do — they only differ when the act was recoloured, and the live
+                // colour wins over all of them one layer up.
+                g.Max(p => p.ColorHex),
+                g.Count(),
+                g.Sum(p => p.DurationMinutes ?? 0)))
+            .ToListAsync(cancellationToken);
+
+        return rows;
+    }
+
     public async Task<IEnumerable<Appointment>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default)
     {
         return await _context.Appointments
@@ -144,6 +177,36 @@ public class AppointmentRepository : IAppointmentRepository
                        (a.Status == AppointmentStatus.Scheduled || a.Status == AppointmentStatus.Confirmed))
             .OrderBy(a => a.AppointmentDateTime)
             .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The bounded candidate set behind <see cref="GetRunningNotStartedAsync"/>, exposed so
+    /// <c>AppointmentProgressQueryTranslationTests</c> compiles the <b>production</b> expression tree rather than
+    /// a copy of it. No <c>Include</c>s: the pass reads a status and a clinic id and writes a status.
+    /// </summary>
+    public static IQueryable<Appointment> RunningCandidateQuery(
+        ApplicationDbContext db, DateTime nowUtc, TimeSpan longestVisit)
+    {
+        var earliestStart = nowUtc - longestVisit;
+
+        return db.Appointments
+            .Where(a => (a.Status == AppointmentStatus.Scheduled || a.Status == AppointmentStatus.Confirmed)
+                        && a.AppointmentDateTime <= nowUtc
+                        && a.AppointmentDateTime > earliestStart)
+            // Unique column last: this read is not paged today, but an unstable order over a set the pass mutates
+            // makes a partial failure report a different subset every tick.
+            .OrderBy(a => a.AppointmentDateTime)
+            .ThenBy(a => a.Id);
+    }
+
+    public async Task<IReadOnlyList<Appointment>> GetRunningNotStartedAsync(
+        DateTime nowUtc, TimeSpan longestVisit, CancellationToken cancellationToken = default)
+    {
+        var candidates = await RunningCandidateQuery(_context, nowUtc, longestVisit)
+            .ToListAsync(cancellationToken);
+
+        // The half SQL cannot do — see the interface for why `AppointmentDateTime + Duration` has no translation.
+        return candidates.Where(a => a.AppointmentDateTime + a.Duration > nowUtc).ToList();
     }
 
     public async Task<IEnumerable<Appointment>> GetAppointmentsForDateAsync(DateTime date, CancellationToken cancellationToken = default)

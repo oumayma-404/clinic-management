@@ -29,8 +29,8 @@ import type { LucideIcon } from "lucide-react"
  * This used to be module-private inside `dashboard-sidebar.tsx`, which was fine while the rail and its drawer
  * were the only two things that rendered it. P2 adds a third — the phone's bottom bar — and a nav list copied
  * into a second component is a nav list that drifts: a destination added to one and not the other is invisible
- * on exactly the device the bar exists for. `HIDDEN_PATHS` moved here for the same reason (it was private to
- * `ai-chat.tsx`, and the bottom bar needs the same answer to "is this a chrome-less route?").
+ * on exactly the device the bar exists for. `HIDDEN_PATHS` lives here for the same reason — several surfaces
+ * need the same answer to "is this a chrome-less route?" (the bottom bar, and the subscription banner).
  */
 
 export type NavItem = { name: string; href: string; icon: LucideIcon }
@@ -217,7 +217,7 @@ export const HIDDEN_PATHS = [
   "/join",
   "/change-password",
   // `clinic-self-signup`'s two public routes, added by `clinic-subscription` Part D. They belong on this list on
-  // their own merits — a visitor with no clinic and no session must not be offered the AI assistant — and the
+  // their own merits — a visitor with no clinic and no session must be offered no app chrome at all — and the
   // subscription banner reads the same answer, so « no banner on /signup » needs no second list.
   // ⚠️ One entry, not two: `isChromeLessPath` matches a prefix, so `/signup` already covers `/signup/verifier`.
   "/signup",

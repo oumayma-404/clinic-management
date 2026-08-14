@@ -532,6 +532,37 @@ try
             TransportAssurance.AllowUnverifiedTlsKey);
     }
 
+    // Residency: transit asks « is this hop encrypted? »; this asks « where does the data END UP? ». Both are
+    // startup refusals because both are decisions an operator makes once and then cannot see — and the second is
+    // a LEGAL decision (loi 2004-63 art. 51-52), carried by the clinic rather than by us.
+    var residencyAssurance = DataResidencyAssurance.Inspect(builder.Configuration, profile);
+    if (residencyAssurance.Applies && !residencyAssurance.IsSatisfied)
+    {
+        StartupDiagnostics.ReportFatal(DataResidencyAssurance.RefusalMessage(residencyAssurance));
+        return 1;
+    }
+
+    // ⚠️ Not declaring the allow-list is not an error — it is an undecided deployment, and refusing those would
+    // have taught every operator to leave the key empty. But it must not be silent either, so it warns on every
+    // boot exactly as the transit relaxation above does.
+    if (!residencyAssurance.Applies && !profile.SelfHostsFrontDoor)
+    {
+        Log.Warning(
+            "{Key} n'est pas renseigné : la destination des données de ce déploiement n'est pas vérifiée. "
+            + "Tout transfert de données de santé hors de Tunisie exige l'autorisation préalable de l'INPDP "
+            + "(loi organique 2004-63, art. 51-52), et la responsabilité en incombe au cabinet. Déclarez les "
+            + "hôtes autorisés — voir deploy/README.md, section « Résidence des données ».",
+            DataResidencyAssurance.AllowedEgressHostsKey);
+    }
+
+    // ⚠️ A destination this process CANNOT check is reported rather than passed over: the nightly backup names an
+    // rclone remote whose host lives in a file another container owns, and « unknown » must never read as
+    // « checked » on the one question whose wrong answer is a criminal exposure for the practice.
+    foreach (var note in residencyAssurance.Unverified)
+    {
+        Log.Warning("Résidence des données — non vérifiable depuis l'application : {Note}", note);
+    }
+
     // Evidence (hosted-security-hardening Part 4, FR-4.1): resolve the audit chain's key now, so a deployment
     // that cannot chain its ledger refuses to start with the setting named — rather than booting and failing on
     // whichever clinical save happens to be first, where the message reaches nobody who can act on it.
@@ -1089,6 +1120,15 @@ try
     RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.DocumentEmailJob>(
         "dispatch-document-emails",
         job => job.DispatchQueuedEmails(),
+        Cron.Minutely);
+
+    // Auto-start a visit once its own slot has begun — minutely, because the resolution the agenda shows is the
+    // minute, and deliberately NOT connectivity-gated: it writes a status, so it must work on an offline LAN
+    // install (StockExpiryJob's reasoning). Unconditional like the three passes that no-op until there is work:
+    // on a clinic with nothing booked right now the read returns an empty set and the tick costs one query.
+    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.AppointmentProgressJob>(
+        "start-running-appointments",
+        job => job.StartRunningAppointments(),
         Cron.Minutely);
 
     // Approaching-expiry stock alerts (AC-P4.6) — daily, deliberately NOT connectivity-gated: the alert is

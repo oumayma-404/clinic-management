@@ -34,7 +34,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { TimeField } from "@/components/ui/time-field"
 import { format, parseISO } from "date-fns"
-import { CalendarIcon, Clock, User, Stethoscope, FileText, X, Save, Receipt } from "lucide-react"
+import { CalendarIcon, CircleDot, Clock, User, Stethoscope, FileText, X, Save, Receipt } from "lucide-react"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
@@ -130,6 +130,32 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    */
   const grantedOverridesRef = useRef({ hours: false, overlap: false })
 
+  /**
+   * The appointment as the **server** has it, re-read each time this dialog opens.
+   *
+   * <p>⚠️ The `appointment` prop is a snapshot the page took when the row was clicked and **never refreshes**
+   * (`app/appointments/page.tsx` sets `selectedAppointment` once), so the `Version` sent with the save could be
+   * older than the stored row — at which point `SetExpectedVersion` refuses with a **409** and « Cet
+   * enregistrement a été modifié par quelqu'un d'autre », on an appointment nobody else touched. The likeliest
+   * writer is our own post-commit Google-Calendar push, which stamps `GoogleCalendarEventId` after the response
+   * has already gone out, so the refetch that follows a save can land *before* it and cache a stale version.</p>
+   *
+   * <p>Falls back to the prop on a failed read: a snapshot is still better than a dialog that will not open, and
+   * the save's own 409 remains the backstop.</p>
+   */
+  const [refreshed, setRefreshed] = useState<AppointmentDto | null>(null)
+  const source = refreshed ?? appointment
+
+  useEffect(() => {
+    if (!open || !appointment?.id) return
+    let cancelled = false
+    appointmentsApi
+      .get(appointment.id)
+      .then((fresh) => { if (!cancelled) setRefreshed(fresh) })
+      .catch(() => { /* keep the prop — see above */ })
+    return () => { cancelled = true }
+  }, [open, appointment?.id])
+
 
   // Calculate duration from end time
   const calculatedDuration = useMemo(() => {
@@ -157,13 +183,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    * payload) — never to a client-side re-derivation of the rules.
    */
   const statusOptions = useMemo(() => {
-    const current = appointment?.status
-    const allowed = appointment?.allowedNextStatuses
+    const current = source?.status
+    const allowed = source?.allowedNextStatuses
     if (!allowed || allowed.length === 0) {
       return [...APPOINTMENT_STATUSES]
     }
     return current && !allowed.includes(current) ? [current, ...allowed] : allowed
-  }, [appointment?.status, appointment?.allowedNextStatuses])
+  }, [source?.status, source?.allowedNextStatuses])
 
   // Advisory overlap warning (AC-3): excludes the appointment being edited; non-blocking.
   const { warning: overlapWarning, samePractitioner: overlapSamePractitioner } = useAppointmentOverlap({
@@ -173,7 +199,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     startMinute,
     durationMinutes: calculatedDuration,
     doctorId: selectedDoctorId || undefined,
-    excludeAppointmentId: appointment?.id,
+    excludeAppointmentId: source?.id,
   })
 
   // Build the appointment start Date from the current date + start time, or null if no date.
@@ -222,8 +248,14 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   // Populate the form once per opening — keyed on the appointment's ID, not the object. The calendar
   // refetches on every realtime `appointments` event and hands down a fresh object each time; depending
   // on it meant a peer booking an unrelated slot reset this form under the user's hands.
+  //
+  // ⚠️ It DOES re-run once when the server's own copy lands (`refreshed?.version`), which is the point of that
+  // re-read: hydrating from a snapshot whose version is behind the stored row is what turns the next save into
+  // a 409. That is one re-hydration a few hundred milliseconds after opening, not a running sync — a peer's
+  // later edit still leaves this form alone.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
+    const appointment = source
     if (appointment && open) {
       setPatientName(appointment.patientName)
       setStatus(appointment.status.toLowerCase())
@@ -304,7 +336,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         setNotes("")
       }
     }
-  }, [appointment?.id, open])
+  }, [appointment?.id, open, refreshed?.version])
 
   // Reset form when dialog closes
   useEffect(() => {
@@ -313,6 +345,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       setUseEndTime(false)
       setShowCancelDialog(false)
       setShowPastTimeConfirm(false)
+      // The server's copy belongs to the appointment that was open — keeping it would hydrate the next one
+      // from the previous patient's row.
+      setRefreshed(null)
     }
   }, [open])
 
@@ -349,6 +384,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   // confirms (past time, AC-2; out-of-hours, AC-P1.31).
   const performUpdate = async (allowOutsideWorkingHours = false, allowOverlap = false) => {
     grantedOverridesRef.current = { hours: allowOutsideWorkingHours, overlap: allowOverlap }
+    const appointment = source
     if (!appointment) return
     setError(null)
     setLoading(true)
@@ -434,7 +470,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     // floor "now" to the current minute — otherwise a no-op save on a sub-minute start would
     // spuriously nag, and re-selecting the current minute would be treated as past.
     const appointmentDateTime = buildAppointmentDateTime()
-    const originalStart = appointment ? parseISO(appointment.appointmentDateTime) : null
+    const originalStart = source ? parseISO(source.appointmentDateTime) : null
     originalStart?.setSeconds(0, 0)
     const nowFloored = new Date()
     nowFloored.setSeconds(0, 0)
@@ -451,6 +487,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   }
 
   const handleCancelAppointment = async () => {
+    const appointment = source
     if (!appointment) return
 
     setLoading(true)
@@ -502,21 +539,66 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
             more: its footer holds three actions, one of them « Annuler le rendez-vous », and a destructive
             action that has to be hunted for by scrolling is a destructive action someone will mis-click. */}
         <DialogContent mobile="sheet" className="gap-0 overflow-hidden p-0 md:max-h-[90dvh] md:max-w-2xl">
+          {/* The header's status Badge moved into the « Statut » section below, beside the control that changes
+              it — two live statements of one value, a scroll apart, is how they end up disagreeing. */}
           <DialogHeader className="flex-shrink-0 px-6 pb-4 pt-6">
-            <div className="flex items-start justify-between gap-4 pr-6">
-              <div>
-                <DialogTitle className="text-2xl">Modifier le rendez-vous</DialogTitle>
-                <DialogDescription>Mettez à jour les détails du rendez-vous ou changez son statut</DialogDescription>
-              </div>
-              <Badge variant="secondary" className={appointmentStatusBadgeClass(status)}>
-                {appointmentStatusLabel(status)}
-              </Badge>
-            </div>
+            <DialogTitle className="text-2xl">Modifier le rendez-vous</DialogTitle>
+            <DialogDescription>Mettez à jour les détails du rendez-vous ou changez son statut</DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleUpdate} className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-4">
-            <FormErrorBanner message={error} />
+
+            {/*
+              Statut — FIRST, and one tap per option rather than a Select buried below the acts picker.
+
+              Opening this dialog usually means « le patient est arrivé » / « c'est terminé » / « il n'est pas
+              venu », so the status was the one field that had to be scrolled to. As buttons the whole set is
+              also *visible*, which a Select is not: a collapsed control cannot show that « Terminé » is one tap
+              away, nor that the options are exactly what this appointment may become.
+
+              ⚠️ The options are still `statusOptions` — the server's own `allowedNextStatuses` — so this cannot
+              offer a move the API then refuses. `h-11` gives the 44 px floor on every pointer, not only a coarse
+              one: this is the dialog's primary action and it is used at the chair.
+            */}
+            <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <CircleDot className="h-5 w-5 text-muted-foreground" />
+                  <h3 className="font-semibold">Statut</h3>
+                </div>
+                <Badge variant="secondary" className={appointmentStatusBadgeClass(status)}>
+                  {appointmentStatusLabel(status)}
+                </Badge>
+              </div>
+              <div role="radiogroup" aria-label="Statut du rendez-vous" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {statusOptions.map((s) => {
+                  const value = s.toLowerCase()
+                  const active = value === status
+                  return (
+                    <Button
+                      key={s}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      variant={active ? "default" : "outline"}
+                      onClick={() => setStatus(value)}
+                      disabled={loading}
+                      className="h-11"
+                    >
+                      {appointmentStatusLabel(s)}
+                    </Button>
+                  )
+                })}
+              </div>
+              {/* Nothing is saved until the footer's button is pressed, and a control that looks like a toggle
+                  invites the opposite belief. */}
+              {status !== hydratedStatus && (
+                <p role="status" className="text-xs text-muted-foreground">
+                  Statut modifié — enregistrez pour l&apos;appliquer.
+                </p>
+              )}
+            </div>
 
             {/* Patient Section */}
             <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
@@ -737,52 +819,29 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   />
                 </div>
 
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="status" className="text-sm">
-                    Statut
-                  </Label>
-                  <Select
-                    value={status}
-                    onValueChange={(value) => setStatus(value)}
-                    disabled={loading}
-                  >
-                    <SelectTrigger id="status" className="h-10">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {/* AC-P1.6/1.43: the options come from the server's declared transition table, so the
-                          control can no longer offer a move the API refuses. The six hardcoded options were
-                          also the only French status copy in the app — that now lives in appointment-labels.ts.
-                          Values stay lower-cased because this dialog posts the selection back verbatim. */}
-                      {statusOptions.map((s) => (
-                        <SelectItem key={s} value={s.toLowerCase()}>
-                          {appointmentStatusLabel(s)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {/* « Statut » used to sit here, last, below the acts picker. It is the section this dialog is
+                    most often opened for, so it now leads the form. */}
               </div>
             </div>
 
             {/* Facturation (AC-P6.13) — a visit says which note d'honoraires bills it, and offers to raise one
                 when it does not. The link was write-only before: the column existed, nothing populated it, and
                 no screen read it, so « cette consultation a-t-elle été facturée ? » had no answer anywhere. */}
-            {appointment?.patientId && (
+            {source?.patientId && (
               <div className="space-y-3 p-4 rounded-lg border bg-muted/30">
                 <div className="flex items-center gap-2">
                   <Receipt className="h-5 w-5 text-muted-foreground" />
                   <h3 className="font-semibold">Facturation</h3>
                 </div>
-                {appointment.invoiceId ? (
+                {source.invoiceId ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="outline" className="gap-1">
                       <Receipt className="h-3 w-3" />
                       Facturé
                     </Badge>
                     <span className="text-sm text-muted-foreground">
-                      {appointment.invoiceNumber
-                        ? `Note n° ${appointment.invoiceNumber}`
+                      {source.invoiceNumber
+                        ? `Note n° ${source.invoiceNumber}`
                         : /* A draft consumes no number yet — say so rather than printing an empty « n° ». */
                           "Brouillon de note d'honoraires"}
                     </span>
@@ -825,6 +884,17 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               />
             </div>
 
+            {/*
+              ⚠️ The refusal belongs HERE, next to the submit button — it used to sit at the top of this
+              scrolling body, five sections up.
+
+              That is the whole of the reported « the modal does not close and I don't understand the error »:
+              every refusal this dialog can meet leaves it open **by design** (that is what lets you correct the
+              time and retry), and the sentence explaining why was off-screen for anyone who had scrolled down
+              to press Enregistrer. The create dialog next door already puts it here, with the same note.
+            */}
+            <FormErrorBanner message={error} />
+
             </div>
 
             {/*
@@ -866,13 +936,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       {/* The invoice draft is raised from an appointment context, so it carries `appointmentId` (AC-P6.12).
           Rendered as a sibling of the dialog rather than inside it — nesting a Dialog inside a Dialog fights
           over the focus trap. */}
-      {appointment?.patientId && (
+      {source?.patientId && (
         <InvoiceFormModal
           open={billingOpen}
           onOpenChange={setBillingOpen}
-          presetPatientId={appointment.patientId}
-          presetPatientName={appointment.patientName}
-          appointmentId={appointment.id}
+          presetPatientId={source.patientId}
+          presetPatientName={source.patientName}
+          appointmentId={source.id}
           onSuccess={() => {
             setBillingOpen(false)
             // Refetch so the « Facturé » badge above replaces the button without a manual reload.

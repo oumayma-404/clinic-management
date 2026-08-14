@@ -21,6 +21,16 @@ public class DashboardDto
 
     /// <summary>Six months of collected cash, oldest first, gaps filled with zero.</summary>
     public List<MonthlyCollectedPointDto> Trend { get; set; } = new();
+
+    /// <summary>
+    /// What the period's work was made of, by act type — busiest first, capped.
+    ///
+    /// <para>The one figure on this response counted over <b>acts</b> rather than appointments or money, which is
+    /// why it is its own section rather than a field on <see cref="Activity"/>: « 62 détartrages » and
+    /// « 184 RDV honorés » are different denominators and putting them in one grid invites the reader to subtract
+    /// them.</para>
+    /// </summary>
+    public List<ProcedureMixPointDto> ProcedureMix { get; set; } = new();
 }
 
 /// <summary>
@@ -144,6 +154,29 @@ public class DashboardAlertsDto
 }
 
 /// <summary>One point on the « Tendance » sparkline.</summary>
+/// <summary>
+/// One act type's share of the period.
+///
+/// <para><see cref="ProcedureTypeId"/> is null for a hand-typed devis line, which has no catalogue act behind it
+/// — real work, so it is listed under its own name rather than dropped. <see cref="ColorHex"/> may be null for
+/// the same reason, and a client must render a neutral swatch rather than invent one.</para>
+/// </summary>
+public class ProcedureMixPointDto
+{
+    public Guid? ProcedureTypeId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? ColorHex { get; set; }
+    /// <summary>Acts, not appointments — a séance carries several, so this sums above the visit count.</summary>
+    public int ActCount { get; set; }
+    /// <summary>
+    /// Total booked minutes for this act type, or <b>0</b> when none of its rows carried a duration.
+    ///
+    /// <para>Zero is a real answer here and is not the same as « no acts »: a link-only devis line contributes
+    /// none, so a chart switched to « durée » must be able to show a bar of zero beside a real count.</para>
+    /// </summary>
+    public int Minutes { get; set; }
+}
+
 public class MonthlyCollectedPointDto
 {
     /// <summary>Clinic-local calendar month as <c>yyyy-MM</c> — sortable, locale-free, formatted by the client.</summary>

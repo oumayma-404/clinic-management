@@ -19,6 +19,30 @@ public interface IAppointmentRepository
     /// </summary>
     Task<IReadOnlyDictionary<AppointmentStatus, int>> CountByStatusBetweenAsync(
         Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// What the clinic's work in <c>[from, toInclusive]</c> was actually made of, as one <c>GROUP BY</c> over the
+    /// séances' <b>acts</b> — count and total minutes per act type.
+    ///
+    /// <para>Fans out over <c>AppointmentProcedure</c>, not over appointments: a visit routinely carries several
+    /// acts, so this answers « de quoi ma journée est-elle faite ? » where <see cref="CountByStatusBetweenAsync"/>
+    /// answers « combien de visites ». The two figures deliberately differ, and every caller labels this one
+    /// « actes ».</para>
+    ///
+    /// <para><b>Cancelled and no-show visits are excluded</b>, matching every other « work done » figure on the
+    /// dashboard: an act nobody performed is not part of the mix. <paramref name="doctorId"/> narrows to one
+    /// practitioner's own séances (null = the whole cabinet).</para>
+    ///
+    /// <para>Grouped on <c>(ProcedureTypeId, ProcedureName)</c> and merged by id afterwards, rather than grouped
+    /// on a conditional live-else-snapshot expression: the simple key is guaranteed to translate, and the caller
+    /// has to overlay the live catalogue values anyway.</para>
+    /// </summary>
+    Task<IReadOnlyList<ProcedureMixRow>> GetProcedureMixBetweenAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime toInclusive,
+        Guid? doctorId = null,
+        CancellationToken cancellationToken = default);
     Task<IEnumerable<Appointment>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default);
     Task<IEnumerable<Appointment>> GetUpcomingAppointmentsAsync(DateTime fromDate, CancellationToken cancellationToken = default);
     Task<IEnumerable<Appointment>> GetAppointmentsForDateAsync(DateTime date, CancellationToken cancellationToken = default);
@@ -43,6 +67,24 @@ public interface IAppointmentRepository
 
     Task<IReadOnlyList<Appointment>> GetByTreatmentPlanItemIdsAsync(
         Guid clinicId, IReadOnlyCollection<Guid> treatmentPlanItemIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every appointment whose slot is running <b>right now</b> and that nobody has started — across clinics, for
+    /// the minutely progress pass. Empty is the ordinary answer.
+    ///
+    /// <para><b>The window is cut in SQL, the end is checked in memory, and that split is forced.</b>
+    /// <c>Duration</c> is persisted as <b>ticks</b> (a <c>bigint</c> behind a value converter), so
+    /// <c>AppointmentDateTime + Duration</c> has no translation — the database's own
+    /// <c>AppointmentEndDateTime</c> column exists for the double-booking constraint but is deliberately unmapped.
+    /// So the query narrows to visits that began within <paramref name="longestVisit"/> and the exact end is
+    /// applied to that bounded set.</para>
+    ///
+    /// <para>The residual is stated rather than hidden: a booking <i>longer</i> than
+    /// <paramref name="longestVisit"/> is not picked up, and simply keeps the status it has today. The error only
+    /// ever runs that way — no appointment outside its own slot is returned.</para>
+    /// </summary>
+    Task<IReadOnlyList<Appointment>> GetRunningNotStartedAsync(
+        DateTime nowUtc, TimeSpan longestVisit, CancellationToken cancellationToken = default);
 
     Task<Appointment> AddAsync(Appointment appointment, CancellationToken cancellationToken = default);
     Task UpdateAsync(Appointment appointment, CancellationToken cancellationToken = default);

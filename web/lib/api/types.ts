@@ -164,6 +164,22 @@ export interface MonthlyCollectedPointDto {
 }
 
 /**
+ * One act type's share of the period — the dashboard's only figure counted over **acts**.
+ *
+ * A séance routinely carries several, so `actCount` sums above the appointment count and every surface says
+ * « actes ». `procedureTypeId` and `colorHex` are null for a hand-typed devis line, which has no catalogue act
+ * behind it: real work, so it is listed under its own name with a neutral swatch rather than dropped.
+ */
+export interface ProcedureMixPointDto {
+  procedureTypeId?: string | null;
+  name: string;
+  colorHex?: string | null;
+  actCount: number;
+  /** Total booked minutes. `0` is a real answer — a link-only devis line contributes none. */
+  minutes: number;
+}
+
+/**
  * One user's dashboard layout choices.
  *
  * `availableKpis` is the set the server validates writes against, sent so the customiser never has to hold its own
@@ -182,6 +198,8 @@ export interface DashboardDto {
   receivables: DashboardReceivablesDto;
   alerts: DashboardAlertsDto;
   trend: MonthlyCollectedPointDto[];
+  /** Busiest act types of the period, already ordered and capped server-side. */
+  procedureMix: ProcedureMixPointDto[];
 }
 
 export interface InvoiceLineDto {

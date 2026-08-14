@@ -76,12 +76,38 @@ refused at startup, deliberately.
   `secrets-protected-under-current-ring`) have not been run against this deployment. They are the only thing
   that says the certificate protection is actually in force rather than merely configured.
 
+## 4. Residency — closed since this file was written, and it changes where the VM goes
+
+The move off Render is no longer only a *security* upgrade. **`DataResidencyAssurance`** now refuses to start a
+hosted deployment whose visible egress destinations are not on a declared allow-list
+(`Residency:AllowedEgressHosts`), and `deploy/README.md` § « Résidence des données » carries the legal reasoning:
+under *loi organique 2004-63* art. 51–52 a transfer abroad needs prior INPDP authorization, and art. 90's
+exposure falls on the **cabinet**, not on us.
+
+Two things were fixed with it:
+
+- **`.env.hosted.example` shipped `WALG_S3_ENDPOINT=https://s3.us-west-002.backblazeb2.com`** — so PITR
+  continuously shipped every patient write to Oregon for any operator who copied the template. Now a
+  `CHANGE_ME_…` placeholder that fails loudly.
+- **The AI assistant was deleted whole** (~2 400 lines), removing the product's only per-request egress of
+  clinic-authored text to a US third party (`router.huggingface.co`).
+
+⚠️ **This makes the destination VM's jurisdiction a requirement rather than a preference.** Moving to a European
+host would satisfy every item below and still leave the residency question open; a Tunisian host closes both at
+once. See `deploy/README.md` for the provider shortlist and what to ask them.
+
 ## Checklist for the move to a VM
 
+- [ ] **Choose a Tunisian host** (primary **and** a separate offsite) — see `deploy/README.md`
+- [ ] Declare `RESIDENCY_ALLOWED_EGRESS_HOSTS_*`; confirm the undeclared-residency boot warning is gone
+- [ ] Set `WALG_S3_ENDPOINT` to the real Tunisian endpoint; verify `BACKUP_REMOTE`'s host **by hand** in `rclone.conf`
 - [ ] Mount the database CA; connection string to `SSL Mode=VerifyFull;Root Certificate=…`
 - [ ] Delete `Security__AllowUnverifiedInternalTls`; confirm the boot warning is gone
 - [ ] `MinIO__UseSSL=true` + `MinIO__RootCertificate` if an object store is configured
+- [ ] Remove the `RateLimiting__Auth__*` stopgaps; set `Security__TrustedProxies` to the compose subnet
+- [ ] `Security__EnforceCsp=true` (30 routes walked, 0 violations)
 - [ ] Decide the key ring's home (database is fine); if moving, `reprotect-secrets --rotate` first
 - [ ] Custody the PKCS#12 properly and remove it from any developer machine
 - [ ] Run `verify-schema` and diff against the last capture
 - [ ] Perform the first restore drill and write it down
+- [ ] Budget the **annual ANCS cybersecurity audit** (`Décret-loi 2023-17`) — applies wherever you host

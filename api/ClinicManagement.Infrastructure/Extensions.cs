@@ -443,12 +443,6 @@ public static class Extensions
         // The QR renderer's live caller is TrustController, which renders the LAN trust page's QR from it.
         services.AddSingleton<IQrCodeGenerator, QrCodeGenerator>();
 
-        // Hugging Face AI Service
-        services.AddScoped<IHuggingFaceAIService, HuggingFaceAIService>();
-
-        // AI Action Service
-        services.AddScoped<IAIActionService, AIActionService>();
-
         return services;
     }
 }

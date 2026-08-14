@@ -41,8 +41,7 @@ public class PostVisitReviewCompletionTests
         switch (status)
         {
             case AppointmentStatus.Scheduled: break;
-            case AppointmentStatus.Confirmed: appt.Confirm(); break;
-            // Start() requires Scheduled or Confirmed; Complete() is now reachable from either (AC-P1.1).
+            // No Confirmed arm: nothing can reach that status any more (Domain/AppointmentStatusTransitionTests).
             case AppointmentStatus.InProgress: appt.Start(); break;
             case AppointmentStatus.Completed: appt.Start(); appt.Complete(); break;
             case AppointmentStatus.Cancelled: appt.Cancel(); break;
@@ -54,7 +53,6 @@ public class PostVisitReviewCompletionTests
     // Record-fill closes an appointment that is still open, and says so.
     [Theory]
     [InlineData(AppointmentStatus.Scheduled)]
-    [InlineData(AppointmentStatus.Confirmed)]
     [InlineData(AppointmentStatus.InProgress)]
     public void MarkVisitCompleted_From_Active_State_Completes(AppointmentStatus status) // [AC-P1.12]
     {

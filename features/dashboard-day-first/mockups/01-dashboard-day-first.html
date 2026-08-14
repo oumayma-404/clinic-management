@@ -1,0 +1,1009 @@
+<title>Le Ruban</title>
+
+<style>
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Tokens — the app's own « bleu céruléen », copied verbatim from
+     web/app/globals.css. No palette variants: this is the brand.
+
+     The ACT colours are catalogue data (Domain/ValueObjects/ColorHex) and are
+     never redefined here. What the ribbon paints is a PASTEL TINT derived from
+     each one at render time — see the --tint rule below.
+     ═══════════════════════════════════════════════════════════════════════════ */
+  :root {
+    --brand:      oklch(0.485 0.101 234);
+    --brand-lift: oklch(0.615 0.128 234);
+    --brand-wash: oklch(0.955 0.026 230);
+    --brand-edge: oklch(0.885 0.040 230);
+    --ground:     oklch(0.978 0.010 230);
+    --surface:    oklch(1 0 0);
+    --ink:        oklch(0.205 0.020 236);
+    --ink-soft:   oklch(0.505 0.021 234);
+    --line:       oklch(0.915 0.012 230);
+    --line-soft:  oklch(0.949 0.009 230);
+
+    --good: oklch(0.52 0.12 155);
+    --good-wash: oklch(0.955 0.035 155);
+    --warn: oklch(0.62 0.13 72);
+    --warn-ink: oklch(0.45 0.11 62);
+    --warn-wash: oklch(0.965 0.045 80);
+    --bad: oklch(0.55 0.19 25);
+    --bad-wash: oklch(0.962 0.03 25);
+
+    /* How much of an act's catalogue colour survives into its pastel fill.
+       Large areas get the tint; small marks (rails, dots, edges) stay full
+       strength, because a 3 px pastel rail is an invisible rail. */
+    --tint: 22%;
+    --tint-edge: 44%;
+    --tint-now: 40%;
+
+    --r: 16px;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+
+    --shadow: 0 1px 2px oklch(0.2 0.02 235 / 0.04), 0 8px 22px -14px oklch(0.2 0.02 235 / 0.16);
+    --shadow-up: 0 1px 2px oklch(0.2 0.02 235 / 0.05), 0 16px 34px -18px oklch(0.2 0.02 235 / 0.26);
+
+    --page: oklch(0.962 0.006 230);
+    --page-ink: oklch(0.32 0.02 236);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --brand:      oklch(0.70 0.115 234);
+      --brand-lift: oklch(0.72 0.130 234);
+      --brand-wash: oklch(0.255 0.038 232);
+      --brand-edge: oklch(0.325 0.050 232);
+      --ground:     oklch(0.152 0.014 238);
+      --surface:    oklch(0.198 0.018 238);
+      --ink:        oklch(0.962 0.008 232);
+      --ink-soft:   oklch(0.680 0.019 234);
+      --line:       oklch(0.278 0.019 236);
+      --line-soft:  oklch(0.238 0.016 236);
+      --good: oklch(0.72 0.13 155); --good-wash: oklch(0.27 0.045 155);
+      --warn: oklch(0.78 0.13 78);  --warn-ink: oklch(0.87 0.11 80); --warn-wash: oklch(0.29 0.05 78);
+      --bad:  oklch(0.68 0.17 25);  --bad-wash: oklch(0.28 0.05 25);
+      /* A pale tint against a dark ground needs more of the hue to be visible
+         at all, so the tint is stronger here rather than merely inverted. */
+      --tint: 40%; --tint-edge: 58%; --tint-now: 62%;
+      --page: oklch(0.108 0.012 238);
+      --page-ink: oklch(0.80 0.012 232);
+      --shadow: 0 1px 2px oklch(0 0 0 / 0.4), 0 10px 26px -16px oklch(0 0 0 / 0.7);
+      --shadow-up: 0 1px 2px oklch(0 0 0 / 0.45), 0 18px 36px -18px oklch(0 0 0 / 0.8);
+    }
+  }
+  :root[data-theme="dark"] {
+    --brand:      oklch(0.70 0.115 234);
+    --brand-lift: oklch(0.72 0.130 234);
+    --brand-wash: oklch(0.255 0.038 232);
+    --brand-edge: oklch(0.325 0.050 232);
+    --ground:     oklch(0.152 0.014 238);
+    --surface:    oklch(0.198 0.018 238);
+    --ink:        oklch(0.962 0.008 232);
+    --ink-soft:   oklch(0.680 0.019 234);
+    --line:       oklch(0.278 0.019 236);
+    --line-soft:  oklch(0.238 0.016 236);
+    --good: oklch(0.72 0.13 155); --good-wash: oklch(0.27 0.045 155);
+    --warn: oklch(0.78 0.13 78);  --warn-ink: oklch(0.87 0.11 80); --warn-wash: oklch(0.29 0.05 78);
+    --bad:  oklch(0.68 0.17 25);  --bad-wash: oklch(0.28 0.05 25);
+    --tint: 40%; --tint-edge: 58%; --tint-now: 62%;
+    --page: oklch(0.108 0.012 238);
+    --page-ink: oklch(0.80 0.012 232);
+    --shadow: 0 1px 2px oklch(0 0 0 / 0.4), 0 10px 26px -16px oklch(0 0 0 / 0.7);
+    --shadow-up: 0 1px 2px oklch(0 0 0 / 0.45), 0 18px 36px -18px oklch(0 0 0 / 0.8);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--page-ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 20px 96px; }
+
+  /* ── review chrome ─────────────────────────────────────────────────────── */
+  .masthead { padding: 44px 0 22px; }
+  .kicker {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.13em;
+    text-transform: uppercase; color: var(--ink-soft); margin: 0 0 12px;
+  }
+  h1 {
+    margin: 0 0 14px; font-size: clamp(28px, 4.4vw, 40px); line-height: 1.1;
+    letter-spacing: -0.03em; font-weight: 660; color: var(--ink); text-wrap: balance;
+  }
+  .standfirst { margin: 0; max-width: 68ch; font-size: 16.5px; line-height: 1.62; color: var(--ink-soft); }
+  .standfirst strong { color: var(--ink); font-weight: 600; }
+
+  .bar {
+    position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap;
+    gap: 10px 18px; align-items: center; padding: 12px 20px; margin: 0 -20px 32px;
+    background: color-mix(in oklab, var(--page) 90%, transparent);
+    backdrop-filter: blur(12px); border-block: 1px solid var(--line);
+  }
+  .bar-label {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-soft);
+  }
+  .seg { display: flex; gap: 3px; padding: 3px; background: var(--line-soft); border-radius: 9px; }
+  .seg button {
+    font: inherit; font-size: 12.5px; font-weight: 550; border: 0; background: transparent;
+    color: var(--ink-soft); padding: 7px 12px; border-radius: 7px; cursor: pointer;
+    transition: background 160ms, color 160ms; min-height: 34px;
+  }
+  .seg button:hover { color: var(--ink); }
+  .seg button[aria-pressed="true"] {
+    background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px oklch(0.2 0.02 235 / 0.10);
+  }
+  .bar .spacer { flex: 1 1 auto; }
+  :where(button, a, [tabindex]):focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 6px; }
+
+  .frame {
+    background: var(--ground); border: 1px solid var(--line); border-radius: 18px;
+    overflow: hidden; box-shadow: var(--shadow); color: var(--ink);
+  }
+  .frame-chrome {
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    border-bottom: 1px solid var(--line); background: var(--surface);
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+  .frame-title {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+    color: var(--ink-soft); text-transform: uppercase;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     ONE markup, real responsive behaviour. The canvas is a CONTAINER, so the
+     320 px and 390 px frames below genuinely reflow rather than being a second
+     hand-written phone layout that could flatter itself.
+     ══════════════════════════════════════════════════════════════════════════ */
+  .canvas {
+    container-type: inline-size;
+    padding: 18px; display: grid; gap: 26px;
+  }
+  @container (min-width: 560px) { .canvas { padding: 26px; gap: 32px; } }
+  @container (min-width: 860px) { .canvas { padding: 30px; gap: 34px; } }
+
+  .phones { display: flex; flex-wrap: wrap; gap: 24px; align-items: start; }
+  .ph320 { width: 320px; flex: none; }
+  .ph390 { width: 390px; flex: none; }
+
+  /* ── ZONE 1 · greeting ─────────────────────────────────────────────────── */
+  .greeting { display: flex; gap: 14px; align-items: flex-start; }
+  @container (min-width: 560px) { .greeting { gap: 16px; } }
+  .g-emoji { font-size: 28px; line-height: 1.1; flex: none; }
+  @container (min-width: 560px) { .g-emoji { font-size: 36px; } }
+  .g-eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--brand); margin: 0 0 6px;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .g-eyebrow .zdot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand); flex: none; }
+  .phrase {
+    margin: 0; font-size: 22px; line-height: 1.16; letter-spacing: -0.025em;
+    font-weight: 660; color: var(--ink); text-wrap: balance;
+  }
+  @container (min-width: 560px) { .phrase { font-size: 28px; letter-spacing: -0.03em; } }
+  @container (min-width: 860px) { .phrase { font-size: 32px; } }
+  .subphrase { margin: 8px 0 0; font-size: 14.5px; line-height: 1.5; color: var(--ink-soft); }
+
+  /* ── ZONE 2 · now / next ───────────────────────────────────────────────── */
+  /* Deliberately STACKED inside the card at every width. A horizontal name-then-
+     time row is what truncated « Yassine Chaabane » at 320 px, and a patient's
+     name is identity — it wraps, it never gets an ellipsis. */
+  .updeck { display: grid; gap: 14px; grid-template-columns: 1fr; }
+  @container (min-width: 620px) { .updeck { grid-template-columns: 1fr 1fr; gap: 16px; } }
+
+  .upcard {
+    position: relative; display: block; padding: 16px 18px 14px;
+    border-radius: var(--r); text-decoration: none; color: inherit;
+    background: var(--surface); border: 1px solid var(--line);
+    box-shadow: var(--shadow); overflow: hidden;
+    transition: box-shadow 180ms, border-color 180ms;
+  }
+  @container (min-width: 560px) { .upcard { padding: 18px 20px 16px; } }
+  .upcard::before {
+    content: ""; position: absolute; inset-inline: 0; top: 0; height: 4px;
+    background: var(--c, var(--brand));
+  }
+  .upcard:hover { box-shadow: var(--shadow-up); }
+  .upcard.is-live { background: var(--brand-wash); border-color: var(--brand-edge); }
+
+  .up-k {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink-soft);
+    display: flex; align-items: center; gap: 7px;
+  }
+  .upcard.is-live .up-k { color: var(--brand); }
+  .pip {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--good); flex: none;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--good) 22%, transparent);
+    animation: pip 2.4s ease-in-out infinite;
+  }
+  @keyframes pip { 0%,100% { opacity: 1 } 50% { opacity: 0.3 } }
+
+  .up-n {
+    display: block; margin-top: 9px; font-size: 18px; font-weight: 620;
+    letter-spacing: -0.015em; color: var(--ink); line-height: 1.25;
+    overflow-wrap: anywhere;            /* wraps; never an ellipsis on a name */
+  }
+  @container (min-width: 560px) { .up-n { font-size: 19px; } }
+  .up-a {
+    display: flex; align-items: center; gap: 8px; margin-top: 7px;
+    font-size: 13.5px; color: var(--ink-soft); line-height: 1.4;
+  }
+  .up-a .sw { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .up-foot {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+    margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line-soft);
+  }
+  .upcard.is-live .up-foot { border-top-color: var(--brand-edge); }
+  .up-foot b {
+    font-family: var(--mono); font-size: 21px; font-weight: 620; letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums; color: var(--ink);
+  }
+  .up-foot small { font-size: 12.5px; color: var(--ink-soft); text-align: end; }
+
+  /* ── ZONE 3 · la journée ───────────────────────────────────────────────── */
+  .sec-head { display: flex; align-items: baseline; gap: 10px 14px; flex-wrap: wrap; margin: 0 0 12px; }
+  .sec-t {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink-soft); margin: 0;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .sec-t .zdot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand); flex: none; }
+  .sec-head .more {
+    margin-inline-start: auto; font-size: 12.5px; color: var(--brand);
+    text-decoration: none; font-weight: 550; white-space: nowrap;
+  }
+  .sec-head .more:hover { text-decoration: underline; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); }
+  .pad { padding: 16px; }
+  @container (min-width: 560px) { .pad { padding: 22px; } }
+
+  .ribbon { position: relative; height: 46px; border-radius: 11px; background: var(--line-soft); overflow: hidden; }
+  @container (min-width: 560px) { .ribbon { height: 60px; border-radius: 12px; } }
+  @container (min-width: 860px) { .ribbon { height: 66px; } }
+
+  .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
+  .tick.h3 { background: color-mix(in oklab, var(--ink) 13%, transparent); }
+
+  .gap {
+    position: absolute; top: 6px; bottom: 6px; border-radius: 8px;
+    border: 1px dashed color-mix(in oklab, var(--ink) 20%, transparent);
+    background: repeating-linear-gradient(135deg,
+      color-mix(in oklab, var(--ink) 4%, transparent) 0 6px, transparent 6px 12px);
+    display: grid; place-content: center; overflow: hidden;
+  }
+  .gap span {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-soft);
+    white-space: nowrap; padding: 0 4px;
+  }
+
+  /* The pastel fill. One catalogue hex per block, mixed toward the surface —
+     so there is still exactly one source of truth for an act's colour. */
+  .blk {
+    position: absolute; top: 6px; bottom: 6px; border-radius: 7px; min-width: 4px;
+    overflow: hidden; padding: 5px 7px; display: block;
+    background: color-mix(in oklab, var(--c) var(--tint), var(--surface));
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--c) var(--tint-edge), var(--surface));
+    transition: filter 170ms;
+  }
+  .blk:hover { filter: brightness(0.97) saturate(1.15); }
+  .blk-i {
+    display: block; font-family: var(--mono); font-size: 11px; font-weight: 660;
+    color: var(--ink); white-space: nowrap;
+  }
+  .blk-t {
+    display: block; margin-top: 1px; font-family: var(--mono); font-size: 11px;
+    color: var(--ink-soft); white-space: nowrap;
+  }
+  .blk.past { opacity: 0.45; }
+  .blk.now {
+    background: color-mix(in oklab, var(--c) var(--tint-now), var(--surface));
+    box-shadow: 0 0 0 2px var(--ink);
+  }
+
+  .nowline { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); z-index: 3; border-radius: 2px; }
+  .nowline::before {
+    content: ""; position: absolute; top: 0; left: -3px; width: 8px; height: 8px;
+    border-radius: 50%; background: var(--ink);
+  }
+
+  .axis {
+    display: flex; justify-content: space-between; margin-top: 9px;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  .axis span:nth-child(even) { display: none; }
+  @container (min-width: 560px) { .axis span:nth-child(even) { display: inline; } }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 9px 16px; margin-top: 16px;
+    padding-top: 15px; border-top: 1px solid var(--line-soft);
+  }
+  .lg { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; white-space: nowrap; }
+  /* The legend key is the SAME paint as the ribbon block, at 11 px. Matching
+     exactly is what makes a legend work; a punchier dot would not be the key. */
+  .lg .sw {
+    width: 11px; height: 11px; border-radius: 4px; flex: none;
+    background: color-mix(in oklab, var(--c) var(--tint), var(--surface));
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--c) var(--tint-edge), var(--surface));
+  }
+  .lg b { font-variant-numeric: tabular-nums; font-weight: 680; color: var(--ink); }
+  .lg span { color: var(--ink-soft); }
+
+  .facts {
+    display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 15px;
+    font-size: 13.5px; color: var(--ink-soft);
+  }
+  .facts b { color: var(--ink); font-weight: 640; font-variant-numeric: tabular-nums; }
+
+  /* ── ZONE 4 · à traiter ────────────────────────────────────────────────── */
+  /* Full-width rows on a phone. Wrapping pills with labels like « en salle
+     d'attente » is exactly what produced the clipped words. */
+  .alerts { display: grid; gap: 8px; grid-template-columns: 1fr; }
+  @container (min-width: 560px) { .alerts { display: flex; flex-wrap: wrap; gap: 10px; } }
+
+  .alert {
+    display: flex; align-items: center; gap: 11px;
+    padding: 9px 14px 9px 10px; border-radius: 12px; min-height: 44px;
+    background: var(--surface); border: 1px solid var(--line);
+    text-decoration: none; color: var(--ink); font-size: 13.5px; font-weight: 520;
+    box-shadow: var(--shadow); transition: border-color 160ms, box-shadow 160ms;
+    line-height: 1.3;
+  }
+  .alert:hover { border-color: var(--brand-edge); box-shadow: var(--shadow-up); }
+  .alert .cap {
+    width: 30px; height: 30px; border-radius: 9px; flex: none; display: grid;
+    place-content: center; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 14px;
+  }
+  .alert .arw { margin-inline-start: auto; color: var(--ink-soft); flex: none; }
+  @container (min-width: 560px) { .alert .arw { display: none; } }
+  .alert.live .cap { background: var(--brand-wash); color: var(--brand); }
+  .alert.hot  .cap { background: var(--bad-wash); color: var(--bad); }
+  .alert.warm .cap { background: var(--warn-wash); color: var(--warn-ink); }
+  .alert.calm .cap { background: var(--line-soft); color: var(--ink-soft); }
+
+  /* ── ZONE 5 · the list ─────────────────────────────────────────────────── */
+  /* Stacked below 560 px so nothing competes for width: rail, then a header row
+     carrying time + status, then the name, then the acts. */
+  .ap {
+    display: grid; grid-template-columns: 3px 1fr; gap: 12px;
+    padding: 12px 4px; border-top: 1px solid var(--line-soft);
+    text-decoration: none; color: inherit; align-items: stretch;
+  }
+  .ap:first-child { border-top: 0; }
+  .ap:hover { background: var(--brand-wash); border-radius: 10px; }
+  .ap.is-now { background: var(--brand-wash); border-radius: 10px; border-top-color: transparent; padding-inline: 9px; }
+  .ap.is-past .apn, .ap.is-past .aphead { opacity: 0.5; }
+  .rail { border-radius: 3px; background: var(--c); }
+  .apbody { min-width: 0; }
+  .aphead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .apt {
+    font-family: var(--mono); font-size: 13.5px; font-variant-numeric: tabular-nums;
+    font-weight: 600; color: var(--ink);
+  }
+  .apd { font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); }
+  .apn { display: block; margin-top: 3px; font-size: 14.5px; font-weight: 570; color: var(--ink); overflow-wrap: anywhere; }
+  .apacts { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 5px; }
+  .tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-soft); white-space: nowrap; }
+  .tag .sw { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+  .pill {
+    margin-inline-start: auto; padding: 2px 10px; border-radius: 999px; font-size: 11.5px;
+    font-weight: 600; white-space: nowrap; background: var(--line-soft); color: var(--ink-soft);
+  }
+  .pill.now { background: var(--brand); color: oklch(0.99 0.005 234); }
+  .pill.done { background: var(--good-wash); color: var(--good); }
+
+  /* Above 560 px the row becomes a proper grid with its own time column. */
+  @container (min-width: 560px) {
+    .ap { grid-template-columns: 3px 66px 1fr auto; gap: 14px; align-items: center; padding: 13px 4px; }
+    .ap.is-now { padding-inline: 10px; }
+    .aptime { display: block; }
+    .aphead { display: none; }
+    .apn { margin-top: 0; }
+    .pill { margin-inline-start: 0; }
+  }
+  .aptime { display: none; }
+  .aptime .t { font-family: var(--mono); font-size: 14px; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); }
+  .aptime .d { display: block; font-family: var(--mono); font-size: 11px; color: var(--ink-soft); margin-top: 2px; }
+  .ap.is-past .aptime { opacity: 0.5; }
+
+  /* ── stats ─────────────────────────────────────────────────────────────── */
+  .kgrid {
+    display: grid; grid-template-columns: repeat(2, minmax(0,1fr));
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r); overflow: hidden; box-shadow: var(--shadow);
+  }
+  @container (min-width: 760px) { .kgrid.k4 { grid-template-columns: repeat(4, minmax(0,1fr)); } }
+  .kcell { padding: 16px 18px; border-inline-start: 1px solid var(--line); border-block-start: 1px solid var(--line); }
+  .kcell:nth-child(odd) { border-inline-start: 0; }
+  .kcell:nth-child(-n+2) { border-block-start: 0; }
+  @container (min-width: 760px) {
+    .kgrid.k4 .kcell:nth-child(odd) { border-inline-start: 1px solid var(--line); }
+    .kgrid.k4 .kcell:nth-child(4n+1) { border-inline-start: 0; }
+    .kgrid.k4 .kcell:nth-child(-n+4) { border-block-start: 0; }
+  }
+  .klab { font-size: 12.5px; color: var(--ink-soft); font-weight: 500; line-height: 1.35; }
+  .kfig { font-variant-numeric: tabular-nums; letter-spacing: -0.03em; font-weight: 650; font-size: 25px; line-height: 1.1; margin-top: 8px; color: var(--ink); }
+  @container (min-width: 560px) { .kfig { font-size: 27px; } }
+  .kfig .u { font-size: 0.45em; font-weight: 550; letter-spacing: 0; color: var(--ink-soft); margin-inline-start: 3px; }
+  .delta {
+    display: inline-flex; align-items: center; gap: 3px; margin-top: 9px;
+    padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 620; font-variant-numeric: tabular-nums;
+  }
+  .delta.up { background: var(--good-wash); color: var(--good); }
+  .delta.down { background: var(--bad-wash); color: var(--bad); }
+
+  .mix { display: grid; gap: 12px; }
+  .mrow { display: grid; grid-template-columns: 1fr auto; gap: 5px 10px; align-items: baseline; }
+  .mnm { font-size: 13.5px; font-weight: 520; color: var(--ink); }
+  .mvl { font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--ink-soft); white-space: nowrap; }
+  .mtr { grid-column: 1 / -1; height: 8px; border-radius: 999px; background: var(--line-soft); overflow: hidden; }
+  .mfl { height: 100%; border-radius: 999px; background: color-mix(in oklab, var(--c) 62%, var(--surface)); }
+
+  .trend { display: flex; align-items: flex-end; gap: 9px; height: 138px; }
+  .tcol { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 7px; height: 100%; }
+  .tbar { width: 100%; border-radius: 7px 7px 3px 3px; background: color-mix(in oklab, var(--brand-lift) 34%, var(--surface)); }
+  .tcol.last .tbar { background: var(--brand-lift); }
+  .tval { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+  .tcol.last .tval { color: var(--ink); font-weight: 640; }
+  .tmon { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); text-transform: uppercase; }
+
+  .twocol { display: grid; gap: 20px; grid-template-columns: 1fr; }
+  @container (min-width: 860px) { .twocol { grid-template-columns: minmax(0,1fr) 320px; } }
+
+  .rowline { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1 1 0; min-width: 0; }
+
+  .note {
+    border-inline-start: 3px solid var(--brand); background: var(--surface);
+    border-radius: 0 12px 12px 0; padding: 17px 19px; margin: 22px 0 0;
+    box-shadow: var(--shadow); color: var(--ink);
+  }
+  .note.risk { border-inline-start-color: var(--warn); }
+  .note h4 { margin: 0 0 9px; font-size: 13px; font-weight: 650; }
+  .note ul { margin: 0; padding-inline-start: 18px; }
+  .note li { margin: 6px 0; font-size: 14px; line-height: 1.55; color: var(--ink-soft); }
+  .note li b { color: var(--ink); font-weight: 600; }
+
+  .stackhead { margin: 54px 0 6px; font-size: 21px; font-weight: 650; color: var(--ink); letter-spacing: -0.02em; }
+  .optlede { margin: 0 0 22px; max-width: 70ch; font-size: 15px; color: var(--ink-soft); }
+  .optlede b { color: var(--ink); font-weight: 600; }
+  hr.rule { border: 0; border-top: 1px solid var(--line); margin: 48px 0 0; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="kicker">Tableau de bord · « Le ruban », troisième passe</p>
+    <h1>Impeccable d'abord sur téléphone</h1>
+    <p class="standfirst">
+      La marque revient au <strong>bleu de l'application</strong>, sans variante. Le ruban peint désormais des
+      <strong>teintes pastel dérivées</strong> des couleurs d'acte du catalogue — une seule source de vérité,
+      mélangée vers le blanc — et les marques fines gardent la couleur pleine, parce qu'un filet pastel de 3 px
+      est un filet invisible. Enfin le téléphone est traité en premier&nbsp;: <strong>un seul balisage</strong>
+      piloté par des <em>container queries</em>, donc les cadres 320 et 390 px ci-dessous se reflowent
+      réellement — ce n'est pas une seconde maquette qui se flatterait elle-même.
+    </p>
+  </header>
+
+  <div class="bar">
+    <span class="bar-label">Journée</span>
+    <div class="seg" role="group" aria-label="Simuler la charge du jour">
+      <button type="button" data-tier="empty" aria-pressed="false">Vide</button>
+      <button type="button" data-tier="light" aria-pressed="false">Calme</button>
+      <button type="button" data-tier="busy" aria-pressed="true">Chargée</button>
+      <button type="button" data-tier="packed" aria-pressed="false">Marathon</button>
+      <button type="button" data-tier="done" aria-pressed="false">Finie</button>
+    </div>
+    <span class="spacer"></span>
+    <div class="seg" role="group" aria-label="Thème">
+      <button type="button" data-theme-set="light" aria-pressed="false">Clair</button>
+      <button type="button" data-theme-set="dark" aria-pressed="false">Sombre</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ PHONE FIRST ═══════════════════ -->
+  <h2 class="stackhead" style="margin-top:0;">Téléphone — 320 px et 390 px</h2>
+  <p class="optlede">
+    320 px est le plancher que la règle du dépôt impose (un iPad en Split View rend une mise en page téléphone
+    sur un appareil de 1024 pt), 390 px est l'iPhone courant. <b>Aucun mot n'est coupé dans l'un ni dans
+    l'autre&nbsp;:</b> le nom du patient passe à la ligne au lieu de recevoir une ellipse — c'est une identité —,
+    les pastilles « À traiter » deviennent des lignes pleine largeur, et les étiquettes du ruban
+    <b>se mesurent et disparaissent</b> plutôt que de déborder.
+  </p>
+
+  <div class="phones">
+    <div class="ph320">
+      <div class="frame">
+        <div class="frame-chrome"><span class="dot"></span><span class="frame-title">320 px · le plancher</span></div>
+        <div class="canvas" data-board></div>
+      </div>
+    </div>
+    <div class="ph390">
+      <div class="frame">
+        <div class="frame-chrome"><span class="dot"></span><span class="frame-title">390 px · iPhone</span></div>
+        <div class="canvas" data-board></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <h4>Ce qui a été réparé pour le téléphone</h4>
+    <ul>
+      <li><b>Les cartes « Au fauteuil » / « Ensuite » sont empilées à toutes les largeurs.</b> C'est la rangée
+        nom-puis-heure qui coupait « Yassine Chaabane » à 320 px. L'heure passe en pied de carte, derrière un
+        filet, avec le compte à rebours en face.</li>
+      <li><b>Un nom de patient ne reçoit jamais d'ellipse</b> — c'est une identité, pas une étiquette. Il passe à
+        la ligne (<code>overflow-wrap: anywhere</code>).</li>
+      <li><b>« À traiter » devient des lignes pleine largeur sous 560 px</b>, avec un chevron. Des pastilles
+        contenant « en salle d'attente » sont précisément ce qui produisait les mots coupés.</li>
+      <li><b>Les lignes de rendez-vous se réorganisent</b> : sous 560 px, heure + statut sur une ligne d'en-tête,
+        puis le nom, puis les actes. Au-dessus, la grille à colonne d'heure revient.</li>
+      <li><b>Les étiquettes du ruban sont mesurées, pas devinées.</b> Un bloc sous ~46 px n'affiche rien, sous
+        ~66 px les initiales seules ; une plage libre trop étroite perd « libre », puis tout. Rien n'est jamais
+        rogné à moitié.</li>
+      <li><b>L'axe passe de 7 à 4 repères</b> sous 560 px, et un seul balisage sert les trois largeurs — donc ce
+        que vous voyez ici est ce que le vrai composant fera.</li>
+    </ul>
+  </div>
+
+  <hr class="rule" />
+
+  <!-- ═══════════════════ DESKTOP ═══════════════════ -->
+  <h2 class="stackhead">Bureau — 1180 px</h2>
+  <p class="optlede">Le même balisage, à une largeur où l'axe complet, la colonne d'heure et les deux cartes côte à côte tiennent.</p>
+
+  <div class="frame">
+    <div class="frame-chrome">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="frame-title">Bureau · 1180 px</span>
+    </div>
+    <div class="canvas" data-board></div>
+  </div>
+
+  <div class="note">
+    <h4>Sur les couleurs du ruban</h4>
+    <ul>
+      <li><b>Les pastels sont dérivés, pas saisis.</b> Chaque bloc reçoit son hex de catalogue dans
+        <code>--c</code> et le peint en <code>color-mix(in oklab, var(--c) 22%, var(--surface))</code>. Il reste
+        donc <b>une seule autorité</b> sur la couleur d'un acte (<code>Domain/ValueObjects/ColorHex</code>) — une
+        deuxième liste de pastels dériverait le jour où quelqu'un ajoute une teinte.</li>
+      <li><b>Grandes surfaces en pastel, petites marques en pleine couleur.</b> Le filet de 3 px d'une ligne, le
+        point de 8 px d'une étiquette et le liseré de 4 px d'une carte gardent la teinte entière ; le bloc du
+        ruban, qui est large, est teinté. Un filet pastel ne se voit pas.</li>
+      <li><b>La pastille de légende est exactement la même peinture que le bloc</b>, à 11 px. Une pastille plus
+        saturée serait plus jolie et ne serait plus une <i>clé</i>.</li>
+      <li><b>Le sombre n'est pas une inversion</b> : la teinte passe de 22 % à 40 %, sinon un pastel sur fond
+        sombre disparaît.</li>
+      <li>⚠️ Si les pastels restent ternes, la cause est en amont : les douze familles de
+        <code>ColorHex</code> sont d'une saturation moyenne un peu sourde. Les élargir est un changement d'un
+        seul fichier dans <code>Domain</code> — mais il touche toutes les fiches d'acte existantes.</li>
+    </ul>
+  </div>
+
+  <hr class="rule" />
+
+  <h2 class="stackhead">Bas de page — « Statistiques »</h2>
+  <p class="optlede">
+    Tout ce qui occupe le haut de page aujourd'hui descend ici, <b>et le sélecteur de période descend avec</b> —
+    laissé en haut il aurait l'air de gouverner la journée, et choisir « Ce mois » ne changerait rien aux zones
+    du dessus.
+  </p>
+
+  <div class="frame">
+    <div class="frame-chrome">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="frame-title">Bureau · après un défilement</span>
+    </div>
+    <div class="canvas">
+      <div class="rowline">
+        <p class="sec-t"><span class="zdot"></span>Statistiques</p>
+        <span class="grow"></span>
+        <div class="seg" role="group" aria-label="Période">
+          <button type="button" aria-pressed="false">Aujourd'hui</button>
+          <button type="button" aria-pressed="false">Cette semaine</button>
+          <button type="button" aria-pressed="true">Ce mois</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="sec-head"><p class="sec-t"><span class="zdot"></span>Activité · août 2026</p></div>
+        <div class="kgrid k4">
+          <div class="kcell"><span class="klab">RDV honorés</span><div class="kfig">184</div><span class="delta up">↑ 12,2 %</span></div>
+          <div class="kcell"><span class="klab">Nouveaux patients</span><div class="kfig">23</div><span class="delta up">↑ 4,5 %</span></div>
+          <div class="kcell"><span class="klab">Taux d'absence</span><div class="kfig">7,2<span class="u">%</span></div><span class="delta up">↓ 1,8 pts</span></div>
+          <div class="kcell"><span class="klab">Devis acceptés</span><div class="kfig">14</div><span class="delta up">↑ 27,3 %</span></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="sec-head"><p class="sec-t"><span class="zdot"></span>Argent · août 2026</p></div>
+        <div class="kgrid k4">
+          <div class="kcell"><span class="klab">Encaissé</span><div class="kfig">18 420<span class="u">DT</span></div><span class="delta up">↑ 37,5 %</span></div>
+          <div class="kcell"><span class="klab">Facturé</span><div class="kfig">21 300<span class="u">DT</span></div><span class="delta up">↑ 18,1 %</span></div>
+          <div class="kcell"><span class="klab">Dépenses</span><div class="kfig">4 180<span class="u">DT</span></div><span class="delta down">↑ 9,4 %</span></div>
+          <div class="kcell"><span class="klab">Net</span><div class="kfig">14 240<span class="u">DT</span></div><span class="delta up">↑ 46,2 %</span></div>
+        </div>
+      </div>
+
+      <div class="twocol">
+        <div class="card pad">
+          <div class="rowline" style="margin-bottom:18px;">
+            <p class="sec-t"><span class="zdot"></span>Répartition des actes</p>
+            <span class="grow"></span>
+            <div class="seg" role="group" aria-label="Mesure">
+              <button type="button" aria-pressed="true">Durée</button>
+              <button type="button" aria-pressed="false">Nombre</button>
+            </div>
+          </div>
+          <div class="mix">
+            <div class="mrow" style="--c:#4F83CC"><span class="mnm">Obturation</span><span class="mvl">36 h · 48 actes</span><span class="mtr"><span class="mfl" style="width:100%"></span></span></div>
+            <div class="mrow" style="--c:#2A9D8F"><span class="mnm">Détartrage</span><span class="mvl">31 h · 62 actes</span><span class="mtr"><span class="mfl" style="width:86%"></span></span></div>
+            <div class="mrow" style="--c:#9B8EDC"><span class="mnm">Traitement de canal</span><span class="mvl">22 h · 22 actes</span><span class="mtr"><span class="mfl" style="width:61%"></span></span></div>
+            <div class="mrow" style="--c:#6C757D"><span class="mnm">Consultation</span><span class="mvl">14 h · 41 actes</span><span class="mtr"><span class="mfl" style="width:39%"></span></span></div>
+            <div class="mrow" style="--c:#E9A23B"><span class="mnm">Couronne</span><span class="mvl">12 h · 12 actes</span><span class="mtr"><span class="mfl" style="width:33%"></span></span></div>
+            <div class="mrow" style="--c:#E76F51"><span class="mnm">Extraction</span><span class="mvl">9 h · 18 actes</span><span class="mtr"><span class="mfl" style="width:25%"></span></span></div>
+          </div>
+          <p style="margin:18px 0 0; font-size:12.5px; color:var(--ink-soft);">
+            La bascule <b>Durée / Nombre</b> est le cœur du graphe : 62 détartrages pèsent moins d'heures que
+            48 obturations, et c'est « durée » qui dit où passe réellement la journée.
+          </p>
+        </div>
+
+        <div class="card pad">
+          <div class="sec-head"><p class="sec-t"><span class="zdot"></span>Encaissé · 6 mois</p></div>
+          <div class="trend">
+            <div class="tcol"><span class="tval">12,8</span><span class="tbar" style="height:60%"></span><span class="tmon">mar</span></div>
+            <div class="tcol"><span class="tval">15,2</span><span class="tbar" style="height:72%"></span><span class="tmon">avr</span></div>
+            <div class="tcol"><span class="tval">14,1</span><span class="tbar" style="height:66%"></span><span class="tmon">mai</span></div>
+            <div class="tcol"><span class="tval">16,9</span><span class="tbar" style="height:80%"></span><span class="tmon">jun</span></div>
+            <div class="tcol"><span class="tval">13,4</span><span class="tbar" style="height:63%"></span><span class="tmon">jul</span></div>
+            <div class="tcol last"><span class="tval">18,4</span><span class="tbar" style="height:100%"></span><span class="tmon">aoû</span></div>
+          </div>
+          <p style="margin:16px 0 0; font-size:12.5px; color:var(--ink-soft);">En milliers de dinars.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note risk">
+    <h4>Trois constats de l'exploration, indépendants du visuel</h4>
+    <ul>
+      <li><b>« Devis en attente de réponse » compte une valeur morte.</b> La carte lit
+        <code>TreatmentPlanStatus.Draft</code>, mais <code>CreateTreatmentPlanCommand</code> accepte et numérote
+        le devis <b>à la création</b> : aucun plan récent n'entre dans <code>Draft</code>. Elle affiche 0 en
+        permanence, et un zéro se lit « rien à faire ».</li>
+      <li><b>Deux lectures déjà construites n'atteignent aucune carte</b> : <code>GetPendingReviewsQuery</code>
+        (« visites à saisir ») et <code>GetPatientsToRecallQuery</code> (la relance avec son motif — calculée à
+        chaque chargement et jetée, faute de page <code>/recalls</code> où atterrir).</li>
+      <li><b>Une question à trancher :</b> <code>DashboardController</code> est <code>AdminOrDoctor</code>, donc
+        une secrétaire est redirigée vers <code>/appointments</code>. Un tableau de bord « la journée » est
+        exactement ce dont la réception a besoin, et la moitié haute ne contient aucun montant.</li>
+    </ul>
+  </div>
+
+</div>
+
+<script>
+  "use strict";
+
+  const DAY_START = 510, DAY_END = 1050, DAY_LEN = DAY_END - DAY_START;
+  const NOW = 700; // 11:40
+
+  const ACTS = {
+    detartrage: { name: "Détartrage",          color: "#2A9D8F" },
+    obturation: { name: "Obturation",          color: "#4F83CC" },
+    consult:    { name: "Consultation",        color: "#6C757D" },
+    canal:      { name: "Traitement de canal", color: "#9B8EDC" },
+    extraction: { name: "Extraction",          color: "#E76F51" },
+    couronne:   { name: "Couronne",            color: "#E9A23B" },
+    controle:   { name: "Contrôle",            color: "#6BAA75" },
+    radio:      { name: "Radiographie",        color: "#60A5FA" },
+    empreinte:  { name: "Empreinte",           color: "#F3BE72" }
+  };
+
+  const APPTS = [
+    { t: 510,  d: 30, who: "Amine Trabelsi",   acts: ["detartrage"],            st: "done" },
+    { t: 540,  d: 45, who: "Leïla Ben Amor",   acts: ["obturation"],            st: "done" },
+    { t: 585,  d: 20, who: "Skander Gharbi",   acts: ["consult"],               st: "done" },
+    { t: 615,  d: 60, who: "Nour Hamdi",       acts: ["canal", "radio"],        st: "done" },
+    { t: 675,  d: 30, who: "Yassine Chaabane", acts: ["extraction"],            st: "now"  },
+    { t: 810,  d: 30, who: "Farah Mejri",      acts: ["detartrage"],            st: "next" },
+    { t: 840,  d: 60, who: "Mehdi Bouazizi",   acts: ["couronne", "empreinte"], st: "soon" },
+    { t: 900,  d: 45, who: "Ines Khelifi",     acts: ["obturation"],            st: "soon" },
+    { t: 945,  d: 20, who: "Sofiane Jelassi",  acts: ["controle"],              st: "soon" },
+    { t: 975,  d: 30, who: "Rania Sassi",      acts: ["detartrage"],            st: "soon" },
+    { t: 1005, d: 20, who: "Karim Zouari",     acts: ["consult"],               st: "soon" }
+  ];
+
+  const ST_LABEL = { done: "Terminé", now: "En cours", next: "Confirmé", soon: "Planifié" };
+  const hhmm = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+  const initials = (n) => n.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+  const pctOf = (m) => (m - DAY_START) / DAY_LEN * 100;
+
+  const PHRASES = {
+    empty:  [{ e:"☕", h:"Aucun rendez-vous aujourd'hui", s:"Une bonne journée pour rattraper les dossiers." },
+             { e:"🌿", h:"Agenda au repos",               s:"Le planning est vide — de quoi souffler un peu." },
+             { e:"📋", h:"Journée libre",                 s:"Idéal pour la paperasse et les relances." }],
+    light:  [{ e:"☕", h:"Journée tranquille",            s:"3 rendez-vous — le café va être bon." },
+             { e:"🍃", h:"Au calme",                      s:"3 rendez-vous prévus, rien de pressé." },
+             { e:"🌤️", h:"Ça va rouler tout seul",        s:"Seulement 3 rendez-vous au programme." }],
+    busy:   [{ e:"🐝", h:"Quelle belle ruche !",          s:"11 rendez-vous aujourd'hui — bon courage." },
+             { e:"⚡", h:"Ça va bourdonner",              s:"11 rendez-vous, la journée sera rythmée." },
+             { e:"💪", h:"À plein régime",                s:"11 rendez-vous vous attendent aujourd'hui." }],
+    packed: [{ e:"🐝", h:"Marathon en vue !",             s:"16 rendez-vous — pensez à souffler entre deux." },
+             { e:"🏆", h:"Journée record",                s:"16 rendez-vous au programme. Chapeau d'avance." },
+             { e:"💫", h:"Quelle énergie !",              s:"16 rendez-vous — une belle journée de travail." }],
+    done:   [{ e:"🌙", h:"Journée terminée",              s:"11 patients vus aujourd'hui. Bonne soirée." },
+             { e:"👏", h:"C'est dans la boîte",           s:"11 patients vus aujourd'hui. Reposez-vous bien." }]
+  };
+  const TIER_DAY = {
+    empty: "Jeudi 14 août · 08:10", light: "Jeudi 14 août · 09:05",
+    busy: "Jeudi 14 août · 11:40",  packed: "Jeudi 14 août · 11:40",
+    done: "Jeudi 14 août · 19:15"
+  };
+
+  /* Stable per-day rotation — a hash, never Math.random(). The real page
+     live-refreshes on nine realtime keys; a phrase that re-rolls flickers. */
+  function pick(list, seed) {
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+    return list[Math.abs(h) % list.length];
+  }
+
+  const el = (tag, cls, txt) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (txt != null) n.textContent = txt;
+    return n;
+  };
+
+  /* Act mix fans out over the acts, NOT over appointments — 13 acts across
+     11 visits — so the label says « actes » or it contradicts the count beside it. */
+  function actMix() {
+    const by = new Map();
+    APPTS.forEach((a) => a.acts.forEach((k) => by.set(k, (by.get(k) || 0) + 1)));
+    return [...by.entries()].map(([k, n]) => ({ n, ...ACTS[k] })).sort((x, y) => y.n - x.n);
+  }
+
+  function buildRibbon() {
+    const rb = el("div", "ribbon");
+    rb.setAttribute("role", "img");
+    rb.setAttribute("aria-label",
+      "11 rendez-vous entre 08:30 et 17:05, une plage libre de 1 h 45 à partir de 11:45.");
+
+    for (let m = 540; m < DAY_END; m += 60) {
+      const tk = el("div", "tick" + ((m / 60) % 3 === 0 ? " h3" : ""));
+      tk.style.left = pctOf(m) + "%";
+      rb.appendChild(tk);
+    }
+
+    let cursor = DAY_START;
+    APPTS.forEach((a) => {
+      if (a.t - cursor >= 30) {
+        const mins = a.t - cursor;
+        const g = el("div", "gap");
+        g.style.left = pctOf(cursor) + "%";
+        g.style.width = (mins / DAY_LEN * 100) + "%";
+        const s = el("span", null, "");
+        s.dataset.full = mins >= 60
+          ? Math.floor(mins / 60) + " h " + (mins % 60 ? String(mins % 60).padStart(2, "0") + " " : "") + "libre"
+          : mins + " min libre";
+        s.dataset.short = mins >= 60
+          ? Math.floor(mins / 60) + " h " + (mins % 60 ? String(mins % 60).padStart(2, "0") : "")
+          : mins + " min";
+        g.appendChild(s);
+        rb.appendChild(g);
+      }
+      cursor = Math.max(cursor, a.t + a.d);
+    });
+
+    APPTS.forEach((a) => {
+      const b = el("a", "blk" + (a.st === "done" ? " past" : "") + (a.st === "now" ? " now" : ""));
+      b.href = "#";
+      b.style.setProperty("--c", ACTS[a.acts[0]].color);
+      b.style.left = pctOf(a.t) + "%";
+      b.style.width = (a.d / DAY_LEN * 100) + "%";
+      b.setAttribute("aria-label", hhmm(a.t) + " " + a.who + " · " + ACTS[a.acts[0]].name);
+      b.append(el("span", "blk-i", initials(a.who)), el("span", "blk-t", hhmm(a.t)));
+      rb.appendChild(b);
+    });
+
+    const line = el("div", "nowline");
+    line.style.left = pctOf(NOW) + "%";
+    rb.appendChild(line);
+    return rb;
+  }
+
+  function upcard(o) {
+    const a = el("a", "upcard" + (o.live ? " is-live" : ""));
+    a.href = "#";
+    a.style.setProperty("--c", o.color);
+
+    const k = el("span", "up-k");
+    if (o.live) k.appendChild(el("span", "pip"));
+    k.appendChild(document.createTextNode(o.kicker));
+
+    const act = el("span", "up-a");
+    const sw = el("span", "sw"); sw.style.background = o.color;
+    act.append(sw, document.createTextNode(o.act));
+
+    const foot = el("span", "up-foot");
+    foot.append(el("b", null, o.time), el("small", null, o.rel));
+
+    a.append(k, el("span", "up-n", o.who), act, foot);
+    return a;
+  }
+
+  function buildBoard(root, tier) {
+    root.textContent = "";
+    const p = pick(PHRASES[tier], "cabinet-benslah|2026-08-14|" + tier);
+    const empty = tier === "empty";
+
+    /* ZONE 1 */
+    const greet = el("div", "greeting");
+    greet.appendChild(el("span", "g-emoji", p.e));
+    const gbody = el("div", "grow");
+    const eyeb = el("p", "g-eyebrow");
+    eyeb.append(el("span", "zdot"), el("span", null, TIER_DAY[tier]));
+    gbody.append(eyeb, el("p", "phrase", p.h), el("p", "subphrase", p.s));
+    greet.appendChild(gbody);
+    root.appendChild(greet);
+
+    if (empty) return;   // no chair, no shape — those zones are absent, not blank
+
+    /* ZONE 2 */
+    const deck = el("div", "updeck");
+    deck.append(
+      upcard({ live: true,  kicker: "Au fauteuil", who: "Yassine Chaabane",
+               act: "Extraction · 30 min", color: "#E76F51", time: "11:15", rel: "depuis 25 min" }),
+      upcard({ live: false, kicker: "Ensuite",     who: "Farah Mejri",
+               act: "Détartrage · 30 min", color: "#2A9D8F", time: "13:30", rel: "dans 1 h 50" })
+    );
+    root.appendChild(deck);
+
+    /* ZONE 3 */
+    const day = el("div");
+    const dh = el("div", "sec-head");
+    const dt = el("p", "sec-t"); dt.append(el("span", "zdot"), document.createTextNode("La journée"));
+    const dm = el("a", "more", "Agenda →"); dm.href = "#";
+    dh.append(dt, dm);
+
+    const dcard = el("div", "card pad");
+    dcard.appendChild(buildRibbon());
+    const axis = el("div", "axis");
+    ["08:30", "10:00", "11:30", "13:00", "14:30", "16:00", "17:30"]
+      .forEach((t) => axis.appendChild(el("span", null, t)));
+    dcard.appendChild(axis);
+
+    const leg = el("div", "legend");
+    actMix().forEach((m) => {
+      const w = el("span", "lg");
+      w.style.setProperty("--c", m.color);
+      w.append(el("span", "sw"), el("b", null, m.n), el("span", null, m.name));
+      leg.appendChild(w);
+    });
+    dcard.appendChild(leg);
+
+    const facts = el("div", "facts");
+    [["11", "rendez-vous"], ["13", "actes"], ["6 h 30", "au fauteuil"]].forEach(([v, l]) => {
+      const s = el("span");
+      s.append(el("b", null, v), document.createTextNode(" " + l));
+      facts.appendChild(s);
+    });
+    const fin = el("span");
+    fin.append(document.createTextNode("fin prévue "), el("b", null, "17:05"));
+    facts.appendChild(fin);
+    dcard.appendChild(facts);
+
+    day.append(dh, dcard);
+    root.appendChild(day);
+
+    /* ZONE 4 */
+    const al = el("div");
+    const ah = el("div", "sec-head");
+    const at = el("p", "sec-t"); at.append(el("span", "zdot"), document.createTextNode("À traiter"));
+    const am = el("a", "more", "Tout voir →"); am.href = "#";
+    ah.append(at, am);
+    const alerts = el("div", "alerts");
+    [["live", "2", "en salle d'attente"], ["warm", "3", "fiches à saisir"],
+     ["hot", "1", "prothèse en retard"], ["calm", "4", "chèques à encaisser"],
+     ["warm", "3", "articles en stock bas"]].forEach(([tone, n, label]) => {
+      const a = el("a", "alert " + tone); a.href = "#";
+      a.append(el("span", "cap", n), el("span", null, label), el("span", "arw", "›"));
+      alerts.appendChild(a);
+    });
+    al.append(ah, alerts);
+    root.appendChild(al);
+
+    /* ZONE 5 */
+    const ls = el("div");
+    const lh = el("div", "sec-head");
+    const lt = el("p", "sec-t"); lt.append(el("span", "zdot"), document.createTextNode("Les rendez-vous"));
+    const lm = el("a", "more", "Agenda →"); lm.href = "#";
+    lh.append(lt, lm);
+
+    const lcard = el("div", "card pad");
+    APPTS.forEach((a) => {
+      const r = el("a", "ap" + (a.st === "now" ? " is-now" : "") + (a.st === "done" ? " is-past" : ""));
+      r.href = "#";
+      r.style.setProperty("--c", ACTS[a.acts[0]].color);
+      r.appendChild(el("span", "rail"));
+
+      const time = el("span", "aptime");
+      time.append(el("span", "t", hhmm(a.t)), el("span", "d", a.d + " min"));
+
+      const body = el("span", "apbody");
+      const head = el("span", "aphead");
+      head.append(el("span", "apt", hhmm(a.t)), el("span", "apd", a.d + " min"),
+                  el("span", "pill" + (a.st === "now" ? " now" : a.st === "done" ? " done" : ""), ST_LABEL[a.st]));
+      body.appendChild(head);
+      body.appendChild(el("span", "apn", a.who));
+      const acts = el("span", "apacts");
+      a.acts.forEach((k) => {
+        const c = el("span", "tag");
+        const sw = el("span", "sw"); sw.style.background = ACTS[k].color;
+        c.append(sw, document.createTextNode(ACTS[k].name));
+        acts.appendChild(c);
+      });
+      body.appendChild(acts);
+
+      const pill = el("span", "pill" + (a.st === "now" ? " now" : a.st === "done" ? " done" : ""), ST_LABEL[a.st]);
+
+      r.append(time, body, pill);
+      lcard.appendChild(r);
+    });
+    ls.append(lh, lcard);
+    root.appendChild(ls);
+  }
+
+  /* ── the fit pass ────────────────────────────────────────────────────────
+     Labels are MEASURED, never assumed. A 20-minute block is ~40 px on a
+     desktop ribbon and ~6 px at 320 px; « 09:45 » needs about 33 px of its own.
+     Guessing with a media query is what clips a word in half. */
+  function fitLabels() {
+    document.querySelectorAll(".ribbon").forEach((rb) => {
+      rb.querySelectorAll(".blk").forEach((b) => {
+        const w = b.offsetWidth;
+        const i = b.querySelector(".blk-i");
+        const t = b.querySelector(".blk-t");
+        if (!i || !t) return;
+        i.style.display = w >= 40 ? "block" : "none";
+        t.style.display = w >= 62 ? "block" : "none";
+      });
+      rb.querySelectorAll(".gap").forEach((g) => {
+        const w = g.offsetWidth;
+        const s = g.querySelector("span");
+        if (!s) return;
+        if (w >= 86)      { s.textContent = s.dataset.full;  s.style.display = ""; }
+        else if (w >= 52) { s.textContent = s.dataset.short; s.style.display = ""; }
+        else              { s.style.display = "none"; }
+      });
+    });
+  }
+
+  let currentTier = "busy";
+  function renderAll() {
+    document.querySelectorAll("[data-board]").forEach((b) => buildBoard(b, currentTier));
+    requestAnimationFrame(fitLabels);
+  }
+
+  function wireSeg(attr, handler) {
+    document.querySelectorAll("[" + attr + "]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        btn.closest(".seg").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", "false"));
+        btn.setAttribute("aria-pressed", "true");
+        handler(btn.getAttribute(attr));
+      });
+    });
+  }
+
+  renderAll();
+  wireSeg("data-tier", (t) => { currentTier = t; renderAll(); });
+  wireSeg("data-theme-set", (t) => { document.documentElement.setAttribute("data-theme", t); });
+  window.addEventListener("resize", fitLabels);
+</script>

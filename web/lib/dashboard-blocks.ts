@@ -12,7 +12,11 @@ import type { DashboardKpiKey } from '@/lib/dashboard-links';
  * <p>Mirrors the server's `DashboardKpiKeys.All`, which is the write-side authority — an unknown key is refused by
  * `UpdateDashboardPreferencesCommand`, so these two lists must agree. `DashboardKpiKeysTests` pins them.</p>
  */
-export type DashboardBlockKey = DashboardKpiKey | 'trend' | 'todayAppointments';
+export type DashboardBlockKey =
+  | DashboardKpiKey
+  | 'procedureMix'
+  | 'trend'
+  | 'todayAppointments';
 
 /** The sections the customiser groups blocks under, in render order. */
 export const DASHBOARD_SECTION_KEYS = ['activity', 'money', 'alerts', 'other'] as const;
@@ -73,6 +77,7 @@ export const DASHBOARD_BLOCKS: Record<DashboardBlockKey, DashboardBlockMeta> = {
   waitingList: { section: 'alerts', label: 'Salle d’attente', hiddenByDefault: true },
 
   // Autres blocs
+  procedureMix: { section: 'other', label: 'Répartition des actes' },
   trend: { section: 'other', label: 'Tendance des encaissements' },
   todayAppointments: { section: 'other', label: 'Rendez-vous du jour' },
 };

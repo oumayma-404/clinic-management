@@ -126,15 +126,17 @@ export function AppShell({
             "animate-page-in flex-1",
             mainClassName ?? "overflow-y-auto",
             /*
-             * `pb-20` is scroll runway for the AI assistant's launcher, not spacing taste.
+             * `pb-20` is scroll runway for a page's floating action, not spacing taste. A `fixed` FAB
+             * permanently occupies the last ~72 px of `<main>`'s content once the page is scrolled to the
+             * end, and with only `p-4` there the final table row's actions and the pager sit underneath it
+             * and cannot be tapped.
              *
-             * The FAB is `fixed … right-4` at 56 px square, so it permanently occupies the bottom-right corner
-             * of the viewport — i.e. the last ~72 px of `<main>`'s content once the page is scrolled to the
-             * end. With only `p-4` there, the final table row's actions and the pager sat underneath it and
-             * could not be tapped. `/appointments` had already had to move its own FAB for exactly this
-             * collision; every other page still had content under it.
+             * ⚠️ Coarse-pointer widths ONLY, and that is a consequence of deleting the AI assistant. Its
+             * launcher was the one floating element that rendered at every width; the remaining FAB
+             * (`/appointments`) is `md:hidden`, so from `md:` up nothing floats over `<main>` any more and
+             * `md:pb-20` was 80 px of dead space on every page. Re-add it the day a desktop FAB appears.
              */
-            gutter && "p-4 pb-20 md:p-6 md:pb-20",
+            gutter && "p-4 pb-20 md:p-6",
           )}
         >
           {widthClass || contentClassName ? (

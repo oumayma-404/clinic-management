@@ -44,6 +44,7 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
     private readonly IDashboardMoneyReader _moneyReader;
     private readonly IDashboardAlertsReader _alertsReader;
     private readonly IDashboardTrendReader _trendReader;
+    private readonly IDashboardProcedureMixReader _procedureMixReader;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetDashboardQueryHandler> _logger;
 
@@ -52,6 +53,7 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
         IDashboardMoneyReader moneyReader,
         IDashboardAlertsReader alertsReader,
         IDashboardTrendReader trendReader,
+        IDashboardProcedureMixReader procedureMixReader,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetDashboardQueryHandler> logger)
     {
@@ -59,6 +61,7 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
         _moneyReader = moneyReader;
         _alertsReader = alertsReader;
         _trendReader = trendReader;
+        _procedureMixReader = procedureMixReader;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -84,6 +87,10 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
                 clinicId, period, nowUtc, request.DoctorId, cancellationToken);
             var alerts = await _alertsReader.ReadAsync(clinicId, nowUtc, cancellationToken);
             var trend = await _trendReader.ReadAsync(clinicId, period, nowUtc, cancellationToken);
+            // Narrowed by the practitioner filter, unlike Activité and À-traiter: « quels actes ai-je faits »
+            // is a question about one dentist's own work, which is exactly what that filter asks.
+            var procedureMix = await _procedureMixReader.ReadAsync(
+                clinicId, period, request.DoctorId, cancellationToken);
 
             var dto = new DashboardDto
             {
@@ -99,7 +106,8 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
                 Money = money,
                 Receivables = receivables,
                 Alerts = alerts,
-                Trend = trend
+                Trend = trend,
+                ProcedureMix = procedureMix
             };
 
             return Result<DashboardDto>.Success(dto);
