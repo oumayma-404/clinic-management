@@ -73,6 +73,71 @@ factor at once.
 
 ---
 
+## Résidence des données
+
+**Where a clinic's records physically end up is a legal decision, not an ops preference.** Under Tunisia's
+*loi organique 2004-63*, transferring personal data abroad requires **prior INPDP authorization** (art. 51–52),
+health data is separately sensitive, and the penalty under art. 90 (one year's imprisonment plus a 5 000 DT
+fine) falls on the **cabinet** — the *responsable du traitement* — not on the vendor. Choosing a foreign host
+does not merely expose us; it puts every practice using the product in breach.
+
+### The two destinations that matter, and why they are easy to miss
+
+Hosting the *application* in Tunisia is not enough. Two sidecars ship a complete copy of the database
+off-server, and neither is visible from any screen in the product:
+
+| Variable | What leaves | How often |
+|---|---|---|
+| `WALG_S3_ENDPOINT` | every write to every patient record (WAL segments) | **continuously**, within seconds |
+| `BACKUP_REMOTE` | a full `pg_dump` of every clinic | nightly |
+
+⚠️ **`WALG_S3_ENDPOINT` shipped as `https://s3.us-west-002.backblazeb2.com`** — Backblaze, Oregon. An operator
+who copied `.env.hosted.example` and changed only the credentials was continuously exporting every Tunisian
+patient record to the United States, with every layer of the product reporting a healthy deployment. The
+template now carries `CHANGE_ME_s3_endpoint_in_tunisia`, which fails loudly instead.
+
+### The guard
+
+Declare every host this deployment's data may reach:
+
+```
+RESIDENCY_ALLOWED_EGRESS_HOSTS_0=s3.eodatacenter.tn
+RESIDENCY_ALLOWED_EGRESS_HOSTS_1=backup.dataxion.tn
+```
+
+`DataResidencyAssurance` runs at startup, beside the transit check, and **refuses to boot** naming the offending
+host and the compose variable to change. Leave the list empty and the API starts but warns on **every** boot
+that residency is undeclared — *undecided* is not the same as *forbidden*, but it must not be silent either.
+
+⚠️ **It is a declaration, never a geolocation lookup.** Resolving a host to a country at startup is one DNS
+hiccup away from a failed boot, and a CDN address answers honestly in a dozen jurisdictions at once.
+
+⚠️ **`BACKUP_REMOTE` is reported, not verified — and that distinction is the point.** It names an *rclone
+remote*; the real host lives in `rclone/rclone.conf`, a file the API never reads and which belongs to another
+container. It is logged as « non vérifiable » on every boot rather than passed over, because converting
+*unknown* into *checked* on a nightly dump of every clinic's records is worse than having no guard at all.
+**Verify that one by hand.**
+
+⚠️ **A dotless host is not egress.** `minio:9000` is a container on the compose network and never needs
+allow-listing — otherwise operators would learn to paste in whatever the refusal names, and the list would
+stop being a decision.
+
+### Choosing a host
+
+Tunisian options with a Tier III+ floor: **EO Data Center** (Enfidha, carrier-neutral, IaaS + BaaS/DRaaS),
+**DataXion** (the only Tier IV in the country), **Orange Tunisie** (Kalaa Kebira), **Ooredoo Business**.
+
+Take **two** providers, not one: primary and offsite must not share a failure domain, and both must be on the
+allow-list or the guard refuses. Ask each, in writing: the **physical location** of the machine, where snapshots
+live, whether they offer S3-compatible storage in Tunisia, and whether they will sign a *sous-traitant*
+undertaking naming Tunisian territory. A product branded « VPS Tunisie » is not evidence — at least one
+provider's own page advertises that name for a datacentre in **Lisbon**.
+
+> **Also note** `Décret-loi 2023-17`: an **annual cybersecurity audit** by an ANCS-accredited auditor is
+> mandatory for a company processing personal data over telecom networks. It applies wherever you host.
+
+---
+
 ## Transit inside the perimeter
 
 Caddy terminates the internet's TLS. Everything **behind** it is encrypted and verified too: the API↔PostgreSQL

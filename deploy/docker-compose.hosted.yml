@@ -133,7 +133,6 @@ services:
       # No GoogleCalendar__RefreshToken / __CalendarId: each clinic connects its own calendar and the
       # token is stored per-clinic on the Clinic row. A shared one here would sync every clinic's
       # appointments into one operator calendar.
-      HuggingFace__ApiKey_FILE: /run/secrets/huggingface_api_key
       MinIO__Endpoint: "minio:9000"
       MinIO__AccessKey: ${MINIO_ROOT_USER}
       MinIO__SecretKey: ${MINIO_ROOT_PASSWORD}
@@ -141,6 +140,20 @@ services:
       # trust store knows nothing about a CA minted for this deployment, so without it TLS fails closed.
       MinIO__UseSSL: "true"
       MinIO__RootCertificate: /certs/ca.crt
+      # ── Résidence des données ────────────────────────────────────────────────────────────────────
+      # Where this deployment's data may physically end up. `DataResidencyAssurance` REFUSES TO START if a
+      # destination it can see is not on this list; empty means undeclared, which boots but warns every time.
+      #
+      # ⚠️ The two backup variables below are passed to the API **for verification only** — it neither reads
+      # nor writes those destinations, the `backup` and `pitr` sidecars do. They are here because a value no
+      # process can check is a value nobody checks: the sidecars have no startup guard of their own, and the
+      # one that shipped as a Backblaze-Oregon default was invisible at every layer until somebody read the
+      # template. `Backup__Remote` is still only *reported* — it names an rclone remote whose host lives in
+      # rclone.conf, which no container but `backup` can read.
+      Residency__AllowedEgressHosts__0: ${RESIDENCY_ALLOWED_EGRESS_HOSTS_0:-}
+      Residency__AllowedEgressHosts__1: ${RESIDENCY_ALLOWED_EGRESS_HOSTS_1:-}
+      Backup__PitrEndpoint: ${WALG_S3_ENDPOINT:-}
+      Backup__Remote: ${BACKUP_REMOTE:-}
       # ── Abonnements (clinic-subscription) ────────────────────────────────────────────────────────
       # ⚠️ **This is the ONLY deployment kind where the subscription gate exists, and « Abonnement » is where a
       # refused save sends the cabinet.** Left unset, `appsettings.json` ships every price at 0 — which that file's
@@ -234,7 +247,6 @@ services:
       - console_signing_key
       - auth_local_signing_key
       - google_client_secret
-      - huggingface_api_key
     networks: [internal]
     # No `ports:` — Caddy proxies /api/*, /hub/* and /health to this service over the internal network.
     #
@@ -404,8 +416,6 @@ secrets:
     file: ${AUTH_LOCAL_SIGNING_KEY_FILE:-./secrets/auth-local-signing-key}
   google_client_secret:
     file: ${GOOGLE_CLIENT_SECRET_FILE:-./secrets/google-client-secret}
-  huggingface_api_key:
-    file: ${HUGGINGFACE_API_KEY_FILE:-./secrets/huggingface-api-key}
 
 volumes:
   # FR-4.4 — the API's rolling log files, 30 days of them. On the container layer they vanished on every
