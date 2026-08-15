@@ -12,8 +12,10 @@ import { EmptyState } from "@/components/ui/empty-state"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
+import { BillDentalRecordDialog } from "@/components/factures/bill-dental-record-dialog"
 import { appointmentsApi } from "@/lib/api/appointments"
-import type { VisitToCloseDto } from "@/lib/api/types"
+import { dentalRecordsApi } from "@/lib/api/dental-records"
+import type { DentalRecordDto, VisitToCloseDto } from "@/lib/api/types"
 import { showErrorToast } from "@/lib/errors"
 import { formatDateTime } from "@/lib/format"
 import { zoneChipClass, zoneForPath } from "@/lib/zones"
@@ -58,6 +60,7 @@ export function VisitClosureList({
   const router = useRouter()
   const [busyId, setBusyId] = useState<string | null>(null)
   const [nothingToBillFor, setNothingToBillFor] = useState<VisitToCloseDto | null>(null)
+  const [billing, setBilling] = useState<{ record: DentalRecordDto; patientName: string } | null>(null)
 
   /** « Venu » / « Absent ». The two legal answers to the presence question, and an ordinary status update. */
   const answerPresence = async (visit: VisitToCloseDto, came: boolean) => {
@@ -82,9 +85,29 @@ export function VisitClosureList({
       )}`,
     )
 
-  /** The fiche's own « Facturer cette intervention » lives on the patient page; land on it rather than rebuild it. */
-  const openBilling = (visit: VisitToCloseDto) =>
-    router.push(`/patients/${encodeURIComponent(visit.patientId)}?tab=records`)
+  /**
+   * « Encaisser » — the fiche's own `BillDentalRecordDialog`, opened here rather than on the patient page.
+   *
+   * The fiche is fetched on the click because the row carries only its id; that is one request on an explicit
+   * action, and the alternative was landing the user on a records tab to find the séance themselves.
+   */
+  const openBilling = async (visit: VisitToCloseDto) => {
+    if (!visit.dentalRecordId) return
+    setBusyId(visit.appointmentId)
+    try {
+      const records = await dentalRecordsApi.list(visit.patientId)
+      const record = records.find((r) => r.id === visit.dentalRecordId)
+      if (!record) {
+        showErrorToast(new Error("Fiche de soins introuvable."))
+        return
+      }
+      setBilling({ record, patientName: visit.patientName })
+    } catch (err) {
+      showErrorToast(err)
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   const zone = zoneForPath("/a-cloturer")
 
@@ -193,6 +216,16 @@ export function VisitClosureList({
           onChanged()
         }}
       />
+
+      <BillDentalRecordDialog
+        record={billing?.record ?? null}
+        patientName={billing?.patientName ?? ""}
+        onOpenChange={(open) => !open && setBilling(null)}
+        onSuccess={() => {
+          setBilling(null)
+          onChanged()
+        }}
+      />
     </>
   )
 }
@@ -248,7 +281,7 @@ function RowActions({
   busy: boolean
   onPresence: (visit: VisitToCloseDto, came: boolean) => void
   onFiche: (visit: VisitToCloseDto) => void
-  onBilling: (visit: VisitToCloseDto) => void
+  onBilling: (visit: VisitToCloseDto) => void | Promise<void>
   onNothingToBill: (visit: VisitToCloseDto) => void
 }) {
   if (visit.nextStep === "Presence") {
@@ -277,7 +310,7 @@ function RowActions({
 
   return (
     <>
-      <Button size="sm" disabled={busy} onClick={() => onBilling(visit)}>
+      <Button size="sm" disabled={busy} onClick={() => void onBilling(visit)}>
         <Receipt aria-hidden="true" className="me-1.5 size-4" />
         Encaisser
       </Button>

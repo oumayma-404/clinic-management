@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Appointments;
@@ -81,6 +82,15 @@ public static class VisitClosureReader
         var invoiceLinks = await AppointmentInvoiceLinks.ResolveAsync(
             invoices, clinicId, appointmentIds, cancellationToken);
 
+        // ⚠️ A visit is also billed when a live note names one of its FICHES, not only when it names the visit.
+        // Invoice.AppointmentId is copied from the fiche's own link, which was null on every fiche not created
+        // through the post-visit deep link — so every séance billed before that link existed carries a real,
+        // paid note this read could not see, and the worklist asked the practice to collect the money twice.
+        var billedFicheIds = (await invoices.GetDentalRecordLinksAsync(clinicId, cancellationToken))
+            .Where(l => l.Status != InvoiceStatus.Cancelled)
+            .Select(l => l.DentalRecordId)
+            .ToHashSet();
+
         var planItemIds = candidates
             .SelectMany(a => a.LinkedTreatmentPlanItemIds)
             .Distinct()
@@ -99,7 +109,8 @@ public static class VisitClosureReader
 
         foreach (var appointment in candidates)
         {
-            var input = BuildInput(appointment, fichesByAppointment, invoiceLinks, debtBearingItemIds);
+            var input = BuildInput(
+                appointment, fichesByAppointment, invoiceLinks, debtBearingItemIds, billedFicheIds);
 
             // The end-of-slot test runs here and not in SQL: `Duration` is persisted as ticks behind a value
             // converter, so `AppointmentDateTime + Duration` has no translation, and the trigger-maintained
@@ -136,7 +147,8 @@ public static class VisitClosureReader
         Appointment appointment,
         IReadOnlyDictionary<Guid, List<(Guid AppointmentId, Guid DentalRecordId, decimal Cost)>> fiches,
         IReadOnlyDictionary<Guid, AppointmentInvoiceLinks.Link> invoiceLinks,
-        IReadOnlySet<Guid> debtBearingItemIds)
+        IReadOnlySet<Guid> debtBearingItemIds,
+        IReadOnlySet<Guid> billedFicheIds)
     {
         var hasFiche = fiches.TryGetValue(appointment.Id, out var rows) && rows.Count > 0;
 
@@ -153,7 +165,8 @@ public static class VisitClosureReader
             Duration: appointment.Duration,
             HasFiche: hasFiche,
             FicheCost: ficheCost,
-            HasLiveInvoice: invoiceLinks.ContainsKey(appointment.Id),
+            HasLiveInvoice: invoiceLinks.ContainsKey(appointment.Id)
+                || (hasFiche && rows!.Any(r => billedFicheIds.Contains(r.DentalRecordId))),
             CoveredByPlan: appointment.LinkedTreatmentPlanItemIds.Any(debtBearingItemIds.Contains),
             NothingToBill: appointment.IsNothingToBill);
     }

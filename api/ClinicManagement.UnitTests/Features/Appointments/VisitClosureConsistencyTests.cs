@@ -55,6 +55,55 @@ public class VisitClosureConsistencyTests
         }
     }
 
+    /// <summary>
+    /// A visit whose fiche is on a live note d'honoraires that names <b>no appointment</b> — the state every
+    /// séance billed before <c>DentalRecord.AppointmentId</c> was populated is in.
+    ///
+    /// <para>It was reported as « Encaissement à faire » on money already collected, i.e. the worklist asked the
+    /// practice to charge the patient twice. Verified against a real clinic database: five paid fiches, five live
+    /// invoices, <c>Invoices.AppointmentId</c> null on every one.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_Fiche_On_A_Live_Invoice_Closes_The_Money_Question_Without_An_Appointment_Link()
+    {
+        var visit = Visit(AppointmentStatus.Completed);
+        var ficheId = Guid.NewGuid();
+        Wire(visit);
+
+        _dentalRecords.Setup(r => r.GetAppointmentLinksAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (visit.Id, ficheId, 400m) });
+
+        // The note bills the fiche and names no appointment — GetAppointmentLinksAsync stays empty.
+        _invoices.Setup(r => r.GetDentalRecordLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (ficheId, Guid.NewGuid(), (string?)"2026-0001", InvoiceStatus.Paid) });
+
+        Assert.Empty(await ReadWorklist());
+        Assert.Equal(0, (await ReadDashboard()).VisitsToClose);
+    }
+
+    /// <summary>A <b>cancelled</b> note bills nothing, so the séance stays open — the same rule
+    /// <c>AppointmentInvoiceLinks</c> applies to the appointment-linked side.</summary>
+    [Fact]
+    public async Task A_Cancelled_Note_On_The_Fiche_Leaves_The_Money_Question_Open()
+    {
+        var visit = Visit(AppointmentStatus.Completed);
+        var ficheId = Guid.NewGuid();
+        Wire(visit);
+
+        _dentalRecords.Setup(r => r.GetAppointmentLinksAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (visit.Id, ficheId, 400m) });
+
+        _invoices.Setup(r => r.GetDentalRecordLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (ficheId, Guid.NewGuid(), (string?)"2026-0001", InvoiceStatus.Cancelled) });
+
+        var open = await ReadWorklist();
+
+        Assert.Single(open);
+        Assert.Equal(VisitClosureStep.Billing, open[0].State.NextStep);
+    }
+
     private void Wire(params Appointment[] candidates)
     {
         _appointments.Setup(r => r.GetClosureCandidatesAsync(
@@ -68,6 +117,10 @@ public class VisitClosureConsistencyTests
 
         _invoices.Setup(r => r.GetAppointmentLinksAsync(
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
+
+        // The fiche→note side. Nothing billed by default; the two cases above override it.
+        _invoices.Setup(r => r.GetDentalRecordLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
 
         _plans.Setup(r => r.GetDebtBearingItemIdsAsync(

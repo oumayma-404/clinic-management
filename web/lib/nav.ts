@@ -45,6 +45,8 @@ export const baseSections: NavSection[] = [
     items: [
       { name: "Tableau de bord", href: "/", icon: LayoutDashboard },
       { name: "Rendez-vous", href: "/appointments", icon: Calendar },
+      // Deliberately NOT in SECRETARY_HIDDEN_HREFS: reception is who knows whether the patient came.
+      { name: "À clôturer", href: "/a-cloturer", icon: ClipboardCheck },
       // « RDV récurrents » (/recurring-series) is gone — the screen was withdrawn. Its BACKEND and the screen
       // itself are deliberately intact (`app/recurring-series/page.tsx` keeps the component, unrouted).
       { name: "Salle d'attente", href: "/waiting-list", icon: Clock },
