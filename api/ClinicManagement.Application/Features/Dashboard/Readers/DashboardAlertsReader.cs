@@ -1,4 +1,5 @@
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Appointments;
 using ClinicManagement.Application.Features.Recall;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -24,6 +25,9 @@ public class DashboardAlertsReader : IDashboardAlertsReader
     private readonly ILabWorkOrderRepository _labWorkOrderRepository;
     private readonly IStockItemRepository _stockItemRepository;
     private readonly IClinicRepository _clinicRepository;
+    private readonly IAppointmentRepository _appointmentRepository;
+    private readonly IDentalRecordRepository _dentalRecordRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
 
     public DashboardAlertsReader(
         IWaitingListRepository waitingListRepository,
@@ -31,7 +35,10 @@ public class DashboardAlertsReader : IDashboardAlertsReader
         IPatientRepository patientRepository,
         ILabWorkOrderRepository labWorkOrderRepository,
         IStockItemRepository stockItemRepository,
-        IClinicRepository clinicRepository)
+        IClinicRepository clinicRepository,
+        IAppointmentRepository appointmentRepository,
+        IDentalRecordRepository dentalRecordRepository,
+        IInvoiceRepository invoiceRepository)
     {
         _waitingListRepository = waitingListRepository;
         _planRepository = planRepository;
@@ -39,6 +46,9 @@ public class DashboardAlertsReader : IDashboardAlertsReader
         _labWorkOrderRepository = labWorkOrderRepository;
         _stockItemRepository = stockItemRepository;
         _clinicRepository = clinicRepository;
+        _appointmentRepository = appointmentRepository;
+        _dentalRecordRepository = dentalRecordRepository;
+        _invoiceRepository = invoiceRepository;
     }
 
     public async Task<DashboardAlertsDto> ReadAsync(Guid clinicId, DateTime nowUtc, CancellationToken cancellationToken)
@@ -68,9 +78,25 @@ public class DashboardAlertsReader : IDashboardAlertsReader
             ? await _stockItemRepository.CountExpiringSoonAsync(clinicId, leadDays, nowUtc, cancellationToken)
             : 0;
 
+        // « À clôturer » — read through the very helper the worklist itself uses, never a second predicate, so
+        // the chip and the page it opens cannot report different numbers. It is a count of rows rather than a
+        // COUNT(*) because the rule is not expressible in SQL (the end-of-slot test, and the three-way gap), and
+        // what bounds it is the window: a clinic's recent agenda, not its history.
+        var visitsToClose = await VisitClosureReader.ReadAsync(
+            clinicId,
+            days: null,
+            doctorId: null,
+            nowUtc,
+            _appointmentRepository,
+            _dentalRecordRepository,
+            _invoiceRepository,
+            _planRepository,
+            cancellationToken);
+
         return new DashboardAlertsDto
         {
             WaitingList = waitingList,
+            VisitsToClose = visitsToClose.Count,
             DraftPlans = draftPlans,
             PatientsToRecall = patientsToRecall,
             OverdueLabOrders = overdueLabOrders,

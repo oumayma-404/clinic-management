@@ -88,7 +88,7 @@ public class IssueInvoiceCommandHandler : IRequestHandler<IssueInvoiceCommand, R
 
                 if (attempt == 1)
                 {
-                    invoice.Issue(number, clinic.VatApplicable, clinic.VatRate, clinic.StampDutyEnabled, clinic.StampDutyAmount);
+                    invoice.Issue(number);
 
                     // The totals are frozen now, so this is the first moment the carry-over can be bounded.
                     var carryOver = await CarryOverPlanPaymentsAsync(invoice, cancellationToken);

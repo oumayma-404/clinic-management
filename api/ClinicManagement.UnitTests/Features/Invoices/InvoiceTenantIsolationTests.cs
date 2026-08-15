@@ -49,7 +49,7 @@ public class InvoiceTenantIsolationTests
     {
         var invoice = new Invoice(Guid.NewGuid(), OtherClinicId, PatientId);
         invoice.SetLines(new[] { ("Acte", 1, 100m) });
-        invoice.Issue("2026-0001", false, 0m, false, 0m);
+        invoice.Issue("2026-0001");
         return invoice;
     }
 

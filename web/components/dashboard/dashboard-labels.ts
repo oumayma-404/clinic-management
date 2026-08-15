@@ -15,6 +15,7 @@ export const KPI_LABELS: Record<DashboardKpiKey, string> = {
   refunds: 'Avoirs remboursés',
   expenses: 'Dépenses',
   net: 'Net',
+  visitsToClose: 'Séances à clôturer',
   waitingList: 'Salle d’attente',
   draftPlans: 'Devis en attente de réponse',
   overdueLabOrders: 'Prothèses en retard',
@@ -33,6 +34,7 @@ export const KPI_DESCRIPTIONS: Record<DashboardKpiKey, string> = {
   refunds: 'Remboursés aux patients',
   expenses: 'Sorties de caisse',
   net: 'Encaissé moins avoirs et dépenses',
+  visitsToClose: 'Venue, fiche ou paiement à renseigner',
   waitingList: 'Patients en attente',
   draftPlans: 'Sans réponse du patient',
   overdueLabOrders: 'Au laboratoire, délai dépassé',
@@ -56,6 +58,24 @@ export const PREVIOUS_PERIOD_LABELS: Record<DashboardPeriodKey, string> = {
   Week: 'la semaine dernière',
   Month: 'le mois dernier',
 };
+
+/**
+ * The whole « comparé à … » sentence, built here rather than interpolated at the call site.
+ *
+ * ⚠️ **`à` + `le` contracts to `au`, and interpolation cannot know that.** The labels above were written for
+ * « vs. hier », where they read correctly on their own; dropped into `Comparé à ${label}` they produced
+ * « Comparé à le mois dernier » on the dashboard's Activité and Argent sections. The fix is not a second,
+ * contracted copy of the map — two maps drift — but one function that owns the phrase, so the words and the
+ * grammar rule that binds them live together and a fourth period cannot reintroduce the defect.
+ */
+export function comparedToLabel(period: DashboardPeriodKey): string {
+  const contracted: Record<DashboardPeriodKey, string> = {
+    Today: 'à hier',
+    Week: 'à la semaine dernière',
+    Month: 'au mois dernier',
+  };
+  return `Comparé ${contracted[period]}`;
+}
 
 export const SECTION_LABELS = {
   activity: 'Activité',

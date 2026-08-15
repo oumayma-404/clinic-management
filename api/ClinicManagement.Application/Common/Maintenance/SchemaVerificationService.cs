@@ -459,6 +459,17 @@ public class SchemaVerificationService
                   + "the L9 backfill did not reach them",
             n => n == 0);
 
+        // The fiche→visit backfill, and the reason it earns a line rather than riding the model diff: the column
+        // and its index have existed since AddDentalRecordAppointmentId and are checked against the catalog for
+        // free, while only one write path ever populated them. A non-zero count means « À clôturer » is about to
+        // report a missing fiche for visits that have one — the loudest wrong answer this feature can give.
+        Add("dental-record-visit-links-backfill", counts.FichesResolvableToOneVisitStillUnlinked,
+            n => n == 0
+                ? "0 fiche is unlinked while its day holds exactly one candidate visit"
+                : $"{n} fiche(s) could be tied to a single visit on their own day and are not — the "
+                  + "BackfillDentalRecordAppointmentLinks migration did not reach them",
+            n => n == 0);
+
         // Part 6's push tables. Their shape is diffed against the catalog for free, so the only line here is the
         // one relationship no constraint can state: a queued push and the device it is addressed to must belong to
         // the same clinic. A mismatch is a cross-clinic notification, and a lock screen has no request-time check

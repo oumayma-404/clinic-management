@@ -24,7 +24,7 @@ public class InvoicePaymentVoidTests
     {
         var invoice = new Invoice(Guid.NewGuid(), ClinicId, PatientId);
         invoice.SetLines(new[] { ("Détartrage", 1, total) });
-        invoice.Issue("2026-0031", vatApplicable: false, vatRate: 0m, stampDutyEnabled: false, stampDutyAmount: 0m);
+        invoice.Issue("2026-0031");
         return invoice;
     }
 

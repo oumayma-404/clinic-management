@@ -275,15 +275,14 @@ public class BillDentalRecordCommandHandler
             return Result<DentalRecordBillingResult>.Failure("Cette fiche de soins ne comporte aucun acte facturable.");
         }
 
-        // Over-payment is checked against the TTC the invoice *will* freeze, and not after `Issue()` — every
+        // Over-payment is checked against the total the invoice *will* freeze, and not after `Issue()` — every
         // refusal must happen before a number is consumed, or a typo in an amount leaves a numbered, unpaid note
-        // d'honoraires behind. `InvoiceCalculator.Compute` with the clinic's own VAT/stamp settings is the same
-        // arithmetic `Issue` runs, from the same authority.
+        // d'honoraires behind. `InvoiceCalculator.Compute` is the same arithmetic `Issue` runs, from the same
+        // authority — which is now simply the sum of the acts, since there is no TVA and no timbre to add. That
+        // is what makes the fiche de soins' « Reste à payer » true: the figure the dentist reads chairside and
+        // the total of the note this produces are the same number by construction.
         var expectedTtc = InvoiceCalculator.Compute(
-            lines.Sum(l => InvoiceCalculator.LineTotal(l.Quantity, l.UnitPriceHt)),
-            clinic.VatApplicable,
-            clinic.VatApplicable ? clinic.VatRate : 0m,
-            clinic.StampDutyEnabled ? clinic.StampDutyAmount : 0m).TotalTtc;
+            lines.Sum(l => InvoiceCalculator.LineTotal(l.Quantity, l.UnitPriceHt))).TotalTtc;
 
         PaymentMethod? method = null;
         DateTime paidOn = default;
@@ -298,7 +297,18 @@ public class BillDentalRecordCommandHandler
             (method, paidOn, cheque) = payment.Value;
         }
 
-        var invoice = new Invoice(Guid.NewGuid(), clinicId, record.PatientId, dentalRecordId: record.Id);
+        // ⚠️ `appointmentId` is passed, and it is not decoration. `Invoice.AppointmentId` is what
+        // `IInvoiceRepository.GetAppointmentLinksAsync` reads to answer « cette consultation a-t-elle été
+        // facturée ? », which the agenda renders as « Facturé ». It used to be omitted here while the fiche
+        // carried the id all along, so a visit billed through its own fiche de soins — the product's most common
+        // billing route — read as unbilled for ever, and staff could raise a second note for work already
+        // invoiced. The fiche's own appointment is the right answer: this note bills that visit.
+        var invoice = new Invoice(
+            Guid.NewGuid(),
+            clinicId,
+            record.PatientId,
+            dentalRecordId: record.Id,
+            appointmentId: record.AppointmentId);
 
         // L9 — the attribution travels with the money. The fiche already knows who performed the séance, so the
         // note d'honoraires it produces takes that practitioner verbatim rather than re-deriving it: this command
@@ -323,8 +333,7 @@ public class BillDentalRecordCommandHandler
 
                 if (attempt == 1)
                 {
-                    invoice.Issue(
-                        number, clinic.VatApplicable, clinic.VatRate, clinic.StampDutyEnabled, clinic.StampDutyAmount);
+                    invoice.Issue(number);
 
                     if (method is { } resolvedMethod)
                     {

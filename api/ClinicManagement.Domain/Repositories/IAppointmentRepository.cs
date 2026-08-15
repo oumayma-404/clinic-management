@@ -86,6 +86,45 @@ public interface IAppointmentRepository
     Task<IReadOnlyList<Appointment>> GetRunningNotStartedAsync(
         DateTime nowUtc, TimeSpan longestVisit, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Candidates for « à clôturer »: this clinic's patient-bearing visits that started in
+    /// <c>[fromUtc, nowUtc]</c> and are neither <c>Cancelled</c> nor <c>NoShow</c> — both of which are complete
+    /// answers rather than gaps.
+    ///
+    /// <para><b>The exact end-of-slot test is the CALLER's, in memory</b>, and that split is forced for
+    /// <see cref="GetRunningNotStartedAsync"/>'s reason: <c>Duration</c> is persisted as <b>ticks</b> behind a
+    /// value converter, so <c>AppointmentDateTime + Duration</c> has no translation, and the database's own
+    /// <c>AppointmentEndDateTime</c> column (trigger-maintained for the double-booking constraint) is deliberately
+    /// unmapped. What makes that safe here is the window: <c>fromUtc</c> is a bounded number of clinic-local days,
+    /// so the set the caller filters is a clinic's recent agenda rather than its history.</para>
+    ///
+    /// <para>Ordered oldest-first with <c>Id</c> as a unique tie-break, because the caller pages this: <c>OFFSET</c>
+    /// over a non-unique sort can show a row on two pages and skip another, which reads as « une séance a
+    /// disparu ». Procedures are included — a row names the acts the séance was booked for.</para>
+    /// </summary>
+    Task<IReadOnlyList<Appointment>> GetClosureCandidatesAsync(
+        Guid clinicId,
+        DateTime fromUtc,
+        DateTime nowUtc,
+        Guid? doctorId = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// This patient's non-cancelled, non-missed appointments whose slot <b>starts</b> inside
+    /// <c>[dayStartUtc, dayLastTickUtc]</c> — the candidate set behind « which visit does this fiche document? ».
+    /// Both bounds are <b>inclusive</b>, matching what <c>ClinicClock.LocalDayRangeUtc</c> hands the caller.
+    ///
+    /// <para>Deliberately returns every candidate rather than picking one: the rule that exactly one candidate
+    /// may be linked, and that zero or several leave the link null, belongs to
+    /// <c>Application/Features/Patients/DentalRecordVisitLink</c> and must not be re-expressed as a
+    /// <c>FirstOrDefault</c> here — guessing links a fiche to the wrong visit and auto-completes it.</para>
+    /// </summary>
+    Task<IReadOnlyList<Appointment>> GetForPatientOnDayAsync(
+        Guid patientId,
+        DateTime dayStartUtc,
+        DateTime dayLastTickUtc,
+        CancellationToken cancellationToken = default);
+
     Task<Appointment> AddAsync(Appointment appointment, CancellationToken cancellationToken = default);
     Task UpdateAsync(Appointment appointment, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);

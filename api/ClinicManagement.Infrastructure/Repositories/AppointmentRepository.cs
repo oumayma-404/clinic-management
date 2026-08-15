@@ -209,6 +209,53 @@ public class AppointmentRepository : IAppointmentRepository
         return candidates.Where(a => a.AppointmentDateTime + a.Duration > nowUtc).ToList();
     }
 
+    public async Task<IReadOnlyList<Appointment>> GetClosureCandidatesAsync(
+        Guid clinicId,
+        DateTime fromUtc,
+        DateTime nowUtc,
+        Guid? doctorId = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.Appointments
+            // The acts the séance was booked for — the row names them, and without this the projection would
+            // issue one query per appointment to say « Détartrage ».
+            .Include(a => a.Procedures)
+            .Where(a => a.ClinicId == clinicId
+                        // A « créneau occupé » has nothing to close.
+                        && a.PatientId != null
+                        // Both are complete answers rather than gaps: a visit that did not happen needs no fiche
+                        // and owes no money. Excluded here so the in-memory rule never has to un-say them.
+                        && a.Status != AppointmentStatus.Cancelled
+                        && a.Status != AppointmentStatus.NoShow
+                        && a.AppointmentDateTime >= fromUtc
+                        && a.AppointmentDateTime <= nowUtc
+                        && (doctorId == null || a.DoctorId == doctorId))
+            // Unique column last — the caller pages this, and OFFSET over a non-unique sort can show a row on two
+            // pages and skip another, which on this screen reads as « une séance a disparu ».
+            .OrderBy(a => a.AppointmentDateTime)
+            .ThenBy(a => a.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Appointment>> GetForPatientOnDayAsync(
+        Guid patientId,
+        DateTime dayStartUtc,
+        DateTime dayLastTickUtc,
+        CancellationToken cancellationToken = default)
+    {
+        // Every candidate, never a FirstOrDefault: which one may be linked — and that several means none — is
+        // DentalRecordVisitLink's rule, and a second copy of it here would guess where that one refuses.
+        return await _context.Appointments
+            .Where(a => a.PatientId == patientId
+                        && a.Status != AppointmentStatus.Cancelled
+                        && a.Status != AppointmentStatus.NoShow
+                        && a.AppointmentDateTime >= dayStartUtc
+                        && a.AppointmentDateTime <= dayLastTickUtc)
+            .OrderBy(a => a.AppointmentDateTime)
+            .ThenBy(a => a.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IEnumerable<Appointment>> GetAppointmentsForDateAsync(DateTime date, CancellationToken cancellationToken = default)
     {
         var startOfDay = date.Date;

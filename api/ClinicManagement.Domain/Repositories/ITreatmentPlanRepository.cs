@@ -214,6 +214,24 @@ public interface ITreatmentPlanRepository
     Task<IReadOnlyList<(Guid PatientId, decimal Outstanding, DateTime? OldestOverdueDueDate)>> GetInstallmentOutstandingByPatientAsync(
         Guid clinicId, DateTime asOfUtc, IReadOnlyCollection<Guid> excludedPlanIds, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Which of <paramref name="itemIds"/> belong to a devis that actually carries patient debt — i.e. whose
+    /// plan's status is in <c>PlanBillingRules.DebtBearingPlanStatuses</c>.
+    ///
+    /// <para>Behind « cette séance est couverte par un devis » in the closure worklist. It cannot be answered
+    /// from the appointment alone: an appointment keeps its plan link after the devis is <b>cancelled</b>, and
+    /// reading the link as proof of cover would leave those visits permanently reported as billed with nothing
+    /// behind them — the exact « Facturé with no money » failure <c>AppointmentInvoiceLinks</c> excludes
+    /// cancelled notes to avoid.</para>
+    ///
+    /// <para>A light id projection, bounded by the caller's set: the alternative is loading each plan with its
+    /// acts and its échéancier to test one status.</para>
+    /// </summary>
+    Task<IReadOnlyList<Guid>> GetDebtBearingItemIdsAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> itemIds,
+        CancellationToken cancellationToken = default);
+
     Task<TreatmentPlan> AddAsync(TreatmentPlan plan, CancellationToken cancellationToken = default);
     Task UpdateAsync(TreatmentPlan plan, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);

@@ -61,12 +61,22 @@ public class InvoicePdfMentionsTests
             .ReturnsAsync(new byte[] { 0x25, 0x50, 0x44, 0x46 });
     }
 
+    /// <param name="stampEnabled">
+    /// Writes the frozen <c>StampDutyAmount</c> a <b>historical</b> note carries. No code path mints one any
+    /// more — the product applies no timbre fiscal, so <c>Issue</c> leaves the column at zero — but rows issued
+    /// before that change still hold 1,000 DT, and the PDF footer's « droit de timbre » mention still has to
+    /// appear on them. Setting the column directly reproduces EF materialising such a row, which is now the only
+    /// way one exists.
+    /// </param>
     private Invoice IssuedInvoice(bool stampEnabled = true)
     {
         var invoice = new Invoice(Guid.NewGuid(), ClinicId, PatientId);
         invoice.SetLines(new[] { ("Détartrage", 1, 100m) });
-        invoice.Issue("2026-0001", vatApplicable: true, vatRate: 7m,
-            stampDutyEnabled: stampEnabled, stampDutyAmount: stampEnabled ? 1.000m : 0m);
+        invoice.Issue("2026-0001");
+        if (stampEnabled)
+        {
+            typeof(Invoice).GetProperty(nameof(Invoice.StampDutyAmount))!.SetValue(invoice, 1.000m);
+        }
         _invoices.Setup(r => r.GetByIdAsync(invoice.Id, It.IsAny<CancellationToken>())).ReturnsAsync(invoice);
         return invoice;
     }

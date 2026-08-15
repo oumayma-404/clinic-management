@@ -155,6 +155,47 @@ export interface DashboardAlertsDto {
   expiringStock: number;
   /** False when the clinic switched the approaching-expiry alert off — the figure is hidden, not shown as 0. */
   expiryAlertEnabled: boolean;
+  /**
+   * Séances past their slot still owing a presence, a fiche or a money document — counted through the same rule
+   * the « À clôturer » worklist itself uses, so the chip and the page it opens can never disagree.
+   */
+  visitsToClose: number;
+}
+
+/** The one question a still-open séance is asking. They cascade: a row shows the next, never all three. */
+export type VisitClosureStep = 'Presence' | 'Fiche' | 'Billing';
+
+/**
+ * One row of « À clôturer ».
+ *
+ * Carries all three answers **and** the single next question. The booleans draw the progress; `nextStep` is what
+ * the row may *ask*. Never re-derive the cascade in the browser — a second copy of « ask presence before the
+ * fiche » is how one surface starts nagging about a fiche for a visit nobody has confirmed happened.
+ */
+export interface VisitToCloseDto {
+  appointmentId: string;
+  patientId: string;
+  patientName: string;
+  /** Slot start, UTC. */
+  appointmentDateTime: string;
+  durationMinutes: number;
+  doctorId?: string | null;
+  doctorName?: string | null;
+  /** The acts the séance was booked for. Empty for a booking with none — a real state, not a missing one. */
+  procedures: string[];
+  /** The visit's own status, so a row can say « En cours » rather than only « à confirmer ». */
+  status: string;
+  presenceAnswered: boolean;
+  ficheRecorded: boolean;
+  billingSettled: boolean;
+  nextStep: VisitClosureStep;
+  /** A fiche already recorded for this visit, so the action can open it rather than offer to create a second. */
+  dentalRecordId?: string | null;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  /** Present when a colleague recorded that this séance raises no document — a fact about a person, not the work. */
+  nothingToBillReason?: string | null;
+  nothingToBillAtUtc?: string | null;
 }
 
 export interface MonthlyCollectedPointDto {

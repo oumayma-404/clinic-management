@@ -63,6 +63,13 @@ public static class DashboardKpiKeys
     public const string LowStock = "lowStock";
     public const string ExpiringStock = "expiringStock";
 
+    /// <summary>
+    /// « À clôturer » — séances past their slot still missing a presence, a fiche or a money document.
+    /// Hideable like every other alert: a single-dentist practice that closes each visit at the chair genuinely
+    /// has nothing here, and a permanently-zero chip is one more thing to read past every morning.
+    /// </summary>
+    public const string VisitsToClose = "visitsToClose";
+
     /// <summary>The trend chart is hideable too — it is a section, but from the user's side it is one more block.</summary>
     public const string Trend = "trend";
 
@@ -84,6 +91,7 @@ public static class DashboardKpiKeys
         Refunds,
         Expenses,
         Net,
+        VisitsToClose,
         WaitingList,
         DraftPlans,
         OverdueLabOrders,

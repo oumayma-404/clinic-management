@@ -1,5 +1,5 @@
 import {
-  ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react"
+  ClipboardCheck, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react"
 import { buildNavSections } from "@/lib/nav"
 
 /**
@@ -105,6 +105,8 @@ export const ZONES: Record<ZoneKey, Zone> = {
  */
 const ROUTE_ZONES: Array<[string, ZoneKey]> = [
   ["/appointments", "daily"],
+  // « À clôturer » is the agenda's other half — finishing the séances the agenda booked — so it shares its zone.
+  ["/a-cloturer", "daily"],
   ["/recurring-series", "daily"],
   ["/waiting-list", "daily"],
   ["/patients", "daily"],
@@ -178,6 +180,9 @@ const EXTRA_ICONS: Array<[string, LucideIcon]> = [
   ["/mon-profil", UserRound],
   ["/securite", ShieldCheck],
   ["/patients", Users],
+  // Reached from the dashboard chip and the agenda strip, never from the rail — without an entry here it would
+  // fall through to nothing, since no shorter prefix matches it.
+  ["/a-cloturer", ClipboardCheck],
 ]
 
 export function navIconForPath(pathname: string | null | undefined): LucideIcon | undefined {

@@ -151,6 +151,21 @@ public class DashboardAlertsDto
     /// would claim nothing is expiring when in truth nothing was checked.
     /// </summary>
     public bool ExpiryAlertEnabled { get; set; }
+
+    /// <summary>
+    /// Séances whose slot has passed and which still owe one of the three answers — est-il venu, qu'a-t-on fait,
+    /// combien a-t-il payé.
+    ///
+    /// <para>Counted over the same window and through the same <c>VisitClosureRules</c> the « À clôturer » list
+    /// itself uses, so the chip and the page it opens cannot report different numbers — the rule this whole
+    /// section already follows.</para>
+    ///
+    /// <para>⚠️ It is deliberately <b>not</b> the only surface: <c>GET /api/dashboard</c> is <c>AdminOrDoctor</c>
+    /// and a secretary is redirected off the dashboard entirely, so reception — who knows whether the patient came
+    /// and who takes the money — would never see it. The worklist and the agenda strip are the primary surfaces
+    /// and are <c>AnyClinicRole</c>; this chip is the owner's morning view of the same figure.</para>
+    /// </summary>
+    public int VisitsToClose { get; set; }
 }
 
 /// <summary>One point on the « Tendance » sparkline.</summary>

@@ -103,7 +103,7 @@ public class MoneyReadConsistencyTests
     {
         var invoice = new Invoice(Guid.NewGuid(), ClinicId, PatientId, treatmentPlanId: plan.Id);
         invoice.SetLines(new[] { ("Couronne", 1, 1000m) });
-        invoice.Issue("2026-0031", vatApplicable: false, vatRate: 0m, stampDutyEnabled: false, stampDutyAmount: 0m);
+        invoice.Issue("2026-0031");
         return invoice;
     }
 

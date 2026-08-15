@@ -18,6 +18,7 @@ export type DashboardKpiKey =
   | 'refunds'
   | 'expenses'
   | 'net'
+  | 'visitsToClose'
   | 'waitingList'
   | 'draftPlans'
   | 'overdueLabOrders'
@@ -87,6 +88,11 @@ export const DASHBOARD_LINKS: Record<DashboardKpiKey, (period: DashboardPeriodDt
 
   // No `receivables`: the « Créances » screen was withdrawn, so the figure it linked to is off the dashboard too.
   // `DashboardReceivablesDto` is still served — this union governs the cards, not the read.
+  // The worklist itself, not a filtered agenda: « à clôturer » is not an appointment *status* the calendar can
+  // filter on — it is the absence of a fiche or a note d'honoraires, which only this screen computes. No date
+  // params either; the window is the server's and defaults to the same 7 days the count was taken over.
+  visitsToClose: () => '/a-cloturer',
+
   waitingList: () => '/waiting-list',
   draftPlans: () => `/treatment-plans${query({ status: 'Draft' })}`,
   overdueLabOrders: () => `/lab-orders${query({ status: 'Sent' })}`,

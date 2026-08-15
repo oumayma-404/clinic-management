@@ -69,6 +69,9 @@ export const DASHBOARD_BLOCKS: Record<DashboardBlockKey, DashboardBlockMeta> = {
   invoiced: { section: 'money', label: 'Facturé', hiddenByDefault: true },
 
   // À traiter
+  // First, and shown by default: it is the only entry here about work the practice has already DONE, so it is the
+  // one whose neglect quietly costs the clinic money and leaves the record incomplete.
+  visitsToClose: { section: 'alerts', label: 'Séances à clôturer' },
   draftPlans: { section: 'alerts', label: 'Devis en attente' },
   overdueLabOrders: { section: 'alerts', label: 'Prothèses en retard' },
   lowStock: { section: 'alerts', label: 'Stock bas' },

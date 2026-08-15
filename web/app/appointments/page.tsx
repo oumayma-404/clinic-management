@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { AppointmentCalendar } from "@/components/appointment-calendar"
+import { VisitClosureStrip } from "@/components/visits/visit-closure-strip"
 import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 import { EditAppointmentDialog } from "@/components/edit-appointment-dialog"
 import { ClinicGuard } from "@/components/clinic-guard"
@@ -240,18 +241,39 @@ export default function AppointmentsPage() {
    *
    * <p>Nothing here refuses a bad value: an unparseable date or an unknown status simply leaves the calendar as it
    * was, matching the graceful-deep-link rule the rest of this page follows.</p>
+   *
+   * <p>⚠️ <b><c>?date=</c> is handled in THIS effect rather than its own, and that is not tidiness.</b> The last
+   * statement here wipes the query string, so a sibling effect declared after this one would read an empty
+   * search and never fire. Keeping both in one place also makes the precedence readable: a single day is a more
+   * specific request than a window, so <c>?date=</c> wins outright when both are present.</p>
    */
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const from = params.get("from")
+    const date = params.get("date")
     const statuses = (params.get("status") ?? "")
       .split(",")
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean)
 
-    if (!from && statuses.length === 0) return
+    if (!from && !date && statuses.length === 0) return
 
-    if (from && !Number.isNaN(Date.parse(from))) {
+    /*
+     * `?date=AAAA-MM-JJ` — land ON that day, in Jour.
+     *
+     * The dashboard's « Demain » line is what needs this: it is a *quick access* affordance, and honouring it
+     * through `?from=` would drop the reader into the month grid, where finding tomorrow is the work the line
+     * exists to remove.
+     *
+     * Composed as `T00:00:00` and parsed as LOCAL midnight, never bare: a bare `AAAA-MM-JJ` parses as UTC, so
+     * for a UTC+1 clinic it lands on the previous day — the same trap `todayLocalIso()` exists to prevent.
+     */
+    const requestedDay = date ? new Date(`${date}T00:00:00`) : null
+    if (requestedDay && !Number.isNaN(requestedDay.getTime())) {
+      setSelectedDate(requestedDay)
+      // `selectView`, not `setView`, for the reason spelled out in the month branch below.
+      selectView("day")
+    } else if (from && !Number.isNaN(Date.parse(from))) {
       setSelectedDate(new Date(`${from}T00:00:00`))
       // `selectView`, not `setView`: this marks the view DECIDED, so the narrow-screen Jour default below
       // cannot overwrite it. Without that, « RDV honorés — Ce mois » opened on a phone would land on one day.
@@ -369,6 +391,16 @@ export default function AppointmentsPage() {
           rescope one persistent view) rather than a tab set that lost its tabs.
         */}
         <div className="flex flex-1 flex-col min-h-0">
+          {/*
+            « À clôturer », above the agenda bar rather than inside it — and deliberately NOT a fifth row of
+            chrome. It renders nothing at all when there is nothing to close, which is the ordinary state for a
+            practice that closes each visit at the chair, so the four-rows-of-chrome problem the comment below
+            describes cannot come back through this door. It is here because `/` redirects a secretary to this
+            page, so the dashboard's own chip never reaches reception — who is exactly the person who knows
+            whether the patient came and who took the money.
+          */}
+          <VisitClosureStrip />
+
           {/*
             What is left at page level: the **active-filter chips**, and nothing else.
 

@@ -790,6 +790,32 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                      WHERE r."DoctorId" IS NULL AND a."DoctorId" IS NOT NULL)
                 """);
 
+        // The fiche→visit backfill, measured as an OUTCOME rather than as a row count: whatever the migration did,
+        // no fiche whose day holds exactly one candidate visit may still be unlinked.
+        //
+        // ⚠️ `AT TIME ZONE 'Africa/Tunis'` on BOTH sides, matching the migration: comparing raw UTC dates would
+        // file an evening séance against the following day and report clean while every such row stayed unlinked.
+        // 5 = Cancelled, 6 = NoShow — the enum's own ordinals (HasConversion<int>()), stated because SQL has no
+        // access to the type, and excluded here for the reason the resolver excludes them: neither can be the
+        // séance a fiche documents.
+        var fichesResolvableStillUnlinked = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "DentalRecords",
+            requiredColumn: "AppointmentId",
+            sql: """
+                SELECT COUNT(*)
+                FROM "DentalRecords" r
+                WHERE r."AppointmentId" IS NULL
+                  AND (
+                        SELECT COUNT(*)
+                        FROM "Appointments" a
+                        WHERE a."PatientId" = r."PatientId"
+                          AND a."ClinicId"  = r."ClinicId"
+                          AND a."Status" NOT IN (5, 6)
+                          AND (a."AppointmentDateTime" AT TIME ZONE 'Africa/Tunis')::date
+                            = (r."InterventionDate"    AT TIME ZONE 'Africa/Tunis')::date
+                      ) = 1
+                """);
+
         // Part 6's invariant. A JOIN rather than a column comparison because the two clinic ids live in different
         // tables — which is exactly why no constraint can state it, and why it needs a line here.
         var pushClinicMismatch = await ScalarOrNullAsync(connection, cancellationToken,
@@ -976,7 +1002,7 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
             unsetBackupSchedule, chequeDetailsOnNonCheque, bankedStampOnNonCheque,
-            attributableButUnattributed, pushClinicMismatch,
+            attributableButUnattributed, fichesResolvableStillUnlinked, pushClinicMismatch,
             signupOrphans, clinicalChildrenWrongClinic,
             enrolledWithoutSecret, clinicsWithoutSnapshot, incoherentSnapshots,
             clinicsWithoutEntitlement, grandfatheredEntries,

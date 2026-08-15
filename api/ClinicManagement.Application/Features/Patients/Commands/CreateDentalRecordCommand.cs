@@ -134,6 +134,23 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 return Result<DentalRecordDto>.Failure(parsed.Error!);
             }
 
+            // Which visit does this fiche document? The client's id when it sent one — the post-visit deep link
+            // knows more than we can infer — otherwise the patient's single visit that day, and nothing when
+            // there are none or several.
+            //
+            // ⚠️ Until this call, that deep link was the ONLY door that ever populated the column: a fiche
+            // charted the ordinary way from the patient's page stored null. So « quelles séances n'ont pas encore
+            // de fiche ? » — the exact question DentalRecord.AppointmentId's own docstring says it exists to
+            // answer — reported « pas de fiche » for the majority of visits that have one. See
+            // DentalRecordVisitLink for why ambiguity is left unresolved rather than guessed.
+            var appointmentId = await DentalRecordVisitLink.ResolveAsync(
+                request.AppointmentId,
+                request.PatientId,
+                patient.ClinicId,
+                request.InterventionDate,
+                _appointmentRepository,
+                cancellationToken);
+
             // The appointment id is now STORED on the record, not only used for the post-commit side effect below.
             // It reached this handler from the first version and was thrown away, which is why no screen could tell
             // which past visits still have no fiche — the question this link exists to answer.
@@ -146,7 +163,7 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
                 request.IsAdultTeeth,
                 request.Notes,
                 request.ImportantNotes,
-                request.AppointmentId);
+                appointmentId);
 
             if (!Enum.TryParse<PaymentMethod>(request.PaymentMethod ?? nameof(PaymentMethod.Cash), ignoreCase: true, out var method))
             {
@@ -164,8 +181,8 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             // L9 — who performed the séance. Derived from the documented appointment when there is one (that is the
             // most reliable source: the visit was booked with a practitioner), else the caller's own Doctor record.
             // A fiche with no attribution is a real outcome and is left null rather than guessed at.
-            var recordAppointmentDoctorId = request.AppointmentId.HasValue
-                ? (await _appointmentRepository.GetByIdAsync(request.AppointmentId.Value, cancellationToken))?.DoctorId
+            var recordAppointmentDoctorId = appointmentId.HasValue
+                ? (await _appointmentRepository.GetByIdAsync(appointmentId.Value, cancellationToken))?.DoctorId
                 : null;
             record.SetDoctor(await ResolveAttributedDoctorAsync(
                 request.DoctorId, recordAppointmentDoctorId, clinicResult.Value, cancellationToken));
@@ -201,9 +218,15 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
 
             // If this record documents a scheduled appointment, close its post-visit-review loop
             // (finding #10) — best-effort, never rolls back the committed record.
-            if (request.AppointmentId.HasValue)
+            //
+            // ⚠️ Since the link is now also INFERRED, this fires for a fiche charted from the patient's page —
+            // charting the séance marks that day's visit « Terminé » and withdraws its post-visit prompt. That is
+            // the loop, not a side effect of it: filling the record *is* the evidence the patient came. It stays
+            // safe because MarkVisitCompleted returns Contradicted rather than throwing for a visit the schedule
+            // says was cancelled or missed, and because the inference refuses every ambiguous day.
+            if (appointmentId.HasValue)
             {
-                await CompleteReviewedAppointmentAsync(request.AppointmentId.Value, clinicResult.Value, cancellationToken);
+                await CompleteReviewedAppointmentAsync(appointmentId.Value, clinicResult.Value, cancellationToken);
             }
 
             // AC-P4.10 — draw each recorded act's material list out of stock. Post-commit and best-effort, so a

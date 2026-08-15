@@ -1,5 +1,10 @@
 import { apiGet, apiPost, apiPut } from './client';
-import type { AppointmentDto, RecurringAppointmentDto, RecurringSeriesResultDto } from './types';
+import type {
+  AppointmentDto,
+  RecurringAppointmentDto,
+  RecurringSeriesResultDto,
+  VisitToCloseDto,
+} from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export interface CreateRecurringSeriesPayload {
@@ -44,6 +49,41 @@ export const appointmentsApi = {
   }): Promise<AppointmentDto[]> => {
     return apiGet<AppointmentDto[]>('/appointments', params);
   },
+
+  // ---- « À clôturer » (visit-closure worklist) -----------------------------------------------------
+
+  /**
+   * The séances whose slot has passed and which still owe one of the three answers.
+   *
+   * `AnyClinicRole`, deliberately: the dashboard is `AdminOrDoctor` and `app/page.tsx` sends a secretary to
+   * `/appointments`, so a worklist only reachable from the dashboard would be invisible to reception — who is
+   * exactly the person who knows whether the patient came and who took the money.
+   *
+   * ⚠️ Ask for `pageSize: 1` when all you want is the count: `totalCount` is the whole clinic's figure, never
+   * `items.length`. That is how the agenda strip stays one small request.
+   */
+  visitsToClose: async (
+    params?: PageParams & { days?: number; doctorId?: string },
+  ): Promise<PagedResponse<VisitToCloseDto>> =>
+    apiGet<PagedResponse<VisitToCloseDto>>('/appointments/to-close', params),
+
+  /**
+   * Record that a séance raises no note d'honoraires, or withdraw that.
+   *
+   * The escape hatch of last resort: a fiche worth nothing, a séance carried by a devis and an existing invoice
+   * are all derived server-side, so this is only for the case none of those describe. `reason` is mandatory when
+   * marking — the server refuses a blank one, because the whole value is that « pourquoi cette séance n'a produit
+   * aucun document ? » stays answerable months later.
+   */
+  setNothingToBill: async (
+    appointmentId: string,
+    nothingToBill: boolean,
+    reason?: string,
+  ): Promise<{ nothingToBill: boolean }> =>
+    apiPost<{ nothingToBill: boolean }>(`/appointments/${appointmentId}/nothing-to-bill`, {
+      nothingToBill,
+      reason: reason ?? null,
+    }),
 
   // ---- Recurring series (clinical-workflow-depth) --------------------------------------------------
   listRecurring: async (activeOnly: boolean = true): Promise<RecurringAppointmentDto[]> =>

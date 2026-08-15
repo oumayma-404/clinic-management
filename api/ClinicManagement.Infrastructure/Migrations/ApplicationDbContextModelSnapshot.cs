@@ -63,6 +63,17 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<string>("Notes")
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("NothingToBillAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NothingToBillByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("NothingToBillReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<Guid?>("PatientId")
                         .HasColumnType("uuid");
 
@@ -99,6 +110,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasIndex("ClinicId");
 
                     b.HasIndex("DoctorId");
+
+                    b.HasIndex("NothingToBillAtUtc")
+                        .HasFilter("\"NothingToBillAtUtc\" IS NOT NULL");
 
                     b.HasIndex("PatientId");
 

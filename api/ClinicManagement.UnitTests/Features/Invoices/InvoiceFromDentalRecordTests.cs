@@ -44,13 +44,16 @@ public class InvoiceFromDentalRecordTests
         new(PatientId, clinicId, "Amal", "Ben Salah", new DateTime(1990, 4, 3), "Femme");
 
     /// <summary>
-    /// The session's TTC: 60 (flat exam) + 90 × 3 (per-tooth composite) = 330 HT, plus <b>TVA</b> and the
-    /// <b>timbre fiscal</b>. A new <c>Clinic</c> now applies VAT at 7 % (J11 — dental acts are taxable at the
-    /// reduced rate, Tableau « B » nouveau § II n° 1) and enables stamp duty at 1,000 DT, so the note settles at
-    /// 330,000 + 23,100 + 1,000 = <b>354,100</b> — worth spelling out, because a fixture quietly assuming 330
-    /// would have read as a pricing bug.
+    /// The session's total: 60 (flat exam) + 90 × 3 (per-tooth composite) = <b>330,000</b>, and nothing on top.
     /// </summary>
-    private const decimal SessionTtc = 354.100m;
+    /// <remarks>
+    /// ⚠️ This was <c>354,100</c> — 330 HT + 7 % TVA + a 1,000 DT timbre — and that gap is precisely the defect
+    /// the tax was dropped to close: the fiche de soins priced the séance at 330 and told the dentist
+    /// « Reste à payer : 0,000 » while the note it generated demanded 354,100, leaving 24,100 DT owed by a patient
+    /// who had just settled in full. The figure the dentist reads chairside and the total of the note are now the
+    /// same number by construction, and this constant being the plain sum of the acts is what says so.
+    /// </remarks>
+    private const decimal SessionTtc = 330.000m;
 
     /// <summary>A two-act session: a flat 60 DT exam plus a per-tooth composite at 90 DT × 3 teeth.</summary>
     private static DentalRecord RecordFixture()
@@ -113,9 +116,8 @@ public class InvoiceFromDentalRecordTests
         Assert.Equal(SessionTtc, _saved.AmountCollected);
         Assert.Equal(record.Id, _saved.DentalRecordId);
 
-        // 330 HT plus the clinic's TVA and timbre fiscal, and a full settlement lands on Paid, not PartiallyPaid.
-        // HT is asserted separately because it is the figure the *acts* determine — it must not move when the
-        // clinic's tax posture does.
+        // The total IS the acts: no TVA, no timbre. A full settlement lands on Paid, not PartiallyPaid.
+        // HT is asserted separately because it is the figure the *acts* determine, and TotalTtc must equal it.
         Assert.Equal(SessionTtc, _saved.TotalTtc);
         Assert.Equal(330m, _saved.TotalHt);
         Assert.Equal(InvoiceStatus.Paid, _saved.Status);
@@ -280,7 +282,7 @@ public class InvoiceFromDentalRecordTests
             new BillDentalRecordCommand
             {
                 DentalRecordId = record.Id,
-                // The session settles at 354,100 DT (330 HT + 7 % TVA + timbre), so 500 over-pays it.
+                // The session settles at 330,000 DT — the acts and nothing else — so 500 over-pays it.
                 PaidNow = new DentalRecordPaymentRequest { Amount = 500m, Method = "Cash" },
             },
             CancellationToken.None);
@@ -350,7 +352,7 @@ public class InvoiceFromDentalRecordTests
         var invoice = new Invoice(Guid.NewGuid(), ClinicId, PatientId, dentalRecordId: record.Id);
         invoice.SetLines(DentalRecordInvoiceLines.For(record)
             .Select(l => (l.Designation, l.Quantity, l.UnitPriceHt, (Guid?)record.Id, (Guid?)null, (string?)null)));
-        invoice.Issue(number, vatApplicable: true, vatRate: 7m, stampDutyEnabled: true, stampDutyAmount: 1m);
+        invoice.Issue(number);
         if (collected > 0m)
         {
             invoice.RecordPayment(collected, PaymentMethod.Cash, InterventionDate);

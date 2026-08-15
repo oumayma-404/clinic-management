@@ -329,7 +329,7 @@ public class ChequeBankedStampTests
     {
         var invoice = new Invoice(InvoiceId, ClinicId, PatientId);
         invoice.SetLines(new[] { ("Détartrage", 1, 1000m) });
-        invoice.Issue("2026-0001", vatApplicable: false, vatRate: 0m, stampDutyEnabled: false, stampDutyAmount: 0m);
+        invoice.Issue("2026-0001");
         return invoice;
     }
 

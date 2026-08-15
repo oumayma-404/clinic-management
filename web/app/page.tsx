@@ -45,6 +45,7 @@ import {
   KPI_DESCRIPTIONS,
   KPI_LABELS,
   PREVIOUS_PERIOD_LABELS,
+  comparedToLabel,
   SECTION_LABELS,
 } from "@/components/dashboard/dashboard-labels"
 import { useDashboard } from "@/lib/hooks/use-dashboard"
@@ -54,7 +55,13 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { dashboardLink } from "@/lib/dashboard-links"
 import { blocksInSection, type DashboardBlockKey } from "@/lib/dashboard-blocks"
-import { buildDaySummary, minutesOfDay } from "@/lib/dashboard/day-summary"
+import {
+  buildDayPreview,
+  buildDaySummary,
+  minutesOfDay,
+  resolveNextOpenDay,
+} from "@/lib/dashboard/day-summary"
+import { NextDayLine } from "@/components/dashboard/day/next-day-line"
 import { buildDayPhrase } from "@/lib/dashboard/day-phrases"
 import { formatDT, todayLocalIso } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -173,6 +180,42 @@ function DashboardContent() {
   )
 
   /*
+   * The clinic's next OPEN day, and a SECOND fetch for it.
+   *
+   * The comment above argues against components racing for one window; this is a different window, and separating
+   * them buys two things a widened `useAppointments(today, nextOpenDay)` cannot. Tomorrow's rows would otherwise
+   * land in the same array `buildDaySummary` folds, so one missed partition silently inflates today's count,
+   * ribbon and load percentage — a wrong figure that looks right. And a failed read here must not blank the day
+   * board, which is the whole of today.
+   *
+   * `now`-derived, never a fresh `new Date()`: the day the board is having is settled once, after mount.
+   */
+  const nextOpenDay = useMemo(
+    () => resolveNextOpenDay(clinic?.workingHours, now ?? today),
+    [clinic?.workingHours, now, today],
+  )
+  /*
+   * ⚠️ `?? today`, never `?? undefined`. `useAppointments` omits the date params entirely when a bound is
+   * undefined, so the request becomes « every appointment this clinic has ever had » — on the home screen, on
+   * every load. A clinic whose saved hours disable all seven days is the case that would have found it.
+   * Falling back to today keeps the read bounded to one day; the line renders nothing there anyway.
+   */
+  const {
+    appointments: nextDayAppointments,
+    loading: nextDayLoading,
+    error: nextDayError,
+    refetch: refetchNextDay,
+  } = useAppointments(nextOpenDay ?? today, nextOpenDay ?? today)
+
+  const nextDayPreview = useMemo(
+    () =>
+      nextOpenDay
+        ? buildDayPreview(nextDayAppointments, clinic?.workingHours, nextOpenDay, now ?? today)
+        : null,
+    [nextDayAppointments, clinic?.workingHours, nextOpenDay, now, today],
+  )
+
+  /*
    * The phrase is keyed on (clinic, clinic-local day, tier) and is therefore stable for the whole day — see
    * `day-phrases.ts`. `todayLocalIso()` and never `toISOString().slice(0, 10)`: the latter converts to UTC first,
    * so for the first hour of every Tunisian day it would name yesterday and re-roll the line at 01:00.
@@ -197,11 +240,12 @@ function DashboardContent() {
     window.history.replaceState({}, "", url)
   }, [])
 
-  /** One refetch for both reads — a peer's edit can move a figure in either. */
+  /** One refetch for all three reads — a peer's edit can move a figure in any, tomorrow's included. */
   const refetchAll = useCallback(() => {
     refetch()
     refetchDay()
-  }, [refetch, refetchDay])
+    refetchNextDay()
+  }, [refetch, refetchDay, refetchNextDay])
 
   useClinicRealtime(
     [
@@ -278,6 +322,14 @@ function DashboardContent() {
   const alerts: DayAlert[] = data
     ? (
         [
+          // First: the only entry here about work already DONE. Everything else is something to start; this is
+          // something to finish, and the practice loses money and record completeness while it waits.
+          {
+            key: "visitsToClose",
+            count: data.alerts.visitsToClose,
+            label: data.alerts.visitsToClose === 1 ? "séance à clôturer" : "séances à clôturer",
+            tone: "hot" as const,
+          },
           { key: "waitingList", count: data.alerts.waitingList, label: "en salle d'attente", tone: "live" as const },
           { key: "draftPlans", count: data.alerts.draftPlans, label: "devis en attente", tone: "calm" as const },
           {
@@ -373,6 +425,20 @@ function DashboardContent() {
         )}
 
         {/*
+          ZONE 6 — la prochaine journée ouvrée.
+
+          ⚠️ Deliberately OUTSIDE the `summary.count > 0` guard that wraps the ribbon, and outside
+          `isVisible("todayAppointments")`. An empty today still has a next working day, and that is exactly when
+          this line is worth most — gating it on today having work would hide it on the quietest afternoon.
+        */}
+        <NextDayLine
+          preview={nextDayPreview}
+          loading={now === null || nextDayLoading}
+          error={nextDayError}
+          onRetry={refetchNextDay}
+        />
+
+        {/*
           ════════════════════════════════════════════════════════════════════════════════════════════════════
           STATISTIQUES — everything period-bound, below the fold.
 
@@ -392,7 +458,7 @@ function DashboardContent() {
         {sectionHasContent("activity") && (
           <DashboardSection
             title={SECTION_LABELS.activity}
-            hint={`Comparé à ${previousLabel}`}
+            hint={comparedToLabel(period)}
             refetching={refetching}
             error={error}
             onRetry={refetch}
@@ -419,7 +485,7 @@ function DashboardContent() {
         {sectionHasContent("money") && (
           <DashboardSection
             title={SECTION_LABELS.money}
-            hint={`Comparé à ${previousLabel}`}
+            hint={comparedToLabel(period)}
             refetching={refetching}
             error={error}
             onRetry={refetch}

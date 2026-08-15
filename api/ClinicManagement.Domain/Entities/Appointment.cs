@@ -107,6 +107,77 @@ public class Appointment : AggregateRoot<Guid>
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// When somebody recorded that this visit will raise no document — the escape hatch of « à clôturer ».
+    ///
+    /// <para><b>It is the LAST resort, not the first.</b> Three legitimate « rien à facturer » cases are derived
+    /// and must stay derived: a fiche whose <c>Cost</c> is zero (contrôle gratuit), a séance carrying a
+    /// treatment-plan link (the money lives on the échéancier), and a non-cancelled invoice (already billed). A
+    /// patient who will pay later is not one of them either — that is an issued note with an outstanding balance,
+    /// i.e. a créance, which the product already models. What is left is the case none of those describe, and it
+    /// needs somewhere to go: without it a row nothing can satisfy stays flagged for ever, and an alarm that is
+    /// always on is one nobody reads.</para>
+    ///
+    /// <para>Recorded, never inferred — the motif is mandatory precisely so « pourquoi cette séance n'a produit
+    /// aucun document ? » stays answerable months later.</para>
+    /// </summary>
+    public DateTime? NothingToBillAtUtc { get; private set; }
+
+    /// <inheritdoc cref="NothingToBillAtUtc"/>
+    public string? NothingToBillReason { get; private set; }
+
+    /// <inheritdoc cref="NothingToBillAtUtc"/>
+    public string? NothingToBillByUserId { get; private set; }
+
+    /// <summary>True when this visit has been recorded as raising no document.</summary>
+    public bool IsNothingToBill => NothingToBillAtUtc.HasValue;
+
+    /// <summary>
+    /// Record that this visit will raise no note d'honoraires. <b>Idempotent</b>: re-marking an already-marked
+    /// visit keeps the first motif and the first author, because the second caller is a double-click far more
+    /// often than a considered change of mind, and overwriting would erase a colleague's reasoning with no trace.
+    /// Changing a motif is <see cref="ClearNothingToBill"/> then this again — both are ordinary audited writes.
+    /// </summary>
+    /// <exception cref="ArgumentException">The motif is blank.</exception>
+    public void MarkNothingToBill(string reason, string userId, DateTime whenUtc)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new ArgumentException("Le motif est obligatoire.", nameof(reason));
+        }
+
+        if (NothingToBillAtUtc.HasValue)
+        {
+            return;
+        }
+
+        NothingToBillAtUtc = whenUtc;
+        NothingToBillReason = reason.Trim();
+        NothingToBillByUserId = userId;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Withdraw the « rien à facturer » note, putting the visit back on the worklist.
+    ///
+    /// <para>This exists because the mark is a claim about money that can turn out to be wrong — the patient does
+    /// owe something after all — and a claim nobody can withdraw is one people stop making. It is <b>not</b> a
+    /// counter-example to « record yes, erase no »: that rule is about the clinical record, and nothing clinical
+    /// is destroyed here. Idempotent.</para>
+    /// </summary>
+    public void ClearNothingToBill()
+    {
+        if (!NothingToBillAtUtc.HasValue)
+        {
+            return;
+        }
+
+        NothingToBillAtUtc = null;
+        NothingToBillReason = null;
+        NothingToBillByUserId = null;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     // Navigation properties
     public Clinic Clinic { get; private set; } = null!;
     public Patient? Patient { get; private set; }

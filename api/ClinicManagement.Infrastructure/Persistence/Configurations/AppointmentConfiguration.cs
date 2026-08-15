@@ -58,6 +58,24 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
         // edited, so a referential constraint would be brittle; existence is validated at the handler.
         builder.Property(a => a.TreatmentPlanItemId);
 
+        // « Rien à facturer » — the closure worklist's escape hatch. Three nullable columns, no default and no
+        // backfill: a visit recorded before today genuinely has no such note, which is a different fact from
+        // « somebody said there was nothing to bill » and is why none of them is defaulted.
+        builder.Property(a => a.NothingToBillAtUtc);
+
+        builder.Property(a => a.NothingToBillReason)
+            .HasMaxLength(500);
+
+        // The actor is `User.Id`, which is a string in this model (an Auth0 `sub` or `local|{guid}`) — hence text
+        // rather than uuid, and no FK, for AuditEntry's reason: the row must survive the account being deleted.
+        builder.Property(a => a.NothingToBillByUserId)
+            .HasMaxLength(200);
+
+        // Partial: only the marked rows are ever looked up by this, and they are a small minority of a clinic's
+        // agenda — the same shape as the cheque due-date index, and for the same reason.
+        builder.HasIndex(a => a.NothingToBillAtUtc)
+            .HasFilter("\"NothingToBillAtUtc\" IS NOT NULL");
+
         builder.HasIndex(a => a.TreatmentPlanItemId);
 
         builder.Property(a => a.CreatedAt)

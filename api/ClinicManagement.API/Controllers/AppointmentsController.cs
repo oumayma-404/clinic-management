@@ -23,6 +23,65 @@ public class AppointmentsController : ApiControllerBase
     }
 
     /// <summary>
+    /// « À clôturer » — the séances whose slot has passed and which still owe one of the three answers:
+    /// est-il venu, qu'a-t-on fait, combien a-t-il payé.
+    ///
+    /// <para>⚠️ <b><c>AnyClinicRole</c>, from the class, and that is the point rather than an oversight.</b> The
+    /// dashboard is <c>AdminOrDoctor</c> and <c>app/page.tsx</c> redirects a secretary to <c>/appointments</c>, so
+    /// a worklist reachable only from the dashboard would be invisible to reception — who is exactly the person
+    /// who knows whether the patient came and who took the money. The dashboard chip is the secondary surface;
+    /// this read and the agenda strip are the primary ones.</para>
+    ///
+    /// <para>No <c>[AllowsWithoutSubscription]</c>: it is a GET, and the subscription gate never inspects one.</para>
+    /// </summary>
+    [HttpGet("to-close")]
+    public async Task<ActionResult<PagedResult<VisitToCloseDto>>> GetVisitsToClose(
+        [FromQuery] int? days = null,
+        [FromQuery] Guid? doctorId = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
+    {
+        var result = await _mediator.Send(new GetVisitsToCloseQuery
+        {
+            Days = days,
+            DoctorId = doctorId,
+            Paging = PageRequest.From(page, pageSize),
+        });
+
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Rien à facturer » — record that a séance raises no note d'honoraires, or withdraw that.
+    ///
+    /// <para>A <b>POST and not a DELETE</b> in both directions: nothing is deleted either way, and the body's
+    /// <c>nothingToBill</c> is what the URL cannot carry — unlike the console's suspension pair, this is one
+    /// control the user toggles from one row, so a second route would be a second thing to keep in step for no
+    /// safety gained.</para>
+    /// </summary>
+    [HttpPost("{id:guid}/nothing-to-bill")]
+    public async Task<ActionResult> SetNothingToBill(Guid id, [FromBody] SetNothingToBillRequest request)
+    {
+        var result = await _mediator.Send(new MarkNothingToBillCommand
+        {
+            AppointmentId = id,
+            NothingToBill = request.NothingToBill,
+            Reason = request.Reason,
+        });
+
+        return result.IsFailure ? HandleFailure(result) : Ok(new { nothingToBill = result.Value });
+    }
+
+    /// <summary>Body of <see cref="SetNothingToBill"/>.</summary>
+    public class SetNothingToBillRequest
+    {
+        public bool NothingToBill { get; set; } = true;
+
+        /// <summary>Mandatory when marking; the handler refuses a blank one.</summary>
+        public string? Reason { get; set; }
+    }
+
+    /// <summary>
     /// Get all appointments for the current user's clinic
     /// </summary>
 

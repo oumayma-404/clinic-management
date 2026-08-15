@@ -67,6 +67,32 @@ public static class TransportAssurance
     /// </summary>
     public const string AllowUnverifiedTlsKey = "Security:AllowUnverifiedInternalTls";
 
+    /// <summary>
+    /// Whether an unencrypted internal hop is tolerated here. True in <c>Development</c> alone, exactly as
+    /// <see cref="ClinicManagement.Infrastructure.Security.LocalDataProtection.TolerateUnprotectedKeyRing"/> and
+    /// <c>MinioCredentials.TolerateUnconfigured</c> decide the same question for the key ring and for object-store
+    /// credentials.
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ <b>Without this the product could not be run locally at all.</b> This check applies to every profile
+    /// that is not <c>SelfHostedLan</c> — which includes <c>HostedMultiTenant</c>, the profile
+    /// <c>appsettings.Development.json</c> selects for local development. It then demands
+    /// <c>SSL Mode=VerifyFull</c> plus an internal root certificate, while <c>docker-compose.yml</c> runs
+    /// PostgreSQL with <c>ssl = off</c> and MinIO with no TLS at all. Startup was refused on every developer
+    /// machine, so the API actually running was whatever binary predated the guard — a stale build that silently
+    /// diverged from the source for days. The two guards either side of this one already exempt Development for
+    /// precisely that reason; this one did not, and the inconsistency was the defect.
+    /// <para>The exemption is <b>Development only</b>: every deployed environment still refuses, so the promise
+    /// that no patient data crosses the internal network in clear is unchanged where it means anything.</para>
+    /// </remarks>
+    public static bool TolerateUnencryptedTransit(IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var environmentName =
+            Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? configuration["Environment"];
+        return string.Equals(environmentName?.Trim(), "Development", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Whether the operator explicitly accepted an encrypted-but-unverified internal hop.</summary>
     public static bool AllowsUnverifiedTls(IConfiguration configuration) =>
         bool.TryParse(configuration[AllowUnverifiedTlsKey]?.Trim(), out var value) && value;

@@ -304,9 +304,15 @@ export function PatientsTable({
         <CardTitle className="flex items-center gap-2">
           <Users className="h-5 w-5" />
           Dossiers patients
-          <Badge variant="secondary" className="ml-auto">
-            {pageInfo.totalCount} {pageInfo.totalCount === 1 ? "patient" : "patients"}
-          </Badge>
+          {/* ⚠️ No count while the first read is in flight. `pageInfo.totalCount` starts at 0, so the badge used
+              to assert « 0 patients » beside the loading skeleton for as long as the fetch took — a real number,
+              confidently wrong, on the screen that answers « do we have a file for this person? ». The skeleton
+              already says « loading »; a figure that is not known yet is better absent than invented. */}
+          {!loading && (
+            <Badge variant="secondary" className="ml-auto">
+              {pageInfo.totalCount} {pageInfo.totalCount === 1 ? "patient" : "patients"}
+            </Badge>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent>

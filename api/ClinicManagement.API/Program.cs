@@ -514,8 +514,19 @@ try
     var transitAssurance = TransportAssurance.Inspect(builder.Configuration, profile, DateTime.UtcNow);
     if (transitAssurance.Applies && !transitAssurance.IsSatisfied)
     {
-        StartupDiagnostics.ReportFatal(TransportAssurance.RefusalMessage(transitAssurance));
-        return 1;
+        if (!TransportAssurance.TolerateUnencryptedTransit(builder.Configuration))
+        {
+            StartupDiagnostics.ReportFatal(TransportAssurance.RefusalMessage(transitAssurance));
+            return 1;
+        }
+
+        // Development only, on the precedent of the MinIO-credentials and key-ring guards either side of this
+        // one: docker-compose runs PostgreSQL with `ssl = off` and MinIO without TLS, so refusing here made the
+        // product unrunnable on every developer machine and left stale binaries serving instead of the source.
+        Console.Error.WriteLine(
+            "[warn] Les échanges internes ne sont pas chiffrés. Acceptable in Development only — "
+            + "a non-Development environment will refuse to start. "
+            + TransportAssurance.RefusalMessage(transitAssurance));
     }
 
     // ⚠️ An accepted reduction has to be LOUD, every boot, or it becomes the deployment's forgotten default —

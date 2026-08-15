@@ -143,6 +143,7 @@ public class SchemaVerificationServiceTests
     // twenty-first zero lands in the wrong slot and every assertion still passes.
     private static DataMigrationCounts CleanCounts =>
         new(0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            IncoherentActivitySnapshots: 0,
             ClinicsWithoutEntitlement: 0, GrandfatheredEntitlementEntries: 3,
             ClinicsWithPlaintextGoogleToken: 0);
 

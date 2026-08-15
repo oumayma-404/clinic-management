@@ -23,9 +23,15 @@ public class DashboardAlertsReaderTests
     private readonly Mock<ILabWorkOrderRepository> _labOrders = new();
     private readonly Mock<IStockItemRepository> _stock = new();
     private readonly Mock<IClinicRepository> _clinics = new();
+    // The three « À clôturer » reads. They go through VisitClosureReader — the same helper the worklist itself
+    // calls — so the chip and the page it opens cannot report different numbers.
+    private readonly Mock<IAppointmentRepository> _appointments = new();
+    private readonly Mock<IDentalRecordRepository> _dentalRecords = new();
+    private readonly Mock<IInvoiceRepository> _invoices = new();
 
     private DashboardAlertsReader Reader() => new(
-        _waitingList.Object, _plans.Object, _patients.Object, _labOrders.Object, _stock.Object, _clinics.Object);
+        _waitingList.Object, _plans.Object, _patients.Object, _labOrders.Object, _stock.Object, _clinics.Object,
+        _appointments.Object, _dentalRecords.Object, _invoices.Object);
 
     private static Clinic ClinicFixture() => new(ClinicId, "Cabinet Test", code: "CODE01");
 
@@ -48,6 +54,12 @@ public class DashboardAlertsReaderTests
         _stock.Setup(r => r.CountExpiringSoonAsync(
                 It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
+        // No candidate visits ⇒ VisitClosureReader short-circuits before its three link reads, so only this one
+        // needs wiring for the existing cases.
+        _appointments.Setup(r => r.GetClosureCandidatesAsync(
+                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Appointment>());
     }
 
     // [AC-9] Every count lands on its own DTO slot.

@@ -44,20 +44,21 @@ public class InvoiceEntityTests
         Assert.Equal(appointmentId, invoice.AppointmentId);
     }
 
-    // [AC-1][AC-3] Issuing assigns the number, freezes VAT/stamp, and computes the totals.
+    // [AC-1] Issuing assigns the number and computes the totals — which are the acts and nothing else, since
+    // the product applies no TVA and no timbre fiscal. This used to expect 100 HT → 7 TVA → 108 TTC.
     [Fact]
     public void Issue_Assigns_Number_And_Freezes_Totals()
     {
         var invoice = DraftWithLine(100m);
 
-        invoice.Issue("2026-0001", vatApplicable: true, vatRate: 7m, stampDutyEnabled: true, stampDutyAmount: 1.000m);
+        invoice.Issue("2026-0001");
 
         Assert.Equal(InvoiceStatus.Issued, invoice.Status);
         Assert.Equal("2026-0001", invoice.Number);
         Assert.NotNull(invoice.IssueDate);
         Assert.Equal(100.000m, invoice.TotalHt);
-        Assert.Equal(7.000m, invoice.TotalVat);
-        Assert.Equal(108.000m, invoice.TotalTtc);
+        Assert.Equal(0m, invoice.TotalVat);
+        Assert.Equal(100.000m, invoice.TotalTtc);
     }
 
     // [AC-1] A draft with no lines cannot be issued.
@@ -67,7 +68,7 @@ public class InvoiceEntityTests
         var invoice = new Invoice(Guid.NewGuid(), ClinicId, PatientId);
 
         Assert.Throws<InvalidOperationException>(() =>
-            invoice.Issue("2026-0001", true, 7m, true, 1.000m));
+            invoice.Issue("2026-0001"));
     }
 
     // [AC-1] An issued invoice can no longer be edited.
@@ -75,7 +76,7 @@ public class InvoiceEntityTests
     public void SetLines_On_Issued_Throws()
     {
         var invoice = DraftWithLine();
-        invoice.Issue("2026-0001", false, 0m, true, 1.000m);
+        invoice.Issue("2026-0001");
 
         Assert.Throws<InvalidOperationException>(() =>
             invoice.SetLines(new[] { ("Autre", 1, 50m) }));
@@ -86,7 +87,7 @@ public class InvoiceEntityTests
     public void RecordPayment_Partial_Sets_PartiallyPaid()
     {
         var invoice = DraftWithLine(100m);
-        invoice.Issue("2026-0001", false, 0m, false, 0m); // TTC = 100
+        invoice.Issue("2026-0001"); // TTC = 100
 
         invoice.RecordPayment(40m, PaymentMethod.Cash, DateTime.UtcNow);
 
@@ -100,7 +101,7 @@ public class InvoiceEntityTests
     public void RecordPayment_Exact_Sets_Paid()
     {
         var invoice = DraftWithLine(100m);
-        invoice.Issue("2026-0001", false, 0m, false, 0m); // TTC = 100
+        invoice.Issue("2026-0001"); // TTC = 100
 
         invoice.RecordPayment(100m, PaymentMethod.Card, DateTime.UtcNow);
 
@@ -113,7 +114,7 @@ public class InvoiceEntityTests
     public void RecordPayment_Overpayment_Throws()
     {
         var invoice = DraftWithLine(100m);
-        invoice.Issue("2026-0001", false, 0m, false, 0m); // TTC = 100
+        invoice.Issue("2026-0001"); // TTC = 100
 
         Assert.Throws<InvalidOperationException>(() =>
             invoice.RecordPayment(101m, PaymentMethod.Cash, DateTime.UtcNow));
@@ -143,7 +144,7 @@ public class InvoiceEntityTests
     public void Cancel_Keeps_Number_And_Requires_Reason()
     {
         var invoice = DraftWithLine(100m);
-        invoice.Issue("2026-0007", false, 0m, false, 0m);
+        invoice.Issue("2026-0007");
 
         Assert.Throws<ArgumentException>(() => invoice.Cancel("  "));
 
@@ -160,7 +161,7 @@ public class InvoiceEntityTests
     public void RecordPayment_On_Cancelled_Throws()
     {
         var invoice = DraftWithLine(100m);
-        invoice.Issue("2026-0007", false, 0m, false, 0m);
+        invoice.Issue("2026-0007");
         invoice.Cancel("annulée");
 
         Assert.Throws<InvalidOperationException>(() =>

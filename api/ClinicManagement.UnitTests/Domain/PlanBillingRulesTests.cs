@@ -27,7 +27,7 @@ public class PlanBillingRulesTests
     private static Invoice IssuedBridgeInvoice(Guid planId)
     {
         var invoice = BridgeInvoice(planId);
-        invoice.Issue("2026-0031", vatApplicable: false, vatRate: 0m, stampDutyEnabled: false, stampDutyAmount: 0m);
+        invoice.Issue("2026-0031");
         return invoice;
     }
 
@@ -106,7 +106,7 @@ public class PlanBillingRulesTests
     {
         var invoice = new Invoice(Guid.NewGuid(), ClinicId, PatientId);
         invoice.SetLines(new[] { ("Détartrage", 1, 60m) });
-        invoice.Issue("2026-0032", vatApplicable: false, vatRate: 0m, stampDutyEnabled: false, stampDutyAmount: 0m);
+        invoice.Issue("2026-0032");
 
         Assert.Empty(PlanBillingRules.BilledPlanIds(new[] { invoice }));
     }

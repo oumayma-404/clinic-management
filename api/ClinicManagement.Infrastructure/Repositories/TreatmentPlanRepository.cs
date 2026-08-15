@@ -414,6 +414,28 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
             .ToList();
     }
 
+    public async Task<IReadOnlyList<Guid>> GetDebtBearingItemIdsAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> itemIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (itemIds.Count == 0)
+        {
+            return Array.Empty<Guid>();
+        }
+
+        // Through PlanBillingRules, never a retyped status list: « which devis carry patient debt » is the same
+        // question the four money reads ask, and a second copy here would drift from them the first time a status
+        // moved. An id projection — the caller needs a set, not the plans.
+        return await _context.TreatmentPlans
+            .Where(p => p.ClinicId == clinicId
+                        && PlanBillingRules.DebtBearingPlanStatuses.Contains(p.Status))
+            .SelectMany(p => p.Items)
+            .Where(i => itemIds.Contains(i.Id))
+            .Select(i => i.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<TreatmentPlan> AddAsync(TreatmentPlan plan, CancellationToken cancellationToken = default)
     {
         await _context.TreatmentPlans.AddAsync(plan, cancellationToken);

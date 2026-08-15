@@ -1,3 +1,6 @@
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
+
 import type { AppointmentDto } from '@/lib/api/types';
 import { parseDurationToMinutes } from '@/lib/utils';
 import { DEFAULT_WORKING_HOURS, WEEKDAYS, type WorkingDay } from '@/lib/working-hours';
@@ -267,6 +270,96 @@ export function buildDaySummary(
     // Only a schedule the clinic actually saved may say « fermé ». The shared default is a guess.
     isClosedToday: hasSavedHours && !hasOpenWindow,
   };
+}
+
+/**
+ * How far ahead {@link resolveNextOpenDay} looks. A week, because the schedule itself is weekly — past seven days
+ * there is nothing new to find, only the same pattern again.
+ */
+const MAX_LOOKAHEAD_DAYS = 7;
+
+/**
+ * The clinic's next **open** day after `from`, or `null` when it opens on none of the following seven.
+ *
+ * <p><b>Not « demain ».</b> A practice closed on Sunday would be told « Demain — fermé » every Saturday evening —
+ * useless at exactly the moment somebody is planning. The question staff actually ask is « ma prochaine journée
+ * ouvrée », which on a Friday evening is Monday.</p>
+ *
+ * <p>Days are composed with the local-calendar constructor (`new Date(y, m, d + n)`), which rolls over months and
+ * years correctly and yields local midnight — never UTC arithmetic, for `todayLocalIso`'s reason.</p>
+ */
+export function resolveNextOpenDay(
+  workingHours: WorkingDay[] | null | undefined,
+  from: Date,
+): Date | null {
+  for (let offset = 1; offset <= MAX_LOOKAHEAD_DAYS; offset += 1) {
+    const candidate = new Date(from.getFullYear(), from.getMonth(), from.getDate() + offset);
+    if (workingDayFor(workingHours, candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * What one **future** day is worth saying in a single line.
+ *
+ * <p><b>Deliberately not a {@link DaySummary}</b>, though it is projected from one. That type carries `current`,
+ * `isCurrent`, `isOver` and `gaps`, every one of which is meaningless or actively misleading about a day that has
+ * not started — so returning it would let a caller point {@link DaySlot}-shaped components like the ribbon or the
+ * now/next pair at tomorrow and get a plausible-looking lie. A narrower type makes that unrepresentable rather
+ * than merely discouraged.</p>
+ */
+export interface DayPreview {
+  /** Local midnight of the day described. */
+  day: Date;
+  /** « Demain » only when it really is the next calendar day, else the weekday (« Lundi »). */
+  label: string;
+  count: number;
+  /** Minutes from midnight of the first booked visit; `null` on a day with nothing booked. */
+  firstStartMinutes: number | null;
+  bookedMinutes: number;
+  acts: DayAct[];
+}
+
+/**
+ * Fold a future day's appointments into {@link DayPreview}.
+ *
+ * <p>It runs the same {@link buildDaySummary} the day board uses, anchored at that day's own midnight, and then
+ * projects — so « combien d'actes » and « combien de temps au fauteuil » have one implementation rather than a
+ * second one that agrees only by coincidence. Anchoring at midnight is also what makes the reused summary
+ * correct: `workingDayFor` resolves the *target* day's weekday, and nothing is `isPast`.</p>
+ */
+export function buildDayPreview(
+  appointments: AppointmentDto[],
+  workingHours: WorkingDay[] | null | undefined,
+  day: Date,
+  today: Date,
+): DayPreview {
+  const startOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+  const summary = buildDaySummary(appointments, workingHours, startOfDay);
+
+  return {
+    day: startOfDay,
+    label: previewLabel(startOfDay, today),
+    count: summary.count,
+    // `slots` is ordered by start, so the first one is the day's opening visit.
+    firstStartMinutes: summary.slots.length > 0 ? summary.slots[0].startMinutes : null,
+    bookedMinutes: summary.bookedMinutes,
+    acts: summary.acts,
+  };
+}
+
+/** « Demain » or a capitalised weekday. Compared on local calendar parts — no string, no instant, no timezone. */
+function previewLabel(day: Date, today: Date): string {
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  const isTomorrow =
+    day.getFullYear() === tomorrow.getFullYear() &&
+    day.getMonth() === tomorrow.getMonth() &&
+    day.getDate() === tomorrow.getDate();
+
+  if (isTomorrow) return 'Demain';
+
+  const weekday = format(day, 'EEEE', { locale: fr });
+  return weekday.charAt(0).toUpperCase() + weekday.slice(1);
 }
 
 /** The lead act's colour — the snapshot the agenda already paints with, falling back to the first child row. */

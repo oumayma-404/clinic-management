@@ -94,22 +94,31 @@ public class ClinicBillingDefaultsTests
         Assert.Equal(13m, clinic.VatRate);
     }
 
-    // [J11] An invoice issued by a default clinic freezes the corrected posture — which is the point of the change:
-    // the default only matters because `Issue()` copies it onto the document. 100 HT → 7 TVA → 108 TTC.
+    // An invoice no longer copies anything from the clinic's billing settings: an act's price is the whole of
+    // what the patient owes. This is the inverse of the case that used to live here (« 100 HT → 7 TVA → 108
+    // TTC »), and it is deliberately asserted on a clinic whose VAT settings are *on* — the settings may still
+    // hold values, and the invoice must ignore them, or the fiche de soins' total and the note it generates
+    // diverge again.
     [Fact]
-    public void An_Invoice_Issued_By_A_Default_Clinic_Carries_The_Vat()
+    public void An_Invoice_Ignores_The_Clinics_Vat_Settings_Entirely()
     {
         var clinic = NewClinic();
+        clinic.SetBillingSettings(
+            matriculeFiscal: null, vatApplicable: true, vatRate: 7m,
+            stampDutyEnabled: true, stampDutyAmount: 1.000m);
+
         var invoice = new Invoice(Guid.NewGuid(), clinic.Id, Guid.NewGuid());
         invoice.SetLines(new[] { ("Couronne", 1, 100m) });
 
-        invoice.Issue("2026-0001", clinic.VatApplicable, clinic.VatRate,
-            clinic.StampDutyEnabled, clinic.StampDutyAmount);
+        invoice.Issue("2026-0001");
 
-        Assert.True(invoice.VatApplicable);
-        Assert.Equal(7m, invoice.VatRate);
         Assert.Equal(100.000m, invoice.TotalHt);
-        Assert.Equal(7.000m, invoice.TotalVat);
-        Assert.Equal(108.000m, invoice.TotalTtc);
+        Assert.Equal(0m, invoice.TotalVat);
+        Assert.Equal(100.000m, invoice.TotalTtc);
+
+        // The three tax columns stay on the entity for historical rows, and a new invoice leaves them at zero.
+        Assert.False(invoice.VatApplicable);
+        Assert.Equal(0m, invoice.VatRate);
+        Assert.Equal(0m, invoice.StampDutyAmount);
     }
 }

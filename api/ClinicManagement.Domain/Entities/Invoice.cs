@@ -61,14 +61,19 @@ public class Invoice : AggregateRoot<Guid>
     public DateTime? IssueDate { get; private set; }
     public InvoiceStatus Status { get; private set; }
 
-    // VAT / stamp — frozen at issue from the clinic settings.
+    // ⚠️ HISTORICAL ONLY. The product no longer applies TVA or a timbre fiscal: an act's price is the whole of
+    // what the patient owes. These three stay because an invoice issued before that change is a numbered legal
+    // document that really did carry them, and it must keep rendering with the figures it was issued with.
+    // Nothing writes them any more — `Issue` leaves them at their zero defaults — so on every new invoice they
+    // are false/0/0. Read them to display history; never to compute a total.
     public bool VatApplicable { get; private set; }
     public decimal VatRate { get; private set; }
     public decimal StampDutyAmount { get; private set; }
 
     public string? CancellationReason { get; private set; }
 
-    // Totals (TND millimes) — recomputed from lines + frozen VAT/stamp.
+    // Totals (TND millimes) — recomputed from lines. `TotalVat` is 0 on every invoice issued since TVA was
+    // dropped, and `TotalTtc == TotalHt`; on a historical row both keep the values frozen at its own issue.
     public decimal TotalHt { get; private set; }
     public decimal TotalVat { get; private set; }
     public decimal TotalTtc { get; private set; }
@@ -181,10 +186,18 @@ public class Invoice : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// Emit the draft: assign its (externally computed, unique) sequential number, freeze the VAT/stamp
-    /// settings from the clinic, recompute the totals, and move it to Issued. Requires at least one line.
+    /// Emit the draft: assign its (externally computed, unique) sequential number, recompute the totals, and
+    /// move it to Issued. Requires at least one line.
     /// </summary>
-    public void Issue(string number, bool vatApplicable, decimal vatRate, bool stampDutyEnabled, decimal stampDutyAmount)
+    /// <remarks>
+    /// ⚠️ <b>It no longer takes the clinic's VAT/stamp settings, because there are none to freeze</b> — an act's
+    /// price is the whole of what the patient owes. The three tax columns stay on the entity so a note issued
+    /// before this change still renders with the figures it was really issued with; a new invoice simply leaves
+    /// them at their zero defaults. Dropping the parameters rather than passing zeroes is deliberate: it makes
+    /// « issue this invoice with a tax on top » unsayable, so no future caller can reintroduce the divergence
+    /// between the fiche de soins' total and the note it generates.
+    /// </remarks>
+    public void Issue(string number)
     {
         EnsureDraft();
 
@@ -196,9 +209,6 @@ public class Invoice : AggregateRoot<Guid>
 
         Number = number.Trim();
         IssueDate = DateTime.UtcNow;
-        VatApplicable = vatApplicable;
-        VatRate = vatApplicable ? vatRate : 0m;
-        StampDutyAmount = stampDutyEnabled ? stampDutyAmount : 0m;
         Status = InvoiceStatus.Issued;
         RecomputeTotals();
         Touch();
@@ -404,7 +414,7 @@ public class Invoice : AggregateRoot<Guid>
     private void RecomputeTotals()
     {
         var ht = _lines.Sum(l => l.LineTotalHt);
-        var totals = InvoiceCalculator.Compute(ht, VatApplicable, VatRate, StampDutyAmount);
+        var totals = InvoiceCalculator.Compute(ht);
         TotalHt = totals.TotalHt;
         TotalVat = totals.TotalVat;
         TotalTtc = totals.TotalTtc;

@@ -1219,40 +1219,20 @@ export default function ClinicSettings() {
           {!isBillingCollapsed && (
             <CardContent className="space-y-3">
               {/*
-                J11 — the legal position, stated rather than migrated.
+                There is no TVA setting and no timbre fiscal any more: the price of an act IS what the patient
+                owes. The two controls that used to sit here were the cause of a real money defect — the fiche de
+                soins priced the acts and told the dentist « Reste à payer : 0,000 » while the note d'honoraires
+                it generated added 7 % + 1,000 DT on top, so a patient who had settled in full still owed money
+                and nobody was told. Rather than teach the chairside screen about the tax, the tax was removed:
+                one number, stated once, is the only version of this that cannot drift.
 
-                A new clinic now defaults to `VatApplicable = true` at 7 %, because dental acts are NOT exempt in
-                Tunisia: Code de la TVA, Tableau « B » nouveau, § II n° 1 lists « les dentistes » among the
-                services taxed at the reduced rate, and Tableau « A » (the exonérations) has no entry for dental
-                care at all. Existing clinics are deliberately left alone — flipping the flag retroactively would
-                change what already-issued notes d'honoraires assert, and those are numbered fiscal documents.
-
-                So the correction reaches them as a notice and the admin decides. It is shown whenever VAT is off
-                rather than dismissed once and stored: there is no column to record « already decided » (this
-                spec adds no schema), and a per-browser dismissal would reappear on the reception PC after being
-                dismissed on the tablet — worse than a banner that is simply accurate. A cabinet genuinely under
-                the forfait régime is a real case, which is why the notice says so instead of nagging.
+                The matricule fiscal stays — it is the cabinet's tax identifier, printed on the note as identity,
+                and has nothing to do with computing a total.
               */}
-              {!vatApplicable && (
-                <div
-                  role="note"
-                  className="flex gap-2 rounded-md bg-warning-wash p-3 text-xs text-warning-ink"
-                >
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                  <div className="space-y-1">
-                    <p className="font-medium">TVA non appliquée</p>
-                    <p>
-                      Les actes dentaires sont soumis à la TVA au taux réduit de 7 % (Code de la TVA,
-                      Tableau « B » nouveau, § II n° 1 — « les dentistes »). Aucune exonération n&apos;est prévue
-                      pour les soins dentaires, et la note d&apos;honoraires doit porter le taux et le montant de
-                      la taxe.
-                    </p>
-                    <p>
-                      Si le cabinet relève du régime forfaitaire (non assujetti), ce réglage est correct.
-                    </p>
-                  </div>
-                </div>
-              )}
+              <p role="note" className="rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
+                Les montants sont ceux du catalogue d&apos;actes : le prix d&apos;un acte est le montant dû par le
+                patient. Aucune TVA ni timbre fiscal n&apos;est ajouté à la note d&apos;honoraires.
+              </p>
 
               <div className="space-y-1">
                 <Label htmlFor="matricule-fiscal" className="text-xs font-medium">
@@ -1266,63 +1246,6 @@ export default function ClinicSettings() {
                   disabled={!isEditingBilling}
                   className={`h-8 md:text-sm ${!isEditingBilling ? "bg-muted/40" : ""}`}
                 />
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="vat-applicable"
-                      checked={vatApplicable}
-                      onCheckedChange={(checked) => setVatApplicable(checked === true)}
-                      disabled={!isEditingBilling}
-                      className="h-4 w-4"
-                    />
-                    <Label htmlFor="vat-applicable" className="text-xs font-medium">TVA applicable</Label>
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="vat-rate" className="text-xs font-medium">Taux de TVA (%)</Label>
-                    {/* `text` + `inputMode="decimal"` like every amount in the app (J8). A rate is not money, but
-                        it has the same defect: on a French keyboard « 7,5 » is what gets typed, and a number input
-                        refuses the comma and returns an EMPTY value for the rejected keystroke. */}
-                    <Input
-                      id="vat-rate"
-                      type="text"
-                      inputMode="decimal"
-                      value={vatRate}
-                      onChange={(e) => setVatRate(e.target.value)}
-                      disabled={!isEditingBilling || !vatApplicable}
-                      className={`h-8 md:text-sm ${!isEditingBilling || !vatApplicable ? "bg-muted/40" : ""}`}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="stamp-enabled"
-                      checked={stampDutyEnabled}
-                      onCheckedChange={(checked) => setStampDutyEnabled(checked === true)}
-                      disabled={!isEditingBilling}
-                      className="h-4 w-4"
-                    />
-                    <Label htmlFor="stamp-enabled" className="text-xs font-medium">Timbre fiscal</Label>
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="stamp-amount" className="text-xs font-medium">Montant du timbre (DT)</Label>
-                    {/* Same conversion (J8): the timbre is a millime-precision dinar amount, and « 1,000 » typed
-                        with the separator this product prints was refused outright. */}
-                    <Input
-                      id="stamp-amount"
-                      type="text"
-                      inputMode="decimal"
-                      value={stampDutyAmount}
-                      onChange={(e) => setStampDutyAmount(e.target.value)}
-                      disabled={!isEditingBilling || !stampDutyEnabled}
-                      className={`h-8 md:text-sm ${!isEditingBilling || !stampDutyEnabled ? "bg-muted/40" : ""}`}
-                    />
-                  </div>
-                </div>
               </div>
 
               {isEditingBilling && (

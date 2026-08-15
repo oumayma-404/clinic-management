@@ -4,6 +4,7 @@ using ClinicManagement.Application.Features.Invoices.Queries;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -58,13 +59,40 @@ public class CreditNotePdfSplitTests
     }
 
     /// <summary>
-    /// The review's exact case: a 100 DT HT note at 7 % TVA with the 1,000 DT timbre fiscal — TTC 108,000.
+    /// Reconstructs a <b>historical</b> invoice — one issued before TVA and the timbre fiscal were dropped from
+    /// the product — by writing the frozen tax columns directly.
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ <b>Reflection is the point, not a shortcut.</b> No code path can mint a taxed invoice any more:
+    /// <c>Issue(number)</c> takes no tax and leaves the three columns at zero. But rows issued *before* that
+    /// change still carry 7 % and 1,000 DT, they are numbered legal documents that must keep rendering with the
+    /// figures they were really issued with, and an avoir raised against one still has to split across
+    /// HT / TVA / timbre correctly. The only way such an invoice comes into existence now is EF materialising a
+    /// stored row — which also bypasses the constructor — so reproducing that here is faithful rather than a
+    /// trick. Delete these cases only when no pre-change invoice can still be credited.
+    /// </remarks>
+    private static void FreezeHistoricalTax(Invoice invoice, decimal vatRate, decimal stamp)
+    {
+        static void Set(Invoice target, string property, object value) =>
+            typeof(Invoice).GetProperty(property)!.SetValue(target, value);
+
+        var vat = InvoiceCalculator.RoundMoney(invoice.TotalHt * vatRate / 100m);
+        Set(invoice, nameof(Invoice.VatApplicable), vatRate > 0m);
+        Set(invoice, nameof(Invoice.VatRate), vatRate);
+        Set(invoice, nameof(Invoice.StampDutyAmount), stamp);
+        Set(invoice, nameof(Invoice.TotalVat), vat);
+        Set(invoice, nameof(Invoice.TotalTtc), InvoiceCalculator.RoundMoney(invoice.TotalHt + vat + stamp));
+    }
+
+    /// <summary>
+    /// The review's exact case, as a historical note: 100 DT HT at 7 % TVA with the 1,000 DT timbre — TTC 108,000.
     /// </summary>
     private Invoice ReviewCaseInvoice()
     {
         var invoice = new Invoice(Guid.NewGuid(), ClinicId, PatientId);
         invoice.SetLines(new[] { ("Couronne", 1, 100m) });
-        invoice.Issue("2026-0007", vatApplicable: true, vatRate: 7m, stampDutyEnabled: true, stampDutyAmount: 1.000m);
+        invoice.Issue("2026-0007");
+        FreezeHistoricalTax(invoice, vatRate: 7m, stamp: 1.000m);
         _invoices.Setup(r => r.GetByIdAsync(invoice.Id, It.IsAny<CancellationToken>())).ReturnsAsync(invoice);
         return invoice;
     }
@@ -157,13 +185,14 @@ public class CreditNotePdfSplitTests
     }
 
     // [J6] A note issued with no VAT has no VAT to reverse — the split must not manufacture one from a rate that
-    // was never applied. (Before J11 this was the default posture, so most existing notes look like this.)
+    // was never applied. A historical row that carried only the timbre, which many pre-J11 notes do.
     [Fact]
     public async Task A_Non_Vat_Invoice_Yields_No_Vat_On_The_Avoir()
     {
         var invoice = new Invoice(Guid.NewGuid(), ClinicId, PatientId);
         invoice.SetLines(new[] { ("Détartrage", 1, 100m) });
-        invoice.Issue("2026-0008", vatApplicable: false, vatRate: 0m, stampDutyEnabled: true, stampDutyAmount: 1.000m);
+        invoice.Issue("2026-0008");
+        FreezeHistoricalTax(invoice, vatRate: 0m, stamp: 1.000m);
         _invoices.Setup(r => r.GetByIdAsync(invoice.Id, It.IsAny<CancellationToken>())).ReturnsAsync(invoice);
 
         var data = await RenderAsync(Avoir(invoice, invoice.TotalTtc));

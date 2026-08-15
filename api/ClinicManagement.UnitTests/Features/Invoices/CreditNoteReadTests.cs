@@ -76,7 +76,7 @@ public class CreditNoteReadTests
     {
         var invoice = new Invoice(Guid.NewGuid(), clinicId ?? ClinicId, PatientId);
         invoice.SetLines(new[] { ("Couronne", 1, total) });
-        invoice.Issue("2026-0001", vatApplicable: false, vatRate: 0m, stampDutyEnabled: false, stampDutyAmount: 0m);
+        invoice.Issue("2026-0001");
         invoice.RecordPayment(total, PaymentMethod.Cash, PaidOn);
         return invoice;
     }
@@ -263,7 +263,7 @@ public class CreditNoteReadTests
     {
         var invoice = new Invoice(Guid.NewGuid(), ClinicId, PatientId);
         invoice.SetLines(new[] { ("Couronne", 1, 600m) });
-        invoice.Issue("2026-0002", vatApplicable: false, vatRate: 0m, stampDutyEnabled: false, stampDutyAmount: 0m);
+        invoice.Issue("2026-0002");
         _invoices.Setup(r => r.GetByIdAsync(invoice.Id, It.IsAny<CancellationToken>())).ReturnsAsync(invoice);
 
         Assert.False(invoice.CanCreateCreditNote);

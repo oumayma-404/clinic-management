@@ -84,6 +84,14 @@ public class DentalRecordActHandlerTests
             Invoices.Setup(r => r.GetDentalRecordLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
 
+            // « Quelle séance cette fiche documente-t-elle ? » — the create path now asks this on every save, so
+            // the fiche charted from the patient's page gets its link too (DentalRecordVisitLink). These fixtures
+            // record no appointment, so the honest default is « no candidate », which leaves the link null exactly
+            // as it was before the resolver existed.
+            Appointments.Setup(r => r.GetForPatientOnDayAsync(
+                    It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Array.Empty<Appointment>());
+
             ToothStates.Setup(r => r.GetByPatientIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(existingForPatient ?? Array.Empty<ToothState>());
             ToothStates.Setup(r => r.AddAsync(It.IsAny<ToothState>(), It.IsAny<CancellationToken>()))

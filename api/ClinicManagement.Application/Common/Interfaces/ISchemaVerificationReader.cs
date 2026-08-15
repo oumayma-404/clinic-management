@@ -339,6 +339,24 @@ public sealed record DataMigrationCounts(
     /// </summary>
     int? RowsAttributableFromAppointmentButUnattributed,
     /// <summary>
+    /// Fiches de soins that could be tied to exactly one visit on their own clinic-local day and are still
+    /// unlinked — the rows <c>BackfillDentalRecordAppointmentLinks</c> was supposed to reach.
+    /// <para>
+    /// The only part of that change worth a hand-written line, and the clearest example of what this verb is for:
+    /// the column and its index have existed since <c>AddDentalRecordAppointmentId</c> and are diffed against the
+    /// catalog for free, the API has always accepted the id, and every test passes — while the column held NULL on
+    /// every fiche not charted through the post-visit deep link. A backfill is invisible to every other layer, and
+    /// here its failure is worse than invisible: « À clôturer » reads a missing link as « pas de fiche », so a
+    /// backfill covering zero rows makes the worklist report a missing fiche for most visits that have one.
+    /// </para>
+    /// <para>
+    /// ⚠️ It counts <b>recoverable</b> misses only — a fiche whose day holds no candidate visit, or several, is
+    /// legitimately unlinked and is not drift. That is the resolver's own rule (exactly one, or none), so this
+    /// measures the outcome rather than re-stating the migration.
+    /// </para>
+    /// </summary>
+    int? FichesResolvableToOneVisitStillUnlinked,
+    /// <summary>
     /// Queued OS pushes whose <c>ClinicId</c> disagrees with the clinic of the device they are addressed to
     /// (<c>mobile-native-shells</c> Part 6).
     /// <para>
