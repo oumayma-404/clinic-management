@@ -1,6 +1,7 @@
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
+import { isBusySlot } from '@/components/appointment-labels';
 import type { AppointmentDto } from '@/lib/api/types';
 import { parseDurationToMinutes } from '@/lib/utils';
 import { DEFAULT_WORKING_HOURS, WEEKDAYS, type WorkingDay } from '@/lib/working-hours';
@@ -154,6 +155,29 @@ function workingDayFor(hours: WorkingDay[] | null | undefined, date: Date): Work
 }
 
 /**
+ * How strongly a slot claims « Au fauteuil ». Higher wins; `0` is no claim at all.
+ *
+ * <p><b>Ranked rather than first-match, and that is the whole point.</b> `InProgress` is a status somebody has to
+ * clear, so a blocked 11:00–11:30 slot still flagged en cours at 12:39 used to win on start order — and then, by
+ * holding the chair, it pushed the visit genuinely running out of `next`, which only looks *forward*. The patient
+ * actually being treated appeared on neither card.</p>
+ *
+ * <p>A patient outranks a « créneau occupé »: a blocked hour is the practitioner's own time, not somebody in the
+ * chair. Within each, a slot whose window contains now outranks one merely left open.</p>
+ *
+ * <p>⚠️ Deliberately <b>no staleness cutoff</b>. A visit started this morning and never closed still claims the
+ * chair, exactly as before — declaring how long « en cours » may be trusted is a rule about the practice, not a
+ * rendering decision, and `AppointmentProgressJob` is where that question belongs.</p>
+ */
+function chairClaim(slot: DaySlot, nowMinutes: number): number {
+  if (FINISHED.has(statusOf(slot.appointment))) return 0;
+  const running = slot.startMinutes <= nowMinutes && nowMinutes < slot.endMinutes;
+  const started = statusOf(slot.appointment) === 'inprogress';
+  if (!running && !started) return 0;
+  return (isBusySlot(slot.appointment) ? 0 : 4) + (running ? 2 : 1);
+}
+
+/**
  * Fold today's appointments into everything the day zones render.
  *
  * @param appointments every appointment the day's fetch returned, cancelled ones included — they are filtered here
@@ -191,19 +215,16 @@ export function buildDaySummary(
     })
     .sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes);
 
-  /*
-   * « Au fauteuil » prefers the recorded status over the clock.
-   *
-   * A visit the dentist actually started is `InProgress` whether or not it is running late, and a booking whose
-   * slot merely contains the current minute may be a patient who has not arrived. The clock is the fallback for
-   * the common case where nobody presses « Démarrer ».
-   */
-  let current =
-    occupying.find((s) => statusOf(s.appointment) === 'inprogress') ??
-    occupying.find(
-      (s) => s.startMinutes <= nowMinutes && nowMinutes < s.endMinutes && !FINISHED.has(statusOf(s.appointment)),
-    ) ??
-    null;
+  let current: DaySlot | null = null;
+  let bestClaim = 0;
+  for (const slot of occupying) {
+    const claim = chairClaim(slot, nowMinutes);
+    // `>` and not `>=`, so a tie keeps the earlier slot — `occupying` is already sorted by start.
+    if (claim > bestClaim) {
+      bestClaim = claim;
+      current = slot;
+    }
+  }
   if (current) current = { ...current, isCurrent: true, isPast: false };
 
   const slots = occupying.map((s) =>
