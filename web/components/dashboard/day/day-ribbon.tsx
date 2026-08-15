@@ -254,10 +254,18 @@ function Legend({ summary }: { summary: DaySummary }) {
 /** The figures, as one plain sentence under the shape they describe rather than as competing big numbers. */
 function Facts({ summary }: { summary: DaySummary }) {
   const items: Array<{ value: string; label: string }> = [
-    { value: String(summary.count), label: summary.count === 1 ? "rendez-vous" : "rendez-vous" },
+    { value: String(summary.count), label: "rendez-vous" },
     { value: String(summary.actCount), label: summary.actCount === 1 ? "acte" : "actes" },
-    { value: formatDuration(summary.bookedMinutes), label: "au fauteuil" },
   ]
+  // Stated, never folded into « rendez-vous »: a blocked hour is why the chair time and the load can outrun the
+  // visit count, and a reader who cannot see it reads those two figures as wrong.
+  if (summary.blockedCount > 0) {
+    items.push({
+      value: String(summary.blockedCount),
+      label: summary.blockedCount === 1 ? "créneau bloqué" : "créneaux bloqués",
+    })
+  }
+  items.push({ value: formatDuration(summary.bookedMinutes), label: "au fauteuil" })
   if (summary.loadPercent !== null) {
     items.push({ value: `${summary.loadPercent} %`, label: "de la journée" })
   }
@@ -317,5 +325,10 @@ function ribbonLabel(summary: DaySummary): string {
       : summary.gaps
           .map((g) => `${formatDuration(g.minutes)} libre à partir de ${formatClock(g.startMinutes)}`)
           .join(", ")
-  return `Journée ${window} : ${summary.count} rendez-vous, ${gaps}.`
+  // A screen reader is told about the blocked slots too — they are drawn on the ribbon it is describing.
+  const blocked =
+    summary.blockedCount > 0
+      ? `, ${summary.blockedCount} ${summary.blockedCount === 1 ? "créneau bloqué" : "créneaux bloqués"}`
+      : ""
+  return `Journée ${window} : ${summary.count} rendez-vous${blocked}, ${gaps}.`
 }

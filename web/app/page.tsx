@@ -395,8 +395,9 @@ function DashboardContent() {
             <NowNextCards summary={summary} nowMinutes={minutesOfDay(now)} />
 
             {/* An empty day has no shape worth drawing: the ribbon is absent rather than an empty rectangle,
-                and the greeting's own tier already says what the day is. */}
-            {summary.count > 0 && (
+                and the greeting's own tier already says what the day is. `slots`, not `count` — a day holding
+                only « créneaux occupés » has no rendez-vous and still has a shape. */}
+            {summary.slots.length > 0 && (
               <section aria-label="La journée" className="space-y-3">
                 <SectionBar title="La journée" href="/appointments" action="Ouvrir l'agenda" />
                 <DayRibbon summary={summary} nowMinutes={minutesOfDay(now)} />

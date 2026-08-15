@@ -107,7 +107,10 @@ function buildSubline(tier: DayTier, summary: DaySummary): string {
     case 'closed':
       return 'Aucune ouverture prévue. Les horaires se modifient dans « Paramètres ».';
     case 'empty':
-      return 'Le planning est vide — de quoi rattraper les dossiers en attente.';
+      // « Le planning est vide » is false on a day held by blocked hours, and the ribbon below it shows them.
+      return summary.blockedCount > 0
+        ? `Aucun patient prévu — ${summary.blockedCount} ${plural(summary.blockedCount, 'créneau bloqué', 'créneaux bloqués')} seulement.`
+        : 'Le planning est vide — de quoi rattraper les dossiers en attente.';
     case 'over':
       return `${summary.count} ${plural(summary.count, 'patient vu', 'patients vus')} aujourd’hui. Bonne soirée.`;
     default:

@@ -61,13 +61,26 @@ export interface DaySlot {
 }
 
 export interface DaySummary {
-  /** Occupying appointments only, ordered by start. Cancelled and no-show are not today's work. */
+  /**
+   * Every occupying row, ordered by start — **patients and « créneaux occupés » alike**. Cancelled and no-show
+   * are not today's work; a blocked hour is, which is why it is drawn on the ribbon.
+   */
   slots: DaySlot[];
+  /**
+   * Patients booked today. **A « créneau occupé » is not one of them.**
+   *
+   * <p>The split below is the rule: figures about <b>people</b> count appointments, figures about <b>time and
+   * shape</b> count every slot. A blocked hour is not a rendez-vous and its passing is not a patient seen — but
+   * the chair really is unavailable for it, which is the whole point of blocking it out.</p>
+   */
   count: number;
+  /** « Créneaux occupés » today. Stated rather than hidden: it is why the load can exceed the visit count. */
+  blockedCount: number;
   /** Acts, not appointments — a séance routinely carries several, so this is normally the larger number. */
   actCount: number;
   /** Act types, busiest first. */
   acts: DayAct[];
+  /** Chair minutes — **blocked slots included**, since the time is genuinely spent. */
   bookedMinutes: number;
   /**
    * The clinic's open minutes for this weekday, or `null` when the day is not configured.
@@ -84,11 +97,18 @@ export interface DaySummary {
   gaps: DayGap[];
   current: DaySlot | null;
   next: DaySlot | null;
+  /** Patients already seen. A blocked hour that has passed is not one. */
   doneCount: number;
+  /** Patients still to come. */
   remainingCount: number;
-  /** When the last booked visit ends, or `null` on an empty day. */
+  /** When the last occupying slot ends — blocks included, because « fin prévue » means the day's own end. */
   endsAtMinutes: number | null;
-  /** Every booked visit has finished. Drives the closing register of the greeting. */
+  /**
+   * Every **patient** of the day has been seen. Drives the closing register of the greeting.
+   *
+   * <p>Deliberately not keyed on {@link endsAtMinutes}: a blocked hour at the end of the day is admin time, and
+   * « Journée terminée · N patients vus » is true the moment the last patient leaves.</p>
+   */
   isOver: boolean;
   /** The clinic does not open on this weekday at all. Distinct from « nothing was booked ». */
   isClosedToday: boolean;
@@ -269,13 +289,19 @@ export function buildDaySummary(
     cursor = Math.max(cursor, slot.endMinutes);
   }
 
-  const doneCount = slots.filter((s) => s.isPast).length;
+  // People vs. time: a « créneau occupé » holds the chair (so it is in `slots`, `bookedMinutes`, the gaps and
+  // the ribbon) but is nobody's appointment, so it counts toward none of the figures below.
+  const patientSlots = slots.filter((s) => !isBusySlot(s.appointment));
+  const doneCount = patientSlots.filter((s) => s.isPast).length;
+  const lastPatientEnds =
+    patientSlots.length > 0 ? Math.max(...patientSlots.map((s) => s.endMinutes)) : null;
 
   return {
     slots,
-    count: slots.length,
-    actCount: countActs(slots),
-    acts: buildActMix(slots),
+    count: patientSlots.length,
+    blockedCount: slots.length - patientSlots.length,
+    actCount: countActs(patientSlots),
+    acts: buildActMix(patientSlots),
     bookedMinutes,
     openMinutes,
     loadPercent,
@@ -285,9 +311,9 @@ export function buildDaySummary(
     current,
     next,
     doneCount,
-    remainingCount: slots.length - doneCount,
+    remainingCount: patientSlots.length - doneCount,
     endsAtMinutes,
-    isOver: slots.length > 0 && endsAtMinutes !== null && nowMinutes >= endsAtMinutes,
+    isOver: lastPatientEnds !== null && nowMinutes >= lastPatientEnds,
     // Only a schedule the clinic actually saved may say « fermé ». The shared default is a guess.
     isClosedToday: hasSavedHours && !hasOpenWindow,
   };
