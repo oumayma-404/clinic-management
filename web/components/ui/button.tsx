@@ -27,8 +27,20 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        /*
+         * ⚠️ `text-destructive-foreground`, not `text-white`, and no `dark:bg-destructive/60`.
+         *
+         * Both were shadcn defaults that quietly opted this variant OUT of the theme. In dark mode `--destructive`
+         * is now resolved as **ink** (light enough to read as `text-destructive` on the card — 311 call sites
+         * depend on that), and its `-foreground` partner carries the near-black that keeps this filled button
+         * legible. Hard-coded white type on that fill measures ~2.6:1; the token pairing measures 6.5:1.
+         *
+         * The `/60` fill had the same effect from the other side: it lightened the button until neither ink could
+         * hold, which is why full strength is the correct fill now. Light mode is byte-identical — there
+         * `--destructive-foreground` is `oklch(0.99 0 0)`, i.e. the white this used to hard-code.
+         */
         destructive:
-          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         outline:
           "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
         secondary:

@@ -170,62 +170,122 @@
   --chart-4: oklch(0.67 0.13 45);
   --chart-5: oklch(0.56 0.12 155);
   --radius: 0.75rem;
-  --sidebar: oklch(1 0 0);
+
+  /*
+   * ── The rail's own surface ─────────────────────────────────────────────────────────────────────────────────
+   *
+   * ⚠️ `--sidebar` used to be `oklch(1 0 0)` — **the same pure white as `--card`** — and the rail did not even read
+   * it: `dashboard-sidebar.tsx` painted `bg-card` directly, so these eight tokens were declared and consumed by
+   * nothing. The visible consequence was a hierarchy inversion: the ground is tinted at 0.977 and cards are white,
+   * so a white rail was the *brightest* surface on screen. Chrome that is brighter than content advances when it
+   * should recede, which is most of why the rail read as "another card that happens to be on the left".
+   *
+   * It now sits just **below** the ground, so the stack reads rail → ground → card, quietest to brightest. That is
+   * a 1.1 % step from `--background`, which is deliberate: the rail has a full-height border of its own to
+   * separate it, so it needs to be *distinguishable*, not *dark*. A heavier step turns a clinical tool into a
+   * console.
+   *
+   * `--sidebar-accent` is a touch deeper than `--accent` for the same reason — the active row's wash has to read
+   * against a tinted rail rather than against white.
+   */
+  --sidebar: oklch(0.966 0.012 231);
   --sidebar-foreground: oklch(0.205 0.020 236);
   --sidebar-primary: oklch(0.485 0.101 234);
   --sidebar-primary-foreground: oklch(0.99 0.005 234);
-  --sidebar-accent: oklch(0.948 0.031 230);
+  --sidebar-accent: oklch(0.940 0.030 230);
   --sidebar-accent-foreground: oklch(0.375 0.078 234);
-  --sidebar-border: oklch(0.91 0.013 230);
+  --sidebar-border: oklch(0.898 0.014 230);
   --sidebar-ring: oklch(0.485 0.101 234);
 }
 
 /*
- * Dark is given the same care rather than an inversion. The ground/card gap is *widened* here (0.140 → 0.193, a
- * 5-point step) because elevation is harder to read on a dark ground, and `--primary` moves up to L 0.56 so an
- * azure button stays clearly above the surface while still carrying near-white type at an acceptable ratio.
+ * ── Dark: « Rider fidèle » ────────────────────────────────────────────────────────────────────────────────────
+ *
+ * Dark is given the same care rather than an inversion, and it is no longer near-black. The ground was
+ * `L 0.14` with the card at `0.193`; it is now **`0.245` / `0.305`**, matched to JetBrains Rider's New UI
+ * (`#1E1F22` editor · `#2B2D30` tool window · `#393B40` borders · `#DFE1E5` text). The 5-point ground/card step
+ * that carries elevation here is unchanged — it is the same rule, moved up the scale.
+ *
+ * ⚠️ **The chroma drops 0.018 → 0.006, and that is a knowing trade.** The `:root` note above says a hue bias at
+ * 230–236 is what makes these greys read as *chosen* rather than *inherited*. At 0.006 they are very nearly
+ * neutral — literally Rider — so the accent's family is now carried by the accent itself rather than by the
+ * neutrals. Raising chroma back toward 0.011 is a one-line change if the greys read as too flat.
+ *
+ * ⚠️ **`--muted-foreground` deliberately does NOT follow Rider.** Its own secondary grey is `#6F737A` (≈ L 0.55),
+ * which measures ~2.6:1 on this card — an IDE is not held to WCAG and this is a medical record. It sits at
+ * **0.685**, the lowest value that clears 4.5:1 against `--card`.
+ *
+ * ── What lifting the card forces, and why these are corrections rather than taste ──
+ *
+ * Several tokens were tuned *relative to a near-black ground*. Left alone they survive the change while going
+ * invisible, which reads as a rendering fault rather than as a palette:
+ *
+ *   • `--hero-to` was `0.29` — i.e. the new card exactly. The dashboard's one saturated surface would have
+ *     become a rectangle the colour of the page. The ramp moves to 0.455 → 0.345.
+ *   • `--accent` was `0.268`, which is now *below* the card: the rail's active row and every hover would have
+ *     carved inward instead of lifting.
+ *   • The three `-wash` backgrounds were `0.27–0.29`, same problem — a « +12 % » pill would have been a hole.
+ *
+ * ⚠️ **`--primary` and `--destructive` each do two jobs, and on a lighter card those jobs stop agreeing.**
+ * A token that fills a button under near-white type must be dark; the same token used as *ink* on the card
+ * (`text-primary`, `text-destructive` — 431 call sites between them) must be light. A near-black card let one
+ * mid-dark value just satisfy both. At `L 0.305` it cannot: holding the old values would have taken
+ * `text-destructive` from 3.8:1 to **2.7:1** on every « Supprimer », every negative amount, every error count.
+ *
+ * So both are now resolved **as ink** — light enough to read on the card — and their `-foreground` partners
+ * carry near-black instead of near-white, which keeps the filled button legible without touching a single call
+ * site. `ui/button.tsx` and `ui/badge.tsx` were the one obstacle: both hard-coded `text-white` on the
+ * destructive variant instead of reading `--destructive-foreground`, so they were pointed at the token.
+ * The visible consequence is that a primary or destructive button in dark mode is now a *bright* fill with dark
+ * type. Light mode is untouched — there the card is white, so its two roles still agree.
  */
 .dark {
-  --background: oklch(0.14 0.014 238);
-  --foreground: oklch(0.964 0.008 232);
-  --card: oklch(0.193 0.018 238);
-  --card-foreground: oklch(0.964 0.008 232);
-  --popover: oklch(0.193 0.018 238);
-  --popover-foreground: oklch(0.964 0.008 232);
-  --primary: oklch(0.56 0.117 234);
-  --primary-foreground: oklch(0.99 0.005 234);
-  --secondary: oklch(0.243 0.019 236);
-  --secondary-foreground: oklch(0.964 0.008 232);
-  --muted: oklch(0.243 0.019 236);
-  --muted-foreground: oklch(0.658 0.019 234);
-  --accent: oklch(0.268 0.048 232);
-  --accent-foreground: oklch(0.80 0.115 234);
-  --destructive: oklch(0.55 0.19 25);
-  --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(0.273 0.019 236);
-  --input: oklch(0.273 0.019 236);
-  --ring: oklch(0.64 0.133 234);
+  --background: oklch(0.245 0.006 268);
+  --foreground: oklch(0.895 0.004 260);
+  --card: oklch(0.305 0.006 265);
+  --card-foreground: oklch(0.895 0.004 260);
+  --popover: oklch(0.305 0.006 265);
+  --popover-foreground: oklch(0.895 0.004 260);
+  /* Ink first (5.4:1 on --card); the filled button's legibility comes from --primary-foreground below. */
+  --primary: oklch(0.72 0.125 234);
+  --primary-foreground: oklch(0.20 0.030 240);
+  --secondary: oklch(0.345 0.007 265);
+  --secondary-foreground: oklch(0.895 0.004 260);
+  --muted: oklch(0.345 0.007 265);
+  --muted-foreground: oklch(0.685 0.008 265);
+  --accent: oklch(0.368 0.030 245);
+  --accent-foreground: oklch(0.820 0.100 234);
+  --destructive: oklch(0.70 0.155 25);
+  --destructive-foreground: oklch(0.22 0.045 25);
+  --border: oklch(0.372 0.008 268);
+  --input: oklch(0.372 0.008 268);
+  --ring: oklch(0.68 0.130 234);
 
-  --success: oklch(0.70 0.13 155);
-  --success-wash: oklch(0.27 0.045 155);
-  --warning: oklch(0.76 0.13 78);
-  --warning-wash: oklch(0.29 0.05 78);
-  --warning-ink: oklch(0.86 0.11 80);
-  --destructive-wash: oklch(0.28 0.05 25);
+  --success: oklch(0.72 0.13 155);
+  --success-wash: oklch(0.340 0.042 155);
+  --warning: oklch(0.78 0.13 78);
+  --warning-wash: oklch(0.355 0.048 78);
+  --warning-ink: oklch(0.87 0.11 80);
+  --destructive-wash: oklch(0.330 0.048 25);
 
-  --hero-from: oklch(0.40 0.083 234);
-  --hero-to: oklch(0.29 0.078 248);
-  --hero-glow: oklch(0.55 0.112 232);
+  --hero-from: oklch(0.455 0.088 234);
+  --hero-to: oklch(0.345 0.082 248);
+  --hero-glow: oklch(0.600 0.115 232);
   --hero-foreground: oklch(0.99 0.005 234);
 
-  /* Stronger here, not inverted: a 22 % wash against a near-black card is indistinguishable from the card. */
-  --act-tint: 40%;
-  --act-tint-edge: 58%;
+  /* Stronger than light, but no longer 40 %: the card is 11 points lighter than it was, so an act's colour
+     survives a weaker mix. Past ~40 % the wide ribbon surfaces start competing with the text on them. */
+  --act-tint: 36%;
+  --act-tint-edge: 54%;
 
   /*
-   * Zone hues, lifted for a dark ground. The card sits at L 0.185, and the 4.5:1 floor against it starts at
-   * about L 0.61 — so these are not the light values with a tweak, they are a different step of the same hue.
-   * Chroma comes down slightly as lightness rises, or a saturated pastel on near-black reads as neon.
+   * Zone hues, lifted for a dark ground — these are not the light values with a tweak, they are a different step
+   * of the same hue. Chroma comes down slightly as lightness rises, or a saturated pastel reads as neon.
+   *
+   * ⚠️ The figures are **unchanged** by the move to a `L 0.305` card, and that was checked rather than assumed:
+   * they were sized against the old `0.193` card, where they measured ~8.5:1, and they measure **~5.9:1** here.
+   * Still clear of the 4.5:1 floor they exist to hold as 11 px eyebrow text, so lifting them would only have
+   * bought neon. This is the one family the card lift did *not* force a correction on.
    */
   --zone-daily: oklch(0.76 0.115 234);
   --zone-clinical: oklch(0.755 0.11 308);
@@ -238,14 +298,17 @@
   --chart-3: oklch(0.705 0.13 308);
   --chart-4: oklch(0.745 0.13 50);
   --chart-5: oklch(0.70 0.12 155);
-  --sidebar: oklch(0.193 0.018 238);
-  --sidebar-foreground: oklch(0.964 0.008 232);
-  --sidebar-primary: oklch(0.56 0.117 234);
-  --sidebar-primary-foreground: oklch(0.99 0.005 234);
-  --sidebar-accent: oklch(0.268 0.048 232);
-  --sidebar-accent-foreground: oklch(0.80 0.115 234);
-  --sidebar-border: oklch(0.273 0.019 236);
-  --sidebar-ring: oklch(0.64 0.133 234);
+
+  /* The rail sits one step BELOW the card, mirroring light's rail → ground → card stack. See the note in
+     `:root`: these eight tokens were previously identical to the card's and read by nothing at all. */
+  --sidebar: oklch(0.275 0.006 266);
+  --sidebar-foreground: oklch(0.895 0.004 260);
+  --sidebar-primary: oklch(0.72 0.125 234);
+  --sidebar-primary-foreground: oklch(0.20 0.030 240);
+  --sidebar-accent: oklch(0.368 0.030 245);
+  --sidebar-accent-foreground: oklch(0.820 0.100 234);
+  --sidebar-border: oklch(0.372 0.008 268);
+  --sidebar-ring: oklch(0.68 0.130 234);
 }
 
 /*

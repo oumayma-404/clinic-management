@@ -17,14 +17,22 @@ import { buildNavSections } from "@/lib/nav"
  *
  * <p><b>Where a zone hue is allowed to appear</b>, exhaustively — this list is the restraint:</p>
  * <ol>
- *   <li>the nav icon of the active row, and a 12 % wash behind it;</li>
+ *   <li>the nav icon of the active row, a 12 % wash behind it, <b>and the active row's own background</b>;</li>
  *   <li>the `PageHeader` eyebrow and its 6 px dot;</li>
+ *   <li><b>a 10 % gradient band behind the `PageHeader`</b>, fading to nothing over 128 px;</li>
  *   <li>the icon chip of a zone-scoped empty state.</li>
  * </ol>
  *
+ * <p>Entries 1 and 3 grew in the identity pass, and both are the same correction rather than a relaxation. The
+ * rail's active row used to fill with a fixed `--accent` while the 3 px bar beside it drew the zone, so on
+ * « Caisse » the two disagreed; and the header band exists because a hue confined to an eyebrow, a dot and a chip
+ * is <i>stated</i> without ever being <i>felt</i> — the whole point of a zone is that it arrives before the word
+ * is read. Both are still orientation, and both are still keyed off the route.</p>
+ *
  * <p>It is never a background for content, never a button fill, and never a status. Status has its own family
  * (`ui/status-tone.ts`) on purpose: a zone says <i>where</i>, a status says <i>how it is going</i>, and a screen
- * where those two share a palette can express neither.</p>
+ * where those two share a palette can express neither. The band above obeys that too: it sits behind the page's
+ * <i>title</i>, never behind its records.</p>
  *
  * <p>« Configuration » is deliberately near-neutral. It is the one zone a clinic visits rarely, and giving it a
  * fifth competing hue would make the rail read as a paint chart rather than as four working areas plus settings.</p>
@@ -45,6 +53,18 @@ export interface Zone {
   text: string
   /** The 12 % wash, for an icon chip. Same literal-class rule as `text`. */
   wash: string
+  /**
+   * The gradient's top stop, for `PageHeader`'s band — `bg-gradient-to-b {washGradient} to-transparent`.
+   *
+   * <p>10 % rather than the chip's 12 %, and that is not a rounding difference: the chip is a 44 px square where
+   * the wash has to hold its own against the icon inside it, while this is a 128 px band running the full width
+   * of the page. The same value over that area stops reading as a tint and starts reading as a coloured header,
+   * which is a different — and much louder — design decision than the one being made here.</p>
+   *
+   * <p>⚠️ A fourth complete literal for the same reason as the three above: Tailwind scans source text, so a
+   * `from-zone-` prefix composed from the key at runtime is never generated, and renders as no colour at all.</p>
+   */
+  washGradient: string
   /** Border at 25 %, for a chip that needs an edge against a tinted ground. */
   border: string
   /** Full-strength fill. The rail's 3 px active-row indicator, and nothing wider — this is ink, not a surface. */
@@ -57,6 +77,7 @@ export const ZONES: Record<ZoneKey, Zone> = {
     label: "Quotidien",
     text: "text-zone-daily",
     wash: "bg-zone-daily/12",
+    washGradient: "from-zone-daily/10",
     border: "border-zone-daily/25",
     bg: "bg-zone-daily",
   },
@@ -65,6 +86,7 @@ export const ZONES: Record<ZoneKey, Zone> = {
     label: "Clinique",
     text: "text-zone-clinical",
     wash: "bg-zone-clinical/12",
+    washGradient: "from-zone-clinical/10",
     border: "border-zone-clinical/25",
     bg: "bg-zone-clinical",
   },
@@ -73,6 +95,7 @@ export const ZONES: Record<ZoneKey, Zone> = {
     label: "Finances",
     text: "text-zone-money",
     wash: "bg-zone-money/12",
+    washGradient: "from-zone-money/10",
     border: "border-zone-money/25",
     bg: "bg-zone-money",
   },
@@ -81,6 +104,7 @@ export const ZONES: Record<ZoneKey, Zone> = {
     label: "Gestion",
     text: "text-zone-ops",
     wash: "bg-zone-ops/12",
+    washGradient: "from-zone-ops/10",
     border: "border-zone-ops/25",
     bg: "bg-zone-ops",
   },
@@ -89,6 +113,7 @@ export const ZONES: Record<ZoneKey, Zone> = {
     label: "Configuration",
     text: "text-zone-config",
     wash: "bg-zone-config/12",
+    washGradient: "from-zone-config/10",
     border: "border-zone-config/25",
     bg: "bg-zone-config",
   },

@@ -13,6 +13,7 @@ import {
 import { Users, Flag, FileText, Folder, Trash2, Pencil, MoreHorizontal, Plus, SearchX } from "lucide-react"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
+import { InitialsAvatar } from "@/components/ui/initials-avatar"
 import { patientFlagLabel } from "@/components/patient/patient-flag-labels"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import {
@@ -461,12 +462,30 @@ export function PatientsTable({
                       onClick={(e) => handleRowClick(patient, e)} 
                       className="cursor-pointer hover:bg-muted/50"
                     >
+                      {/*
+                        The initials disc is the row's anchor.
+
+                        ⚠️ **Table tree only, deliberately — the card list does not get one.** This solves a
+                        *density* problem: nine columns of grey text with nothing for the eye to land on, so
+                        finding a name among twenty-five rows is a read rather than a glance. A card below `md:`
+                        has no such problem — its heading is already the boldest thing in its own box — and § 6's
+                        card content rule is identity → status → money → date, with no slot for ornament. At
+                        320 px a 32 px disc would take width from the patient's name, which is the one thing on
+                        that card that must not wrap harder than it already does.
+
+                        It is also NOT `CardList`'s `leading` slot, which renders *above* the stretched-title
+                        overlay so that a checkbox stays clickable — an avatar there would punch a dead zone in
+                        the middle of a card whose whole job is to be one big tap target.
+                      */}
                       <TableCell className="font-medium">
-                        <div>
-                          <p className="text-foreground">{getPatientName(patient)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {age !== null ? `${age} ans` : "âge inconnu"}
-                          </p>
+                        <div className="flex items-center gap-2.5">
+                          <InitialsAvatar name={getPatientName(patient)} />
+                          <div className="min-w-0">
+                            <p className="text-foreground">{getPatientName(patient)}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {age !== null ? `${age} ans` : "âge inconnu"}
+                            </p>
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground">

@@ -68,6 +68,7 @@ export function DashboardHeader() {
    */
   const [activeIndex, setActiveIndex] = useState(-1)
   const resultsRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const term = searchQuery.trim()
@@ -113,6 +114,27 @@ export function DashboardHeader() {
       clearTimeout(handle)
     }
   }, [searchQuery, searchRetry])
+
+  /*
+   * ⌘K / Ctrl-K focuses the patient search.
+   *
+   * ⚠️ This exists because the hint chip beside the field exists. Rendering « Ctrl K » next to a control that does
+   * not answer it would be a label that lies, which this codebase treats as worse than no label at all (see the
+   * clinic-code card in `user-management.tsx`). The two ship together or neither does.
+   *
+   * `preventDefault` matters: Ctrl-K is « open link » in Firefox's quick-find and focuses the address bar's search
+   * in a few others, so without it the browser wins and the field never receives focus.
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey) || event.altKey) return
+      event.preventDefault()
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    }
+    document.addEventListener("keydown", onKeyDown)
+    return () => document.removeEventListener("keydown", onKeyDown)
+  }, [])
 
   // Close the results dropdown on an outside click.
   useEffect(() => {
@@ -240,7 +262,14 @@ export function DashboardHeader() {
         AC-P3.12 — and « Plus » in the bottom bar supersedes it: same `isMobileOpen` state, same drawer, but a
         thumb can reach it. Two openers for one drawer would just be two things to keep in step. */}
     {/* `print:hidden`: AC-9 says "no NAVIGATION", and search + the bell + the user menu are exactly that. */}
-    <header className="flex h-16 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6 print:hidden">
+    {/*
+      `h-14` (56 px), down from `h-16`.
+
+      Those 8 px are on every screen of the app and count twice on a landscape phone, where the header and the
+      bottom bar already leave roughly 250 px of usable content height — see the note in `bottom-nav.tsx`. The row
+      still clears the 44 px touch floor with room to spare, since its tallest control is a 36 px search pill.
+    */}
+    <header className="flex h-14 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6 print:hidden">
       <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-4">
         {/*
           In-app « Retour » (AC-37).
@@ -263,6 +292,7 @@ export function DashboardHeader() {
         <div ref={searchBoxRef} className="relative w-full min-w-0 max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
+            ref={searchInputRef}
             type="search"
             placeholder="Rechercher un patient…"
             value={searchQuery}
@@ -288,10 +318,37 @@ export function DashboardHeader() {
              * a zoomed, sideways-scrolling app with the drawer trigger off-screen — the single widest-reaching
              * instance of that bug in the product.
              */
-            className="h-10 w-full rounded-lg border border-input bg-background pl-10 pr-9 text-base outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring md:text-sm"
+            /*
+             * A filled pill, not a bordered box.
+             *
+             * The old treatment — a 40 px `border-input` rectangle on `--background` — was a form field sitting in
+             * the chrome of every screen in the app, which is the one place a field should read as a *command*
+             * instead. `bg-muted` with a full radius says "type here to go somewhere"; the border only appears on
+             * focus, where it is the thing that tells you the field is live.
+             *
+             * ⚠️ `text-base md:text-sm` is untouched and must stay. This is a raw `<input>` rather than
+             * `ui/input.tsx`, so it carries that guard itself: Safari magnifies the page whenever a focused field
+             * is under 16 px and never zooms back, and this field is in the header of every page — the single
+             * widest-reaching instance of that bug in the product. `h-9` is safe on a finger because
+             * `globals.css` floors every `input` at 44 px under `(pointer: coarse)`.
+             */
+            className="h-9 w-full rounded-full border border-transparent bg-muted pl-10 pr-9 text-base outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:bg-card focus:ring-1 focus:ring-ring md:pr-16 md:text-sm"
           />
-          {searching && (
+          {searching ? (
             <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+          ) : (
+            /*
+             * The keyboard hint. `hidden md:inline-flex` because a phone has no modifier key to press, and
+             * `aria-hidden` because the shortcut is a convenience a screen-reader user reaches the field by
+             * tabbing to anyway — announcing « Ctrl K » inside the combobox's own name would be noise.
+             * `pointer-events-none` so it never intercepts a click aimed at the field beneath it.
+             */
+            <kbd
+              aria-hidden="true"
+              className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 items-center gap-0.5 rounded-md border border-border bg-card px-1.5 py-0.5 font-mono text-2xs font-medium text-muted-foreground md:inline-flex"
+            >
+              Ctrl K
+            </kbd>
           )}
 
           {searchOpen && searchQuery.trim().length >= 2 && (
@@ -378,19 +435,24 @@ export function DashboardHeader() {
         {!isLoading && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="flex items-center gap-2 px-2 md:px-3" aria-label="Mon compte">
+              {/*
+                Avatar only, at every width.
+
+                The name/email block that used to sit beside it is gone: the rail's foot now states the signed-in
+                practitioner and their rôle permanently, so keeping a second copy here spent ~180 px of the header
+                repeating it — directly opposite the search field, which is what actually wants that width. The
+                menu still heads itself with the same name and address, so nothing is only-available-there.
+
+                ⚠️ It is NOT lost on a phone, where the rail is a drawer with no foot: the `DropdownMenuLabel`
+                below is the identity on that width, and it was always the authoritative copy.
+              */}
+              <Button variant="ghost" size="icon" className="rounded-full" aria-label="Mon compte">
                 <Avatar className="h-8 w-8">
                   {userPicture && <AvatarImage src={userPicture} alt={userName} />}
                   <AvatarFallback className="bg-primary text-primary-foreground text-sm">
                     {getInitials(userName)}
                   </AvatarFallback>
                 </Avatar>
-                {/* Identity text is the first thing to go on a phone — the avatar still identifies the
-                    session, and the same name/email head the menu itself. */}
-                <div className="hidden text-left md:block">
-                  <p className="text-sm font-medium">{userName}</p>
-                  <p className="text-xs text-muted-foreground">{userEmail || "Utilisateur"}</p>
-                </div>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">

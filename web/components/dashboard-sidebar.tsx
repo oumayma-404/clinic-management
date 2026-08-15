@@ -3,8 +3,8 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-// `Stethoscope` is the brand mark in `brandHeader`, not a nav icon — it stays here after the nav data moved out.
-import { ChevronLeft, ChevronRight, Stethoscope } from "lucide-react"
+import { ChevronLeft, ChevronRight } from "lucide-react"
+import { USER_ROLE_LABELS_FR, type UserRole } from "@/lib/api/users"
 import { buildNavSections, type NavItem, type NavSection } from "@/lib/nav"
 import { zoneForSectionTitle, type Zone } from "@/lib/zones"
 import { useSidebar } from "@/contexts/sidebar-context"
@@ -37,6 +37,21 @@ export function DashboardSidebar() {
   const brandName = status?.clinic?.name?.trim() || PRODUCT_NAME
 
   const isAdmin = user?.role === "admin"
+
+  /*
+   * The foot's identity line. `USER_ROLE_LABELS_FR` is the same map `/users` renders, so the rail and the admin
+   * screen cannot disagree about what « secretary » is called in French — and an unrecognised stored role yields
+   * `null` and simply drops the line rather than printing a raw English key beside the practitioner's name.
+   */
+  const userLabel = user?.name?.trim() || user?.email || "Utilisateur"
+  const roleLabel = user?.role ? (USER_ROLE_LABELS_FR[user.role as UserRole] ?? null) : null
+  const userInitials =
+    userLabel
+      .split(/\s+/)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2) || "U"
 
   /*
    * ⚠️ The « Abonnement » row is gated on the DEPLOYMENT, not on a role (`clinic-subscription` AC-7.1/7.2). Part C
@@ -81,11 +96,22 @@ export function DashboardSidebar() {
           // height rather than overlaying a hit area that would overlap the row above. The density argument
           // above is a DESKTOP one: it was about a 19-item nav overflowing a laptop's 100vh, and the drawer a
           // finger uses scrolls anyway.
-          "relative flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors coarse:py-3",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
+          "relative flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm transition-colors coarse:py-3",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
+          /*
+           * ⚠️ The active row's WASH is its zone's, not `--accent`.
+           *
+           * It used to be `bg-accent text-accent-foreground` — a fixed azure — sitting immediately beside a 3 px
+           * bar drawn in the row's own zone hue. On « Caisse » the fill therefore said *Quotidien* while the bar
+           * two pixels to its left said *Finances*, and the eyebrow at the top of the page it opened agreed with
+           * the bar. One of the two was always lying, and it was the larger one.
+           *
+           * The label also moves to `text-foreground` + `font-semibold`: on a tinted rail, "you are here" should
+           * be the row that is *darkest and heaviest*, not merely the one with a background.
+           */
           isActive
-            ? "bg-accent text-accent-foreground"
-            : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+            ? cn(zone.wash, "font-semibold text-foreground")
+            : "font-medium text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
           collapsed && "justify-center"
         )}
         aria-current={isActive ? "page" : undefined}
@@ -133,14 +159,49 @@ export function DashboardSidebar() {
     return <div key={item.href}>{linkContent}</div>
   }
 
+  /*
+   * A second line under the clinic's name — the city and how many practitioners the roster holds.
+   *
+   * ⚠️ Built from what the status read actually carries, and **omitted entirely when it carries neither**. An
+   * invented or placeholder subtitle here would be a claim about the practice on the one piece of chrome that is
+   * on screen at all times; « — » or « Clinique » says nothing and costs a line.
+   */
+  const doctorCount = status?.doctors?.length ?? 0
+  const brandSubtitle =
+    [status?.clinic?.city?.trim(), doctorCount > 0 ? `${doctorCount} praticien${doctorCount > 1 ? "s" : ""}` : null]
+      .filter(Boolean)
+      .join(" · ") || null
+
   const brandHeader = (collapsed: boolean) => (
-    <div className="flex h-16 items-center border-b border-border px-4">
-      <div className="flex items-center gap-2 flex-1 min-w-0">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary shrink-0">
-          <Stethoscope className="h-5 w-5 text-primary-foreground" />
-        </div>
+    // `h-14` tracks `dashboard-header.tsx`'s own height exactly. The two are adjacent at the top-left corner and
+    // their bottom borders must form one continuous line across the app — if one moves, the other moves with it.
+    <div className="flex h-14 items-center border-b border-sidebar-border px-4">
+      <div className="flex items-center gap-2.5 flex-1 min-w-0">
+        {/*
+          The REAL app mark, not a stand-in.
+          It was a generic `Stethoscope` glyph on a solid `--primary` square — the one piece of chrome that could
+          have carried the product's identity, drawn as a lucide icon any app might use. `/icon-192.png` is
+          generated from `branding/icon.svg` by `scripts/generate-icons.mjs`, so this is the same lockup as the
+          favicon, the installed-app tile and the desktop shell's `.exe`, with **no second copy of the path**
+          (hand-inlining the `#mark` `d` here is exactly what that master's own comment warns against).
+          A plain `<img>` rather than `next/image`: a fixed 32 px local asset gains nothing from the optimizer.
+        */}
+        <img
+          src="/icon-192.png"
+          alt=""
+          width={32}
+          height={32}
+          className="size-8 shrink-0 rounded-[9px]"
+        />
         {!collapsed && (
-          <span className="text-lg font-semibold text-foreground truncate">{brandName}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-base font-semibold leading-tight text-foreground">
+              {brandName}
+            </span>
+            {brandSubtitle && (
+              <span className="block truncate text-2xs leading-tight text-muted-foreground">{brandSubtitle}</span>
+            )}
+          </span>
         )}
       </div>
     </div>
@@ -182,11 +243,15 @@ export function DashboardSidebar() {
                  */
                 <p
                   className={cn(
-                    "px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider",
+                    // The trailing hairline is the cheapest structure there is: it turns five words into five
+                    // section rules without adding a single unit of ink the eye has to read. `bg-current` +
+                    // opacity so it tracks the heading's own zone hue rather than needing a sixth token.
+                    "flex items-center gap-2 px-3 pb-1 pt-2 text-2xs font-semibold uppercase tracking-[0.09em]",
                     zone.text,
                   )}
                 >
                   {section.title}
+                  <span aria-hidden="true" className="h-px flex-1 bg-current opacity-25" />
                 </p>
               )}
               {section.items.map((item) => renderItem(item, collapsed, zone))}
@@ -214,7 +279,16 @@ export function DashboardSidebar() {
         className={cn(
           // `h-dvh` tracks the page shell's own height (`AppShell`); the two MUST agree or the rail overflows
           // the shell and the document grows a second scrollbar — which is the whole reason for the note above.
-          "hidden md:flex h-dvh flex-col overflow-hidden border-r border-border bg-card transition-all duration-300 relative",
+          /*
+           * ⚠️ `bg-sidebar`, not `bg-card` — and that is a hierarchy fix, not a colour preference.
+           *
+           * `--sidebar` and its seven siblings had been declared in `globals.css` since the shadcn install and
+           * were read by **nothing**: this rail painted `bg-card` directly. Since `--card` is pure white while
+           * the page ground is tinted at 0.977, the rail was the *brightest* surface on screen — chrome that
+           * advances in front of the content it frames. It now sits just below the ground, so the stack reads
+           * rail → ground → card. See the token's own note in `globals.css` for the dark-mode counterpart.
+           */
+          "hidden md:flex h-dvh flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-all duration-300 relative",
           // Not on paper (AC-9). On the element, not in a globals.css selector that a markup change orphans.
           "print:hidden",
           isCollapsed ? "w-16" : "w-64"
@@ -223,21 +297,61 @@ export function DashboardSidebar() {
         {brandHeader(isCollapsed)}
         {navigation(isCollapsed, "Navigation principale")}
 
-        {/* Toggle Button */}
-        <div className="border-t border-border p-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={toggleSidebar}
-            className="w-full justify-center"
-            aria-label={isCollapsed ? "Développer la barre latérale" : "Réduire la barre latérale"}
-          >
-            {isCollapsed ? (
+        {/*
+          The foot carries the session, and the collapse control rides along beside it.
+
+          It used to be a full-width ghost button alone in a bordered block — ~48 px of a 100 vh column spent on
+          a chevron, in a rail whose nineteen destinations already overflow a laptop. Folding the two into one
+          row buys that height back and gives the rail the thing it was missing: who is signed in. The header's
+          avatar stays the *menu*; this is the *statement*, and it links to « Mon profil ».
+
+          ⚠️ Rendered only in the desktop rail, never in the mobile drawer. The drawer passes `collapsed: false`
+          and mounts `brandHeader` + `navigation` only, which is what keeps AC-P3.18 true — nothing a phone
+          session does can reach `toggleSidebar` and overwrite the persisted desktop preference.
+        */}
+        <div className="border-t border-sidebar-border p-2">
+          {isCollapsed ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleSidebar}
+              className="w-full justify-center"
+              aria-label="Développer la barre latérale"
+            >
               <ChevronRight className="h-4 w-4" />
-            ) : (
-              <ChevronLeft className="h-4 w-4" />
-            )}
-          </Button>
+            </Button>
+          ) : (
+            <div className="flex items-center gap-1">
+              <Link
+                href="/mon-profil"
+                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-sidebar-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar coarse:py-2.5"
+              >
+                <span
+                  aria-hidden="true"
+                  className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-2xs font-semibold text-primary-foreground"
+                >
+                  {userInitials}
+                </span>
+                <span className="min-w-0 flex-1 text-start">
+                  <span className="block truncate text-xs font-medium leading-tight text-foreground">
+                    {userLabel}
+                  </span>
+                  {roleLabel && (
+                    <span className="block truncate text-2xs leading-tight text-muted-foreground">{roleLabel}</span>
+                  )}
+                </span>
+              </Link>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleSidebar}
+                className="size-8 shrink-0"
+                aria-label="Réduire la barre latérale"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -248,7 +362,9 @@ export function DashboardSidebar() {
         {/* No `aria-label` here: it would override `SheetTitle` as the dialog's accessible name AND repeat the
             name of the <nav> inside it, so the drawer and its own contents announced identically. */}
         {/* `print:hidden`: the drawer is the rail's phone form, so AC-9 covers it too. */}
-        <SheetContent side="left" className="w-72 max-w-[85vw] p-0 md:hidden print:hidden">
+        {/* `bg-sidebar` so the drawer is the same surface as the rail it stands in for — otherwise the phone gets
+            the rail's contents on the page's own ground, and the two navigations read as different components. */}
+        <SheetContent side="left" className="w-72 max-w-[85vw] bg-sidebar p-0 md:hidden print:hidden">
           {/* Radix requires a title/description for the dialog's accessible name; the rail shows its own
               brand header, so these are screen-reader only. */}
           <SheetTitle className="sr-only">Navigation</SheetTitle>
