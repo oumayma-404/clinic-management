@@ -40,8 +40,13 @@ namespace ClinicManagement.Infrastructure.Migrations
                 SET ""AppointmentId"" = m.""AppointmentId""
                 FROM (
                     SELECT
-                        r.""Id""                AS ""DentalRecordId"",
-                        MIN(a.""Id"")           AS ""AppointmentId""
+                        r.""Id""                     AS ""DentalRecordId"",
+                        -- ⚠️ NOT `MIN(a.""Id"")`: PostgreSQL ships no `min`/`max` aggregate for `uuid`, so that
+                        -- form is `42883: function min(uuid) does not exist` — a startup crash on every
+                        -- deployment, not a wrong answer. `array_agg` has no such gap, and taking element 1 is
+                        -- also the honest expression of the intent below: HAVING COUNT(*) = 1 means the group
+                        -- holds exactly one candidate, so this unwraps the single row rather than choosing.
+                        (array_agg(a.""Id""))[1]     AS ""AppointmentId""
                     FROM ""DentalRecords"" r
                     JOIN ""Appointments"" a
                       ON a.""PatientId"" = r.""PatientId""
@@ -54,8 +59,8 @@ namespace ClinicManagement.Infrastructure.Migrations
                        = (r.""InterventionDate""    AT TIME ZONE 'Africa/Tunis')::date
                     WHERE r.""AppointmentId"" IS NULL
                     GROUP BY r.""Id""
-                    -- The whole guard: exactly one candidate, or none. MIN() above is reached only when the count
-                    -- is 1, so it selects the single row rather than choosing among several.
+                    -- The whole guard: exactly one candidate, or none. The aggregate above is reached only when
+                    -- the count is 1, so it unwraps the single row rather than choosing among several.
                     HAVING COUNT(*) = 1
                 ) AS m
                 WHERE dr.""Id"" = m.""DentalRecordId""
