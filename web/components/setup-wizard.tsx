@@ -242,6 +242,20 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
   }
 
 
+  /**
+   * Move between steps, clearing any submit refusal on the way.
+   *
+   * ⚠️ **The banner used to survive the correction it asked for.** `setError` was cleared only inside
+   * `handleComplete`, so a server refusal raised on the last step — « Le mot de passe doit contenir au moins N
+   * caractères », whose field lives on step 2 — stayed on screen while the user went back, fixed the password and
+   * came forward again. A refusal that outlives its cause reads as « it failed again », which is the one thing a
+   * form must never say when the user has just done what it asked.
+   */
+  const goToStep = (step: number) => {
+    setError(null)
+    setCurrentStep(step)
+  }
+
   const handleComplete = async () => {
     setIsLoading(true)
     setError(null)
@@ -352,9 +366,19 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
     }
   }
 
+  /*
+   * ⚠️ **Step 2's label follows what step 2 actually asks**, which is not the same question on both branches.
+   * The rail was hardcoded to the Cloud branch's « Votre rôle », while on the signup and Local first-run paths
+   * — the only two that reach this wizard as a *new* clinic — the card renders « Compte administrateur » and
+   * offers no role choice at all: the creator is the admin by construction. So the rail named a step something
+   * it is not, on the flow a clinic meets first, and the same `collectsAdminAccount` that decides the card's
+   * content decides its label here. One condition, so the two cannot drift apart again.
+   */
   const steps = [
     { number: 1, title: "Clinique", description: "Informations de base" },
-    { number: 2, title: "Votre rôle", description: "Rôle et infos personnelles" },
+    collectsAdminAccount
+      ? { number: 2, title: "Administrateur", description: "Votre compte et vos identifiants" }
+      : { number: 2, title: "Votre rôle", description: "Rôle et infos personnelles" },
     { number: 3, title: "Horaires", description: "Définir les horaires (optionnel)" },
   ]
 
@@ -419,10 +443,16 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
               `AllowsPublicClinicSignup` and `AllowsSelfRegistration` are opposite questions and the hosted
               profile answers no to the second, so /join there renders « non disponible ».
             */}
+            {/*
+              `whitespace-normal` + `h-auto`: the Button base is `whitespace-nowrap` and `h-9`, so this sentence
+              — the longest string on the screen — rendered as a single 329 px line inside a 320 px viewport and
+              was the *other* half of the sideways scroll. Unprefixed, so it wins the tailwind-merge group at
+              every width; the base has no `sm:` twin that could survive it.
+            */}
             <Button
               variant="ghost"
               onClick={() => router.push(isSignup ? "/login" : "/join")}
-              className="text-muted-foreground hover:text-primary"
+              className="h-auto max-w-full whitespace-normal py-2 text-center text-muted-foreground hover:text-primary"
             >
               {isSignup
                 ? "Vous avez déjà un compte ? Se connecter"
@@ -448,7 +478,15 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                 >
                   {currentStep > step.number ? <CheckCircle2 className="w-6 h-6" /> : step.number}
                 </div>
-                <div className="mt-2 text-center">
+                {/*
+                  ⚠️ **Below `sm:` the rail is numbered circles alone**, and that is § 11 rather than taste: three
+                  titles plus three descriptions cannot fit 272 px, so the row pushed the *document* to a
+                  scrollWidth of 354 px — the whole page scrolling sideways on the product's first screen, at the
+                  width an iPad in Split View renders. Nothing is lost by hiding them, because the step the user
+                  is on is named in full by the card's own heading directly underneath; what the circles carry is
+                  « three steps, you are on the second », which a label cannot state better than a filled dot.
+                */}
+                <div className="mt-2 hidden text-center sm:block">
                   <p
                     className={`text-sm font-medium ${currentStep >= step.number ? "text-accent-foreground" : "text-muted-foreground"}`}
                   >
@@ -458,7 +496,11 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                 </div>
               </div>
               {index < steps.length - 1 && (
-                <div className={`w-16 h-0.5 mb-12 mx-2 ${currentStep > step.number ? "bg-primary" : "bg-border"}`} />
+                // `mb-12` centres the connector against the circle *when the labels are showing*; with them
+                // hidden it would hang the line above the row, so the offset is prefixed too.
+                <div
+                  className={`h-0.5 w-6 mx-1 sm:mb-12 sm:w-16 sm:mx-2 ${currentStep > step.number ? "bg-primary" : "bg-border"}`}
+                />
               )}
             </div>
           ))}
@@ -895,7 +937,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
               <div className="flex items-center justify-between">
                 <Button
                   variant="outline"
-                  onClick={() => setCurrentStep(currentStep - 1)}
+                  onClick={() => goToStep(currentStep - 1)}
                   disabled={currentStep === 1 || isLoading}
                   className="border-primary/25"
                 >
@@ -905,7 +947,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
 
                 {currentStep < 3 ? (
                   <Button
-                    onClick={() => setCurrentStep(currentStep + 1)}
+                    onClick={() => goToStep(currentStep + 1)}
                     disabled={
                       currentStep === 1 ? !isStep1Valid()
                       : currentStep === 2 ? !isStep2Valid()
@@ -940,14 +982,14 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
           </CardContent>
         </Card>
 
-        {/* Skip Option */}
-        {currentStep === 3 && (
-          <div className="text-center mt-4">
-            <Button variant="ghost" onClick={handleComplete} disabled={isLoading} className="text-muted-foreground hover:text-primary">
-              Passer pour l&apos;instant
-            </Button>
-          </div>
-        )}
+        {/*
+          ⚠️ **There is deliberately no « Passer pour l'instant » here.** It called `handleComplete` — the *same*
+          function, with the same arguments, as the button above it — so two controls performed one action while
+          one of them promised to skip it. What it actually submitted was the seven weekday rows already on
+          screen at their defaults, i.e. it created the cabinet with those hours; a visitor taking it at its word
+          would believe no hours had been saved. The step is optional because its defaults are sensible and every
+          value is editable afterwards in « Paramètres », which is a fact about the step, not a second button.
+        */}
       </div>
     </div>
     )

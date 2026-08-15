@@ -83,8 +83,16 @@ function LoginShell({
   )
 }
 
-/** The four states this screen can be in (`hosted-security-hardening` FR-1.2/FR-1.3/FR-1.4). */
-type Mode = 'login' | 'enrol' | 'recovery' | 'codes'
+/**
+ * The five states this screen can be in (`hosted-security-hardening` FR-1.2/FR-1.3/FR-1.4).
+ *
+ * ⚠️ **`totp` is a screen of its own, not a field appended to `login`.** The server already answers in two rounds
+ * — password first, `totp_required` second — and the code used to arrive as a third input *below* a still-editable
+ * address and password, under the same « Se connecter ». That presented one decision as two: the fields that were
+ * already accepted stayed live, so a mistyped code invited re-checking the password, and the button gave no sign
+ * that the first half had succeeded. A separate step states what is being asked and for which account.
+ */
+type Mode = 'login' | 'totp' | 'enrol' | 'recovery' | 'codes'
 
 interface EnrolmentMaterial {
   secretUri: string | null
@@ -109,9 +117,6 @@ function LocalLoginForm() {
   const [password, setPassword] = useState('')
   const [totpCode, setTotpCode] = useState('')
   const [recoveryCode, setRecoveryCode] = useState('')
-  // Whether the code field is on screen. Driven by the server's own `totp_required`, so the client never
-  // decides for itself whether an account has a second factor.
-  const [needsCode, setNeedsCode] = useState(false)
   const [material, setMaterial] = useState<EnrolmentMaterial | null>(null)
   const [codes, setCodes] = useState<string[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -174,8 +179,14 @@ function LocalLoginForm() {
     }
   }
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
+  /**
+   * `e` is optional so the six-digit field can submit itself the moment the code is complete — the behaviour every
+   * authenticator flow has, and the reason nobody looks for the button. The `isSubmitting` guard is what makes that
+   * safe: `onComplete` fires again if the user pastes over a full field, and the click is still reachable.
+   */
+  const handleLogin = async (e?: React.FormEvent) => {
+    e?.preventDefault()
+    if (isSubmitting) return
     setError(null)
     setIsSubmitting(true)
     try {
@@ -198,16 +209,21 @@ function LocalLoginForm() {
         }
 
         if (code === 'totp_required') {
-          // Ask for the code, keeping everything typed. Not an error state: nobody has got anything wrong.
-          setMode('login')
+          // Advance to the second step, keeping everything typed. Not an error state: nobody has got anything
+          // wrong, and the password just succeeded — so no banner, and the button label changes rather than a
+          // field appearing under one that already worked.
+          setMode('totp')
           setError(null)
           setTotpCode('')
-          setNeedsCode(true)
           setIsSubmitting(false)
           return
         }
 
         setError(data?.error || 'Identifiants invalides.')
+        // A refused code is refused *here*, on the step that asked for it. Clearing it is what makes the field
+        // ready for the next 30-second window without the user selecting six stale digits first — and the
+        // password is deliberately left alone, since the server already accepted it.
+        if (mode === 'totp') setTotpCode('')
         setIsSubmitting(false)
         return
       }
@@ -283,10 +299,78 @@ function LocalLoginForm() {
             // signing in now proves the authenticator works before anybody depends on it.
             setCodes(null)
             setMaterial(null)
-            setMode('login')
-            setNeedsCode(true)
+            setMode('totp')
           }}
         />
+      </LoginShell>
+    )
+  }
+
+  // ── Step two: the authenticator code ──────────────────────────────────────────────────────────────────
+  //
+  // Reached only when the server said `totp_required`, i.e. the address and password have already been accepted.
+  // It therefore shows them as a settled fact rather than as fields: re-editing them here would silently start a
+  // different sign-in, and the one thing still owed is the six digits.
+  if (mode === 'totp') {
+    return (
+      <LoginShell
+        title="Vérification en deux étapes"
+        description="Votre mot de passe est accepté. Saisissez le code à 6 chiffres de votre application d'authentification."
+      >
+        <form onSubmit={handleLogin} className="space-y-4">
+          <FormErrorBanner message={error} />
+
+          {/* Which account is being signed in. Without it this screen is a code box with no subject — and on a
+              shared reception machine that is exactly the moment somebody enters the wrong colleague's code. */}
+          <p className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+            <span className="text-muted-foreground">Compte : </span>
+            <span className="font-medium [overflow-wrap:anywhere]">{email}</span>
+          </p>
+
+          <TotpCodeField
+            value={totpCode}
+            onChange={setTotpCode}
+            onComplete={handleLogin}
+            autoFocus
+            disabled={isSubmitting}
+            hint="Le code change toutes les 30 secondes."
+          />
+
+          <Button type="submit" className="min-h-11 w-full" disabled={isSubmitting}>
+            {isSubmitting ? 'Vérification…' : 'Vérifier'}
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            className="min-h-11 w-full"
+            disabled={isSubmitting}
+            onClick={() => {
+              setMode('recovery')
+              setError(null)
+              setTotpCode('')
+            }}
+          >
+            Je n&apos;ai plus accès à mon application
+          </Button>
+
+          {/* The way back. The password step no longer shows its own fields here, so without this an address
+              typed by mistake is a dead end — § 0: never remove a capability, name the way out. */}
+          <Button
+            type="button"
+            variant="ghost"
+            className="min-h-11 w-full"
+            disabled={isSubmitting}
+            onClick={() => {
+              setMode('login')
+              setError(null)
+              setTotpCode('')
+              setPassword('')
+            }}
+          >
+            Utiliser un autre compte
+          </Button>
+        </form>
       </LoginShell>
     )
   }
@@ -367,12 +451,14 @@ function LocalLoginForm() {
             variant="ghost"
             className="min-h-11 w-full"
             onClick={() => {
-              setMode('login')
+              // Back to the step this was reached from, never to the password form: the password is already
+              // accepted at that point, and « Revenir à la connexion » would read as having lost it.
+              setMode('totp')
               setError(null)
               setRecoveryCode('')
             }}
           >
-            Revenir à la connexion
+            Revenir au code de vérification
           </Button>
         </form>
       </LoginShell>
@@ -404,33 +490,13 @@ function LocalLoginForm() {
         <EmailField value={email} onChange={setEmail} disabled={isSubmitting} />
         <PasswordField value={password} onChange={setPassword} disabled={isSubmitting} />
 
-        {needsCode && (
-          <TotpCodeField
-            value={totpCode}
-            onChange={setTotpCode}
-            autoFocus
-            disabled={isSubmitting}
-            hint="Ouvrez votre application d'authentification et saisissez le code affiché."
-          />
-        )}
-
+        {/* No code field here any more: an account that owes one is sent to the `totp` step above, which is
+            reached only once the server has accepted this password. « Je n'ai plus accès à mon application »
+            moved with it — offered before we know a second factor is even required, it advertised a recovery
+            path to every user who has no factor to recover. */}
         <Button type="submit" className="min-h-11 w-full" disabled={isSubmitting}>
           {isSubmitting ? 'Connexion…' : 'Se connecter'}
         </Button>
-
-        {needsCode && (
-          <Button
-            type="button"
-            variant="ghost"
-            className="min-h-11 w-full"
-            onClick={() => {
-              setMode('recovery')
-              setError(null)
-            }}
-          >
-            Je n&apos;ai plus accès à mon application
-          </Button>
-        )}
 
         {/* /signup states « Inscription non disponible ici » itself where the capability is off, so this
             link needs no probe of its own — unlike the retired /join one, whose code path is closed. */}
