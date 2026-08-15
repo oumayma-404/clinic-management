@@ -106,6 +106,18 @@ export function genderLabel(gender: string | null | undefined): string {
 }
 
 /**
+ * Whether this row is a « créneau occupé » — time the practitioner blocked out, not a patient.
+ *
+ * <p>The server writes no patient at all on such a row and names it `"Occupé"`
+ * (`CreateAppointmentCommand`), so `patientId` is the real test and the name is the belt-and-braces half.
+ * It lived inline in `appointment-calendar.tsx` twice and nowhere else, which is why the day board rendered a
+ * blocked hour as « Au fauteuil » — a sentence that asserts a patient is being treated.</p>
+ */
+export function isBusySlot(appointment: { patientId?: string | null; patientName?: string | null }): boolean {
+  return !appointment.patientId || appointment.patientName === "Occupé";
+}
+
+/**
  * How a séance's acts read on a list or a calendar card: « Détartrage + Obturation ».
  *
  * <p>One helper rather than a join at each surface, for the same reason the label maps above are shared: the agenda,

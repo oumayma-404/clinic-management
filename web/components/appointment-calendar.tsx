@@ -62,6 +62,7 @@ import {
   appointmentActsCount,
   appointmentActsSummary,
   appointmentStatusLabel,
+  isBusySlot,
   normalizeStatus,
 } from "@/components/appointment-labels"
 import type { StatusTone } from "@/components/ui/status-tone"
@@ -247,7 +248,7 @@ function appointmentTone(appointment: { status: string }): StatusTone | undefine
  */
 function appointmentAppearance(appointment: AppointmentDto): { className: string; style: CSSProperties } {
   const tone = appointmentTone(appointment)
-  const isBusy = !appointment.patientId || appointment.patientName === "Occupé"
+  const isBusy = isBusySlot(appointment)
   const hex = parseProcedureHex(appointment.procedureColorHex)
 
   const classes = ["border-l-4"]
@@ -504,7 +505,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   // (AC-6.6, FR-D4). Skips busy slots (no patient — never synced) and already-synced appointments.
   const renderSyncControls = (appointment: AppointmentDto) => {
     if (appointment.isSyncedToGoogle) return null
-    if (!appointment.patientId || appointment.patientName === "Occupé") return null
+    if (isBusySlot(appointment)) return null
     // Cancelled/completed appointments intentionally carry no Google event (the sync service deletes
     // it); don't advertise "push to Google" for them — the badge is for appointments not yet synced
     // (e.g. created offline), per AC-6.6.
