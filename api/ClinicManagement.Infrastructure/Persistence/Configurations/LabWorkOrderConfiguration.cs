@@ -45,6 +45,16 @@ public class LabWorkOrderConfiguration : IEntityTypeConfiguration<LabWorkOrder>
         // Backs « les bons de cette séance » on the appointment and the patient's file.
         builder.HasIndex(o => o.AppointmentId);
 
+        // The laboratory as a contact somebody can call. `Restrict`, not `SetNull` like the appointment above:
+        // AC-4 refuses the delete outright and names the count, so the constraint is a backstop against a race
+        // rather than a behaviour — and silently clearing the link would lose which lab holds the piece.
+        builder.HasOne<Supplier>()
+            .WithMany()
+            .HasForeignKey(o => o.SupplierId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(o => o.SupplierId);
+
         builder.Property(o => o.ToothNumber);
 
         builder.Property(o => o.Prosthetist)

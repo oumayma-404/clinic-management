@@ -1,6 +1,3 @@
-using System.Globalization;
-using System.Text;
-
 namespace ClinicManagement.Domain.Services;
 
 /// <summary>
@@ -80,31 +77,8 @@ public static class ProcedureTypeCategories
         value is not null && Canonical.Any(c => Fold(c) == Fold(value));
 
     /// <summary>
-    /// Accent-, case-, space- and punctuation-insensitive comparison key.
-    /// <para>
-    /// Punctuation is dropped rather than kept because of « Chirurgie/Extraction » specifically: it is written
-    /// « Chirurgie / Extraction » and « Chirurgie-Extraction » about as often as with the bare slash, and all
-    /// three name one discipline.
-    /// </para>
+    /// Accent-, case-, space- and punctuation-insensitive comparison key — <see cref="CategoryFolding.Fold"/>,
+    /// which this method's body became when a second and third open category set needed the identical rule.
     /// </summary>
-    private static string Fold(string value)
-    {
-        var decomposed = value.Normalize(NormalizationForm.FormD);
-        var builder = new StringBuilder(decomposed.Length);
-
-        foreach (var ch in decomposed)
-        {
-            if (CharUnicodeInfo.GetUnicodeCategory(ch) == UnicodeCategory.NonSpacingMark)
-            {
-                continue;
-            }
-
-            if (char.IsLetterOrDigit(ch))
-            {
-                builder.Append(char.ToLowerInvariant(ch));
-            }
-        }
-
-        return builder.ToString();
-    }
+    private static string Fold(string value) => CategoryFolding.Fold(value);
 }

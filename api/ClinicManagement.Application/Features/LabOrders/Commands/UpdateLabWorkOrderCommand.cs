@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Suppliers;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.LabOrders.Commands;
@@ -25,23 +26,34 @@ public class UpdateLabWorkOrderCommand : IRequest<Result<LabWorkOrderDto>>
     /// silently kept when the user meant to clear it.
     /// </summary>
     public Guid? AppointmentId { get; set; }
+
+    /// <summary>
+    /// The laboratory as a fournisseur. ⚠️ <b>Not tri-state, unlike <c>UpdateStockItemCommand.SupplierId</c></b>,
+    /// and for the reason stated on <see cref="AppointmentId"/> above: this command replaces every field
+    /// wholesale, so null detaches. The stock one is a patch in practice — « Désactiver » and the adjust dialog
+    /// both post partial bodies — which is exactly the difference that makes one a tri-state and the other not.
+    /// </summary>
+    public Guid? SupplierId { get; set; }
 }
 
 public class UpdateLabWorkOrderCommandHandler : IRequestHandler<UpdateLabWorkOrderCommand, Result<LabWorkOrderDto>>
 {
     private readonly ILabWorkOrderRepository _labWorkOrderRepository;
     private readonly IAppointmentRepository _appointmentRepository;
+    private readonly ISupplierRepository _supplierRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
     public UpdateLabWorkOrderCommandHandler(
         ILabWorkOrderRepository labWorkOrderRepository,
         IAppointmentRepository appointmentRepository,
+        ISupplierRepository supplierRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork)
     {
         _labWorkOrderRepository = labWorkOrderRepository;
         _appointmentRepository = appointmentRepository;
+        _supplierRepository = supplierRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
@@ -72,6 +84,11 @@ public class UpdateLabWorkOrderCommandHandler : IRequestHandler<UpdateLabWorkOrd
             if (link.IsFailure)
                 return Result<LabWorkOrderDto>.Failure(link.Error!);
 
+            var supplier = await SupplierLink.ResolveAsync(
+                _supplierRepository, clinic.Value, request.SupplierId, cancellationToken);
+            if (supplier.IsFailure)
+                return Result<LabWorkOrderDto>.FailureFrom(supplier);
+
             order.UpdateDetails(
                 request.Prosthetist.Trim(),
                 request.WorkDescription.Trim(),
@@ -80,12 +97,13 @@ public class UpdateLabWorkOrderCommandHandler : IRequestHandler<UpdateLabWorkOrd
                 request.ExpectedDate,
                 request.Cost,
                 string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
-                request.AppointmentId);
+                request.AppointmentId,
+                supplier.Value?.Id);
 
             await _labWorkOrderRepository.UpdateAsync(order, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return Result<LabWorkOrderDto>.Success(order.ToDto());
+            return Result<LabWorkOrderDto>.Success(order.ToDto(supplier: supplier.Value));
         }
         catch (ArgumentException ex)
         {

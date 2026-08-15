@@ -545,5 +545,28 @@ public sealed record DataMigrationCounts(
     /// a future write path could break. Null before the table exists.
     /// </para>
     /// </summary>
-    int? RecoveryPointsClaimingSuccessWithNoKey = null
+    int? RecoveryPointsClaimingSuccessWithNoKey = null,
+    /// <summary>
+    /// Bons de prothèse still unlinked while a fournisseur of that very name exists in their own clinic — the rows
+    /// <c>AddSuppliers</c>' third backfill was supposed to reach (<c>stock-fournisseurs</c> AC-8).
+    /// <para>
+    /// The two new columns, their indexes and their two foreign keys are diffed against the catalog for free by
+    /// reading the EF model, so the only line worth writing is the one no schema construct can state: whether the
+    /// <b>backfill</b> actually covered anything. That is invisible to every other layer — the column exists, the
+    /// API accepts it, the picker works, and a bon left unlinked simply renders with no contact, which is
+    /// indistinguishable from a laboratory nobody has filed.
+    /// </para>
+    /// <para>
+    /// ⚠️ It counts <b>recoverable</b> misses only, the <c>FichesResolvableToOneVisitStillUnlinked</c> shape: a bon
+    /// whose prothésiste matches no supplier in its clinic is legitimately unlinked and is not drift. The stock
+    /// side has no equivalent line and cannot have one — its free-text column is <b>dropped</b> by the same
+    /// migration, so after it there is nothing left to compare a link against. Null before the columns exist.
+    /// </para>
+    /// </summary>
+    int? LabOrdersResolvableToASupplierStillUnlinked = null,
+    /// <summary>
+    /// How many fournisseurs exist, reported beside the count above so a run that finds no drift still states what
+    /// the backfill produced (AC-8). Informational, never asserted — a cabinet legitimately has none.
+    /// </summary>
+    int? SuppliersTotal = null
 );

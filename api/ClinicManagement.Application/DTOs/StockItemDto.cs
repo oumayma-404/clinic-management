@@ -1,4 +1,5 @@
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Application.DTOs;
 
@@ -13,7 +14,23 @@ public class StockItemDto
     public int MinimumStockLevel { get; set; }
     public int MaximumStockLevel { get; set; }
     public decimal? UnitPrice { get; set; }
-    public string? Supplier { get; set; }
+
+    /// <summary>The linked <c>Supplier</c>, or null — the common case (AC-5).</summary>
+    public Guid? SupplierId { get; set; }
+
+    /// <summary>
+    /// The supplier's nom, resolved at read time from the current link. It replaced a free-text <c>supplier</c>
+    /// string that named somebody nobody could call.
+    /// </summary>
+    public string? SupplierName { get; set; }
+
+    /// <summary>
+    /// The supplier's number as deliverable Tunisian E.164, or null. Decides whether the row's WhatsApp action
+    /// exists (AC-3) — resolved server-side so the stock table, the fournisseurs list and the bell row cannot
+    /// disagree about whether a given supplier is reachable.
+    /// </summary>
+    public string? SupplierPhoneE164 { get; set; }
+
     public bool IsLowStock { get; set; }
 
     /// <summary>
@@ -66,8 +83,15 @@ public static class StockItemMappingExtensions
     /// Maps an item plus its lots. <paramref name="expiryLeadDays"/> is the approaching-expiry lead time
     /// (AC-P4.6) — passed in rather than read here, because the DTO layer has no configuration and the same
     /// item can legitimately be rendered against a different lead time by a different caller.
+    /// <para>
+    /// <paramref name="supplier"/> is passed in for the same reason and one more: resolving it here would be a
+    /// query per row, and the callers already batch it (`list-pagination`'s companion-read rule). A null supplier
+    /// on an item that carries a <c>SupplierId</c> is not a state the callers can produce — they resolve through
+    /// <c>ISupplierRepository.GetByIdsAsync</c>, which deliberately ignores <c>IsActive</c>.
+    /// </para>
     /// </summary>
-    public static StockItemDto ToDto(this StockItem item, int expiryLeadDays = 0, DateTime? asOfUtc = null)
+    public static StockItemDto ToDto(
+        this StockItem item, int expiryLeadDays = 0, DateTime? asOfUtc = null, Supplier? supplier = null)
     {
         var now = asOfUtc ?? DateTime.UtcNow;
 
@@ -82,7 +106,9 @@ public static class StockItemMappingExtensions
             MinimumStockLevel = item.MinimumStockLevel,
             MaximumStockLevel = item.MaximumStockLevel,
             UnitPrice = item.UnitPrice,
-            Supplier = item.Supplier,
+            SupplierId = item.SupplierId,
+            SupplierName = supplier?.Name,
+            SupplierPhoneE164 = PhoneNumber.ToE164(supplier?.PhoneNumber),
             IsLowStock = item.IsLowStock(),
             // Soonest-expiry first, so the client never has to re-derive FEFO order to show the relevant lot.
             Batches = item.Batches

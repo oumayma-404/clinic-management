@@ -1,4 +1,5 @@
 using ClinicManagement.Domain.Common;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -7,13 +8,28 @@ public class StockItem : AggregateRoot<Guid>
     public Guid ClinicId { get; private set; }
     public string Name { get; private set; }
     public string? Description { get; private set; }
-    public string Category { get; private set; } // e.g., "Medicine", "Consumable"
+
+    /// <summary>
+    /// Open text canonicalised through <see cref="StockCategories.Normalize"/> on every write — the six English
+    /// storage keys this column used to hold were rewritten to their French labels by the suppliers migration.
+    /// </summary>
+    public string Category { get; private set; }
     public string Unit { get; private set; } // e.g., "Box", "Bottle", "Unit"
     public int CurrentStock { get; private set; }
     public int MinimumStockLevel { get; private set; }
     public int MaximumStockLevel { get; private set; }
     public decimal? UnitPrice { get; private set; }
-    public string? Supplier { get; private set; }
+
+    /// <summary>
+    /// The <see cref="Entities.Supplier"/> this article is ordered from — at most one, and usually none.
+    /// <para>
+    /// ⚠️ It replaced a free-text <c>Supplier</c> string, whose whole defect was that it named somebody nobody
+    /// could call. Nullable because « aucun fournisseur » is the common case (AC-5) and because refusing to
+    /// record an article until somebody files its supplier would stop the stockroom working.
+    /// </para>
+    /// </summary>
+    public Guid? SupplierId { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -39,18 +55,18 @@ public class StockItem : AggregateRoot<Guid>
         int maximumStockLevel,
         string? description = null,
         decimal? unitPrice = null,
-        string? supplier = null)
+        Guid? supplierId = null)
     {
         Id = id;
         ClinicId = clinicId;
         Name = name ?? throw new ArgumentNullException(nameof(name));
-        Category = category ?? throw new ArgumentNullException(nameof(category));
+        Category = RequireCategory(category);
         Unit = unit ?? throw new ArgumentNullException(nameof(unit));
         MinimumStockLevel = minimumStockLevel;
         MaximumStockLevel = maximumStockLevel;
         Description = description;
         UnitPrice = unitPrice;
-        Supplier = supplier;
+        SupplierId = supplierId;
         CurrentStock = 0;
         CreatedAt = DateTime.UtcNow;
     }
@@ -181,15 +197,29 @@ public class StockItem : AggregateRoot<Guid>
         return CurrentStock == 0;
     }
 
-    public void UpdateInfo(string name, string? description, string category, string unit, decimal? unitPrice, string? supplier)
+    public void UpdateInfo(
+        string name, string? description, string category, string unit, decimal? unitPrice, Guid? supplierId)
     {
         Name = name ?? throw new ArgumentNullException(nameof(name));
         Description = description;
-        Category = category ?? throw new ArgumentNullException(nameof(category));
+        Category = RequireCategory(category);
         Unit = unit ?? throw new ArgumentNullException(nameof(unit));
         UnitPrice = unitPrice;
-        Supplier = supplier;
+        SupplierId = supplierId;
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    // The category is required, so Normalize's « null for blank » is a refusal here rather than an unfiled row —
+    // unlike ProcedureType.Category, which is genuinely optional.
+    private static string RequireCategory(string category)
+    {
+        if (category == null)
+        {
+            throw new ArgumentNullException(nameof(category));
+        }
+
+        return StockCategories.Normalize(category)
+               ?? throw new ArgumentException("La catégorie est requise.", nameof(category));
     }
 
     /// <summary>

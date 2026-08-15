@@ -24,6 +24,7 @@ public class ConsumeStockCommandHandler : IRequestHandler<ConsumeStockCommand, R
 {
     private readonly IStockItemRepository _stockItemRepository;
     private readonly IStockMovementRepository _stockMovementRepository;
+    private readonly ISupplierRepository _supplierRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationGenerator _notificationGenerator;
@@ -31,12 +32,14 @@ public class ConsumeStockCommandHandler : IRequestHandler<ConsumeStockCommand, R
     public ConsumeStockCommandHandler(
         IStockItemRepository stockItemRepository,
         IStockMovementRepository stockMovementRepository,
+        ISupplierRepository supplierRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         INotificationGenerator notificationGenerator)
     {
         _stockItemRepository = stockItemRepository;
         _stockMovementRepository = stockMovementRepository;
+        _supplierRepository = supplierRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _notificationGenerator = notificationGenerator;
@@ -80,7 +83,13 @@ public class ConsumeStockCommandHandler : IRequestHandler<ConsumeStockCommand, R
                     clinic.Value, item.Id, item.Name, item.CurrentStock, item.MinimumStockLevel, cancellationToken);
             }
 
-            return Result<StockItemDto>.Success(item.ToDto());
+            // The client repaints the row from this response, so the supplier has to travel with it — otherwise a
+            // sortie makes the article's fournisseur (and its WhatsApp action) disappear until the next refetch.
+            var supplier = item.SupplierId is { } supplierId
+                ? await _supplierRepository.GetByIdAsync(supplierId, cancellationToken)
+                : null;
+
+            return Result<StockItemDto>.Success(item.ToDto(supplier: supplier));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

@@ -16,6 +16,7 @@ import {
   ScrollText,
   Settings,
   Stethoscope,
+  Truck,
   UserCog,
   FileClock,
   Users,
@@ -75,6 +76,9 @@ export const baseSections: NavSection[] = [
     title: "Gestion",
     items: [
       { name: "Stock", href: "/stock", icon: Package },
+      // Beside « Stock » because that is where a fournisseur is reached for — but it covers laboratoires de
+      // prothèse and d'analyses too, which is why the label is not « Fournisseurs de stock ».
+      { name: "Fournisseurs", href: "/fournisseurs", icon: Truck },
       // « Relances » (/recalls) is gone — the page was removed. The recall BACKEND is deliberately intact
       // (RecallController, Features/Recall, the due-list query), so the worklist can be given a new home later
       // without rebuilding it. Nothing here links to a route that no longer exists.

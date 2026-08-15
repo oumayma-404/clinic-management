@@ -470,6 +470,19 @@ public class SchemaVerificationService
                   + "BackfillDentalRecordAppointmentLinks migration did not reach them",
             n => n == 0);
 
+        // stock-fournisseurs' backfill (AC-8), and the clearest illustration of what this verb is for: the two
+        // columns, their indexes and their two FKs are diffed against the catalog for free, while whether the
+        // backfill COVERED anything is invisible to every other layer — a bon left unlinked renders with no
+        // contact, which looks exactly like a laboratory nobody has filed. The supplier total rides along so a
+        // clean run still states what the migration produced rather than only that nothing is wrong.
+        Add("supplier-links-backfill", counts.LabOrdersResolvableToASupplierStillUnlinked,
+            n => n == 0
+                ? $"0 bon de prothèse is unlinked while a fournisseur of its name exists "
+                  + $"({counts.SuppliersTotal?.ToString() ?? "?"} fournisseur(s) in total)"
+                : $"{n} bon(s) de prothèse name a fournisseur that exists and are not linked to it — "
+                  + "the AddSuppliers backfill did not reach them",
+            n => n == 0);
+
         // Part 6's push tables. Their shape is diffed against the catalog for free, so the only line here is the
         // one relationship no constraint can state: a queued push and the device it is addressed to must belong to
         // the same clinic. A mismatch is a cross-clinic notification, and a lock screen has no request-time check

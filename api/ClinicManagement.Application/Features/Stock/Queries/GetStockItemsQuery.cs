@@ -32,15 +32,18 @@ public class GetStockItemsQuery : IRequest<Result<StockPageDto>>
 public class GetStockItemsQueryHandler : IRequestHandler<GetStockItemsQuery, Result<StockPageDto>>
 {
     private readonly IStockItemRepository _stockItemRepository;
+    private readonly ISupplierRepository _supplierRepository;
     private readonly IClinicRepository _clinicRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
 
     public GetStockItemsQueryHandler(
         IStockItemRepository stockItemRepository,
+        ISupplierRepository supplierRepository,
         IClinicRepository clinicRepository,
         ICurrentClinicResolver clinicResolver)
     {
         _stockItemRepository = stockItemRepository;
+        _supplierRepository = supplierRepository;
         _clinicRepository = clinicRepository;
         _clinicResolver = clinicResolver;
     }
@@ -79,9 +82,23 @@ public class GetStockItemsQueryHandler : IRequestHandler<GetStockItemsQuery, Res
                 clinic.Value, leadDays, now, cancellationToken);
             var categories = await _stockItemRepository.GetDistinctCategoriesAsync(clinic.Value, cancellationToken);
 
+            // One batched read for the page's suppliers — a per-row resolve is the companion-read defect
+            // `list-pagination` names, and this list is the one that most often carries a supplier on every row.
+            // GetByIdsAsync deliberately ignores IsActive: a deactivated supplier still owns the link.
+            var supplierIds = page.Items
+                .Where(i => i.SupplierId.HasValue)
+                .Select(i => i.SupplierId!.Value)
+                .ToList();
+            var suppliers = await _supplierRepository.GetByIdsAsync(clinic.Value, supplierIds, cancellationToken);
+
             return Result<StockPageDto>.Success(new StockPageDto
             {
-                Items = page.Items.Select(i => i.ToDto(leadDays, now)).ToList(),
+                Items = page.Items
+                    .Select(i => i.ToDto(
+                        leadDays,
+                        now,
+                        i.SupplierId.HasValue && suppliers.TryGetValue(i.SupplierId.Value, out var s) ? s : null))
+                    .ToList(),
                 LowStockCount = lowStockCount,
                 ExpiringCount = expiringCount,
                 Categories = categories.ToList(),

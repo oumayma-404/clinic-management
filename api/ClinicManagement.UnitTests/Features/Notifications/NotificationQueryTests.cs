@@ -29,6 +29,16 @@ public class NotificationQueryTests
         return (new Mock<IStaffNotificationRepository>(), users, ctx, user);
     }
 
+    /// <summary>
+    /// The handler gained the two reads behind « Contacter {fournisseur} » on a « Stock faible » row. Every
+    /// notification in this fixture is <c>AppointmentCreated</c>, so the resolution short-circuits before it
+    /// touches either mock — which is why bare mocks preserve each case's original assertion exactly.
+    /// </summary>
+    private static GetNotificationsQueryHandler HandlerFor(
+        Mock<IStaffNotificationRepository> repo, Mock<IUserRepository> users, Mock<IClinicContext> ctx) =>
+        new(repo.Object, new Mock<IStockItemRepository>().Object, new Mock<ISupplierRepository>().Object,
+            users.Object, ctx.Object);
+
     private static StaffNotification Notification(DateTime effectiveFeedTime) =>
         new(Guid.NewGuid(), ClinicId, NotificationCategory.AppointmentCreated, "T", "M",
             effectiveFeedTime, NotificationTargetKind.Appointment, appointmentId: Guid.NewGuid());
@@ -47,7 +57,7 @@ public class NotificationQueryTests
         repo.Setup(r => r.GetReadNotificationIdsAsync(user.Id, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { afterJoinRead.Id });
 
-        var handler = new GetNotificationsQueryHandler(repo.Object, users.Object, ctx.Object);
+        var handler = HandlerFor(repo, users, ctx);
         var result = await handler.Handle(new GetNotificationsQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -64,7 +74,7 @@ public class NotificationQueryTests
         var ctx = new Mock<IClinicContext>();
         ctx.Setup(c => c.GetUserId()).Returns((string?)null);
 
-        var handler = new GetNotificationsQueryHandler(repo.Object, users.Object, ctx.Object);
+        var handler = HandlerFor(repo, users, ctx);
         var result = await handler.Handle(new GetNotificationsQuery(), CancellationToken.None);
 
         Assert.True(result.IsFailure);

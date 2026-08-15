@@ -972,6 +972,49 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   ⚠️ **The vendor's money is never the clinic's** (FR-2): separate tables and a separate
   `SubscriptionPaymentMethod` enum, and `MoneyReadConsistencyTests` is **unchanged** — a subscription payment reaches
   neither la caisse, l'extrait, « Créances », the dashboard's Argent section nor any patient's balance.
+- **A fournisseur is a record with a number, not a name on a row (`stock-fournisseurs`)**: `StockItem.Supplier` and
+  `LabWorkOrder.Prosthetist` were free text — the same dépôt under three spellings, none with a number behind it —
+  so « Stock faible » told a dentist *what* had run out and a bon en retard told them *what* was late, while
+  neither could answer « qui est-ce que j'appelle ? », which is the only question either alert leads to. There is
+  now a **`Supplier`** aggregate (nom · catégorie · téléphone · adresse · notes · actif), `/fournisseurs` in the
+  « Gestion » zone, `GET/POST/PUT/DELETE /api/suppliers` (`AnyClinicRole` throughout — ordering supplies and
+  chasing a prothèse is reception's job, and none of it is clinic-wide money), and a **WhatsApp** action wherever a
+  supplier's name appears: the fournisseurs list, the stock table, the laboratory board and the « Stock faible »
+  bell row.
+  ⚠️ **It deliberately covers more than the stockroom.** The prothésiste who makes the crowns, the laboratory that
+  reads a biopsy, the dépôt that delivers the composite and the technician who services the fauteuil are one kind
+  of record, so `StockItem.SupplierId` **and** `LabWorkOrder.SupplierId` both point here rather than each carrying
+  its own free-text name. `LabWorkOrder.Prosthetist` is **kept beside** the link (unlike the stock column, which is
+  dropped): the name is what is printed on the bon, and a laboratory used once must be recordable without first
+  filing a fiche.
+  ⚠️ **The migration's statement order is the design.** EF scaffolded `DropColumn("Supplier")` as the *first*
+  statement — it cannot know the backfill below reads that column — which would have created zero suppliers and
+  linked zero articles on every existing database while reporting a clean migration. It also emitted an **`xmin`**
+  column PostgreSQL rejects, the same defect `AddClinicSubscriptions` hit. Rows fold on `lower(btrim(…))` so
+  « Dentalex » and « dentalex  » become one (EC-2), the lab pass runs **after** the stock pass with a `NOT EXISTS`
+  so a dépôt that is both reuses one row, and every backfill is gated so `Up()` re-runs safely.
+  ⚠️ **AC-3's two states are the feature's whole UX**: a deliverable Tunisian number gets a `wa.me` link, and one
+  without gets « **Ajouter un numéro** » — never a disabled control and never an absent one, because a greyed icon
+  says « broken » while the truth (nobody recorded a number) is fixable in seconds if the user is told. A
+  non-Tunisian number is **stored** rather than refused (EC-1); what it costs is the action, not the record.
+  Deliverability is resolved **server-side** (`phoneE164`), so four surfaces cannot disagree about who is reachable,
+  and `web/lib/whatsapp.ts` is the one builder of every `wa.me` URL.
+  ⚠️ **The bell row resolves its supplier at READ time from the article's current link** (AC-7), never frozen into
+  the notification's message: an alert fired last week becomes actionable the moment somebody files the supplier,
+  and it can never name one the article no longer has. A deleted article simply loses the contact line (EC-3).
+  ⚠️ **Deleting a referenced fournisseur is refused with the counts named per table** — « 3 articles de stock » and
+  « 2 bons de prothèse » send somebody to two different screens, where a bare « 5 » sends them to the wrong one —
+  and « Désactiver » is the route: it hides the contact from the **pickers** while every existing link keeps
+  rendering its name and its WhatsApp action (AC-4, EC-4).
+  ⚠️ **The six English stock categories are retired.** They were a *closed* set mapped to French at display time,
+  this repo's standing convention — but the set had stopped being closed (`GET /api/stock` already served the
+  clinic's own categories as a filter facet), so a clinic-authored one rendered raw beside six translated ones.
+  Both category fields are now open-with-suggestions over `Domain/Services/CategoryFolding`, which also absorbed
+  `ProcedureTypeCategories`' private fold so three open sets share one rule.
+  ⚠️ `verify-schema` gained **`supplier-links-backfill`**: it counts bons still unlinked while a fournisseur of
+  their name exists — the one failure invisible everywhere else, since an unlinked bon renders exactly like a
+  laboratory nobody has filed. The stock side has no equivalent line **and cannot**, because its free-text column
+  is dropped by the same migration.
 - **Multi-tenancy**: every request is scoped to a clinic. The **authoritative** check is per-request in the handlers — the clinic is resolved from the DB user record (`ICurrentClinicResolver`/`IClinicContext` → DB lookup of the `sub`, not purely from the JWT claim) and each loaded aggregate's `ClinicId` is re-verified. Since `cloud-security-and-tenant-isolation` (PR #11) there is **also** a second layer: EF Core **global query filters** on **21** clinic-owned aggregate roots. ⚠️ **They were fail-open — and therefore inert — until `multi-tenant-cloud` US-2 (Part B).** They are now fed by a three-valued **`ITenantScope`** (`Unset` | `Clinic(id)` | `SystemWide(reason)`) through `ICurrentClinicProvider`, and **only `Unset` refuses**: a path that never established a scope reads **nothing** instead of every clinic. The scope is set per request by `TenantScopeMiddleware` from the **DB-resolved** `User.ClinicId` — never from the JWT claim (amendment C3′: the Cloud claim is written by an Auth0 Action outside this repo, and a stale token used to be harmless under fail-open but would now mean zero rows with no error). Everything that reads with no HTTP context says so explicitly: the five recurring jobs, the startup scope and the three DB-touching console verbs call `UseSystemWide(reason)`; `PdfGenerationJob` and the App→Google dispatcher call `UseClinic(id)` because they handle exactly one record. Pinned by `TenantScopeFilterTests` (derived over every filtered root) and `SystemWideCallerCoverageTests` (derived over « reads a filtered entity with no HTTP context »). ⚠️ **The seven clinical children of `Patient` used to carry no `ClinicId` at all** (`MedicalDocument`, `DentalRecord`, `PatientMedicalHistory`, `PatientFamilyHistory`, `PatientFile`, `PatientFolder`, `ToothState`), so no filter was possible and the per-handler check was their **only** layer. They now each carry one, **denormalised from their patient**, and are filtered like every other clinic-owned table — which the derived `TenantScopeFilterTests.Every_Clinic_Owned_Table_Is_Either_Filtered_Or_A_Named_Decision` enrolled them into for free the moment the column appeared. `*TenantIsolationTests` + `ClinicalRecordTenantIsolationTests` still hold the per-handler layer. ⚠️ **Denormalised means the two can disagree, and nothing in the model can say they must not** — so `verify-schema` gained **`clinical-child-clinic-matches-patient`**, one figure over all seven tables catching both failure directions: a backfill that covered nothing (rows left at `Guid.Empty`, whose symptom is not an error but a patient record that reads as *empty*) and a write path that names the wrong clinic (the row is visible, to the wrong practice). The constructors take `clinicId` as a **required positional parameter** right after `patientId` for the same reason: a new write path that forgets it is a compile error, not a silent leak. Every caller passes the **patient's own** `ClinicId` — already tenant-checked one line above — never the caller's, so the invariant holds by construction rather than by discipline. It was **not** filtered through the `Patient` navigation: that puts a correlated subquery on the hottest reads in the product, and every other filtered entity states its clinic as a column. ⚠️ **SignalR hub methods run with no scope** (HTTP middleware does not run per invocation); `ClinicHub` is safe only because it reads `User`, which is unfiltered. See `Infrastructure/Persistence/ApplicationDbContext.cs`.
 - **Three deployment topologies, one capability per question (`multi-tenant-cloud` US-1 / Part A)**: `Deployment:Profile`
   resolves to a **`DeploymentProfile`** — a `DeploymentKind` plus **15** named capabilities — and every mode branch in

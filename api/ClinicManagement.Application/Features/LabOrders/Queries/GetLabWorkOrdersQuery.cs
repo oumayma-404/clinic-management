@@ -33,15 +33,18 @@ public class GetLabWorkOrdersQueryHandler : IRequestHandler<GetLabWorkOrdersQuer
 {
     private readonly ILabWorkOrderRepository _labWorkOrderRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly ISupplierRepository _supplierRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
 
     public GetLabWorkOrdersQueryHandler(
         ILabWorkOrderRepository labWorkOrderRepository,
         IPatientRepository patientRepository,
+        ISupplierRepository supplierRepository,
         ICurrentClinicResolver clinicResolver)
     {
         _labWorkOrderRepository = labWorkOrderRepository;
         _patientRepository = patientRepository;
+        _supplierRepository = supplierRepository;
         _clinicResolver = clinicResolver;
     }
 
@@ -77,7 +80,16 @@ public class GetLabWorkOrdersQueryHandler : IRequestHandler<GetLabWorkOrdersQuer
                 PageRequest.From(request.Page, request.PageSize),
                 cancellationToken);
 
-            return Result<PagedResult<LabWorkOrderDto>>.Success(page.Map(o => o.ToDto()));
+            // One batched read for the page's laboratories — « relancer le labo » needs a number on every row, and
+            // resolving per row is the companion-read defect `list-pagination` documents.
+            var supplierIds = page.Items
+                .Where(o => o.SupplierId.HasValue)
+                .Select(o => o.SupplierId!.Value)
+                .ToList();
+            var suppliers = await _supplierRepository.GetByIdsAsync(clinic.Value, supplierIds, cancellationToken);
+
+            return Result<PagedResult<LabWorkOrderDto>>.Success(page.Map(o => o.ToDto(
+                supplier: o.SupplierId.HasValue && suppliers.TryGetValue(o.SupplierId.Value, out var s) ? s : null)));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

@@ -20,7 +20,12 @@ export interface StockItemDto {
   minimumStockLevel: number;
   maximumStockLevel: number;
   unitPrice?: number | null;
-  supplier?: string | null;
+  /** The linked fournisseur, or null — the common case (AC-5). Replaced a free-text `supplier` string. */
+  supplierId?: string | null;
+  /** That fournisseur's nom, resolved at read time from the current link. */
+  supplierName?: string | null;
+  /** Its deliverable Tunisian E.164 number, or null — decides whether the row gets a WhatsApp action (AC-3). */
+  supplierPhoneE164?: string | null;
   isLowStock: boolean;
   /**
    * The lots on the shelf (AC-P4.1/4.3). Replaces the single scalar expiry the item used to carry, which
@@ -57,6 +62,44 @@ export interface StockPageDto {
   totalPages: number;
 }
 
+/**
+ * A fournisseur — any outside contact the cabinet orders from or sends work to: a laboratoire de prothèse, a
+ * laboratoire d'analyses, a dépôt dentaire, a maintenance technician.
+ */
+export interface SupplierDto {
+  id: string;
+  name: string;
+  category?: string | null;
+  /** What was typed, verbatim — a foreign number is stored and shown as entered (EC-1). */
+  phoneNumber?: string | null;
+  /**
+   * The same number as deliverable Tunisian E.164, or null. Resolved server-side and NOT re-derived here: this
+   * is what decides whether a WhatsApp action exists (AC-3), and a second client-side rule would make a number
+   * callable on one screen and not on another.
+   */
+  phoneE164?: string | null;
+  address?: string | null;
+  notes?: string | null;
+  isActive: boolean;
+  /** Stock articles pointing here. Part of AC-4's refusal, and the list's « N articles liés ». */
+  linkedItemCount: number;
+  /** Bons de prothèse pointing here — counted apart so a refusal can name where to look. */
+  linkedLabOrderCount: number;
+  version: number;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+export interface SupplierPageDto {
+  items: SupplierDto[];
+  /** The canonical suggestions unioned with the clinic's own — clinic-wide, never narrowed by the filters. */
+  categories: string[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
 export interface NotificationDto {
   id: string;
   /** AppointmentCreated | AppointmentCancelled | AppointmentRescheduled | Reminder | LowStock */
@@ -70,6 +113,14 @@ export interface NotificationDto {
   targetKind: string;
   appointmentId?: string | null;
   stockItemId?: string | null;
+  /**
+   * Who to contact about this row — populated for `LowStock` only, and only while the article still names a
+   * fournisseur (AC-6). Resolved server-side at READ time from the article's current link, never frozen into
+   * `message`, so an alert fired before anybody filed the supplier becomes actionable the moment they do (AC-7).
+   */
+  supplierName?: string | null;
+  /** That supplier's deliverable Tunisian E.164 number, or null — decides whether the row gets a WhatsApp button. */
+  supplierPhoneE164?: string | null;
 }
 
 /** A due, unread post-visit review surfaced by the popup (GET /notifications/pending-reviews). */
@@ -1221,7 +1272,17 @@ export interface LabWorkOrderDto {
    */
   appointmentId?: string | null;
   toothNumber?: number | null;
+  /** The laboratory's name as printed on the bon — free text, always present. */
   prosthetist: string;
+  /** The linked fournisseur, or null when this bon names a laboratory nobody has filed. */
+  supplierId?: string | null;
+  /**
+   * The linked fournisseur's nom. Carried BESIDE `prosthetist` rather than replacing it: the bon prints the name
+   * it was raised with, and a supplier renamed since must not rewrite what was sent to the laboratory.
+   */
+  supplierName?: string | null;
+  /** The laboratory's deliverable Tunisian E.164 number, or null — decides the row's « Relancer » action. */
+  supplierPhoneE164?: string | null;
   workDescription: string;
   sentDate?: string | null;
   expectedDate?: string | null;

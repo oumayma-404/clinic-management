@@ -18,6 +18,8 @@ import {
   DatabaseBackup,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
+import { lowStockOrderMessageFromAlert } from "@/lib/whatsapp"
 import { EmptyState } from "@/components/ui/empty-state"
 import type { NotificationDto } from "@/lib/api/types"
 
@@ -142,14 +144,14 @@ export function NotificationPanel({
             {notifications.map((n) => {
               const Icon = CATEGORY_ICON[n.category] ?? Clock
               return (
-                <li key={n.id}>
+                // AC-6 — the WhatsApp control is a SIBLING of the row button, never nested inside it: a button
+                // inside a button is invalid markup and the inner one's click would not survive the outer's
+                // handler. Tapping the text still deep-links to /stock exactly as before.
+                <li key={n.id} className={cn("flex items-start", !n.isRead && "bg-accent/40")}>
                   <button
                     type="button"
                     onClick={() => onRowClick(n)}
-                    className={cn(
-                      "flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-accent",
-                      !n.isRead && "bg-accent/40",
-                    )}
+                    className="flex min-w-0 flex-1 items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-accent"
                   >
                     <span
                       className={cn(
@@ -167,9 +169,25 @@ export function NotificationPanel({
                         {!n.isRead && <span className="h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-label="Non lu" />}
                       </span>
                       <span className="mt-0.5 block text-sm text-muted-foreground">{n.message}</span>
+                      {n.supplierName ? (
+                        <span className="mt-1 block text-sm font-medium text-foreground">
+                          Contacter {n.supplierName}
+                        </span>
+                      ) : null}
                       <span className="mt-1 block text-xs text-muted-foreground">{relativeTime(n.createdAt)}</span>
                     </span>
                   </button>
+                  {n.supplierName ? (
+                    <span className="flex items-center self-center pe-2">
+                      {/* No « Ajouter un numéro » fallback: the bell cannot open the fournisseur's form, and a
+                          dead control in a notification is worse than a row that simply names the contact. */}
+                      <WhatsAppAction
+                        phoneE164={n.supplierPhoneE164}
+                        contactName={n.supplierName}
+                        message={lowStockOrderMessageFromAlert(n.message)}
+                      />
+                    </span>
+                  ) : null}
                 </li>
               )
             })}

@@ -11,6 +11,13 @@ export interface LabWorkOrderPayload {
   expectedDate?: string | null;
   cost?: number | null;
   notes?: string | null;
+  /**
+   * The laboratory's fiche fournisseur — what gives the bon a number to chase.
+   *
+   * ⚠️ **Replace-semantics like every other field here**: sending null detaches the fiche. Deliberately NOT the
+   * tri-state `stockApi`'s `supplierId` uses — that payload is a patch in practice, this one replaces the bon.
+   */
+  supplierId?: string | null;
 }
 
 export const labOrdersApi = {

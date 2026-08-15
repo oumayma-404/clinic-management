@@ -72,13 +72,18 @@ public class StockItemRepository : IStockItemRepository
 
         // Name, category and supplier: the three a stockroom search is actually for — « composite »,
         // « anesthésique », or the name of the supplier whose delivery is being checked in.
+        //
+        // ⚠️ The supplier term is a correlated EXISTS over `Suppliers` now that the column is an FK rather than a
+        // name. A join would have been the other option and is wrong here: an article may have no supplier, so an
+        // inner join drops exactly the rows a search for « composite » must still return.
         var pattern = SearchTerm.ToLikePattern(searchTerm);
         if (pattern is not null)
         {
             query = query.Where(s =>
                 EF.Functions.ILike(SqlSearch.Unaccent(s.Name)!, pattern, SqlSearch.EscapeString) ||
                 EF.Functions.ILike(SqlSearch.Unaccent(s.Category)!, pattern, SqlSearch.EscapeString) ||
-                EF.Functions.ILike(SqlSearch.Unaccent(s.Supplier)!, pattern, SqlSearch.EscapeString));
+                _context.Suppliers.Any(sup => sup.Id == s.SupplierId
+                    && EF.Functions.ILike(SqlSearch.Unaccent(sup.Name)!, pattern, SqlSearch.EscapeString)));
         }
 
         return await query
@@ -140,6 +145,21 @@ public class StockItemRepository : IStockItemRepository
                                               && b.ExpiryDate != null
                                               && b.ExpiryDate <= horizon))
             .CountAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, Guid>> GetSupplierLinksAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
+    {
+        if (itemIds.Count == 0)
+        {
+            return new Dictionary<Guid, Guid>();
+        }
+
+        var distinct = itemIds.Distinct().ToList();
+        return await _context.StockItems
+            .Where(s => s.ClinicId == clinicId && distinct.Contains(s.Id) && s.SupplierId != null)
+            .Select(s => new { s.Id, SupplierId = s.SupplierId!.Value })
+            .ToDictionaryAsync(x => x.Id, x => x.SupplierId, cancellationToken);
     }
 
     public async Task<StockItem> AddAsync(StockItem item, CancellationToken cancellationToken = default)

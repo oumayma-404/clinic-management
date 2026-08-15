@@ -21,6 +21,9 @@ export const RealtimeResource = {
   Clinics: "clinics",
   Users: "users",
   Stock: "stock",
+  // Features/Suppliers/Commands. Genuinely two-user: reception files a dépôt's number while the dentist is
+  // looking at the stock article that names it, and « Désactiver » must reach every open picker.
+  Suppliers: "suppliers",
   Notifications: "notifications",
   Invoices: "invoices",
   CnamNomenclature: "cnamnomenclature",

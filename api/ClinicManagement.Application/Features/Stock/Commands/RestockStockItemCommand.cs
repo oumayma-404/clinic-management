@@ -25,6 +25,7 @@ public class RestockStockItemCommandHandler : IRequestHandler<RestockStockItemCo
 {
     private readonly IStockItemRepository _stockItemRepository;
     private readonly IStockMovementRepository _stockMovementRepository;
+    private readonly ISupplierRepository _supplierRepository;
     private readonly IClinicRepository _clinicRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly INotificationGenerator _notificationGenerator;
@@ -33,6 +34,7 @@ public class RestockStockItemCommandHandler : IRequestHandler<RestockStockItemCo
     public RestockStockItemCommandHandler(
         IStockItemRepository stockItemRepository,
         IStockMovementRepository stockMovementRepository,
+        ISupplierRepository supplierRepository,
         IClinicRepository clinicRepository,
         ICurrentClinicResolver clinicResolver,
         INotificationGenerator notificationGenerator,
@@ -40,6 +42,7 @@ public class RestockStockItemCommandHandler : IRequestHandler<RestockStockItemCo
     {
         _stockItemRepository = stockItemRepository;
         _stockMovementRepository = stockMovementRepository;
+        _supplierRepository = supplierRepository;
         _clinicRepository = clinicRepository;
         _clinicResolver = clinicResolver;
         _notificationGenerator = notificationGenerator;
@@ -88,7 +91,13 @@ public class RestockStockItemCommandHandler : IRequestHandler<RestockStockItemCo
                 }
             }
 
-            return Result<StockItemDto>.Success(item.ToDto());
+            // The client repaints the row from this response — see ConsumeStockCommand for why the supplier has
+            // to travel with it rather than being left for the next refetch.
+            var supplier = item.SupplierId is { } supplierId
+                ? await _supplierRepository.GetByIdAsync(supplierId, cancellationToken)
+                : null;
+
+            return Result<StockItemDto>.Success(item.ToDto(supplier: supplier));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

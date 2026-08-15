@@ -301,6 +301,20 @@ documents, nullable-patient appointments, and the multi-tenant clinic/user/docto
   entry » rule is what ran; `verify-schema` went 1 DRIFT → clean on those two checks, and corrupting one row turned
   the new `subscription-cover-kind-matches-ledger` red.
 
+- **`20260815110947_AddSuppliers`** (`stock-fournisseurs`) — one new `Suppliers` table, `SupplierId` on
+  `StockItems` **and** `LabWorkOrders`, four backfills, and the drop of the free-text `StockItems.Supplier`.
+  ⚠️ **The statement order is the design, not the scaffolder's.** EF emitted `DropColumn("Supplier")` as the
+  **first** statement — it cannot know the backfill three blocks below reads that column — which would have created
+  zero suppliers and linked zero articles on every existing database while reporting a clean migration. Every
+  backfill now sits below the DDL that creates what it writes into and **above** the drop of what it reads.
+  ⚠️ EF's differ also emitted an **`xmin`** column in the `CreateTable` block (`Entity<T>.Version` maps onto the
+  *system* column), which PostgreSQL rejects — removed by hand, the same fix `AddClinicSubscriptions` needed.
+  ⚠️ Rows are folded on `lower(btrim(…))`, so « Dentalex » / « dentalex  » become **one** supplier (EC-2), and the
+  **lab pass runs after the stock pass** with a `NOT EXISTS` against what that one created, so a dépôt that is both
+  reuses the single row instead of producing a second differing only in case — which the case-sensitive unique index
+  would accept and the link would then match ambiguously. Every backfill is gated on « this row does not exist yet »,
+  so `Up()` is safe to re-run. The category rewrite mirrors `Domain/Services/StockCategories.LegacyKeys`, which is
+  the authority and still folds an English key at runtime.
 - **The `vendor-whatsapp-messaging-quota` batch — four migrations, one per part** (DEV-5/9/12; the plan's own
   « before and after the migration **batch** » wording anticipated more than one). `AddClinicMessagingAllowances`
   (the two tables, three indexes, two FKs, **plus the rollout backfill**), `AddMessagingAllowanceWarningColumns`
@@ -330,6 +344,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `IAppointmentRepository` | `AppointmentRepository` |
 | `INotificationRepository` | `NotificationRepository` (reminder outbox rows) |
 | `IStaffNotificationRepository` | `StaffNotificationRepository` (in-app feed: newest-first/actor-excluded/50-cap, unread gated on viewer join time, read-marker existence+insert, reminder-by-appointment lookup) |
+| `ISupplierRepository` | `SupplierRepository` (`stock-fournisseurs`). Its search covers nom / catégorie / téléphone / adresse; `GetUsageAsync` is one `GROUP BY` per referencing table over the page, never a count per row. ⚠️ `StockItemRepository`'s own search term became a correlated **`EXISTS`** over `Suppliers` once the column was an FK rather than a name — a join was the other option and is wrong here, since an article may have no supplier and an inner join would drop exactly the rows a search for « composite » must still return |
 | `IStockItemRepository` | `StockItemRepository` |
 | `IProcedureTypeRepository` | `ProcedureTypeRepository` (`GetFilteredAsync` gained a `category` argument — compared on the **canonical** spelling so a stale « endodontie » link still matches — and orders by category then name with `Category == null` **first in the predicate** so unfiled acts land at the *end*, a decision this read makes rather than inheriting from PostgreSQL's NULLS-LAST default; `GetCategoriesAsync` returns the clinic's distinct categories, **including those of deactivated acts**, since a discipline the practice files work under does not stop being one because one act in it was archived) |
 | `IDentalRecordRepository` | `DentalRecordRepository` |

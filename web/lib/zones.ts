@@ -142,6 +142,7 @@ const ROUTE_ZONES: Array<[string, ZoneKey]> = [
   ["/caisse", "money"],
   ["/creances", "money"],
   ["/stock", "ops"],
+  ["/fournisseurs", "ops"],
   ["/rappels", "ops"],
   ["/procedure-types", "config"],
   ["/cnam-nomenclature", "config"],

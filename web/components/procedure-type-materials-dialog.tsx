@@ -21,7 +21,7 @@ import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { stockApi } from "@/lib/api/stock"
 import { getErrorMessage } from "@/lib/errors"
 import { cn } from "@/lib/utils"
-import { stockCategoryLabel, stockUnitLabel } from "@/components/stock-item-form-modal"
+import { stockUnitLabel } from "@/components/stock-item-form-modal"
 import type { ProcedureTypeDto, StockItemDto } from "@/lib/api/types"
 
 interface ProcedureTypeMaterialsDialogProps {
@@ -221,9 +221,9 @@ export function ProcedureTypeMaterialsDialog({
                             {availableFor(index).map((item) => (
                               <CommandItem
                                 key={item.id}
-                                /* The searchable text: the category is French at display time
-                                   (`stockCategoryLabel`), so « protection » finds a PPE article. */
-                                value={`${item.name} ${stockUnitLabel(item.unit)} ${stockCategoryLabel(item.category)}`}
+                                /* The searchable text: the category is stored in French now, so
+                                   « protection » finds a « Protection (EPI) » article. */
+                                value={`${item.name} ${stockUnitLabel(item.unit)} ${item.category}`}
                                 onSelect={() => {
                                   patchRow(index, { stockItemId: item.id })
                                   setOpenPickerIndex(null)
@@ -239,7 +239,7 @@ export function ProcedureTypeMaterialsDialog({
                                   {item.name} ({stockUnitLabel(item.unit)})
                                 </span>
                                 <span className="ms-2 shrink-0 text-2xs text-muted-foreground">
-                                  {stockCategoryLabel(item.category)}
+                                  {item.category}
                                 </span>
                               </CommandItem>
                             ))}

@@ -18,17 +18,20 @@ public class UpdateLabWorkOrderStatusCommand : IRequest<Result<LabWorkOrderDto>>
 public class UpdateLabWorkOrderStatusCommandHandler : IRequestHandler<UpdateLabWorkOrderStatusCommand, Result<LabWorkOrderDto>>
 {
     private readonly ILabWorkOrderRepository _labWorkOrderRepository;
+    private readonly ISupplierRepository _supplierRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<UpdateLabWorkOrderStatusCommandHandler> _logger;
 
     public UpdateLabWorkOrderStatusCommandHandler(
         ILabWorkOrderRepository labWorkOrderRepository,
+        ISupplierRepository supplierRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<UpdateLabWorkOrderStatusCommandHandler> logger)
     {
         _labWorkOrderRepository = labWorkOrderRepository;
+        _supplierRepository = supplierRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -54,7 +57,13 @@ public class UpdateLabWorkOrderStatusCommandHandler : IRequestHandler<UpdateLabW
             await _labWorkOrderRepository.UpdateAsync(order, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return Result<LabWorkOrderDto>.Success(order.ToDto());
+            // The board repaints the row from this response, so the laboratory's contact travels with it —
+            // otherwise moving a bon to « Reçu » drops its WhatsApp action until the next refetch.
+            var supplier = order.SupplierId is { } supplierId
+                ? await _supplierRepository.GetByIdAsync(supplierId, cancellationToken)
+                : null;
+
+            return Result<LabWorkOrderDto>.Success(order.ToDto(supplier: supplier));
         }
         catch (ArgumentException ex)
         {

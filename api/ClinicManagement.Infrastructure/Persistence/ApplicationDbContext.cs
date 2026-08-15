@@ -66,6 +66,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<StockItem> StockItems { get; set; }
     // Append-only stock-movement audit log (consume/restock history) — clinic-scoped aggregate root.
     public DbSet<StockMovement> StockMovements { get; set; }
+    // Who the cabinet buys from — clinic-scoped aggregate root, filtered below. It replaced the free-text
+    // StockItem.Supplier, which named somebody nobody could call.
+    public DbSet<Supplier> Suppliers { get; set; }
     public DbSet<ProcedureType> ProcedureTypes { get; set; }
     // Clinical-workflow-depth: caisse expenses, salle-d'attente entries, and dental-lab work orders
     // (all clinic-scoped aggregate roots — added to the global clinic query filter below).
@@ -297,6 +300,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         // ledger but not the item it belongs to.
         modelBuilder.Entity<Doctor>().HasQueryFilter(d => IsSystemWide || d.ClinicId == ScopedClinicId);
         modelBuilder.Entity<StockItem>().HasQueryFilter(s => IsSystemWide || s.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<Supplier>().HasQueryFilter(s => IsSystemWide || s.ClinicId == ScopedClinicId);
         // StockBatch is a child of StockItem, reached only through its filtered parent → no filter of its own,
         // the same rule as InvoiceLine/Installment. ProcedureTypeMaterial likewise, under ProcedureType.
         // L4d — the backup ledger is clinic-owned with a NON-nullable ClinicId, so unlike AuditEntries it is

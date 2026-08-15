@@ -110,6 +110,7 @@ public static class Extensions
         services.AddScoped<IAppointmentRepository, AppointmentRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IStockItemRepository, StockItemRepository>();
+        services.AddScoped<ISupplierRepository, SupplierRepository>();
         services.AddScoped<IStockMovementRepository, StockMovementRepository>();
         services.AddScoped<IProcedureTypeRepository, ProcedureTypeRepository>();
         services.AddScoped<IDentalRecordRepository, DentalRecordRepository>();

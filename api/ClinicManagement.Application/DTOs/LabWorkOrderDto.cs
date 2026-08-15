@@ -1,4 +1,5 @@
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Application.DTOs;
 
@@ -13,7 +14,26 @@ public class LabWorkOrderDto
     public Guid? AppointmentId { get; set; }
 
     public int? ToothNumber { get; set; }
+
+    /// <summary>The laboratory's name as printed on the bon — free text, and always present.</summary>
     public string Prosthetist { get; set; } = string.Empty;
+
+    /// <summary>The linked fournisseur, or null when this bon names a laboratory nobody has filed.</summary>
+    public Guid? SupplierId { get; set; }
+
+    /// <summary>
+    /// The linked fournisseur's nom. Deliberately carried <b>beside</b> <see cref="Prosthetist"/> rather than
+    /// replacing it: the bon prints the name it was raised with, and a supplier renamed since must not silently
+    /// rewrite what was sent to the laboratory.
+    /// </summary>
+    public string? SupplierName { get; set; }
+
+    /// <summary>
+    /// The laboratory's deliverable Tunisian E.164 number, or null — what makes « Relancer le labo » a WhatsApp
+    /// action rather than a note to go and look the number up.
+    /// </summary>
+    public string? SupplierPhoneE164 { get; set; }
+
     public string WorkDescription { get; set; } = string.Empty;
     public DateTime? SentDate { get; set; }
     public DateTime? ExpectedDate { get; set; }
@@ -33,7 +53,12 @@ public class LabWorkOrderDto
 
 public static class LabWorkOrderMappingExtensions
 {
-    public static LabWorkOrderDto ToDto(this LabWorkOrder order, string? patientName = null) => new()
+    /// <summary>
+    /// <paramref name="supplier"/> is resolved by the caller's batched read — a query per row is the
+    /// companion-read defect `list-pagination` documents, and this list carries a laboratory on every row.
+    /// </summary>
+    public static LabWorkOrderDto ToDto(
+        this LabWorkOrder order, string? patientName = null, Supplier? supplier = null) => new()
     {
         Id = order.Id,
         ClinicId = order.ClinicId,
@@ -42,6 +67,9 @@ public static class LabWorkOrderMappingExtensions
         AppointmentId = order.AppointmentId,
         ToothNumber = order.ToothNumber,
         Prosthetist = order.Prosthetist,
+        SupplierId = order.SupplierId,
+        SupplierName = supplier?.Name,
+        SupplierPhoneE164 = PhoneNumber.ToE164(supplier?.PhoneNumber),
         WorkDescription = order.WorkDescription,
         SentDate = order.SentDate,
         ExpectedDate = order.ExpectedDate,

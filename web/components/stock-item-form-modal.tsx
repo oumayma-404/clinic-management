@@ -17,64 +17,27 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { CategoryCombobox } from "@/components/ui/category-combobox"
+import { SupplierPicker } from "@/components/suppliers/supplier-picker"
+import { SupplierFormDialog } from "@/components/suppliers/supplier-form-dialog"
 import { stockApi } from "@/lib/api/stock"
 import { ApiError } from "@/lib/api/client"
 import { formatAmount, parseAmountInput } from "@/lib/format"
 import type { StockItemDto } from "@/lib/api/types"
 
 /**
- * The stock categories, as **stored**. English on purpose — see `stockCategoryLabel` below.
- *
- * Exported because `stock-table.tsx` renders the same values as badges and in its category filter, and a second
- * copy of a closed value set is how the two drift (the precedent is `dental-act-form-modal`'s
- * `DENTAL_ACT_CATEGORIES`, exported for exactly this reason).
+ * ⚠️ `STOCK_CATEGORIES` and `STOCK_CATEGORY_LABELS_FR` used to live here — six English storage keys and a French
+ * display map, this repo's standing convention for a **closed** value set. The set stopped being closed:
+ * `GET /api/stock` already served the clinic's own distinct categories as a filter facet, and nothing ever
+ * refused a category typed straight into the database — so a clinic-authored one rendered raw beside six
+ * translated ones. The storage key is the French label now (`Domain/Services/StockCategories`), the suppliers
+ * migration rewrote the six existing keys, and the options come from the server like every other open set.
  */
-export const STOCK_CATEGORIES = [
-  "Medical Supplies",
-  "Medical Equipment",
-  "PPE",
-  "Medications",
-  "Lab Supplies",
-  "Office Supplies",
-]
-
-/**
- * French labels for the stored (English) category keys.
- *
- * The defect: these six strings were persisted on `StockItem.Category`, offered raw in this Select, printed raw as
- * a badge on every stock row, and listed raw in the category filter — so a Tunisian dentist read « PPE » and
- * « Lab Supplies » in an otherwise entirely French product.
- *
- * Fixed the way this repo already fixes it everywhere else (`lib/specialties.ts`, `lib/working-hours.ts`,
- * `components/appointment-labels.ts`): **keep the storage key, map at display time**. A rename would be a data
- * migration — the values are already in the database, already returned by `GET /api/stock` as the `categories`
- * facet, and already used as the `category=` filter argument, so a renamed key would silently stop matching every
- * existing row.
- */
-export const STOCK_CATEGORY_LABELS_FR: Record<string, string> = {
-  "Medical Supplies": "Consommables médicaux",
-  "Medical Equipment": "Équipement médical",
-  PPE: "Protection (EPI)",
-  Medications: "Médicaments",
-  "Lab Supplies": "Fournitures de laboratoire",
-  "Office Supplies": "Fournitures de bureau",
-}
-
-/**
- * The French label for a stored category, or the stored value verbatim when it has none.
- *
- * Passing an unknown value through matters: a clinic whose rows predate this map — or that had a category written
- * straight into the database — keeps rendering. Blanking it would make the row look corrupt.
- */
-export function stockCategoryLabel(category: string | null | undefined): string {
-  if (!category) return ""
-  const trimmed = category.trim()
-  return STOCK_CATEGORY_LABELS_FR[trimmed] ?? trimmed
-}
 
 const UNITS = ["Unit", "Box", "Bag", "Roll", "Bottle", "Pack", "Liter"]
 
-/** Same convention as the categories: the unit is persisted in English and read in French. */
+/** The unit is still a CLOSED set persisted in English and read in French — unlike the category,
+ * which became an open set served by the server. */
 const UNIT_LABELS_FR: Record<string, string> = {
   Unit: "Unité",
   Box: "Boîte",
@@ -96,9 +59,21 @@ interface StockItemFormModalProps {
   onOpenChange: (open: boolean) => void
   editingItem?: StockItemDto | null
   onSaved: () => void
+  /**
+   * The catégorie options — the canonical suggestions unioned with the clinic's own, as `GET /api/stock`
+   * already returns them. Passed in rather than fetched here: the stock page has them for its own filter, and a
+   * second read would be a second answer to what this clinic files articles under.
+   */
+  categories?: string[]
 }
 
-export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }: StockItemFormModalProps) {
+export function StockItemFormModal({
+  open,
+  onOpenChange,
+  editingItem,
+  onSaved,
+  categories = [],
+}: StockItemFormModalProps) {
   const [name, setName] = useState("")
   const [category, setCategory] = useState("")
   const [unit, setUnit] = useState("")
@@ -106,7 +81,9 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
   const [minimumStockLevel, setMinimumStockLevel] = useState("")
   const [description, setDescription] = useState("")
   const [unitPrice, setUnitPrice] = useState("")
-  const [supplier, setSupplier] = useState("")
+  const [supplierId, setSupplierId] = useState<string | null>(null)
+  const [supplierCreateOpen, setSupplierCreateOpen] = useState(false)
+  const [supplierReloadKey, setSupplierReloadKey] = useState(0)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
 
@@ -119,7 +96,7 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
       setMinimumStockLevel(String(editingItem.minimumStockLevel))
       setDescription(editingItem.description ?? "")
       setUnitPrice(editingItem.unitPrice != null ? formatAmount(editingItem.unitPrice) : "")
-      setSupplier(editingItem.supplier ?? "")
+      setSupplierId(editingItem.supplierId ?? null)
     } else {
       setName("")
       setCategory("")
@@ -128,7 +105,7 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
       setMinimumStockLevel("")
       setDescription("")
       setUnitPrice("")
-      setSupplier("")
+      setSupplierId(null)
     }
     setErrors({})
   }, [editingItem, open])
@@ -164,7 +141,9 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
       maximumStockLevel: editingItem ? editingItem.maximumStockLevel : null,
       description: description.trim() || null,
       unitPrice: unitPrice.trim() !== "" ? parseAmountInput(unitPrice) : null,
-      supplier: supplier.trim() || null,
+      // Always present, never omitted: the update command reads an ABSENT key as « unchanged », so
+      // `|| undefined` here would make clearing a fournisseur silently succeed and do nothing (AC-5).
+      supplierId: supplierId,
     }
 
     try {
@@ -262,24 +241,18 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
               <Label htmlFor="category">
                 Catégorie <span className="text-destructive">*</span>
               </Label>
-              {/* The VALUE stays the English storage key; only the label is French (see `stockCategoryLabel`).
-                  An `editingItem` whose stored category is not in the list would otherwise reset the Select to
-                  its placeholder and a save would silently rewrite the item's category. */}
-              <Select value={category} onValueChange={setCategory}>
-                <SelectTrigger id="category" className="w-full">
-                  <SelectValue placeholder="Sélectionner une catégorie" />
-                </SelectTrigger>
-                <SelectContent>
-                  {STOCK_CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {stockCategoryLabel(c)}
-                    </SelectItem>
-                  ))}
-                  {category !== "" && !STOCK_CATEGORIES.includes(category) && (
-                    <SelectItem value={category}>{stockCategoryLabel(category)}</SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+              {/* A combobox, not a Select (AC-2): the categories are *suggestions* and a practice may file an
+                  article under one of its own. The list already includes the clinic's own, which is what makes an
+                  open set converge — and typing a variant is safe, since the server folds « prothese » back onto
+                  the canonical spelling on save. */}
+              <CategoryCombobox
+                id="category"
+                value={category}
+                onChange={setCategory}
+                options={categories}
+                placeholder="Sélectionner une catégorie"
+                emptyLabel="Sans catégorie"
+              />
               {errors.category && <p className="text-xs text-destructive">{errors.category}</p>}
             </div>
           </div>
@@ -303,11 +276,19 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
 
             <div className="space-y-2">
               <Label htmlFor="supplier">Fournisseur</Label>
-              <Input
+              {/* Was a free-text input, which is how the same dépôt ended up under three spellings with no
+                  number behind any of them. « Aucun » is the common case and stays one tap away (AC-5). */}
+              <SupplierPicker
                 id="supplier"
-                placeholder="Optionnel"
-                value={supplier}
-                onChange={(e) => setSupplier(e.target.value)}
+                value={supplierId}
+                onChange={setSupplierId}
+                selectedFallback={
+                  editingItem?.supplierId && editingItem.supplierName
+                    ? { id: editingItem.supplierId, name: editingItem.supplierName }
+                    : null
+                }
+                onCreateNew={() => setSupplierCreateOpen(true)}
+                reloadKey={supplierReloadKey}
               />
             </div>
           </div>
@@ -333,6 +314,20 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
           </DialogFooter>
         </form>
       </DialogContent>
+
+      {/* « + Créer un fournisseur » from inside the picker. It selects the new supplier straight away, which is
+          the whole reason the inline path exists — sending the user to /fournisseurs and back would lose
+          everything already typed into this form. */}
+      <SupplierFormDialog
+        open={supplierCreateOpen}
+        onOpenChange={setSupplierCreateOpen}
+        editing={null}
+        categories={[]}
+        onSaved={(created) => {
+          setSupplierId(created.id)
+          setSupplierReloadKey((k) => k + 1)
+        }}
+      />
     </Dialog>
   )
 }

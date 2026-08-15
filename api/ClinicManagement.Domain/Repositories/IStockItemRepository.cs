@@ -53,6 +53,18 @@ public interface IStockItemRepository
     /// </summary>
     Task<int> CountExpiringSoonAsync(
         Guid clinicId, int leadDays, DateTime asOfUtc, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Which of <paramref name="itemIds"/> currently name a fournisseur, and which one — a light projection with
+    /// no <c>Include</c>, because its caller (the bell feed) needs the link and not the aggregate.
+    /// <para>
+    /// ⚠️ <b>An article with no supplier is absent from the dictionary</b> rather than present with an empty
+    /// GUID: a sentinel there would be a supplier id that resolves to nothing, which is the failure mode the four
+    /// retired contact sentinels are the precedent for.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, Guid>> GetSupplierLinksAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default);
+
     Task<StockItem> AddAsync(StockItem item, CancellationToken cancellationToken = default);
     Task UpdateAsync(StockItem item, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);

@@ -24,6 +24,8 @@ export default function StockPage() {
   // filter so the list shows exactly the items the card counted. An unknown value is ignored — a stale link lands on
   // the full list, never a broken state.
   const [initialFilter, setInitialFilter] = useState<"low" | "expiring" | undefined>()
+  // The catégorie options the item form offers, lifted from the list read (see StockTable.onCategoriesChange).
+  const [categories, setCategories] = useState<string[]>([])
 
   // Live-refresh on a peer's stock mutation (finding #14: the page didn't subscribe though the backend
   // already broadcasts the "stock" key).
@@ -103,6 +105,7 @@ export default function StockPage() {
           onAdd={handleAddNew}
           highlightItemId={highlightItemId}
           initialFilter={initialFilter}
+          onCategoriesChange={setCategories}
           // Remount when the arriving filter resolves, so StockTable's initial filter state actually takes
           // effect — it seeds useState, which a re-render alone would not revisit.
           key={initialFilter ?? "all"}
@@ -121,6 +124,7 @@ export default function StockPage() {
           onOpenChange={setModalOpen}
           editingItem={editingItem}
           onSaved={() => setRefreshKey((k) => k + 1)}
+          categories={categories}
         />
       </AppShell>
     </ClinicGuard>

@@ -998,6 +998,30 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             requiredColumn: "GoogleRefreshTokenProtected",
             sql: """SELECT COUNT(*) FROM "Clinics" WHERE "GoogleRefreshToken" IS NOT NULL""");
 
+        // stock-fournisseurs AC-8. Guarded on the LabWorkOrders column rather than on the Suppliers table, so a
+        // database where the table exists but the link column does not reads « not applicable » instead of a
+        // reassuring 0. Folded on lower(btrim(…)) — the same rule the migration grouped by, so this measures the
+        // backfill's outcome rather than restating its SQL.
+        var labOrdersResolvableStillUnlinked = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "LabWorkOrders",
+            requiredColumn: "SupplierId",
+            sql: """
+                SELECT COUNT(*)
+                FROM "LabWorkOrders" o
+                WHERE o."SupplierId" IS NULL
+                  AND o."Prosthetist" IS NOT NULL
+                  AND btrim(o."Prosthetist") <> ''
+                  AND EXISTS (
+                      SELECT 1 FROM "Suppliers" s
+                      WHERE s."ClinicId" = o."ClinicId"
+                        AND lower(btrim(s."Name")) = lower(btrim(o."Prosthetist")))
+                """);
+
+        var suppliersTotal = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "Suppliers",
+            requiredColumn: "Name",
+            sql: """SELECT COUNT(*) FROM "Suppliers" """);
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
@@ -1012,7 +1036,9 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             SessionFamilyOrphans: sessionFamilyOrphans,
             AppToDatabaseClockOffsetSeconds: clockOffsetSeconds,
             ClinicsWithPlaintextGoogleToken: plaintextGoogleTokens,
-            RecoveryPointsClaimingSuccessWithNoKey: recoveryPointsWithNoKey);
+            RecoveryPointsClaimingSuccessWithNoKey: recoveryPointsWithNoKey,
+            LabOrdersResolvableToASupplierStillUnlinked: labOrdersResolvableStillUnlinked,
+            SuppliersTotal: suppliersTotal);
     }
 
     /// <summary>

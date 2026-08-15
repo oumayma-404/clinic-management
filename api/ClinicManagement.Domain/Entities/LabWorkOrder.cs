@@ -26,7 +26,26 @@ public class LabWorkOrder : AggregateRoot<Guid>
     public Guid? AppointmentId { get; private set; }
 
     public int? ToothNumber { get; private set; }
+
+    /// <summary>
+    /// The laboratory's name as printed on the bon. Still required and still free text: it is what the piece
+    /// travels with, and a lab the cabinet has dealt with once must be recordable without first filing a
+    /// fournisseur.
+    /// </summary>
     public string Prosthetist { get; private set; }
+
+    /// <summary>
+    /// The <see cref="Entities.Supplier"/> this bon was sent to — the laboratory as a record somebody can
+    /// <b>call</b>, rather than only a name on a line.
+    /// <para>
+    /// ⚠️ It sits <b>beside</b> <see cref="Prosthetist"/> and does not replace it, unlike the stock side where
+    /// the free-text column was dropped. Two reasons: the name is printed on the bon and on the PDF, so it must
+    /// survive a supplier being deleted or never linked at all; and a bon is routinely raised for a laboratory
+    /// used once, which must not require filing a fournisseur first. The migration links the ones it can match
+    /// by name and leaves the rest null.
+    /// </para>
+    /// </summary>
+    public Guid? SupplierId { get; private set; }
     public string WorkDescription { get; private set; }
     public DateTime? SentDate { get; private set; }
     public DateTime? ExpectedDate { get; private set; }
@@ -53,7 +72,8 @@ public class LabWorkOrder : AggregateRoot<Guid>
         DateTime? expectedDate = null,
         decimal? cost = null,
         string? notes = null,
-        Guid? appointmentId = null)
+        Guid? appointmentId = null,
+        Guid? supplierId = null)
     {
         if (string.IsNullOrWhiteSpace(prosthetist))
             throw new ArgumentException("Le prothésiste est requis.", nameof(prosthetist));
@@ -73,6 +93,7 @@ public class LabWorkOrder : AggregateRoot<Guid>
         Cost = cost;
         Notes = notes;
         AppointmentId = appointmentId;
+        SupplierId = supplierId;
         Status = LabOrderStatus.Sent;
         CreatedAt = DateTime.UtcNow;
     }
@@ -85,7 +106,8 @@ public class LabWorkOrder : AggregateRoot<Guid>
         DateTime? expectedDate,
         decimal? cost,
         string? notes,
-        Guid? appointmentId = null)
+        Guid? appointmentId = null,
+        Guid? supplierId = null)
     {
         if (string.IsNullOrWhiteSpace(prosthetist))
             throw new ArgumentException("Le prothésiste est requis.", nameof(prosthetist));
@@ -102,6 +124,7 @@ public class LabWorkOrder : AggregateRoot<Guid>
         Cost = cost;
         Notes = notes;
         AppointmentId = appointmentId;
+        SupplierId = supplierId;
         UpdatedAt = DateTime.UtcNow;
     }
 

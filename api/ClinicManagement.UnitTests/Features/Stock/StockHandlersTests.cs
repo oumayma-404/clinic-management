@@ -28,6 +28,7 @@ public static class StockTestData
 public class GetStockItemsQueryHandlerTests
 {
     private readonly Mock<IStockItemRepository> _stock = new();
+    private readonly Mock<ISupplierRepository> _suppliers = new();
     private readonly Mock<IClinicRepository> _clinics = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
 
@@ -44,7 +45,15 @@ public class GetStockItemsQueryHandlerTests
     {
         _stock.Setup(r => r.GetDistinctCategoriesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<string>());
-        return new GetStockItemsQueryHandler(_stock.Object, _clinics.Object, _clinicResolver.Object);
+        // Same trap as GetDistinctCategoriesAsync above: unstubbed, GetByIdsAsync hands back a null dictionary
+        // and the per-row TryGetValue dereferences it, which surfaces as a French Result.Failure rather than as
+        // "the fixture is missing a stub". Empty = no article on this page names a fournisseur, which is what
+        // every case here was already asserting before the link existed.
+        _suppliers.Setup(r => r.GetByIdsAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, Supplier>());
+        return new GetStockItemsQueryHandler(
+            _stock.Object, _suppliers.Object, _clinics.Object, _clinicResolver.Object);
     }
 
     private void Authenticated() =>
@@ -101,11 +110,15 @@ public class GetStockItemsQueryHandlerTests
 public class CreateStockItemCommandHandlerTests
 {
     private readonly Mock<IStockItemRepository> _stock = new();
+    private readonly Mock<ISupplierRepository> _suppliers = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
     private readonly Mock<INotificationGenerator> _notifications = new();
 
-    private CreateStockItemCommandHandler Handler() => new(_stock.Object, _clinicResolver.Object, _uow.Object, _notifications.Object);
+    // Permissive by default: an unstubbed GetByIdAsync returns null, which SupplierLink reads as « no such
+    // supplier » — and every command in this fixture sends no SupplierId at all, so it never gets that far.
+    private CreateStockItemCommandHandler Handler() =>
+        new(_stock.Object, _suppliers.Object, _clinicResolver.Object, _uow.Object, _notifications.Object);
 
     private StockItem? _captured;
 
@@ -203,6 +216,7 @@ public class CreateStockItemCommandHandlerTests
 public class UpdateStockItemCommandHandlerTests
 {
     private readonly Mock<IStockItemRepository> _stock = new();
+    private readonly Mock<ISupplierRepository> _suppliers = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
@@ -210,7 +224,8 @@ public class UpdateStockItemCommandHandlerTests
     private readonly Mock<IStockMovementRepository> _movements = new();
 
     private UpdateStockItemCommandHandler Handler() =>
-        new(_stock.Object, _movements.Object, _clinicResolver.Object, _uow.Object, _notificationGenerator.Object);
+        new(_stock.Object, _movements.Object, _suppliers.Object, _clinicResolver.Object, _uow.Object,
+            _notificationGenerator.Object);
 
     private void Authenticated()
     {

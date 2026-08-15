@@ -1,8 +1,10 @@
+using System.Text.Json.Serialization;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Suppliers;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -20,7 +22,25 @@ public class UpdateStockItemCommand : IRequest<Result<StockItemDto>>
     public int? MaximumStockLevel { get; set; }
     public string? Description { get; set; }
     public decimal? UnitPrice { get; set; }
-    public string? Supplier { get; set; }
+
+    private Guid? _supplierId;
+
+    /// <summary>
+    /// The fournisseur this article is ordered from.
+    /// <para>
+    /// ⚠️ <b>Tri-state on the wire</b> (AC-5): omit the key to leave the link alone, send <c>null</c> to clear it.
+    /// Conflating the two makes « clearing » unexpressible — the defect the <c>ProcedureTypeId</c> and
+    /// <c>Procedures</c> tri-states already fixed twice in this codebase — and a caller that omits the key
+    /// (a status-only save) would silently unlink every article it touched.
+    /// </para>
+    /// </summary>
+    public Guid? SupplierId
+    {
+        get => _supplierId;
+        set { _supplierId = value; SupplierIdSpecified = true; }
+    }
+
+    [JsonIgnore] public bool SupplierIdSpecified { get; private set; }
 
     /// <summary>
     /// Why on-hand was corrected. Recorded on the <c>StockMovement</c> this command now writes (AC-P4.17) —
@@ -41,6 +61,7 @@ public class UpdateStockItemCommandHandler : IRequestHandler<UpdateStockItemComm
 {
     private readonly IStockItemRepository _stockItemRepository;
     private readonly IStockMovementRepository _stockMovementRepository;
+    private readonly ISupplierRepository _supplierRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationGenerator _notificationGenerator;
@@ -48,12 +69,14 @@ public class UpdateStockItemCommandHandler : IRequestHandler<UpdateStockItemComm
     public UpdateStockItemCommandHandler(
         IStockItemRepository stockItemRepository,
         IStockMovementRepository stockMovementRepository,
+        ISupplierRepository supplierRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         INotificationGenerator notificationGenerator)
     {
         _stockItemRepository = stockItemRepository;
         _stockMovementRepository = stockMovementRepository;
+        _supplierRepository = supplierRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _notificationGenerator = notificationGenerator;
@@ -84,6 +107,15 @@ public class UpdateStockItemCommandHandler : IRequestHandler<UpdateStockItemComm
             if (item == null || item.ClinicId != clinic.Value)
                 return Result<StockItemDto>.Failure("Article de stock introuvable.");
 
+            // Tri-state: an absent key leaves the article's own link standing, an explicit null clears it.
+            var supplierId = request.SupplierIdSpecified ? request.SupplierId : item.SupplierId;
+            var supplier = await SupplierLink.ResolveAsync(
+                _supplierRepository, clinic.Value, supplierId, cancellationToken);
+            if (supplier.IsFailure)
+            {
+                return Result<StockItemDto>.FailureFrom(supplier);
+            }
+
             var maximum = request.MaximumStockLevel.HasValue && request.MaximumStockLevel.Value >= request.MinimumStockLevel
                 ? request.MaximumStockLevel.Value
                 : request.MinimumStockLevel;
@@ -92,7 +124,9 @@ public class UpdateStockItemCommandHandler : IRequestHandler<UpdateStockItemComm
             // (covers both a quantity drop and a MinimumStockLevel raise — spec US-5).
             var wasLow = item.IsLowStock();
 
-            item.UpdateInfo(request.Name, request.Description, request.Category, request.Unit, request.UnitPrice, request.Supplier);
+            item.UpdateInfo(
+                request.Name, request.Description, request.Category, request.Unit, request.UnitPrice,
+                supplier.Value?.Id);
             item.UpdateStockLevels(request.MinimumStockLevel, maximum);
 
             // AC-P4.15 — a manual stock-take correction is a real movement and must be in the ledger. This
@@ -130,7 +164,11 @@ public class UpdateStockItemCommandHandler : IRequestHandler<UpdateStockItemComm
                     clinic.Value, item.Id, item.Name, item.CurrentStock, item.MinimumStockLevel, cancellationToken);
             }
 
-            return Result<StockItemDto>.Success(item.ToDto());
+            return Result<StockItemDto>.Success(item.ToDto(supplier: supplier.Value));
+        }
+        catch (ArgumentException ex)
+        {
+            return Result<StockItemDto>.Failure(ex.Message);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

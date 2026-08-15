@@ -22,7 +22,14 @@ export interface StockItemPayload {
   maximumStockLevel?: number | null;
   description?: string | null;
   unitPrice?: number | null;
-  supplier?: string | null;
+  /**
+   * The fournisseur this article is ordered from.
+   *
+   * ⚠️ **Tri-state on the wire** (AC-5): omit the key to leave the link alone, send `null` to clear it. The form
+   * always sends it, which is what makes clearing a supplier work — `|| undefined` would be read as "unchanged"
+   * and the clear would silently do nothing.
+   */
+  supplierId?: string | null;
   /**
    * Why on-hand was corrected, recorded on the resulting `Adjustment` movement (AC-P4.17). The update path
    * writes a real ledger row now — it used to overwrite the quantity with no trace of what changed or why.

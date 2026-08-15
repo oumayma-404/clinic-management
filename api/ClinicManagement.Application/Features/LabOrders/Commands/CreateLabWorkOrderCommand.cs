@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Suppliers;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
@@ -21,6 +22,12 @@ public class CreateLabWorkOrderCommand : IRequest<Result<LabWorkOrderDto>>
 
     /// <summary>Optional — the séance this prothèse belongs to (AC-23). Validated clinic- and patient-side.</summary>
     public Guid? AppointmentId { get; set; }
+
+    /// <summary>
+    /// Optional — the laboratory as a fournisseur, so the bon carries a number somebody can call. Independent of
+    /// <see cref="Prosthetist"/>, which stays required: a lab used once must be recordable without filing one.
+    /// </summary>
+    public Guid? SupplierId { get; set; }
 }
 
 public class CreateLabWorkOrderCommandHandler : IRequestHandler<CreateLabWorkOrderCommand, Result<LabWorkOrderDto>>
@@ -28,6 +35,7 @@ public class CreateLabWorkOrderCommandHandler : IRequestHandler<CreateLabWorkOrd
     private readonly ILabWorkOrderRepository _labWorkOrderRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IAppointmentRepository _appointmentRepository;
+    private readonly ISupplierRepository _supplierRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
@@ -35,12 +43,14 @@ public class CreateLabWorkOrderCommandHandler : IRequestHandler<CreateLabWorkOrd
         ILabWorkOrderRepository labWorkOrderRepository,
         IPatientRepository patientRepository,
         IAppointmentRepository appointmentRepository,
+        ISupplierRepository supplierRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork)
     {
         _labWorkOrderRepository = labWorkOrderRepository;
         _patientRepository = patientRepository;
         _appointmentRepository = appointmentRepository;
+        _supplierRepository = supplierRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
@@ -71,6 +81,11 @@ public class CreateLabWorkOrderCommandHandler : IRequestHandler<CreateLabWorkOrd
             if (link.IsFailure)
                 return Result<LabWorkOrderDto>.Failure(link.Error!);
 
+            var supplier = await SupplierLink.ResolveAsync(
+                _supplierRepository, clinic.Value, request.SupplierId, cancellationToken);
+            if (supplier.IsFailure)
+                return Result<LabWorkOrderDto>.FailureFrom(supplier);
+
             var order = new LabWorkOrder(
                 Guid.NewGuid(),
                 clinic.Value,
@@ -82,12 +97,13 @@ public class CreateLabWorkOrderCommandHandler : IRequestHandler<CreateLabWorkOrd
                 request.ExpectedDate,
                 request.Cost,
                 string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
-                request.AppointmentId);
+                request.AppointmentId,
+                supplier.Value?.Id);
 
             await _labWorkOrderRepository.AddAsync(order, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return Result<LabWorkOrderDto>.Success(order.ToDto(patient.GetFullName()));
+            return Result<LabWorkOrderDto>.Success(order.ToDto(patient.GetFullName(), supplier.Value));
         }
         catch (ArgumentException ex)
         {

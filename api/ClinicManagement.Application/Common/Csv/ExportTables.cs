@@ -292,8 +292,8 @@ public static class ExportTables
     {
         var table = CsvTable.Create(
             "Article", "Catégorie", "Unité", "Stock actuel", "Seuil minimum", "Stock maximum",
-            "Prix unitaire", "Fournisseur", "Stock bas", "Péremption la plus proche", "Périmé",
-            "Expire bientôt");
+            "Prix unitaire", "Fournisseur", "Téléphone fournisseur", "Stock bas",
+            "Péremption la plus proche", "Périmé", "Expire bientôt");
 
         foreach (var i in items)
         {
@@ -305,7 +305,10 @@ public static class ExportTables
                 CsvCell.Number(i.MinimumStockLevel),
                 CsvCell.Number(i.MaximumStockLevel),
                 CsvCell.Money(i.UnitPrice),
-                CsvCell.Text(i.Supplier),
+                CsvCell.Text(i.SupplierName),
+                // The number is what makes an exported stock list actionable: the reason to export it is to
+                // order from it, and a name with no number sends the reader back into the app to find one.
+                CsvCell.Text(i.SupplierPhoneE164),
                 CsvCell.YesNo(i.IsLowStock),
                 CsvCell.CalendarDay(i.EarliestExpiry),
                 CsvCell.YesNo(i.HasExpiredStock),

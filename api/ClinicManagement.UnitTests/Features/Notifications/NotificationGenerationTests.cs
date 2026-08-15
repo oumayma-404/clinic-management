@@ -282,9 +282,11 @@ public class NotificationGenerationTests
         }
 
         public Mock<IStockMovementRepository> Movements { get; } = new();
+        public Mock<ISupplierRepository> Suppliers { get; } = new();
 
         public UpdateStockItemCommandHandler Handler() =>
-            new(Stock.Object, Movements.Object, ClinicResolver.Object, Uow.Object, Generator.Object);
+            new(Stock.Object, Movements.Object, Suppliers.Object, ClinicResolver.Object, Uow.Object,
+                Generator.Object);
 
         public StockItem ExistingItem(int currentStock, int min)
         {

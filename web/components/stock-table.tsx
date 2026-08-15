@@ -27,7 +27,9 @@ import { Package, Search, Pencil, Trash2, AlertTriangle, Minus, Plus, History, H
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ExportButton } from "@/components/ui/export-button"
-import { stockCategoryLabel, stockUnitLabel } from "@/components/stock-item-form-modal"
+import { stockUnitLabel } from "@/components/stock-item-form-modal"
+import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
+import { lowStockOrderMessage } from "@/lib/whatsapp"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,9 +62,22 @@ interface StockTableProps {
    * list shows exactly the items that card counted. `undefined` leaves the full list, which is the default.
    */
   initialFilter?: "low" | "expiring"
+  /**
+   * Hands the response's own `categories` facet up to the page, which passes it to the item form's catégorie
+   * combobox. Lifted rather than re-fetched there: this read already carries the list, and a second one would be
+   * a second answer to what this clinic files articles under.
+   */
+  onCategoriesChange?: (categories: string[]) => void
 }
 
-export function StockTable({ refreshKey, onEdit, onAdd, highlightItemId, initialFilter }: StockTableProps) {
+export function StockTable({
+  refreshKey,
+  onEdit,
+  onAdd,
+  highlightItemId,
+  initialFilter,
+  onCategoriesChange,
+}: StockTableProps) {
   const [data, setData] = useState<StockPageDto | null>(null)
   // No `filteredItems`: the server already applied the search and every filter, so the rows that arrived ARE the
   // rows to render. Re-filtering here would narrow an already-cut page.
@@ -114,6 +129,7 @@ export function StockTable({ refreshKey, onEdit, onAdd, highlightItemId, initial
         category: categoryFilter === "all" ? undefined : categoryFilter,
       })
       setData(data)
+      onCategoriesChange?.(data.categories)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Échec du chargement des articles"
       setError(message)
@@ -121,7 +137,7 @@ export function StockTable({ refreshKey, onEdit, onAdd, highlightItemId, initial
     } finally {
       setLoading(false)
     }
-  }, [page, pageSize, debouncedSearch, lowStockOnly, expiringOnly, categoryFilter])
+  }, [page, pageSize, debouncedSearch, lowStockOnly, expiringOnly, categoryFilter, onCategoriesChange])
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
@@ -337,8 +353,9 @@ export function StockTable({ refreshKey, onEdit, onAdd, highlightItemId, initial
                 />
               </div>
 
-              {/* The VALUE stays the stored English key — it is what the server filters on — while the label is
-                  French (`stockCategoryLabel`). */}
+              {/* The stored value IS the French label now, so it is both what the server filters on and what is
+                  displayed — the six English keys were rewritten by the suppliers migration. The options come
+                  from the response's own `categories` facet, so a clinic-authored one is offered like any other. */}
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                 <SelectTrigger aria-label="Filtrer par catégorie" className="w-full sm:w-48">
                   <SelectValue placeholder="Toutes les catégories" />
@@ -347,7 +364,7 @@ export function StockTable({ refreshKey, onEdit, onAdd, highlightItemId, initial
                   <SelectItem value="all">Toutes les catégories</SelectItem>
                   {categories.map((category) => (
                     <SelectItem key={category} value={category}>
-                      {stockCategoryLabel(category)}
+                      {category}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -407,7 +424,7 @@ export function StockTable({ refreshKey, onEdit, onAdd, highlightItemId, initial
                 loading={loading}
                 getKey={(i) => i.id}
                 title={(i) => i.name}
-                subtitle={(i) => i.supplier}
+                subtitle={(i) => i.supplierName}
                 itemRef={(i) =>
                   highlightItemId === i.id
                     ? (el: HTMLLIElement | null) => {
@@ -421,7 +438,7 @@ export function StockTable({ refreshKey, onEdit, onAdd, highlightItemId, initial
                       {i.isLowStock && <AlertTriangle className="h-3 w-3" />}
                       {i.currentStock} {stockUnitLabel(i.unit)}
                     </Badge>
-                    <Badge variant="outline">{stockCategoryLabel(i.category)}</Badge>
+                    <Badge variant="outline">{i.category}</Badge>
                   </>
                 )}
                 fields={(i) => [
@@ -544,7 +561,7 @@ export function StockTable({ refreshKey, onEdit, onAdd, highlightItemId, initial
                         <TableCell className="text-muted-foreground">{stockUnitLabel(item.unit)}</TableCell>
                         <TableCell className="text-muted-foreground">{item.minimumStockLevel}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{stockCategoryLabel(item.category)}</Badge>
+                          <Badge variant="outline">{item.category}</Badge>
                         </TableCell>
                         <TableCell>
                           {item.earliestExpiry ? (
@@ -574,7 +591,23 @@ export function StockTable({ refreshKey, onEdit, onAdd, highlightItemId, initial
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-muted-foreground">{item.supplier ?? "—"}</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {item.supplierName ? (
+                            <span className="inline-flex items-center gap-1">
+                              <span className="truncate">{item.supplierName}</span>
+                              {/* AC-3 — the point of the whole feature: the name is now something you can act
+                                  on. No « Ajouter un numéro » fallback here, because this table cannot open the
+                                  fournisseur's own form; the row simply reads as a name, as it always did. */}
+                              <WhatsAppAction
+                                phoneE164={item.supplierPhoneE164}
+                                contactName={item.supplierName}
+                                message={lowStockOrderMessage(item.name, item.currentStock, stockUnitLabel(item.unit))}
+                              />
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <Button variant="ghost" size="sm" onClick={() => openAdjust(item, "consume")} className="h-8 gap-1" title="Sortie de stock">

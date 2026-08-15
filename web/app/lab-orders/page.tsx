@@ -36,6 +36,10 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { cn } from "@/lib/utils"
+import { SupplierPicker } from "@/components/suppliers/supplier-picker"
+import { SupplierFormDialog } from "@/components/suppliers/supplier-form-dialog"
+import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
+import { labOrderFollowUpMessage } from "@/lib/whatsapp"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -185,6 +189,12 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [patientPickerOpen, setPatientPickerOpen] = useState(false)
+  // The laboratory as a fournisseur — the number « Relancer le labo » needs. It sits BESIDE the free-text
+  // prothésiste rather than replacing it: the name is what is printed on the bon, and a lab used once must be
+  // recordable without first filing a contact.
+  const [supplierId, setSupplierId] = useState<string | null>(null)
+  const [supplierCreateOpen, setSupplierCreateOpen] = useState(false)
+  const [supplierReloadKey, setSupplierReloadKey] = useState(0)
 
   const selectedPatient = patients.find((p) => p.id === patientId)
   const selectedPatientName = selectedPatient ? `${selectedPatient.firstName} ${selectedPatient.lastName}`.trim() : ""
@@ -199,6 +209,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
       setExpectedDate(toDateInput(editingOrder.expectedDate))
       setCost(editingOrder.cost != null ? String(editingOrder.cost) : "")
       setNotes(editingOrder.notes ?? "")
+      setSupplierId(editingOrder.supplierId ?? null)
     } else {
       setPatientId("")
       setProsthetist("")
@@ -208,6 +219,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
       setExpectedDate("")
       setCost("")
       setNotes("")
+      setSupplierId(null)
     }
     setErrors({})
   }, [editingOrder, open])
@@ -234,6 +246,9 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
       expectedDate: expectedDate || null,
       cost: parseAmountOrNull(cost),
       notes: notes.trim() || null,
+      // Replace-semantics like every other field of this payload — sending null detaches the laboratory, which
+      // is the « ce n'était pas ce labo » correction. Deliberately NOT the tri-state the stock item uses.
+      supplierId,
     }
 
     try {
@@ -345,6 +360,28 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
           </div>
 
           <div className="space-y-2">
+            <Label htmlFor="lab-supplier">Fiche fournisseur (pour le contacter)</Label>
+            {/* Optional and separate from the name above: linking a fiche is what gives the bon a number, so
+                « Relancer » becomes a WhatsApp action instead of a note to go and look the number up. */}
+            <SupplierPicker
+              id="lab-supplier"
+              value={supplierId}
+              onChange={setSupplierId}
+              selectedFallback={
+                editingOrder?.supplierId && editingOrder.supplierName
+                  ? { id: editingOrder.supplierId, name: editingOrder.supplierName }
+                  : null
+              }
+              onCreateNew={() => setSupplierCreateOpen(true)}
+              reloadKey={supplierReloadKey}
+            />
+            <p className="text-xs text-muted-foreground">
+              Facultatif. Sans fiche, le bon garde le nom saisi ci-dessus mais ne pourra pas être relancé par
+              WhatsApp.
+            </p>
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="workDescription">
               Description du travail <span className="text-destructive">*</span>
             </Label>
@@ -428,6 +465,22 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
           </DialogFooter>
         </form>
       </DialogContent>
+
+      {/* « + Créer un fournisseur » from inside the picker — selects the new fiche straight away so nothing
+          already typed into this bon is lost to a detour through /fournisseurs. */}
+      <SupplierFormDialog
+        open={supplierCreateOpen}
+        onOpenChange={setSupplierCreateOpen}
+        editing={null}
+        categories={[]}
+        onSaved={(created) => {
+          setSupplierId(created.id)
+          setSupplierReloadKey((k) => k + 1)
+          // The bon still prints a name of its own, so filing the lab fills it in when it is still blank
+          // rather than overwriting what the user typed.
+          setProsthetist((current) => (current.trim() ? current : created.name))
+        }}
+      />
     </Dialog>
   )
 }
@@ -733,7 +786,27 @@ export default function LabOrdersPage() {
                         </select>
                       ),
                     },
-                    { label: "Prothésiste", value: o.prosthetist },
+                    {
+                      label: "Prothésiste",
+                      value: (
+                        <span className="inline-flex items-center gap-1">
+                          <span className="truncate">{o.prosthetist}</span>
+                          {/* Only when a fiche fournisseur is linked — the free-text name alone has no number
+                              behind it, which is the whole reason the link exists. */}
+                          {o.supplierId ? (
+                            <WhatsAppAction
+                              phoneE164={o.supplierPhoneE164}
+                              contactName={o.supplierName ?? o.prosthetist}
+                              message={labOrderFollowUpMessage(
+                                o.workDescription,
+                                o.patientName,
+                                formatDateFr(o.expectedDate),
+                              )}
+                            />
+                          ) : null}
+                        </span>
+                      ),
+                    },
                     { label: "Dent", value: o.toothNumber },
                     { label: "Coût", value: formatCost(o.cost) },
                     { label: "Envoyé", value: formatDateFr(o.sentDate) },
@@ -816,7 +889,22 @@ export default function LabOrdersPage() {
                             )}
                           </TableCell>
                           <TableCell>{order.workDescription}</TableCell>
-                          <TableCell className="text-muted-foreground">{order.prosthetist}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            <span className="inline-flex items-center gap-1">
+                              <span className="truncate">{order.prosthetist}</span>
+                              {order.supplierId ? (
+                                <WhatsAppAction
+                                  phoneE164={order.supplierPhoneE164}
+                                  contactName={order.supplierName ?? order.prosthetist}
+                                  message={labOrderFollowUpMessage(
+                                    order.workDescription,
+                                    order.patientName,
+                                    formatDateFr(order.expectedDate),
+                                  )}
+                                />
+                              ) : null}
+                            </span>
+                          </TableCell>
                           <TableCell className="text-muted-foreground">{order.toothNumber ?? "—"}</TableCell>
                           <TableCell className="text-muted-foreground">{formatDateFr(order.sentDate)}</TableCell>
                           <TableCell className="text-muted-foreground">
