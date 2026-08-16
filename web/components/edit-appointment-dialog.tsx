@@ -22,20 +22,31 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
-import { Input } from "@/components/ui/input"
+import { InitialsAvatar } from "@/components/ui/initials-avatar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { TimeField } from "@/components/ui/time-field"
 import { format, parseISO } from "date-fns"
-import { CalendarIcon, CircleDot, Clock, User, Stethoscope, FileText, X, Save, Receipt } from "lucide-react"
+import { fr } from "date-fns/locale"
+import { CalendarIcon, FileText, X, Save, Receipt, ChevronDown, MoreHorizontal } from "lucide-react"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
+import {
+  AppointmentRecap,
+  AppointmentRecapSection,
+  type AppointmentRecapModel,
+} from "@/components/appointment-recap"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { AppointmentActsPicker, totalActsDuration, type SelectedAct } from "@/components/appointment-acts-picker"
@@ -59,6 +70,9 @@ import {
  * in state and sent to the API as an explicit `null`, which unassigns the practitioner.
  */
 const UNASSIGNED_DOCTOR = "__unassigned__"
+
+/** The offered visit lengths — see the create dialog, which asks the same « is this one of them? » question. */
+const DURATION_PRESETS = [15, 30, 45, 60, 90, 120]
 
 interface EditAppointmentDialogProps {
   open: boolean
@@ -113,6 +127,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const [duration, setDuration] = useState("30")
 
   const [notes, setNotes] = useState("")
+  /**
+   * Is « Notes et options » open? Opened on hydration when the visit **has** notes — folding away a note somebody
+   * wrote would hide it from the person who opened the visit to read it, which is the opposite of the point.
+   */
+  const [showNotes, setShowNotes] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showCancelDialog, setShowCancelDialog] = useState(false)
@@ -207,6 +226,49 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     doctorId: selectedDoctorId || undefined,
     excludeAppointmentId: source?.id,
   })
+
+  /** The acts' names, resolved exactly as `AppointmentActsPicker` resolves them — see the create dialog. */
+  const actNames = useMemo(
+    () =>
+      selectedActs.map((act) => {
+        if (!act.procedureTypeId) return act.fallbackName ?? "Acte du devis"
+        return (
+          procedureTypes.find((p) => p.id === act.procedureTypeId)?.name ??
+          act.fallbackName ??
+          "Acte indisponible"
+        )
+      }),
+    [selectedActs, procedureTypes],
+  )
+
+  const leadColorHex = useMemo(() => {
+    const lead = selectedActs.find((a) => a.procedureTypeId)
+    if (!lead) return null
+    return procedureTypes.find((p) => p.id === lead.procedureTypeId)?.colorHex ?? null
+  }, [selectedActs, procedureTypes])
+
+  const selectedDoctorName = useMemo(
+    () => doctors.find((d) => d.id === selectedDoctorId)?.name ?? null,
+    [doctors, selectedDoctorId],
+  )
+
+  /** Everything the récapitulatif states, all of it derived from this form. See `appointment-recap.tsx`. */
+  const recapModel: AppointmentRecapModel = {
+    // A saved appointment with no `patientId` genuinely IS a « créneau occupé » — unlike the create form, where
+    // an empty patient only means nobody has picked one yet.
+    kind: source?.patientId ? "patient" : "busy",
+    patientName: source?.patientId ? source.patientName : null,
+    colorHex: leadColorHex,
+    date,
+    startHour,
+    startMinute,
+    durationMinutes: calculatedDuration,
+    actNames,
+    doctorName: selectedDoctorName,
+    warning: overlapWarning
+      ? { message: overlapWarning, samePractitioner: overlapSamePractitioner }
+      : null,
+  }
 
   // Build the appointment start Date from the current date + start time, or null if no date.
   const buildAppointmentDateTime = (): Date | null => {
@@ -338,8 +400,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       // it on the next edit round-trip.
       if (appointment.notes) {
         setNotes(appointment.notes)
+        setShowNotes(true)
       } else {
         setNotes("")
+        setShowNotes(false)
       }
     }
   }, [appointment?.id, open, refreshed?.version])
@@ -544,16 +608,41 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         {/* Scrolling body, pinned header and footer — see the create dialog for why. This one matters even
             more: its footer holds three actions, one of them « Annuler le rendez-vous », and a destructive
             action that has to be hunted for by scrolling is a destructive action someone will mis-click. */}
-        <DialogContent mobile="sheet" className="gap-0 overflow-hidden p-0 md:max-h-[90dvh] md:max-w-2xl">
-          {/* The header's status Badge moved into the « Statut » section below, beside the control that changes
-              it — two live statements of one value, a scroll apart, is how they end up disagreeing. */}
-          <DialogHeader className="flex-shrink-0 px-6 pb-4 pt-6">
-            <DialogTitle className="text-2xl">Modifier le rendez-vous</DialogTitle>
-            <DialogDescription>Mettez à jour les détails du rendez-vous ou changez son statut</DialogDescription>
+        <DialogContent mobile="sheet" className="gap-0 overflow-hidden p-0 md:max-h-[90dvh] md:max-w-2xl lg:max-w-4xl">
+          {/*
+            ⚠️ The patient is an IDENTITY here, not a field — this replaced a whole bordered card whose entire
+            contents were one **disabled** input holding the name and the sentence « Le nom du patient ne peut pas
+            être modifié ». That is a fact about the record, not something anyone edits, and spending a card on it
+            pushed everything that *is* editable further down a form that already scrolled. A dialog about a
+            rendez-vous should say whose it is before it says anything else — and the link to their fiche is the
+            thing staff actually reach for from here.
+          */}
+          <DialogHeader className="flex-shrink-0 gap-2 px-6 pb-4 pt-5">
+            <DialogTitle className="text-lg md:text-2xl">Rendez-vous</DialogTitle>
+            <DialogDescription className="sr-only">
+              Mettez à jour les détails du rendez-vous ou changez son statut
+            </DialogDescription>
+            {source?.patientId ? (
+              <div className="flex items-center gap-3">
+                <InitialsAvatar name={patientName} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold leading-tight">{patientName}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {date ? format(date, "EEEE d MMMM yyyy", { locale: fr }) : "Date à définir"}
+                  </p>
+                </div>
+                <Button asChild type="button" variant="link" size="sm" className="h-auto shrink-0 p-0 text-xs">
+                  <Link href={`/patients/${source.patientId}`}>Ouvrir la fiche</Link>
+                </Button>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Créneau occupé — aucun patient</p>
+            )}
           </DialogHeader>
 
           <form onSubmit={handleUpdate} className="flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-4">
+            <div className="flex min-h-0 flex-1 lg:flex-row">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-4">
 
             {/*
               Statut — FIRST, and one tap per option rather than a Select buried below the acts picker.
@@ -567,16 +656,15 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               offer a move the API then refuses. `h-11` gives the 44 px floor on every pointer, not only a coarse
               one: this is the dialog's primary action and it is used at the chair.
             */}
-            <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <CircleDot className="h-5 w-5 text-muted-foreground" />
-                  <h3 className="font-semibold">Statut</h3>
-                </div>
-                <Badge variant="secondary" className={appointmentStatusBadgeClass(status)}>
-                  {appointmentStatusLabel(status)}
-                </Badge>
-              </div>
+            <div className="space-y-2">
+              {/*
+                ⚠️ The Badge that used to sit here is gone: the *selected button* is the badge. Two live
+                statements of one value in one box is how they end up disagreeing, and the second one bought
+                nothing — a pastille reading « Terminé » directly above a highlighted « Terminé » button says
+                the same thing twice. The statut it now appears in is the récapitulatif, which is a different
+                claim (what the visit currently *is*, beside what the form would save).
+              */}
+              <Label className="text-sm">Statut</Label>
               <div role="radiogroup" aria-label="Statut du rendez-vous" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {statusOptions.map((s) => {
                   const value = s.toLowerCase()
@@ -590,7 +678,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                       variant={active ? "default" : "outline"}
                       onClick={() => setStatus(value)}
                       disabled={loading}
-                      className="h-11"
+                      className={cn("h-11", !active && "bg-card")}
                     >
                       {appointmentStatusLabel(s)}
                     </Button>
@@ -606,36 +694,14 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               )}
             </div>
 
-            {/* Patient Section */}
-            <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
-              <div className="flex items-center gap-2">
-                <User className="h-5 w-5 text-muted-foreground" />
-                <h3 className="font-semibold">Informations du patient</h3>
-              </div>
+            {/*
+              The « Informations du patient » card is gone — see the identity line in the header for why. The
+              patient's name is still held in state: the cancellation confirmation names them.
+            */}
 
-              <div className="space-y-2">
-                <Label htmlFor="patientName" className="text-sm">
-                  Nom du patient
-                </Label>
-                <Input
-                  id="patientName"
-                  value={patientName}
-                  onChange={(e) => setPatientName(e.target.value)}
-                  className="h-10"
-                  disabled
-                />
-                <p className="text-xs text-muted-foreground">Le nom du patient ne peut pas être modifié</p>
-              </div>
-            </div>
-
-            {/* Date & Time Section */}
-            <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
-              <div className="flex items-center gap-2">
-                <CalendarIcon className="h-5 w-5 text-muted-foreground" />
-                <h3 className="font-semibold">Date et heure</h3>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Quand. */}
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {/* Date Picker */}
                 <div className="space-y-2">
                   <Label htmlFor="edit-appt-date" className="text-sm">Date *</Label>
@@ -645,7 +711,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                         id="edit-appt-date"
                         variant="outline"
                         className={cn(
-                          "w-full h-10 justify-start text-left font-normal",
+                          // `bg-card` — see the same control in the create dialog: `outline` is `bg-background`,
+                          // which is the surface this dialog paints on.
+                          "w-full h-10 justify-start bg-card text-left font-normal",
                           !date && "text-muted-foreground",
                         )}
                         disabled={loading}
@@ -677,42 +745,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 </div>
               </div>
 
-              {/* Duration Toggle */}
-              <div className="flex items-center justify-between pt-2 border-t">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">Durée</span>
-                  {calculatedDuration > 0 && (
-                    <Badge variant="secondary" className="ml-2">
-                      {durationDisplay}
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Définir l'heure de fin</span>
-                  <Switch
-                    checked={useEndTime}
-                    onCheckedChange={(checked) => {
-                      setUseEndTime(checked)
-                      if (checked) {
-                        const startTotalMinutes = Number.parseInt(startHour) * 60 + Number.parseInt(startMinute)
-                        const endTotalMinutes = startTotalMinutes + Number.parseInt(duration)
-                        const newEndHour = Math.floor(endTotalMinutes / 60) % 24
-                        const newEndMinute = endTotalMinutes % 60
-                        setEndHour(String(newEndHour).padStart(2, "0"))
-                        setEndMinute(String(newEndMinute).padStart(2, "0"))
-                      }
-                    }}
-                    disabled={loading}
-                  />
-                </div>
-              </div>
-
-              {/* Duration or End Time Input */}
+              {/* Durée — see the create dialog for why this is a label and its presets rather than a bordered
+                  sub-row with a Switch at the far edge. */}
               <div className="space-y-2">
+                <Label className="text-sm">Durée</Label>
                 {useEndTime ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-appt-end-time" className="text-sm">Heure de fin *</Label>
+                  <div className="space-y-2 sm:max-w-[50%]">
+                    <Label htmlFor="edit-appt-end-time" className="sr-only">Heure de fin *</Label>
                     <TimeField
                       id="edit-appt-end-time"
                       hour={endHour}
@@ -729,15 +768,30 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   /* Two rows of three below `sm:` — see the note on the same control in
                      `create-appointment-dialog.tsx`. `flex-1` loses to `buttonVariants`' `shrink-0`, so these
                      six presets could neither shrink nor wrap and clipped « 2h » off a 390px phone. */
-                  <div className="grid grid-cols-3 gap-2 sm:flex">
-                    {[15, 30, 45, 60, 90, 120].map((mins) => (
+                  <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
+                    {/* The summed length as its own active chip when it is not a preset — see the create
+                        dialog. Pressing it is « garder cette longueur », so it also stops the act-sum from
+                        re-proposing over it. */}
+                    {!DURATION_PRESETS.includes(calculatedDuration) && calculatedDuration > 0 && (
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        onClick={() => { setDurationTouched(true); setDuration(String(calculatedDuration)) }}
+                        className="sm:flex-1"
+                        disabled={loading}
+                      >
+                        {durationDisplay}
+                      </Button>
+                    )}
+                    {DURATION_PRESETS.map((mins) => (
                       <Button
                         key={mins}
                         type="button"
                         variant={duration === String(mins) ? "default" : "outline"}
                         size="sm"
-                        onClick={() => setDuration(String(mins))}
-                        className="sm:flex-1"
+                        onClick={() => { setDurationTouched(true); setDuration(String(mins)) }}
+                        className={cn("sm:flex-1", duration !== String(mins) && "bg-card")}
                         disabled={loading}
                       >
                         {mins < 60 ? `${mins}m` : `${mins / 60}h`}
@@ -745,41 +799,49 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     ))}
                   </div>
                 )}
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    const next = !useEndTime
+                    setUseEndTime(next)
+                    if (next) {
+                      const startTotalMinutes = Number.parseInt(startHour) * 60 + Number.parseInt(startMinute)
+                      const endTotalMinutes = startTotalMinutes + Number.parseInt(duration)
+                      const newEndHour = Math.floor(endTotalMinutes / 60) % 24
+                      const newEndMinute = endTotalMinutes % 60
+                      setEndHour(String(newEndHour).padStart(2, "0"))
+                      setEndMinute(String(newEndMinute).padStart(2, "0"))
+                    }
+                  }}
+                  className="inline-flex min-h-9 items-center text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline coarse:min-h-11"
+                >
+                  {useEndTime ? "Utiliser une durée" : "Définir l'heure de fin"}
+                </button>
               </div>
-
-              {/* Overlap warning — reserved height so the message appearing/disappearing while the user
-                  nudges the time does not shove the form under their cursor, and a blocking clash explains
-                  the disabled submit right here rather than leaving it silently dead. See the create dialog. */}
-              <div className="min-h-[2.5rem] pt-1" aria-live="polite">
-                {overlapWarning && (
-                  <div
-                    className={cn(
-                      "space-y-0.5 text-sm transition-opacity duration-200 ease-snap",
-                      overlapSamePractitioner ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400",
-                    )}
-                  >
-                    <p>⚠ {overlapWarning}</p>
-                    {overlapSamePractitioner && (
-                      <p className="text-xs">
-                        Vous pouvez continuer : une confirmation vous sera demandée.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
+              {/* ⚠️ The overlap warning and its ~60 px reserved slot are gone from here — the clash now has a
+                  permanent home in the récapitulatif. See `appointment-recap.tsx`. */}
             </div>
 
-            {/* Additional Details Section */}
-            <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
-              <div className="flex items-center gap-2">
-                <Stethoscope className="h-5 w-5 text-muted-foreground" />
-                <h3 className="font-semibold">Détails</h3>
-              </div>
+            {/* Les actes, puis le praticien — the acts first, for the reason the create dialog states. */}
+            <div className="space-y-4">
+              <AppointmentActsPicker
+                procedureTypes={procedureTypes}
+                loading={loadingProcedureTypes}
+                error={procedureTypesError}
+                onRetry={() => void loadProcedureTypes()}
+                value={selectedActs}
+                onChange={(acts) => { setDurationTouched(false); setSelectedActs(acts) }}
+                disabled={loading}
+                onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
+                fallbackDurationMinutes={calculatedDuration}
+                idPrefix="edit-appt"
+              />
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="doctor" className="text-sm">
-                    Médecin
+                    Praticien
                   </Label>
                   <Select
                     value={selectedDoctorId || UNASSIGNED_DOCTOR}
@@ -807,87 +869,78 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     </SelectContent>
                   </Select>
                 </div>
-
-                {/* The séance's acts, spanning the row: it is a list that grows, and a half-width column
-                    truncates every act name. Editing it re-proposes the summed duration. */}
-                <div className="md:col-span-2">
-                  <AppointmentActsPicker
-                    procedureTypes={procedureTypes}
-                    loading={loadingProcedureTypes}
-                    error={procedureTypesError}
-                    onRetry={() => void loadProcedureTypes()}
-                    value={selectedActs}
-                    onChange={(acts) => { setDurationTouched(false); setSelectedActs(acts) }}
-                    disabled={loading}
-                    onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
-                    fallbackDurationMinutes={calculatedDuration}
-                    idPrefix="edit-appt"
-                  />
-                </div>
-
-                {/* « Statut » used to sit here, last, below the acts picker. It is the section this dialog is
-                    most often opened for, so it now leads the form. */}
               </div>
             </div>
 
             {/* Facturation (AC-P6.13) — a visit says which note d'honoraires bills it, and offers to raise one
                 when it does not. The link was write-only before: the column existed, nothing populated it, and
                 no screen read it, so « cette consultation a-t-elle été facturée ? » had no answer anywhere. */}
+            {/*
+              One line rather than a titled card. The *action* stays in this column deliberately: the
+              récapitulatif states the billing status too, but a pane that disappears below `lg:` must never be
+              the only place an action lives (`appointment-recap.tsx`).
+            */}
             {source?.patientId && (
-              <div className="space-y-3 p-4 rounded-lg border bg-muted/30">
-                <div className="flex items-center gap-2">
-                  <Receipt className="h-5 w-5 text-muted-foreground" />
-                  <h3 className="font-semibold">Facturation</h3>
-                </div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t pt-3 text-sm">
+                <Receipt className="h-4 w-4 shrink-0 text-muted-foreground" />
                 {source.invoiceId ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline" className="gap-1">
-                      <Receipt className="h-3 w-3" />
-                      Facturé
-                    </Badge>
-                    <span className="text-sm text-muted-foreground">
+                  <>
+                    <span className="font-medium">Facturé</span>
+                    <span className="text-muted-foreground">
                       {source.invoiceNumber
-                        ? `Note n° ${source.invoiceNumber}`
+                        ? `· n° ${source.invoiceNumber}`
                         : /* A draft consumes no number yet — say so rather than printing an empty « n° ». */
-                          "Brouillon de note d'honoraires"}
+                          "· brouillon de note d'honoraires"}
                     </span>
-                    <Button asChild type="button" variant="link" size="sm" className="h-auto p-0">
+                    <Button asChild type="button" variant="link" size="sm" className="h-auto p-0 text-xs">
                       <Link href="/factures">Ouvrir dans « Factures »</Link>
                     </Button>
-                  </div>
+                  </>
                 ) : (
-                  <div className="space-y-2">
+                  <>
+                    <span className="text-muted-foreground">Non facturé</span>
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="link"
                       size="sm"
+                      className="h-auto p-0 text-xs"
                       onClick={() => setBillingOpen(true)}
                       disabled={loading}
                     >
-                      <Receipt className="h-4 w-4 mr-2" />
                       Facturer cette consultation
                     </Button>
-                    <p className="text-xs text-muted-foreground">
-                      Crée un brouillon de note d&apos;honoraires rattaché à ce rendez-vous.
-                    </p>
-                  </div>
+                  </>
                 )}
               </div>
             )}
 
-            {/* Notes Section */}
-            <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
-              <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-muted-foreground" />
-                <h3 className="font-semibold">Notes</h3>
-              </div>
-              <Textarea
-                placeholder="Ajouter des notes ou des instructions particulières…"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="min-h-[80px] resize-none"
-                disabled={loading}
-              />
+            {/* Notes, folded away — but opened on hydration when this visit already carries one. */}
+            <div className="border-t pt-3">
+              <button
+                type="button"
+                onClick={() => setShowNotes((v) => !v)}
+                aria-expanded={showNotes}
+                aria-controls="edit-appt-notes"
+                className="flex min-h-9 w-full items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground coarse:min-h-11"
+              >
+                <FileText className="h-4 w-4" />
+                Notes et options
+                {notes.trim().length > 0 && (
+                  <Badge variant="secondary" className="ms-1">1</Badge>
+                )}
+                <ChevronDown className={cn("ms-auto h-4 w-4 transition-transform duration-200", showNotes && "rotate-180")} />
+              </button>
+              {showNotes && (
+                <div id="edit-appt-notes" className="pt-2">
+                  <Textarea
+                    placeholder="Ajouter des notes ou des instructions particulières…"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="min-h-[80px] resize-none"
+                    disabled={loading}
+                  />
+                </div>
+              )}
             </div>
 
             {/*
@@ -903,6 +956,35 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
             </div>
 
+            {/* The pane, and the two read-only sections only this dialog has. Both are *statements*; the
+                actions behind them (the statut buttons, « Facturer ») stay in the form column. */}
+            <AppointmentRecap model={recapModel} variant="rail" className="hidden w-[272px] shrink-0 lg:flex">
+              <AppointmentRecapSection title="Statut">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary" className={appointmentStatusBadgeClass(status)}>
+                    {appointmentStatusLabel(status)}
+                  </Badge>
+                  {status !== hydratedStatus && (
+                    <span className="text-2xs text-muted-foreground">non enregistré</span>
+                  )}
+                </div>
+              </AppointmentRecapSection>
+              {source?.patientId && (
+                <AppointmentRecapSection title="Facturation">
+                  <p className="text-xs text-muted-foreground">
+                    {source.invoiceId
+                      ? source.invoiceNumber
+                        ? `Facturé — n° ${source.invoiceNumber}`
+                        : "Facturé — brouillon"
+                      : "Non facturé"}
+                  </p>
+                </AppointmentRecapSection>
+              )}
+            </AppointmentRecap>
+            </div>
+
+            <AppointmentRecap model={recapModel} variant="bar" className="lg:hidden" />
+
             {/*
               ⚠️ `flex-col` is REMOVED, and that is the fix.
 
@@ -910,29 +992,74 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               group — so passing it here silently cancelled the reverse and the three actions stacked in DOM
               order on every phone: « Annuler le rendez-vous » (destructive) first, « Fermer », then
               « Enregistrer les modifications » last. That put the irreversible action closest to the thumb and
-              the primary one furthest from it, and it is the only footer in the app ordered that way — the
-              create dialog next door keeps the reverse and puts the submit on top. Two dialogs a clinic uses
-              all day, ordering their actions oppositely.
+              the primary one furthest from it.
+
+              ⚠️ **And « Annuler le rendez-vous » is no longer one of them.** It was a *second door* to a state
+              the statut buttons at the top of this form already offer — « Annulé » is one of them — so the
+              dialog presented one outcome twice, once in red at the far edge of the footer where the thumb
+              lands. On a phone the three stacked full-width buttons cost ~150 px of an 844 px screen with the
+              destructive-looking one nearest the thumb and under the assistant's launcher. It lives in the
+              « ⋯ » menu now: still one press away, no longer competing with Enregistrer, and the confirmation
+              it opens is unchanged.
             */}
             <DialogFooter className="flex-shrink-0 gap-2 border-t bg-background px-6 py-4">
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() => setShowCancelDialog(true)}
-                disabled={loading || status === "cancelled"}
-                className="sm:mr-auto"
-              >
-                <X className="h-4 w-4 mr-2" />
-                Annuler le rendez-vous
-              </Button>
-              <Button type="button" variant="outline" onClick={() => guard.onOpenChange(false)} disabled={loading}>
-                Fermer
-              </Button>
+              {/*
+                ⚠️ One flex item below `sm:`, dissolved by `sm:contents` above it. `DialogFooter` is
+                `flex-col-reverse` on a phone, so three children are three full-width rows — which is how this
+                footer got to ~150 px of an 844 px screen in the first place. Grouping « ⋯ » with « Fermer »
+                makes it two rows: the primary action, then the secondary pair sharing one. `contents` at `sm:`
+                removes the wrapper from the box tree entirely, so the trigger's own `sm:mr-auto` still pushes
+                it to the far edge of the desktop row.
+              */}
+              <div className="flex gap-2 sm:contents">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      // `bg-card` for the reason the date trigger states — the footer is `bg-background` too, so
+                      // an `outline` trigger there is painted the surface it sits on and reads as loose dots.
+                      /*
+                       * ⚠️ `order-2` below `sm:` puts it on the RIGHT of the pair, and that is not cosmetic:
+                       * the assistant's launcher is a fixed circle at the bottom-LEFT, and it sits exactly on
+                       * this row. On the left the trigger is covered — and since « Annuler le rendez-vous »
+                       * now lives only behind it, an unreachable trigger is an unreachable action.
+                       */
+                      className="touch-target order-2 shrink-0 bg-card sm:order-none sm:mr-auto"
+                      aria-label="Autres actions"
+                      disabled={loading}
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem
+                      variant="destructive"
+                      className="coarse:py-3"
+                      disabled={loading || status === "cancelled"}
+                      onSelect={() => setShowCancelDialog(true)}
+                    >
+                      <X className="h-4 w-4" />
+                      Annuler le rendez-vous
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="order-1 flex-1 bg-card sm:order-none sm:flex-none"
+                  onClick={() => guard.onOpenChange(false)}
+                  disabled={loading}
+                >
+                  Fermer
+                </Button>
+              </div>
               {/* No longer disabled on an overlap: the collision is advisory and the server offers the override.
                   Blocking here made the warning a dead end and hid the fact that proceeding is allowed. */}
               <Button type="submit" disabled={loading}>
                 <Save className="h-4 w-4 mr-2" />
-                {loading ? "Enregistrement…" : "Enregistrer les modifications"}
+                {loading ? "Enregistrement…" : "Enregistrer"}
               </Button>
             </DialogFooter>
           </form>

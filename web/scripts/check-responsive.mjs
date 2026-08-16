@@ -115,13 +115,18 @@ const check = (id, part, title, why, run) => checks.push({ id, part, title, why,
 check(
   "dialog-max-w",
   "P4",
-  "A DialogContent / AlertDialogContent width override is `md:`-prefixed",
+  "A DialogContent / AlertDialogContent width override is prefixed at or above `md:`",
   "Two failures, one check. An UNPREFIXED max-w is the same tailwind-merge group as the base " +
     "`max-w-[calc(100%-2rem)]`, so the caller wins and the mobile gutter dies — but it cannot beat the base's " +
     "own prefixed clamp, which then holds the dialog at 512 px on every desktop. And an `sm:`-prefixed one is " +
     "the ambiguity P4 removed: the dialog presentation switches at `md:`, so between 640 and 767 px an " +
     "`sm:max-w-*` and the mobile sheet's width would both be live in different variants — twMerge keeps both " +
-    "and the stylesheet order decides. Write `md:max-w-*`.",
+    "and the stylesheet order decides. " +
+    "`md:`, `lg:`, `xl:` and `2xl:` all pass, because the rule is about the SWITCH, not about one breakpoint: " +
+    "every one of those is at or above 768 px, where the desktop presentation is already in force, so none can " +
+    "straddle the sheet's band. A dialog that widens again on a large screen (`md:max-w-2xl lg:max-w-4xl` — the " +
+    "booking dialogs, which grow a second pane there) is two prefixed clamps in two variants, resolved by " +
+    "variant order exactly as Tailwind intends. Write `md:max-w-*` or wider; never bare, never `sm:`.",
   () => {
     const hits = [];
     for (const file of tsx()) {
@@ -146,11 +151,12 @@ check(
          * from a ternary (`patients/[id]` and `patient-files-manager`, both file previews), and a check that
          * only read `className="…"` would have declared them clean while they carried the bug.
          *
-         * `md:` and nothing else: see the `why` above. An unprefixed token loses the gutter, an `sm:` one
-         * straddles the 640–767 px band where the mobile sheet is still in force.
+         * `md:` and above: see the `why` above. An unprefixed token loses the gutter, an `sm:` one straddles the
+         * 640–767 px band where the mobile sheet is still in force, and everything from `md:` up is already
+         * inside the desktop presentation.
          */
         for (const token of tag.split(/[\s"'`{}()]+/)) {
-          if (/(^|:)max-w-/.test(token) && !token.startsWith("md:max-w-")) {
+          if (/(^|:)max-w-/.test(token) && !/^(?:md|lg|xl|2xl):max-w-/.test(token)) {
             hits.push({
               file: rel(file),
               line: src.slice(0, m.index).split(/\r?\n/).length,

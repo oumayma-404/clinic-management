@@ -30,13 +30,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { TimeField } from "@/components/ui/time-field"
 import { format } from "date-fns"
-import { CalendarIcon, Clock, User, Stethoscope, FileText, Check, ChevronsUpDown } from "lucide-react"
+import { CalendarIcon, Stethoscope, FileText, Check, ChevronsUpDown, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { AppointmentRecap, type AppointmentRecapModel } from "@/components/appointment-recap"
+import { ModeSegmented } from "@/components/ui/mode-segmented"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
@@ -83,6 +84,12 @@ type CreateOverrides = {
 }
 
 const NO_OVERRIDES: CreateOverrides = { hours: false, overlap: false, duplicatePatient: false }
+
+/**
+ * The offered visit lengths. Named because the row now also has to answer « is the current duration one of
+ * these? » — a summed act list routinely is not, and before this that case highlighted nothing at all.
+ */
+const DURATION_PRESETS = [15, 30, 45, 60, 90, 120]
 
 interface CreateAppointmentDialogProps {
   open: boolean
@@ -203,6 +210,11 @@ export function CreateAppointmentDialog({
   const [duration, setDuration] = useState(defaultDurationMinutes ? String(defaultDurationMinutes) : "30")
 
   const [notes, setNotes] = useState("")
+  /**
+   * Is « Notes et options » open? Closed by default: a titled card with an icon for one optional textarea cost as
+   * much height as the patient, on the form whose whole problem was that it did not fit.
+   */
+  const [showNotes, setShowNotes] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [patientPickerOpen, setPatientPickerOpen] = useState(false)
@@ -375,6 +387,7 @@ export function CreateAppointmentDialog({
       setEndMinute("00")
       setDuration(defaultDurationMinutes ? String(defaultDurationMinutes) : "30")
       setNotes("")
+      setShowNotes(false)
       setError(null)
       setPatientPickerOpen(false)
       setShowPastTimeConfirm(false)
@@ -462,6 +475,60 @@ export function CreateAppointmentDialog({
     durationMinutes: calculatedDuration,
     doctorId: selectedDoctorId || undefined,
   })
+
+  /**
+   * The acts' names, resolved against the catalog — the same three cases `AppointmentActsPicker` resolves, so the
+   * recapitulation cannot name an act differently from the list the user is reading beside it.
+   */
+  const actNames = useMemo(
+    () =>
+      selectedActs.map((act) => {
+        if (!act.procedureTypeId) return act.fallbackName ?? "Acte du devis"
+        return (
+          procedureTypes.find((p) => p.id === act.procedureTypeId)?.name ??
+          act.fallbackName ??
+          "Acte indisponible"
+        )
+      }),
+    [selectedActs, procedureTypes],
+  )
+
+  /** The lead act's colour — what the agenda will actually paint this block with. */
+  const leadColorHex = useMemo(() => {
+    const lead = selectedActs.find((a) => a.procedureTypeId)
+    if (!lead) return null
+    return procedureTypes.find((p) => p.id === lead.procedureTypeId)?.colorHex ?? null
+  }, [selectedActs, procedureTypes])
+
+  const selectedDoctorName = useMemo(
+    () => doctors.find((d) => d.id === selectedDoctorId)?.name ?? null,
+    [doctors, selectedDoctorId],
+  )
+
+  /**
+   * What the récapitulatif states — every field derived from the form beside it, nothing fetched and nothing
+   * invented. See `appointment-recap.tsx` for why that constraint is load-bearing rather than incidental.
+   */
+  const recapModel: AppointmentRecapModel = {
+    kind: isBusySlot ? "busy" : "patient",
+    patientName: isBusySlot
+      ? null
+      : isPlanScheduling
+        ? presetPatientName ?? null
+        : isNewPatient
+          ? [newPatientFirstName.trim(), newPatientLastName.trim()].filter(Boolean).join(" ") || null
+          : selectedPatientName || null,
+    colorHex: leadColorHex,
+    date,
+    startHour,
+    startMinute,
+    durationMinutes: calculatedDuration,
+    actNames,
+    doctorName: selectedDoctorName,
+    warning: overlapWarning
+      ? { message: overlapWarning, samePractitioner: overlapSamePractitioner }
+      : null,
+  }
 
   // Build the appointment start Date from the current date + start time, or null if no date.
   const buildAppointmentDateTime = (): Date | null => {
@@ -695,42 +762,68 @@ export function CreateAppointmentDialog({
         `sm:max-w-2xl` rather than a bare `max-w-2xl`, so the width cap no longer overrides the primitive's
         own `max-w-[calc(100%-2rem)]` mobile guard.
       */}
-      <DialogContent mobile="sheet" className="gap-0 overflow-hidden p-0 md:max-h-[90dvh] md:max-w-2xl">
-        <DialogHeader className="flex-shrink-0 px-6 pb-4 pt-6">
-          <DialogTitle className="text-2xl">Créer un rendez-vous</DialogTitle>
-          <DialogDescription>Planifier un nouveau rendez-vous pour un patient</DialogDescription>
+      {/*
+        `lg:max-w-4xl` is what makes room for the récapitulatif pane, and the hinge is `lg:` rather than `md:` on
+        purpose: an iPad portrait is 820 px, so at `md:` the two panes would share ~645 px and neither would be
+        readable. Below `lg:` the pane becomes the strip above the footer instead. Both caps are prefixed — an
+        unprefixed one would cancel the primitive's own mobile gutter (frontend rules § 4).
+      */}
+      <DialogContent mobile="sheet" className="gap-0 overflow-hidden p-0 md:max-h-[90dvh] md:max-w-2xl lg:max-w-4xl">
+        {/*
+          The subtitle is `sr-only` at every width rather than deleted: Radix wants a description, and « Planifier
+          un nouveau rendez-vous pour un patient » restates the title under a segmented that already says what is
+          being booked. Measured: keeping it visible left the form 36 px past its own scroll height at 1440×900 —
+          i.e. this one redundant line was the difference between a form that fits and a form that scrolls.
+        */}
+        <DialogHeader className="flex-shrink-0 gap-2 px-6 pb-3 pt-5">
+          <DialogTitle className="text-lg md:text-2xl">Nouveau rendez-vous</DialogTitle>
+          <DialogDescription className="sr-only">
+            Planifier un nouveau rendez-vous pour un patient
+          </DialogDescription>
+          {/*
+            The « Créneau occupé » switch, promoted out of the Patient card and turned into half of a two-way
+            choice. It is the first decision — *what* is being booked — so it belongs above the form rather than
+            floating at the right edge of the first field. Absent when scheduling a devis act: that opening books
+            a patient's plan step, and a block would have nothing to link to.
+          */}
+          {!isPlanScheduling && (
+            <ModeSegmented
+              ariaLabel="Nature du créneau"
+              className="mt-1 max-w-sm"
+              disabled={loading}
+              value={isBusySlot ? "busy" : "patient"}
+              onChange={(mode) => {
+                const busy = mode === "busy"
+                setIsBusySlot(busy)
+                if (busy) {
+                  setIsNewPatient(false)
+                  setSelectedPatientId("")
+                  setNewPatientFirstName("")
+                  setNewPatientLastName("")
+                  setNewPatientPhone("")
+                  // A busy slot has no patient, so it has no clinical acts either.
+                  setSelectedActs([])
+                }
+              }}
+              options={[
+                { value: "patient", label: "Patient" },
+                { value: "busy", label: "Créneau occupé" },
+              ]}
+            />
+          )}
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-4">
-          {/* Patient Section */}
-          <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <User className="h-5 w-5 text-muted-foreground" />
-                <h3 className="font-semibold">Patient</h3>
-              </div>
-              {!isPlanScheduling && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Créneau occupé</span>
-                  <Switch
-                    checked={isBusySlot}
-                    onCheckedChange={(checked) => {
-                      setIsBusySlot(checked)
-                      if (checked) {
-                        setIsNewPatient(false)
-                        setSelectedPatientId("")
-                        setNewPatientFirstName("")
-                        setNewPatientLastName("")
-                        setNewPatientPhone("")
-                        // A busy slot has no patient, so it has no clinical acts either.
-                        setSelectedActs([])
-                      }
-                    }}
-                  />
-                </div>
-              )}
-            </div>
+          {/* The split: form on the left, récapitulatif on the right from `lg:`. One flex row, so the pane costs
+              no height arithmetic and the form column keeps its own scroll. */}
+          <div className="flex min-h-0 flex-1 lg:flex-row">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-4">
+          {/*
+            1 — Patient. First, because it is the first thing decided and the field every other one depends on.
+            The card chrome is gone: four bordered boxes of identical weight said nothing about which decision
+            mattered, and cost ~120 px of the height that made this form scroll.
+          */}
+          <div className="space-y-3">
 
             {isPlanScheduling ? (
               <div className="space-y-2">
@@ -755,25 +848,34 @@ export function CreateAppointmentDialog({
               </div>
             ) : !isBusySlot ? (
               <>
-                <div className="flex items-center justify-end gap-2">
-                  <span className="text-sm text-muted-foreground">Nouveau patient</span>
-                  <Switch
-                    checked={isNewPatient}
-                    // Locked once the patient has actually been created: turning it off would clear the fields and
-                    // book onto whoever is picked instead, silently orphaning a real patient record.
-                    disabled={patientAlreadyCreated}
-                    onCheckedChange={(checked) => {
-                      setIsNewPatient(checked)
-                      if (checked) {
-                        setSelectedPatientId("")
-                      } else {
-                        setNewPatientFirstName("")
-                        setNewPatientLastName("")
-                        setNewPatientPhone("")
-                      }
-                    }}
-                  />
-                </div>
+                <Label className="text-sm">Patient *</Label>
+                {/*
+                  The second of the two switches, and the same reasoning: « existant » and « nouveau » are one
+                  question with two answers, so they are one control. Locked once the patient has actually been
+                  created — switching back would clear the fields and book onto whoever is picked instead,
+                  silently orphaning a real patient record.
+                */}
+                <ModeSegmented
+                  ariaLabel="Type de patient"
+                  size="sm"
+                  disabled={patientAlreadyCreated || loading}
+                  value={isNewPatient ? "new" : "existing"}
+                  onChange={(mode) => {
+                    const isNew = mode === "new"
+                    setIsNewPatient(isNew)
+                    if (isNew) {
+                      setSelectedPatientId("")
+                    } else {
+                      setNewPatientFirstName("")
+                      setNewPatientLastName("")
+                      setNewPatientPhone("")
+                    }
+                  }}
+                  options={[
+                    { value: "existing", label: "Patient existant" },
+                    { value: "new", label: "Nouveau patient" },
+                  ]}
+                />
 
                 {isNewPatient ? (
                   <div className="space-y-3">
@@ -845,8 +947,11 @@ export function CreateAppointmentDialog({
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <Label htmlFor="patient" className="text-sm">
-                      Sélectionner un patient *
+                    {/* Visually hidden: the « Patient * » heading two rows up already names this field, and a
+                        second visible label under a segmented that says « Patient existant » is noise. The
+                        association still has to exist for the combobox, hence a real Label rather than none. */}
+                    <Label htmlFor="patient" className="sr-only">
+                      Sélectionner un patient
                     </Label>
                     {/* Searchable patient picker (AC-5): type to filter patients by name. */}
                     {/* modal: the parent Dialog is modal and disables pointer events outside its
@@ -866,7 +971,7 @@ export function CreateAppointmentDialog({
                              occupé » switch — so booking always started with a reach for the mouse. The
                              patient is the first decision in this form, so it gets the focus. */
                           autoFocus
-                          className="w-full h-10 justify-between font-normal"
+                          className="w-full h-10 justify-between bg-card font-normal"
                         >
                           <span className={cn("truncate", !selectedPatientId && "text-muted-foreground")}>
                             {selectedPatientName ||
@@ -940,14 +1045,9 @@ export function CreateAppointmentDialog({
             )}
           </div>
 
-          {/* Date & Time Section */}
-          <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
-            <div className="flex items-center gap-2">
-              <CalendarIcon className="h-5 w-5 text-muted-foreground" />
-              <h3 className="font-semibold">Date et heure</h3>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* 2 — Quand. */}
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {/* Date Picker */}
               <div className="space-y-2">
                 <Label htmlFor="create-appt-date" className="text-sm">Date *</Label>
@@ -957,7 +1057,11 @@ export function CreateAppointmentDialog({
                       id="create-appt-date"
                       variant="outline"
                       className={cn(
-                        "w-full h-10 justify-start text-left font-normal",
+                        // ⚠️ `bg-card`, not the variant's own `bg-background`: this dialog paints on
+                        // `--background`, so an outline control here is the same value as the surface behind it
+                        // and reads as transparent. Its own neighbour — the `TimeField` — is already `bg-card`,
+                        // so without this the two halves of one row are different whites.
+                        "w-full h-10 justify-start bg-card text-left font-normal",
                         !date && "text-muted-foreground",
                       )}
                     >
@@ -988,41 +1092,12 @@ export function CreateAppointmentDialog({
               </div>
             </div>
 
-            {/* Duration Toggle */}
-            <div className="flex items-center justify-between pt-2 border-t">
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Durée</span>
-                {calculatedDuration > 0 && (
-                  <Badge variant="secondary" className="ml-2">
-                    {durationDisplay}
-                  </Badge>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Définir l'heure de fin</span>
-                <Switch
-                  checked={useEndTime}
-                  onCheckedChange={(checked) => {
-                    setUseEndTime(checked)
-                    if (checked) {
-                      const startTotalMinutes = Number.parseInt(startHour) * 60 + Number.parseInt(startMinute)
-                      const endTotalMinutes = startTotalMinutes + Number.parseInt(duration)
-                      const newEndHour = Math.floor(endTotalMinutes / 60) % 24
-                      const newEndMinute = endTotalMinutes % 60
-                      setEndHour(String(newEndHour).padStart(2, "0"))
-                      setEndMinute(String(newEndMinute).padStart(2, "0"))
-                    }
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Duration or End Time Input */}
+            {/* Durée — a label and its presets, no longer a bordered sub-row with a switch at the far edge. */}
             <div className="space-y-2">
+              <Label className="text-sm">Durée</Label>
               {useEndTime ? (
                 <div className="space-y-2 sm:max-w-[50%]">
-                  <Label htmlFor="create-appt-end-time" className="text-sm">Heure de fin *</Label>
+                  <Label htmlFor="create-appt-end-time" className="sr-only">Heure de fin *</Label>
                   <TimeField
                     id="create-appt-end-time"
                     hour={endHour}
@@ -1049,8 +1124,25 @@ export function CreateAppointmentDialog({
                  * Two rows of three fits every phone with room to spare, and `sm:flex` restores the single
                  * row where it always fitted. `flex-1` is dropped: a grid cell is already equal-width.
                  */
-                <div className="grid grid-cols-3 gap-2 sm:flex">
-                  {[15, 30, 45, 60, 90, 120].map((mins) => (
+                <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
+                  {/*
+                    The summed length as a chip of its own, active, when it is not one of the presets.
+                    Before this the acts could sum to 70 min and *no* preset was highlighted, so the row read as
+                    « aucune durée choisie » while a badge elsewhere said otherwise. Pressing it is a real
+                    action — « garder cette longueur » — which is why it also sets `durationTouched`.
+                  */}
+                  {!DURATION_PRESETS.includes(calculatedDuration) && calculatedDuration > 0 && (
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="sm"
+                      onClick={() => { setDurationTouched(true); setDuration(String(calculatedDuration)) }}
+                      className="sm:flex-1"
+                    >
+                      {durationDisplay}
+                    </Button>
+                  )}
+                  {DURATION_PRESETS.map((mins) => (
                     <Button
                       key={mins}
                       type="button"
@@ -1058,55 +1150,78 @@ export function CreateAppointmentDialog({
                       size="sm"
                       // Picking a duration by hand stops the act-sum from overwriting it — see `durationTouched`.
                       onClick={() => { setDurationTouched(true); setDuration(String(mins)) }}
-                      className="sm:flex-1"
+                      // `bg-card` on the unselected ones for the reason the date trigger states.
+                      className={cn("sm:flex-1", duration !== String(mins) && "bg-card")}
                     >
                       {mins < 60 ? `${mins}m` : `${mins / 60}h`}
                     </Button>
                   ))}
                 </div>
               )}
-            </div>
+              {/*
+                The « Définir l'heure de fin » switch, demoted to the text control it always was. A `Switch` at
+                the far edge of its own bordered row spent a full row of height announcing a mode almost nobody
+                uses; as a link under the presets it costs one line and reads as the alternative it is.
 
+                It grows its own box rather than taking `.touch-target`: the overlay would reach up into the
+                8 px gap above and overhang the preset row, and the later sibling paints last (frontend
+                rules § 2).
+              */}
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => {
+                  const next = !useEndTime
+                  setUseEndTime(next)
+                  if (next) {
+                    const startTotalMinutes = Number.parseInt(startHour) * 60 + Number.parseInt(startMinute)
+                    const endTotalMinutes = startTotalMinutes + Number.parseInt(duration)
+                    const newEndHour = Math.floor(endTotalMinutes / 60) % 24
+                    const newEndMinute = endTotalMinutes % 60
+                    setEndHour(String(newEndHour).padStart(2, "0"))
+                    setEndMinute(String(newEndMinute).padStart(2, "0"))
+                  }
+                }}
+                className="inline-flex min-h-9 items-center text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline coarse:min-h-11"
+              >
+                {useEndTime ? "Utiliser une durée" : "Définir l'heure de fin"}
+              </button>
+            </div>
             {/*
-              Overlap warning: red + blocking for a same-practitioner clash, amber advisory otherwise.
-
-              Two changes worth knowing. (a) The slot has a **reserved minimum height**, so the message
-              appearing and disappearing as the user nudges the time no longer shoves the rest of the form up
-              and down — the layout was jumping under the cursor precisely while they were adjusting the very
-              field the message is about. (b) A blocking clash now says so *here*, next to the reason, because
-              the only other signal was a disabled submit button two sections further down with nothing
-              explaining why it was dead.
+              ⚠️ The overlap warning is NOT here any more, and the ~60 px `min-h-[2.5rem]` reservation that used
+              to hold its place is gone with it. That reservation existed so an appearing message would not shove
+              the form under the cursor — a real problem, solved by giving the clash a permanent home in the
+              récapitulatif instead. Empty most of the time, it read as a rendering fault at every width.
             */}
-            <div className="min-h-[2.5rem] pt-1" aria-live="polite">
-              {overlapWarning && (
-                <div
-                  className={cn(
-                    "space-y-0.5 text-sm transition-opacity duration-200 ease-snap",
-                    overlapSamePractitioner ? "text-destructive" : "text-warning-ink",
-                  )}
-                >
-                  <p>⚠ {overlapWarning}</p>
-                  {overlapSamePractitioner && (
-                    <p className="text-xs">
-                      Vous pouvez continuer : une confirmation vous sera demandée.
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
 
-          {/* Additional Details Section */}
-          <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
-            <div className="flex items-center gap-2">
-              <Stethoscope className="h-5 w-5 text-muted-foreground" />
-              <h3 className="font-semibold">Détails</h3>
-            </div>
+          {/* 3 & 4 — les actes, puis le praticien. */}
+          <div className="space-y-4">
+            {/*
+              The acts come FIRST, above the practitioner, and are no longer filed under a heading called
+              « Détails ». They decide the duration, the colour the agenda paints the block with and the fiche de
+              soins proposal; the practitioner decides none of those and, in a single-chair cabinet, is already
+              filled in. A « créneau occupé » has no acts by definition.
+            */}
+            {!isBusySlot && (
+              <AppointmentActsPicker
+                procedureTypes={procedureTypes}
+                loading={loadingProcedureTypes}
+                error={procedureTypesError}
+                onRetry={() => void loadProcedureTypes()}
+                value={selectedActs}
+                onChange={setSelectedActs}
+                disabled={loading}
+                onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
+                fallbackDurationMinutes={calculatedDuration}
+                idPrefix="create-appt"
+              />
+            )}
 
             <div className="grid grid-cols-1 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="doctor" className="text-sm">
-                  Médecin
+                  Praticien
                 </Label>
                 <Select
                   value={selectedDoctorId}
@@ -1131,37 +1246,34 @@ export function CreateAppointmentDialog({
               </div>
 
             </div>
-
-            {/* The séance's acts — full width below the practitioner, because it is a list that grows and a
-                half-width column truncates every act name. A « créneau occupé » has none by definition. */}
-            {!isBusySlot && (
-              <AppointmentActsPicker
-                procedureTypes={procedureTypes}
-                loading={loadingProcedureTypes}
-                error={procedureTypesError}
-                onRetry={() => void loadProcedureTypes()}
-                value={selectedActs}
-                onChange={setSelectedActs}
-                disabled={loading}
-                onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
-                fallbackDurationMinutes={calculatedDuration}
-                idPrefix="create-appt"
-              />
-            )}
           </div>
 
-          {/* Notes Section */}
-          <div className="space-y-4 p-4 rounded-lg border bg-muted/30">
-            <div className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-muted-foreground" />
-              <h3 className="font-semibold">Notes</h3>
-            </div>
-            <Textarea
-              placeholder="Ajouter des notes ou des instructions particulières…"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="min-h-[80px] resize-none"
-            />
+          {/* 5 — Notes, folded away. */}
+          <div className="border-t pt-3">
+            <button
+              type="button"
+              onClick={() => setShowNotes((v) => !v)}
+              aria-expanded={showNotes}
+              aria-controls="create-appt-notes"
+              className="flex min-h-9 w-full items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground coarse:min-h-11"
+            >
+              <FileText className="h-4 w-4" />
+              Notes et options
+              {notes.trim().length > 0 && (
+                <Badge variant="secondary" className="ms-1">1</Badge>
+              )}
+              <ChevronDown className={cn("ms-auto h-4 w-4 transition-transform duration-200", showNotes && "rotate-180")} />
+            </button>
+            {showNotes && (
+              <div id="create-appt-notes" className="pt-2">
+                <Textarea
+                  placeholder="Ajouter des notes ou des instructions particulières…"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="min-h-[80px] resize-none"
+                />
+              </div>
+            )}
           </div>
 
             {/* Validation error shown next to the submit button — the dialog is tall and scrollable, so an
@@ -1171,6 +1283,15 @@ export function CreateAppointmentDialog({
                 `FormErrorBanner` — which now renders on `--destructive` tokens and needs no `dark:` twin. */}
             <FormErrorBanner message={error} />
           </div>
+
+          {/* The pane. `flex` rather than `block` so its own `overflow-y-auto` gets a height to scroll within. */}
+          <AppointmentRecap model={recapModel} variant="rail" className="hidden w-[272px] shrink-0 lg:flex" />
+          </div>
+
+          {/* …and the same model as a strip, below `lg:`. Never both: one is `hidden lg:flex`, the other
+              `lg:hidden`. It sits between the scrolling form and the footer, so it stays visible while the
+              patient, the time and the acts are being filled in above it. */}
+          <AppointmentRecap model={recapModel} variant="bar" className="lg:hidden" />
 
           <DialogFooter className="flex-shrink-0 gap-2 border-t bg-background px-6 py-4">
             <Button type="button" variant="outline" onClick={() => guard.onOpenChange(false)} disabled={loading}>
