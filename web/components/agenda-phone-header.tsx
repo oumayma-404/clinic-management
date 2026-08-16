@@ -192,7 +192,7 @@ export function AgendaPhoneHeader({
       <div
         role="group"
         aria-label="Vue de l'agenda"
-        className="mx-3 mt-2 grid grid-cols-3 gap-1 rounded-lg bg-muted p-1"
+        className="mx-3 mt-2 grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted p-1"
       >
         {VIEWS.map((v) => (
           <button
@@ -201,8 +201,14 @@ export function AgendaPhoneHeader({
             aria-pressed={view === v.value}
             onClick={() => onViewChange(v.value)}
             className={cn(
+              // Matched to the desktop bar's switch: a bordered track so the control reads as one at rest, and
+              // a primary ring on the pressed pill so the state survives a bright screen at arm's length. The
+              // desktop twin additionally had to be *un-inverted* (it painted `bg-background`, the page ground,
+              // over a white card); this one was already on `bg-card` and only needed the ring and the border.
               "min-h-11 rounded-md text-xs font-semibold transition-colors",
-              view === v.value ? "bg-card text-primary shadow-sm" : "text-muted-foreground",
+              view === v.value
+                ? "bg-card text-primary shadow-sm ring-1 ring-primary/30 dark:bg-input/70"
+                : "text-muted-foreground",
             )}
           >
             {v.label}

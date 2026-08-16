@@ -135,6 +135,27 @@
   --act-tint-edge: 44%;
 
   /*
+   * ── The agenda grid's three ground marks ───────────────────────────────────────────────────────────────────
+   *
+   * Tokens rather than literals because all three need a *different strength* in dark, not an inverted one — the
+   * same reason `--act-tint` is a token — and because the agenda paints them as inline `background-color` /
+   * `background-image` on 168 week cells, where two competing Tailwind `bg-*` classes would be settled by
+   * stylesheet order rather than by intent. (`isToday` and `!dayOpen` genuinely collided that way.)
+   *
+   *   --agenda-today   the whole of today's COLUMN, header to last hour — seven identical columns give the eye
+   *                    nothing to land on, and today is what every reader looks for first
+   *   --agenda-guide   the half-hour line inside each hour cell; a 30-minute visit is the default booking, so
+   *                    the ruler should have a mark where the bookings actually fall
+   *   --agenda-closed  the diagonal hatch on an hour the cabinet is closed. It replaces `bg-muted/40 opacity-70`,
+   *                    whose `opacity` faded the cell's own gridlines and made a closed day read as a rendering
+   *                    fault rather than as a decision. A hatch is the standing "unavailable" convention and,
+   *                    unlike a flat fill, still lets the today band show through underneath.
+   */
+  --agenda-today: color-mix(in oklab, var(--primary) 6%, transparent);
+  --agenda-guide: color-mix(in oklab, var(--border) 65%, transparent);
+  --agenda-closed: color-mix(in oklab, var(--muted-foreground) 9%, transparent);
+
+  /*
    * ── Zone hues ─────────────────────────────────────────────────────────────────────────────────────────────
    *
    * One colour per area of the app — see `lib/zones.ts` for what they mean and the three places they are allowed
@@ -277,6 +298,13 @@
      survives a weaker mix. Past ~40 % the wide ribbon surfaces start competing with the text on them. */
   --act-tint: 36%;
   --act-tint-edge: 54%;
+
+  /* Each stronger than its light twin, for the reason stated beside them in `:root`: on a 0.305 card a 6 % tint
+     and a 9 % hatch are simply not there. `--agenda-guide` rises least — the border token is already lighter
+     relative to its ground here than it is in light mode. */
+  --agenda-today: color-mix(in oklab, var(--primary) 10%, transparent);
+  --agenda-guide: color-mix(in oklab, var(--border) 75%, transparent);
+  --agenda-closed: color-mix(in oklab, var(--muted-foreground) 14%, transparent);
 
   /*
    * Zone hues, lifted for a dark ground — these are not the light values with a tweak, they are a different step

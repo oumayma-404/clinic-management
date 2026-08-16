@@ -24,6 +24,8 @@ import {
   ChevronRight,
   ChevronDown,
   Calendar,
+  CalendarCheck,
+  CalendarPlus,
   Filter,
   CloudOff,
   UploadCloud,
@@ -58,6 +60,7 @@ import { cn, parseDurationToMinutes } from "@/lib/utils"
 import { clinicsApi, type DoctorDto } from "@/lib/api/clinics"
 import { WEEKDAYS, type WorkingDay } from "@/lib/working-hours"
 import {
+  APPOINTMENT_STATUSES,
   APPOINTMENT_STATUS_TONE,
   appointmentActsCount,
   appointmentActsSummary,
@@ -168,6 +171,41 @@ const WEEK_COLS = "grid-cols-[60px_repeat(7,minmax(120px,1fr))] lg:grid-cols-[60
 const MONTH_CELL_MAX_CHIPS = 3
 
 /**
+ * ── What an hour cell is painted with ───────────────────────────────────────────────────────────────────────
+ *
+ * Both are `background-image`, and today's band is a `background-color` under them, so the three compose in a
+ * defined order on one element. That is the point: `isToday(day) && "bg-primary/[0.04]"` and
+ * `!dayOpen && "bg-muted/40"` were two Tailwind `background-color` utilities on the same cell, and which one won
+ * was decided by **stylesheet order**, not by intent — a closed hour of today was a coin toss. Longhands cannot
+ * collide.
+ *
+ * `HALF_HOUR_GUIDE` is new: a 30-minute visit is this product's default booking length, so half the appointments
+ * in the book start on a line the ruler did not draw. One hairline at 50 % of each row is what lets the eye read
+ * « 14:30 » off the grid instead of estimating it.
+ *
+ * `CLOSED_HATCH` replaces `bg-muted/40 opacity-70`. The `opacity` was the defect: it faded the cell's **own
+ * gridlines** along with the fill, so a closed column lost its structure and read as a rendering fault rather
+ * than as a decision. A diagonal hatch is the standing "unavailable" convention, keeps the borders crisp, and —
+ * being an image over a colour — lets today's band show through underneath on a day that is both.
+ */
+const HALF_HOUR_GUIDE =
+  "linear-gradient(to bottom, transparent calc(50% - 1px), var(--agenda-guide) calc(50% - 1px), var(--agenda-guide) 50%, transparent 50%)"
+const CLOSED_HATCH =
+  "repeating-linear-gradient(135deg, var(--agenda-closed) 0, var(--agenda-closed) 1px, transparent 1px, transparent 7px)"
+
+/**
+ * One hour cell's `background-image`, guide first so it paints above the hatch.
+ *
+ * ⚠️ Today's band is deliberately **not** folded in here as an inline `background-color`. An inline style beats
+ * a class in every state, including `:hover` — so painting the band inline would silently delete
+ * `hover:bg-accent/30` on today's column, i.e. remove the click affordance from the one column most likely to
+ * be clicked. It stays a class (`bg-[var(--agenda-today)]`), and it no longer collides with anything because
+ * "closed" is now an image rather than a competing background colour.
+ */
+const hourCellBackground = (isOpenHour: boolean): string =>
+  isOpenHour ? HALF_HOUR_GUIDE : `${HALF_HOUR_GUIDE}, ${CLOSED_HATCH}`
+
+/**
  * Mois on a phone is a **continuous scroll into the following months**, and these three numbers bound it.
  *
  * A month that stops at its own last row is a dead end on a phone: the desktop grid can afford ‹ › arrows in a
@@ -226,6 +264,71 @@ function appointmentTone(appointment: { status: string }): StatusTone | undefine
 }
 
 /**
+ * ── The two axes, and why they are on opposite edges ────────────────────────────────────────────────────────
+ *
+ * A block answers two questions that must never be confused: **what is it** (the act) and **where has it got
+ * to** (the statut). The act owns the left rail and the surface; the statut owns a 3 px strip on the **right**
+ * edge, painted from this table.
+ *
+ * ⚠️ **The right edge is the only place that survives a 12 px block.** A block is sized by duration, so a
+ * quarter-hour visit is 12 px tall at `HOUR_HEIGHT` — there is no room there for a pip, an icon or a word, and
+ * a treatment that disappears at the density the grid is busiest is not a status indicator. A vertical strip is
+ * full height whatever the height is.
+ *
+ * ⚠️ **`pending` and `accepted` were previously painted IDENTICALLY**, because `appointmentAppearance`'s switch
+ * had no case for either and both fell through to `default`. « Planifié » versus « Confirmé » — did the patient
+ * say yes, or did we merely write them in the book — is the single distinction a desk reads an agenda for, and
+ * `appointment-labels.ts` says so in its own docstring while nothing on screen carried it. So `pending` is a
+ * **dashed** strip (provisional, and legible without colour) and `accepted` a solid primary one.
+ *
+ * ⚠️ Colour is never the sole carrier: the form treatments in `appointmentAppearance` — strikethrough, a dashed
+ * rail, an inset ring — remain, and « Absent » keeps its `UserX` glyph. This strip is the axis that reads at a
+ * glance across a whole week; those are what make it survive a colour-blind reader and a greyscale printout.
+ */
+const STATUS_EDGE_PAINT: Record<StatusTone, string> = {
+  pending:
+    "repeating-linear-gradient(to bottom, color-mix(in oklab, var(--muted-foreground) 60%, transparent) 0 4px, transparent 4px 8px)",
+  accepted: "var(--primary)",
+  active: "var(--warning)",
+  positive: "var(--success)",
+  negative: "var(--destructive)",
+  neutral: "var(--muted-foreground)",
+}
+
+/**
+ * The strip's paint, or `null` when the row has no statut worth showing.
+ *
+ * ⚠️ A **« créneau occupé » gets none**, deliberately. `AppointmentProgressJob` moves any row whose slot has
+ * begun to `InProgress`, so a blocked hour acquired « En cours » — and with it the amber inset ring — which is
+ * how a slot the practitioner simply reserved came to render as the loudest thing on the week. Nobody is at the
+ * fauteuil; there is no statut to report. Same line as `f441d1d`, one surface over.
+ */
+function statusEdgePaint(appointment: AppointmentDto): string | null {
+  if (isBusySlot(appointment)) return null
+  const tone = appointmentTone(appointment)
+  return tone ? STATUS_EDGE_PAINT[tone] : null
+}
+
+/**
+ * The strip itself. A child rather than an `inset` box-shadow, and that is load-bearing: `box-shadow` is already
+ * spoken for on these blocks by `hover:shadow-md` and by `ring-2 ring-inset` — and an **inline** `boxShadow`
+ * beats a class at every state, so composing the strip that way would silently delete the hover elevation and
+ * the « En cours » ring. The parent is absolutely positioned (or made `relative`), so this needs no extra class
+ * on the ancestor.
+ */
+function renderStatusEdge(appointment: AppointmentDto) {
+  const paint = statusEdgePaint(appointment)
+  if (!paint) return null
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-y-0 end-0 w-[3px]"
+      style={{ background: paint }}
+    />
+  )
+}
+
+/**
  * How one appointment paints: **the procedure's hue is its identity, the status is a treatment on top of it.**
  * Composed, never one *instead of* the other — which is exactly the defect this replaces.
  *
@@ -248,46 +351,79 @@ function appointmentTone(appointment: { status: string }): StatusTone | undefine
  */
 function appointmentAppearance(appointment: AppointmentDto): { className: string; style: CSSProperties } {
   const tone = appointmentTone(appointment)
-  const isBusy = isBusySlot(appointment)
   const hex = parseProcedureHex(appointment.procedureColorHex)
 
   const classes = ["border-l-4"]
   const style: CSSProperties = {}
 
-  if (isBusy) {
-    // A blocked slot is not a visit — amber, through the shared warning tokens rather than the `amber-100`
-    // literals this carried, which no theme could follow.
+  if (isBusySlot(appointment)) {
+    /*
+     * A blocked slot is not a visit — amber, through the shared warning tokens rather than the `amber-100`
+     * literals this carried, which no theme could follow.
+     *
+     * ⚠️ It **returns early**, and that is the fix for the loudest thing on the screen this redesign started
+     * from. `AppointmentProgressJob` moves any row whose slot has begun to `InProgress`, so a reserved hour
+     * reached the `active` case below and painted a 2 px amber ring on an amber wash — a « créneau occupé » on a
+     * closed Sunday rendering as the most urgent thing in the week. Nobody is at the fauteuil, so there is no
+     * statut to report: no ring here, and no edge strip from `statusEdgePaint`. Same line as `f441d1d`, one
+     * surface over.
+     */
     classes.push("bg-warning-wash font-semibold text-warning-ink")
     style.borderLeftColor = "var(--warning)"
-  } else if (hex) {
-    // « Terminé » keeps the act's hue — it is still that act — at half strength, so a finished column recedes
-    // behind the live one instead of shouting the same volume.
-    const washPercent = tone === "positive" ? 6 : 12
+    return { className: cn(...classes), style }
+  }
+
+  if (hex) {
+    /*
+     * ⚠️ **`--act-tint`, not a percentage typed here.** This was a hardcoded 12 % (6 % when terminé) mixed
+     * toward the card — *half* the strength the rest of the product paints an act colour at. `globals.css`
+     * declares `--act-tint: 22%` light / `36%` dark and `lib/dashboard/act-colour.ts` is the dashboard's
+     * consumer. At 12 % of a mid-chroma hue into pure white a block is a rectangle that is very slightly not
+     * white, which is why two different acts were indistinguishable at arm's length — the exact opposite of what
+     * a per-act colour exists for.
+     *
+     * The token also gets dark mode right for free: a pale wash on a `0.305` card disappears, which is why the
+     * dark value is *stronger* rather than inverted. A literal could never track that.
+     *
+     * `actTintStyle` itself is deliberately not reused: it pairs the fill with an all-round inset hairline, and
+     * the `box-shadow` slot on these blocks already carries hover elevation and the « En cours » ring. What is
+     * shared is the decision — the tokens — not the helper.
+     *
+     * « Terminé » keeps the act's hue at 45 % of it, so a finished column recedes behind the live one instead of
+     * shouting at the same volume. It is still that act, so it is still that hue.
+     */
+    const tint = tone === "positive" ? "calc(var(--act-tint) * 0.45)" : "var(--act-tint)"
     classes.push("text-card-foreground shadow-sm")
-    style.backgroundColor = `color-mix(in oklch, ${hex} ${washPercent}%, var(--card))`
+    style.backgroundColor = `color-mix(in oklab, ${hex} ${tint}, var(--card))`
     style.borderLeftColor = hex
   } else {
     classes.push("bg-accent text-accent-foreground")
     style.borderLeftColor = "var(--primary)"
   }
 
+  /*
+   * ⚠️ **`negative` and `positive` no longer overwrite the rail, and that is the point of splitting the axes.**
+   * They used to repaint `borderLeftColor` with `--destructive` / `--success`, so the two statuses a desk most
+   * needs to spot were also the two that **erased the act** — « who didn't turn up, and for what? » lost its
+   * second half, and a whole finished morning went uniformly green. The statut has its own edge now, so every
+   * treatment left here is one that *composes* with the hue rather than replacing it.
+   */
   switch (tone) {
     case "neutral":
       // Annulé. Struck through and faded, but still legible: « Annulés affichés » exists precisely so the desk
-      // can read what was cancelled. The border drops to a neutral, since the act no longer identifies anything.
+      // can read what was cancelled. The rail does drop to a neutral — a cancelled visit is the one case where
+      // the act genuinely stops identifying anything, because it is not going to happen.
       classes.push("opacity-60 line-through")
       style.borderLeftColor = "var(--muted-foreground)"
       break
     case "negative":
-      // Absent. `border-dashed` reads as "did not happen" and — like the line-through above and the icon the
-      // block renders — states the status through **form as well as colour**, which is what makes it survive
-      // both a colour-blind reader and the act hue already occupying the same border.
+      // Absent. `border-dashed` reads as "did not happen" and — with the `UserX` glyph the block renders and the
+      // red edge strip — states the status through **form as well as colour**, so it survives a colour-blind
+      // reader and a greyscale printout.
       classes.push("border-dashed")
-      style.borderLeftColor = "var(--destructive)"
       break
     case "positive":
       classes.push("shadow-none")
-      style.borderLeftColor = "var(--success)"
       break
     case "active":
       // En cours. A ring rather than a border, so it composes with the act's hue instead of overwriting it.
@@ -296,8 +432,10 @@ function appointmentAppearance(appointment: AppointmentDto): { className: string
       classes.push("ring-2 ring-inset ring-warning")
       break
     default:
-      // `pending` (Planifié) and `accepted` (Confirmé) get no treatment: nothing has happened to the visit yet,
-      // so the act's own colour is the whole message.
+      // `pending` and `accepted` need no *surface* treatment: nothing has happened to the visit yet, so the
+      // act's colour is the whole of the block's identity. What tells the two apart is the **edge strip** —
+      // dashed grey for Planifié, solid primary for Confirmé. Until that existed this branch was the entire
+      // answer for both, and « le patient a confirmé » was unrepresentable on the agenda.
       break
   }
 
@@ -305,18 +443,61 @@ function appointmentAppearance(appointment: AppointmentDto): { className: string
 }
 
 /**
- * The legend, as data — because it is rendered **twice** (the phone disclosure and the desktop row) and the two
- * copies had already drifted into hardcoding three of the six statuses between them. « En cours » and
- * « Absent » were missing from both, which is the read-side half of the same defect `appointmentAppearance`
- * fixes: a status the grid could not paint is a status the legend never had to explain.
+ * The **statut** half of the legend, as data — because it is rendered twice (the phone disclosure and the
+ * desktop popover) and the two copies had already drifted into hardcoding three of the six statuses between
+ * them.
+ *
+ * ⚠️ **It used to be actively wrong, not merely incomplete.** Its swatches were flat fills — « Planifié » was a
+ * solid `bg-primary` square — while a Planifié block is painted in its **act's** colour and has never once been
+ * blue. A legend that names a colour the grid does not use is worse than no legend: it teaches a mapping, and
+ * then every block contradicts it. The swatches are now the *actual* right-edge paint (`STATUS_EDGE_PAINT`), so
+ * the key and the grid are one expression, and « Confirmé » — which was missing entirely — is in the list
+ * because it is finally distinguishable on screen.
+ *
+ * The **act** half is not a list at all: it is derived from the appointments in the visible window (see
+ * `actLegend`), because a hand-written table of act colours would be a second answer to a question
+ * `ProcedureType.ColorHex` already owns. `appointmentAppearance`'s own note called that legend the deferred
+ * half; this is it.
  */
-const LEGEND_ITEMS: { label: string; swatch: string }[] = [
-  { label: "Planifié", swatch: "bg-primary" },
-  { label: "En cours", swatch: "bg-warning-wash ring-2 ring-inset ring-warning" },
-  { label: "Terminé", swatch: "bg-success" },
-  { label: "Absent", swatch: "bg-destructive" },
-  { label: "Annulé", swatch: "bg-muted-foreground" },
-]
+const LEGEND_ITEMS: { label: string; tone: StatusTone }[] = (() => {
+  /*
+   * ⚠️ **Derived from the status table, never listed here** — one row per *paint*, not per status.
+   *
+   * The old hardcoded list is what let this legend go stale twice over: it named five of six statuses, omitted
+   * « Confirmé » entirely, and gave « Planifié » a solid blue swatch the grid has never once drawn. Listing them
+   * again — even correctly — would only reset that clock.
+   *
+   * There are six tones and the status set is open, so two statuses can legitimately share a strip; when they do
+   * the row names **both** (« Planifié / Séance passée ») rather than teaching one of them as the meaning of a
+   * colour the other also wears. A `Map` keyed on tone preserves insertion order, so the rows come out in
+   * `APPOINTMENT_STATUSES`' own lifecycle order for free.
+   */
+  const byTone = new Map<StatusTone, string[]>()
+  for (const status of APPOINTMENT_STATUSES) {
+    const tone = APPOINTMENT_STATUS_TONE[status]
+    if (!tone) continue
+    const label = appointmentStatusLabel(status)
+    const bucket = byTone.get(tone)
+    if (bucket) bucket.push(label)
+    else byTone.set(tone, [label])
+  }
+  return Array.from(byTone, ([tone, labels]) => ({ tone, label: labels.join(" / ") }))
+})()
+
+/** How many acts the legend names before collapsing the tail into « +N autres ». */
+const LEGEND_MAX_ACTS = 10
+
+/**
+ * Today's date pill, in one place because it is painted by **four** surfaces — the week header, the day header,
+ * the week strip and the phone month.
+ *
+ * ⚠️ `text-primary-foreground`, never `text-white`, which is what three of the four carried. In light mode the
+ * two happen to agree; in dark `--primary` is a **bright** azure (L 0.72) and `--primary-foreground` is
+ * near-black, so white-on-primary measured ≈2.2:1 — today's date, the single mark every reader of a calendar
+ * looks for first, illegible on every dark-mode agenda. `globals.css` spells out why the token flipped when the
+ * dark card was lifted off near-black; these three call sites had hardcoded past it.
+ */
+const TODAY_PILL = "bg-primary text-primary-foreground shadow-md"
 
 /**
  * The three views as the **desktop/tablet** bar renders them, with the initial it falls back to below `lg:`.
@@ -590,6 +771,13 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   // Filter appointments based on status filters
   const appointments = useMemo(() => {
     return allAppointments.filter(apt => {
+      // A « créneau occupé » is exempt from both switches. `AppointmentProgressJob` closes a blocked hour once
+      // its slot has ended, so honouring « Terminés » here would make every past block disappear from the
+      // agenda — and a blocked hour is nobody's appointment, so an appointment-lifecycle filter is not about it
+      // (`f441d1d`'s rule: figures about PEOPLE count appointments, figures about TIME count every slot).
+      if (isBusySlot(apt)) {
+        return true
+      }
       const status = apt.status.toLowerCase()
       if (status === 'cancelled') {
         return showCancelled
@@ -597,7 +785,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       if (status === 'completed') {
         return showCompleted
       }
-      // By default, show scheduled, confirmed, inprogress, noshow
+      // By default, show scheduled, confirmed, inprogress, awaitingclosure, noshow
       return true
     })
   }, [allAppointments, showCancelled, showCompleted])
@@ -1395,6 +1583,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             "pointer-events-auto absolute z-20 flex cursor-pointer flex-col overflow-hidden rounded-md text-start transition-[box-shadow,transform] duration-[160ms] ease-snap active:scale-[0.99]",
             colorStyle.className,
             tightLines ? "px-1.5 py-0" : "px-1.5 py-0.5",
+            // Clearance for the 3px statut strip. After the padding shorthand, so tailwind-merge lets it win on
+            // the inline-end side only.
+            "pe-2",
             dragClasses,
           )}
           style={{ top: `${top}px`, height: `${height}px`, ...positionStyle, ...colorStyle.style }}
@@ -1403,6 +1594,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           title={blockLabel}
           aria-label={blockLabel}
         >
+          {/* The statut, as a full-height strip on the opposite edge from the act's rail. It is the only status
+              treatment that survives a 12px block, which on a phone's 64px hour is a quarter-hour visit. The
+              label already carries the status in words for a screen reader (`blockLabel`), so this is
+              `aria-hidden` decoration. */}
+          {renderStatusEdge(appointment)}
           <span className="flex min-w-0 items-center gap-1">
             {tone === "negative" && <UserX className="h-3 w-3 shrink-0" aria-hidden="true" />}
             <span
@@ -1445,6 +1641,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           isDraggable ? (isBeingDragged ? "cursor-grabbing" : "cursor-grab") : "cursor-pointer",
           colorStyle.className,
           isVerySmall ? "px-1 py-0" : isSmall ? "p-1" : "p-1.5",
+          // Clearance for the 3px statut strip — after the padding shorthand so tailwind-merge lets it win on
+          // the inline-end side alone. The quick-status chevron sits at that end and must not straddle it.
+          "pe-2",
           dragClasses,
         )}
         style={{ top: `${top}px`, height: `${height}px`, ...positionStyle, ...colorStyle.style }}
@@ -1453,6 +1652,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
         title={blockLabel}
         aria-label={blockLabel}
       >
+        {/* The statut strip — see `renderStatusEdge`. `aria-hidden`: `blockLabel` already states the status in
+            words, so this adds a channel for the eye and nothing for a screen reader to repeat. */}
+        {renderStatusEdge(appointment)}
         {/*
           ── What a block says, and why the duration badge is gone ────────────────────────────────────────────
           A one-hour visit in Semaine is 48 px tall and about 120 px wide. It used to spend that width on the
@@ -1670,13 +1872,19 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           onAppointmentClick?.(appointment)
         }}
         className={cn(
-          "flex w-full items-center gap-1 overflow-hidden rounded px-1 py-0.5 text-left text-2xs leading-tight transition-[box-shadow,transform] duration-[160ms] ease-snap hover:shadow-sm active:scale-[0.97]",
+          // `relative`: the strip is an absolutely-positioned child, and unlike the grid blocks (which are
+          // absolute themselves) a month chip is in normal flow, so it has to establish the containing block.
+          "relative flex w-full items-center gap-1 overflow-hidden rounded px-1 py-0.5 pe-2 text-left text-2xs leading-tight transition-[box-shadow,transform] duration-[160ms] ease-snap hover:shadow-sm active:scale-[0.97]",
           colorStyle.className,
         )}
         style={colorStyle.style}
         title={chipLabel}
         aria-label={chipLabel}
       >
+        {/* Mois gets the statut strip too. A month cell is where « qui a annulé ? » is asked over a whole
+            period, and the chip previously carried the act's hue with no statut on it at all below the
+            strikethrough. */}
+        {renderStatusEdge(appointment)}
         {tone === "negative" && <UserX className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />}
         <span className="flex-shrink-0 font-semibold">{start}</span>
         <span className="min-w-0 truncate">{appointment.patientName}</span>
@@ -1760,7 +1968,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 <span
                   className={cn(
                     "inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold",
-                    isToday(day) ? "bg-primary text-white shadow-md" : "text-foreground",
+                    isToday(day) ? TODAY_PILL : "text-foreground",
                   )}
                 >
                   {format(day, "d")}
@@ -1940,7 +2148,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   /** Mois from `md:` up — the fixed 6×7 grid with named chips. The phone gets `renderPhoneMonthView`. */
   const renderMonthView = () => (
     <div className="flex h-full flex-col min-h-0">
-      <div className="grid grid-cols-7 border-b bg-white dark:bg-background flex-shrink-0">
+      {/* `bg-card` for the reason the week header states: `bg-white dark:bg-background` painted the page ground
+          inside a card in dark mode. */}
+      <div className="grid flex-shrink-0 grid-cols-7 border-b bg-card">
         {monthGridDays.slice(0, 7).map((day) => (
           <div
             key={`dow-${day.toISOString()}`}
@@ -2008,7 +2218,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                     className={cn(
                       "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
                       isToday(day)
-                        ? "bg-primary text-primary-foreground shadow-md"
+                        ? TODAY_PILL
                         : inMonth
                           ? "text-foreground"
                           : "text-muted-foreground/60",
@@ -2051,6 +2261,118 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
    * being silent. The page renders the removable chips too (§ 13) — this is the count, not a substitute for them.
    */
   const activeFilterCount = (showCancelled ? 1 : 0) + (showCompleted ? 1 : 0) + (doctorFilter && doctorFilter.value !== "all" ? 1 : 0)
+
+  /**
+   * The acts on screen and the colour each of them paints — **derived from the window, never a list kept here.**
+   *
+   * `appointmentAppearance`'s own docstring flagged this as the deferred half of the legend: the grid's hue is
+   * the *act*, the status is a treatment on top, and only the second half was ever explained. A hardcoded table
+   * of act colours was the obvious fix and the wrong one — `ProcedureType.ColorHex` is clinic-editable data, so
+   * a second copy would be stale the first time somebody recoloured « Détartrage » and would list acts this
+   * practice does not perform. Reading the window instead means the key names exactly the colours that are
+   * currently on screen, in every deployment, for free.
+   *
+   * Keyed on the **lead** act's name because `procedureColorHex` is the lead act's colour (`Appointment`'s
+   * derived snapshot) — pairing a grouped séance's full « A + B » summary with A's hue would state something
+   * false about B. Blocked slots are skipped: they carry no act and paint amber from the warning tokens.
+   */
+  const actLegend = useMemo(() => {
+    const byName = new Map<string, { name: string; hex: string }>()
+    for (const appointment of appointments) {
+      if (isBusySlot(appointment)) continue
+      const hex = parseProcedureHex(appointment.procedureColorHex)
+      const summary = appointmentActsSummary(appointment)
+      if (!hex || !summary) continue
+      const lead = summary.split(" + ")[0]
+      if (!byName.has(lead)) byName.set(lead, { name: lead, hex })
+    }
+    return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name, "fr"))
+  }, [appointments])
+
+  /**
+   * The legend, rendered once and mounted twice (the desktop « Filtres » popover and the phone disclosure).
+   *
+   * They were two hand-written copies before, which is how they came to disagree about which statuses existed.
+   * Both axes are named — « Bord droit » for the statut strip, « Couleur du rendez-vous » for the act — because
+   * a key that explains one of two colour channels is what made the grid look arbitrary.
+   */
+  const renderLegend = () => {
+    const shownActs = actLegend.slice(0, LEGEND_MAX_ACTS)
+    const hiddenActs = actLegend.length - shownActs.length
+
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
+          <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Statut — bord droit
+          </p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+            {LEGEND_ITEMS.map((item) => (
+              <span key={item.label} className="flex items-center gap-1.5">
+                {/* The swatch IS the paint — `STATUS_EDGE_PAINT`, the same value the block renders — rather than
+                    a flat fill that approximates it. That is what makes the dashed « Planifié » strip legible as
+                    a key rather than as a smudge. */}
+                <span
+                  className="h-3.5 w-[3px] shrink-0 rounded-full"
+                  style={{ background: STATUS_EDGE_PAINT[item.tone] }}
+                />
+                <span className="text-muted-foreground">{item.label}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5 border-t pt-3">
+          <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Acte — couleur du rendez-vous
+          </p>
+          {shownActs.length === 0 ? (
+            // Not an « aucun acte » claim about the catalogue — a statement about this window, which is the only
+            // thing this key can honestly describe.
+            <p className="text-xs text-muted-foreground">Aucun acte coloré sur cette période.</p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+              {shownActs.map((act) => (
+                <span key={act.name} className="flex min-w-0 items-center gap-1.5">
+                  <span
+                    className="h-3 w-3 shrink-0 rounded-full"
+                    style={{ backgroundColor: act.hex }}
+                    aria-hidden="true"
+                  />
+                  <span className="truncate text-muted-foreground">{act.name}</span>
+                </span>
+              ))}
+              {hiddenActs > 0 && <span className="text-muted-foreground">+{hiddenActs} autres</span>}
+            </div>
+          )}
+        </div>
+
+        {clinicHours && clinicHours.length > 0 && (
+          <div className="flex flex-col gap-1.5 border-t pt-3">
+            <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Grille</p>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="h-3.5 w-3.5 shrink-0 rounded border"
+                  style={{ backgroundImage: CLOSED_HATCH }}
+                  aria-hidden="true"
+                />
+                <span className="text-muted-foreground">Hors horaires d&apos;ouverture</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="h-3.5 w-3.5 shrink-0 rounded border"
+                  style={{ backgroundColor: "var(--agenda-today)" }}
+                  aria-hidden="true"
+                />
+                <span className="text-muted-foreground">Aujourd&apos;hui</span>
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   /**
    * The praticien Select, rendered twice — visible in the bar from `xl:`, inside « Filtres » below it — from one
@@ -2202,7 +2524,16 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
         <div
           role="group"
           aria-label="Vue de l'agenda"
-          className="inline-flex h-9 shrink-0 items-center rounded-lg bg-muted p-[3px] text-muted-foreground"
+          /*
+            ⚠️ **The track needed a border and the pill needed the right white.** The active segment was
+            `bg-background`, and in this palette `--background` is the tinted *page ground* (`oklch 0.977`) while
+            `--card` — the surface this bar actually sits on — is pure white. So the "selected" pill was painted
+            **darker than the surface behind it** and sat 1.3 % away from its own `bg-muted` track (`0.964`):
+            three flat words with no control around them, which is exactly how it read. The pill is `bg-card`
+            now (it lifts), the track carries a real border (it reads as a control at rest), and the primary ring
+            plus primary ink is what survives at a glance on a busy bar.
+          */
+          className="inline-flex h-9 shrink-0 items-center rounded-lg border border-border bg-muted p-[3px] text-muted-foreground"
         >
           {AGENDA_VIEW_OPTIONS.map(({ value, label, short }) => {
             const selected = view === value
@@ -2216,7 +2547,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 className={cn(
                   "inline-flex h-[calc(100%-1px)] items-center justify-center rounded-md border border-transparent px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,background-color,box-shadow] duration-150 ease-snap lg:px-2.5",
                   "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-1",
-                  selected ? "bg-background font-semibold text-primary shadow-sm dark:bg-input/40" : "hover:text-foreground",
+                  // `bg-card`, not `bg-background` — see the track's note. `dark:bg-input/70` because in dark the
+                  // card is *darker* than the muted track, so "raised" has to come from the lighter input token
+                  // there; the ring and the primary ink carry the state in both themes either way.
+                  selected
+                    ? "bg-card font-semibold text-primary shadow-sm ring-1 ring-primary/30 dark:bg-input/70"
+                    : "hover:text-foreground",
                 )}
               >
                 {/* Full words where there is room, initials on a tablet — the control is three toggles whose
@@ -2300,43 +2636,113 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               )}
 
               {/*
-                The legend, now beside the switches it belongs with.
+                The legend, beside the switches it belongs with — and now naming **both** colour axes.
 
-                ⚠️ It is still `LEGEND_ITEMS` — the *statuses* — and that remains only half of what the grid
-                paints: an appointment's hue is its **act**, and the status is a treatment on top of it. Naming
-                the act colours is the second pass (the load row + the act legend that doubles as a filter);
-                writing a half-true legend into the new home would be the same defect in a nicer place, so what
-                is here is the honest subset and the swatches carry the *treatment* rather than a flat fill.
+                The note that used to sit here said the act colours were a deferred second pass and that writing
+                a half-true legend into a nicer home would be the same defect in a nicer place. It was right, and
+                `renderLegend` is that second pass: the statut swatches are the real edge paint and the act
+                swatches are derived from the window (`actLegend`), so neither can describe the grid wrongly.
               */}
               <div className="flex flex-col gap-2 border-t pt-3">
                 <p className="text-sm font-semibold">Légende</p>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
-                  {LEGEND_ITEMS.map((item) => (
-                    <span key={item.label} className="flex items-center gap-1.5">
-                      <span className={cn("h-3 w-3 rounded", item.swatch)} />
-                      <span className="text-muted-foreground">{item.label}</span>
-                    </span>
-                  ))}
-                  {clinicHours && clinicHours.length > 0 && (
-                    <span className="flex items-center gap-1.5">
-                      <span className="h-3 w-3 rounded border bg-muted" />
-                      <span className="text-muted-foreground">Hors horaires d&apos;ouverture</span>
-                    </span>
-                  )}
-                </div>
+                {renderLegend()}
               </div>
             </div>
           </PopoverContent>
         </Popover>
 
         {/*
-          « ⋯ » — the one-off errands. Exporter, and (admins only) the clinic's Google Agenda connection.
+          ══ Google Agenda — a visible control whose LABEL IS ITS STATE ══════════════════════════════════════
 
-          `Déconnecter Google` in particular used to sit permanently above the planning, in destructive red, at
-          the same visual weight as the navigation: an irreversible-looking action one click away on a screen a
-          dentist opens forty times a day, for a connection made once in the life of the practice. A popover of
-          full-width labelled buttons, not a `DropdownMenu`, so `ExportButton` and the existing `Button`s render
-          exactly as they do everywhere else instead of being re-implemented as menu items.
+          It lived inside « ⋯ » with the export, which put the whole feature two clicks deep behind an unlabelled
+          glyph and left the connection state stated **nowhere on the screen** — so « est-ce que mon agenda est
+          synchronisé ? » had no answer short of opening the menu, and a practice that had never connected had no
+          way to discover the feature existed at all.
+
+          One slot, two states, and the state decides both the label and what the click does:
+
+            • not connected → a primary-tinted outline « Connecter Google » that connects **directly**. A
+              popover in front of a one-action state is a click that buys nothing.
+            • connected     → « Google Agenda » with a `CalendarCheck` in `--success`, opening the two
+              secondary actions. Importer and Déconnecter stay behind that press on purpose: the note that used
+              to sit here is still right — a destructive-looking « Déconnecter » at navigation weight, on a
+              screen a dentist opens forty times a day, for a connection made once in the life of the practice.
+
+          The label is `xl:` and the button is icon-only below it, `aria-label`led at every width. That is the
+          same budget « Aujourd'hui » spends: at 820 px the bar is `flex-nowrap` and the title absorbs the slack,
+          so a new *labelled* control here is what would have forced a second row on the device this product is
+          used on most.
+
+          Admins only — the prop is `undefined` for everyone else, because all three endpoints are `AdminOnly`
+          and offering the action to a secretary buys a 403 and a generic « Échec ».
+        */}
+        {googleControls &&
+          (!googleControls.authorized ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={googleControls.onConnect}
+              disabled={!internetReachable}
+              title={internetReachable ? "Connecter Google Agenda" : "Connexion internet requise"}
+              aria-label={
+                internetReachable
+                  ? "Connecter Google Agenda"
+                  : "Connecter Google Agenda — connexion internet requise"
+              }
+              className="h-9 shrink-0 gap-2 border-primary/45 bg-primary/5 px-2.5 text-primary hover:bg-primary/10 hover:text-primary xl:px-3"
+            >
+              <CalendarPlus className="h-4 w-4" />
+              <span className="hidden xl:inline">Connecter Google</span>
+            </Button>
+          ) : (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 shrink-0 gap-2 bg-transparent px-2.5 xl:px-3"
+                  aria-label="Google Agenda — connecté. Importer ou déconnecter."
+                >
+                  <CalendarCheck className="h-4 w-4 text-success" />
+                  <span className="hidden xl:inline">Google Agenda</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-[min(17rem,calc(100vw-2rem))] p-2">
+                <div className="flex flex-col gap-1">
+                  <p className="px-2 pb-1 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Google Agenda · connecté
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start gap-2"
+                    onClick={googleControls.onImport}
+                    disabled={googleControls.syncing || !internetReachable}
+                    title={!internetReachable ? "Connexion internet requise" : undefined}
+                  >
+                    <RefreshCw className={cn("h-4 w-4", googleControls.syncing && "animate-spin")} />
+                    {googleControls.syncing ? "Synchronisation…" : "Importer depuis Google"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start gap-2 text-destructive hover:text-destructive"
+                    onClick={googleControls.onDisconnect}
+                  >
+                    <Unlink className="h-4 w-4" />
+                    Déconnecter Google
+                  </Button>
+                  {!internetReachable && (
+                    <p className="px-2 pt-1 text-2xs text-warning-ink">Connexion internet requise</p>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          ))}
+
+        {/*
+          « ⋯ » — the one-off errands. Exporter, and nothing else now that Google has a slot of its own: two
+          homes for one feature is how a control ends up stated differently in each of them.
         */}
         <Popover>
           <PopoverTrigger asChild>
@@ -2370,54 +2776,6 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   doctorId,
                 }}
               />
-
-              {googleControls && (
-                <>
-                  <div className="my-1 border-t" />
-                  <p className="px-2 pb-1 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Google Agenda
-                  </p>
-                  {!googleControls.authorized ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-start gap-2"
-                      onClick={googleControls.onConnect}
-                      disabled={!internetReachable}
-                      title={!internetReachable ? "Connexion internet requise" : undefined}
-                    >
-                      <Calendar className="h-4 w-4" />
-                      Connecter Google Agenda
-                    </Button>
-                  ) : (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full justify-start gap-2"
-                        onClick={googleControls.onImport}
-                        disabled={googleControls.syncing || !internetReachable}
-                        title={!internetReachable ? "Connexion internet requise" : undefined}
-                      >
-                        <RefreshCw className={cn("h-4 w-4", googleControls.syncing && "animate-spin")} />
-                        {googleControls.syncing ? "Synchronisation…" : "Importer depuis Google"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full justify-start gap-2 text-destructive hover:text-destructive"
-                        onClick={googleControls.onDisconnect}
-                      >
-                        <Unlink className="h-4 w-4" />
-                        Déconnecter Google
-                      </Button>
-                    </>
-                  )}
-                  {!internetReachable && (
-                    <p className="px-2 pt-1 text-2xs text-warning-ink">Connexion internet requise</p>
-                  )}
-                </>
-              )}
             </div>
           </PopoverContent>
         </Popover>
@@ -2470,28 +2828,22 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       */}
       <details className="mb-2 px-3 md:hidden">
         <summary className="touch-target cursor-pointer text-sm text-muted-foreground">Légende</summary>
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-          {LEGEND_ITEMS.map((item) => (
-            <div key={item.label} className="flex items-center gap-2">
-              <div className={cn("h-3 w-3 rounded", item.swatch)} />
-              <span className="text-muted-foreground">{item.label}</span>
-            </div>
-          ))}
-          {clinicHours && clinicHours.length > 0 && (
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded border bg-muted" />
-              <span className="text-muted-foreground">Hors horaires d&apos;ouverture</span>
-            </div>
-          )}
-        </div>
+        <div className="mt-2">{renderLegend()}</div>
       </details>
 
       {/*
         Edge-to-edge on a phone. A card's border, radius, shadow and — the expensive one — the `py-6` it inherits
         from the primitive spend about 56 px of the one screen the agenda has, to draw a frame around content that
         already fills the viewport. No phone calendar app frames its own grid.
+
+        ⚠️ **`py-0` at every width now, not `md:py-6`.** That padding was 24 px of dead white *inside* the card,
+        above the sticky day header and below the footer strip — two bands of nothing framing a grid that already
+        draws its own header, its own gridlines and its own footer border. It is the second of the three
+        "rendering gaps" this pass was opened for (the first was an always-mounted, always-empty filter-chip row
+        on the page; the third was the two headers painting `bg-white` instead of `bg-card`). A calendar's chrome
+        is its ruler, and a ruler has to start at the edge of the instrument.
       */}
-      <Card className="min-h-0 flex-1 overflow-hidden rounded-none border-0 py-0 shadow-none md:rounded-xl md:border md:py-6 md:shadow-sm">
+      <Card className="min-h-0 flex-1 overflow-hidden rounded-none border-0 py-0 shadow-none md:rounded-xl md:border md:shadow-sm">
         {!mounted ? (
           renderGeometrySkeleton()
         ) : view === "month" ? (
@@ -2570,7 +2922,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             className={cn(
               // z-50: above the sticky gutter (z-30) and the current-time overlay (z-40), both of which
               // scroll under it.
-              "sticky top-0 z-50 grid border-b bg-white dark:bg-background",
+              //
+              // ⚠️ `bg-card`, not `bg-white dark:bg-background`. This header sits *inside* the agenda `Card`, so
+              // in dark mode it was painting the **page ground** (`0.245`) over the card (`0.305`) — a darker
+              // strip across the top of a lighter surface, which reads as a seam. One token, correct in both
+              // themes, and it is the third of the pass's three "rendering gaps".
+              "sticky top-0 z-50 grid border-b bg-card",
               view === "week" ? WEEK_COLS : dayGridCols,
             )}
           >
@@ -2610,9 +2967,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                     }`}
                     className={cn(
                       "min-w-0 border-r py-2 text-center transition-colors last:border-r-0 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring dark:hover:bg-muted/50",
-                      // The header half of the today tint the columns below now carry, so the marked column reads
-                      // as one band from its date down through its last hour.
-                      isToday(day) && "bg-primary/[0.06] dark:bg-primary/[0.10]",
+                      // The header half of the today band the columns below carry, through the SAME token
+                      // (`--agenda-today`) rather than a second pair of hand-tuned opacities — so the marked
+                      // column reads as one continuous band from its date down through its last hour, and the
+                      // two halves cannot drift apart the next time either is nudged.
+                      isToday(day) && "bg-[var(--agenda-today)]",
                     )}
                   >
                     <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -2621,7 +2980,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                     <div
                       className={cn(
                         "mx-auto inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold transition-colors",
-                        isToday(day) ? "bg-primary text-white shadow-md" : "text-foreground",
+                        isToday(day) ? TODAY_PILL : "text-foreground",
                       )}
                     >
                       {format(day, "d")}
@@ -2645,7 +3004,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 <div
                   className={cn(
                     "mx-auto inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold",
-                    isToday(selectedDate) ? "bg-primary text-white shadow-md" : "text-foreground",
+                    isToday(selectedDate) ? TODAY_PILL : "text-foreground",
                   )}
                 >
                   {format(selectedDate, "d")}
@@ -2820,14 +3179,17 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                                    * header was the only mark, 8 px tall at the top of a grid that scrolls away
                                    * from it — so on a scrolled agenda there was no indication at all.
                                    *
-                                   * 4 %, and under the closed-hours shading in source order so a closed hour of
-                                   * today still reads as closed: the tint says *which column*, the shading says
-                                   * *which hours*, and they must not fight.
+                                   * ⚠️ The band and the closed-hours shading used to be **two `background-color`
+                                   * utilities on the same element**, so which of them won on a closed hour of
+                                   * today was settled by stylesheet order rather than by intent — and
+                                   * `opacity-70` faded the cell's own gridlines with the fill, which is what made
+                                   * a closed column read as a rendering fault. « Closed » is a hatch *image* now
+                                   * (`hourCellBackground`), so the two compose: the colour says which column, the
+                                   * hatch says which hours, and neither can delete the other.
                                    */
-                                  isToday(day) && "bg-primary/[0.04] dark:bg-primary/[0.07]",
-                                  !dayOpen && "bg-muted/40 opacity-70",
+                                  isToday(day) && "bg-[var(--agenda-today)]",
                                 )}
-                                style={{ minHeight: hourHeight }}
+                                style={{ minHeight: hourHeight, backgroundImage: hourCellBackground(dayOpen) }}
                                 /* The click is no longer here: the gesture hook decides press-versus-drag on
                                    release and calls back with the hour for a plain click, so the two cannot both
                                    fire on one gesture. */
@@ -2843,9 +3205,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                               className={cn(
                                 "cursor-pointer border-b transition-colors hover:bg-accent/30 dark:hover:bg-muted/50",
                                 !isNarrow && "border-r",
-                                !isWorkingHours && "bg-muted/40 opacity-70",
+                                // Jour paints the band too: the column IS the day, so when that day is today the
+                                // grid should say so without the reader checking the header.
+                                isToday(selectedDate) && "bg-[var(--agenda-today)]",
                               )}
-                              style={{ minHeight: hourHeight }}
+                              style={{ minHeight: hourHeight, backgroundImage: hourCellBackground(isWorkingHours) }}
                               onPointerDown={(event) =>
                                 gridDrag.beginCellGesture(event, format(selectedDate, "yyyy-MM-dd"), hour)
                               }

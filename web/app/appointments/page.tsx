@@ -107,6 +107,8 @@ export default function AppointmentsPage() {
   const { doctors } = useDoctors()
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("all")
   const doctorFilterId = selectedDoctorId === "all" ? undefined : selectedDoctorId
+  /** Is there anything for the chip row to say? See the row itself for why it must not render otherwise. */
+  const hasActiveFilterChips = showCancelled || showCompleted || Boolean(doctorFilterId)
 
   /**
    * The length a dragged span asked for, or `undefined` for every other way into the create dialog.
@@ -416,22 +418,25 @@ export default function AppointmentsPage() {
             requires an unrequested filter to be visible and removable *at every width*, so they must not be
             folded into the popover that holds the switches themselves.
           */}
-          <div className="mb-3 flex flex-shrink-0 flex-col gap-2">
-            {/*
-              AC-29 — a filter the user did not choose has to be visible and removable.
+          {/*
+            AC-29 — a filter the user did not choose has to be visible and removable.
 
-              Two of the fifteen entries in `lib/dashboard-links.ts` arrive here with `?status=`, which flips
-              these toggles on. Without a chip the calendar simply shows more than usual with nothing on
-              screen saying why, and « Taux d'absence » lands on a list the user cannot un-filter without
-              hunting for a switch inside the calendar's own toolbar.
+            Two of the fifteen entries in `lib/dashboard-links.ts` arrive here with `?status=`, which flips
+            these toggles on. Without a chip the calendar simply shows more than usual with nothing on
+            screen saying why, and « Taux d'absence » lands on a list the user cannot un-filter without
+            hunting for a switch inside the calendar's own toolbar.
 
-              ⚠️ No `hidden md:flex` on this row any more. It used to be desktop-only, which was safe only
-              because `AgendaPhoneHeader` renders its own copy of the chips below `md:`; the row now holds
-              nothing else, so leaving it hidden would mean an empty flex container on a phone and two rules to
-              keep in step instead of one. The phone header's copies still render — a phone shows the chips
-              inside its own header band, which is where its other controls are.
-            */}
-            <div className="hidden flex-wrap items-center gap-2 md:flex">
+            ⚠️ **Rendered only when there is a chip to show, and that is a real fix rather than tidying.** This
+            used to be an outer `<div className="mb-3 …">` wrapping a `hidden md:flex` row, so in the ordinary
+            state — no filter, which is what the desk sees all day — the page still paid a zero-height flex
+            container plus **12 px of margin**: a phantom band between « À clôturer » and the agenda bar that
+            read as a rendering gap because that is exactly what it was. One element, one condition.
+
+            It stays `hidden md:flex`: `AgendaPhoneHeader` renders its own copies below `md:`, inside the band
+            that holds the phone's other controls.
+          */}
+          {hasActiveFilterChips && (
+            <div className="mb-3 hidden flex-shrink-0 flex-wrap items-center gap-2 md:flex">
               {showCancelled && (
                 <ActiveFilterChip label="Annulés affichés" onRemove={() => setShowCancelled(false)} />
               )}
@@ -445,7 +450,7 @@ export default function AppointmentsPage() {
                 />
               )}
             </div>
-          </div>
+          )}
 
           {/*
             ⚠️ **ONE calendar, rendered outside `TabsContent`.**
