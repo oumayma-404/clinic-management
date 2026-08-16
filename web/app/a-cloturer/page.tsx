@@ -1,11 +1,10 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { AlertCircle } from "lucide-react"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
-import { Button } from "@/components/ui/button"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PageHeader } from "@/components/ui/page-header"
 import { Label } from "@/components/ui/label"
 import {
@@ -50,6 +49,15 @@ export default function VisitsToClosePage() {
     setLoading(true)
     try {
       const result = await appointmentsApi.visitsToClose({ days: Number(days), page, pageSize })
+
+      // Closing the last séance of page 2 leaves that page empty while the list still has rows: `PageRequest`
+      // clamps the page *size* and deliberately does not clamp a page past the end. Rendering it would print
+      // « Rien à clôturer » — a false statement — under a pager reading « 26–26 sur 26 ». Step back instead.
+      if (result.items.length === 0 && result.totalCount > 0 && page > 1) {
+        setPage(Math.min(page - 1, Math.max(1, result.totalPages)))
+        return
+      }
+
       setData(result)
       setError(null)
     } catch (err) {
@@ -116,33 +124,36 @@ export default function VisitsToClosePage() {
         />
 
         {error ? (
-          <div
-            role="status"
-            className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm"
-          >
-            <AlertCircle aria-hidden="true" className="size-4 text-destructive" />
-            <span className="flex-1">{error}</span>
-            <Button variant="outline" size="sm" onClick={() => void load()}>
-              Réessayer
-            </Button>
-          </div>
+          // The shared primitive, `role="alert"` in both variants — the reader is otherwise about to take an
+          // absence for a fact, and here the wrong reading (« rien à clôturer ») is actively reassuring. It
+          // replaced a hand-written banner that announced itself as a mere `role="status"`.
+          <LoadFailureNotice
+            message={error}
+            detail="Aucune séance n'a été modifiée."
+            onRetry={() => void load()}
+          />
         ) : (
-          <>
-            <VisitClosureList visits={data?.items ?? []} loading={loading} onChanged={load} />
-
-            {data && (
-              <DataTablePagination
-                page={data}
-                onPageChange={setPage}
-                onPageSizeChange={(size) => {
-                  setPageSize(size)
-                  setPage(1)
-                }}
-                loading={loading}
-                label={["séance", "séances"]}
-              />
-            )}
-          </>
+          <VisitClosureList
+            visits={data?.items ?? []}
+            loading={loading}
+            onChanged={load}
+            // Inside the list's own surface: the pager carries a `border-t` and no border, so as a page-level
+            // sibling it rendered as a filet flottant on the page ground.
+            footer={
+              data && !loading ? (
+                <DataTablePagination
+                  page={data}
+                  onPageChange={setPage}
+                  onPageSizeChange={(size) => {
+                    setPageSize(size)
+                    setPage(1)
+                  }}
+                  loading={loading}
+                  label={["séance", "séances"]}
+                />
+              ) : null
+            }
+          />
         )}
       </AppShell>
     </ClinicGuard>

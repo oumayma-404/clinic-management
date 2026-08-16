@@ -52,6 +52,19 @@ public class SupplierPageDto
     /// </summary>
     public List<string> Categories { get; set; } = new();
 
+    /// <summary>
+    /// Only the catégories this cabinet has actually filed a fournisseur under — the set the <b>filter</b> reads.
+    /// <para>
+    /// ⚠️ <b>Deliberately not <see cref="Categories"/>.</b> That one is the <i>form's</i> suggestion list, and it
+    /// carries the twelve canonical labels whether or not the cabinet has ever used one. Rendered as filter chips
+    /// it produced twelve controls over three rows on a practice with four fournisseurs, nine of which could only
+    /// ever answer « aucun résultat » — and ten rows of chrome above the first row at 390&#160;px. A filter offers
+    /// what narrowing is possible; a form offers what filing is sensible. They are different questions and this is
+    /// the second answer.
+    /// </para>
+    /// </summary>
+    public List<string> CategoriesInUse { get; set; } = new();
+
     public int Page { get; set; }
     public int PageSize { get; set; }
     public int TotalCount { get; set; }

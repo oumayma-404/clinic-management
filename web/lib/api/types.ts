@@ -94,6 +94,14 @@ export interface SupplierPageDto {
   items: SupplierDto[];
   /** The canonical suggestions unioned with the clinic's own — clinic-wide, never narrowed by the filters. */
   categories: string[];
+  /**
+   * Only the catégories this cabinet has actually filed a fournisseur under — what the **filter** offers.
+   *
+   * ⚠️ Not `categories`. That list carries the twelve canonical labels whether or not the practice has ever used
+   * one, which is right for the form and wrong for a filter: rendered as chips it produced twelve controls, nine of
+   * which could only answer « aucun résultat », and ten rows of chrome above the first supplier at 390 px.
+   */
+  categoriesInUse: string[];
   page: number;
   pageSize: number;
   totalCount: number;

@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { MoreHorizontal, Pencil, Power, Trash2, Truck } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { MoreHorizontal, Pencil, Power, SearchX, Trash2, Truck } from "lucide-react"
 import { toast } from "sonner"
 import {
   AlertDialog,
@@ -15,8 +15,9 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { CARDS_ONLY, CardList, TABLE_ONLY } from "@/components/ui/card-list"
+import { CARDS_ONLY_LG, CardList, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,7 +26,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FilterChip, ListToolbar } from "@/components/ui/list-toolbar"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table"
 import { SupplierFormDialog } from "@/components/suppliers/supplier-form-dialog"
 import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
 import { ApiError } from "@/lib/api/client"
@@ -36,7 +39,17 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { showErrorToast } from "@/lib/errors"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 
-const PAGE_SIZE = 25
+const DEFAULT_PAGE_SIZE = 25
+
+interface SuppliersTableProps {
+  /**
+   * Bumped by the page when « Nouveau fournisseur » is pressed in the `PageHeader`.
+   *
+   * The dialog and the list it reloads live here, so the action stays a one-line prop rather than lifting the
+   * whole create flow into the route. A counter, not a boolean: two presses in a row must both arrive.
+   */
+  createRequest?: number
+}
 
 /**
  * « Fournisseurs » — the cabinet's outside contacts, and the one screen where their numbers live.
@@ -46,16 +59,25 @@ const PAGE_SIZE = 25
  * where it gets used, so burying it behind a menu on the narrow layout would hide the feature on its own
  * primary device.</p>
  *
+ * <p>⚠️ <b>The hinge is `lg:`, not `md:`</b>, and that is AC-9 again rather than a density preference. Six
+ * columns of `whitespace-nowrap` behind the 256 px rail leave ~532 px on an iPad portrait (820 px), so the table
+ * scrolled sideways and the <b>Actions column — the WhatsApp button — sat off screen</b> on the device this
+ * product is used on most. Measured, not assumed. Same pair as the invoices, lab-order and cheque tables.</p>
+ *
  * <p>⚠️ Loading, empty, <b>filtered</b>-empty and failed are four distinct states. A failed read must never
  * render as « aucun fournisseur »: that is a claim about the clinic where the truth is a claim about the
  * network, and here it would send somebody looking for a supplier they filed last week.</p>
  */
-export function SuppliersTable() {
+export function SuppliersTable({ createRequest = 0 }: SuppliersTableProps) {
   const [rows, setRows] = useState<SupplierDto[]>([])
+  /** The form's suggestion list — the twelve canonical labels plus the clinic's own. */
   const [categories, setCategories] = useState<string[]>([])
+  /** What the *filter* offers: only the catégories a fournisseur is actually filed under. See the DTO. */
+  const [categoriesInUse, setCategoriesInUse] = useState<string[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [search, setSearch] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [category, setCategory] = useState<string | null>(null)
@@ -81,14 +103,25 @@ export function SuppliersTable() {
     try {
       const result = await suppliersApi.listPaged({
         page,
-        pageSize: PAGE_SIZE,
+        pageSize,
         q: debouncedSearch.trim() || undefined,
         category: category ?? undefined,
         // The list screen shows deactivated rows behind a chip; the pickers never ask for them.
         includeInactive: showInactive,
       })
+
+      // A page past the end answers with the true total and no rows — `PageRequest` clamps the *size* and
+      // deliberately does not clamp the page ("a stale bookmark should show rows, not an error"). Deleting or
+      // deactivating the last row of page 2 therefore lands here, and rendering it would say « aucun
+      // fournisseur » about a clinic that has plenty. Step back instead; the effect re-runs on the new page.
+      if (result.items.length === 0 && result.totalCount > 0 && page > 1) {
+        setPage(Math.min(page - 1, Math.max(1, result.totalPages)))
+        return
+      }
+
       setRows(result.items)
       setCategories(result.categories)
+      setCategoriesInUse(result.categoriesInUse ?? [])
       setTotalCount(result.totalCount)
       setTotalPages(result.totalPages)
     } catch {
@@ -96,13 +129,24 @@ export function SuppliersTable() {
     } finally {
       setLoading(false)
     }
-  }, [page, debouncedSearch, category, showInactive])
+  }, [page, pageSize, debouncedSearch, category, showInactive])
 
   useEffect(() => {
     void load()
   }, [load])
 
   useClinicRealtime(RealtimeResource.Suppliers, load)
+
+  // The page's `PageHeader` action. Skipped on mount (`createRequest` starts at 0) so the dialog does not open
+  // itself on arrival, which a plain effect on a boolean would do.
+  const lastCreateRequest = useRef(createRequest)
+  useEffect(() => {
+    if (createRequest !== lastCreateRequest.current) {
+      lastCreateRequest.current = createRequest
+      setEditing(null)
+      setFormOpen(true)
+    }
+  }, [createRequest])
 
   const openCreate = () => {
     setEditing(null)
@@ -198,25 +242,44 @@ export function SuppliersTable() {
           label: "Rechercher un fournisseur par nom, catégorie, téléphone ou adresse",
         }}
       >
-        <FilterChip
-          label="Toutes catégories"
-          active={category === null}
-          onToggle={() => {
-            setCategory(null)
-            setPage(1)
-          }}
-        />
-        {categories.map((c) => (
-          <FilterChip
-            key={c}
-            label={c}
-            active={category === c}
-            onToggle={() => {
-              setCategory(category === c ? null : c)
-              setPage(1)
-            }}
-          />
-        ))}
+        {/*
+          ⚠️ `categoriesInUse`, NOT `categories`. The latter is the *form's* suggestion list and carries the twelve
+          canonical labels whether or not the cabinet has ever filed one — as chips that was twelve controls over
+          three rows (ten rows at 390 px) on a practice with four fournisseurs, nine of which could only answer
+          « aucun résultat ». A filter offers what narrowing is possible. With one category in use there is nothing
+          to choose between, so the whole group is dropped rather than rendered as a single dead pair.
+        */}
+        {categoriesInUse.length > 1 && (
+          <>
+            <FilterChip
+              label="Toutes catégories"
+              active={category === null}
+              onToggle={() => {
+                setCategory(null)
+                setPage(1)
+              }}
+            />
+            {categoriesInUse.map((c) => (
+              <FilterChip
+                key={c}
+                label={c}
+                active={category === c}
+                onToggle={() => {
+                  setCategory(category === c ? null : c)
+                  setPage(1)
+                }}
+              />
+            ))}
+          </>
+        )}
+      </ListToolbar>
+
+      {/*
+        « Afficher les désactivés » is on its own row, deliberately. Every chip above it *narrows* the list; this
+        one WIDENS it, it is not part of `filtered`, and « Effacer les filtres » leaves it alone — sitting at the
+        end of the same wrapped row it read as a thirteenth category.
+      */}
+      <div className="flex items-center gap-2">
         <FilterChip
           label="Afficher les désactivés"
           active={showInactive}
@@ -225,149 +288,163 @@ export function SuppliersTable() {
             setPage(1)
           }}
         />
-      </ListToolbar>
-
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">
-          {loading ? "Chargement…" : `${totalCount} fournisseur${totalCount > 1 ? "s" : ""}`}
-        </p>
-        <Button onClick={openCreate} className="coarse:h-11">
-          Nouveau fournisseur
-        </Button>
       </div>
 
       {failed ? (
-        <div className="rounded-lg border border-border bg-muted/40 p-6 text-center">
-          <p className="text-sm text-muted-foreground">
-            La liste des fournisseurs n'a pas pu être chargée.
-          </p>
-          <Button variant="outline" className="mt-3 coarse:h-11" onClick={() => void load()}>
-            Réessayer
-          </Button>
-        </div>
-      ) : loading ? (
-        <div className="space-y-2" aria-hidden="true">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-16 animate-pulse rounded-lg bg-muted/40" />
-          ))}
-        </div>
-      ) : rows.length === 0 ? (
-        <EmptyState
-          icon={Truck}
-          chipClassName={zoneChipClass(ZONES.ops)}
-          title={filtered ? "Aucun fournisseur pour ces filtres" : "Aucun fournisseur"}
-          description={
-            filtered
-              ? "Aucun contact ne correspond à cette recherche. Le fournisseur existe peut-être sous une autre orthographe."
-              : "Enregistrez les laboratoires, dépôts et prestataires du cabinet pour les joindre en un geste."
-          }
-          action={
-            filtered ? (
-              <Button variant="outline" className="coarse:h-11" onClick={clearFilters}>
-                Effacer les filtres
-              </Button>
-            ) : (
-              <Button className="coarse:h-11" onClick={openCreate}>
-                Nouveau fournisseur
-              </Button>
-            )
-          }
+        // The shared primitive: `role="alert"`, because the reader is otherwise about to take an absence for a
+        // fact. It replaced a hand-written muted box that read like an empty state.
+        <LoadFailureNotice
+          message="La liste des fournisseurs n'a pas pu être chargée."
+          detail="Les contacts déjà enregistrés sont intacts."
+          onRetry={() => void load()}
         />
       ) : (
-        <>
-          <div className={CARDS_ONLY}>
-            <CardList
-              ariaLabel="Fournisseurs"
-              items={rows}
-              getKey={(s) => s.id}
-              title={(s) => s.name}
-              status={(s) => (
-                <>
-                  {s.category ? <Badge variant="secondary">{s.category}</Badge> : null}
-                  {!s.isActive ? <Badge variant="outline">Désactivé</Badge> : null}
-                </>
-              )}
-              fields={(s) => [
-                s.phoneNumber ? { label: "Téléphone", value: s.phoneNumber } : null,
-                s.address ? { label: "Adresse", value: s.address } : null,
-                linkedSummary(s) ? { label: "Lié à", value: linkedSummary(s) } : null,
-              ]}
-              actions={rowActions}
-              primaryAction={(s) => (
-                <div className="flex items-center gap-2">
-                  {/* AC-9 — visible on the card, not in the menu. */}
-                  <WhatsAppAction
-                    phoneE164={s.phoneE164}
-                    contactName={s.name}
-                    variant="default"
-                    onAddNumber={() => openEdit(s)}
-                    className="flex-1"
-                  />
-                  <Button variant="outline" size="sm" className="coarse:h-11" onClick={() => openEdit(s)}>
-                    <Pencil aria-hidden="true" className="me-2 size-4" />
-                    Modifier
+        /*
+          One bordered surface holding the list and its pager — the shape every other list in the app has
+          (`invoices-table`, `treatment-plans-table`, `caisse-ledger-table`, and the `<Card>`-wrapped ones).
+          `ui/table.tsx` paints `bg-card` and takes its radius from the parent, so without this the table rendered
+          as a square, borderless white slab on the tinted page ground: the difference the eye notices first.
+        */
+        <div className="rounded-md border bg-card">
+          {loading ? (
+            <div className="space-y-2 p-3" role="status" aria-label="Chargement des fournisseurs">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />
+              ))}
+            </div>
+          ) : rows.length === 0 ? (
+            <EmptyState
+              size="compact"
+              icon={filtered ? SearchX : Truck}
+              chipClassName={zoneChipClass(ZONES.ops)}
+              title={filtered ? "Aucun fournisseur pour ces filtres" : "Aucun fournisseur"}
+              description={
+                filtered
+                  ? "Aucun contact ne correspond à cette recherche. Le fournisseur existe peut-être sous une autre orthographe."
+                  : "Enregistrez les laboratoires, dépôts et prestataires du cabinet pour les joindre en un geste."
+              }
+              action={
+                filtered ? (
+                  <Button variant="outline" className="coarse:h-11" onClick={clearFilters}>
+                    Effacer les filtres
                   </Button>
-                </div>
-              )}
+                ) : (
+                  <Button className="coarse:h-11" onClick={openCreate}>
+                    Nouveau fournisseur
+                  </Button>
+                )
+              }
             />
-          </div>
+          ) : (
+            <>
+              <CardList
+                className={CARDS_ONLY_LG}
+                ariaLabel="Fournisseurs"
+                items={rows}
+                getKey={(s) => s.id}
+                title={(s) => s.name}
+                status={(s) => (
+                  <>
+                    {s.category ? <Badge variant="secondary">{s.category}</Badge> : null}
+                    {!s.isActive ? <Badge variant="outline">Désactivé</Badge> : null}
+                  </>
+                )}
+                fields={(s) => [
+                  s.phoneNumber ? { label: "Téléphone", value: s.phoneNumber } : null,
+                  s.address ? { label: "Adresse", value: s.address } : null,
+                  linkedSummary(s) ? { label: "Lié à", value: linkedSummary(s) } : null,
+                ]}
+                actions={rowActions}
+                primaryAction={(s) => (
+                  <div className="flex items-center gap-2">
+                    {/* AC-9 — visible on the card, not in the menu. */}
+                    <WhatsAppAction
+                      phoneE164={s.phoneE164}
+                      contactName={s.name}
+                      variant="default"
+                      onAddNumber={() => openEdit(s)}
+                      className="flex-1"
+                    />
+                    <Button variant="outline" size="sm" className="coarse:h-11" onClick={() => openEdit(s)}>
+                      <Pencil aria-hidden="true" className="me-2 size-4" />
+                      Modifier
+                    </Button>
+                  </div>
+                )}
+              />
 
-          <div className={TABLE_ONLY}>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nom</TableHead>
-                  <TableHead>Catégorie</TableHead>
-                  <TableHead>Téléphone</TableHead>
-                  <TableHead>Adresse</TableHead>
-                  <TableHead>Lié à</TableHead>
-                  <TableHead className="text-end">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((s) => (
-                  <TableRow key={s.id} className={s.isActive ? undefined : "opacity-60"}>
-                    <TableCell className="font-medium">
-                      {s.name}
-                      {!s.isActive ? (
-                        <Badge variant="outline" className="ms-2">
-                          Désactivé
-                        </Badge>
-                      ) : null}
-                    </TableCell>
-                    <TableCell>
-                      {s.category ? <Badge variant="secondary">{s.category}</Badge> : null}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{s.phoneNumber ?? ""}</TableCell>
-                    <TableCell className="text-muted-foreground">{s.address ?? ""}</TableCell>
-                    <TableCell className="text-muted-foreground">{linkedSummary(s) ?? ""}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center justify-end gap-1">
-                        <WhatsAppAction
-                          phoneE164={s.phoneE164}
-                          contactName={s.name}
-                          onAddNumber={() => openEdit(s)}
-                        />
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(s)}>
-                          <Pencil aria-hidden="true" className="size-4" />
-                          <span className="sr-only">Modifier {s.name}</span>
-                        </Button>
-                        {rowActions(s)}
-                      </div>
-                    </TableCell>
+              <Table containerClassName={TABLE_ONLY_LG}>
+                {/* Sticky: this list pages at 25, so the column names are gone by row twelve and « Lié à »
+                    becomes an unlabelled column of counts. */}
+                <TableHeader sticky>
+                  <TableRow>
+                    <TableHead>Nom</TableHead>
+                    <TableHead>Catégorie</TableHead>
+                    <TableHead>Téléphone</TableHead>
+                    <TableHead>Adresse</TableHead>
+                    <TableHead>Lié à</TableHead>
+                    <TableHead className="text-end">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((s) => (
+                    <TableRow key={s.id} muted={!s.isActive}>
+                      <TableCell className="font-medium">
+                        {s.name}
+                        {!s.isActive ? (
+                          <Badge variant="outline" className="ms-2">
+                            Désactivé
+                          </Badge>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>
+                        {s.category ? <Badge variant="secondary">{s.category}</Badge> : null}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{s.phoneNumber ?? ""}</TableCell>
+                      <TableCell className="text-muted-foreground">{s.address ?? ""}</TableCell>
+                      <TableCell className="text-muted-foreground">{linkedSummary(s) ?? ""}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-1">
+                          <WhatsAppAction
+                            phoneE164={s.phoneE164}
+                            contactName={s.name}
+                            onAddNumber={() => openEdit(s)}
+                          />
+                          <Button variant="ghost" size="icon" onClick={() => openEdit(s)}>
+                            <Pencil aria-hidden="true" className="size-4" />
+                            <span className="sr-only">Modifier {s.name}</span>
+                          </Button>
+                          {rowActions(s)}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </>
+          )}
 
-          <DataTablePagination
-            page={{ page, pageSize: PAGE_SIZE, totalCount, totalPages }}
-            onPageChange={setPage}
-            loading={loading}
-            label={["fournisseur", "fournisseurs"]}
-          />
-        </>
+          {/*
+            Inside the surface, not below it: the pager carries a `border-t` and no border of its own, precisely
+            so it reads as this card's footer (`invoices-table` is the reference). It also carries the count line,
+            which is why the free-floating « N fournisseurs » paragraph above the table is gone.
+
+            Rendered on the empty branch too, so a stale page still has the control that gets you back — it used
+            to live inside the non-empty branch and disappear exactly when it was needed.
+          */}
+          {!loading && (
+            <DataTablePagination
+              page={{ page, pageSize, totalCount, totalPages }}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size)
+                setPage(1)
+              }}
+              loading={loading}
+              label={["fournisseur", "fournisseurs"]}
+            />
+          )}
+        </div>
       )}
 
       <SupplierFormDialog

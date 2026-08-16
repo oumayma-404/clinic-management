@@ -74,12 +74,19 @@ public class GetSuppliersQueryHandler : IRequestHandler<GetSuppliersQuery, Resul
                 .Where(c => !SupplierCategories.IsCanonical(c))
                 .OrderBy(c => c, StringComparer.CurrentCultureIgnoreCase));
 
+            // The filter's own set — see SupplierPageDto.CategoriesInUse. Ordered canonical-first so the chips keep
+            // the order the form offers, rather than reshuffling as a cabinet files its second « Menuisier ».
+            var categoriesInUse = categories
+                .Where(c => inUse.Contains(c, StringComparer.CurrentCultureIgnoreCase))
+                .ToList();
+
             return Result<SupplierPageDto>.Success(new SupplierPageDto
             {
                 Items = page.Items
                     .Select(s => s.ToDto(usage.TryGetValue(s.Id, out var u) ? u : default))
                     .ToList(),
                 Categories = categories,
+                CategoriesInUse = categoriesInUse,
                 Page = page.Page,
                 PageSize = page.PageSize,
                 TotalCount = page.TotalCount,
