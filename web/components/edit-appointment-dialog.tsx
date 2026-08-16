@@ -49,7 +49,7 @@ import { specialtyLabel } from "@/lib/specialties"
 import Link from "next/link"
 import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
 import {
-  APPOINTMENT_STATUSES,
+  MANUALLY_SETTABLE_STATUSES,
   appointmentStatusBadgeClass,
   appointmentStatusLabel,
 } from "@/components/appointment-labels"
@@ -179,14 +179,20 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
   /**
    * The statuses this appointment may move to, plus its current one so the Select always has a value for what
-   * it is showing. Falls back to the full set only when the server did not send the field (an older cached
-   * payload) — never to a client-side re-derivation of the rules.
+   * it is showing. Falls back to the manually-settable set only when the server did not send the field (an older
+   * cached payload) — never to a client-side re-derivation of the rules.
+   *
+   * ⚠️ The fallback is `MANUALLY_SETTABLE_STATUSES`, not every status: « Séance passée » is written by the
+   * progress job alone, so offering it here would let a user assert that a slot has ended when it has not.
+   * The *current* status is still prepended below, so a visit already in it renders correctly.
    */
   const statusOptions = useMemo(() => {
     const current = source?.status
     const allowed = source?.allowedNextStatuses
     if (!allowed || allowed.length === 0) {
-      return [...APPOINTMENT_STATUSES]
+      return current && !MANUALLY_SETTABLE_STATUSES.includes(current as (typeof MANUALLY_SETTABLE_STATUSES)[number])
+        ? [current, ...MANUALLY_SETTABLE_STATUSES]
+        : [...MANUALLY_SETTABLE_STATUSES]
     }
     return current && !allowed.includes(current) ? [current, ...allowed] : allowed
   }, [source?.status, source?.allowedNextStatuses])

@@ -214,6 +214,7 @@ public class Appointment : AggregateRoot<Guid>
         {
             AppointmentStatus.InProgress, AppointmentStatus.Completed,
             AppointmentStatus.Cancelled, AppointmentStatus.NoShow,
+            AppointmentStatus.AwaitingClosure,
         },
         // Legacy-only, per the note above: no transition leads here any more, so this row exists for the rows
         // already stored as Confirmed. Still no Confirmed → Scheduled — "withdrawing a confirmation" has no
@@ -222,9 +223,17 @@ public class Appointment : AggregateRoot<Guid>
         {
             AppointmentStatus.InProgress, AppointmentStatus.Completed,
             AppointmentStatus.Cancelled, AppointmentStatus.NoShow,
+            AppointmentStatus.AwaitingClosure,
         },
-        // A visit that has started cannot be un-started; it ends one of three ways.
+        // A visit that has started cannot be un-started; it ends one of three ways, or its slot simply runs out.
         [AppointmentStatus.InProgress] = new[]
+        {
+            AppointmentStatus.Completed, AppointmentStatus.Cancelled, AppointmentStatus.NoShow,
+            AppointmentStatus.AwaitingClosure,
+        },
+        // The presence question, still open. Its three exits are the three answers to it — there is no way back
+        // to InProgress, because a slot that has ended cannot start again.
+        [AppointmentStatus.AwaitingClosure] = new[]
         {
             AppointmentStatus.Completed, AppointmentStatus.Cancelled, AppointmentStatus.NoShow,
         },
@@ -259,6 +268,7 @@ public class Appointment : AggregateRoot<Guid>
         AppointmentStatus.Completed => "Terminé",
         AppointmentStatus.Cancelled => "Annulé",
         AppointmentStatus.NoShow => "Absent",
+        AppointmentStatus.AwaitingClosure => "Séance passée",
         _ => status.ToString(),
     };
 
@@ -321,6 +331,26 @@ public class Appointment : AggregateRoot<Guid>
         }
 
         Status = AppointmentStatus.InProgress;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Record that the slot has ended with the presence still unanswered — « Séance passée ».
+    /// <para>
+    /// The counterpart to <see cref="Start"/> and, like it, written only by <c>AppointmentProgressJob</c>. It
+    /// deliberately does <b>not</b> close the visit: leaving a slot is not evidence the patient came, so the
+    /// three real answers stay human (or arrive via <see cref="MarkVisitCompleted"/> when a fiche is filed).
+    /// </para>
+    /// </summary>
+    public void MarkAwaitingClosure()
+    {
+        EnsureCanTransitionTo(AppointmentStatus.AwaitingClosure);
+        if (Status == AppointmentStatus.AwaitingClosure)
+        {
+            return;
+        }
+
+        Status = AppointmentStatus.AwaitingClosure;
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -436,7 +466,9 @@ public class Appointment : AggregateRoot<Guid>
         }
 
         AppointmentDateTime = newDateTime;
-        if (Status == AppointmentStatus.NoShow)
+        // `AwaitingClosure` joins NoShow for the same reason: both are statements about a slot that has passed,
+        // and carrying either onto a new date would badge a visit that has not happened yet as one that has.
+        if (Status is AppointmentStatus.NoShow or AppointmentStatus.AwaitingClosure)
         {
             Status = AppointmentStatus.Scheduled;
         }

@@ -1,6 +1,8 @@
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Billing.Queries;
 using ClinicManagement.Application.Features.Patients;
+using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Application.Common.Csv;
 
@@ -243,13 +245,25 @@ public static class ExportTables
                 CsvCell.Text(a.PatientName),
                 CsvCell.Text(a.DoctorName),
                 CsvCell.Text(acts),
-                CsvCell.Text(a.Status),
+                CsvCell.Text(FrenchAppointmentStatus(a.Status)),
                 CsvCell.Text(a.InvoiceNumber),
                 CsvCell.Text(a.Notes));
         }
 
         return table;
     }
+
+    /// <summary>
+    /// The agenda's statut, in French. The DTO carries the enum's own <b>name</b>, so a raw write put « NoShow »
+    /// into a French file — and « AwaitingClosure », an invented word, once that status existed.
+    /// <para>⚠️ The three sibling exports above and below still write their raw enum names. Left alone here
+    /// deliberately: each needs its own label authority (<c>InvoiceStatus</c>, <c>TreatmentPlanStatus</c>,
+    /// <c>LabOrderStatus</c>) and that is a wider change than the one this belongs to.</para>
+    /// </summary>
+    private static string FrenchAppointmentStatus(string status) =>
+        Enum.TryParse<AppointmentStatus>(status, ignoreCase: true, out var parsed)
+            ? Appointment.FrenchLabel(parsed)
+            : status;
 
     /// <summary>
     /// Devis / plans de traitement. One row per plan, with the act progress as a fraction — the figure the

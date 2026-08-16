@@ -11,11 +11,12 @@
 // One map, one accessor, `?? key` pass-through — the convention `factures/invoice-labels.ts` established.
 import { statusToneClass, type StatusTone } from "@/components/ui/status-tone";
 
-/** The six statuses, in lifecycle order. Backend enum names — this is the wire form. */
+/** The seven statuses, in lifecycle order. Backend enum names — this is the wire form. */
 export const APPOINTMENT_STATUSES = [
   "Scheduled",
   "Confirmed",
   "InProgress",
+  "AwaitingClosure",
   "Completed",
   "Cancelled",
   "NoShow",
@@ -23,10 +24,22 @@ export const APPOINTMENT_STATUSES = [
 
 export type AppointmentStatusName = (typeof APPOINTMENT_STATUSES)[number];
 
+/**
+ * The statuses a human may choose. `AwaitingClosure` is written **only** by `AppointmentProgressJob` — it states
+ * that a slot has ended, which is a fact about the clock and not a decision anybody makes.
+ *
+ * <p>It exists because `edit-appointment-dialog` falls back to the full list when the server sends no
+ * `allowedNextStatuses`, and that fallback would otherwise offer « Séance passée » as a manual option.</p>
+ */
+export const MANUALLY_SETTABLE_STATUSES = APPOINTMENT_STATUSES.filter(
+  (s) => s !== "AwaitingClosure",
+);
+
 export const APPOINTMENT_STATUS_LABELS: Record<string, string> = {
   Scheduled: "Planifié",
   Confirmed: "Confirmé",
   InProgress: "En cours",
+  AwaitingClosure: "Séance passée",
   Completed: "Terminé",
   Cancelled: "Annulé",
   NoShow: "Absent",
@@ -43,6 +56,11 @@ export const APPOINTMENT_STATUS_TONE: Record<string, StatusTone> = {
   Scheduled: "pending",
   Confirmed: "accepted",
   InProgress: "active",
+  // Shares `pending` with `Scheduled` — the scale has six tones and there are now seven statuses, so one pair
+  // must share. This is the safe pair: both mean « awaiting an action or a decision », which is the tone's own
+  // definition, and the clock separates them on the grid. The pair that must NEVER share is `InProgress` vs this
+  // one — « quelqu'un est au fauteuil » against « le créneau est passé » — and they do not.
+  AwaitingClosure: "pending",
   Completed: "positive",
   Cancelled: "neutral",
   NoShow: "negative",

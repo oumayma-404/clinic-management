@@ -17,9 +17,10 @@ namespace ClinicManagement.API.BackgroundJobs;
 /// the <i>passage of time</i>, and no write happens at the minute it starts. A write-triggered implementation
 /// would fire for every visit except the one case it exists for.
 ///
-/// <b>What it deliberately does not do.</b> It only ever <i>starts</i> a visit. It never closes one and never
-/// marks an absence — leaving a slot is not evidence the patient came, so « Terminé » and « Absent » stay
-/// human decisions, and a visit whose window has passed keeps whatever status it holds.
+/// <b>What it deliberately does not do.</b> It never marks a visit « Terminé » and never marks an absence:
+/// leaving a slot is not evidence the patient came, so both stay human decisions. Its second pass moves an
+/// elapsed visit to <see cref="AppointmentStatus.AwaitingClosure"/> — « Séance passée » — which asserts only
+/// that the slot has ended, and closes a « créneau occupé » outright, that having nobody to ask about.
 ///
 /// Runs unconditionally and is <b>not</b> connectivity-gated: it writes a status, so it must work on an offline
 /// LAN install. It is also not gated on the cabinet's entitlement — like the backup and expiry passes it records
@@ -34,6 +35,13 @@ public class AppointmentProgressJob
     /// its direction is safe.
     /// </summary>
     private static readonly TimeSpan LongestVisit = TimeSpan.FromDays(1);
+
+    /// <summary>
+    /// How far back the elapse pass reaches — wider than <see cref="LongestVisit"/> because it corrects a
+    /// *backlog*, not a moment: a clinic PC switched off for a holiday comes back with a fortnight of visits
+    /// still reading « En cours ». Served by <c>IX_Appointments_Status_AppointmentDateTime</c>.
+    /// </summary>
+    private static readonly TimeSpan ElapsedLookback = TimeSpan.FromDays(30);
 
     /// <summary>
     /// The key the appointment <i>commands</i> broadcast, asked of the production resolver rather than typed as
@@ -67,9 +75,19 @@ public class AppointmentProgressJob
         _logger = logger;
     }
 
+    /// <summary>
+    /// The tick: start what has begun, then close what has ended. Both passes, one entry point, so a slot that
+    /// begins and ends between two ticks still reaches its terminal state — and forwards, in the order the
+    /// lifecycle actually runs, so the audit ledger reads as a story rather than backwards.
+    /// </summary>
     [DisableConcurrentExecution(timeoutInSeconds: 300)]
     [AutomaticRetry(Attempts = 3)]
-    public Task StartRunningAppointments() => StartRunningAppointments(DateTime.UtcNow);
+    public async Task StartRunningAppointments()
+    {
+        var nowUtc = DateTime.UtcNow;
+        await StartRunningAppointments(nowUtc);
+        await CloseElapsedAppointments(nowUtc);
+    }
 
     /// <summary>
     /// Takes the instant as a parameter for <see cref="SubscriptionWarningJob"/>'s reason: the whole behaviour is
@@ -98,6 +116,82 @@ public class AppointmentProgressJob
                 _logger.LogError(ex, "Auto-start pass failed for clinic {ClinicId}", clinic.Key);
             }
         }
+    }
+
+    /// <summary>
+    /// Moves every visit whose slot has <b>ended</b> out of the statuses that assert it is still happening.
+    ///
+    /// <para>Two outcomes, decided by whether anybody is expected: a patient-bearing visit becomes
+    /// <see cref="AppointmentStatus.AwaitingClosure"/> — « Séance passée », the presence still unanswered — while a
+    /// « créneau occupé » is simply <see cref="AppointmentStatus.Completed"/>, because a blocked hour has nothing
+    /// to close and nobody to ask about.</para>
+    ///
+    /// <para>This does <b>not</b> weaken the pass's standing rule that « Terminé » and « Absent » are human
+    /// decisions: neither is what a patient-bearing visit gets here. What it fixes is that the alternative used to
+    /// be « En cours », which asserts somebody is in the chair.</para>
+    /// </summary>
+    public async Task CloseElapsedAppointments(DateTime nowUtc)
+    {
+        _auditActor.RunAs(nameof(AppointmentProgressJob));
+        _tenantScope.UseSystemWide("AppointmentProgressJob scans every clinic for visits whose slot has ended");
+
+        var elapsed = await _appointmentRepository.GetElapsedOpenAsync(nowUtc, ElapsedLookback);
+
+        foreach (var clinic in elapsed.GroupBy(a => a.ClinicId))
+        {
+            try
+            {
+                await CloseClinicAsync(clinic.Key, clinic.ToList());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Elapse pass failed for clinic {ClinicId}", clinic.Key);
+            }
+        }
+    }
+
+    private async Task CloseClinicAsync(Guid clinicId, IReadOnlyList<Appointment> appointments)
+    {
+        var closed = 0;
+
+        foreach (var appointment in appointments)
+        {
+            // A blocked slot is time the practitioner reserved, so its passing closes it outright; a visit keeps
+            // its presence question open for a human.
+            var target = appointment.PatientId.HasValue
+                ? AppointmentStatus.AwaitingClosure
+                : AppointmentStatus.Completed;
+
+            // Both terms, for the start pass's reason: `CanTransition` counts a self-assignment as legal, so the
+            // guard alone would let an already-closed visit through to an empty save and an audit row a minute.
+            if (appointment.Status == target || !Appointment.CanTransition(appointment.Status, target))
+            {
+                continue;
+            }
+
+            if (target == AppointmentStatus.AwaitingClosure)
+            {
+                appointment.MarkAwaitingClosure();
+            }
+            else
+            {
+                appointment.Complete();
+            }
+
+            await _appointmentRepository.UpdateAsync(appointment);
+            closed++;
+        }
+
+        if (closed == 0)
+        {
+            return;
+        }
+
+        await _unitOfWork.SaveChangesAsync();
+
+        _logger.LogInformation("Closed {Count} elapsed appointment(s) for clinic {ClinicId}", closed, clinicId);
+
+        await _realtime.NotifyEntityChangedAsync(clinicId, AppointmentsResource);
     }
 
     private async Task StartClinicAsync(Guid clinicId, IReadOnlyList<Appointment> appointments)

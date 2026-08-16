@@ -87,6 +87,23 @@ public interface IAppointmentRepository
         DateTime nowUtc, TimeSpan longestVisit, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The mirror image of <see cref="GetRunningNotStartedAsync"/>: every appointment whose slot has <b>ended</b>
+    /// and which is still open (<c>Scheduled</c> / <c>Confirmed</c> / <c>InProgress</c>), across clinics, for the
+    /// same minutely pass. The same SQL-window / in-memory-end split applies, and for the same forced reason.
+    ///
+    /// <para><b>It deliberately does not filter on <c>PatientId</c>.</b> The pass needs both kinds and routes them
+    /// differently — a patient-bearing visit becomes « Séance passée », a « créneau occupé » is simply closed —
+    /// so narrowing here would leave blocked slots reading « En cours » for ever, which is the defect this
+    /// exists to fix.</para>
+    ///
+    /// <para>The residual is stated rather than hidden: a visit older than <paramref name="lookback"/> keeps
+    /// whatever status it holds. It still appears on « À clôturer », which is where an unanswered visit belongs;
+    /// the pass corrects the window a practice actually looks at.</para>
+    /// </summary>
+    Task<IReadOnlyList<Appointment>> GetElapsedOpenAsync(
+        DateTime nowUtc, TimeSpan lookback, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Candidates for « à clôturer »: this clinic's patient-bearing visits that started in
     /// <c>[fromUtc, nowUtc]</c> and are neither <c>Cancelled</c> nor <c>NoShow</c> — both of which are complete
     /// answers rather than gaps.

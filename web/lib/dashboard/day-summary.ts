@@ -28,7 +28,16 @@ import { DEFAULT_WORKING_HOURS, WEEKDAYS, type WorkingDay } from '@/lib/working-
  * `edit-appointment-dialog` really does push lower-cased forms through — the same reason
  * `appointment-labels.ts` carries a `normalizeStatus`.</p>
  */
-const OCCUPYING = new Set(['scheduled', 'confirmed', 'inprogress', 'completed']);
+const OCCUPYING = new Set(['scheduled', 'confirmed', 'inprogress', 'awaitingclosure', 'completed']);
+
+/**
+ * The statuses that no longer want the chair.
+ *
+ * <p>⚠️ `awaitingclosure` is deliberately **absent**. « Séance passée » says the slot has ended, not that the
+ * visit is resolved — nobody has confirmed the patient came — so treating it as finished would drop it out of
+ * `next` and out of the chair ranking, which is the one place a forgotten visit still needs to be visible.
+ * `isPast` already covers the clock half by comparing the slot's own end.</p>
+ */
 const FINISHED = new Set(['completed']);
 
 /** A free stretch of the working day. Only ones worth acting on are reported — see {@link MIN_GAP_MINUTES}. */
@@ -188,11 +197,17 @@ function workingDayFor(hours: WorkingDay[] | null | undefined, date: Date): Work
  * <p>⚠️ Deliberately <b>no staleness cutoff</b>. A visit started this morning and never closed still claims the
  * chair, exactly as before — declaring how long « en cours » may be trusted is a rule about the practice, not a
  * rendering decision, and `AppointmentProgressJob` is where that question belongs.</p>
+ *
+ * <p>⚠️ `started` counts `awaitingclosure` too, and that is what <i>keeps</i> the paragraph above true. That
+ * status is the successor of « InProgress past its own slot » — the job renames it within a minute of the slot
+ * ending — so testing `inprogress` alone would silently withdraw the chair from a visit running fifteen minutes
+ * long, which is the ordinary case, not a stale one.</p>
  */
 function chairClaim(slot: DaySlot, nowMinutes: number): number {
   if (FINISHED.has(statusOf(slot.appointment))) return 0;
   const running = slot.startMinutes <= nowMinutes && nowMinutes < slot.endMinutes;
-  const started = statusOf(slot.appointment) === 'inprogress';
+  const status = statusOf(slot.appointment);
+  const started = status === 'inprogress' || status === 'awaitingclosure';
   if (!running && !started) return 0;
   return (isBusySlot(slot.appointment) ? 0 : 4) + (running ? 2 : 1);
 }

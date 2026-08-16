@@ -209,6 +209,36 @@ public class AppointmentRepository : IAppointmentRepository
         return candidates.Where(a => a.AppointmentDateTime + a.Duration > nowUtc).ToList();
     }
 
+    /// <summary>
+    /// The bounded candidate set behind <see cref="GetElapsedOpenAsync"/>, exposed for
+    /// <see cref="RunningCandidateQuery"/>'s reason — the translation test compiles the <b>production</b>
+    /// expression tree rather than a copy of it.
+    /// </summary>
+    public static IQueryable<Appointment> ElapsedCandidateQuery(
+        ApplicationDbContext db, DateTime nowUtc, TimeSpan lookback)
+    {
+        var earliestStart = nowUtc - lookback;
+
+        return db.Appointments
+            .Where(a => (a.Status == AppointmentStatus.Scheduled
+                         || a.Status == AppointmentStatus.Confirmed
+                         || a.Status == AppointmentStatus.InProgress)
+                        && a.AppointmentDateTime <= nowUtc
+                        && a.AppointmentDateTime > earliestStart)
+            .OrderBy(a => a.AppointmentDateTime)
+            .ThenBy(a => a.Id);
+    }
+
+    public async Task<IReadOnlyList<Appointment>> GetElapsedOpenAsync(
+        DateTime nowUtc, TimeSpan lookback, CancellationToken cancellationToken = default)
+    {
+        var candidates = await ElapsedCandidateQuery(_context, nowUtc, lookback)
+            .ToListAsync(cancellationToken);
+
+        // Mirror of the start pass's residual test: `<=` where that one reads `>`.
+        return candidates.Where(a => a.AppointmentDateTime + a.Duration <= nowUtc).ToList();
+    }
+
     public async Task<IReadOnlyList<Appointment>> GetClosureCandidatesAsync(
         Guid clinicId,
         DateTime fromUtc,

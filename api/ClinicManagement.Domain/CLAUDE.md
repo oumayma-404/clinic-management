@@ -112,7 +112,7 @@
 
 | Enum | Values |
 |------|--------|
-| `AppointmentStatus` | Scheduled, Confirmed, InProgress, Completed, Cancelled, NoShow |
+| `AppointmentStatus` | Scheduled, Confirmed, InProgress, **`AwaitingClosure = 7`**, Completed, Cancelled, NoShow. ⚠️ The new member is « Séance passée » — the slot has ended and **nobody has said whether the patient came**. Written only by `AppointmentProgressJob`'s elapse pass, and it answers the **presence** question alone: what the visit still owes stays `VisitClosureRules`' business, which is why a `Completed` visit can legitimately still be « à clôturer ». Appended at 7 because the column is an `int`; the exclusion constraint filters `Status NOT IN (5, 6)`, so such a row keeps holding its slot with **no migration** — correct, a visit that happened did occupy the chair. ⚠️ `Reschedule` **resets it to `Scheduled`**, beside `NoShow` and for the same reason: moving a past visit to a new date means it has not happened yet |
 | `PatientFlagType` | HighPriority, SpecialCondition, Alert, Critical, Allergy |
 | `FileType` | LabResult, Scan, Prescription, MedicalRecord, Insurance, Other |
 | `InvoiceStatus` | Draft, Issued, PartiallyPaid, Paid, Cancelled |

@@ -78,6 +78,10 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
 
         builder.HasIndex(a => a.TreatmentPlanItemId);
 
+        // Serves the minutely progress pass, whose elapse half scans 30 days of open statuses; `Status` had no
+        // index at all, so that read was a seq scan of the clinic's whole agenda every minute.
+        builder.HasIndex(a => new { a.Status, a.AppointmentDateTime });
+
         builder.Property(a => a.CreatedAt)
             .IsRequired();
 

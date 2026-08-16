@@ -51,6 +51,10 @@ public class AppointmentStatusTransitionTests
             case AppointmentStatus.InProgress:
                 appointment.Start();
                 break;
+            case AppointmentStatus.AwaitingClosure:
+                appointment.Start();
+                appointment.MarkAwaitingClosure();
+                break;
             case AppointmentStatus.Completed:
                 appointment.Start();
                 appointment.Complete();
@@ -85,6 +89,7 @@ public class AppointmentStatusTransitionTests
                 }
                 break;
             case AppointmentStatus.InProgress: appointment.Start(); break;
+            case AppointmentStatus.AwaitingClosure: appointment.MarkAwaitingClosure(); break;
             case AppointmentStatus.Completed: appointment.Complete(); break;
             case AppointmentStatus.Cancelled: appointment.Cancel("motif"); break;
             case AppointmentStatus.NoShow: appointment.MarkAsNoShow(); break;
@@ -117,10 +122,12 @@ public class AppointmentStatusTransitionTests
 
     // And the mirror: anything the table does NOT declare must be refused, not silently ignored.
     //
-    // One documented exclusion. `Reschedule` is a **movement** operation, not a status transition: since the
-    // A-2 fix it deliberately *preserves* `Confirmed`/`InProgress`, so calling it on one of those never attempts
-    // to reach `Scheduled` and correctly does not throw. `Confirmed/InProgress → Scheduled` is still refused —
-    // by the table, enforced at the command layer via `CanTransition` before any mutator runs, which
+    // One documented exclusion, now covering two source statuses. `Reschedule` is a **movement** operation, not a
+    // status transition: since the A-2 fix it deliberately *preserves* `Confirmed`/`InProgress`, and it *resets*
+    // `AwaitingClosure` to `Scheduled` for `NoShow`'s reason — moving a past visit to a new date means it has not
+    // happened yet. Either way it never attempts a table transition and correctly does not throw.
+    // `Confirmed/InProgress/AwaitingClosure → Scheduled` is still refused — by the table, enforced at the command
+    // layer via `CanTransition` before any mutator runs, which
     // `Undeclared_Transitions_To_Scheduled_Are_Refused_By_The_Table` below asserts directly.
     [Fact]
     public void Every_Undeclared_Transition_Is_Refused() // [AC-P1.2 / AC-P1.3]
@@ -135,7 +142,8 @@ public class AppointmentStatusTransitionTests
                     continue;
                 }
 
-                if (to == AppointmentStatus.Scheduled && from == AppointmentStatus.InProgress)
+                if (to == AppointmentStatus.Scheduled
+                    && from is AppointmentStatus.InProgress or AppointmentStatus.AwaitingClosure)
                 {
                     continue; // see the note above — asserted by the next test instead
                 }

@@ -48,6 +48,9 @@ public static class TreatmentPlanWorkflowProjection
         AppointmentStatus.Scheduled,
         AppointmentStatus.Confirmed,
         AppointmentStatus.InProgress,
+        // A séance whose slot has passed with nobody saying what happened is still the booking that speaks for
+        // this act — omitting it would revert the act to « À planifier » and offer to book a visit that exists.
+        AppointmentStatus.AwaitingClosure,
         AppointmentStatus.Completed,
     };
 
