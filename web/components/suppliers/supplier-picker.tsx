@@ -33,7 +33,15 @@ import { cn } from "@/lib/utils"
  */
 interface SupplierPickerProps {
   value: string | null
-  onChange: (supplierId: string | null) => void
+  /**
+   * The picked supplier's id, and the row itself (`null` for « Aucun »).
+   *
+   * <p>The second argument exists because a caller may need the supplier's <b>name</b> at the moment of the pick:
+   * the bon de prothèse prints a name of its own beside the link, and without it that form could only fill the
+   * printed name when the supplier was created inline — so picking an already-filed laboratory made the user
+   * retype its name into the required field above. A callback that ignores it keeps compiling.</p>
+   */
+  onChange: (supplierId: string | null, supplier: SupplierDto | null) => void
   /**
    * The supplier this record already names, when it is known — used to keep a deactivated one visible. Pass the
    * `supplierId`/`supplierName` the row was read with.
@@ -138,7 +146,7 @@ export function SupplierPicker({
                 value="aucun-fournisseur"
                 className="coarse:py-3"
                 onSelect={() => {
-                  onChange(null)
+                  onChange(null, null)
                   setOpen(false)
                 }}
               >
@@ -157,7 +165,7 @@ export function SupplierPicker({
                   value={`${supplier.name} ${supplier.category ?? ""}`}
                   className="coarse:py-3"
                   onSelect={() => {
-                    onChange(supplier.id)
+                    onChange(supplier.id, supplier)
                     setOpen(false)
                   }}
                 >

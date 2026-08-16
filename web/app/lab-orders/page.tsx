@@ -224,6 +224,16 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
     setErrors({})
   }, [editingOrder, open])
 
+  /**
+   * The two fields are different facts — the name is **printed on the bon**, the fiche is how the lab is reached —
+   * but a lab that already has a fiche should not have to be named twice. Filing one inline already did this;
+   * picking an existing one did not, so the common case was retyping a name the app had just been given. Never
+   * overwrites what was typed, and clearing the fiche leaves the printed name alone: it is required, and the bon
+   * still has to say who made the work.
+   */
+  const adoptSupplierName = (name: string) =>
+    setProsthetist((current) => (current.trim() ? current : name))
+
   const validate = (): boolean => {
     const next: Record<string, string> = {}
     if (!editingOrder && !patientId) next.patientId = "Le patient est requis"
@@ -366,7 +376,10 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
             <SupplierPicker
               id="lab-supplier"
               value={supplierId}
-              onChange={setSupplierId}
+              onChange={(id, supplier) => {
+                setSupplierId(id)
+                if (supplier) adoptSupplierName(supplier.name)
+              }}
               selectedFallback={
                 editingOrder?.supplierId && editingOrder.supplierName
                   ? { id: editingOrder.supplierId, name: editingOrder.supplierName }
@@ -476,9 +489,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
         onSaved={(created) => {
           setSupplierId(created.id)
           setSupplierReloadKey((k) => k + 1)
-          // The bon still prints a name of its own, so filing the lab fills it in when it is still blank
-          // rather than overwriting what the user typed.
-          setProsthetist((current) => (current.trim() ? current : created.name))
+          adoptSupplierName(created.name)
         }}
       />
     </Dialog>
