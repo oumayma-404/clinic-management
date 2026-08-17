@@ -197,13 +197,16 @@ function SecurityContent() {
               <CardContent className="space-y-4">
                 {/* ⚠️ The warning appears HERE and nowhere else — beside the control that resolves it. There is
                     deliberately no badge or banner on any other screen (Stated Assumption 7). */}
+                {/* « peu » and « aucun » are different facts, and the second is the one that locks somebody out:
+                    at zero, losing the authenticator means losing the account. Same box, sharper sentence. */}
                 {(state.recoveryCodesRemaining ?? 0) <= LOW_RECOVERY_CODES && (
                   <p
                     role="status"
                     className="rounded-lg border border-warning/30 bg-warning-wash p-3 text-sm text-warning-ink"
                   >
-                    Il vous reste peu de codes de récupération. Régénérez-en une nouvelle série pour ne pas
-                    risquer de perdre l&apos;accès à votre compte.
+                    {(state.recoveryCodesRemaining ?? 0) === 0
+                      ? "Il ne vous reste aucun code de récupération : si vous perdez votre application d’authentification, vous perdrez l’accès à votre compte. Régénérez une nouvelle série dès maintenant."
+                      : "Il vous reste peu de codes de récupération. Régénérez-en une nouvelle série pour ne pas risquer de perdre l’accès à votre compte."}
                   </p>
                 )}
 
