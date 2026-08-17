@@ -14,6 +14,15 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
     <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="xunit" Version="2.5.3" />
+    <!-- Transitive pins, test-project only. xunit 2.5.3 → NETStandard.Library 1.6.1 drags in the 4.3.0 shims for
+         System.Net.Http (GHSA-7jgj-8wvc-jh57) and System.Text.RegularExpressions (GHSA-cmhx-cq75-c4mj). net8
+         provides both types itself so these assemblies are never loaded, but the advisory is real in the graph and
+         `ci.yml`'s `dependencies` job reads the graph — an accepted-with-a-comment exception here would be the
+         "present and inert" gate this repo argues against. ⚠️ The cleaner long-term fix is xunit ≥ 2.9, which drops
+         NETStandard.Library entirely; that is a test-harness bump for the 2 800-test suite and deserves its own
+         pass rather than riding along with a security patch. -->
+    <PackageReference Include="System.Net.Http" Version="4.3.4" />
+    <PackageReference Include="System.Text.RegularExpressions" Version="4.3.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
   </ItemGroup>
 

@@ -17,8 +17,8 @@
       administrator out of their own cabinet. See LocalDataProtection.PersistToDatabaseKey.
     -->
     <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="8.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0">
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
@@ -27,12 +27,18 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.1" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.1" />
+    <!-- Transitive pin, not a used dependency: Configuration.Json's graph carried System.Text.Json 8.0.0
+         (GHSA-hh2w-p6rv-4g7w, fixed in 8.0.4). Pinned rather than left to the parent so the version is explicit
+         and reviewable; remove it if a future parent bump already floats above 8.0.4. -->
+    <PackageReference Include="System.Text.Json" Version="8.0.6" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Identity.Core" Version="8.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.1.2" />
     <PackageReference Include="Minio" Version="5.0.0" />
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
+    <!-- 8.0.11 pulls Npgsql 8.0.x, clearing GHSA-x9vc-6hfv-hg8c. Deliberately NOT 9.0.x: EF Core 9 is a major
+         upgrade on a schema with 100+ migrations, not a security patch. -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
     <!-- RFC 6238 one-time codes for the console's second factor (platform-console FR-1). Used only by
          Auth/TotpService, so Domain keeps its zero package references. -->
     <PackageReference Include="Otp.NET" Version="1.4.1" />

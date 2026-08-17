@@ -237,7 +237,10 @@ npm run build
 ```
 
 ⚠️ **`npm run lint` cannot be the gate**: `eslint` is in the `lint` script but **not in `devDependencies`**, so
-it fails on a clean install, and `next.config.ts` sets `eslint.ignoreDuringBuilds`. There is **no test runner,
+it fails on a clean install. (It used to add « and `next.config.ts` sets `eslint.ignoreDuringBuilds` » — that key
+is **gone since the Next 16 upgrade**, which removed the built-in ESLint integration outright, so the key is not a
+valid `NextConfig` property any more and its absence changes nothing: Next 16 does not run ESLint during a build.)
+There is **no test runner,
 no visual-regression tooling and no CI** in `web/`. That is exactly why the three commands above and the eye
 pass below are the whole gate — treat a missing runner as a fact to work with, not a gap to fill mid-feature.
 

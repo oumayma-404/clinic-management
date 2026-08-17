@@ -1,10 +1,14 @@
 # web/ — Clinic Management Frontend
 
-Next.js 15 (App Router) frontend for the dental/medical clinic management system. Talks to a separate .NET API. **Auth is pluggable** (`AUTH_MODE`): **cloud** = Auth0; **local** = email+password backed by an HttpOnly session cookie (offline LAN installs). Consumers read a unified `useSession()` seam, not Auth0 directly. **French UI** (`<html lang="fr">`), Tunisia-targeted.
+Next.js 16 (App Router) frontend for the dental/medical clinic management system. Talks to a separate .NET API. **Auth is pluggable** (`AUTH_MODE`): **cloud** = Auth0; **local** = email+password backed by an HttpOnly session cookie (offline LAN installs). Consumers read a unified `useSession()` seam, not Auth0 directly. **French UI** (`<html lang="fr">`), Tunisia-targeted.
 
 ## Tech Stack
 
-- **Next.js 15.5** App Router (`app/`), React 19, **TypeScript** (strict).
+- **Next.js 16.3** App Router (`app/`), React 19, **TypeScript** (strict). ⚠️ Upgraded from 15.5 on 2026-08-17 to
+  clear the `sharp`/`postcss` advisories; **requires Node ≥ 20.9**, and both Dockerfiles plus CI now run **Node 22
+  LTS** (Node 20 reached end-of-life 2026-04-30). Two things the upgrade changed that a reader will trip over:
+  `tsconfig.json`'s `jsx` is now **`react-jsx`** (mandatory — Next rewrites it), and `next.config.ts` no longer has
+  an `eslint` key (see the `npm run lint` row below).
 - **Tailwind CSS v4** (`app/globals.css`, oklch design tokens, `@tailwindcss/postcss`). No `tailwind.config` file — config is CSS-based. **next-themes** for light/dark.
 - **shadcn/ui** (style "new-york", RSC enabled) on top of Radix UI primitives. See `components/ui/`.
 - **Auth0** via `@auth0/nextjs-auth0` v4 (`Auth0Provider`, middleware, `/auth/*` routes) — cloud mode only.
@@ -21,7 +25,7 @@ From `web/` (scripts in `package.json`):
 - `npm run check:responsive` — **the device gate** (`scripts/check-responsive.mjs`): **15 checks**, one grep per class of layout — or wording — defect that no type can catch and no eye sees at the width you happen to be developing at. Run it with `npx tsc --noEmit` + `npm run build` on any frontend change. ⚠️ **Every check is enforced** — the old `PENDING_PARTS` staging set is gone; it still listed `P7`/`P8` long after no check declared either, so it read as the source of truth for what was enforced while being inert.
 - `node scripts/generate-icons.mjs` — regenerates the **seven** icon assets in `public/` from the single master `branding/icon.svg` (via `sharp`, already a Next dependency; PIL was not an option — it cannot read SVG). **Never hand-edit a PNG in `public/`**: replace the master and re-run. Output is byte-identical across runs, so an unrelated re-run does not churn the diff. All seven used to **404** while `app/layout.tsx` and `app/manifest.ts` declared them, so an installed app got a blank tile.
   ⚠️ **It also writes two files outside `web/`**, deliberately: `desktop/ClinicManagement.DesktopShell/Assets/app.ico` (7 sizes, embedded in the shell `.exe` and used by both Inno installers) and `mobile/ios/ClinicShell/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`. The alternative was two more hand-made copies of one logo. Android's `ic_launcher_foreground.xml` **is** such a copy — an Android vector drawable is the one output `sharp` cannot emit — so it carries the path by hand, with a comment naming this master; changing the logo means editing that file too.
-- `npm run lint` — ⚠️ **cannot run**: `eslint` is named in the script but is **not in `devDependencies`**, and `next.config.ts` sets `eslint.ignoreDuringBuilds`. With no test runner and no CI either, `check:responsive` + `tsc` + `build` + an eye pass at 320/390/820/1180/1440 px *is* the whole gate.
+- `npm run lint` — ⚠️ **cannot run**: `eslint` is named in the script but is **not in `devDependencies`**. ⚠️ The old second half of this sentence (« and `next.config.ts` sets `eslint.ignoreDuringBuilds` ») is **no longer true**: Next 16 removed the built-in ESLint integration, so that key is not a valid `NextConfig` property and was deleted — which cannot re-enable linting during a build, because Next 16 does not run ESLint during one. `check:responsive` + `tsc` + `build` + an eye pass at 320/390/820/1180/1440 px *is* the whole gate. (There **is** CI now — `.github/workflows/ci.yml` runs exactly those three, plus a `dependencies` job.)
 
 Dockerized via `web/Dockerfile`.
 

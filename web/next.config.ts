@@ -11,10 +11,11 @@ const nextConfig: NextConfig = {
   skipTrailingSlashRedirect: true,
   // Exclude Auth0 routes from static analysis
   pageExtensions: ['tsx', 'ts', 'jsx', 'js'],
-  // Disable ESLint during build (we can enable it later if needed)
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+  // ⚠️ There is no `eslint` key here any more, and its absence is not a regression. Next 16 removed the built-in
+  // ESLint integration outright (`next lint` is gone), so `eslint.ignoreDuringBuilds` is no longer a valid
+  // NextConfig property — it is a `tsc --noEmit` error, which is how the upgrade surfaced it. Deleting it cannot
+  // re-enable linting during the build, because Next 16 does not run ESLint during a build at all. `npm run lint`
+  // remains unrunnable for its own separate reason: `eslint` is named in the script but is not in devDependencies.
 
   // Security headers for page responses (security-hardening US-12 / AC-12.6).
   //

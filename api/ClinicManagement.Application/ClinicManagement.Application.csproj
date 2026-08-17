@@ -9,8 +9,13 @@
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
     <PackageReference Include="MediatR" Version="14.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authorization" Version="8.0.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+    <!-- ⚠️ 2.3.x, NOT 8.0.x: this package was retired into the ASP.NET Core shared framework, so 2.3.12 is the
+         newest that exists and is the maintained security line. 2.2.0 dragged in System.Text.Encodings.Web 4.5.0,
+         a CRITICAL advisory (GHSA-ghhp-997w-qr28) — found by ci.yml's `dependencies` job on its first run.
+         The alternative was <FrameworkReference Include="Microsoft.AspNetCore.App" />, which is the modern answer
+         but makes this Clean Architecture layer reference the whole web framework. -->
+    <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.3.12" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.11" />
   </ItemGroup>
 
   <PropertyGroup>

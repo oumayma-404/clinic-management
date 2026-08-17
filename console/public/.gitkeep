@@ -1,0 +1,9 @@
+# Keeps `console/public/` in the repository.
+#
+# ⚠️ Load-bearing, not tidiness. `console/Dockerfile` runs `COPY --from=builder /app/public ./public`, and with no
+# such directory Docker fails the whole build with « /app/public: not found ». Since
+# `deploy/docker-compose.hosted.yml` builds the console from this context, that meant the vendor console's image
+# could not be built at all — found 2026-08-17 while verifying the Next 16 upgrade in a container.
+#
+# The COPY was kept rather than deleted so that the first static asset added here ships without anyone having to
+# remember to re-add the line.
