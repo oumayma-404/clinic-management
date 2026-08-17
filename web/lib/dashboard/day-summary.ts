@@ -98,6 +98,14 @@ export interface DaySummary {
    * {@link loadPercent} is absent rather than computed against a guess.</p>
    */
   openMinutes: number | null;
+  /**
+   * The clinic's closing time as minutes from local midnight, or `null` when the day is not configured.
+   *
+   * <p>Distinct from {@link openMinutes}, which is a <i>duration</i>. This is the instant, and it is what tells the
+   * greeting whether « bonne soirée » is true yet — a practice closing at 17:00 is in the evening at 17:30, one
+   * closing at 20:00 is not, and a single hardcoded hour is wrong for one of them.</p>
+   */
+  openToMinutes: number | null;
   /** `bookedMinutes / openMinutes`, rounded. `null` whenever {@link openMinutes} is. */
   loadPercent: number | null;
   /** The ribbon's own bounds, in minutes from local midnight. */
@@ -106,17 +114,31 @@ export interface DaySummary {
   gaps: DayGap[];
   current: DaySlot | null;
   next: DaySlot | null;
-  /** Patients already seen. A blocked hour that has passed is not one. */
+  /**
+   * The séance that has ended, is past {@link CHAIR_OVERRUN_GRACE_MINUTES}, and which nobody has answered for —
+   * earliest first. `null` when there is none, and always `null` while {@link current} holds the chair.
+   *
+   * <p>It is the third state of the now/next pair rather than a silent omission: dropping the card would take the
+   * patient's <i>name</i> off the screen, and « N séances à clôturer » on the à-traiter chip cannot say who. § 0 —
+   * no capability removed by a layout decision.</p>
+   */
+  needsClosure: DaySlot | null;
+  /** How many séances are in {@link needsClosure}'s state. Drives the greeting's « — M à clôturer ». */
+  unclosedCount: number;
+  /** Patients whose slot has passed. **Not** « vus »: an unclosed séance is here too — see {@link unclosedCount}. */
   doneCount: number;
   /** Patients still to come. */
   remainingCount: number;
   /** When the last occupying slot ends — blocks included, because « fin prévue » means the day's own end. */
   endsAtMinutes: number | null;
   /**
-   * Every **patient** of the day has been seen. Drives the closing register of the greeting.
+   * Every **patient** slot of the day has passed, and nobody is in the chair. Drives the closing register of the
+   * greeting — but only *that* the programme is finished, never that it is evening: `day-phrases.ts` reads the clock
+   * for the second half, because « le programme est terminé » and « il fait nuit » are independent facts and
+   * conflating them said « Bonne soirée » at midday.
    *
-   * <p>Deliberately not keyed on {@link endsAtMinutes}: a blocked hour at the end of the day is admin time, and
-   * « Journée terminée · N patients vus » is true the moment the last patient leaves.</p>
+   * <p>Deliberately not keyed on {@link endsAtMinutes}: a blocked hour at the end of the day is admin time, and the
+   * programme is finished the moment the last patient's slot ends.</p>
    */
   isOver: boolean;
   /** The clinic does not open on this weekday at all. Distinct from « nothing was booked ». */
@@ -125,6 +147,16 @@ export interface DaySummary {
 
 /** Below this, a hole in the day is turnaround rather than a slot anyone can fill. */
 export const MIN_GAP_MINUTES = 30;
+
+/**
+ * How long past its own end a started séance may still be called « au fauteuil ».
+ *
+ * <p>A visit routinely runs over, and `AppointmentProgressJob` relabels it `AwaitingClosure` within a minute of the
+ * booked slot ending — so some grace is required or the ordinary long visit loses the chair. Past it, the honest
+ * statement is « à clôturer », not « au fauteuil ». This is a <b>rendering</b> tolerance, not a clinical rule: how
+ * long a séance may legitimately run is the practice's business, and nothing here writes a status.</p>
+ */
+export const CHAIR_OVERRUN_GRACE_MINUTES = 30;
 
 /** Minutes from local midnight for a `HH:mm` string; `null` when it is not one. */
 function parseClock(value: string): number | null {
@@ -194,14 +226,17 @@ function workingDayFor(hours: WorkingDay[] | null | undefined, date: Date): Work
  * <p>A patient outranks a « créneau occupé »: a blocked hour is the practitioner's own time, not somebody in the
  * chair. Within each, a slot whose window contains now outranks one merely left open.</p>
  *
- * <p>⚠️ Deliberately <b>no staleness cutoff</b>. A visit started this morning and never closed still claims the
- * chair, exactly as before — declaring how long « en cours » may be trusted is a rule about the practice, not a
- * rendering decision, and `AppointmentProgressJob` is where that question belongs.</p>
+ * <p>⚠️ `started` counts `awaitingclosure` too, and it has to: that status is the successor of « InProgress past
+ * its own slot » — `AppointmentProgressJob` renames it within a minute of the slot ending — so testing
+ * `inprogress` alone would withdraw the chair from a visit running fifteen minutes long, which is the ordinary
+ * case rather than a stale one.</p>
  *
- * <p>⚠️ `started` counts `awaitingclosure` too, and that is what <i>keeps</i> the paragraph above true. That
- * status is the successor of « InProgress past its own slot » — the job renames it within a minute of the slot
- * ending — so testing `inprogress` alone would silently withdraw the chair from a visit running fifteen minutes
- * long, which is the ordinary case, not a stale one.</p>
+ * <p>⚠️ <b>It is bounded, and the unbounded version was a defect.</b> This function once carried « deliberately no
+ * staleness cutoff », which was right while `InProgress` was the only signal — a status somebody has to clear says
+ * nothing about the clock. `AwaitingClosure` says the opposite: the slot has ended and nobody has confirmed the
+ * patient came. Trusting it for ever put a visit that finished at 10:00 « au fauteuil · depuis 2 h 59 » at midday,
+ * while the same séance was counted as already seen in the greeting above it. Past the grace the slot is not in the
+ * chair — it is {@link DaySummary.needsClosure}, which is a different card and a different question.</p>
  */
 function chairClaim(slot: DaySlot, nowMinutes: number): number {
   if (FINISHED.has(statusOf(slot.appointment))) return 0;
@@ -209,7 +244,16 @@ function chairClaim(slot: DaySlot, nowMinutes: number): number {
   const status = statusOf(slot.appointment);
   const started = status === 'inprogress' || status === 'awaitingclosure';
   if (!running && !started) return 0;
+  if (!running && nowMinutes >= slot.endMinutes + CHAIR_OVERRUN_GRACE_MINUTES) return 0;
   return (isBusySlot(slot.appointment) ? 0 : 4) + (running ? 2 : 1);
+}
+
+/** Whether this slot has ended, is past the grace, and still has nobody saying the patient came. */
+function isAwaitingClosure(slot: DaySlot, nowMinutes: number): boolean {
+  if (isBusySlot(slot.appointment)) return false;
+  const status = statusOf(slot.appointment);
+  if (status !== 'inprogress' && status !== 'awaitingclosure') return false;
+  return nowMinutes >= slot.endMinutes + CHAIR_OVERRUN_GRACE_MINUTES;
 }
 
 /**
@@ -311,6 +355,9 @@ export function buildDaySummary(
   const lastPatientEnds =
     patientSlots.length > 0 ? Math.max(...patientSlots.map((s) => s.endMinutes)) : null;
 
+  // `slots` is ordered by start, so the first match is the oldest thing still owed an answer.
+  const unclosed = patientSlots.filter((s) => !s.isCurrent && isAwaitingClosure(s, nowMinutes));
+
   return {
     slots,
     count: patientSlots.length,
@@ -319,16 +366,23 @@ export function buildDaySummary(
     acts: buildActMix(patientSlots),
     bookedMinutes,
     openMinutes,
+    openToMinutes: hasOpenWindow ? (openTo as number) : null,
     loadPercent,
     windowFrom,
     windowTo,
     gaps,
     current,
     next,
+    // Never both: whoever is in the chair is the more urgent statement, and two cards about overdue séances
+    // beside each other is the nagging `VisitClosureState.NextStep` exists to avoid.
+    needsClosure: current ? null : (unclosed[0] ?? null),
+    unclosedCount: unclosed.length,
     doneCount,
     remainingCount: patientSlots.length - doneCount,
     endsAtMinutes,
-    isOver: lastPatientEnds !== null && nowMinutes >= lastPatientEnds,
+    // `current === null` is load-bearing, not belt-and-braces: without it « Journée terminée » rendered above a
+    // « Au fauteuil » card naming the patient still being treated — the last séance of the day being the case.
+    isOver: lastPatientEnds !== null && nowMinutes >= lastPatientEnds && current === null,
     // Only a schedule the clinic actually saved may say « fermé ». The shared default is a guess.
     isClosedToday: hasSavedHours && !hasOpenWindow,
   };

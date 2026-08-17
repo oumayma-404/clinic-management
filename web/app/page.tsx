@@ -14,15 +14,11 @@ import {
   AlertCircle,
   BadgeCheck,
   CalendarCheck,
-  FileText,
-  FlaskConical,
-  Hourglass,
   PackageMinus,
   Receipt,
   Scale,
   Undo2,
   UserPlus,
-  Users,
   Wallet,
 } from "lucide-react"
 import { AppShell } from "@/components/app-shell"
@@ -46,6 +42,7 @@ import {
   KPI_LABELS,
   PREVIOUS_PERIOD_LABELS,
   comparedToLabel,
+  periodWindowLabel,
   SECTION_LABELS,
 } from "@/components/dashboard/dashboard-labels"
 import { useDashboard } from "@/lib/hooks/use-dashboard"
@@ -64,7 +61,6 @@ import {
 import { NextDayLine } from "@/components/dashboard/day/next-day-line"
 import { buildDayPhrase } from "@/lib/dashboard/day-phrases"
 import { formatDT, todayLocalIso } from "@/lib/format"
-import { cn } from "@/lib/utils"
 import type { DashboardPeriodKey, PeriodComparison } from "@/lib/api/types"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { Label } from "@/components/ui/label"
@@ -221,7 +217,9 @@ function DashboardContent() {
    * so for the first hour of every Tunisian day it would name yesterday and re-roll the line at 01:00.
    */
   const phrase = useMemo(
-    () => (now ? buildDayPhrase(summary, todayLocalIso(), clinic?.id ?? "") : null),
+    // `minutesOfDay(now)` is the same instant the day cards are measured against — the greeting's register must not
+    // be able to say « bonne soirée » while « Ensuite » says the next patient is due in an hour.
+    () => (now ? buildDayPhrase(summary, todayLocalIso(), minutesOfDay(now), clinic?.id ?? "") : null),
     [summary, clinic?.id, now],
   )
 
@@ -302,15 +300,17 @@ function DashboardContent() {
       />
     ) : null
 
-  const netCard = kpi("net", money(data?.money.net.current), Scale, {
-    comparison: data?.money.net,
-    emphasis: "hero",
-    sparkline: data?.trend.map((p) => p.collected),
-  })
-
-  /** True when at least one block of a customiser section survives this user's choices. */
-  const sectionHasContent = (section: Parameters<typeof blocksInSection>[0]) =>
-    blocksInSection(section).some((key) => isVisible(key as DashboardBlockKey))
+  /**
+   * True when at least one block of a customiser group, of a given shape, survives this user's choices.
+   *
+   * <p>The `form` argument is what stops a group whose only visible block is its chart from rendering an empty
+   * hairline grid — « Facturé » and « Avoirs remboursés » are hidden by default, so a user can genuinely end up with
+   * a chart and no figures.</p>
+   */
+  const hasVisible = (
+    section: Parameters<typeof blocksInSection>[0],
+    form?: Parameters<typeof blocksInSection>[1],
+  ) => blocksInSection(section, form).some((key) => isVisible(key as DashboardBlockKey))
 
   /**
    * The « À traiter » chips.
@@ -398,31 +398,32 @@ function DashboardContent() {
                 and the greeting's own tier already says what the day is. `slots`, not `count` — a day holding
                 only « créneaux occupés » has no rendez-vous and still has a shape. */}
             {summary.slots.length > 0 && (
-              <section aria-label="La journée" className="space-y-3">
-                <SectionBar title="La journée" href="/appointments" action="Ouvrir l'agenda" />
+              <DashboardSection title={SECTION_LABELS.day} href="/appointments" action="Ouvrir l'agenda">
                 <DayRibbon summary={summary} nowMinutes={minutesOfDay(now)} />
-              </section>
+              </DashboardSection>
             )}
           </>
         )}
 
         {alerts.length > 0 && (
-          <section aria-label={SECTION_LABELS.alerts} className="space-y-3">
-            <SectionBar title={SECTION_LABELS.alerts} />
+          <DashboardSection title={SECTION_LABELS.alerts}>
             <DayAlerts alerts={alerts} />
-          </section>
+          </DashboardSection>
         )}
 
         {isVisible("todayAppointments") && (
-          <section aria-label="Les rendez-vous du jour" className="space-y-3">
-            <SectionBar title="Les rendez-vous" href="/appointments" action="Ouvrir l'agenda" />
+          <DashboardSection
+            title={SECTION_LABELS.appointments}
+            href="/appointments"
+            action="Ouvrir l'agenda"
+          >
             <AppointmentList
               slots={summary.slots}
               loading={!dayReady}
               error={dayError}
               onRetry={refetchDay}
             />
-          </section>
+          </DashboardSection>
         )}
 
         {/*
@@ -441,156 +442,157 @@ function DashboardContent() {
 
         {/*
           ════════════════════════════════════════════════════════════════════════════════════════════════════
-          STATISTIQUES — everything period-bound, below the fold.
+          LE BILAN — everything period-bound, below the fold, recut by QUESTION rather than by kind of figure:
+          l'argent and l'activité, each with its lead figure and the chart that explains it.
 
-          ⚠️ The period selector moved DOWN HERE with them, and that is the single most important structural
-          decision of this rearrangement. Left at the top it would appear to govern the day zones, and choosing
-          « Ce mois » would change nothing above it — a control whose implied scope its own page contradicts.
-          Sitting in this header it visibly governs only what is under it.
+          ⚠️ The period selector stays DOWN HERE, and that remains the most important structural decision of the
+          day-first rearrangement. At the top it would appear to govern the day zones, and choosing « Ce mois »
+          would change nothing above it — a control whose implied scope its own page contradicts.
+
+          ⚠️ There is no « Statistiques » heading any more, and no filled accent surface below the fold. The heading
+          was a category name for figures rather than a question anybody asks, and the hero panel — correct while
+          these sections *were* the page — had become the loudest thing on a screen nobody scrolls to.
           ════════════════════════════════════════════════════════════════════════════════════════════════════
         */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-8">
-          <h2 className="font-mono text-2xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
-            Statistiques
-          </h2>
-          <PeriodSelector value={period} onChange={changePeriod} disabled={loading} />
-        </div>
+        {/*
+          The période band. It owns the selector and — for the first time — states the window in words, from the
+          bounds the SERVER returned. « Ce mois » is a button, not a claim about dates, and nothing on the page used
+          to say which days were being read.
 
-        {sectionHasContent("activity") && (
+          It carries the read's single error, and the two zones below render only when there is none: with `data`
+          undefined every figure formats as « — », which reads as a real zero rather than as a failure.
+        */}
+        <DashboardSection
+          title={SECTION_LABELS.period}
+          hint={bounds ? periodWindowLabel(bounds) : undefined}
+          control={<PeriodSelector value={period} onChange={changePeriod} disabled={loading} />}
+          error={error}
+          onRetry={refetch}
+          // The one rule on the page: above it is today, below it is a period. `space-y-8` alone does not say that.
+          className="border-t pt-8"
+        />
+
+        {!error && (hasVisible("activity", "figure") || isVisible("procedureMix")) && (
           <DashboardSection
             title={SECTION_LABELS.activity}
             hint={comparedToLabel(period)}
             refetching={refetching}
-            error={error}
-            onRetry={refetch}
           >
-            <KpiGrid columns={4}>
-              {kpi("completedAppointments", count(data?.activity.completedAppointments.current), CalendarCheck, {
-                comparison: data?.activity.completedAppointments,
-              })}
-              {kpi("newPatients", count(data?.activity.newPatients.current), UserPlus, {
-                comparison: data?.activity.newPatients,
-              })}
-              {kpi("absenceRate", percent(data?.activity.absenceRate.current), AlertCircle, {
-                comparison: data?.activity.absenceRate,
-                // A rising absence rate is bad news, so the arrow's colour must invert.
-                sense: "up-is-bad",
-              })}
-              {kpi("acceptedPlans", count(data?.activity.acceptedPlans.current), BadgeCheck, {
-                comparison: data?.activity.acceptedPlans,
-              })}
-            </KpiGrid>
-          </DashboardSection>
-        )}
-
-        {sectionHasContent("money") && (
-          <DashboardSection
-            title={SECTION_LABELS.money}
-            hint={comparedToLabel(period)}
-            refetching={refetching}
-            error={error}
-            onRetry={refetch}
-          >
-            {/*
-              L9 — the practitioner filter narrows this section only. « RDV honorés » and « Prothèses en retard »
-              are the practice's operational state, and a filter at page level would look like it applied to them.
-            */}
-            {doctors.length > 1 && (
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <Label htmlFor="money-doctor" className="text-xs font-medium text-muted-foreground">
-                  Praticien
-                </Label>
-                <Select value={moneyDoctorId} onValueChange={setMoneyDoctorId}>
-                  <SelectTrigger id="money-doctor" className="h-9 w-full sm:w-56">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL_DOCTORS}>Tout le cabinet</SelectItem>
-                    {doctors
-                      .filter((d) => d.id)
-                      .map((d) => (
-                        <SelectItem key={d.id} value={d.id as string}>
-                          {d.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+              <div className="space-y-3">
+                <KpiGrid columns={1}>
+                  {kpi(
+                    "completedAppointments",
+                    count(data?.activity.completedAppointments.current),
+                    CalendarCheck,
+                    { comparison: data?.activity.completedAppointments, emphasis: "lead" },
+                  )}
+                </KpiGrid>
+                <KpiGrid columns={2}>
+                  {kpi("absenceRate", percent(data?.activity.absenceRate.current), AlertCircle, {
+                    comparison: data?.activity.absenceRate,
+                    // A rising absence rate is bad news, so the arrow's colour must invert.
+                    sense: "up-is-bad",
+                  })}
+                  {kpi("newPatients", count(data?.activity.newPatients.current), UserPlus, {
+                    comparison: data?.activity.newPatients,
+                  })}
+                  {kpi("acceptedPlans", count(data?.activity.acceptedPlans.current), BadgeCheck, {
+                    comparison: data?.activity.acceptedPlans,
+                  })}
+                </KpiGrid>
               </div>
-            )}
-            {data?.money.clinicWideOutgoings && (
-              <p role="note" className="mb-3 rounded-md bg-warning-wash p-2.5 text-xs text-warning-ink">
-                Filtré par praticien&nbsp;: «&nbsp;Encaissé&nbsp;» ne compte que les paiements de factures
-                {data.money.collectedInvoicesOnly ? " (hors échéances de devis)" : ""}, et
-                «&nbsp;Dépenses&nbsp;» et «&nbsp;Net&nbsp;» restent ceux de tout le cabinet — une dépense
-                n&apos;appartient à aucun praticien.
-              </p>
-            )}
-            <div className={cn("grid gap-3", netCard && "lg:grid-cols-[minmax(0,1.05fr)_minmax(0,2fr)]")}>
-              {netCard}
-              <KpiGrid columns={3}>
-                {kpi("collected", money(data?.money.collected.current), Wallet, {
-                  comparison: data?.money.collected,
-                })}
-                {kpi("invoiced", money(data?.money.invoiced.current), Receipt, {
-                  comparison: data?.money.invoiced,
-                })}
-                {kpi("expenses", money(data?.money.expenses.current), PackageMinus, {
-                  comparison: data?.money.expenses,
-                  sense: "up-is-bad",
-                })}
-                {kpi("refunds", money(data?.money.refunds.current), Undo2, {
-                  comparison: data?.money.refunds,
-                  sense: "up-is-bad",
-                })}
-              </KpiGrid>
+              {/* « Répartition des actes » measures activity, not money — which is why it moved here from a row
+                  where it was paired with the collected trend. */}
+              {isVisible("procedureMix") && (
+                <ProcedureMixChart points={data?.procedureMix ?? []} loading={loading} />
+              )}
             </div>
           </DashboardSection>
         )}
 
-        {/*
-          The two charts side by side. « Répartition des actes » is the new one and the answer to a question no
-          other screen asks; the collected trend keeps its place beside it.
-        */}
-        {(isVisible("procedureMix") || isVisible("trend")) && (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]">
-            {isVisible("procedureMix") && (
-              <ProcedureMixChart points={data?.procedureMix ?? []} loading={loading} />
-            )}
-            {isVisible("trend") && <CollectedTrendChart points={data?.trend ?? []} loading={loading} />}
-          </div>
+        {!error && (hasVisible("money", "figure") || isVisible("trend")) && (
+          <DashboardSection
+            title={SECTION_LABELS.money}
+            hint={comparedToLabel(period)}
+            refetching={refetching}
+            control={
+              /*
+               * L9 — the practitioner filter narrows this section only. « RDV honorés » and « Prothèses en retard »
+               * are the practice's operational state, and a filter at page level would look like it applied to them.
+               * In the header it is unmistakably this card's.
+               */
+              doctors.length > 1 ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label htmlFor="money-doctor" className="text-xs font-medium text-muted-foreground">
+                    Praticien
+                  </Label>
+                  <Select value={moneyDoctorId} onValueChange={setMoneyDoctorId}>
+                    <SelectTrigger id="money-doctor" className="h-9 w-full sm:w-56">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_DOCTORS}>Tout le cabinet</SelectItem>
+                      {doctors
+                        .filter((d) => d.id)
+                        .map((d) => (
+                          <SelectItem key={d.id} value={d.id as string}>
+                            {d.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : undefined
+            }
+          >
+            <div className="space-y-3">
+              {data?.money.clinicWideOutgoings && (
+                <p role="note" className="rounded-md bg-warning-wash p-2.5 text-xs text-warning-ink">
+                  Filtré par praticien&nbsp;: «&nbsp;Encaissé&nbsp;» ne compte que les paiements de factures
+                  {data.money.collectedInvoicesOnly ? " (hors échéances de devis)" : ""}, et
+                  «&nbsp;Dépenses&nbsp;» et «&nbsp;Net&nbsp;» restent ceux de tout le cabinet — une dépense
+                  n&apos;appartient à aucun praticien.
+                </p>
+              )}
+              {/*
+                Figures on the left, the chart that explains them on the right. `xl:` and not `lg:`: a tablet
+                portrait is 820 px and the 256 px rail leaves ~532 px, which would give the chart ~250 px.
+              */}
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+                <div className="space-y-3">
+                  <KpiGrid columns={1}>
+                    {kpi("net", money(data?.money.net.current), Scale, {
+                      comparison: data?.money.net,
+                      emphasis: "lead",
+                    })}
+                  </KpiGrid>
+                  <KpiGrid columns={2}>
+                    {kpi("collected", money(data?.money.collected.current), Wallet, {
+                      comparison: data?.money.collected,
+                    })}
+                    {kpi("invoiced", money(data?.money.invoiced.current), Receipt, {
+                      comparison: data?.money.invoiced,
+                    })}
+                    {kpi("expenses", money(data?.money.expenses.current), PackageMinus, {
+                      comparison: data?.money.expenses,
+                      sense: "up-is-bad",
+                    })}
+                    {kpi("refunds", money(data?.money.refunds.current), Undo2, {
+                      comparison: data?.money.refunds,
+                      sense: "up-is-bad",
+                    })}
+                  </KpiGrid>
+                </div>
+                {isVisible("trend") && (
+                  <CollectedTrendChart points={data?.trend ?? []} loading={loading} />
+                )}
+              </div>
+            </div>
+          </DashboardSection>
         )}
 
-        {/*
-          « À traiter » keeps a customiser section, but its blocks now render as the chips above rather than as a
-          KpiGrid down here — the counts are operational state a dentist acts on in the morning, not statistics.
-          The section header is intentionally absent: `DashboardSection` would draw an empty surface.
-        */}
       </AppShell>
     </ClinicGuard>
-  )
-}
-
-/**
- * A day-zone heading: the mono eyebrow the sections already use, plus an optional way through to the full screen.
- *
- * <p>Deliberately not `DashboardSection`, which owns loading/`Indisponible`/retry for a *period* read. The day
- * zones have their own single failure (the appointment fetch), reported once by the list.</p>
- */
-function SectionBar({ title, href, action }: { title: string; href?: string; action?: string }) {
-  return (
-    <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-2">
-      <h2 className="flex items-center gap-2 font-mono text-2xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
-        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary" />
-        {title}
-      </h2>
-      {href && action && (
-        <a
-          href={href}
-          className="text-xs font-medium text-primary underline-offset-4 hover-hover:hover:underline"
-        >
-          {action} →
-        </a>
-      )}
-    </div>
   )
 }

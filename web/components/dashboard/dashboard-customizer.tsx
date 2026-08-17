@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch"
 import {
   DASHBOARD_BLOCKS,
   DASHBOARD_BLOCK_KEYS,
+  DASHBOARD_FORM_LABELS,
   DASHBOARD_SECTION_KEYS,
   DASHBOARD_SECTION_TITLES,
   blocksInSection,
@@ -79,24 +80,35 @@ export function DashboardCustomizer({
             if (keys.length === 0) return null
 
             return (
-              <div key={section} className="space-y-2.5">
+              <div key={section} className="space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {DASHBOARD_SECTION_TITLES[section]}
                 </p>
                 {keys.map((key) => {
                   const id = `dashboard-block-${key}`
+                  const block = DASHBOARD_BLOCKS[key]
                   return (
                     <div key={key} className="flex items-center justify-between gap-3">
                       {/* A real <Label htmlFor> rather than adjacent text: the whole row should be a hit target,
                           and a switch whose label is not associated with it is unusable by a screen reader. */}
-                      <Label htmlFor={id} className="cursor-pointer text-sm font-normal leading-snug">
-                        {DASHBOARD_BLOCKS[key].label}
+                      {/* `flex-col items-start` because `ui/label.tsx` is a flex ROW: without it the form line
+                          renders as a second column beside the name and reads as an accidental table. */}
+                      <Label
+                        htmlFor={id}
+                        className="cursor-pointer flex-col items-start gap-0.5 text-sm font-normal leading-snug"
+                      >
+                        {block.label}
+                        {/* What it actually is on the page. Six identically-shaped rows under « La journée » say
+                            nothing about the fact that they are chips at the top rather than cards below. */}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          {DASHBOARD_FORM_LABELS[block.form]}
+                        </span>
                       </Label>
                       <Switch
                         id={id}
                         checked={!hidden.has(key)}
                         onCheckedChange={() => onToggle(key)}
-                        aria-label={DASHBOARD_BLOCKS[key].label}
+                        aria-label={block.label}
                       />
                     </div>
                   )

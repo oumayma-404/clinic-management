@@ -1,5 +1,5 @@
-import type { DashboardKpiKey } from '@/lib/dashboard-links';
-import type { DashboardPeriodKey } from '@/lib/api/types';
+import { periodCalendarRange, type DashboardKpiKey } from '@/lib/dashboard-links';
+import type { DashboardPeriodDto, DashboardPeriodKey } from '@/lib/api/types';
 
 /**
  * French labels for the dashboard's figures — display-time mapping over the English wire keys, the same convention as
@@ -49,6 +49,19 @@ export const PERIOD_LABELS: Record<DashboardPeriodKey, string> = {
 };
 
 /**
+ * The same three periods, short enough for a 320 px track.
+ *
+ * <p>A *visual* abbreviation only: `PeriodSelector` keeps {@link PERIOD_LABELS} as each button's accessible name,
+ * so nothing announces « Jour ». The three full labels together measure ~355 px against 288 px of content box at
+ * the narrowest supported width.</p>
+ */
+export const PERIOD_LABELS_SHORT: Record<DashboardPeriodKey, string> = {
+  Today: 'Jour',
+  Week: 'Semaine',
+  Month: 'Mois',
+};
+
+/**
  * How the previous period is named in a delta's tooltip / screen-reader text. Written as « vs. hier » rather than
  * « vs. la période précédente » so the comparison is concrete — a reader should never have to guess what a −20 % is
  * measured against.
@@ -77,12 +90,53 @@ export function comparedToLabel(period: DashboardPeriodKey): string {
   return `Comparé ${contracted[period]}`;
 }
 
+/**
+ * The headings the page draws.
+ *
+ * <p>⚠️ `trend` is gone: the chart carries its own `CardTitle` (« Encaissé — 6 derniers mois ») and this entry had
+ * no consumer left. `activity` and `money` are now possessive — « L'argent », « L'activité » — because they name a
+ * *card about a question* rather than a category of figure.</p>
+ */
 export const SECTION_LABELS = {
-  activity: 'Activité',
-  money: 'Argent',
+  day: 'La journée',
+  appointments: 'Les rendez-vous',
   alerts: 'À traiter',
-  trend: 'Tendance',
+  period: 'Sur cette période',
+  activity: 'L’activité',
+  money: 'L’argent',
 } as const;
+
+/**
+ * The window a period actually covers, in French — « 17 août », « 11 – 17 août », « 28 juillet – 3 août ».
+ *
+ * <p>Built from {@link periodCalendarRange}, i.e. the **server's own bounds** through the same conversion
+ * `DASHBOARD_LINKS` uses for its query params — so the sentence above the figures and the filter a card links to
+ * can never name different days. Before this the dashboard stated its window nowhere at all: « Ce mois » is a
+ * button, not a claim about dates.</p>
+ */
+export function periodWindowLabel(period: DashboardPeriodDto): string {
+  const { from, to } = periodCalendarRange(period);
+  const start = splitDay(from);
+  const end = splitDay(to);
+
+  if (from === to) return `${start.day} ${monthName(start)}`;
+  // Same month: name it once. « 1 – 17 août » rather than « 1 août – 17 août ».
+  if (start.year === end.year && start.month === end.month) {
+    return `${start.day} – ${end.day} ${monthName(end)}`;
+  }
+  return `${start.day} ${monthName(start)} – ${end.day} ${monthName(end)}`;
+}
+
+/** A `YYYY-MM-DD` day string in parts. No `Date` is built, so no timezone can shift it. */
+function splitDay(day: string): { year: number; month: number; day: number } {
+  const [year, month, date] = day.split('-');
+  return { year: Number(year), month: Number(month), day: Number(date) };
+}
+
+/** « août ». Constructed locally from the parts, the same shape `formatMonthShort` already uses. */
+function monthName(parts: { year: number; month: number }): string {
+  return new Date(parts.year, parts.month - 1, 1).toLocaleDateString('fr-TN', { month: 'long' });
+}
 
 /** Formats a French month label from the API's locale-free `yyyy-MM`. */
 export function formatMonthShort(month: string): string {

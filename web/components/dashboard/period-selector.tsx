@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { DashboardPeriodKey } from "@/lib/api/types"
-import { PERIOD_LABELS } from "./dashboard-labels"
+import { PERIOD_LABELS, PERIOD_LABELS_SHORT } from "./dashboard-labels"
 
 const PERIODS: DashboardPeriodKey[] = ["Today", "Week", "Month"]
 
@@ -32,7 +32,15 @@ export function PeriodSelector({ value, onChange, disabled = false }: PeriodSele
     <div
       role="group"
       aria-label="Période"
-      className="inline-flex gap-0.5 rounded-full border bg-card p-0.5 shadow-sm"
+      /*
+       * Full-width and 3-up below `sm:`, an intrinsic pill above it.
+       *
+       * ⚠️ Not cosmetic: « Aujourd'hui · Cette semaine · Ce mois » at `text-sm` with `px-3.5` measures ~355 px, and
+       * a 320 px viewport leaves 288 px of content — so as an `inline-flex` the track overflowed the page at the
+       * one width § 0 names. Sharing the row three ways and shortening the visible words fixes it without hiding
+       * anything: the accessible name stays the full French below.
+       */
+      className="flex w-full gap-0.5 rounded-full border bg-card p-0.5 shadow-sm sm:inline-flex sm:w-auto"
     >
       {PERIODS.map((period) => {
         const selected = period === value
@@ -41,6 +49,9 @@ export function PeriodSelector({ value, onChange, disabled = false }: PeriodSele
             key={period}
             type="button"
             aria-pressed={selected}
+            // The full label is the accessible name at every width, so the short form is a *visual* abbreviation
+            // and « Jour » is never what a screen reader announces.
+            aria-label={PERIOD_LABELS[period]}
             disabled={disabled}
             onClick={() => onChange(period)}
             className={cn(
@@ -49,7 +60,7 @@ export function PeriodSelector({ value, onChange, disabled = false }: PeriodSele
               // 2px from its neighbours. This is the dashboard's only filter — the control that rescopes every
               // figure on the page — so a mis-tap silently reads the wrong period. Growing the row is right
               // here rather than an overlay, for the same reason as a menu item: they are adjacent.
-              "rounded-full px-3.5 py-1.5 text-sm transition-colors duration-150 ease-snap coarse:min-h-11 coarse:px-4",
+              "flex-1 rounded-full px-3.5 py-1.5 text-sm transition-colors duration-150 ease-snap coarse:min-h-11 coarse:px-4 sm:flex-none",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card",
               "disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none",
               selected
@@ -57,7 +68,12 @@ export function PeriodSelector({ value, onChange, disabled = false }: PeriodSele
                 : "text-muted-foreground hover-hover:hover:text-foreground",
             )}
           >
-            {PERIOD_LABELS[period]}
+            <span aria-hidden="true" className="sm:hidden">
+              {PERIOD_LABELS_SHORT[period]}
+            </span>
+            <span aria-hidden="true" className="hidden sm:inline">
+              {PERIOD_LABELS[period]}
+            </span>
           </button>
         )
       })}

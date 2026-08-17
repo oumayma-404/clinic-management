@@ -14,7 +14,23 @@ import type { DaySummary } from '@/lib/dashboard/day-summary';
  * than a free morning.</p>
  */
 
-export type DayTier = 'closed' | 'empty' | 'light' | 'steady' | 'busy' | 'packed' | 'over';
+/**
+ * ⚠️ `done` and `evening` are two tiers because they are two facts.
+ *
+ * <p>There used to be one, `over`, chosen from `summary.isOver` alone — and its whole bank was written at the
+ * evening register (🌙, « Rideau », « Bonne soirée »). `isOver` becomes true when the last patient's slot ends, so a
+ * practice with one 09:00 visit was wished good evening from 10:00 onwards. « Le programme est terminé » is about
+ * the agenda; « il fait nuit » is about the clock; nothing may state the second from the first.</p>
+ */
+export type DayTier =
+  | 'closed'
+  | 'empty'
+  | 'light'
+  | 'steady'
+  | 'busy'
+  | 'packed'
+  | 'done'
+  | 'evening';
 
 export interface DayPhrase {
   emoji: string;
@@ -80,17 +96,43 @@ const BANK: Record<DayTier, ReadonlyArray<{ emoji: string; headline: string }>> 
     { emoji: '💫', headline: 'Quelle énergie !' },
     { emoji: '🔥', headline: 'Grande journée' },
   ],
-  over: [
+  // The programme is finished and it is still the working day. Nothing here mentions the evening, and nothing
+  // congratulates the reader on going home — there may be four hours left, and walk-ins arrive.
+  done: [
+    { emoji: '✅', headline: 'Programme terminé' },
+    { emoji: '📋', headline: 'Plus rien au programme' },
+    { emoji: '🙂', headline: 'Agenda dégagé' },
+  ],
+  evening: [
     { emoji: '🌙', headline: 'Journée terminée' },
     { emoji: '👏', headline: 'C’est dans la boîte' },
     { emoji: '🌆', headline: 'Rideau pour aujourd’hui' },
   ],
 };
 
-/** Which register today is in. Order matters: « fermé » and « terminé » outrank any load reading. */
-export function resolveDayTier(summary: DaySummary): DayTier {
+/** When « bonne soirée » becomes true for a clinic that has saved no closing time. */
+const DEFAULT_EVENING_FROM_MINUTES = 18 * 60;
+
+/**
+ * Whether the clinic's own day is behind us.
+ *
+ * <p>Keyed on the cabinet's <b>closing time</b> rather than a fixed hour: a practice closing at 17:00 is in the
+ * evening at 17:30 and one closing at 20:00 is not, so any single hardcoded hour is wrong for one of them. The
+ * constant is only the fallback for a clinic that has configured none.</p>
+ */
+function isEvening(summary: DaySummary, nowMinutes: number): boolean {
+  return nowMinutes >= (summary.openToMinutes ?? DEFAULT_EVENING_FROM_MINUTES);
+}
+
+/**
+ * Which register today is in. Order matters: « fermé » and « terminé » outrank any load reading.
+ *
+ * @param nowMinutes minutes from local midnight — passed in, never read here, for the reason the whole module is
+ *                   pure: « what does the greeting say at 11:59 » is otherwise untestable.
+ */
+export function resolveDayTier(summary: DaySummary, nowMinutes: number): DayTier {
   if (summary.count === 0) return summary.isClosedToday ? 'closed' : 'empty';
-  if (summary.isOver) return 'over';
+  if (summary.isOver) return isEvening(summary, nowMinutes) ? 'evening' : 'done';
 
   const ladder = summary.loadPercent !== null ? LOAD_TIERS : COUNT_TIERS;
   const measure = summary.loadPercent !== null ? summary.loadPercent : summary.count;
@@ -111,8 +153,24 @@ function buildSubline(tier: DayTier, summary: DaySummary): string {
       return summary.blockedCount > 0
         ? `Aucun patient prévu — ${summary.blockedCount} ${plural(summary.blockedCount, 'créneau bloqué', 'créneaux bloqués')} seulement.`
         : 'Le planning est vide — de quoi rattraper les dossiers en attente.';
-    case 'over':
-      return `${summary.count} ${plural(summary.count, 'patient vu', 'patients vus')} aujourd’hui. Bonne soirée.`;
+    /*
+     * ⚠️ `doneCount`, never `count`. `count` is patients *booked*, and it was rendered under the label « patient
+     * vu » — so a day whose only séance was still open read « 1 patient vu » in the headline while the card below
+     * showed that same patient as being treated. Two opposite claims about one séance, one line apart.
+     *
+     * And « vu » is only said when nothing is left to close: `doneCount` means the slot has passed, which is not
+     * the same as somebody confirming the patient came — that is exactly what `AwaitingClosure` withholds.
+     */
+    case 'done':
+    case 'evening': {
+      const closing = tier === 'evening' ? ' Bonne soirée.' : '';
+      if (summary.unclosedCount > 0) {
+        const ended = `${summary.doneCount} ${plural(summary.doneCount, 'séance terminée', 'séances terminées')}`;
+        return `${ended} — ${summary.unclosedCount} à clôturer.${closing}`;
+      }
+      const seen = `${summary.doneCount} ${plural(summary.doneCount, 'patient vu', 'patients vus')}`;
+      return `${seen} aujourd’hui.${closing}`;
+    }
     default:
       break;
   }
@@ -155,10 +213,20 @@ function hash(seed: string): number {
  * exactly when the day genuinely changes register — a morning that fills up moves from « tranquille » to
  * « ruche », which is correct rather than a glitch.</p>
  *
- * @param dayKey a `YYYY-MM-DD` clinic-local day. Use `todayLocalIso()`, never `toISOString().slice(0, 10)`.
+ * @param dayKey     a `YYYY-MM-DD` clinic-local day. Use `todayLocalIso()`, never `toISOString().slice(0, 10)`.
+ * @param nowMinutes minutes from local midnight, so the register can tell « le programme est terminé » from
+ *                   « il fait nuit ». Pass the same value the day board's cards are measured against.
+ *                   ⚠️ **Required, and ahead of `clinicSeed`, on purpose** — as an optional trailing parameter it
+ *                   would default to midnight, which reads as « never evening » and silently restores half the
+ *                   defect this split exists to fix.
  */
-export function buildDayPhrase(summary: DaySummary, dayKey: string, clinicSeed = ''): DayPhrase {
-  const tier = resolveDayTier(summary);
+export function buildDayPhrase(
+  summary: DaySummary,
+  dayKey: string,
+  nowMinutes: number,
+  clinicSeed = '',
+): DayPhrase {
+  const tier = resolveDayTier(summary, nowMinutes);
   const options = BANK[tier];
   const chosen = options[hash(`${clinicSeed}|${dayKey}|${tier}`) % options.length];
   return { emoji: chosen.emoji, headline: chosen.headline, subline: buildSubline(tier, summary) };

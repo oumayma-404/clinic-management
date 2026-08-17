@@ -38,9 +38,18 @@ function toCalendarDay(iso: string): string {
   return `${d.getFullYear()}-${month}-${day}`;
 }
 
-function range(period: DashboardPeriodDto): { from: string; to: string } {
+/**
+ * The window as two inclusive `YYYY-MM-DD` calendar days.
+ *
+ * <p>Exported so the heading that states the window in words (`periodWindowLabel`) reads it from **here** rather
+ * than converting the instants a second time. The label and the filter a card links to are the same claim about the
+ * same days; two conversions is how they come to disagree by one.</p>
+ */
+export function periodCalendarRange(period: DashboardPeriodDto): { from: string; to: string } {
   return { from: toCalendarDay(period.from), to: toCalendarDay(period.toInclusive) };
 }
+
+const range = periodCalendarRange;
 
 function query(params: Record<string, string | undefined>): string {
   const search = new URLSearchParams();

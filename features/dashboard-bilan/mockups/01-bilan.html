@@ -1,0 +1,1450 @@
+<title>Bilan</title>
+
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   DOCUMENT TOKENS — follow the viewer's theme (three states: bare :root =
+   light, prefers-color-scheme guarded so an explicit light choice wins, and
+   [data-theme="dark"] so the toggle wins in the other direction).
+   ══════════════════════════════════════════════════════════════════════════ */
+:root {
+  --doc-bg:        oklch(0.982 0.006 232);
+  --doc-panel:     oklch(1 0 0);
+  --doc-ink:       oklch(0.215 0.020 236);
+  --doc-ink-soft:  oklch(0.505 0.021 234);
+  --doc-ink-faint: oklch(0.615 0.016 234);
+  --doc-line:      oklch(0.905 0.013 230);
+  --doc-line-soft: oklch(0.945 0.010 230);
+  --doc-accent:    oklch(0.485 0.101 234);
+  --doc-accent-w:  oklch(0.952 0.026 232);
+  --doc-good:      oklch(0.48 0.12 155);
+  --doc-good-w:    oklch(0.955 0.035 155);
+  --doc-warn:      oklch(0.46 0.11 62);
+  --doc-warn-w:    oklch(0.965 0.045 80);
+  --doc-bad:       oklch(0.52 0.19 25);
+  --doc-bad-w:     oklch(0.962 0.030 25);
+  --doc-code-bg:   oklch(0.960 0.012 230);
+
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --col: 68ch;
+  --shadow-sm: 0 1px 2px 0 oklch(0.20 0.02 235 / 0.05), 0 1px 3px 0 oklch(0.20 0.02 235 / 0.04);
+  --shadow-md: 0 2px 4px -1px oklch(0.20 0.02 235 / 0.05), 0 5px 12px -2px oklch(0.20 0.02 235 / 0.07);
+  --shadow-lg: 0 4px 8px -2px oklch(0.20 0.02 235 / 0.06), 0 14px 28px -6px oklch(0.20 0.02 235 / 0.09);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --doc-bg:        oklch(0.215 0.006 268);
+    --doc-panel:     oklch(0.278 0.006 265);
+    --doc-ink:       oklch(0.905 0.004 260);
+    --doc-ink-soft:  oklch(0.700 0.008 265);
+    --doc-ink-faint: oklch(0.615 0.008 265);
+    --doc-line:      oklch(0.362 0.008 268);
+    --doc-line-soft: oklch(0.318 0.007 268);
+    --doc-accent:    oklch(0.740 0.125 234);
+    --doc-accent-w:  oklch(0.345 0.030 245);
+    --doc-good:      oklch(0.740 0.130 155);
+    --doc-good-w:    oklch(0.330 0.042 155);
+    --doc-warn:      oklch(0.810 0.120 80);
+    --doc-warn-w:    oklch(0.345 0.048 78);
+    --doc-bad:       oklch(0.735 0.155 25);
+    --doc-bad-w:     oklch(0.322 0.048 25);
+    --doc-code-bg:   oklch(0.318 0.007 268);
+  }
+}
+:root[data-theme="dark"] {
+  --doc-bg:        oklch(0.215 0.006 268);
+  --doc-panel:     oklch(0.278 0.006 265);
+  --doc-ink:       oklch(0.905 0.004 260);
+  --doc-ink-soft:  oklch(0.700 0.008 265);
+  --doc-ink-faint: oklch(0.615 0.008 265);
+  --doc-line:      oklch(0.362 0.008 268);
+  --doc-line-soft: oklch(0.318 0.007 268);
+  --doc-accent:    oklch(0.740 0.125 234);
+  --doc-accent-w:  oklch(0.345 0.030 245);
+  --doc-good:      oklch(0.740 0.130 155);
+  --doc-good-w:    oklch(0.330 0.042 155);
+  --doc-warn:      oklch(0.810 0.120 80);
+  --doc-warn-w:    oklch(0.345 0.048 78);
+  --doc-bad:       oklch(0.735 0.155 25);
+  --doc-bad-w:     oklch(0.322 0.048 25);
+  --doc-code-bg:   oklch(0.318 0.007 268);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--doc-bg);
+  color: var(--doc-ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px 96px; }
+.col  { max-width: var(--col); }
+
+/* ── masthead ───────────────────────────────────────────────────────────── */
+.mast { padding: 56px 0 34px; border-bottom: 1px solid var(--doc-line); }
+.eyebrow {
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.12em; color: var(--doc-ink-soft);
+  display: flex; align-items: center; gap: 8px; margin: 0 0 14px;
+}
+.eyebrow::before {
+  content: ""; width: 6px; height: 6px; border-radius: 999px;
+  background: var(--doc-accent); flex: none;
+}
+h1 {
+  font-size: clamp(34px, 6vw, 50px); line-height: 1.04; letter-spacing: -0.033em;
+  font-weight: 640; margin: 0 0 18px; text-wrap: balance;
+}
+.lede { font-size: 18px; line-height: 1.6; color: var(--doc-ink-soft); margin: 0; max-width: 62ch; }
+.lede strong { color: var(--doc-ink); font-weight: 600; }
+
+/* ── sections ───────────────────────────────────────────────────────────── */
+section { padding-top: 60px; }
+h2 {
+  font-size: 25px; letter-spacing: -0.022em; font-weight: 630; margin: 0 0 8px;
+  text-wrap: balance;
+}
+h3 {
+  font-size: 17px; letter-spacing: -0.012em; font-weight: 620; margin: 30px 0 8px;
+}
+p { margin: 0 0 15px; }
+.col p, .col ul, .col ol { max-width: var(--col); }
+a { color: var(--doc-accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+code {
+  font-family: var(--mono); font-size: 0.855em; background: var(--doc-code-bg);
+  padding: 0.12em 0.38em; border-radius: 5px; word-break: break-word;
+}
+ul, ol { padding-inline-start: 1.3em; margin: 0 0 15px; }
+li { margin-bottom: 7px; }
+li::marker { color: var(--doc-ink-faint); }
+.soft { color: var(--doc-ink-soft); }
+.mono-num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ── defect ledger ──────────────────────────────────────────────────────── */
+.ledger { display: grid; gap: 12px; margin-top: 24px; }
+.bug {
+  background: var(--doc-panel); border: 1px solid var(--doc-line);
+  border-radius: 12px; padding: 16px 18px;
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 14px;
+  box-shadow: var(--shadow-sm);
+}
+.bug-tag {
+  grid-row: 1 / span 3; align-self: start;
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 4px 8px; border-radius: 6px; white-space: nowrap;
+}
+.bug-tag.sev  { background: var(--doc-bad-w);  color: var(--doc-bad); }
+.bug-tag.mid  { background: var(--doc-warn-w); color: var(--doc-warn); }
+.bug-tag.low  { background: var(--doc-code-bg); color: var(--doc-ink-soft); }
+.bug-what { font-weight: 600; font-size: 15.5px; letter-spacing: -0.008em; }
+.bug-why  { font-size: 14.5px; color: var(--doc-ink-soft); }
+.bug-fix  { font-size: 14px; }
+.bug-fix b { font-weight: 620; }
+
+/* ── canvas: the app mockup surface ─────────────────────────────────────── */
+.canvas-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px;
+  margin: 30px 0 10px;
+}
+.canvas-name {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.12em; color: var(--doc-ink-soft);
+}
+.tog {
+  margin-inline-start: auto; display: inline-flex; gap: 2px; padding: 2px;
+  background: var(--doc-code-bg); border-radius: 8px; border: 1px solid var(--doc-line);
+}
+.tog button {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  border: 0; background: transparent; color: var(--doc-ink-soft);
+  padding: 5px 10px; border-radius: 6px; cursor: pointer; font-weight: 600;
+}
+.tog button[aria-pressed="true"] {
+  background: var(--doc-panel); color: var(--doc-accent);
+  box-shadow: var(--shadow-sm);
+}
+.tog button:focus-visible { outline: 2px solid var(--doc-accent); outline-offset: 1px; }
+
+.cv {
+  border: 1px solid var(--doc-line); border-radius: 16px; overflow: hidden;
+  box-shadow: var(--shadow-md);
+}
+.cv-inner { padding: 26px 22px 30px; overflow-x: auto; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   APP TOKENS — the clinic's own palette, transcribed from web/app/globals.css.
+   Scoped to the canvas and defined explicitly for BOTH modes, so a canvas
+   never borrows the document's theme.
+   ══════════════════════════════════════════════════════════════════════════ */
+.cv[data-mode="light"] {
+  --ground:  oklch(0.977 0.011 230);
+  --card:    oklch(1 0 0);
+  --fg:      oklch(0.205 0.020 236);
+  --fg-soft: oklch(0.50 0.021 234);
+  --line:    oklch(0.91 0.013 230);
+  --primary: oklch(0.485 0.101 234);
+  --pri-fg:  oklch(0.99 0.005 234);
+  --muted:   oklch(0.964 0.012 230);
+  --accent:  oklch(0.948 0.031 230);
+  --accent-fg: oklch(0.375 0.078 234);
+  --success: oklch(0.52 0.12 155);
+  --success-w: oklch(0.955 0.035 155);
+  --warning: oklch(0.62 0.13 72);
+  --warning-w: oklch(0.965 0.045 80);
+  --warning-ink: oklch(0.45 0.11 62);
+  --destructive: oklch(0.55 0.19 25);
+  --destructive-w: oklch(0.962 0.03 25);
+  --hero-from: oklch(0.455 0.095 234);
+  --hero-to:   oklch(0.345 0.088 246);
+  --hero-glow: oklch(0.60 0.122 232);
+  --chart-1: oklch(0.615 0.128 234);
+  --zone-daily: oklch(0.485 0.101 234);
+  --zone-money: oklch(0.48 0.11 62);
+  --act-tint: 22%;
+  --act-tint-edge: 44%;
+  --el-sm: 0 1px 2px 0 oklch(0.20 0.02 235 / 0.05), 0 1px 3px 0 oklch(0.20 0.02 235 / 0.04);
+  --el-md: 0 2px 4px -1px oklch(0.20 0.02 235 / 0.05), 0 5px 12px -2px oklch(0.20 0.02 235 / 0.07);
+  --el-lg: 0 4px 8px -2px oklch(0.20 0.02 235 / 0.06), 0 14px 28px -6px oklch(0.20 0.02 235 / 0.09);
+  background: var(--ground); color: var(--fg);
+}
+.cv[data-mode="dark"] {
+  --ground:  oklch(0.245 0.006 268);
+  --card:    oklch(0.305 0.006 265);
+  --fg:      oklch(0.895 0.004 260);
+  --fg-soft: oklch(0.685 0.008 265);
+  --line:    oklch(0.372 0.008 268);
+  --primary: oklch(0.72 0.125 234);
+  --pri-fg:  oklch(0.20 0.030 240);
+  --muted:   oklch(0.345 0.007 265);
+  --accent:  oklch(0.368 0.030 245);
+  --accent-fg: oklch(0.820 0.100 234);
+  --success: oklch(0.72 0.13 155);
+  --success-w: oklch(0.340 0.042 155);
+  --warning: oklch(0.78 0.13 78);
+  --warning-w: oklch(0.355 0.048 78);
+  --warning-ink: oklch(0.87 0.11 80);
+  --destructive: oklch(0.70 0.155 25);
+  --destructive-w: oklch(0.330 0.048 25);
+  --hero-from: oklch(0.455 0.088 234);
+  --hero-to:   oklch(0.345 0.082 248);
+  --hero-glow: oklch(0.600 0.115 232);
+  --chart-1: oklch(0.71 0.135 234);
+  --zone-daily: oklch(0.76 0.115 234);
+  --zone-money: oklch(0.78 0.10 75);
+  --act-tint: 36%;
+  --act-tint-edge: 54%;
+  --el-sm: 0 1px 2px 0 oklch(0.20 0.02 235 / 0.05), 0 1px 3px 0 oklch(0.20 0.02 235 / 0.04);
+  --el-md: 0 2px 4px -1px oklch(0.20 0.02 235 / 0.05), 0 5px 12px -2px oklch(0.20 0.02 235 / 0.07);
+  --el-lg: 0 4px 8px -2px oklch(0.20 0.02 235 / 0.06), 0 14px 28px -6px oklch(0.20 0.02 235 / 0.09);
+  background: var(--ground); color: var(--fg);
+}
+
+/* ── app primitives (mirrors of the real Tailwind class strings) ────────── */
+.zone      { display: grid; gap: 12px; }
+.zones     { display: grid; gap: 32px; min-width: 660px; }
+.zones.narrow { min-width: 0; }
+
+.secbar {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 8px;
+}
+.sectitle {
+  display: flex; align-items: center; gap: 8px; margin: 0;
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.12em; color: var(--fg-soft);
+}
+.sectitle .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--primary); flex: none; }
+.sechint { font-size: 12px; color: var(--fg-soft); font-family: var(--mono); }
+.seclink { font-size: 12px; font-weight: 600; color: var(--primary); text-decoration: none; }
+.seclink:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.h2app { font-size: 18px; font-weight: 620; letter-spacing: -0.014em; margin: 0; }
+
+/* segmented period control */
+.seg {
+  display: inline-flex; gap: 2px; padding: 3px; background: var(--muted);
+  border: 1px solid var(--line); border-radius: 10px;
+}
+.seg span {
+  font-size: 12.5px; font-weight: 500; color: var(--fg-soft);
+  padding: 5px 11px; border-radius: 7px; white-space: nowrap;
+}
+.seg span.on {
+  background: var(--card); color: var(--primary); font-weight: 620;
+  box-shadow: var(--el-sm); outline: 1px solid color-mix(in oklab, var(--primary) 30%, transparent);
+}
+
+/* hairline KPI grid — gap:1px over bg:line, children paint card */
+.kgrid {
+  display: grid; gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+  box-shadow: var(--el-sm);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.kgrid.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.kgrid.c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.kcell { background: var(--card); padding: 16px 18px; display: grid; align-content: start; gap: 5px; }
+.kcell.lead { grid-row: span 2; align-content: center; gap: 8px; }
+.klabel {
+  display: flex; align-items: center; gap: 8px; margin: 0;
+  font-size: 13.5px; font-weight: 500; color: var(--fg-soft); line-height: 1.35;
+}
+.kchip {
+  width: 28px; height: 28px; border-radius: 9px; flex: none;
+  display: grid; place-content: center;
+  background: color-mix(in oklab, var(--primary) 10%, transparent); color: var(--primary);
+}
+.kchip.money { background: color-mix(in oklab, var(--zone-money) 12%, transparent); color: var(--zone-money); }
+.kval {
+  margin: 0; font-size: 22px; font-weight: 620; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums; color: var(--fg); line-height: 1.15;
+}
+.kval.big { font-size: 34px; letter-spacing: -0.032em; font-weight: 680; }
+.kdesc { margin: 0; font-size: 12px; color: var(--fg-soft); line-height: 1.4; }
+.pill {
+  display: inline-flex; align-items: center; gap: 5px; width: fit-content;
+  padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+.pill.up   { background: var(--success-w); color: var(--success); }
+.pill.down { background: var(--destructive-w); color: var(--destructive); }
+.pill.flat { background: var(--muted); color: var(--fg-soft); }
+.pill svg { width: 13px; height: 13px; }
+
+/* the filled hero (AVANT only) */
+.hero {
+  position: relative; overflow: hidden; border-radius: 14px; padding: 20px;
+  color: oklch(0.99 0.005 234);
+  display: flex; flex-direction: column; justify-content: space-between; gap: 14px;
+  background:
+    radial-gradient(120% 90% at 100% 0%, var(--hero-glow) 0%, transparent 62%),
+    linear-gradient(158deg, var(--hero-from) 0%, var(--hero-to) 100%);
+  box-shadow: var(--el-lg), 0 0 0 0 transparent;
+}
+.hero .wm { position: absolute; right: -14px; bottom: -18px; opacity: 0.10; }
+.hero .hl { font-size: 13.5px; font-weight: 620; letter-spacing: 0.01em; opacity: 0.85; margin: 0; }
+.hero .hv { font-size: 36px; font-weight: 700; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; margin: 6px 0 0; }
+.hero .hd { font-size: 12px; opacity: 0.75; margin: 8px 0 0; }
+.hero .hpill {
+  display: inline-flex; align-items: center; gap: 5px; width: fit-content;
+  border: 1px solid rgb(255 255 255 / 0.25); background: rgb(255 255 255 / 0.20);
+  padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+.hero .hrow { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+
+/* app cards */
+.acard {
+  background: var(--card); border: 1px solid transparent; border-radius: 14px;
+  box-shadow: var(--el-md); padding: 18px 20px; display: grid; gap: 14px;
+  align-content: start;
+}
+.acard-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+.acard-title { margin: 0; font-size: 14.5px; font-weight: 620; letter-spacing: -0.008em; }
+.acard-sub { margin: 0; font-size: 12px; color: var(--fg-soft); font-family: var(--mono); }
+
+/* full-bleed hairline grid inside a card */
+.acard.bleed { padding: 0; gap: 0; overflow: hidden; }
+.acard.bleed > .acard-head { padding: 18px 20px 14px; }
+.acard.bleed > .kgrid { border: 0; border-radius: 0; border-top: 1px solid var(--line); box-shadow: none; }
+
+.two { display: grid; gap: 14px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+.two.even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.split-hero { display: grid; gap: 12px; grid-template-columns: minmax(0, 1.05fr) minmax(0, 2fr); }
+
+/* fake select */
+.fsel {
+  display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px;
+  border: 1px solid var(--line); background: var(--card); color: var(--fg);
+  padding: 5px 10px; border-radius: 8px; font-weight: 500;
+}
+
+/* procedure mix bars */
+.mix { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.mixrow { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; align-items: baseline; }
+.mixname { font-size: 13px; color: var(--fg); }
+.mixnum { font-size: 12px; color: var(--fg-soft); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.mixbar { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: var(--muted); overflow: hidden; }
+.mixbar i { display: block; height: 100%; border-radius: 4px; }
+
+/* chart */
+.chart { display: grid; gap: 8px; }
+.chart svg { width: 100%; height: auto; display: block; }
+.axis {
+  display: flex; justify-content: space-between; font-family: var(--mono);
+  font-size: 10.5px; color: var(--fg-soft); letter-spacing: 0.02em;
+}
+
+/* the day-board stub shown for context */
+.stub {
+  border: 1px dashed color-mix(in oklab, var(--line) 100%, transparent);
+  border-radius: 14px; padding: 14px 16px; color: var(--fg-soft);
+  display: flex; align-items: center; gap: 10px; font-size: 13px;
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+}
+.stub b { color: var(--fg); font-weight: 600; }
+
+/* the retired page-level break (AVANT) */
+.oldbreak { border-top: 1px solid var(--line); padding-top: 26px; display: grid; gap: 12px; }
+.oldbreak-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+
+/* customiser panel mock */
+.pop {
+  width: 320px; max-width: 100%; background: var(--card); border: 1px solid var(--line);
+  border-radius: 12px; box-shadow: var(--el-lg); padding: 16px; display: grid; gap: 14px;
+}
+.pop h4 { margin: 0; font-size: 14px; font-weight: 620; }
+.pop .note { margin: 0; font-size: 12px; color: var(--fg-soft); line-height: 1.45; }
+.popgroup { display: grid; gap: 8px; }
+.popgroup > .gl {
+  font-family: var(--mono); font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--fg-soft); font-weight: 600;
+}
+.poprow { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13.5px; }
+.poprow .sub { display: block; font-size: 11.5px; color: var(--fg-soft); }
+.sw { width: 34px; height: 20px; border-radius: 999px; background: var(--muted); flex: none; position: relative; border: 1px solid var(--line); }
+.sw.on { background: var(--primary); border-color: var(--primary); }
+.sw::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: 999px; background: var(--card);
+}
+.sw.on::after { left: auto; right: 2px; }
+.strike { text-decoration: line-through; color: var(--fg-soft); }
+
+/* ── verdict blocks ─────────────────────────────────────────────────────── */
+.verdict {
+  margin: 26px 0 0; border: 1px solid var(--doc-line); border-radius: 12px;
+  background: var(--doc-panel); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+.verdict-bar {
+  display: flex; align-items: center; gap: 10px; padding: 11px 16px;
+  border-bottom: 1px solid var(--doc-line-soft);
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.verdict-bar.rec  { background: var(--doc-good-w); color: var(--doc-good); }
+.verdict-bar.ok   { background: var(--doc-warn-w); color: var(--doc-warn); }
+.verdict-bar.risk { background: var(--doc-bad-w);  color: var(--doc-bad); }
+.pc { display: grid; gap: 0; grid-template-columns: 1fr; }
+@media (min-width: 760px) { .pc { grid-template-columns: 1fr 1fr; } }
+.pc > div { padding: 15px 17px; }
+.pc > div + div { border-top: 1px solid var(--doc-line-soft); }
+@media (min-width: 760px) {
+  .pc > div + div { border-top: 0; border-inline-start: 1px solid var(--doc-line-soft); }
+}
+.pc h5 {
+  margin: 0 0 8px; font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--doc-ink-faint);
+}
+.pc ul { margin: 0; padding-inline-start: 1.15em; }
+.pc li { font-size: 14.5px; margin-bottom: 6px; }
+
+/* ── files table ────────────────────────────────────────────────────────── */
+.tablewrap { overflow-x: auto; margin-top: 20px; border: 1px solid var(--doc-line); border-radius: 12px; background: var(--doc-panel); }
+table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 14.5px; }
+th, td { text-align: start; padding: 11px 15px; border-bottom: 1px solid var(--doc-line-soft); vertical-align: top; }
+th {
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--doc-ink-faint); background: var(--doc-code-bg);
+}
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+
+.callout {
+  margin: 24px 0 0; padding: 15px 18px; border-radius: 12px;
+  background: var(--doc-accent-w); border: 1px solid color-mix(in oklab, var(--doc-accent) 22%, transparent);
+  font-size: 14.5px;
+}
+.callout p:last-child { margin-bottom: 0; }
+.callout strong { font-weight: 640; }
+
+hr.rule { border: 0; border-top: 1px solid var(--doc-line); margin: 58px 0 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+@media (max-width: 640px) {
+  .wrap { padding: 0 16px 72px; }
+  .cv-inner { padding: 18px 14px 22px; }
+  .two, .two.even, .split-hero { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 1-1 1v2a1 1 0 0 1-1 1H5a2 2 0 0 1-2-2V5"/></symbol>
+    <symbol id="i-receipt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 7h8M8 11h8M8 15h5"/></symbol>
+    <symbol id="i-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"/><path d="M17 7H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="m9 11 3 3L22 4"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/></symbol>
+    <symbol id="i-slash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h6"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+  <header class="mast">
+    <p class="eyebrow">Tableau de bord · second demi-écran</p>
+    <h1>Bilan</h1>
+    <p class="lede">
+      Le haut du tableau de bord répond à <strong>« que se passe-t-il maintenant »</strong> et a été refondu
+      la semaine dernière. Le bas répond à <strong>« comment va le cabinet sur une période »</strong> — mais il
+      a été dessiné quand il était l'écran entier. Voici les cinq défauts à corriger, puis trois façons de
+      recomposer cette moitié.
+    </p>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="defauts">
+    <div class="col">
+      <p class="eyebrow">Ce qui est cassé</p>
+      <h2>Cinq défauts, tous côté navigateur</h2>
+      <p class="soft">
+        Aucun ne demande de migration ni de changement d'API. Les deux premiers sont ceux que vous avez vus
+        à midi.
+      </p>
+    </div>
+
+    <div class="ledger">
+      <div class="bug">
+        <span class="bug-tag sev">Bug 1</span>
+        <span class="bug-what">🌙 « Bonne soirée » à midi</span>
+        <span class="bug-why">
+          <code>day-phrases.ts:91</code> — <code>resolveDayTier</code> renvoie <code>'over'</code> dès que
+          <code>summary.isOver</code> est vrai, et la banque <code>over</code> est écrite entièrement au
+          registre du soir (🌙 · 🌆 · « Bonne soirée »). Or <code>isOver</code> vaut
+          <code>nowMinutes &gt;= lastPatientEnds</code> : avec un seul patient de 09:00 à 10:00, c'est vrai
+          <em>dès 10:00</em>. La banque ne lit jamais l'heure.
+        </span>
+        <span class="bug-fix">
+          <b>Correctif —</b> séparer les deux faits. « Le programme est terminé » et « il fait nuit » sont
+          indépendants : un palier <code>done</code> de journée et un palier <code>evening</code>, l'heure
+          passée en paramètre comme <code>DaySummary</code> reçoit déjà <code>now</code>.
+        </span>
+      </div>
+
+      <div class="bug">
+        <span class="bug-tag sev">Bug 2</span>
+        <span class="bug-what">« Au fauteuil » trois heures après la fin du créneau</span>
+        <span class="bug-why">
+          <code>day-summary.ts:206</code> — <code>chairClaim</code> compte
+          <code>awaitingclosure</code> comme « commencé » et n'a <em>volontairement aucune limite</em>. Ce
+          choix était juste quand le seul signal était <code>InProgress</code> ; depuis
+          <code>appointment-elapsed-status</code>, <code>AwaitingClosure</code> signifie exactement
+          <em>le créneau est fini et personne n'a confirmé la présence</em> — et la spec de cette
+          fonctionnalité liste <code>DashboardActivityReader</code> parmi les « volontairement inchangés ».
+          Cette surface n'a jamais été enrôlée.
+        </span>
+        <span class="bug-fix">
+          <b>Correctif —</b> borner la revendication à un débordement plausible (~30 min après
+          <code>endMinutes</code>), puis basculer la carte sur un <b>troisième état</b> : « Séance à
+          clôturer », avec le lien vers <code>/a-cloturer</code>. Rien n'est masqué — § 0 — et la phrase
+          devient vraie.
+        </span>
+      </div>
+
+      <div class="bug">
+        <span class="bug-tag sev">Bug 3</span>
+        <span class="bug-what">« 1 patient vu » compte les patients <em>prévus</em></span>
+        <span class="bug-why">
+          <code>day-phrases.ts:115</code> utilise <code>summary.count</code> (patients prévus) sous
+          l'étiquette « patient vu ». Le chiffre des patients passés est <code>doneCount</code>. Dans votre
+          capture <code>count = 1</code> et <code>doneCount = 0</code> : la même séance est annoncée
+          <em>vue</em> en haut et <em>au fauteuil</em> juste en dessous. Le module viole sa propre charte
+          — « la phrase doit être une affirmation vraie, vérifiable une ligne plus bas ».
+        </span>
+        <span class="bug-fix">
+          <b>Correctif —</b> compter les séances réellement terminées, et ne jamais dire « vu » d'une
+          séance dont le statut est précisément « personne n'a confirmé ».
+        </span>
+      </div>
+
+      <div class="bug">
+        <span class="bug-tag mid">Bug 4</span>
+        <span class="bug-what">« Personnaliser » décrit un écran qui n'existe plus</span>
+        <span class="bug-why">
+          Les six entrées du groupe <b>À traiter</b> portent encore les libellés et descriptions de
+          <em>cartes KPI</em> retirées ; elles pilotent aujourd'hui les <em>pastilles</em> du haut de page.
+          Le déclencheur, lui, est le premier élément du DOM — dans la ligne du titre — au-dessus de tout
+          ce qu'il commande. Et quatre des six zones du haut ne sont pas réglables du tout.
+        </span>
+        <span class="bug-fix">
+          <b>Correctif —</b> regrouper le panneau selon les zones réelles de la page, dans l'ordre de la
+          page, et redécrire les six entrées pour ce qu'elles sont devenues.
+        </span>
+      </div>
+
+      <div class="bug">
+        <span class="bug-tag low">Bug 5</span>
+        <span class="bug-what">Restes morts</span>
+        <span class="bug-why">
+          <code>page.tsx:13-27</code> importe <code>FileText</code>, <code>FlaskConical</code>,
+          <code>Hourglass</code> et <code>Users</code> — les icônes des quatre cartes devenues pastilles —
+          sans les utiliser. <code>SECTION_LABELS.trend</code> n'a plus de consommateur. Rien ne le signale :
+          <code>npm run lint</code> ne peut pas s'exécuter dans <code>web/</code>.
+        </span>
+        <span class="bug-fix"><b>Correctif —</b> supprimer.</span>
+      </div>
+    </div>
+
+    <div class="callout col">
+      <p>
+        <strong>Un sixième, signalé et non corrigé sans votre accord :</strong> le tableau du haut n'a
+        aucune notion d'heure tunisienne. Chaque lecture d'horloge y est celle du poste
+        (<code>date.getHours()</code>, <code>new Date()</code>), alors que <code>AwaitingClosure</code> est
+        écrit côté serveur via <code>ClinicClock</code> (UTC+1). Sur un poste réglé autrement, les deux se
+        contredisent. <code>/a-cloturer</code> documente accepter cette dérive ; ici rien ne le dit.
+      </p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="avant">
+    <div class="col">
+      <p class="eyebrow">État actuel</p>
+      <h2>Le second demi-écran aujourd'hui</h2>
+      <p class="soft">
+        Rendu fidèle à partir des classes réelles. Le haut de page est résumé en une bande grise : ce n'est
+        pas lui qui est en question.
+      </p>
+    </div>
+
+    <div class="canvas-head">
+      <span class="canvas-name">Avant</span>
+      <div class="tog" role="group" aria-label="Thème de l'aperçu Avant">
+        <button type="button" data-target="cv-avant" data-mode="light" aria-pressed="true">Clair</button>
+        <button type="button" data-target="cv-avant" data-mode="dark" aria-pressed="false">Sombre</button>
+      </div>
+    </div>
+
+    <div class="cv" id="cv-avant" data-mode="light">
+      <div class="cv-inner">
+        <div class="zones">
+
+          <div class="stub">
+            <svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg>
+            <span><b>Le haut de page</b> — salutation, Au fauteuil / Ensuite, le ruban de la journée, les
+            pastilles À traiter, les rendez-vous du jour, la prochaine journée ouvrée.</span>
+          </div>
+
+          <div class="oldbreak">
+            <div class="oldbreak-head">
+              <h3 class="h2app">Statistiques</h3>
+              <div class="seg" role="group" aria-label="Période">
+                <span>Aujourd'hui</span><span>Cette semaine</span><span class="on">Ce mois</span>
+              </div>
+            </div>
+
+            <div class="zone">
+              <div class="secbar">
+                <h4 class="sectitle"><span class="dot"></span>Activité</h4>
+                <span class="sechint">comparé au mois dernier</span>
+              </div>
+              <div class="kgrid c4">
+                <div class="kcell">
+                  <p class="klabel"><span class="kchip"><svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg></span>Rendez-vous honorés</p>
+                  <p class="kval">46</p>
+                  <p class="kdesc">Séances terminées sur la période.</p>
+                  <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>5,2 %</p>
+                </div>
+                <div class="kcell">
+                  <p class="klabel"><span class="kchip"><svg width="16" height="16" aria-hidden="true"><use href="#i-users"/></svg></span>Nouveaux patients</p>
+                  <p class="kval">9</p>
+                  <p class="kdesc">Fiches créées sur la période.</p>
+                  <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>12,5 %</p>
+                </div>
+                <div class="kcell">
+                  <p class="klabel"><span class="kchip"><svg width="16" height="16" aria-hidden="true"><use href="#i-slash"/></svg></span>Taux d'absence</p>
+                  <p class="kval">6,5 %</p>
+                  <p class="kdesc">Absents et annulés.</p>
+                  <p class="pill up"><svg aria-hidden="true"><use href="#i-down"/></svg>2,1 pts</p>
+                </div>
+                <div class="kcell">
+                  <p class="klabel"><span class="kchip"><svg width="16" height="16" aria-hidden="true"><use href="#i-file"/></svg></span>Devis acceptés</p>
+                  <p class="kval">4</p>
+                  <p class="kdesc">Acceptés sur la période.</p>
+                  <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>33,3 %</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="zone">
+              <div class="secbar">
+                <h4 class="sectitle"><span class="dot"></span>Argent</h4>
+                <span class="fsel">Praticien : tous
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </span>
+              </div>
+              <div class="split-hero">
+                <div class="hero">
+                  <svg class="wm" width="112" height="112" aria-hidden="true"><use href="#i-wallet"/></svg>
+                  <div class="hrow">
+                    <p class="hl">Net</p>
+                    <span class="hpill"><svg width="13" height="13" aria-hidden="true"><use href="#i-up"/></svg>12,4 %</span>
+                  </div>
+                  <div>
+                    <p class="hv">4 250,000 DT</p>
+                    <p class="hd">Encaissé moins avoirs et dépenses.</p>
+                  </div>
+                  <svg viewBox="0 0 180 46" width="180" height="46" aria-hidden="true" style="opacity:.9">
+                    <polyline points="4,34 39,25 74,30 109,14 144,19 176,8" fill="none" stroke="rgb(255 255 255 / .85)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="176" cy="8" r="3.4" fill="#fff"/>
+                  </svg>
+                </div>
+                <div class="kgrid c3">
+                  <div class="kcell">
+                    <p class="klabel"><span class="kchip money"><svg width="16" height="16" aria-hidden="true"><use href="#i-wallet"/></svg></span>Encaissé</p>
+                    <p class="kval">5 070,000 DT</p>
+                    <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>8,1 %</p>
+                  </div>
+                  <div class="kcell">
+                    <p class="klabel"><span class="kchip money"><svg width="16" height="16" aria-hidden="true"><use href="#i-receipt"/></svg></span>Facturé</p>
+                    <p class="kval">6 340,000 DT</p>
+                    <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>4,6 %</p>
+                  </div>
+                  <div class="kcell">
+                    <p class="klabel"><span class="kchip money"><svg width="16" height="16" aria-hidden="true"><use href="#i-out"/></svg></span>Dépenses</p>
+                    <p class="kval">820,000 DT</p>
+                    <p class="pill up"><svg aria-hidden="true"><use href="#i-down"/></svg>3,4 %</p>
+                  </div>
+                  <div class="kcell">
+                    <p class="klabel"><span class="kchip money"><svg width="16" height="16" aria-hidden="true"><use href="#i-undo"/></svg></span>Avoirs remboursés</p>
+                    <p class="kval">0,000 DT</p>
+                    <p class="pill flat">Pas de comparaison</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="two">
+              <div class="acard">
+                <div class="acard-head"><h4 class="acard-title">Répartition des actes</h4></div>
+                <ul class="mix">
+                  <li class="mixrow"><span class="mixname">Détartrage</span><span class="mixnum">14 · 7 h</span><span class="mixbar"><i style="width:100%;background:color-mix(in oklab, #3b82f6 var(--act-tint-edge), var(--card))"></i></span></li>
+                  <li class="mixrow"><span class="mixname">Obturation</span><span class="mixnum">11 · 8 h 15</span><span class="mixbar"><i style="width:79%;background:color-mix(in oklab, #a855f7 var(--act-tint-edge), var(--card))"></i></span></li>
+                  <li class="mixrow"><span class="mixname">Consultation</span><span class="mixnum">8 · 2 h</span><span class="mixbar"><i style="width:57%;background:color-mix(in oklab, #14b8a6 var(--act-tint-edge), var(--card))"></i></span></li>
+                </ul>
+              </div>
+              <div class="acard">
+                <div class="acard-head"><h4 class="acard-title">Encaissé — 6 derniers mois</h4></div>
+                <div class="chart">
+                  <svg viewBox="0 0 300 90" aria-hidden="true">
+                    <path d="M6,62 L64,44 L122,52 L180,24 L238,32 L294,12 L294,86 L6,86 Z" fill="var(--chart-1)" opacity="0.26"/>
+                    <polyline points="6,62 64,44 122,52 180,24 238,32 294,12" fill="none" stroke="var(--chart-1)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="294" cy="12" r="4" fill="var(--chart-1)" stroke="var(--card)" stroke-width="2"/>
+                  </svg>
+                  <div class="axis"><span>mars</span><span>avr</span><span>mai</span><span>juin</span><span>juil</span><span>août</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <h3>Ce que le rendu montre</h3>
+      <ul>
+        <li>
+          <strong>Deux surfaces pleines sur une page.</strong> Le système ne s'autorise
+          <em>qu'un</em> aplat d'accent par page — c'était le panneau « Net », dessiné quand il était en
+          haut. Le tableau de la journée est maintenant au-dessus : l'élément le plus fort de la page est
+          celui que personne ne fait défiler jusque là.
+        </li>
+        <li>
+          <strong>Deux primitives d'en-tête de section.</strong> <code>SectionBar</code> (local à
+          <code>page.tsx</code>) et <code>DashboardSection</code> dessinent la même bande —
+          trois copies du même balisage.
+        </li>
+        <li>
+          <strong>La période ne dit jamais quelles dates.</strong> « Ce mois » est un bouton ; aucune ligne
+          n'énonce <span class="mono-num">1 – 17 août</span>. Le seul indice est le <code>hint</code> d'une
+          seule section.
+        </li>
+        <li>
+          <strong>Le graphe des encaissements ignore la période</strong> — six mois par construction — tout
+          en étant posé <em>dans</em> la zone que la période commande. Changez de période : il ne bouge pas.
+        </li>
+        <li>
+          <strong>La répartition des actes est de l'activité, pas de l'argent</strong>, et se retrouve
+          appariée à un graphe d'argent.
+        </li>
+        <li>
+          <strong>Neuf chiffres de poids égal.</strong> « Taux d'absence » et « Net » ont la même taille de
+          cellule.
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="option-b">
+    <div class="col">
+      <p class="eyebrow">Option A · recommandée</p>
+      <h2>Deux questions, deux surfaces</h2>
+      <p>
+        Recouper la moitié basse selon ce que le lecteur demande, pas selon le type de donnée :
+        <strong>l'argent</strong> et <strong>l'activité</strong>. Chaque zone reçoit
+        <em>un chiffre de tête</em>, une rangée de chiffres subordonnés, et
+        <em>le graphe qui l'explique</em> à côté d'elle. Une seule barre de période, qui énonce la fenêtre
+        en français.
+      </p>
+    </div>
+
+    <div class="canvas-head">
+      <span class="canvas-name">Option A — deux questions</span>
+      <div class="tog" role="group" aria-label="Thème de l'aperçu Option A">
+        <button type="button" data-target="cv-a" data-mode="light" aria-pressed="true">Clair</button>
+        <button type="button" data-target="cv-a" data-mode="dark" aria-pressed="false">Sombre</button>
+      </div>
+    </div>
+
+    <div class="cv" id="cv-a" data-mode="light">
+      <div class="cv-inner">
+        <div class="zones">
+
+          <div class="stub">
+            <svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg>
+            <span><b>Le haut de page</b> — inchangé.</span>
+          </div>
+
+          <div class="zone">
+            <div class="secbar">
+              <h4 class="sectitle"><span class="dot"></span>Sur cette période · 1 – 17 août</h4>
+              <div class="seg" role="group" aria-label="Période">
+                <span>Aujourd'hui</span><span>Cette semaine</span><span class="on">Ce mois</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="two">
+            <div class="acard bleed">
+              <div class="acard-head">
+                <h4 class="acard-title">L'argent</h4>
+                <span class="fsel">Praticien : tous
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </span>
+              </div>
+              <div class="kgrid">
+                <div class="kcell lead">
+                  <p class="klabel"><span class="kchip money"><svg width="16" height="16" aria-hidden="true"><use href="#i-wallet"/></svg></span>Net</p>
+                  <p class="kval big">4 250,000 DT</p>
+                  <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>12,4 %</p>
+                  <p class="kdesc">Encaissé moins avoirs et dépenses.</p>
+                </div>
+                <div class="kcell">
+                  <p class="klabel">Encaissé</p>
+                  <p class="kval">5 070,000 DT</p>
+                  <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>8,1 %</p>
+                </div>
+                <div class="kcell">
+                  <p class="klabel">Facturé</p>
+                  <p class="kval">6 340,000 DT</p>
+                  <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>4,6 %</p>
+                </div>
+                <div class="kcell">
+                  <p class="klabel">Dépenses</p>
+                  <p class="kval">820,000 DT</p>
+                  <p class="pill up"><svg aria-hidden="true"><use href="#i-down"/></svg>3,4 %</p>
+                </div>
+                <div class="kcell">
+                  <p class="klabel">Avoirs remboursés</p>
+                  <p class="kval">0,000 DT</p>
+                  <p class="pill flat">Pas de comparaison</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="acard">
+              <div class="acard-head">
+                <h4 class="acard-title">Encaissé</h4>
+                <p class="acard-sub">6 derniers mois</p>
+              </div>
+              <div class="chart">
+                <svg viewBox="0 0 300 104" aria-hidden="true">
+                  <line x1="6" y1="18" x2="294" y2="18" stroke="var(--line)" stroke-width="1"/>
+                  <line x1="6" y1="52" x2="294" y2="52" stroke="var(--line)" stroke-width="1"/>
+                  <path d="M6,72 L64,52 L122,61 L180,28 L238,37 L294,14 L294,96 L6,96 Z" fill="var(--chart-1)" opacity="0.26"/>
+                  <polyline points="6,72 64,52 122,61 180,28 238,37 294,14" fill="none" stroke="var(--chart-1)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                  <circle cx="294" cy="14" r="4.2" fill="var(--chart-1)" stroke="var(--card)" stroke-width="2"/>
+                </svg>
+                <div class="axis"><span>mars</span><span>avr</span><span>mai</span><span>juin</span><span>juil</span><span>août</span></div>
+              </div>
+              <p class="kdesc">Août à ce jour : <span class="mono-num">5 070,000 DT</span> — le même chiffre
+              qu'« Encaissé » à gauche.</p>
+            </div>
+          </div>
+
+          <div class="two">
+            <div class="acard bleed">
+              <div class="acard-head">
+                <h4 class="acard-title">L'activité</h4>
+                <p class="acard-sub">comparé au mois dernier</p>
+              </div>
+              <div class="kgrid">
+                <div class="kcell lead">
+                  <p class="klabel"><span class="kchip"><svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg></span>Rendez-vous honorés</p>
+                  <p class="kval big">46</p>
+                  <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>5,2 %</p>
+                  <p class="kdesc">Séances terminées sur la période.</p>
+                </div>
+                <div class="kcell">
+                  <p class="klabel">Taux d'absence</p>
+                  <p class="kval">6,5 %</p>
+                  <p class="pill up"><svg aria-hidden="true"><use href="#i-down"/></svg>2,1 pts</p>
+                </div>
+                <div class="kcell">
+                  <p class="klabel">Nouveaux patients</p>
+                  <p class="kval">9</p>
+                  <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>12,5 %</p>
+                </div>
+                <div class="kcell">
+                  <p class="klabel">Devis acceptés</p>
+                  <p class="kval">4</p>
+                  <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>33,3 %</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="acard">
+              <div class="acard-head">
+                <h4 class="acard-title">Répartition des actes</h4>
+                <p class="acard-sub">durée</p>
+              </div>
+              <ul class="mix">
+                <li class="mixrow"><span class="mixname">Obturation</span><span class="mixnum">11 · 8 h 15</span><span class="mixbar"><i style="width:100%;background:color-mix(in oklab, #a855f7 var(--act-tint-edge), var(--card))"></i></span></li>
+                <li class="mixrow"><span class="mixname">Détartrage</span><span class="mixnum">14 · 7 h</span><span class="mixbar"><i style="width:85%;background:color-mix(in oklab, #3b82f6 var(--act-tint-edge), var(--card))"></i></span></li>
+                <li class="mixrow"><span class="mixname">Couronne</span><span class="mixnum">4 · 5 h</span><span class="mixbar"><i style="width:61%;background:color-mix(in oklab, #f59e0b var(--act-tint-edge), var(--card))"></i></span></li>
+                <li class="mixrow"><span class="mixname">Extraction</span><span class="mixnum">6 · 3 h</span><span class="mixbar"><i style="width:36%;background:color-mix(in oklab, #ef4444 var(--act-tint-edge), var(--card))"></i></span></li>
+                <li class="mixrow"><span class="mixname">Consultation</span><span class="mixnum">8 · 2 h</span><span class="mixbar"><i style="width:24%;background:color-mix(in oklab, #14b8a6 var(--act-tint-edge), var(--card))"></i></span></li>
+              </ul>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <h3>Les six décisions</h3>
+      <ol>
+        <li>
+          <strong>Une barre de période, qui énonce sa fenêtre.</strong> « Sur cette période ·
+          <span class="mono-num">1 – 17 août</span> » vient des bornes que le serveur renvoie déjà
+          (<code>period.from</code> / <code>period.toInclusive</code>) — donc l'écran ne peut pas se
+          tromper sur ce qu'il lit.
+        </li>
+        <li>
+          <strong>Le <code>border-t</code> et le titre « Statistiques » disparaissent</strong> au profit de
+          la même bande d'en-tête que partout ailleurs. Une primitive, pas trois copies.
+        </li>
+        <li>
+          <strong>Le panneau plein « Net » est retiré ; Net devient le chiffre de tête</strong> de la carte
+          argent, en <code>34 px</code>. Le budget « un seul aplat d'accent par page » revient au tableau de
+          la journée, qui est au-dessus de la ligne de flottaison. <em>C'est un revirement d'une décision
+          documentée</em> — <code>design.md</code> appelait ce panneau « le seul geste audacieux » — et il
+          faut l'écrire comme tel : il était juste quand cette moitié était la page.
+        </li>
+        <li>
+          <strong>Le graphe des encaissements sort de la revendication de période</strong> et prend son
+          propre sous-titre « 6 derniers mois », à côté de l'argent qu'il explique. La légende dit
+          explicitement que le dernier mois <em>est</em> le chiffre d'à côté.
+        </li>
+        <li>
+          <strong>La répartition des actes rejoint l'activité.</strong> C'est ce qu'elle mesure.
+        </li>
+        <li>
+          <strong>Chaque chiffre reste un <code>Link</code></strong> vers la liste filtrée qu'il compte —
+          la grille de filets <code>gap-px</code> est conservée à l'intérieur des cartes, en pleine largeur
+          sous l'en-tête. <code>KpiCard</code>, <code>KpiGrid</code> et <code>dashboard-links.ts</code> ne
+          changent pas d'API.
+        </li>
+      </ol>
+    </div>
+
+    <div class="verdict">
+      <p class="verdict-bar rec">✓ Recommandée</p>
+      <div class="pc">
+        <div>
+          <h5>Pour</h5>
+          <ul>
+            <li>Chaque graphe explique les chiffres qu'il touche — l'argument d'architecture de l'information le plus fort des trois.</li>
+            <li>Argent et activité deviennent symétriques, donc apprenables d'un coup d'œil.</li>
+            <li>Rétablit le budget d'un seul aplat d'accent, désormais détenu par le haut de page.</li>
+            <li>Résout la contradiction « graphe six mois dans une zone de période ».</li>
+            <li>Conserve le drill-down de chaque chiffre, durement acquis.</li>
+            <li>Deux surfaces au lieu de cinq blocs empilés.</li>
+          </ul>
+        </div>
+        <div>
+          <h5>Contre &amp; risques</h5>
+          <ul>
+            <li><strong>Revient sur une décision documentée</strong> (le panneau héros). À écrire dans <code>design.md</code>, pas à faire en silence.</li>
+            <li>Deux compositions en deux colonnes à surveiller à <span class="mono-num">820 px</span> — la tablette est l'appareil principal. Elles doivent s'empiler, pas se comprimer : la charnière est <code>xl:</code>, pas <code>md:</code>.</li>
+            <li>La grille en pleine largeur sous un en-tête de carte demande un <code>CardContent</code> sans padding — détail réel, déjà résolu ailleurs (la liste + pager de <code>/a-cloturer</code>).</li>
+            <li><code>ProcedureMixChart</code> et <code>CollectedTrendChart</code> portent leur propre <code>Card</code> : il faut les laisser frères dans la grille, jamais imbriqués.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="option-c">
+    <div class="col">
+      <p class="eyebrow">Option B</p>
+      <h2>Une seule surface « Bilan »</h2>
+      <p>
+        Tout le demi-écran devient <em>une</em> carte : l'en-tête possède la période et la fenêtre, le corps
+        descend de la réponse (Net) au détail (activité), et les deux graphes partagent un jeu d'onglets.
+        Une surface, une question.
+      </p>
+    </div>
+
+    <div class="canvas-head">
+      <span class="canvas-name">Option B — une surface</span>
+      <div class="tog" role="group" aria-label="Thème de l'aperçu Option B">
+        <button type="button" data-target="cv-b" data-mode="light" aria-pressed="true">Clair</button>
+        <button type="button" data-target="cv-b" data-mode="dark" aria-pressed="false">Sombre</button>
+      </div>
+    </div>
+
+    <div class="cv" id="cv-b" data-mode="light">
+      <div class="cv-inner">
+        <div class="zones">
+
+          <div class="stub">
+            <svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg>
+            <span><b>Le haut de page</b> — inchangé.</span>
+          </div>
+
+          <div class="acard bleed">
+            <div class="acard-head">
+              <div>
+                <h4 class="sectitle" style="margin-bottom:6px"><span class="dot"></span>Bilan</h4>
+                <p class="acard-sub">1 – 17 août · comparé au mois dernier</p>
+              </div>
+              <div class="seg" role="group" aria-label="Période">
+                <span>Aujourd'hui</span><span>Cette semaine</span><span class="on">Ce mois</span>
+              </div>
+            </div>
+
+            <div class="kgrid c4">
+              <div class="kcell lead" style="grid-column: span 2">
+                <p class="klabel"><span class="kchip money"><svg width="16" height="16" aria-hidden="true"><use href="#i-wallet"/></svg></span>Net</p>
+                <p class="kval big">4 250,000 DT</p>
+                <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>12,4 % vs le mois dernier</p>
+              </div>
+              <div class="kcell">
+                <p class="klabel">Encaissé</p>
+                <p class="kval">5 070,000 DT</p>
+                <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>8,1 %</p>
+              </div>
+              <div class="kcell">
+                <p class="klabel">Facturé</p>
+                <p class="kval">6 340,000 DT</p>
+                <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>4,6 %</p>
+              </div>
+              <div class="kcell">
+                <p class="klabel">Dépenses</p>
+                <p class="kval">820,000 DT</p>
+                <p class="pill up"><svg aria-hidden="true"><use href="#i-down"/></svg>3,4 %</p>
+              </div>
+              <div class="kcell">
+                <p class="klabel">Avoirs</p>
+                <p class="kval">0,000 DT</p>
+                <p class="pill flat">—</p>
+              </div>
+              <div class="kcell">
+                <p class="klabel">RDV honorés</p>
+                <p class="kval">46</p>
+                <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>5,2 %</p>
+              </div>
+              <div class="kcell">
+                <p class="klabel">Taux d'absence</p>
+                <p class="kval">6,5 %</p>
+                <p class="pill up"><svg aria-hidden="true"><use href="#i-down"/></svg>2,1 pts</p>
+              </div>
+              <div class="kcell">
+                <p class="klabel">Nouveaux patients</p>
+                <p class="kval">9</p>
+                <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>12,5 %</p>
+              </div>
+              <div class="kcell">
+                <p class="klabel">Devis acceptés</p>
+                <p class="kval">4</p>
+                <p class="pill up"><svg aria-hidden="true"><use href="#i-up"/></svg>33,3 %</p>
+              </div>
+              <div class="kcell">
+                <p class="klabel">Praticien</p>
+                <p class="kval" style="font-size:15px;font-weight:560">Tous</p>
+                <p class="kdesc">Ne restreint qu'Encaissé et Net.</p>
+              </div>
+            </div>
+
+            <div style="padding:16px 20px 18px;border-top:1px solid var(--line);display:grid;gap:12px">
+              <div class="seg" role="group" aria-label="Graphe" style="width:fit-content">
+                <span class="on">Encaissements</span><span>Actes</span>
+              </div>
+              <div class="chart">
+                <svg viewBox="0 0 640 120" aria-hidden="true">
+                  <line x1="8" y1="24" x2="632" y2="24" stroke="var(--line)" stroke-width="1"/>
+                  <line x1="8" y1="64" x2="632" y2="64" stroke="var(--line)" stroke-width="1"/>
+                  <path d="M8,86 L133,62 L258,73 L383,33 L508,44 L632,16 L632,112 L8,112 Z" fill="var(--chart-1)" opacity="0.26"/>
+                  <polyline points="8,86 133,62 258,73 383,33 508,44 632,16" fill="none" stroke="var(--chart-1)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                  <circle cx="632" cy="16" r="4.2" fill="var(--chart-1)" stroke="var(--card)" stroke-width="2"/>
+                </svg>
+                <div class="axis"><span>mars</span><span>avr</span><span>mai</span><span>juin</span><span>juil</span><span>août</span></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <p>
+        Le rendu montre le problème mieux qu'un argument : <strong>dix cellules dans une seule grille se
+        lisent comme une feuille de calcul</strong>. Argent et activité n'ont plus de frontière — « Avoirs »
+        et « RDV honorés » se touchent — et le filtre praticien n'a plus de place naturelle : ici il occupe
+        une cellule, ce qui est faux, c'est un contrôle et non un chiffre. Une grille indifférenciée rend
+        aussi les fautes invisibles : un doublon ou un chiffre manquant y passe inaperçu, là où deux cartes
+        nommées le font ressortir.
+      </p>
+      <p>
+        La mise en onglets des deux graphes est le second coût : elle range la répartition des actes
+        derrière un clic. C'est un vrai chemin tactile, donc conforme au § 0 — mais c'est une donnée en
+        moins à l'écran, et les deux graphes ne répondent pas à la même question.
+      </p>
+    </div>
+
+    <div class="verdict">
+      <p class="verdict-bar ok">⚠ Acceptable — mais moins bonne</p>
+      <div class="pc">
+        <div>
+          <h5>Pour</h5>
+          <ul>
+            <li>Une seule surface : la période ne peut pas être lue comme commandant autre chose.</li>
+            <li>La plus compacte verticalement — utile sur un portable court.</li>
+            <li>Un seul en-tête à écrire.</li>
+          </ul>
+        </div>
+        <div>
+          <h5>Contre &amp; risques</h5>
+          <ul>
+            <li>Onze cellules de poids proche : la hiérarchie que l'on cherchait n'est pas obtenue.</li>
+            <li>Le filtre praticien n'a pas de place — le mettre dans la grille en fait un chiffre.</li>
+            <li>Les onglets cachent un graphe et apparient deux questions différentes.</li>
+            <li>Perd la frontière argent / activité, que le reste du produit maintient partout ailleurs.</li>
+            <li>À <span class="mono-num">320 px</span>, une boîte unique très haute avec onglets à l'intérieur.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="option-min">
+    <div class="col">
+      <p class="eyebrow">Option C</p>
+      <h2>Réparer les coutures, ne rien recomposer</h2>
+      <p>
+        Corriger les cinq défauts, unifier les deux primitives d'en-tête, faire descendre le sélecteur de
+        période dans la première bande, retirer le <code>border-t</code> et le mot « Statistiques »,
+        rétrograder le panneau héros en cellule large. Rien ne bouge de place.
+      </p>
+      <p class="soft">
+        Aucun aperçu : le résultat est celui de « Avant », moins le panneau plein et moins la césure. C'est
+        le <em>plancher</em> — chacun de ces correctifs est dans l'option A aussi.
+      </p>
+    </div>
+
+    <div class="verdict">
+      <p class="verdict-bar ok">⚠ Acceptable — ne répond pas à la demande</p>
+      <div class="pc">
+        <div>
+          <h5>Pour</h5>
+          <ul>
+            <li>Le plus petit diff, aucun risque de mise en page.</li>
+            <li>Corrige littéralement tout ce que vous avez signalé.</li>
+            <li>Livrable en une passe.</li>
+          </ul>
+        </div>
+        <div>
+          <h5>Contre &amp; risques</h5>
+          <ul>
+            <li>Laisse neuf chiffres de poids égal et les deux graphes mal appariés.</li>
+            <li>Laisse le graphe six mois dans une zone commandée par la période.</li>
+            <li>C'est un nettoyage, pas une refonte — et vous avez demandé à repenser.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="personnaliser">
+    <div class="col">
+      <p class="eyebrow">Bug 4, en détail</p>
+      <h2>« Personnaliser » doit décrire la page qu'il commande</h2>
+      <p>
+        Le panneau est déjà dérivé du registre <code>DASHBOARD_BLOCKS</code> — ce n'est pas une liste
+        écrite à la main dans le composant. Ce qui a dérivé, c'est le <em>registre</em> : ses groupes et ses
+        descriptions décrivent l'écran d'avant. Deux colonnes ci-dessous : ce qu'il dit, ce qu'il devrait
+        dire.
+      </p>
+    </div>
+
+    <div class="canvas-head">
+      <span class="canvas-name">Panneau — avant / après</span>
+      <div class="tog" role="group" aria-label="Thème de l'aperçu du panneau">
+        <button type="button" data-target="cv-pop" data-mode="light" aria-pressed="true">Clair</button>
+        <button type="button" data-target="cv-pop" data-mode="dark" aria-pressed="false">Sombre</button>
+      </div>
+    </div>
+
+    <div class="cv" id="cv-pop" data-mode="light">
+      <div class="cv-inner">
+        <div class="two even narrow" style="align-items:start">
+
+          <div style="display:grid;gap:10px;justify-items:start">
+            <p class="sectitle"><span class="dot" style="background:var(--destructive)"></span>Avant</p>
+            <div class="pop">
+              <div>
+                <h4>Afficher sur le tableau de bord</h4>
+                <p class="note">Vos choix ne concernent que vous et sont conservés sur tous vos appareils.</p>
+              </div>
+              <div class="popgroup">
+                <span class="gl">Activité</span>
+                <div class="poprow"><span>Rendez-vous honorés</span><span class="sw on"></span></div>
+                <div class="poprow"><span>Taux d'absence</span><span class="sw on"></span></div>
+              </div>
+              <div class="popgroup">
+                <span class="gl strike">À traiter</span>
+                <div class="poprow">
+                  <span>Séances à clôturer<span class="sub strike">Carte KPI · À traiter</span></span>
+                  <span class="sw on"></span>
+                </div>
+                <div class="poprow">
+                  <span>Stock bas<span class="sub strike">Carte KPI · À traiter</span></span>
+                  <span class="sw on"></span>
+                </div>
+                <div class="poprow">
+                  <span>Salle d'attente<span class="sub strike">Carte KPI · À traiter</span></span>
+                  <span class="sw"></span>
+                </div>
+              </div>
+              <div class="popgroup">
+                <span class="gl">Autres blocs</span>
+                <div class="poprow"><span>Rendez-vous du jour</span><span class="sw on"></span></div>
+              </div>
+            </div>
+            <p class="kdesc" style="max-width:44ch">
+              Le groupe « À traiter » n'existe plus comme section : ces six réglages pilotent les pastilles
+              du haut de page. Rien dans le panneau ne le dit.
+            </p>
+          </div>
+
+          <div style="display:grid;gap:10px;justify-items:start">
+            <p class="sectitle"><span class="dot" style="background:var(--success)"></span>Après</p>
+            <div class="pop">
+              <div>
+                <h4>Afficher sur le tableau de bord</h4>
+                <p class="note">Vos choix ne concernent que vous et sont conservés sur tous vos appareils.</p>
+              </div>
+              <div class="popgroup">
+                <span class="gl">La journée</span>
+                <div class="poprow">
+                  <span>Les rendez-vous du jour<span class="sub">La liste, sous le ruban</span></span>
+                  <span class="sw on"></span>
+                </div>
+                <div class="poprow">
+                  <span>Séances à clôturer<span class="sub">Pastille « À traiter »</span></span>
+                  <span class="sw on"></span>
+                </div>
+                <div class="poprow">
+                  <span>Stock bas<span class="sub">Pastille « À traiter »</span></span>
+                  <span class="sw on"></span>
+                </div>
+                <div class="poprow">
+                  <span>Salle d'attente<span class="sub">Pastille « À traiter »</span></span>
+                  <span class="sw"></span>
+                </div>
+              </div>
+              <div class="popgroup">
+                <span class="gl">Le bilan</span>
+                <div class="poprow">
+                  <span>Net<span class="sub">Chiffre de tête · L'argent</span></span>
+                  <span class="sw on"></span>
+                </div>
+                <div class="poprow">
+                  <span>Avoirs remboursés<span class="sub">Chiffre · L'argent</span></span>
+                  <span class="sw"></span>
+                </div>
+                <div class="poprow">
+                  <span>Taux d'absence<span class="sub">Chiffre · L'activité</span></span>
+                  <span class="sw on"></span>
+                </div>
+                <div class="poprow">
+                  <span>Encaissé — 6 derniers mois<span class="sub">Graphe · L'argent</span></span>
+                  <span class="sw on"></span>
+                </div>
+                <div class="poprow">
+                  <span>Répartition des actes<span class="sub">Graphe · L'activité</span></span>
+                  <span class="sw on"></span>
+                </div>
+              </div>
+            </div>
+            <p class="kdesc" style="max-width:44ch">
+              Deux groupes, dans l'ordre de la page, et chaque ligne dit <em>quelle forme</em> le réglage
+              commande et <em>où</em>. La position du déclencheur cesse alors de surprendre : l'ordre du
+              panneau est celui de l'écran.
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <h3>Ce que cela demande</h3>
+      <ul>
+        <li>
+          <code>DASHBOARD_BLOCKS</code> : regrouper sur les deux zones réelles et réécrire les six
+          descriptions. <strong>Aucune clé ne change</strong> — le serveur valide l'ensemble des clés
+          (<code>DashboardKpiKeys.All</code>), pas les groupes, donc rien côté API ne bouge.
+        </li>
+        <li>
+          Les quatre zones du haut aujourd'hui non réglables (salutation, Au fauteuil, ruban, prochaine
+          journée) restent volontairement hors panneau : ce sont les zones qui <em>font</em> le tableau de
+          la journée, et pouvoir les éteindre revient à proposer de désactiver l'écran.
+          <em>À trancher avec vous si vous voulez l'inverse.</em>
+        </li>
+        <li>
+          <code>SECTION_LABELS</code> perd <code>trend</code> (sans consommateur) et gagne les deux
+          nouveaux libellés de groupe.
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="cout">
+    <div class="col">
+      <p class="eyebrow">Portée</p>
+      <h2>Ce que l'option A coûte</h2>
+      <p class="soft">
+        Tout est côté <code>web/</code>. Aucune migration, aucun changement de contrat d'API, aucun
+        <code>DashboardKpiKey</code> ajouté ou retiré.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Fichier</th><th>Changement</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>lib/dashboard/day-phrases.ts</code></td>
+            <td>Bugs 1 &amp; 3. Scinder le palier <code>over</code> en <em>programme terminé</em> et <em>soir</em>, l'heure en paramètre ; la sous-ligne compte les séances réellement terminées.</td>
+          </tr>
+          <tr>
+            <td><code>lib/dashboard/day-summary.ts</code></td>
+            <td>Bug 2. Borner la revendication du fauteuil au débordement plausible ; exposer l'état « à clôturer » pour la carte.</td>
+          </tr>
+          <tr>
+            <td><code>components/dashboard/day/now-next-cards.tsx</code></td>
+            <td>Bug 2. Troisième état de carte : « Séance à clôturer » + lien.</td>
+          </tr>
+          <tr>
+            <td><code>lib/dashboard-blocks.ts</code></td>
+            <td>Bug 4. Deux groupes, six descriptions réécrites. Aucune clé modifiée.</td>
+          </tr>
+          <tr>
+            <td><code>components/dashboard/dashboard-section.tsx</code></td>
+            <td>Devient <em>la</em> primitive d'en-tête : absorbe le <code>href</code>/<code>action</code> de <code>SectionBar</code> et accepte un contrôle à droite (période, praticien).</td>
+          </tr>
+          <tr>
+            <td><code>app/page.tsx</code></td>
+            <td>La recomposition, la suppression de <code>SectionBar</code>, du <code>border-t</code> et du titre « Statistiques », et les quatre imports morts.</td>
+          </tr>
+          <tr>
+            <td><code>components/dashboard/kpi-card.tsx</code></td>
+            <td>Un <code>emphasis="lead"</code> (grand chiffre, pas d'aplat) remplaçant l'usage de <code>"hero"</code> ici.</td>
+          </tr>
+          <tr>
+            <td><code>components/dashboard/hero-kpi.tsx</code></td>
+            <td><strong>Supprimé</strong> — son seul appelant était <code>netCard</code>. À décider avec vous : le garder inutilisé n'est pas une option (« un utilitaire inutilisé dans un système de design est pire que pas d'utilitaire »).</td>
+          </tr>
+          <tr>
+            <td><code>components/dashboard/period-selector.tsx</code></td>
+            <td>Inchangé. Il change seulement de parent.</td>
+          </tr>
+          <tr>
+            <td><code>lib/dashboard-links.ts</code>, <code>use-dashboard.ts</code>, <code>dashboard.ts</code></td>
+            <td>Inchangés.</td>
+          </tr>
+          <tr>
+            <td><code>features/dashboard-redesign/design.md</code></td>
+            <td>Consigner le revirement du panneau héros et pourquoi. Une décision documentée ne se défait pas en silence.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout col">
+      <p>
+        <strong>Le portillon, à faire tourner et non à supposer :</strong>
+        <code>npm run check:responsive</code> · <code>npx tsc --noEmit</code> · <code>npm run build</code>,
+        puis une passe à l'œil à <span class="mono-num">320 / 390 / 820 / 1180 / 1440 px</span> plus un
+        téléphone en paysage. <code>web/</code> n'a ni test runner, ni ESLint utilisable, ni régression
+        visuelle : cette passe <em>est</em> le portillon. Le résultat se consigne dans le
+        <code>progress.md</code> de la fonctionnalité.
+      </p>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  document.querySelectorAll(".tog button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var id = btn.getAttribute("data-target");
+      var mode = btn.getAttribute("data-mode");
+      var canvas = document.getElementById(id);
+      if (!canvas) return;
+      canvas.setAttribute("data-mode", mode);
+      btn.parentNode.querySelectorAll("button").forEach(function (sib) {
+        sib.setAttribute("aria-pressed", String(sib === btn));
+      });
+    });
+  });
+})();
+</script>
