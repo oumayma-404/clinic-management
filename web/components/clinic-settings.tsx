@@ -159,8 +159,12 @@ export default function ClinicSettings() {
     DEFAULT_WORKING_HOURS.map((d) => ({ ...d })),
   )
 
-  // Doctors State
-  const [doctors, setDoctors] = useState<Doctor[]>([{ id: "1", name: "", specialty: "", phone: "", email: "" }])
+  // Doctors State. ⚠️ An unsaved row's id MUST carry the `doctor-` prefix: it is what the working-hours card's
+  // render guard below tests, and a bare "1" passed it — so every load of this page fetched
+  // `/api/doctors/1/working-hours` for a doctor that cannot exist and took a 404.
+  const [doctors, setDoctors] = useState<Doctor[]>([
+    { id: "doctor-new", name: "", specialty: "", phone: "", email: "" },
+  ])
   /**
    * The practitioner whose CNOMDT + cachet are being edited (AC-P2.30); null closes the dialog. Admin-only, and
    * only for a doctor that actually exists server-side — an unsaved roster row has a client-side placeholder id
@@ -282,7 +286,7 @@ export default function ClinicSettings() {
   }
 
   const addDoctor = () => {
-    setDoctors([...doctors, { id: Date.now().toString(), name: "", specialty: "", phone: "", email: "" }])
+    setDoctors([...doctors, { id: `doctor-${Date.now()}`, name: "", specialty: "", phone: "", email: "" }])
   }
 
   const removeDoctor = (id: string) => {
