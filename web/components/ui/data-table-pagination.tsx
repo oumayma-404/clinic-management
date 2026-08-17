@@ -67,8 +67,12 @@ export function DataTablePagination({
     >
       {/* role="status" so a screen reader hears the new range after paging, which is otherwise a silent change. */}
       <p className="text-sm text-muted-foreground" role="status">
+        {/* « 0 dépense », not « Aucun dépense »: the article would have to agree in gender, and seven of the
+            twenty nouns passed here are feminine (dépense, facture, séance, série, entrée, créance, fiche de
+            soins). A count needs no article and is right for all of them — `messaging-allowance-card`'s
+            « 0 rappel envoyé » is the same idiom. */}
         {totalCount === 0
-          ? `Aucun ${singular}`
+          ? `0 ${singular}`
           : `${firstRow}–${lastRow} sur ${totalCount} ${noun}`}
       </p>
 
