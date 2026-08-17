@@ -624,14 +624,11 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       newErrors.dentition = "La denture est requise"
     }
 
-    // Required on create only: a new patient without a deliverable number gets no rappel and no relance, and
-    // there is no second chance to ask. An existing record with none must still be editable, so there the rule
-    // stays « a non-blank number has to be deliverable ».
-    if (!phone.trim()) {
-      if (!patient) {
-        newErrors.phone = "Le numéro de téléphone est requis"
-      }
-    } else if (!isDeliverablePhone(phone.trim())) {
+    // Optional, in both modes: `Patients.PhoneNumber` is nullable and a walk-in, a child or an elderly patient
+    // is routinely registered with a name alone. Requiring it here refused that record outright and pushed
+    // reception into typing a fake number — the sentinel problem (`0000000000`) the backend deliberately retired.
+    // The consequence is stated instead, under the field. A number that IS given must still be deliverable.
+    if (phone.trim() && !isDeliverablePhone(phone.trim())) {
       newErrors.phone = PHONE_ERROR_FR
     }
 
@@ -1035,15 +1032,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
                 {/* Phone */}
                 <div className="space-y-2">
-                  {/* Required on create, not on edit — a patient already on file without a number must stay
-                      editable, or fixing their address means finding their phone first. */}
+                  {/* « recommandé » in both modes: an asterisk here contradicted the sentence directly below it,
+                      which only makes sense for a field that may be left empty. */}
                   <Label htmlFor="phone">
-                    Numéro de téléphone{" "}
-                    {patient ? (
-                      <span className="text-muted-foreground text-xs">(recommandé)</span>
-                    ) : (
-                      "*"
-                    )}
+                    Numéro de téléphone <span className="text-muted-foreground text-xs">(recommandé)</span>
                   </Label>
                   <Input
                     id="phone"

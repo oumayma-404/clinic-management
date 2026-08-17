@@ -546,15 +546,9 @@ export function CreateAppointmentDialog({
           setError("Veuillez saisir le prénom et le nom du nouveau patient")
           return false
         }
-        // Required, reconciled with the patient form: a new patient is created with a deliverable number or not
-        // at all. Without one the visit's reminder and every later relance have nowhere to go, and a fiche is
-        // easiest to reach for by phone — an existing contact-less patient is still editable, only new ones are
-        // refused.
-        if (!newPatientPhone.trim()) {
-          setError("Veuillez saisir le numéro de téléphone du nouveau patient")
-          return false
-        }
-        if (!isDeliverablePhone(newPatientPhone)) {
+        // Optional, reconciled with the patient form: the column is nullable and this door is where a walk-in is
+        // booked, often with a name alone. A number that IS given must still be deliverable.
+        if (newPatientPhone.trim() && !isDeliverablePhone(newPatientPhone)) {
           setError(PHONE_ERROR_FR)
           return false
         }
@@ -927,7 +921,7 @@ export function CreateAppointmentDialog({
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="newPatientPhone" className="text-sm">
-                        Téléphone *
+                        Téléphone <span className="text-xs text-muted-foreground">(recommandé)</span>
                       </Label>
                       <Input
                         id="newPatientPhone"
@@ -937,7 +931,6 @@ export function CreateAppointmentDialog({
                         onChange={(e) => setNewPatientPhone(e.target.value)}
                         className="h-10"
                         disabled={patientAlreadyCreated}
-                        required
                       />
                       <p className="text-xs text-muted-foreground">
                         Numéro tunisien à 8 chiffres, ou +216… Sans lui, ce patient ne recevrait ni rappel ni
