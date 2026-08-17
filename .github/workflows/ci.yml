@@ -8,7 +8,7 @@
 # ESLint**, so `tsc --noEmit` + `check:responsive` + `next build` are not a subset of its gate, they ARE its gate
 # (`.claude/rules/frontend-web.md` says so); running them anywhere other than a developer's memory is new.
 #
-# ⚠️ Four jobs, deliberately independent rather than one matrix: they share no toolchain (dotnet / node / JDK),
+# ⚠️ Six jobs, deliberately independent rather than one matrix: they share no toolchain (dotnet / node / JDK),
 # and a failure should name which stack broke without reading a log. `desktop` and `android` are the shells' only
 # static gates and have never run outside the author's machine; neither can be a *complete* gate, because both
 # products' real verification is a walk on hardware — see `desktop/CLAUDE.md` and `mobile/CLAUDE.md`.
@@ -74,7 +74,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -111,7 +111,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: console/package-lock.json
 
@@ -126,6 +126,65 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # Known-vulnerable dependencies, across all three package graphs. Until this job, NOTHING in this repository
+  # scanned anything: `SECURITY_REVIEW_2026-08.md`'s own « Scope and limits » names a dependency-vulnerability scan
+  # as one of three open items, and the other two (dynamic testing, a penetration test) cannot be automated here.
+  # This one can, so it is a gate rather than a note.
+  #
+  # ⚠️ Its own job for the same reason the five above are separate: three toolchains, and a failure should name
+  # which package graph is affected without anyone reading a log.
+  #
+  # ⚠️ `--include-transitive` on the .NET side is the whole point — a direct dependency is visible in a .csproj and
+  # gets noticed; a transitive one three levels down is exactly what nobody is tracking.
+  #
+  # ⚠️ `dotnet list package --vulnerable` exits **0 even when it finds something** (it is a reporting verb, not a
+  # gate), so the output is grepped and the step fails on a hit. Without that grep this job is decorative — the
+  # failure shape `SECURITY_ARCHITECTURE.md` § 9.7 calls « present and inert ». `set -o pipefail` matters too, or
+  # a crashed dotnet reads as clean.
+  #
+  # ⚠️ `npm audit` DOES exit non-zero, and deliberately at `--audit-level=high`: a moderate advisory in a
+  # transitive dev-only build dependency must not be able to block a clinical bug fix from shipping. High and
+  # critical do.
+  dependencies:
+    name: Dependencies — known vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Restore (api)
+        run: dotnet restore api/ClinicManagement.sln
+
+      - name: Audit NuGet packages
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet list api/ClinicManagement.sln package --vulnerable --include-transitive \
+            | tee nuget-audit.txt
+          if grep -qiE '^\s*>\s|has the following vulnerable packages' nuget-audit.txt; then
+            echo "::error title=Vulnerable NuGet package::See the report above."
+            exit 1
+          fi
+          echo "No known-vulnerable NuGet packages."
+
+      # `npm audit` needs no install — it reads the lockfile — so this is fast and cannot be broken by a
+      # postinstall script. `--omit=dev` is deliberately NOT passed: the build toolchain runs on CI and on
+      # developer machines, and a compromised build dependency reaches the shipped bundle.
+      - name: Audit web packages
+        working-directory: web
+        run: npm audit --audit-level=high
+
+      - name: Audit console packages
+        working-directory: console
+        run: npm audit --audit-level=high
 
   desktop:
     name: Desktop shell — build
