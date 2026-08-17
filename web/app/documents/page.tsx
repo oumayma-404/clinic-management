@@ -92,7 +92,7 @@ export default function DocumentsPage() {
       <AppShell contentClassName="space-y-6">
         <PageHeader
           title="Documents médicaux"
-          subtitle="Cinq modèles — ordonnance, liaison, honoraires, certificat, bulletin CNAM."
+          subtitle="Six modèles — ordonnance, liaison, honoraires, certificat, arrêt de travail, bulletin CNAM."
         />
 
         {/* Template Grid. AC-P3.38 — every clickable Card is keyboard-operable: it is the click target, so

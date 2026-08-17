@@ -3442,11 +3442,14 @@ export function DocumentEditorContent() {
                   <RotateCcw className="w-4 h-4 mr-2" />
                   Réinitialiser
                 </Button>
+                {/* `!patientData`, matching « Télécharger PDF » / « Word » below: it was the one output action
+                    with no patient gate, so a blank document — letterhead and cachet, no patient, no content —
+                    went to the printer. Four ways out, one of them ungated, is not a decision anybody made. */}
                 <Button
                   variant="outline"
                   className="h-11 bg-transparent"
                   onClick={() => handlePrint()}
-                  disabled={saving}
+                  disabled={!patientData || saving}
                 >
                   <Printer className="w-4 h-4 mr-2" />
                   Imprimer
