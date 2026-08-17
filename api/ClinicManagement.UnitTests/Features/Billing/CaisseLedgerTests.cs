@@ -79,6 +79,13 @@ public class CaisseLedgerTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((expenses ?? Array.Empty<Expense>()).AsPage());
 
+        // An avoir names an invoice, not a patient, so its patient is resolved through that invoice. Mapped to the
+        // one fixture patient here, which is what lets a refund row carry a name like the payment beside it.
+        _invoices.Setup(r => r.GetPatientIdsByInvoiceIdsAsync(
+                ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid _, IReadOnlyCollection<Guid> ids, CancellationToken _) =>
+                (IReadOnlyDictionary<Guid, Guid>)ids.ToDictionary(id => id, _ => PatientId));
+
         // The statement resolves every patient name in one batch — no name means no N+1 to fall back on.
         _patients.Setup(r => r.GetByIdsAsync(
                 ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
@@ -377,6 +384,41 @@ public class CaisseLedgerTests
 
         Assert.Null(movement.PatientName);
         Assert.Equal(PatientId, movement.PatientId);
+    }
+
+    /// <summary>
+    /// A refund names the patient it went back to, resolved through the invoice it credits.
+    ///
+    /// <para><b>The reported defect.</b> `CreditNote` carries an `InvoiceId` and no `PatientId`, so every avoir row
+    /// showed « — » in the PATIENT column while the invoice payment beside it named somebody — leaving a refund
+    /// unattributable on the one screen whose whole job is to list every movement behind the totals.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_Refund_Names_The_Patient_It_Went_Back_To()
+    {
+        Wire(refunds: new[] { Refund(20m, 2) });
+
+        var movement = Assert.Single((await LedgerAsync()).Movements);
+
+        Assert.Equal(nameof(CaisseMovementKind.Refund), movement.Kind);
+        Assert.Equal("Jean Dupont", movement.PatientName);
+    }
+
+    /// <summary>
+    /// An avoir whose invoice belongs to another clinic resolves to no name rather than borrowing one — the batch
+    /// applies the clinic filter itself, so a foreign invoice simply comes back absent.
+    /// </summary>
+    [Fact]
+    public async Task A_Refund_On_A_Foreign_Invoice_Leaves_The_Name_Blank()
+    {
+        Wire(refunds: new[] { Refund(20m, 2) });
+        _invoices.Setup(r => r.GetPatientIdsByInvoiceIdsAsync(
+                ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyDictionary<Guid, Guid>)new Dictionary<Guid, Guid>());
+
+        var movement = Assert.Single((await LedgerAsync()).Movements);
+
+        Assert.Null(movement.PatientName);
     }
 
     [Fact]

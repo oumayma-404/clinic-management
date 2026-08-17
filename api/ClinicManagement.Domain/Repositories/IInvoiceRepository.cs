@@ -113,6 +113,22 @@ public interface IInvoiceRepository
         Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Which patient each of these invoices belongs to, batched and clinic-filtered.
+    ///
+    /// <para>Exists for the « extrait de caisse »: an avoir carries an <c>InvoiceId</c> and no <c>PatientId</c>
+    /// (<c>CreditNote</c> has neither the column nor an <c>Invoice</c> navigation), so refund rows listed « — »
+    /// in the PATIENT column while the invoice payment beside them named the patient — leaving a refund
+    /// unattributable on the one screen that lists every movement. A projection rather than loading the
+    /// invoices: only the id pair is wanted, and the statement's other reads are projections for that reason.</para>
+    ///
+    /// <para>The clinic is a <b>parameter</b>, on <c>IPatientRepository.GetByIdsAsync</c>'s reasoning: a batch
+    /// hides each aggregate from its caller, so a per-row tenant check it could silently forget is worse than
+    /// one it cannot express.</para>
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, Guid>> GetPatientIdsByInvoiceIdsAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> invoiceIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// One row per devis→facture bridge in the clinic: the plan it was generated from, the invoice's id,
     /// number and status. A light projection (no lines/payments loaded) so a plan can show « Facturé » and
     /// the money reads can count the invoice instead of the plan without over-fetching. Cancelled invoices

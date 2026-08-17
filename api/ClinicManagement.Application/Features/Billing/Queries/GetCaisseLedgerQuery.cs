@@ -138,10 +138,17 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
             var expenses = (await _expenseRepository.GetByClinicIdAsync(
                 clinicId, from, to, cancellationToken: cancellationToken)).Items;
 
+            // An avoir names an invoice, not a patient, so its patient comes from that invoice — one batched
+            // projection, not a read per refund. Without it every refund row showed « — » in the PATIENT column
+            // while the payment beside it named somebody, and a refund could not be attributed from the statement.
+            var refundPatientByInvoice = await _invoiceRepository.GetPatientIdsByInvoiceIdsAsync(
+                clinicId, refunds.Select(r => r.InvoiceId).Distinct().ToList(), cancellationToken);
+
             // Names in one pass. Every money-in row carries a patient id and no name — `Invoice` has no `Patient`
             // navigation to project from — so resolving them per row would be an N+1 on the clinic's busiest screen.
             var patientIds = payments.Select(p => p.PatientId)
                 .Concat(installmentPayments.Select(p => p.PatientId))
+                .Concat(refundPatientByInvoice.Values)
                 .Distinct()
                 .ToList();
             var patients = await _patientRepository.GetByIdsAsync(clinicId, patientIds, cancellationToken);
@@ -149,7 +156,11 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
             var movements = new List<CaisseMovementDto>();
             movements.AddRange(payments.Select(p => FromInvoicePayment(p, PatientName(patients, p.PatientId))));
             movements.AddRange(installmentPayments.Select(p => FromInstallmentPayment(p, PatientName(patients, p.PatientId))));
-            movements.AddRange(refunds.Select(FromRefund));
+            movements.AddRange(refunds.Select(r => FromRefund(
+                r,
+                refundPatientByInvoice.TryGetValue(r.InvoiceId, out var refundPatientId)
+                    ? PatientName(patients, refundPatientId)
+                    : null)));
             movements.AddRange(expenses.Select(FromExpense));
 
             // Oldest first — a statement reads forward, and the running balance below only means anything in that
@@ -277,7 +288,7 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
         ChequeDueDate = row.ChequeDueDate
     };
 
-    private static CaisseMovementDto FromRefund(CreditNote note) => new()
+    private static CaisseMovementDto FromRefund(CreditNote note, string? patientName) => new()
     {
         Id = note.Id,
         Kind = nameof(CaisseMovementKind.Refund),
@@ -288,8 +299,10 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
         Method = note.Method?.ToString(),
         Label = $"Avoir {note.Number} — {note.Reason}",
         Reference = note.Number,
-        // The avoir belongs to an invoice, not directly to a patient, and CreditNote carries no PatientId. Opening
-        // the invoice is the useful destination anyway: that is where the avoir is listed and printable.
+        // Resolved from the credited invoice — CreditNote carries no PatientId of its own.
+        PatientName = patientName,
+        // The avoir belongs to an invoice, not directly to a patient. Opening the invoice is the useful
+        // destination anyway: that is where the avoir is listed and printable.
         TargetId = note.InvoiceId,
         // An avoir is itself the reversal of a payment; there is no void-an-avoir path, so these stay false/null.
         IsVoided = false

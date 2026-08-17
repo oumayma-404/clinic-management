@@ -197,6 +197,20 @@ public class InvoiceRepository : IInvoiceRepository
             .ToList();
     }
 
+    public async Task<IReadOnlyDictionary<Guid, Guid>> GetPatientIdsByInvoiceIdsAsync(
+        Guid clinicId, IReadOnlyCollection<Guid> invoiceIds, CancellationToken cancellationToken = default)
+    {
+        if (invoiceIds.Count == 0)
+        {
+            return new Dictionary<Guid, Guid>();
+        }
+
+        return await _context.Invoices
+            .Where(i => i.ClinicId == clinicId && invoiceIds.Contains(i.Id))
+            .Select(i => new { i.Id, i.PatientId })
+            .ToDictionaryAsync(r => r.Id, r => r.PatientId, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<(Guid DentalRecordId, Guid InvoiceId, string? Number, InvoiceStatus Status)>>
         GetDentalRecordLinksAsync(Guid clinicId, CancellationToken cancellationToken = default)
     {
