@@ -20,7 +20,7 @@ import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 import { EditAppointmentDialog } from "@/components/edit-appointment-dialog"
 import { ClinicGuard } from "@/components/clinic-guard"
 import type { AppointmentDto } from "@/lib/api/types"
-import { setHours, setMinutes } from "date-fns"
+import { isToday, setHours, setMinutes } from "date-fns"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { googleCalendarApi } from "@/lib/api/google-calendar"
 import { ApiError } from "@/lib/api/client"
@@ -33,6 +33,19 @@ import { useSession } from "@/lib/auth/session"
 import { ActiveFilterChip } from "@/components/ui/list-toolbar"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import { cn } from "@/lib/utils"
+
+/**
+ * The next 5-minute boundary strictly after <paramref name="from"/> — the agenda's own booking granularity.
+ *
+ * <p>Strictly after, never "round to nearest": a form opened at 13:55:00 is submitted a few seconds later, so
+ * returning the current boundary would still resolve to a past instant by the time the user presses Créer.</p>
+ */
+function nextFiveMinuteBoundary(from: Date): Date {
+  const next = new Date(from)
+  const minutes = next.getMinutes()
+  next.setMinutes(minutes + (5 - (minutes % 5)), 0, 0)
+  return next
+}
 
 export default function AppointmentsPage() {
   // Week is the default: it is the span staff actually plan against, and a single day of a specialist practice's
@@ -130,6 +143,11 @@ export default function AppointmentsPage() {
   /** « Nouveau rendez-vous » from the bar or the floating action — no span, so no duration override. */
   const openCreateDialog = useCallback(() => {
     setSelectedDurationMinutes(undefined)
+    // `selectedDate` holds the instant the page mounted, so while today is on screen the dialog prefilled a start
+    // time drifting further into the past the longer the agenda stayed open — and every ordinary booking then
+    // tripped « Heure dans le passé », which trains the desk to click through the one prompt that should mean
+    // something. Refreshed to the next 5-minute boundary; a slot clicked or dragged on the grid is untouched.
+    setSelectedDate((current) => (isToday(current) ? nextFiveMinuteBoundary(new Date()) : current))
     setDialogOpen(true)
   }, [])
 
