@@ -55,3 +55,9 @@ skills-lock.json
 
 # The LAN certificate password minted by deploy/lan-cert.sh — private key material, never committed.
 deploy/.env
+
+# Playwright MCP session artifacts — snapshots, console logs and screenshots from driving the app in a browser.
+# Tooling output about a dev database, never project content. Screenshots used to land in the repo ROOT (the tool
+# writes them to the shell's cwd), which is why they were being deleted by hand; the server now takes
+# `--output-dir` pointing outside the tree, and this covers what earlier sessions left behind.
+.playwright-mcp/
