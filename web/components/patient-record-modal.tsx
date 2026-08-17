@@ -440,7 +440,12 @@ export function PatientRecordModal({
     setOpenSections((prev) => ({ ...prev, details: true }))
   }
 
-  const reste = Math.max(0, roundMillimes(grandTotal - (parseAmountInput(amountPaid) || 0)))
+  const paidAmount = parseAmountInput(amountPaid) || 0
+  const reste = Math.max(0, roundMillimes(grandTotal - paidAmount))
+
+  // « Reste » clamps at 0, so an amount above the total was invisible here while the server refused it post-commit
+  // and the fiche saved anyway. Stated inline and the save disabled, matching the avoir dialog's own pattern.
+  const overpaid = !isInvoiced && roundMillimes(paidAmount) > roundMillimes(grandTotal)
 
   /**
    * Refuse the save: mark the region, scroll it into view, and *also* toast.
@@ -1268,6 +1273,10 @@ export function PatientRecordModal({
             <div className="w-full text-xs sm:w-auto">
               {isInvoiced ? (
                 <p className="text-muted-foreground">Facturé — le paiement est géré par la facture.</p>
+              ) : overpaid ? (
+                <p role="status" className="font-medium text-destructive">
+                  Le montant payé dépasse le total de la séance ({formatDT(grandTotal)}).
+                </p>
               ) : (
                 <p className="text-muted-foreground">
                   Reste à payer :{" "}
@@ -1317,7 +1326,7 @@ export function PatientRecordModal({
                 will book. `formatDT`, never a hand-rolled `toFixed`: the millime and the decimal comma are the
                 product's, not this dialog's.
               */}
-              <Button onClick={handleSave} disabled={loading} className="w-full sm:w-auto sm:min-w-[150px]">
+              <Button onClick={handleSave} disabled={loading || overpaid} className="w-full sm:w-auto sm:min-w-[150px]">
                 {loading
                   ? "Enregistrement…"
                   : `${

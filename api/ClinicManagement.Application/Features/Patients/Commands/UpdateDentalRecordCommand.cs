@@ -144,6 +144,14 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 request.PaymentMethod is null ? null : method,
                 request.ChequeNumber, request.ChequeBankName, request.ChequeDueDate);
 
+            // The séance's own arithmetic, checked whether or not a note bills it — the guard below runs only when
+            // one does, so on an unbilled fiche this was the gap that let « payé » exceed the acts.
+            var withinCost = DentalRecordBillingGuard.CheckPaymentWithinCost(dentalRecord.Cost, request.AmountPaid);
+            if (withinCost.IsFailure)
+            {
+                return Result<DentalRecordDto>.FailureFrom(withinCost);
+            }
+
             // ── The AC-2 / AC-3b refusal, and it has to be HERE ────────────────────────────────────────────────
             //
             // The auto-billing below runs post-commit by design, so a refusal raised from there arrives *after* the

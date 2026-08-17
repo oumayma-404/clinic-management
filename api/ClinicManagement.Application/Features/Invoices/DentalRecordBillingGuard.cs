@@ -99,6 +99,29 @@ public static class DentalRecordBillingGuard
     }
 
     /// <summary>
+    /// Whether a séance's own arithmetic holds: « Montant payé » may not exceed what the acts come to.
+    ///
+    /// <para><b>Why this is separate from <see cref="Check"/>, and why both write paths call it.</b> `Check` only
+    /// runs once a note d'honoraires exists — <see cref="LoadAsync"/> returns null otherwise — so it never saw the
+    /// unbilled fiche, which is the ordinary case. The only place the rule lived was
+    /// <c>BillDentalRecordCommand.ResolvePayment</c>, which runs <b>post-commit</b> on both fiche paths and returns
+    /// an un-coded failure that <c>DentalRecordAutoBilling</c> demotes to a warning inside an HTTP 200: the fiche
+    /// saved with 999 DT « payé » against a 40 DT act, no invoice was raised, nothing reached la caisse, and the
+    /// patient's file then displayed the money as collected. « Refusé » has to mean the save did not happen.</para>
+    /// </summary>
+    public static Result CheckPaymentWithinCost(decimal cost, decimal amountPaid)
+    {
+        if (InvoiceCalculator.RoundMoney(amountPaid) > InvoiceCalculator.RoundMoney(cost))
+        {
+            return Result.Failure(
+                DentalRecordBillingRefusals.PaymentExceedsCost(amountPaid, cost),
+                DentalRecordBillingRefusals.PaymentExceedsCostCode);
+        }
+
+        return Result.Success();
+    }
+
+    /// <summary>
     /// Whether a fiche billed by <paramref name="invoice"/> may be saved with <paramref name="proposedCost"/> and
     /// <paramref name="proposedAmountPaid"/>.
     ///

@@ -29,6 +29,9 @@ public static class DentalRecordBillingRefusals
     /// <summary>The fiche's note d'honoraires is cancelled or has been fully credited (A-1).</summary>
     public const string InvoiceNotLiveCode = "dental_record_invoice_not_live";
 
+    /// <summary>« Montant payé » exceeds the séance's own total, on a fiche nothing has billed yet.</summary>
+    public const string PaymentExceedsCostCode = "dental_record_payment_exceeds_cost";
+
     /// <summary>
     /// Lowering the collected amount. Money already recorded on a numbered document cannot be un-received by
     /// retyping a field.
@@ -55,6 +58,14 @@ public static class DentalRecordBillingRefusals
         $"Cette fiche est facturée sur {Document(invoiceNumber)}, qui est annulée ou entièrement créditée. "
         + "Aucun encaissement ne peut y être ajouté, et une seconde note ne sera pas créée : "
         + "facturez la séance à nouveau depuis « Facturer cette intervention ».";
+
+    /// <summary>
+    /// More collected than the séance is worth. Refused rather than clamped: the difference is either a mis-key or
+    /// an act nobody recorded, and only the person at the chair knows which.
+    /// </summary>
+    public static string PaymentExceedsCost(decimal amountPaid, decimal cost) =>
+        $"Le montant payé ({FormatAmount(amountPaid)} DT) dépasse le total de la séance "
+        + $"({FormatAmount(cost)} DT). Corrigez le montant, ou ajoutez l'acte qui manque.";
 
     /// <summary>
     /// « la note n° 2026-0042 » — or « un brouillon de note d'honoraires » when the invoice has no number yet.

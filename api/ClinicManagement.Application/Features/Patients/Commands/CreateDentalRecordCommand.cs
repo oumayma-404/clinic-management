@@ -5,6 +5,7 @@ using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -171,6 +172,14 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             }
 
             record.SetActs(parsed.Value!);
+
+            // Only now is `Cost` known — it is derived in `SetActs`, not passed to the ctor.
+            var withinCost = DentalRecordBillingGuard.CheckPaymentWithinCost(record.Cost, record.AmountPaid);
+            if (withinCost.IsFailure)
+            {
+                return Result<DentalRecordDto>.FailureFrom(withinCost);
+            }
+
             // Null stays null — « non renseigné », read as cash everywhere. `SetPayment` runs the cheque details
             // through the existing `ChequeDetails.For`, so details on a non-cheque method are refused there rather
             // than by a second copy of the rule here.
