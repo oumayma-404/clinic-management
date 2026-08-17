@@ -406,13 +406,26 @@ function RowActions({
   onNothingToBill: (visit: VisitToCloseDto) => void
 }) {
   if (visit.nextStep === "Presence") {
+    // Each row's pair carries the patient's name: this list is many rows of identical actions, so « Venu » alone
+    // announces the same thing a dozen times with no way to tell which séance is being answered.
     return (
       <>
-        <Button size="sm" disabled={busy} onClick={() => onPresence(visit, true)}>
+        <Button
+          size="sm"
+          disabled={busy}
+          onClick={() => onPresence(visit, true)}
+          aria-label={`${visit.patientName} est venu`}
+        >
           <UserCheck aria-hidden="true" className="me-1.5 size-4" />
           Venu
         </Button>
-        <Button size="sm" variant="outline" disabled={busy} onClick={() => onPresence(visit, false)}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={() => onPresence(visit, false)}
+          aria-label={`${visit.patientName} est absent`}
+        >
           <UserX aria-hidden="true" className="me-1.5 size-4" />
           Absent
         </Button>

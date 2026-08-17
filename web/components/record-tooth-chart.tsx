@@ -178,6 +178,11 @@ export function RecordToothChart({
         disabled={disabled}
         onClick={() => onToggleTooth(num)}
         title={toothTitle?.(num) ?? `Dent ${num}`}
+        /* A toggle, so it must say so and say which way it is set: selection was carried by fill colour and a
+           ring alone, i.e. by nothing at all to a screen reader — on the control that decides what is charted
+           and, on a per-tooth act, what is billed. */
+        aria-pressed={selected}
+        aria-label={toothTitle?.(num) ?? `Dent ${num}`}
         /*
          * ⚠️ `coarse:min-w-11` — the paint is WIDENED, not overlaid. This deliberately does **not** use
          * `touch-target`, which is the one place in the app where that primitive is the wrong tool.
