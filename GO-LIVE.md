@@ -164,8 +164,12 @@ Operator guide: [`deploy/README.md`](deploy/README.md). Compose file: `deploy/do
 - [ ] **Run a restore drill before any real patient data exists.** ⚠️ `restore-backup` refuses to run in the hosted
       profile by design (its safety interlock looks for a listener on the same machine), so **write down and
       rehearse the container-based restore procedure**. A backup you have never restored is not a backup.
-- [ ] Walk every page, then set **`Security__EnforceCsp=true`** and walk them again. It ships report-only precisely
-      because only a human who has clicked through the app can say enforcing is safe.
+- [ ] ✅ **Done for the compose deployments** — `Security__EnforceCsp: "true"` ships in *both*
+      `docker-compose.hosted.yml` and `docker-compose.prod.yml` (`hosted-security-hardening` Part D walked 30
+      routes with 0 violations). Still owed **per deployment** that does not use those files: walk every page,
+      then set the flag and walk them again, because what makes enforcing safe is that somebody clicked through
+      the app *in this deployment*. ⚠️ Note the flag constrains resource **origins** only — `script-src` carries
+      `'unsafe-inline'`, so it is not XSS protection; see `SECURITY_ARCHITECTURE.md` § 9.5.
 - [ ] Set up **uptime monitoring** on `/health` and an alert on it.
 
 ---
@@ -254,7 +258,11 @@ Not legal advice. Get a Tunisian lawyer or DPO; this is patient health data on a
 
 Each is a conscious "not yet", not an oversight:
 
-- **No MFA** on staff accounts.
+- ~~**No MFA** on staff accounts.~~ ✅ **Closed by `hosted-security-hardening` Part A**: TOTP is **mandatory for
+  clinic administrators** on `HostedMultiTenant` (`DeploymentProfile.RequiresAdminSecondFactor`, decided by the
+  deployment kind and by no operator setting), optional for doctors and secretaries, with 8 single-use recovery
+  codes and three documented ways back. `SelfHostedLan` is deliberately ✗ — an administrator locked out on a
+  clinic's own offline PC with no vendor to call is worse than the threat.
 - **No auto-update** for the desktop app.
 - **No TTN admin surface** (§7).
 - **SignalR hub methods run with no tenant scope** — safe today only because `ClinicHub` reads an unfiltered table;

@@ -63,10 +63,15 @@ mobile/
   whether it asks or not, and `setDecorFitsSystemWindows(true)` no longer opts out. `applyWindowInsets` pads the
   root instead, so the viewport ends above the gesture bar and the web app's `--bottom-inset` works without
   depending on whether this WebView build reports the navigation bar through `env(safe-area-inset-*)`.
-- **`onReceivedHttpError` and `onReceivedSslError` are deliberately not overridden.** An HTTP status means the
-  server answered, and what it answered with is the app's own French error page — AC-74 requires that be shown, not
-  replaced by a shell state. And the default SSL behaviour cancels the load, which is what keeps « untrusted
-  certificate » from becoming a silently accepted MITM.
+- **`onReceivedHttpError` is deliberately not overridden.** An HTTP status means the server answered, and what it
+  answered with is the app's own French error page — AC-74 requires that be shown, not replaced by a shell state.
+- **`onReceivedSslError` IS overridden, and only to report the refusal.** It calls `handler.cancel()`, sets
+  `mainFrameFailed` and shows « certificat non approuvé ». ⚠️ The earlier reasoning — « the default cancels the
+  load, so the failure surfaces as *Impossible de joindre* » — was **wrong, and was found wrong on a physical
+  Galaxy S9**: when the SSL handler cancels, `onReceivedError` is *not* raised for the main frame, so
+  `mainFrameFailed` stayed false, `onPageFinished` still fired and the shell switched to an **empty WebView** — the
+  white rectangle AC-74 forbids. The security property is unchanged: the certificate is still refused and
+  `proceed()` appears nowhere in this project. What changed is only that the user is told, and told what to do.
 - **`network_security_config.xml` trusts user-installed CAs.** That is what makes the offline-LAN install reachable
   at all: its certificate is self-signed into `.local/` by the API on first boot. Cleartext stays refused.
 - **The « Serveur » actions hang off the back gesture at the root**, not off a title bar. A permanent strip of

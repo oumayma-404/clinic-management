@@ -1492,7 +1492,10 @@ Frontend talks to the API via `NEXT_PUBLIC_API_URL` (default `http://localhost:5
   backend on the internet; `ServerConfig.parseAddress` is a faithful port of `desktop/ServerConfig.cs`'s, so the two
   clients cannot disagree about what a typed address means. `network_security_config.xml` trusts **user-installed
   CAs** — without it the self-signed `SelfHostedLan` certificate makes that whole topology unreachable — while
-  `onReceivedSslError` is **not** overridden anywhere, so a bad certificate still fails loudly.
+  `onReceivedSslError` **is** overridden — and only to *report* the refusal: it calls `handler.cancel()` and shows
+  « certificat non approuvé », because leaving it out produced a **blank white screen** on a physical Galaxy S9
+  (when the SSL handler cancels, `onReceivedError` is not raised for the main frame, so the shell switched to an
+  empty WebView). `proceed()` appears nowhere in this project, so a bad certificate still fails loudly.
   ⚠️ **Three omissions are load-bearing.** `onReceivedHttpError` is deliberately unhandled: a status means the
   server *answered*, and what it answered with is the app's own French error page — replacing that with a shell
   state is the blank app AC-74 forbids (same reason the launch probe reads a 404 on
