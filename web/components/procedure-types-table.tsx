@@ -328,7 +328,11 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
               // fourth in a list of values. `CardList` drops an empty status, so an unfiled act shows nothing.
               status={(p) =>
                 p.category ? (
-                  <Badge variant="secondary" className="max-w-[10rem] truncate text-xs">
+                  // ⚠️ `min(10rem, 100%)` and not a bare `max-w-[10rem]`: a category is clinic-authored, the
+                  // badge is `shrink-0`, and at 320 px the card gives this row ~149 px — so a flat 160 px cap
+                  // painted « Chirurgie/Extraction » out through the card's right edge. The 10rem cap is still
+                  // what limits it on a wide screen.
+                  <Badge variant="secondary" className="max-w-[min(10rem,100%)] truncate text-xs">
                     {p.category}
                   </Badge>
                 ) : null

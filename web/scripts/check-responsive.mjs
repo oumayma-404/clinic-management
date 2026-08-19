@@ -622,6 +622,43 @@ check(
   },
 );
 
+check(
+  "page-header-not-a-flex-item",
+  "N9",
+  "`<PageHeader>` is not wrapped in a hand-rolled flex row — its controls go through `actions`",
+  "`PageHeader` paints the zone's hue as a wash that deliberately bleeds past its own box on three sides so it " +
+    "meets the page gutter. That only works while the header spans the page. Wrapped in a `flex … sm:flex-row` " +
+    "row beside a sibling cluster of controls, the header becomes a flex item and shrinks to its title's " +
+    "width — so the wash stops mid-page with a hard vertical edge, which reads as a rendering fault rather " +
+    "than as a design. Five pages had it (`/caisse`, `/stock`, `/lab-orders`, `/waiting-list`, " +
+    "`/recurring-series`), each having reinvented the row that `PageHeader`'s own `actions` slot already is — " +
+    "`actions` is `flex flex-wrap`, so it wraps below `sm:` exactly as the wrapper did. Pass the controls as " +
+    "`actions={…}` and delete the wrapper. Nothing here is visible to `tsc` or to the eye at the width the " +
+    "header happens to fit.",
+  () => {
+    const hits = [];
+    for (const file of tsx()) {
+      const lines = read(file).split(/\r?\n/);
+      lines.forEach((line, i) => {
+        if (!/<PageHeader\b/.test(line)) return;
+        // Walk back to the nearest line that actually opens an element, skipping blanks and comment bodies.
+        for (let j = i - 1; j >= 0 && j >= i - 40; j--) {
+          const prev = lines[j].trim();
+          if (!prev || prev.startsWith("//") || prev.startsWith("*") || prev.startsWith("/*") || prev.endsWith("*/")) continue;
+          // A wrapper that lays its children out in a row at SOME width is the defect; a plain `<div>` or a
+          // `flex-col`-only stack (which still gives the header the full width) is not.
+          if (/<div\b[^>]*className=/.test(prev) && /\bflex\b/.test(prev) && !/^\{\/\*/.test(prev)) {
+            const rowish = /(?:^|:)(?:flex-row|items-center|justify-between)/.test(prev);
+            if (rowish) hits.push({ file: rel(file), line: j + 1, text: "<PageHeader> inside a flex row", full: prev.slice(0, 140) });
+          }
+          break;
+        }
+      });
+    }
+    return hits;
+  },
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

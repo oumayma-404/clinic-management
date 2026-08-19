@@ -478,8 +478,18 @@ function DashboardContent() {
             hint={comparedToLabel(period)}
             refetching={refetching}
           >
+            {/*
+              ⚠️ **`items-stretch` is not enough on its own — the LEFT column has to be told to fill.** Both
+              columns are grid items and so already stretch to the row's height, but the left one's own children
+              (two `KpiGrid` surfaces) size to their content, so the stretched box was empty at the bottom and
+              the two sides read as unequal cards. « Répartition des actes » holds a *dynamic* list (1–8 acts),
+              so the row's height is whatever the chart needs — which means the fix is to make the figures fill
+              that height rather than to guess it: `flex-col` + `flex-1` on the subordinate grid, and
+              `auto-rows-fr` inside it so the extra height goes to the CELLS and not to the `bg-border`
+              container showing through underneath them.
+            */}
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-              <div className="space-y-3">
+              <div className="flex flex-col gap-3">
                 <KpiGrid columns={1}>
                   {kpi(
                     "completedAppointments",
@@ -488,7 +498,7 @@ function DashboardContent() {
                     { comparison: data?.activity.completedAppointments, emphasis: "lead" },
                   )}
                 </KpiGrid>
-                <KpiGrid columns={2}>
+                <KpiGrid columns={2} className="auto-rows-fr xl:flex-1">
                   {kpi("absenceRate", percent(data?.activity.absenceRate.current), AlertCircle, {
                     comparison: data?.activity.absenceRate,
                     // A rising absence rate is bad news, so the arrow's colour must invert.
@@ -560,14 +570,15 @@ function DashboardContent() {
                 portrait is 820 px and the 256 px rail leaves ~532 px, which would give the chart ~250 px.
               */}
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-                <div className="space-y-3">
+                {/* Same fill as l'activité above — see the note there. The trend chart is the taller half here. */}
+                <div className="flex flex-col gap-3">
                   <KpiGrid columns={1}>
                     {kpi("net", money(data?.money.net.current), Scale, {
                       comparison: data?.money.net,
                       emphasis: "lead",
                     })}
                   </KpiGrid>
-                  <KpiGrid columns={2}>
+                  <KpiGrid columns={2} className="auto-rows-fr xl:flex-1">
                     {kpi("collected", money(data?.money.collected.current), Wallet, {
                       comparison: data?.money.collected,
                     })}

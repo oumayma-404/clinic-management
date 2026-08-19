@@ -163,10 +163,16 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
           {/* flex-wrap + a full-width button below sm:. Title and « Ajouter » together exceed a 288px
               card, and without wrapping the button ran outside the view. */}
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle className="flex min-w-0 items-center gap-2">
+            {/* ⚠️ `flex-wrap` on the title, and no `ml-2` on the badge. `CardHeader` is a `grid` whose
+                single implicit track is `auto`, so it is sized by its content's MIN-content — and with the
+                title unable to wrap, that min-content (icon + longest word + a `whitespace-nowrap` count
+                badge) exceeded the ~240 px this card gets at 320 px and the whole row was painted out
+                through its right edge. `gap-2` already spaces the badge; `ml-2` on top only made the
+                min-content wider. */}
+            <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
               <ClipboardList className="h-5 w-5" />
               Nomenclature CNAM
-              <Badge variant="secondary" className="ml-2">
+              <Badge variant="secondary">
                 {pageInfo.totalCount} {pageInfo.totalCount === 1 ? "acte" : "actes"}
               </Badge>
             </CardTitle>

@@ -124,9 +124,30 @@ export function EmptyState({
       </div>
 
       {(action || secondaryAction) && (
-        // `flex-wrap` and not a fixed row: « Ajouter un patient » beside « Importer depuis un fichier » is ~320 px
-        // of French, which is wider than the content box of a 360 px phone.
-        <div className={cn("flex flex-wrap items-center justify-center gap-2", compact ? "mt-1" : "mt-2")}>
+        /*
+         * `flex-wrap` and not a fixed row: « Ajouter un patient » beside « Importer depuis un fichier » is
+         * ~320 px of French, which is wider than the content box of a 360 px phone.
+         *
+         * ⚠️ **Wrapping the ROW is not enough — a single long label still overflows.** `Button` is
+         * `whitespace-nowrap shrink-0`, so « Créer un plan depuis l'odontogramme » measures 253 px against the
+         * 223 px this row gets at 320 px and was painted straight out through the card's edge; there is no
+         * second button for `flex-wrap` to move. So the row lets its own children break their label instead,
+         * restoring the default `h-9` as a floor (`min-h-9 py-2`) so nothing changes for the short labels that
+         * are the normal case. `whitespace-normal!` because it and the base `whitespace-nowrap` are the same
+         * property at the same specificity — source order would otherwise decide it, which is not a thing to
+         * leave to chance.
+         *
+         * Break the words, never hide them: an empty state's action is the one control on the surface, and a
+         * truncated « Créer un plan depuis l'odonto… » is exactly the kind of half-sentence this component
+         * exists to avoid.
+         */
+        <div
+          className={cn(
+            "flex flex-wrap items-center justify-center gap-2",
+            "[&>*]:h-auto [&>*]:min-h-9 [&>*]:max-w-full [&>*]:py-2 [&>*]:whitespace-normal!",
+            compact ? "mt-1" : "mt-2",
+          )}
+        >
           {action}
           {secondaryAction}
         </div>

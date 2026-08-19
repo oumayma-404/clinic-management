@@ -182,7 +182,19 @@ export function DoctorWorkingHoursCard({
                       {DAY_LABELS_FR[weekday] ?? weekday}
                     </Label>
                   </div>
-                  <div className="flex flex-1 items-center gap-2">
+                  {/* ⚠️ Three classes, three separate reasons, and it takes all three.
+                      • `basis-52` — `flex-1` alone is `flex: 1 1 0%`, so this pair's *hypothetical* size is zero
+                        and it can never trigger the row's `flex-wrap`; a real basis is what lets the wrap fire,
+                        and `sm:basis-0` puts it back on the day's line above the hinge.
+                      • `min-w-0` on THIS box — a flex item's automatic minimum size is its content, and the
+                        content here is two `type="time"` fields with a ~106 px native intrinsic width each, so
+                        the wrapper was clamped UP to 234 px inside a 208 px card and painted straight out of it.
+                      • `min-w-0 flex-1 basis-28` on each field, so once the box can shrink the two of them
+                        share what is left — and, at 320 px where 91 px each would clip « 09:00 » down to
+                        « 09:( », the 7rem basis makes the second field wrap onto its own full-width line
+                        instead. A time you cannot read is not a narrower control, it is a broken one.
+                      (Same family of trap as `subscription-banner.tsx` and `ui/list-toolbar.tsx`.) */}
+                  <div className="flex min-w-0 flex-1 basis-52 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap sm:basis-0">
                     <Label htmlFor={fromId} className="sr-only">
                       {`Heure d'ouverture — ${DAY_LABELS_FR[weekday] ?? weekday}`}
                     </Label>
@@ -192,7 +204,11 @@ export function DoctorWorkingHoursCard({
                       value={day.from}
                       onChange={(e) => updateDay(weekday, { from: e.target.value })}
                       disabled={saving || !day.enabled}
-                      className="h-7 md:text-xs"
+                      // `min-w-0 flex-1`: a `type="time"` field will not go below its native intrinsic width
+                      // (~105 px) on its own, so even on its own wrapped line the pair measured 234 px against
+                      // the 182 px this card gives it at 320 px. Sharing the row explicitly is what makes both
+                      // fields fit; they are wide enough for « 09:00 » and the picker glyph at that size.
+                      className="h-7 min-w-0 flex-1 basis-28 md:text-xs"
                     />
                     <span className="text-xs text-muted-foreground">à</span>
                     <Label htmlFor={toId} className="sr-only">
@@ -204,7 +220,11 @@ export function DoctorWorkingHoursCard({
                       value={day.to}
                       onChange={(e) => updateDay(weekday, { to: e.target.value })}
                       disabled={saving || !day.enabled}
-                      className="h-7 md:text-xs"
+                      // `min-w-0 flex-1`: a `type="time"` field will not go below its native intrinsic width
+                      // (~105 px) on its own, so even on its own wrapped line the pair measured 234 px against
+                      // the 182 px this card gives it at 320 px. Sharing the row explicitly is what makes both
+                      // fields fit; they are wide enough for « 09:00 » and the picker glyph at that size.
+                      className="h-7 min-w-0 flex-1 basis-28 md:text-xs"
                     />
                   </div>
                 </div>

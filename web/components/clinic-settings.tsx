@@ -687,10 +687,15 @@ export default function ClinicSettings() {
                   <Select value={governorate} onValueChange={setGovernorate} disabled={!isEditingClinicInfo}>
                     {/* The asterisk is not the only "required" signal: every sibling field carries the
                         native `required` attribute, and a Radix trigger cannot — so it states it itself. */}
+                    {/* ⚠️ `w-full` + `md:text-sm`. `SelectTrigger`'s base is **`w-fit`**, so with no width of its
+                        own it sizes to the selected value — narrower than the inputs it is stacked with, and
+                        wider than its own grid cell once a long gouvernorat is picked. And an *unprefixed*
+                        `text-sm` replaces the primitive's `text-base` under tailwind-merge, which is the § 3
+                        guard. */}
                     <SelectTrigger
                       id="governorate"
                       aria-required="true"
-                      className={`h-8 text-sm ${!isEditingClinicInfo ? "bg-muted/40" : ""}`}
+                      className={`h-8 w-full md:text-sm ${!isEditingClinicInfo ? "bg-muted/40" : ""}`}
                     >
                       <SelectValue placeholder="Sélectionner un gouvernorat" />
                     </SelectTrigger>
@@ -920,7 +925,10 @@ export default function ClinicSettings() {
                             onValueChange={(value) => updateDoctor(doctor.id, "specialty", value)}
                             disabled={!isEditingDoctors}
                           >
-                            <SelectTrigger className="h-7 text-sm">
+                            {/* `w-full`: the base is `w-fit`, so « Médecin dentiste » made this trigger
+                                18 px wider than its grid cell at 320 px — see the note on the gouvernorat
+                                trigger above for the `md:` prefix. */}
+                            <SelectTrigger className="h-7 w-full md:text-sm">
                               <SelectValue placeholder="Sélectionner une spécialité" />
                             </SelectTrigger>
                             <SelectContent>

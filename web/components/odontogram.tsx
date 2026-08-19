@@ -331,16 +331,24 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
               <DentitionViewSwitch value={dentitionView} onChange={setChosenView} />
             </div>
             {onCreatePlan && (
+              /* ⚠️ The label shortens below `sm:`, and the `aria-label` carries the full phrase at every width.
+                 « Créer un plan depuis l'odontogramme » measures 253 px against the 223 px this row has at
+                 320 px, and `Button` is `whitespace-nowrap shrink-0` — so the wording, not the layout, was what
+                 pushed a control out through the card's edge. Shortening the *visible* half loses nothing here:
+                 the button sits directly under the odontogramme it acts on, so « depuis l'odontogramme » is the
+                 one part of the sentence the context already supplies. */
               <Button
                 size="sm"
                 variant="outline"
-                className="h-7 gap-1.5 text-xs"
+                className="h-7 max-w-full gap-1.5 text-xs"
                 disabled={planSeeds.length === 0}
                 onClick={() => onCreatePlan(planSeeds)}
+                aria-label="Créer un plan depuis l'odontogramme"
                 title={planSeeds.length === 0 ? "Aucun diagnostic à planifier" : undefined}
               >
                 <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
-                Créer un plan depuis l'odontogramme
+                Créer un plan
+                <span className="hidden sm:inline">&nbsp;depuis l&apos;odontogramme</span>
               </Button>
             )}
           </div>

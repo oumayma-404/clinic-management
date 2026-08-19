@@ -35,9 +35,17 @@ export function ListToolbar({ search, children, className }: ListToolbarProps) {
         box is ~288 px, so the box plus any sibling filter overflowed the row, which is the « champs qui
         débordent » the clinic reported. Below `sm:` the search takes a full row of its own and the filter
         chips wrap underneath it, which is also the right shape for a thumb.
+
+        ⚠️ **`flex-1` is `sm:`-prefixed too, and that is what actually delivers « a full row of its own ».**
+        `flex-1` is `flex: 1 1 0%`, and a flex-basis of `0%` beats the `w-full` beside it — so the box's
+        *hypothetical* size was zero, it never triggered the wrap it is supposed to, and it shared the row with
+        the filter chips instead. Measured on `/fournisseurs` at 390 px: the wrapper resolved to **4 px** wide,
+        i.e. the search box was effectively invisible on a phone. With no `flex-1` below `sm:` the basis is
+        `auto`, so `w-full` is the hypothetical size and the row wraps as intended. (Same trap as
+        `subscription-banner.tsx` and `doctor-working-hours-card.tsx`.)
       */}
       {search && (
-        <div className="relative w-full min-w-0 flex-1 sm:w-auto sm:min-w-[190px] sm:max-w-sm">
+        <div className="relative w-full min-w-0 sm:w-auto sm:min-w-[190px] sm:max-w-sm sm:flex-1">
           <Search
             aria-hidden="true"
             className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"

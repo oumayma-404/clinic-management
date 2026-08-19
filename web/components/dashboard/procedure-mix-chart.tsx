@@ -47,7 +47,14 @@ export function ProcedureMixChart({
 
   return (
     <Card>
-      <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/*
+        ⚠️ `flex` is UNPREFIXED on purpose. `CardHeader`'s base is `grid`, and `sm:flex-row` alone sets a
+        flex-direction on a grid container — a different tailwind-merge group, so `grid` survives and the rule
+        does nothing at any width. The header stayed a one-column grid: the title and the toggle stacked, and
+        the toggle — `inline-flex`, but a grid item, and grid items stretch — was painted the full width of the
+        card with the two pills adrift at its left end. That is the « rendered weirdly » segmented control.
+      */}
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="flex items-center gap-2.5">
           <span
             aria-hidden="true"
@@ -61,7 +68,9 @@ export function ProcedureMixChart({
         <div
           role="group"
           aria-label="Mesure"
-          className="inline-flex shrink-0 gap-0.5 rounded-full border bg-card p-0.5 shadow-sm"
+          // `self-start` + `w-fit`: even as a flex item the group must never stretch — a segmented control as
+          // wide as the card reads as a broken input, not as a two-way switch.
+          className="inline-flex w-fit shrink-0 gap-0.5 self-start rounded-full border bg-card p-0.5 shadow-sm sm:self-auto"
         >
           {(["minutes", "count"] as const).map((m) => (
             <button

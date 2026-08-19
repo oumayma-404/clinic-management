@@ -356,7 +356,10 @@ export function SuppliersTable({ createRequest = 0 }: SuppliersTableProps) {
                 ]}
                 actions={rowActions}
                 primaryAction={(s) => (
-                  <div className="flex items-center gap-2">
+                  // ⚠️ `flex-wrap`: `Button` is `whitespace-nowrap shrink-0`, so « Ajouter un numéro » beside
+                  // « Modifier » is ~63 px wider than a 320 px card and neither could give way — the pair was
+                  // painted out through the card's right edge. Wrapping puts « Modifier » on its own line there.
+                  <div className="flex flex-wrap items-center gap-2">
                     {/* AC-9 — visible on the card, not in the menu. */}
                     <WhatsAppAction
                       phoneE164={s.phoneE164}

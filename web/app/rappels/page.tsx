@@ -351,13 +351,19 @@ export default function RappelsPage() {
             </SelectContent>
           </Select>
 
-          <span className="flex items-center gap-1.5">
+          {/* ⚠️ `flex-wrap` on the pair, not just on the toolbar around it. A `type="date"` field has a native
+              intrinsic width (~170 px in Chrome) it will not go below, so the two of them plus « au » measure
+              ~366 px — wider than the 343 px content box of a 390 px phone. As one unwrappable group the span
+              could neither shrink nor break, and the whole page scrolled sideways. Wrapping lets the second
+              field drop to its own line; `max-w-full` is the floor for the narrowest case (320 px), where even
+              one field is close to the full width. */}
+          <span className="flex flex-wrap items-center gap-1.5">
             <Input
               type="date"
               value={from}
               onChange={(e) => setFilter(setFrom)(e.target.value)}
               aria-label="Du"
-              className="h-8 w-auto tabular-nums"
+              className="h-8 w-auto max-w-full tabular-nums"
             />
             <span className="text-xs text-muted-foreground">au</span>
             <Input
@@ -365,7 +371,7 @@ export default function RappelsPage() {
               value={to}
               onChange={(e) => setFilter(setTo)(e.target.value)}
               aria-label="Au"
-              className="h-8 w-auto tabular-nums"
+              className="h-8 w-auto max-w-full tabular-nums"
             />
           </span>
         </div>

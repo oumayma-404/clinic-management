@@ -195,9 +195,16 @@ function DeltaBadge({
 
   if (deltaPercent === null || deltaPercent === undefined) {
     return (
-      <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-        <Minus className="size-3.5" aria-hidden="true" />
-        <span>Pas de comparaison</span>
+      /*
+       * ⚠️ `max-w-full` + a shrinkable label. This is the ONE delta state whose text is a phrase rather than a
+       * short signed number, and at 320 px a two-column `KpiGrid` cell has ~112 px of content box against the
+       * ~123 px this pill measures — so it painted 11 px out through the cell, over the hairline and into its
+       * neighbour. It wraps to two lines there instead; « Pas de compara… » would name nothing, and this is
+       * exactly the case the reader most needs told plainly (there is no baseline to compare against).
+       */
+      <p className="mt-3 inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+        <Minus className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="min-w-0">Pas de comparaison</span>
         <span className="sr-only">— {baseline}</span>
       </p>
     )

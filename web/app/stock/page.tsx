@@ -82,21 +82,24 @@ export default function StockPage() {
     <ClinicGuard>
       <AppShell contentClassName="space-y-6">
         {/*
-          `flex items-center justify-between` with no wrap put a ~190px button against the title on a 390px
-          screen and neither could give way. Same shape as `/caisse`, which already had it right.
+          The action goes through `PageHeader`'s own `actions` slot, NOT a hand-rolled flex row around it: as a
+          flex item beside a sibling the header shrinks to its title's width, and its zone wash — which bleeds
+          past its own box to meet the page gutter — was cut off mid-page with a hard vertical edge.
 
           No `zone` prop: `PageHeader` derives it from the route now (`lib/zones.ts` puts `/stock` in
           « Gestion »), and the hardcoded « Clinique » here disagreed with the rail — the exact drift the
           derivation was introduced to end.
         */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <PageHeader title="Stock" subtitle="Fournitures, lots et seuils de réapprovisionnement." />
-
-          <Button onClick={handleAddNew} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Ajouter un article
-          </Button>
-        </div>
+        <PageHeader
+          title="Stock"
+          subtitle="Fournitures, lots et seuils de réapprovisionnement."
+          actions={
+            <Button onClick={handleAddNew} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Ajouter un article
+            </Button>
+          }
+        />
 
         {/* Stock Table */}
         <StockTable

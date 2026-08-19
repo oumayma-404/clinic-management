@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
@@ -356,26 +356,18 @@ function CaisseContent() {
   return (
     <ClinicGuard>
       <AppShell contentClassName="space-y-6">
-        {/* Page Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <PageHeader
-            title="Caisse"
-            subtitle={<span className="capitalize">{dayLabel}</span>}
-            // L5 — the « extrait de caisse », over the window on screen. ⚠️ The free-text `search` is
-            // deliberately NOT sent: « Solde de la période » is computed over the whole window before filtering,
-            // so a text-filtered file would carry a running-balance column that sums to nothing. The file is the
-            // statement for the period, which is what an accountant reconciles against a bank statement.
-            actions={
-              <ExportButton
-                path="/billing/caisse/ledger/export"
-                label="mouvements"
-                params={{ fromDay, toDay }}
-              />
-            }
-          />
-
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <div className="flex items-end gap-2">
+        {/*
+          Page header. The période controls and « Nouvelle dépense » go through `PageHeader`'s own `actions`
+          slot: wrapped in a flex row beside it, the header shrank to the width of « Caisse » and its zone wash
+          — which bleeds past its own box to meet the page gutter — was cut off with a hard vertical edge a
+          third of the way across the page.
+        */}
+        <PageHeader
+          title="Caisse"
+          subtitle={<span className="capitalize">{dayLabel}</span>}
+          actions={
+            // `items-end` so the labelled date fields line up on their BOXES with the buttons beside them.
+            <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-1.5">
                 <Label htmlFor="caisse-day" className="text-sm text-muted-foreground">
                   {isRange ? "Du" : "Jour"}
@@ -406,13 +398,23 @@ function CaisseContent() {
                   Journée
                 </Button>
               )}
+              {/* L5 — the « extrait de caisse », over the window on screen. ⚠️ The free-text `search` is
+                  deliberately NOT sent: « Solde de la période » is computed over the whole window before
+                  filtering, so a text-filtered file would carry a running-balance column that sums to nothing.
+                  The file is the statement for the period, which is what an accountant reconciles against a
+                  bank statement. */}
+              <ExportButton
+                path="/billing/caisse/ledger/export"
+                label="mouvements"
+                params={{ fromDay, toDay }}
+              />
+              <Button onClick={handleAddNew} className="gap-2">
+                <Plus className="h-4 w-4" />
+                Nouvelle dépense
+              </Button>
             </div>
-            <Button onClick={handleAddNew} className="gap-2">
-              <Plus className="h-4 w-4" />
-              Nouvelle dépense
-            </Button>
-          </div>
-        </div>
+          }
+        />
 
         {/* Caisse summary. Four figures, not three: « Encaissements » is now GROSS and avoirs have their own
             card. They used to be silently subtracted inside it, which stopped working the moment the
@@ -631,14 +633,11 @@ function CaisseContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {/* `TableEmptyRow` drops the cell padding (the empty state owns its own vertical rhythm)
+                        and pins the block to the visible left edge, so a wide, scrolled table cannot cut the
+                        invite in half. */}
                     {expenses.length === 0 ? (
-                      <TableRow>
-                        {/* `p-0` so the empty state owns its own vertical rhythm — the cell's usual padding
-                            plus the primitive's would push the action a screen down. */}
-                        <TableCell colSpan={6} className="p-0">
-                          {expensesEmpty}
-                        </TableCell>
-                      </TableRow>
+                      <TableEmptyRow colSpan={6}>{expensesEmpty}</TableEmptyRow>
                     ) : (
                       expenses.map((expense) => (
                         <TableRow key={expense.id}>

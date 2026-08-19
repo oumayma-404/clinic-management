@@ -19,7 +19,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Dialog,
   DialogContent,
@@ -393,17 +393,16 @@ export default function WaitingListPage() {
           No `zone`: `PageHeader` derives it from the route (`/waiting-list` is « Quotidien »), and the
           hardcoded « Clinique » here contradicted the rail.
         */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <PageHeader
-            title="Salle d&apos;attente"
-            subtitle="Patients en attente d&apos;un créneau de rendez-vous."
-          />
-
-          <Button onClick={handleAddNew} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Ajouter à la liste
-          </Button>
-        </div>
+        <PageHeader
+          title="Salle d&apos;attente"
+          subtitle="Patients en attente d&apos;un créneau de rendez-vous."
+          actions={
+            <Button onClick={handleAddNew} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Ajouter à la liste
+            </Button>
+          }
+        />
 
         {/* Waiting list table */}
         <Card>
@@ -538,9 +537,7 @@ export default function WaitingListPage() {
                         </TableRow>
                       ))
                     ) : entries.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={6}>{renderEmpty("default")}</TableCell>
-                      </TableRow>
+                      <TableEmptyRow colSpan={6}>{renderEmpty("default")}</TableEmptyRow>
                     ) : (
                       entries.map((entry) => (
                         <TableRow key={entry.id}>

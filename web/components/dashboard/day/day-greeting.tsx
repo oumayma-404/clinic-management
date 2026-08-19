@@ -50,7 +50,10 @@ export function DayGreeting({ phrase, dayLabel, loading = false }: DayGreetingPr
 
         {loading ? (
           <span
-            className="mt-1 block h-8 w-64 max-w-full animate-pulse rounded bg-muted"
+            /* ⚠️ `w-full max-w-64`, not `w-64 max-w-full`. A percentage `max-width` resolves to `none`
+               during intrinsic sizing, so the 256 px `w-64` was this row's min-content — 36 px wider than a
+               320 px screen — and the page scrolled sideways for the length of every dashboard load. */
+            className="mt-1 block h-8 w-full max-w-64 animate-pulse rounded bg-muted"
             aria-label="Chargement de la journée"
           />
         ) : (

@@ -218,6 +218,40 @@ function TableMeta({ className, children, ...props }: React.ComponentProps<"div"
   )
 }
 
+/**
+ * The « there is nothing here » row of a table — the one place a `colSpan` cell holds a whole `EmptyState`.
+ *
+ * <p>⚠️ <b>It exists because a full-width cell is as wide as the TABLE, not as wide as the screen.</b> Every
+ * `TableHead`/`TableCell` in this file is `whitespace-nowrap`, so a wide table has an intrinsic width well past a
+ * tablet portrait's content box — and the container scrolls, which is right for rows. An empty state centred in
+ * that cell is centred on a width nobody can see: measured at 820 px, `/stock`'s invite sat in a 752 px cell
+ * inside a 451 px viewport, so « Aucun article en sto… » and half of « Ajouter un article » were off screen with
+ * only a horizontal scrollbar to say so. Four tables had it, and it is the one empty state a first-run clinic
+ * always meets.</p>
+ *
+ * <p><b>`sticky left-0 w-fit` is the fix</b>, and both halves matter: `w-fit` shrinks the block to its own
+ * content instead of inheriting the cell's width, and `sticky left-0` pins it to the visible left edge so it
+ * stays whole however far the table is scrolled. Left-aligned rather than centred under a scrolled table is the
+ * honest trade — a centred invite that is clipped reads as a broken screen.</p>
+ */
+function TableEmptyRow({
+  colSpan,
+  className,
+  children,
+}: {
+  colSpan: number
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <TableRow className="hover:bg-transparent">
+      <TableCell colSpan={colSpan} className={cn("p-0 whitespace-normal", className)}>
+        <div className="sticky left-0 w-fit max-w-full">{children}</div>
+      </TableCell>
+    </TableRow>
+  )
+}
+
 export {
   Table,
   TableMeta,
@@ -228,4 +262,5 @@ export {
   TableRow,
   TableCell,
   TableCaption,
+  TableEmptyRow,
 }

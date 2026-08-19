@@ -1068,12 +1068,15 @@ export default function PatientDetailsPage() {
 
             The words removed are the ones the context already supplies: this *is* the patient's page, so
             « Modifier le patient » is « Modifier », and each button keeps its icon plus a `title` carrying
-            the full phrase. `shrink-0` stops the row being compressed instead of the name.
+            the full phrase. `sm:shrink-0` stops the row being compressed instead of the name.
 
-            `flex-wrap` is kept deliberately as the last resort: below roughly 1100px of content the group
-            genuinely cannot fit, and wrapping there is far better than overflowing horizontally on a phone.
+            ⚠️ **`shrink-0` is `sm:`-prefixed, and that is the whole fix for a real phone defect.** Unprefixed,
+            it pinned this group at its ~500 px max-content width inside a 343 px column — so `flex-wrap` never
+            fired (the box was already as wide as its content), « Planifier un RDV » sat off-screen and the whole
+            page scrolled sideways. Below `sm:` the group must be allowed to shrink so its own `flex-wrap` can do
+            the job it is here for; above it, the name is what needs protecting and the pin is right.
           */}
-          <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="flex min-w-0 flex-wrap gap-2 sm:shrink-0">
             <Button
               variant="outline"
               size="sm"

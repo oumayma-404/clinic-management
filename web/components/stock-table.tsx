@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { DEFAULT_PAGE_SIZE } from "@/lib/api/paging"
 import type { StockPageDto } from "@/lib/api/types"
@@ -24,7 +24,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Package, Search, Pencil, Trash2, AlertTriangle, Minus, Plus, History, Hourglass, MoreHorizontal } from "lucide-react"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY, CARDS_ONLY_LG, TABLE_ONLY, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ExportButton } from "@/components/ui/export-button"
 import { stockUnitLabel } from "@/components/stock-item-form-modal"
@@ -298,11 +298,19 @@ export function StockTable({
     <>
       <Card>
         <CardHeader>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle className="flex items-center gap-2">
+          {/*
+            ⚠️ **`xl:`, not `sm:`.** This header holds a title, a count badge, up to two filter chips, a 256 px
+            search box, a 192 px catégorie select and « Exporter » — ~850 px of content. At `sm:` it went to a
+            row at 640 px and neither half could wrap, so from a tablet portrait (820 px) upwards the card
+            overflowed by ~300 px and the whole page scrolled sideways. `xl:` (1280) is the first width where
+            the row genuinely fits beside the 256 px rail; `flex-wrap` on the row and on each half is the floor
+            for everything below it.
+          */}
+          <div className="flex flex-col gap-4 xl:flex-row xl:flex-wrap xl:items-center xl:justify-between">
+            <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
               <Package className="h-5 w-5" />
               Articles en stock
-              <Badge variant="secondary" className="ml-2">
+              <Badge variant="secondary">
                 {data?.totalCount ?? 0} articles
               </Badge>
               {lowStockCount > 0 && (
@@ -311,7 +319,7 @@ export function StockTable({
                   size="sm"
                   aria-pressed={lowStockOnly}
                   onClick={() => setLowStockOnly((v) => !v)}
-                  className="ml-2 h-7 gap-1"
+                  className="h-7 gap-1"
                 >
                   <AlertTriangle className="h-3 w-3" aria-hidden="true" />
                   Stock faible ({lowStockCount})
@@ -323,7 +331,7 @@ export function StockTable({
                   size="sm"
                   aria-pressed={expiringOnly}
                   onClick={() => setExpiringOnly((v) => !v)}
-                  className="ml-2 h-7 gap-1"
+                  className="h-7 gap-1"
                 >
                   <Hourglass className="h-3 w-3" aria-hidden="true" />
                   Péremption ({expiringCount})
@@ -331,7 +339,7 @@ export function StockTable({
               )}
             </CardTitle>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               <div className="relative w-full sm:w-64">
                 {/* A placeholder is not a label: it disappears the moment the field has a value, and a screen
                     reader announces the input as unnamed. Every other search box in the app already carries an
@@ -415,7 +423,7 @@ export function StockTable({
                   to one row, and on a phone the card IS that row. Without it the link would land at the top of
                   an unscrolled list — which reads as the link being broken. */}
               <CardList
-                className={CARDS_ONLY}
+                className={CARDS_ONLY_LG}
                 ariaLabel="Articles en stock"
                 items={items}
                 /* `loading` reaches the list now. The outer spinner branch above used to short-circuit before
@@ -495,14 +503,14 @@ export function StockTable({
                 /*
                   ⚠️ The critical one (finding #1). This was the ONLY one of the app's 25 `CardList` call sites
                   with no `empty`, and `card-list.tsx` returns `null` in that case — while the desktop message
-                  lives inside the desktop-only table (`containerClassName={TABLE_ONLY}`, i.e. `hidden md:block`)
-                  and is never rendered below `md:` either. So filtering stock to an empty category on the tablet
+                  lives inside the desktop-only table (`containerClassName={TABLE_ONLY_LG}`, i.e. `hidden lg:block`)
+                  and is never rendered below `lg:` either. So filtering stock to an empty category on the tablet
                   a dentist actually holds showed the header, the search box, the filters — and then a blank void
                   with no explanation.
                 */
                 empty={renderEmpty("compact")}
               />
-              <Table containerClassName={TABLE_ONLY}>
+              <Table containerClassName={TABLE_ONLY_LG}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nom de l'article</TableHead>
@@ -533,9 +541,7 @@ export function StockTable({
                       </TableRow>
                     ))
                   ) : items.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={8}>{renderEmpty("default")}</TableCell>
-                    </TableRow>
+                    <TableEmptyRow colSpan={8}>{renderEmpty("default")}</TableEmptyRow>
                   ) : (
                     items.map((item) => {
                       const isHighlighted = highlightItemId === item.id

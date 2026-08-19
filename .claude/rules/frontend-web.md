@@ -182,6 +182,27 @@ invisible on touch**:
 <PopoverContent className="w-[min(20rem,calc(100vw-2rem))]" />  // ✅
 ```
 
+## § 10.1 Two flex traps that cost real defects
+
+```tsx
+<div className="flex … sm:flex-row">        // ❌ on a `grid` base (CardHeader) this is inert — `grid` survives.
+<div className="flex flex-col … sm:flex-row">  // ✅ an UNPREFIXED `flex` is what replaces the display.
+
+<div className="w-full flex-1 sm:w-auto" />    // ❌ `flex-1` is `flex: 1 1 0%`; the 0% basis beats `w-full`,
+                                               //    so this never triggers the wrap and collapses to ~0.
+<div className="w-full sm:w-auto sm:flex-1" /> // ✅ basis `auto` below the hinge, so `w-full` takes the row.
+```
+
+Both are invisible to `tsc` and to the eye at the width you are working at. The first painted a segmented
+control the full width of a dashboard card; the second left `/fournisseurs`' search box **4 px wide** on a
+phone.
+
+**And a control whose label cannot shrink is a layout decision too.** `Button` and `Badge` are
+`whitespace-nowrap shrink-0`, so a long French label overflows its container rather than wrapping — wrapping
+the *row* does not help when there is only one child. Either let that one child break its label
+(`ui/empty-state.tsx`'s action row) or shorten the *visible* half and keep the full phrase in `aria-label`
+(`odontogram.tsx`'s « Créer un plan »). Never truncate: the label is the control's name.
+
 ## § 11 Overflow scrolls in its own container
 
 The page body **never** scrolls horizontally at 320 px. Wide content (a table, the agenda grid, a code block,
@@ -352,7 +373,8 @@ enforced while being inert — so a new check is either written to pass or the d
 | Custom variants (`coarse:`, `hover-hover:`, `dark:`), tokens, `--bottom-inset`, `.touch-target` | `web/app/globals.css` (each with its reasoning inline) |
 | Shell, gutter, content width, bottom bar | `components/app-shell.tsx`, `components/bottom-nav.tsx` |
 | Table → cards | `components/ui/card-list.tsx` |
-| Page title, zone colour, filter chips | `ui/page-header.tsx`, `lib/zones.ts`, `ui/list-toolbar.tsx` |
+| Page title, zone colour, filter chips | `ui/page-header.tsx` (**its controls go in `actions`, never a flex row around it** — the zone wash is sized to the header's own box), `lib/zones.ts`, `ui/list-toolbar.tsx` |
+| An empty state inside a wide table | `ui/table.tsx`'s `TableEmptyRow` — a `colSpan` cell is as wide as the table, not the screen |
 | Empty / filtered / failed | `ui/empty-state.tsx` |
 | Status colour vs. zone colour | `ui/status-tone.ts` (status) vs `lib/zones.ts` (place) — never interchange |
 | Money, dates, file sizes | `lib/format.ts`. Never hand-format a dinar; a date input defaults to `todayLocalIso()`, never `toISOString().slice(0,10)` |

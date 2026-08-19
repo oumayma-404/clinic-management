@@ -298,6 +298,44 @@ export function PatientNotesStrip({
       />
     ) : null
 
+  /*
+   * ⚠️ **Nothing recorded at all is ONE line, not two empty panels.**
+   *
+   * The pair of bordered halves is the right shape for content; with neither half holding anything it spends the
+   * most valuable band on the page — directly under the patient's name, above the odontogramme — restating twice
+   * that there is nothing to read. On a phone, where the halves stack, that is two thirds of the first screen.
+   *
+   * The condition is **both** halves empty, deliberately. One empty half beside a full one keeps the pair: the
+   * halves are balanced by construction (`h-full`, one shared body ceiling) and « aucune alerte » beside three
+   * recorded alerts is a fact worth stating at the same weight as the alerts themselves.
+   *
+   * `recordsFailed` short-circuits it for the reason `emptyLabel` is already guarded: a failed fiches read also
+   * arrives as `records: []`, and « aucune alerte ni note » is a **claim** a failed read is not entitled to make.
+   * The pair renders instead, so each half can carry its own retry notice.
+   */
+  if (alertCount === 0 && noteCount === 0 && !recordsFailed) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-dashed px-3 py-1.5">
+        <p className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+          <StickyNote aria-hidden="true" className="size-4 shrink-0" />
+          <span className="min-w-0">Aucune alerte ni note pour ce patient.</span>
+        </p>
+        {/* Pushed to the end and named in full for assistive tech: « Ajouter » alone, on a page carrying a dozen
+            controls, says nothing about what would be added. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onEdit}
+          aria-label="Ajouter une alerte ou une note"
+          className="ms-auto h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          Ajouter
+        </Button>
+      </div>
+    )
+  }
+
   return (
     <div className="grid gap-3 md:grid-cols-2">
       <NotesPanel

@@ -24,7 +24,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
@@ -54,7 +54,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
@@ -663,57 +663,60 @@ export default function LabOrdersPage() {
     <ClinicGuard>
       <AppShell contentClassName="space-y-6">
         {/*
-          `flex-col` below `sm:`: the title sat against a ~300px cluster (an « Étape » filter plus « Nouveau
-          bon ») in a row that could not wrap, so on a 390px screen neither fitted.
+          The « Étape » filter, « Exporter » and « Nouveau bon » go through `PageHeader`'s own `actions` slot
+          rather than a hand-rolled flex row around it. As a flex item beside a sibling the header shrank to its
+          title's width, and its zone wash — which bleeds past its own box on three sides to meet the page gutter
+          — was cut off with a hard vertical edge a third of the way across the page. `actions` already wraps
+          below `sm:`, which is what the wrapper was there for.
 
           No `zone`: `PageHeader` derives it from the route now.
         */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <PageHeader
-            title="Laboratoire"
-            subtitle="Bons de prothèse — travaux envoyés au laboratoire et leur étape."
-          />
-
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="lab-status" className="text-sm text-muted-foreground">
-                Étape
-              </Label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger id="lab-status" className="w-44">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_STATUSES}>Toutes</SelectItem>
-                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+        <PageHeader
+          title="Laboratoire"
+          subtitle="Bons de prothèse — travaux envoyés au laboratoire et leur étape."
+          actions={
+            // `items-end` so the labelled select's BOX lines up with the buttons, not its label.
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="lab-status" className="text-sm text-muted-foreground">
+                  Étape
+                </Label>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger id="lab-status" className="w-44">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_STATUSES}>Toutes</SelectItem>
+                    {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {/*
+                L5 — « Exporter » beside the primary action, never inside it: exporting is not creating. Unlike
+                `/stock` and `/creances`, this page owns its own filters, so the button lives here and reads them
+                directly. `debouncedSearch` (not `search`) is what the list request carried — sending the raw
+                keystroke would export a set the table has not shown yet.
+              */}
+              <ExportButton
+                path="/lab-orders/export"
+                label="bons"
+                compact
+                params={{
+                  search: debouncedSearch || undefined,
+                  status: statusFilter === ALL_STATUSES ? undefined : statusFilter,
+                }}
+              />
+              <Button onClick={handleAddNew} className="gap-2">
+                <Plus className="h-4 w-4" />
+                Nouveau bon
+              </Button>
             </div>
-            {/*
-              L5 — « Exporter » beside the primary action, never inside it: exporting is not creating. Unlike
-              `/stock` and `/creances`, this page owns its own filters, so the button lives here and reads them
-              directly. `debouncedSearch` (not `search`) is what the list request carried — sending the raw
-              keystroke would export a set the table has not shown yet.
-            */}
-            <ExportButton
-              path="/lab-orders/export"
-              label="bons"
-              compact
-              params={{
-                search: debouncedSearch || undefined,
-                status: statusFilter === ALL_STATUSES ? undefined : statusFilter,
-              }}
-            />
-            <Button onClick={handleAddNew} className="gap-2">
-              <Plus className="h-4 w-4" />
-              Nouveau bon
-            </Button>
-          </div>
-        </div>
+          }
+        />
 
         {/* Orders Table */}
         <Card>
@@ -763,7 +766,7 @@ export default function LabOrdersPage() {
                   unchanged.
                 */}
                 <CardList
-                  className={CARDS_ONLY}
+                  className={CARDS_ONLY_LG}
                   ariaLabel="Bons de laboratoire"
                   items={orders}
                   loading={loading}
@@ -844,7 +847,7 @@ export default function LabOrdersPage() {
                   )}
                   empty={renderEmpty("compact")}
                 />
-                <Table containerClassName={TABLE_ONLY}>
+                <Table containerClassName={TABLE_ONLY_LG}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Patient</TableHead>
@@ -875,9 +878,7 @@ export default function LabOrdersPage() {
                         </TableRow>
                       ))
                     ) : orders.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={10}>{renderEmpty("default")}</TableCell>
-                      </TableRow>
+                      <TableEmptyRow colSpan={10}>{renderEmpty("default")}</TableEmptyRow>
                     ) : (
                       orders.map((order) => (
                         <TableRow key={order.id}>

@@ -682,17 +682,16 @@ function RecurringSeriesScreen() {
           derives it from the route (`/recurring-series` is « Quotidien »), and « Clinique » here contradicted
           the rail.
         */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <PageHeader
-            title="Rendez-vous récurrents"
-            subtitle="Séries de rendez-vous répétés — planification et annulation."
-          />
-
-          <Button onClick={() => setDialogOpen(true)} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Nouvelle série
-          </Button>
-        </div>
+        <PageHeader
+          title="Rendez-vous récurrents"
+          subtitle="Séries de rendez-vous répétés — planification et annulation."
+          actions={
+            <Button onClick={() => setDialogOpen(true)} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Nouvelle série
+            </Button>
+          }
+        />
 
         <Card>
           <CardHeader>

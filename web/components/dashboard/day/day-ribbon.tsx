@@ -232,19 +232,26 @@ function Axis({ from, to }: { from: number; to: number }) {
  *
  * <p>⚠️ The swatch is <b>exactly the same paint</b> as a ribbon block, at 11 px. A more saturated dot would look
  * better and would stop being a key — the reader has to be able to match it to the block by eye.</p>
+ *
+ * <p>⚠️ <b>The act's name wraps; it must never be `whitespace-nowrap`.</b> An act name is clinic-authored and
+ * routinely longer than a phone's card — « Extraction chirurgicale (sagesse / dent incluse) » is ~300 px at this
+ * size against ~240 px of card content box at 320 px. A `nowrap` entry cannot shrink below its own min-content, so
+ * `flex-wrap` on the list never gets the chance to help and the text is painted straight out through the card's
+ * edge. `max-w-full` + `min-w-0` on the name is what caps the row at the card and lets the words fall to a second
+ * line instead. The swatch and the count keep `shrink-0` so the key itself never collapses.</p>
  */
 function Legend({ summary }: { summary: DaySummary }) {
   return (
     <ul className="mt-4 flex flex-wrap gap-x-4 gap-y-2 border-t pt-4">
       {summary.acts.map((act) => (
-        <li key={act.key} className="flex items-center gap-2 whitespace-nowrap text-sm">
+        <li key={act.key} className="flex min-w-0 max-w-full items-start gap-2 text-sm">
           <span
             aria-hidden="true"
-            className="size-2.5 shrink-0 rounded-[4px]"
+            className="mt-[0.3rem] size-2.5 shrink-0 rounded-[4px]"
             style={actTintStyle(act.colorHex)}
           />
-          <span className="font-semibold tabular-nums text-foreground">{act.count}</span>
-          <span className="text-muted-foreground">{act.name}</span>
+          <span className="shrink-0 font-semibold tabular-nums text-foreground">{act.count}</span>
+          <span className="min-w-0 text-muted-foreground [overflow-wrap:anywhere]">{act.name}</span>
         </li>
       ))}
     </ul>
