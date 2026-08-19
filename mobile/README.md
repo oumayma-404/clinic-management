@@ -22,15 +22,36 @@ here:
 | | Version | Where |
 |---|---|---|
 | JDK | **Temurin 17** (17.0.20 verified) | `JAVA_HOME` |
-| Android SDK platform | **android-35** | `ANDROID_HOME/platforms` |
-| Build tools | **34.0.0** (AGP 8.7's default) and **35.0.0** | `ANDROID_HOME/build-tools` |
+| Android SDK platform | **android-36** | `ANDROID_HOME/platforms` |
+| Build tools | **36.0.0** | `ANDROID_HOME/build-tools` |
 | Platform tools | `adb` 1.0.41+ | `ANDROID_HOME/platform-tools` |
-| Gradle | **8.9**, via the committed wrapper — do **not** install one | `./gradlew` |
-| AGP / Kotlin | **8.7.3** / **2.0.21**, pinned in `android/build.gradle.kts` | — |
+| Gradle | **8.13**, via the committed wrapper — do **not** install one | `./gradlew` |
+| AGP / Kotlin | **8.13.0** / **2.2.20**, pinned in `android/build.gradle.kts` | — |
+
+Install the SDK pieces with:
+
+```bash
+sdkmanager "platforms;android-36" "build-tools;36.0.0"
+```
+
+⚠️ **These six versions are one set and cannot be raised individually** — the chain starts at Google Play, which
+refuses a new submission below **targetSdk 36** from 31 August 2026. `compileSdk = 36` needs AGP ≥ 8.9.1; AGP
+8.13.0 requires Gradle 8.13; and Gradle above 8.10 is outside Kotlin 2.0.21's supported range. The root
+`build.gradle.kts` carries the same note beside the versions themselves. The previous verified set was AGP 8.7.3 /
+Gradle 8.9 / Kotlin 2.0.21 / SDK 35.
 
 Point the build at the SDK either with `ANDROID_HOME` or with an `android/local.properties` holding
-`sdk.dir=<path>` (git-ignored, machine-specific — use forward slashes, since a Java properties file treats `\` as
-an escape).
+`sdk.dir=<path>` (git-ignored, machine-specific).
+
+⚠️ **Escape the drive-letter colon**, and use forward slashes for the separators:
+
+```properties
+sdk.dir=C\:/Users/you/AppData/Local/Android/Sdk
+```
+
+A Java properties file treats both `\` and `:` as significant. Forward slashes have always been required here;
+the escaped colon became a **lint error** (`PropertyEscape`) in AGP 8.13's lint, and since this module runs lint
+with `warningsAsErrors` an unescaped one now fails the build rather than passing quietly.
 
 ### Build
 
@@ -56,22 +77,37 @@ Enforced.
 
 ### Signing
 
-Not committed and not scripted, deliberately: an upload key that lives in the repository is an upload key anyone
-with the repository can publish as. Generate one, keep it off the machine's disk backups, and pass it in:
+The key itself is never committed — an upload key that lives in the repository is an upload key anyone with the
+repository can publish as. Generate one:
 
 ```bash
 keytool -genkeypair -v -keystore clinic-upload.jks -keyalg RSA -keysize 4096 \
         -validity 10000 -alias clinic-upload
-
-./gradlew bundleRelease \
-  -Pandroid.injected.signing.store.file=<abs path>/clinic-upload.jks \
-  -Pandroid.injected.signing.store.password=… \
-  -Pandroid.injected.signing.key.alias=clinic-upload \
-  -Pandroid.injected.signing.key.password=…
 ```
 
+Then copy `android/keystore.properties.example` to `android/keystore.properties` (git-ignored, along with `*.jks`
+and `*.keystore`) and fill in the four values. After that, signing needs no arguments:
+
+```bash
+./gradlew assembleRelease   # app/build/outputs/apk/release/app-release.apk
+./gradlew bundleRelease     # app/build/outputs/bundle/release/app-release.aab  ← what Play wants
+```
+
+⚠️ **A machine without `keystore.properties` still builds a release — unsigned.** That is deliberate, not a
+failure: the release build type is also the only way to exercise R8, `isShrinkResources` and the
+`@JavascriptInterface` keep rule, and only the publishing machine has any business holding the upload key. You can
+tell the two apart by the filename — `app-release-unsigned.apk` versus `app-release.apk`. An unsigned APK cannot
+be installed on a phone or uploaded to Play.
+
+⚠️ **The earlier instruction here was the `-Pandroid.injected.signing.*` command-line form.** It does work, and it
+works *without* any `signingConfigs` block — which is why `GO-LIVE.md`'s claim that the module « can only produce
+debug-signed builds » was never true. It is no longer the documented route because a password passed as a Gradle
+property lands in shell history and in the process list, it must be retyped correctly on every publish, and it
+cannot be reproduced by a CI runner reading secrets from the environment.
+
 ⚠️ **Losing this keystore means the listing can never be updated again** under Play's app signing unless key
-upgrade is available. Back it up somewhere that is not this machine.
+upgrade is available. Back it up in **two** places that are not this machine. The passwords are not recoverable
+either.
 
 ### Configuring the server side
 
@@ -120,11 +156,16 @@ tile and the iOS `AppIcon`. ⚠️ Its `ic_launcher_foreground.xml` carries the 
 vector drawable is the one output `web/scripts/generate-icons.mjs` cannot rasterise; changing the master means
 copying the new `d` across, and the file's own comment says so.
 
-Still open:
+**`versionCode`** must increase on every upload Play accepts and can never go back down for this
+`applicationId`; 1 and 2 were pre-store builds, so 3 is the first that may leave this machine. `versionName` is
+what reaches `X-Client-Version` and must stay parseable as dotted integers by `System.Version.TryParse`.
 
-1. **The store account owner** and **the hosted domain a reviewer can reach**.
-2. **`versionCode`** must increase on every upload; `versionName` is what reaches `X-Client-Version` and must stay
-   parseable as dotted integers.
+⚠️ **Everything else about submission now lives in [`STORE-SUBMISSION.md`](STORE-SUBMISSION.md)**, because the
+answer stopped being « two things still open ». The short version: **Google Play cannot accept this app from a
+personal developer account at all** — health and medical apps require a verified Organization account, which
+requires a registered legal entity and a D-U-N-S number. Apple has no such rule, so the App Store is *less*
+blocked than Play. Until an entity exists, distribution is a **sideloaded APK** on Android and the **installable
+web app** on both platforms; neither needs a store, an account or a company.
 
 ---
 

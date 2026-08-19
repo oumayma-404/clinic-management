@@ -93,6 +93,21 @@ mobile/
 
 - The build needs a JDK 17 and the Android SDK on the machine; `mobile/README.md` has the exact versions and the
   build commands. There is no standalone `gradle` requirement — the committed wrapper is the entry point.
+  ⚠️ **The six build versions are one set and cannot be raised individually**, and the chain starts at Google Play:
+  new submissions must target **API 36** from 31 August 2026, `compileSdk = 36` needs **AGP ≥ 8.9.1**, AGP 8.13.0
+  *requires* Gradle 8.13, and Gradle above 8.10 is outside Kotlin 2.0.21's range. So « bump targetSdk » is never a
+  one-line change here — raising one version alone fails in a way that names the wrong culprit. The note lives beside
+  the versions in the root `build.gradle.kts`. AGP 8.13's lint also added checks the old one did not have
+  (`PropertyEscape` on `local.properties`' drive-letter colon, `UseKtx`), and under `warningsAsErrors` those are
+  build failures, not advice.
+- **Google Play cannot accept this app from a personal developer account** — health and medical apps require a
+  verified **Organization** account, i.e. a legal entity and a D-U-N-S number. Apple has no such rule, so the App
+  Store is *less* blocked than Play (it is blocked on a Mac and on the Swift never compiling). Until an entity
+  exists, distribution is a **sideloaded APK** on Android — push included, since FCM needs Play *Services* on the
+  phone rather than Play *Store* distribution — and the **installable web app** (`web/app/manifest.ts`) on both
+  platforms. Release signing reads a git-ignored `keystore.properties`; with it absent the release build still
+  produces an *unsigned* APK on purpose, so R8 and the `@JavascriptInterface` keep rule stay exercisable on a
+  machine that holds no key. `mobile/STORE-SUBMISSION.md` is the full checklist and carries the dated policy sources.
 - **The name and the identifier are settled**: « Gestion Clinique » on every platform, `com.clinicmanagement.shell`
   on both stores. Neither can be changed after the first submission, and the identifier lives in **two** files
   (`android/app/build.gradle.kts`, `ios/project.yml`) that must move together or the stores hold two products.
@@ -125,7 +140,23 @@ The rule now is:
 ⚠️ **« Answers » deliberately includes a TLS failure.** An offline-LAN server presents a certificate signed by a CA
 the device may not have imported yet, so a handshake rejection is the *expected* outcome of probing a live clinic
 server; reading it as « nothing here » would send every LAN install to the wrong port. Only a transport failure —
-no route, refused, timed out, name does not resolve — disqualifies a port.
+no route, refused, name does not resolve — disqualifies a port.
+
+⚠️ **And « answers » includes a timeout that happened AFTER the connection was established** — which is the hosted
+deployment's normal state, not an edge case. A managed host that suspends an idle service (Render's free tier, and
+every platform like it) accepts the TCP connection at its edge in milliseconds and only *then* wakes the
+application, so the first response takes **13.4 s** measured against the live front end. All three clients gave a
+candidate **4 seconds** and read the timeout as dead, so on a cold hosted server the probe disqualified **443 — the
+only port a hosted install has** — fell through to the LAN candidate, found nothing, and left the address to the
+not-found fallback. The question the probe asks is « is something listening on this port? », and a completed
+connection has already answered it; so **the phase the timeout happened in decides, not the timeout itself.**
+This was the port rule's own defect shape a second time — one rule, three clients, wrong in all three — and it is
+fixed in all three, with the mechanism per platform because each runtime reports the phase differently:
+Android does an explicit `connect()` and records that it succeeded; the desktop sets
+`SocketsHttpHandler.ConnectTimeout` *below* `HttpClient.Timeout` so the two phases throw different exception types;
+iOS cannot separate them at all (`URLSession` reports one `NSURLErrorTimedOut`) and so treats any timeout as an
+answer — safe **only because 443 is probed first**, so a firewall silently dropping 5001 is never reached. Do not
+reorder the candidates without revisiting that.
 
 ⚠️ **443 first, and the order is not arbitrary.** A LAN server refuses 443 instantly, whereas an internet firewall
 in front of a hosted server usually *drops* traffic to 5001 — so trying the LAN port first would cost a full

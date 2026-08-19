@@ -10,7 +10,18 @@ import Foundation
  ⚠️ « Answers » deliberately includes a TLS failure. An offline-LAN server presents a certificate signed by a CA
  the phone may not have imported yet, so a handshake rejection is the *expected* outcome of probing a live clinic
  server — treating it as « nothing here » would send every LAN install to the wrong port. What disqualifies a port
- is a transport failure: no route, refused connection, timeout, or a name that does not resolve.
+ is a transport failure: no route, refused connection, or a name that does not resolve.
+
+ ⚠️ **A timeout also counts as answering**, and it is the hosted deployment's normal state rather than an edge
+ case. A managed host that suspends an idle service accepts the connection at its edge immediately and only *then*
+ wakes the application, so the first response can take ten seconds or more — measured at **13.4 s** against the
+ live Render front end. Reading that as « nothing on 443 » disqualifies the only port a hosted install has.
+ A genuinely dead port on a LAN is *refused*, which is `NSURLErrorCannotConnectToHost` and not a timeout, so the
+ two cases stay distinguishable here.
+ ⚠️ This is less precise than the Android shell, which checks whether the *connect* or the *read* timed out —
+ `URLSession` reports one `NSURLErrorTimedOut` for both phases. What keeps it safe is the candidate **order**: a
+ firewall that silently drops traffic to 5001 also produces a timeout, but 443 is tried first and a hosted server
+ answers there, so 5001 is never reached. Do not reorder the candidates without revisiting this.
 
  ⚠️ The candidates are tried **in sequence, not concurrently.** Concurrently would be faster and wrong: with two
  answers in flight the winner is whichever the network happened to return first, so the same address could resolve
@@ -90,8 +101,19 @@ enum ServerProbe {
                 completion(response != nil)
                 return
             }
-            completion(isTlsFailure(error))
+            completion(isTlsFailure(error) || isSlowButListening(error))
         }.resume()
+    }
+
+    /**
+     Whether `error` means « something is listening but has not answered yet » rather than « nothing is there ».
+
+     Only a timeout. A refusal, an unreachable host and a name that does not resolve each have their own code and
+     each stays dead — see the class note for why a timeout does not, and for why the candidate order is what makes
+     that safe.
+     */
+    private static func isSlowButListening(_ error: NSError) -> Bool {
+        error.domain == NSURLErrorDomain && error.code == NSURLErrorTimedOut
     }
 
     /**

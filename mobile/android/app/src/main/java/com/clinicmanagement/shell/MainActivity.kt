@@ -23,6 +23,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
@@ -270,14 +271,14 @@ class MainActivity : ComponentActivity() {
             ?: storeUrl.trim().ifEmpty { return }
 
         try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
+            startActivity(Intent(Intent.ACTION_VIEW, target.toUri()))
         } catch (t: Throwable) {
             Log.w(TAG, "store listing could not be opened", t)
             // `market://` needs Play installed; the web listing works on any device with a browser.
             val fallback = updateTargetPackage?.let { "https://play.google.com/store/apps/details?id=$it" }
             if (fallback != null) {
                 try {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fallback)))
+                    startActivity(Intent(Intent.ACTION_VIEW, fallback.toUri()))
                 } catch (inner: Throwable) {
                     Log.w(TAG, "web store listing could not be opened either", inner)
                 }

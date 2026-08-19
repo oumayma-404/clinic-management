@@ -38,10 +38,20 @@ public static class ServerProbe
     private const string ProbePath = "/api/meta/client-requirements";
 
     /// <summary>
-    /// Per-candidate budget. Short on purpose: this runs before the first paint of the connecting screen's
-    /// navigation, and the worst case is paid once per address, not once per launch.
+    /// Per-candidate budget for <b>establishing the connection</b>. Short on purpose: this runs before the first
+    /// paint of the connecting screen's navigation, and the worst case is paid once per address, not once per
+    /// launch.
     /// </summary>
-    private static readonly TimeSpan CandidateTimeout = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    /// Overall budget, deliberately <b>longer than <see cref="ConnectTimeout"/></b> — which is what makes the two
+    /// phases distinguishable by exception type. Exceeding the connect budget throws
+    /// <see cref="HttpRequestException"/>; exceeding this one throws <see cref="TaskCanceledException"/>. So a
+    /// <c>TaskCanceledException</c> can only mean « the connection was established and the server then went quiet »,
+    /// which is a live port. Were the two equal, the race between them would make that inference unsound.
+    /// </summary>
+    private static readonly TimeSpan OverallTimeout = TimeSpan.FromSeconds(5);
 
     /// <summary>
     /// The config to actually connect with. Returns <paramref name="config"/> unchanged when its port is already
@@ -72,7 +82,8 @@ public static class ServerProbe
 
     private static async Task<bool> AnswersAsync(string host, int port)
     {
-        using var client = new HttpClient { Timeout = CandidateTimeout };
+        using var handler = new SocketsHttpHandler { ConnectTimeout = ConnectTimeout };
+        using var client = new HttpClient(handler) { Timeout = OverallTimeout };
         try
         {
             // Any status is an answer — 200, 404 on a server too old to have the route, even a 502 from a proxy
@@ -88,10 +99,20 @@ public static class ServerProbe
             // imported. Something is listening and speaking TLS, which is all this probe asks.
             return true;
         }
+        catch (TaskCanceledException)
+        {
+            // Connected, then silence until OverallTimeout — a listening but slow server. A managed host that
+            // suspends an idle service accepts the connection at its edge immediately and only *then* wakes the
+            // application, so the first response can take ten seconds or more (measured at 13.4 s against the live
+            // Render front end). Reading that as « nothing on 443 » disqualifies the only port a hosted install
+            // has. A connect that never completes cannot reach here: it throws HttpRequestException at
+            // ConnectTimeout, two seconds earlier.
+            return true;
+        }
         catch (Exception)
         {
-            // SocketException (refused / unreachable / DNS), TaskCanceledException (timeout), and anything else
-            // unexpected: not a port to connect to.
+            // SocketException (refused / unreachable / DNS), a connect that exceeded ConnectTimeout, and anything
+            // else unexpected: not a port to connect to.
             return false;
         }
     }

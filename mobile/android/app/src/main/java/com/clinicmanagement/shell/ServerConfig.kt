@@ -2,6 +2,7 @@ package com.clinicmanagement.shell
 
 import android.content.Context
 import android.net.Uri
+import androidx.core.content.edit
 
 /**
  * The clinic server address this shell connects to, persisted so a phone is configured once and reused on every
@@ -142,11 +143,14 @@ class ServerConfigStore(context: Context) {
     }
 
     fun save(config: ServerConfig) {
-        preferences.edit()
-            .putString(KEY_HOST, config.host)
-            .putInt(KEY_PORT, config.port)
-            .putBoolean(KEY_PORT_EXPLICIT, config.portIsExplicit)
-            .apply()
+        // `edit { }` commits with `apply()` — asynchronous, exactly as the chained form did. A blocking `commit()`
+        // would be wrong here: this runs on the address screen's click, and the value is re-read only on the next
+        // launch.
+        preferences.edit {
+            putString(KEY_HOST, config.host)
+            putInt(KEY_PORT, config.port)
+            putBoolean(KEY_PORT_EXPLICIT, config.portIsExplicit)
+        }
     }
 
     private companion object {

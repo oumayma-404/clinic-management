@@ -25,11 +25,13 @@ parallel with everything else.
 
 ## 1. Decisions only you can make (free, minutes — but they block the store work)
 
-- [ ] **Bundle identifier.** Currently the placeholder `com.clinicmanagement.shell` in *both*
+- [x] **Bundle identifier — SETTLED** as `com.clinicmanagement.shell`, in *both*
       `mobile/android/app/build.gradle.kts` (`applicationId`) and `mobile/ios/project.yml`
-      (`PRODUCT_BUNDLE_IDENTIFIER`). ⚠️ **It cannot be changed after the first store submission.** Use a domain you
-      own, e.g. `tn.<yourbrand>.clinic`. Keep Android and iOS identical.
-- [ ] **Public app name** (store listing + install name).
+      (`PRODUCT_BUNDLE_IDENTIFIER`). ⚠️ **It cannot be changed after the first store submission**, and it must move
+      on both platforms in one commit or the two stores hold two different products. Play does not require you to
+      own a matching domain. *(This entry used to call the value a « placeholder » and invite changing it; both
+      `build.gradle.kts` and `mobile/README.md` had already recorded it as settled.)*
+- [x] **Public app name — SETTLED** as « Gestion Clinique », on every platform.
 - [ ] **The domain** the hosted backend runs on, e.g. `app.yourclinic.tn`. Buy it if you have not.
 - [ ] **Who owns the accounts** — Apple, Google Play and the domain should be registered to the *company*, never a
       personal account. Moving them later is painful or impossible.
@@ -41,7 +43,7 @@ parallel with everything else.
 | # | Item | Approx. cost | Lead time | Needed for |
 |---|---|---|---|---|
 | 2.1 | **Apple Developer Program** | ~$99 / year | hours–days (can be longer for companies: D-U-N-S number required) | iPhone shell, at all |
-| 2.2 | **Google Play Console** | ~$25 one-time | hours–days | Android shell |
+| 2.2 | **Google Play Console — ⚠️ ORGANIZATION account, see below** | ~$25 one-time **+ a legal entity** | **days–weeks** (D-U-N-S + document verification) | Android shell **on Play** — the sideloaded APK needs none of this |
 | 2.3 | **Windows code signing** — ⚠️ **deferrable, see below** | ~$10 / mo (Azure Trusted Signing) or ~$200–600 / yr (OV/EV) | days–weeks (identity vetting) | Desktop installer without a SmartScreen warning |
 | 2.4 | **Server hosting** (≥4 GB RAM) — ⚠️ **free for the pilot, see below** | **$0** (Oracle Always Free) → ~**€4.35 / mo** (Hetzner CX22) | minutes–days | The hosted backend |
 | 2.5 | **Domain name** | ~$10–40 / year | minutes | TLS, store listings, email links |
@@ -52,6 +54,30 @@ parallel with everything else.
 
 ⚠️ **2.9:** `mobile/ios/` has **never been compiled**. Get `.github/workflows/ios-shell.yml` green *before* spending
 anything on 2.1 — a green build is the cheapest proof the Swift is real.
+
+### ⚠️ 2.2 in detail — Play needs a company, and § 5 no longer waits for it
+
+**Google Play will not accept this app from a personal developer account.** Health and medical apps must come from
+a **verified Organization** account: a registered legal entity, a D-U-N-S number (free, instant to ~30 days),
+government-issued business registration documents, proof of address and the representative's ID. Individual
+accounts were barred from the Medical/Health categories, existing health apps forced to migrate by 28 January 2026.
+There is no « submit now, paperwork later » path.
+
+Two things soften it:
+
+1. **Organization accounts are exempt from the 12-testers-for-14-days rule** that binds personal accounts created
+   after 13 November 2023 — so the harder account also removes a two-week gate.
+2. **The entity was already on this list.** § 7 needs it for INPDP, the hosting DPA and invoicing clinics. Play
+   surfaces the requirement; it does not add it. And a **sole proprietorship** may be enough — D&B issues D-U-N-S to
+   one, and a Tunisian *entreprise individuelle* / *patente* is government-issued business registration. Unconfirmed
+   for Tunisia; confirm against the Play Console signup flow. Apple is stricter and rejects sole traders.
+
+**Apple has no equivalent rule** — an *individual* Apple Developer account needs no D-U-N-S and may publish health
+apps. So § 6 is blocked on a Mac and on the Swift compiling, not on a company.
+
+**Meanwhile, distribution needs neither store, and § 5 is written to start today:** a **sideloaded APK** on Android
+(push included — FCM needs Play *Services* on the phone, not Play *Store* distribution) and the **installable web
+app** on both platforms. Full checklist: [`mobile/STORE-SUBMISSION.md`](mobile/STORE-SUBMISSION.md).
 
 ### ⚠️ 2.4 in detail — start free, move to ~€5/month before real patients
 
@@ -189,21 +215,44 @@ Operator guide: [`deploy/README.md`](deploy/README.md). Compose file: `deploy/do
 
 ---
 
-## 5. Android shell (1–2 days, needs §1 + 2.2 + 2.8)
+## 5. Android shell — sideload now (needs only 2.8), Play later (needs 2.2)
 
-- [ ] Set the final `applicationId` from §1 in `mobile/android/app/build.gradle.kts`.
-- [ ] Create an **upload keystore** (`keytool -genkeypair`, RSA 2048, ≥25 years). **Back it up in two places** —
-      losing it means you can never update the app under the same listing.
-- [ ] Add a `signingConfigs.release` block and wire it to the `release` build type — there is **none** today, so the
-      module can only produce debug-signed builds.
-- [ ] Store the keystore + passwords as GitHub secrets (base64) if you want CI to sign.
-- [ ] Build a **release** AAB (`./gradlew bundleRelease`) and install the **release APK on a physical phone** — R8
-      shrinking has never been run on a device.
-- [ ] Hardware walk (owed since the shell was written): rotation, Split View, the gesture bar, camera upload,
-      print, the biometric resume, and the address screen with a portless hosted domain.
-- [ ] Play Console: listing, screenshots, **privacy policy URL** (mandatory), and the **Data safety** form —
+**Done already** (2026-08-19), so this section starts further along than it reads:
+
+- [x] `applicationId` settled — see §1.
+- [x] **`targetSdk` + `compileSdk` 36.** Play refuses new submissions below API 36 from **31 August 2026**. Landed
+      with the toolchain chain it forces: Gradle 8.13 / AGP 8.13.0 / Kotlin 2.2.20, SDK platform + build-tools 36.
+- [x] **`signingConfigs.release` wired**, reading a git-ignored `keystore.properties`; absent, the release still
+      builds *unsigned* so R8 stays exercisable on a machine with no key.
+      *(This entry used to claim the module « can only produce debug-signed builds ». That was never true — the
+      `-Pandroid.injected.signing.*` form works with no `signingConfigs` block at all.)*
+- [x] `versionCode` 3. Lint clean under `warningsAsErrors` at the new toolchain; release APK (~130 KB after R8,
+      from 2.4 MB debug) and AAB both produced.
+
+Still to do:
+
+- [ ] Create an **upload keystore** (`keytool -genkeypair`, RSA 4096, ≥25 years) and fill
+      `mobile/android/keystore.properties` from `keystore.properties.example`. **Back the `.jks` up in two places
+      that are not the build machine** — losing it means you can never update the app under the same listing, and
+      the passwords are not recoverable either.
+- [ ] **Install the signed release APK on a physical phone and do the hardware walk** — owed since the shell was
+      written, and the release build has never run anywhere. Full list in
+      [`mobile/STORE-SUBMISSION.md`](mobile/STORE-SUBMISSION.md): rotation, Split View, the gesture bar, camera
+      upload, print, the biometric resume, still-signed-in after force-quit, a **portless** hosted domain, the
+      untrusted-certificate message, and `delete window.__clinicShell`.
+      ⚠️ The `@JavascriptInterface` keep rule has never run on a device; if the bridge fails only in release, start there.
+- [ ] **Ship it to the pilot clinics as a file.** No store, no account, no company. Decide the update channel — a
+      « nouvelle version » notice or a download page — the same open decision as §4's.
+- [ ] Verify the **installable web app** on a real Android phone and a real iPhone (`web/app/manifest.ts` is
+      complete, but there is no service worker, so Chrome may make a shortcut rather than a full WebAPK).
+- [ ] *(Needs 2.2)* Play Console: listing, screenshots, **feature graphic 1024×500**, **privacy policy URL**,
+      **Health apps declaration**, the **« not a medical device » disclaimer**, and the **Data safety** form —
       answer it honestly; this app handles health data.
-- [ ] Enable **Play App Signing**, then release to the **internal testing** track first.
+- [ ] *(Needs 2.2 + §3)* **App access for the reviewer.** The first screen asks for a server address, so a reviewer
+      with no domain sees a dead end. Needs a live domain, a demo clinic with a **granted subscription**, and a
+      demo user of role **`doctor`** — never `admin`, who is forced into TOTP on the hosted profile. Details in
+      `mobile/STORE-SUBMISSION.md`.
+- [ ] *(Needs 2.2)* Enable **Play App Signing**, then release to the **internal testing** track first.
 
 ---
 
