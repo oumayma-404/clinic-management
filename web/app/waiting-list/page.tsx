@@ -394,7 +394,7 @@ export default function WaitingListPage() {
           hardcoded « Clinique » here contradicted the rail.
         */}
         <PageHeader
-          title="Salle d&apos;attente"
+          title="Liste d&apos;attente"
           subtitle="Patients en attente d&apos;un créneau de rendez-vous."
           actions={
             <Button onClick={handleAddNew} className="gap-2">
@@ -409,7 +409,7 @@ export default function WaitingListPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <ClipboardList className="h-5 w-5" />
-              Liste d&apos;attente
+              Patients en attente
               <Badge variant="secondary" className="ml-2">
                 {entryPage.totalCount}
               </Badge>
@@ -450,7 +450,7 @@ export default function WaitingListPage() {
                     point of the salle d'attente and the one action taken dozens of times a day. */}
                 <CardList
                   className={CARDS_ONLY}
-                  ariaLabel="Salle d'attente"
+                  ariaLabel="Liste d'attente"
                   items={entries}
                   loading={loading}
                   getKey={(e) => e.id}

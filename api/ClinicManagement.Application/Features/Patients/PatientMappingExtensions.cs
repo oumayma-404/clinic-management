@@ -1,5 +1,6 @@
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Application.Features.Patients;
 
@@ -30,6 +31,7 @@ public static class PatientMappingExtensions
             Dentition = patient.Dentition.ToString(),
             Email = patient.Email?.Value,
             PhoneNumber = patient.PhoneNumber?.Value,
+            PhoneE164 = PhoneNumber.ToE164(patient.PhoneNumber?.Value),
             MedicalHistory = patient.MedicalHistory,
             Allergies = patient.Allergies,
             EmergencyContactName = patient.EmergencyContactName,

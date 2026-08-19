@@ -1,3 +1,5 @@
+using ClinicManagement.Domain.ValueObjects;
+
 namespace ClinicManagement.Application.DTOs;
 
 public class PatientDto
@@ -28,6 +30,17 @@ public class PatientDto
     /// so rather than rendering a neutral blank.
     /// </summary>
     public string? PhoneNumber { get; set; }
+
+    /// <summary>
+    /// The same number in E.164, or null when it is not a deliverable Tunisian one.
+    /// <para>
+    /// ⚠️ <b>This is what decides whether a WhatsApp action exists on a patient row</b>, and it is resolved
+    /// <b>server-side</b> through <see cref="PhoneNumber.ToE164"/> for the reason <see cref="SupplierDto"/>
+    /// states: the browser holds a mirror of that rule in <c>lib/phone.ts</c>, and a second copy deciding
+    /// whether a link appears is how a patient becomes contactable on one screen and not on another.
+    /// </para>
+    /// </summary>
+    public string? PhoneE164 { get; set; }
     public string? MedicalHistory { get; set; }
     public string? Allergies { get; set; }
     public string? EmergencyContactName { get; set; }

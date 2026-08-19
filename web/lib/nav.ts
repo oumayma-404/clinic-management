@@ -50,7 +50,7 @@ export const baseSections: NavSection[] = [
       { name: "À clôturer", href: "/a-cloturer", icon: ClipboardCheck },
       // « RDV récurrents » (/recurring-series) is gone — the screen was withdrawn. Its BACKEND and the screen
       // itself are deliberately intact (`app/recurring-series/page.tsx` keeps the component, unrouted).
-      { name: "Salle d'attente", href: "/waiting-list", icon: Clock },
+      { name: "Liste d'attente", href: "/waiting-list", icon: Clock },
       { name: "Patients", href: "/patients", icon: Users },
     ],
   },

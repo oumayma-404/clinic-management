@@ -46,7 +46,8 @@ function Table({
        * would swallow taps on that column's row actions.
        */
       className={cn(
-        "relative w-full overflow-x-auto rounded-[inherit] bg-card",
+        // `@container/table-scroll` so `TableEmptyRow` can size itself to the VISIBLE width — see its own note.
+        "@container/table-scroll relative w-full overflow-x-auto rounded-[inherit] bg-card",
         "after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-6 after:bg-gradient-to-l after:from-card after:to-transparent",
         containerClassName,
       )}
@@ -229,10 +230,14 @@ function TableMeta({ className, children, ...props }: React.ComponentProps<"div"
  * only a horizontal scrollbar to say so. Four tables had it, and it is the one empty state a first-run clinic
  * always meets.</p>
  *
- * <p><b>`sticky left-0 w-fit` is the fix</b>, and both halves matter: `w-fit` shrinks the block to its own
- * content instead of inheriting the cell's width, and `sticky left-0` pins it to the visible left edge so it
- * stays whole however far the table is scrolled. Left-aligned rather than centred under a scrolled table is the
- * honest trade — a centred invite that is clipped reads as a broken screen.</p>
+ * <p><b>`sticky left-0 w-[100cqi]` is the fix.</b> `cqi` reads the scroll container's own inline size — its
+ * <i>visible</i> width, not its scroll width — so the block is exactly as wide as what the reader can see and
+ * `EmptyState` (which is `items-center text-center`) centres inside that. `sticky left-0` keeps it aligned to
+ * the scrollport however far the table is scrolled sideways.</p>
+ *
+ * <p>⚠️ A first pass used `w-fit`, which is visible but <b>left-aligned</b> — and on the ordinary case, a table
+ * narrower than its container, that is simply an empty state that is not centred. Sizing to the container gets
+ * both: centred when everything fits, whole when it does not.</p>
  */
 function TableEmptyRow({
   colSpan,
@@ -246,7 +251,7 @@ function TableEmptyRow({
   return (
     <TableRow className="hover:bg-transparent">
       <TableCell colSpan={colSpan} className={cn("p-0 whitespace-normal", className)}>
-        <div className="sticky left-0 w-fit max-w-full">{children}</div>
+        <div className="sticky left-0 w-[100cqi]">{children}</div>
       </TableCell>
     </TableRow>
   )

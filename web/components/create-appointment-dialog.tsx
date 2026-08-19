@@ -153,6 +153,8 @@ export function CreateAppointmentDialog({
   /** The acts of this séance — several are the normal case, not the exception. */
   const [selectedActs, setSelectedActs] = useState<SelectedAct[]>([])
   const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
+  /** Has the catalog fetch SETTLED — loaded or failed? See the plan-act seeding effect. */
+  const [procedureTypesLoaded, setProcedureTypesLoaded] = useState(false)
   // AC-P3.31 — why the acte list is empty, so an unreachable server is not mistaken for an empty catalogue.
   const [procedureTypesError, setProcedureTypesError] = useState<string | null>(null)
   /**
@@ -293,9 +295,16 @@ export function CreateAppointmentDialog({
    * colour, but it does carry its devis link, which is the whole reason the visit is being booked.</p>
    *
    * <p>Only fills an untouched list, so reopening the dialog never overwrites acts the user just added.</p>
+   *
+   * <p>⚠️ <b>It must wait for the catalog to have SETTLED.</b> The `selectedActs.length > 0` guard makes this a
+   * seed-once effect, so the first pass — which runs on the same tick the fetch is *started*, against an empty
+   * `procedureTypes` — used to win: every act was seeded link-only, the later pass bailed out, and the séance
+   * kept the default 30 minutes however many acts it held. « Planifier ensemble » on three acts therefore
+   * booked a 30-minute slot and double-booked whatever followed. `procedureTypesLoaded` also flips on
+   * *failure*, so an unreachable catalog still seeds link-only rows and the devis link survives.</p>
    */
   useEffect(() => {
-    if (!open || !isPlanScheduling || selectedActs.length > 0) return
+    if (!open || !isPlanScheduling || !procedureTypesLoaded || selectedActs.length > 0) return
     setSelectedActs(
       planActs.map<SelectedAct>((a) => ({
         procedureTypeId:
@@ -308,7 +317,7 @@ export function CreateAppointmentDialog({
       })),
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, isPlanScheduling, procedureTypes])
+  }, [open, isPlanScheduling, procedureTypes, procedureTypesLoaded])
 
   /**
    * The visit's length follows the sum of its acts until the user says otherwise. This is what makes grouping
@@ -375,6 +384,7 @@ export function CreateAppointmentDialog({
       setNewPatientPhone("")
       setSelectedDoctorId("")
       setSelectedActs([])
+      setProcedureTypesLoaded(false)
       // Back to the caller's own defaults, not to the hardcoded pair: this dialog is a long-lived instance the
       // agenda re-opens with a different span each time, so resetting to « 30 · untouched » would discard the
       // duration the very next drag is about to supply.
@@ -436,6 +446,7 @@ export function CreateAppointmentDialog({
       setProcedureTypes([]) // Ensure it's always an array
     } finally {
       setLoadingProcedureTypes(false)
+      setProcedureTypesLoaded(true)
     }
   }
 

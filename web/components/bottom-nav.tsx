@@ -44,7 +44,7 @@ const barItems: NavItem[] = BAR_HREFS.map((href) => {
 const SHORT_LABEL: Record<string, string> = {
   "/": "Accueil",
   "/appointments": "Agenda",
-  "/waiting-list": "Salle",
+  "/waiting-list": "Liste",
   "/patients": "Patients",
 }
 

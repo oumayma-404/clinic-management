@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Users, Flag, FileText, Folder, Trash2, Pencil, MoreHorizontal, Plus, SearchX } from "lucide-react"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
 import { EmptyState } from "@/components/ui/empty-state"
 import { InitialsAvatar } from "@/components/ui/initials-avatar"
 import { patientFlagLabel } from "@/components/patient/patient-flag-labels"
@@ -405,28 +406,42 @@ export function PatientsTable({
               { label: "Naissance", value: formatDate(p.dateOfBirth) },
             ]}
             actions={(p) => (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" aria-label={`Actions pour ${getPatientName(p)}`}>
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => handleOpenSummary(p)}>Voir le résumé</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleEdit(p)}>Modifier</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => router.push(`/patients/${p.id}/files`)}>
-                    Fichiers
-                  </DropdownMenuItem>
-                  {isAdmin && (
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onSelect={() => setPatientToDelete(p)}
+              // Visible on the card, never inside the « ⋯ » menu — the fournisseurs rule: contacting the person
+              // is the reason you opened the list, and the phone is where it gets used.
+              <div className="flex items-center gap-1">
+                <WhatsAppAction
+                  phoneE164={p.phoneE164}
+                  contactName={getPatientName(p)}
+                  onAddNumber={() => handleEdit(p)}
+                />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="coarse:size-11"
+                      aria-label={`Actions pour ${getPatientName(p)}`}
                     >
-                      Supprimer
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => handleOpenSummary(p)}>Voir le résumé</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => handleEdit(p)}>Modifier</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => router.push(`/patients/${p.id}/files`)}>
+                      Fichiers
                     </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    {isAdmin && (
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={() => setPatientToDelete(p)}
+                      >
+                        Supprimer
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             )}
             empty={emptyState}
           />
@@ -513,10 +528,21 @@ export function PatientsTable({
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
+                          {/* The row itself navigates to the patient, so the link inside must not bubble.
+                              `WhatsAppAction` takes no `onClick` — stopping it on a wrapper keeps that shared
+                              component free of a concern only this table has. */}
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <WhatsAppAction
+                              phoneE164={patient.phoneE164}
+                              contactName={getPatientName(patient)}
+                              onAddNumber={() => handleEdit(patient)}
+                              className="size-8 coarse:size-11"
+                            />
+                          </span>
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 w-8 p-0"
+                            className="h-8 w-8 p-0 coarse:size-11"
                             onClick={(e) => {
                               e.stopPropagation()
                               handleOpenSummary(patient)
@@ -529,7 +555,7 @@ export function PatientsTable({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 w-8 p-0"
+                            className="h-8 w-8 p-0 coarse:size-11"
                             onClick={(e) => {
                               e.stopPropagation()
                               handleEdit(patient)
@@ -542,7 +568,7 @@ export function PatientsTable({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 w-8 p-0"
+                            className="h-8 w-8 p-0 coarse:size-11"
                             onClick={(e) => {
                               e.stopPropagation()
                               router.push(`/patients/${patient.id}/files`)
@@ -556,7 +582,7 @@ export function PatientsTable({
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive coarse:size-11"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setPatientToDelete(patient)

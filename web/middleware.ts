@@ -83,22 +83,22 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico, sitemap.xml, robots.txt (metadata files)
-     * - manifest.webmanifest and the icons it names (see below)
+     * - manifest.webmanifest (the same class of metadata file as the three above)
      *
-     * ⚠️ **The manifest and its icons MUST be excluded, or the app cannot be installed to a home screen.**
-     * They were not, so on the hosted deployment `GET /manifest.webmanifest` and every `icon-*.png` answered
-     * **307 → /login** to anyone without a session — which is every visitor at the moment the browser reads
-     * them. The browser fetches the manifest *before* the user signs in and treats a redirect to an HTML login
-     * page as « no manifest », so « Ajouter à l'écran d'accueil » produced a bare shortcut instead of a
-     * standalone app, on Android and iOS alike. It failed silently: nothing logs, and the page itself works.
-     * That made it invisible on the one platform where the installable web app is the *only* route we have —
-     * iOS has no sideloading — see `mobile/STORE-SUBMISSION.md`.
+     * `manifest.webmanifest` belongs beside `favicon.ico`/`sitemap.xml`/`robots.txt` for the reason they are
+     * already here: the browser fetches it with no session, before anyone has signed in, and reads a redirect to
+     * an HTML login page as « no manifest » — which downgrades « Ajouter à l'écran d'accueil » from a standalone
+     * app to a bare shortcut, silently, on iOS and Android alike. That matters most on iOS, where the installable
+     * web app is the only route we have at all (see `mobile/STORE-SUBMISSION.md`).
      *
-     * Matched by extension rather than by listing each file, so an icon added to `manifest.ts` later is public
-     * the day it is added. Everything under `public/` is served to anonymous callers by design; the guarded
-     * surface is the pages and `/api`, neither of which has a file extension.
+     * ⚠️ In practice it is already served without this: `app/manifest.ts` is generated at build time, so the
+     * hosted deployment answers it **200 `application/manifest+json`** repeatedly, and the icons under `public/`
+     * likewise. It is excluded here to make that a property of the matcher rather than of how Next happens to
+     * emit the route. **Do not extend this into a general `\.(png|json|txt)$` escape** — that widens the
+     * unauthenticated surface to any future route whose path ends in an extension, which is a much bigger claim
+     * than this one file needs.
      */
-    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|manifest.webmanifest|.*\\.(?:png|svg|ico|webmanifest|json|txt)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|manifest.webmanifest).*)',
   ],
 };
 

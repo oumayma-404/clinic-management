@@ -632,6 +632,12 @@ export interface PatientDto {
   /** Null when the patient gave none. Such a patient receives no reminder and no relance. */
   phoneNumber?: string | null;
   /**
+   * The same number in E.164, or null when it is not a deliverable Tunisian one — the server's answer, and what
+   * decides whether the patient row offers a WhatsApp action. Never re-derive it here: `lib/phone.ts` holds a
+   * mirror of the rule, and a second copy is how a patient becomes contactable on one screen and not another.
+   */
+  phoneE164?: string | null;
+  /**
    * Chronic conditions and known allergies — free text, and the two most safety-critical strings on the record.
    *
    * ⚠️ On update these are **tri-state like `notes`**: omit to leave unchanged, send `""` to clear. The edit dialog
