@@ -2843,7 +2843,17 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
         on the page; the third was the two headers painting `bg-white` instead of `bg-card`). A calendar's chrome
         is its ruler, and a ruler has to start at the edge of the instrument.
       */}
-      <Card className="min-h-0 flex-1 overflow-hidden rounded-none border-0 py-0 shadow-none md:rounded-xl md:border md:shadow-sm">
+      {/*
+        ⚠️ **`md:border-border`, and the colour is the whole point — `md:border` alone drew nothing.** The `Card`
+        primitive sets `border-transparent` (it carries elevation with `shadow-md` instead, deliberately), and a
+        Tailwind `border` sets only the *width*, so this card had a 1 px transparent rule: a white surface on a
+        near-white ground with no edge at all. It is also the one card in the app that downgrades the shadow
+        (`md:shadow-sm`), because a full-height working surface is not a floating object — so it had opted out of
+        both of the two things the system uses to express a surface. The stroke is the right half to restore here
+        rather than the shadow: the grid's own hairlines run to the card's edge, and they need an edge of the same
+        weight to terminate against or the ruler bleeds off the page.
+      */}
+      <Card className="min-h-0 flex-1 overflow-hidden rounded-none border-0 py-0 shadow-none md:rounded-xl md:border md:border-border md:shadow-sm">
         {!mounted ? (
           renderGeometrySkeleton()
         ) : view === "month" ? (

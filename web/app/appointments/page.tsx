@@ -15,7 +15,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { AppointmentCalendar } from "@/components/appointment-calendar"
-import { VisitClosureStrip } from "@/components/visits/visit-closure-strip"
 import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 import { EditAppointmentDialog } from "@/components/edit-appointment-dialog"
 import { ClinicGuard } from "@/components/clinic-guard"
@@ -412,16 +411,6 @@ export default function AppointmentsPage() {
         */}
         <div className="flex flex-1 flex-col min-h-0">
           {/*
-            « À clôturer », above the agenda bar rather than inside it — and deliberately NOT a fifth row of
-            chrome. It renders nothing at all when there is nothing to close, which is the ordinary state for a
-            practice that closes each visit at the chair, so the four-rows-of-chrome problem the comment below
-            describes cannot come back through this door. It is here because `/` redirects a secretary to this
-            page, so the dashboard's own chip never reaches reception — who is exactly the person who knows
-            whether the patient came and who took the money.
-          */}
-          <VisitClosureStrip />
-
-          {/*
             What is left at page level: the **active-filter chips**, and nothing else.
 
             The view switch, « Nouveau rendez-vous », the praticien filter and the Google controls used to live
@@ -447,8 +436,8 @@ export default function AppointmentsPage() {
             ⚠️ **Rendered only when there is a chip to show, and that is a real fix rather than tidying.** This
             used to be an outer `<div className="mb-3 …">` wrapping a `hidden md:flex` row, so in the ordinary
             state — no filter, which is what the desk sees all day — the page still paid a zero-height flex
-            container plus **12 px of margin**: a phantom band between « À clôturer » and the agenda bar that
-            read as a rendering gap because that is exactly what it was. One element, one condition.
+            container plus **12 px of margin**: a phantom band above the agenda bar that read as a rendering gap
+            because that is exactly what it was. One element, one condition.
 
             It stays `hidden md:flex`: `AgendaPhoneHeader` renders its own copies below `md:`, inside the band
             that holds the phone's other controls.
