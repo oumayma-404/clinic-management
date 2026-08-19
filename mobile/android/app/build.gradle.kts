@@ -1,3 +1,4 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
 plugins {
@@ -50,6 +51,29 @@ android {
         // the other ships a build reporting a capability set it does not have. 1.1.0 added `confirmIdentity`
         // (Part 7); its version history is the table at the foot of that file.
         versionName = "1.1.0"
+
+        // The address a fresh install starts on, so a phone that downloads this build from the product's own
+        // download page connects with nothing typed — the friction the iOS route does not have, because there the
+        // user *arrives* at the server by opening its URL.
+        //
+        // ⚠️ **A starting value, not a compiled-in server.** `ServerConfigStore` consults it only when nothing is
+        // stored, « Serveur → Changer de serveur… » still reaches every address, and a chosen address is persisted
+        // and wins for ever after. Empty — the default, and what `gradle.properties` leaves it as — reproduces the
+        // original behaviour exactly: the address screen on first launch. So the invariant the shell is built on
+        // still holds, and it is worth restating precisely because this line looks like it breaks it: *one build
+        // still serves a clinic's own PC on a LAN and a hosted backend on the internet.* What is new is only that
+        // a build published for one of them may be **aimed** at it.
+        //
+        // Set it per build rather than committing a value: an address in `gradle.properties` is an address that
+        // rots in the repository, and the deployment a given APK is published for is a property of the publish,
+        // not of the source. See `mobile/README.md` § « Building the APK for the download page ».
+        //
+        //   ./gradlew assembleRelease -PclinicServerAddress=clinic.example.com
+        buildConfigField(
+            "String",
+            "DEFAULT_SERVER_ADDRESS",
+            "\"${providers.gradleProperty("clinicServerAddress").getOrElse("").trim()}\"",
+        )
     }
 
     signingConfigs {
@@ -84,10 +108,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         buildConfig = true
     }
@@ -111,6 +131,17 @@ android {
         // bumped as a side effect of an SDK bump, because a dependency upgrade that rides along in another commit
         // is one nobody reviewed as an upgrade.
         disable += "GradleDependency"
+    }
+}
+
+// `kotlinOptions { jvmTarget }` inside `android { }` is deprecated as of the Kotlin 2.2 plugin, which the
+// Gradle 8.13 / AGP 8.13 bump brought in — it warned on every compile, and this module runs Android Lint with
+// `warningsAsErrors` precisely because it has no test runner and no CI, so a tolerated warning is how the rest
+// stop being read. This is the replacement DSL, and it must be a top-level `kotlin { }` block rather than a
+// member of `android { }`.
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 

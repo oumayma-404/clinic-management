@@ -6,8 +6,13 @@ import androidx.core.content.edit
 
 /**
  * The clinic server address this shell connects to, persisted so a phone is configured once and reused on every
- * launch (AC-17). Always HTTPS, and never compiled in: one build serves a clinic's own PC on a LAN and a hosted
- * backend on the internet, and baking either in would make the other unreachable.
+ * launch (AC-17). Always HTTPS, and never *fixed* at build time: one build serves a clinic's own PC on a LAN and a
+ * hosted backend on the internet, and baking either in as the only reachable server would make the other
+ * unreachable.
+ *
+ * ⚠️ `BuildConfig.DEFAULT_SERVER_ADDRESS` is a **starting value and not an exception to that** — see
+ * [ServerConfigStore.load]. It is consulted only when nothing is stored, every address stays reachable through
+ * « Changer de serveur… », and empty (the default) reproduces the original first-launch prompt exactly.
  *
  * This is the Kotlin port of `desktop/ClinicManagement.DesktopShell/ServerConfig.cs`. The parsing is deliberately
  * **faithful** rather than improved — the two shells must agree on what a typed address means, or the same string
@@ -128,10 +133,25 @@ class ServerConfigStore(context: Context) {
 
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
+    /**
+     * The stored address, or the build's own starting address when nothing is stored yet.
+     *
+     * ⚠️ **Stored beats built-in, always**, and that ordering is the whole safety of the feature: an address the
+     * user chose — including one they moved *to* after this build shipped aimed somewhere else — can never be
+     * overridden by a rebuild. It also means the starting address is only ever read on a fresh install.
+     *
+     * ⚠️ The default goes through the same [ServerConfig.parseAddress] a typed address does, rather than being
+     * split by hand here. A build aimed at `clinic.example.com` must leave the port **unresolved** exactly as a
+     * user typing it would, so [ServerProbe] settles 443-versus-5001 against the real server; parsing it any other
+     * way would give the build a port nobody chose, which is the defect `parseAddress` exists to prevent.
+     *
+     * A blank or unparseable default is simply « not configured », so the address screen appears — `MainActivity`
+     * needs no knowledge that a default exists at all.
+     */
     fun load(): ServerConfig {
         val host = preferences.getString(KEY_HOST, null).orEmpty()
         val port = preferences.getInt(KEY_PORT, ServerConfig.DEFAULT_HTTPS_PORT)
-        if (host.isBlank()) return ServerConfig.empty()
+        if (host.isBlank()) return ServerConfig.parseAddress(BuildConfig.DEFAULT_SERVER_ADDRESS)
         return ServerConfig(
             host = host,
             port = if (port in 1..65535) port else ServerConfig.DEFAULT_HTTPS_PORT,

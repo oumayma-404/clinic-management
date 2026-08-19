@@ -109,6 +109,37 @@ cannot be reproduced by a CI runner reading secrets from the environment.
 upgrade is available. Back it up in **two** places that are not this machine. The passwords are not recoverable
 either.
 
+### Building the APK for the download page
+
+An APK published on the product's own download page should connect with nothing typed — a phone downloading it has
+already been told which deployment it belongs to, and the iOS route has no such step at all because there the user
+*arrives* at the server by opening its URL. So pass the address in:
+
+```bash
+./gradlew assembleRelease -PclinicServerAddress=front-7476.onrender.com
+```
+
+- **Omit the property and the build behaves exactly as it always did** — the address screen on first launch. That
+  is the default, and it is what a LAN build wants.
+- It is a **starting value, not a compiled-in server**: consulted only when nothing is stored, so
+  « Serveur → Changer de serveur… » still reaches any address, and a chosen one is persisted and wins for ever
+  after. *One build still serves a clinic's own PC on a LAN and a hosted backend on the internet* — what is new is
+  only that a build published for one of them may be aimed at it.
+- Give the address **without a port**, exactly as a user would type it. It goes through the same `parseAddress`, so
+  `ServerProbe` settles 443-versus-5001 against the real server; naming a port here would pin the build to one
+  nobody chose.
+- It is deliberately **not** in `gradle.properties`: an address committed to the repository is an address that
+  rots, and which deployment an APK is published for is a property of the publish, not of the source.
+
+Then copy the APK into the site and republish — see `landing-v2/DEPLOY.md`:
+
+```bash
+cp app/build/outputs/apk/release/app-release.apk ../../landing-v2/dist/GestionClinique-<version>.apk
+```
+
+⚠️ The filename carries the version, so **the download link in `landing-v2/template.html` moves with it.** Edit the
+template, never `dist/index.html`, which is generated.
+
 ### Configuring the server side
 
 The shell reads `GET /api/meta/client-requirements` at launch and refuses to load the app below the floor. Both
