@@ -84,5 +84,23 @@ public enum PlatformAccessAction
     /// the cabinet has already spent (AC-7.4) — the month then reads « épuisé » and reminders are held from that
     /// moment. Nothing is unsent, and this row plus the entry's own motif are what explain it afterwards.</para>
     /// </summary>
-    CancelledMessagingAllowance = 7
+    CancelledMessagingAllowance = 7,
+
+    /// <summary>
+    /// A console account reset one clinic account's second factor, at that person's request, with a written motif.
+    ///
+    /// <para>⚠️ <b>The only row in this ledger that names an individual at the cabinet</b>, and the only one whose
+    /// motif lives <i>here</i> rather than on a domain row. A suspension writes its reason onto the entitlement and
+    /// a cancellation onto the entry it strikes through; a reset writes nothing anywhere — <c>DisableTotp</c> clears
+    /// the secret and the codes and keeps no trace — so if the target and the motif are not on this row, « qui a
+    /// désarmé le compte de qui, et pourquoi ? » has no answer at all.</para>
+    ///
+    /// <para>⚠️ <b>Not a security downgrade the vendor performs on a whim.</b> It exists because the person who
+    /// lost the authenticator may be the cabinet's <i>only</i> administrator, so no colleague can reset it for them;
+    /// where they still hold a recovery code they never need this at all (see
+    /// <c>User.GrantTotpReplacement</c>). This is the way back for somebody who has lost both. The affected
+    /// account is told, in-app and by e-mail, which is what makes a social-engineered request visible to the one
+    /// person able to recognise it.</para>
+    /// </summary>
+    SecondFactorReset = 8
 }

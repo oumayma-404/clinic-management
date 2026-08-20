@@ -111,6 +111,14 @@ public class SubscriptionExemptionCoverageTests
         "PlatformSubscriptions.Suspend",
         "PlatformSubscriptions.LiftSuspension",
 
+        // --- Clearing a clinic account's second factor at its owner's request (`hosted-security-hardening`
+        // FR-1.4). ⚠️ **The exemption is the point of the endpoint, not a convenience.** The person who cannot sign
+        // in is very often the SOLE administrator of a cabinet whose cover lapsed *because* nobody could sign in to
+        // pay for it. Gating this on the entitlement would make that lockout self-sustaining: no sign-in, therefore
+        // no payment, therefore no cover, therefore no reset, therefore no sign-in. It also touches no ledger entry
+        // and consumes no paid day — it is a support action on a person, not a transaction with a practice.
+        "PlatformClinicSecurity.ResetSecondFactor",
+
         // --- Putting a cabinet back that no longer exists (`clinic-data-archive-and-restore` AC-8). There is no
         // entitlement to read for a cabinet that is gone, and this is the action that gives it one — so a gate
         // consulting the cabinet's own cover would refuse exactly the request meant to create it.

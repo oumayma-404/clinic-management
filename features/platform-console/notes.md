@@ -278,3 +278,53 @@ rather than « these practices are idle ».
 `MISSING` index or FK in the four new tables, going to **0** — plus `subscription-cover-kind-matches-ledger` and
 the two counter checks moving from « not applicable — does not exist yet » to green, which independently
 re-derives Part 4's `LatestCoverKind` through the *real* fold.
+
+## The vendor can put a lost authenticator right, and the journal finally names who did (`hosted-security-hardening` FR-1.4)
+
+`POST /api/platform/clinics/{id}/second-factor/reset` (mandatory motif, address in the body) clears one clinic
+account's second factor so its owner can enrol a new one. `PlatformAccessAction` gains `SecondFactorReset`, and
+`PlatformAccessEntries` gains three nullable columns — `TargetUserId`, `TargetEmail`, `Reason`.
+
+⚠️ **Why the vendor has to be able to do this.** Clearing a factor may never rest on the password alone, so
+somebody must vouch for whoever lost their authenticator. A recovery code they still hold does it with no vendor
+involved (`User.GrantTotpReplacement`), and their own administrator does it otherwise (`ResetUserTotpCommand`).
+Both fail in the ordinary case for this product: **a cabinet with one administrator** whose phone is gone and whose
+codes were never printed. The vendor's only previous route was `dotnet run -- reset-user-totp` over SSH, so a
+support call was answered by whoever had shell access, off the console's own record.
+
+⚠️ **The motif lives on the ledger row, and it is the only console write for which that is true.** A suspension
+writes its reason onto the entitlement and a cancellation onto the entry it strikes through; `DisableTotp` keeps no
+trace of anything. Without `TargetUserId`/`Reason` on the row, « qui a désarmé le compte de qui, et pourquoi ? » has
+no answer anywhere in the product — so the journal row is not bookkeeping here, it is the whole record, and it is
+what stands between the endpoint and a social-engineered telephone call.
+
+⚠️ **It adds no new READ.** There is deliberately no roster endpoint: the vendor types the address the caller gave
+them over the phone, so « the console cannot see your records » stays exactly as narrow as it was. The cabinet is in
+the **URL** and the person in the **body**, which is what bounds a mis-keyed character to the practice already open —
+and an unknown address and one belonging to another cabinet answer with the **same sentence**, or the endpoint
+becomes a way of asking « does this person work there? » about any address at all.
+
+⚠️ **Its own controller** (`PlatformClinicSecurityController`), for Part 6's reason one level along: filing it under
+« Abonnement et paiements » would present a support action as a billing lever. On the fiche it sits in
+« Administrateur du cabinet » — the only section about *people*, and next to the address the vendor is about to ring
+back.
+
+⚠️ **`[AllowsWithoutSubscription]` is the point of the endpoint, not defensive decoration.** The person who cannot
+sign in is frequently the sole administrator of a cabinet whose cover lapsed *because* nobody could sign in to pay.
+Gating on the entitlement would make that lockout self-sustaining. `SubscriptionExemptionCoverageTests` refused the
+new exemption until it was written into the reviewed set with that reason — the guard working as designed.
+
+⚠️ **The notice names the actor, and that needed a new parameter.** `INotificationGenerator.SecondFactorResetAsync`
+takes a required `SecondFactorResetBy`, and the four sentences (in-app and e-mail, × two actors) moved into one
+`SecondFactorResetNotice`. « Prévenez votre administrateur » is useless advice for a vendor action — the
+administrator has no record of it and no power over it — and that notice is the only mechanism by which a
+social-engineered reset becomes visible to somebody able to recognise it.
+
+⚠️ **The wire test found that `AccountEmail` had NEVER been populated — on any row, since the console shipped.**
+34 rows across all five action kinds the console had performed, every one blank, while the column's own docstring
+promised « the account's address at the time, so a row stays readable without joining a live account ».
+`PlatformSessionContext.GetEmail()` asked for the short claim name `email`, but the JWT handler's inbound mapping
+is on, so it arrives as the long `ClaimTypes.Email` URI. `GetAccountId()` survived only because it already checked
+both spellings — the fix is the same two-name lookup one line below it. **Every test in the suite mocked
+`IPlatformSessionContext`**, which is why nothing saw it; `PlatformSessionContextTests` now exercises the real
+class against a principal built the way the handler leaves one, and Part 7's own lesson repeats itself exactly.

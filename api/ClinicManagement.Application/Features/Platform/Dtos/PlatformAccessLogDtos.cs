@@ -18,7 +18,19 @@ public record PlatformAccessEntryDto(
     string ClinicName,
     string Action,
     string ActionLabel,
-    DateTime OccurredAt);
+    DateTime OccurredAt,
+    /// <summary>
+    /// The clinic account the action was performed <b>on</b>, and the motif — populated for
+    /// <c>SecondFactorReset</c> and null on every other row.
+    ///
+    /// <para>⚠️ <b>They are on the row because there is nowhere else for them to be.</b> A suspension's motif lives
+    /// on the entitlement and a cancellation's on the entry it strikes through, so the journal can stay a list of
+    /// « who did what to which cabinet » for those. <c>DisableTotp</c> writes no trace at all, so for a reset this
+    /// row is the entire record — and a journal that showed only « Second facteur réinitialisé · Cabinet X » would
+    /// be evidence of nothing.</para>
+    /// </summary>
+    string? TargetEmail = null,
+    string? Reason = null);
 
 /// <summary>
 /// One page of the journal, newest first.

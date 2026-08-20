@@ -53,7 +53,21 @@ export function AccessLogList({ page }: { page: PlatformAccessLogPage }) {
                       {entry.clinicName}
                     </Link>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{entry.actionLabel}</TableCell>
+                  {/*
+                    ⚠️ The target and the motif render **under** the action rather than as two more columns. Only
+                    one action in nine populates them, so columns would be empty on every other row — and this is
+                    the one row type whose whole evidentiary value is those two facts, which a narrow truncating
+                    cell would hide. Everything else in this ledger acts on a cabinet and needs no such line.
+                  */}
+                  <TableCell className="text-muted-foreground">
+                    <span>{entry.actionLabel}</span>
+                    {entry.targetEmail ? (
+                      <span className="mt-0.5 block text-xs">Compte : {entry.targetEmail}</span>
+                    ) : null}
+                    {entry.reason ? (
+                      <span className="mt-0.5 block text-xs italic">« {entry.reason} »</span>
+                    ) : null}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -78,6 +92,11 @@ export function AccessLogList({ page }: { page: PlatformAccessLogPage }) {
                 </Link>
               ),
             },
+            // ⚠️ Spread rather than rendered conditionally in place: `fields` is a flat list, and an entry whose
+            // `value` is null still draws its label — « Compte : — » on eight row types out of nine, which reads
+            // as a missing value rather than an inapplicable one.
+            ...(entry.targetEmail ? [{ label: "Compte", value: entry.targetEmail }] : []),
+            ...(entry.reason ? [{ label: "Motif", value: entry.reason }] : []),
           ]}
         />
       </div>

@@ -214,8 +214,8 @@ public interface INotificationGenerator
         bool patientRequiresRecontact, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Tells one user that an administrator reset their second factor
-    /// (<c>hosted-security-hardening</c> FR-1.4).
+    /// Tells one user that their second factor was reset
+    /// (<c>hosted-security-hardening</c> FR-1.4, <c>platform-console</c>).
     ///
     /// <para>⚠️ <b>Targeted at that user alone</b>, unlike most rows here: it is a fact about their credential,
     /// and broadcasting « le second facteur de X a été réinitialisé » to the whole practice would publish a
@@ -223,9 +223,18 @@ public interface INotificationGenerator
     ///
     /// <para>Its whole purpose is to make a quiet action loud — without it, stripping a colleague's protection
     /// is a step a stolen admin session could take unobserved before signing in as them.</para>
+    ///
+    /// <para>⚠️ <paramref name="by"/> is <b>required rather than defaulted</b>. The sentence names the actor and
+    /// tells the reader where to complain, and those differ: « prévenez votre administrateur » is useless advice
+    /// when the vendor's support did it, since the administrator has no record of that action and no power over
+    /// it. A default would silently pick the clinic-administrator wording for every future caller, and the caller
+    /// that gets it wrong is the one telling somebody to report a break-in to the wrong person.</para>
     /// </summary>
     Task SecondFactorResetAsync(
-        Guid clinicId, string targetUserId, CancellationToken cancellationToken = default);
+        Guid clinicId,
+        string targetUserId,
+        SecondFactorResetBy by,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Tells one user that a device's session was ended because a superseded credential was presented

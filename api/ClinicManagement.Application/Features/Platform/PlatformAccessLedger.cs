@@ -39,6 +39,16 @@ public static class PlatformAccessLedger
     /// <paramref name="subscriptionPeriodId"/> — see that column's own remarks for why one shared column would make
     /// the journal assert something false.
     /// </param>
+    /// <param name="targetUserId">
+    /// The clinic account acted <b>on</b>, for the one action that names an individual rather than a cabinet
+    /// (<c>SecondFactorReset</c>).
+    /// </param>
+    /// <param name="targetEmail">That account's address at the time, so the row names a person.</param>
+    /// <param name="reason">
+    /// The motif, for an action whose motif has nowhere else to live. ⚠️ Not for a suspension's or a
+    /// cancellation's — those belong on the rows they describe, and a copy here would be a second statement of
+    /// one fact. See the column's own remarks.
+    /// </param>
     public static async Task RecordAsync(
         IPlatformAccessEntryRepository repository,
         IPlatformSessionContext session,
@@ -49,7 +59,10 @@ public static class PlatformAccessLedger
         CancellationToken cancellationToken = default,
         Guid? subscriptionPeriodId = null,
         string? idempotencyKey = null,
-        Guid? messagingAllowanceEntryId = null)
+        Guid? messagingAllowanceEntryId = null,
+        string? targetUserId = null,
+        string? targetEmail = null,
+        string? reason = null)
     {
         // The address is what makes a row readable years later, and it is the account's own at the time — a
         // renamed or deleted account must not silently blank the rows it left behind.
@@ -62,7 +75,10 @@ public static class PlatformAccessLedger
             occurredAt,
             subscriptionPeriodId,
             idempotencyKey,
-            messagingAllowanceEntryId);
+            messagingAllowanceEntryId,
+            targetUserId,
+            targetEmail,
+            reason);
 
         await repository.AddAsync(entry, cancellationToken);
     }

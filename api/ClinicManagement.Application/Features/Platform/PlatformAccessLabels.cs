@@ -32,6 +32,11 @@ public static class PlatformAccessLabels
         // the subscription, and a journal row a vendor reads at speed must not be ambiguous about which one moved.
         PlatformAccessAction.GrantedMessagingAllowance => "Forfait de rappels enregistré",
         PlatformAccessAction.CancelledMessagingAllowance => "Forfait de rappels annulé",
+        // Names the *account*, not the cabinet, because it is the only row here that acts on one person — and the
+        // row carries their address beside it. « Second facteur réinitialisé » rather than « 2FA désactivée »: the
+        // factor is not switched off, it is cleared so its owner can enrol a new one, and the second wording would
+        // read on the journal as the vendor having lowered a cabinet's protection.
+        PlatformAccessAction.SecondFactorReset => "Second facteur d'un compte réinitialisé",
         _ => action.ToString()
     };
 

@@ -620,16 +620,20 @@ public class NotificationGenerator : INotificationGenerator
     }
 
     public async Task SecondFactorResetAsync(
-        Guid clinicId, string targetUserId, CancellationToken cancellationToken = default)
+        Guid clinicId,
+        string targetUserId,
+        SecondFactorResetBy by,
+        CancellationToken cancellationToken = default)
     {
         await SafelyAsync(clinicId, async () =>
         {
             var notification = new StaffNotification(
                 Guid.NewGuid(), clinicId, NotificationCategory.SecondFactorReset,
-                "Second facteur réinitialisé",
-                "Un administrateur a réinitialisé votre second facteur. Vous devrez en enrôler un nouveau à "
-                + "votre prochaine connexion. Si vous n'êtes pas à l'origine de cette demande, prévenez "
-                + "immédiatement votre administrateur.",
+                SecondFactorResetNotice.Title,
+                // ⚠️ From the shared notice, not written here: the e-mail the command sends says the same three
+                // things, and a second copy of a security sentence is a copy that drifts on the one message whose
+                // wording decides where the reader reports a break-in.
+                SecondFactorResetNotice.InApp(by),
                 DateTime.UtcNow,
                 NotificationTargetKind.Security,
                 // ⚠️ A TARGET and no actor exclusion. The one person who must see this is the affected user —

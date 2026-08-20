@@ -134,7 +134,7 @@ how it was built, `notes.md` is what shipped.
 
 **The vendor's side of the product**
 
-- [`platform-console`](features/platform-console/notes.md) — The vendor has a private console, and it cannot read a patient record (Part 1) · The portfolio is a counter table, not a query over the ledger (Part 2) · The console records what it looked at, and the record is readable (Part 3) · The vendor records a payment and the cabinet unlocks (Part 4) · A mis-keyed payment is corrected, never erased (Part 5) · A cabinet is stopped for abuse, and never told it has expired (Part 6) · The verification found the hole the six parts before it could not (Part 7)
+- [`platform-console`](features/platform-console/notes.md) — The vendor has a private console, and it cannot read a patient record (Part 1) · The portfolio is a counter table, not a query over the ledger (Part 2) · The console records what it looked at, and the record is readable (Part 3) · The vendor records a payment and the cabinet unlocks (Part 4) · A mis-keyed payment is corrected, never erased (Part 5) · A cabinet is stopped for abuse, and never told it has expired (Part 6) · The verification found the hole the six parts before it could not (Part 7) · The vendor can put a lost authenticator right, and the journal finally names who did
 - [`clinic-subscription`](features/clinic-subscription/notes.md) — A cabinet's right to record work is a dated entitlement (all 7 parts)
 - [`vendor-whatsapp-messaging-quota`](features/vendor-whatsapp-messaging-quota/notes.md) — The vendor buys the WhatsApp messages and a cabinet spends them (Parts 0–5)
 - [`clinic-self-signup`](features/clinic-self-signup/notes.md) — A clinic can let itself in, and nothing exists until the email is answered

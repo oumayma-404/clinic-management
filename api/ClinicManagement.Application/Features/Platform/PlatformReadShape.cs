@@ -242,6 +242,26 @@ public static class PlatformReadShape
         "ClinicName",
         "Action",
         "ActionLabel",
-        "OccurredAt"
+        "OccurredAt",
+
+        // ── The second-factor reset (hosted-security-hardening FR-1.4, from the console). Answering this file's
+        // own question — « can this field name, or ever hold, a patient, an appointment, a document, a note, or a
+        // per-patient amount? »:
+        //
+        // `TargetEmail`, `TargetName` and `TargetRole` name a member of the cabinet's STAFF. That is the same
+        // category as `AdminName`/`AdminEmail` above, already declared for AC-3.3 — the vendor has to know who to
+        // ring back — and a staff address is not a patient's under any reading. `TargetRole` is one of three
+        // fixed words.
+        //
+        // `Reason` is written by the VENDOR, not by the cabinet, so no clinic data reaches it by any code path;
+        // it is the same category as `SuspensionReason` above. A vendor who typed a patient's name into it would
+        // be disclosing something to themselves that they typed, which is not what AC-2.6 is a promise about.
+        //
+        // `ResetAt` is an instant.
+        "TargetEmail",
+        "TargetName",
+        "TargetRole",
+        "Reason",
+        "ResetAt"
     };
 }

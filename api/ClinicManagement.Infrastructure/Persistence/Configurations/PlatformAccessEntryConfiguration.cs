@@ -42,6 +42,14 @@ public class PlatformAccessEntryConfiguration : IEntityTypeConfiguration<Platfor
         // every console write and read by nothing.
         builder.Property(e => e.MessagingAllowanceEntryId);
 
+        // The second-factor reset's three columns. 128 matches `Users.Id`'s width — a clinic user's key is a string
+        // (an Auth0 `sub` or `local|{guid}`), not a Guid — and 256 the address columns beside it. No index on any of
+        // them: the journal is read by cabinet and by console account, both of which already have one, and « every
+        // reset ever performed » is a report nobody has asked for.
+        builder.Property(e => e.TargetUserId).HasMaxLength(128);
+        builder.Property(e => e.TargetEmail).HasMaxLength(256);
+        builder.Property(e => e.Reason).HasMaxLength(PlatformAccessEntry.MaxReasonLength);
+
         // UNIQUE and **partial**: « one entry per submission » (AC-4.6) held by the database rather than by whichever
         // request happens to read first. Filtered on non-null because every read row legitimately has no key, and an
         // unfiltered unique index over a mostly-null column is both larger and — in PostgreSQL, where every NULL is

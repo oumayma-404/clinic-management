@@ -81,6 +81,38 @@ public class PlatformAccessEntry : AggregateRoot<Guid>
     /// </summary>
     public string? IdempotencyKey { get; private set; }
 
+    public const int MaxReasonLength = 500;
+
+    /// <summary>
+    /// The clinic account this action was performed <b>on</b>, where the action names an individual —
+    /// <see cref="PlatformAccessAction.SecondFactorReset"/> today, and nothing else. Null for every row that acts
+    /// on the cabinet as a whole.
+    ///
+    /// <para>⚠️ <b>An id and not an address.</b> The address on the row would go stale the moment the person
+    /// changes it, and this ledger's other denormalisations (<see cref="ClinicName"/>,
+    /// <see cref="AccountEmail"/>) copy values in precisely because the <i>source</i> may vanish — a clinic user
+    /// cannot, since the row is cascade-deleted with the cabinet either way. <c>TargetEmail</c> beside it carries
+    /// the address as it stood, for the reading a year later.</para>
+    ///
+    /// <para>Not a foreign key, for the reason the whole type has none.</para>
+    /// </summary>
+    public string? TargetUserId { get; private set; }
+
+    /// <summary>The target's address at the time, so the row names a person rather than a string key.</summary>
+    public string? TargetEmail { get; private set; }
+
+    /// <summary>
+    /// The motif the acting account wrote, for the actions that demand one.
+    ///
+    /// <para>⚠️ <b>Only for a motif with nowhere else to live</b>, which today means the second-factor reset alone.
+    /// A suspension's motif belongs on the entitlement and a cancellation's on the entry it strikes through, and
+    /// copying either here would be the semantic overload <see cref="MessagingAllowanceEntryId"/>'s own remarks
+    /// refuse — two rows then state the same fact and the day they disagree there is no way to tell which is
+    /// right. A reset has no domain row at all: <c>DisableTotp</c> keeps no trace, so this column is the only
+    /// possible home for « pourquoi ? ».</para>
+    /// </summary>
+    public string? Reason { get; private set; }
+
     private PlatformAccessEntry() { } // For EF Core
 
     public PlatformAccessEntry(
@@ -92,7 +124,10 @@ public class PlatformAccessEntry : AggregateRoot<Guid>
         DateTime occurredAt,
         Guid? subscriptionPeriodId = null,
         string? idempotencyKey = null,
-        Guid? messagingAllowanceEntryId = null)
+        Guid? messagingAllowanceEntryId = null,
+        string? targetUserId = null,
+        string? targetEmail = null,
+        string? reason = null)
         : base(Guid.NewGuid())
     {
         if (platformAccountId == Guid.Empty)
@@ -120,5 +155,18 @@ public class PlatformAccessEntry : AggregateRoot<Guid>
         // Blank collapses to null rather than to "": the column's unique index treats every null as distinct, so a
         // handful of unkeyed rows carrying an empty string would collide with each other.
         IdempotencyKey = string.IsNullOrWhiteSpace(key) ? null : key;
+
+        var motif = reason?.Trim();
+        if (motif is { Length: > MaxReasonLength })
+        {
+            throw new ArgumentException(
+                $"Le motif dépasse {MaxReasonLength} caractères.", nameof(reason));
+        }
+
+        // Blank collapses to null on all three, so « no motif was given » and « an empty one was » are one state
+        // rather than two that read differently on the journal.
+        TargetUserId = string.IsNullOrWhiteSpace(targetUserId) ? null : targetUserId.Trim();
+        TargetEmail = string.IsNullOrWhiteSpace(targetEmail) ? null : targetEmail.Trim();
+        Reason = string.IsNullOrWhiteSpace(motif) ? null : motif;
     }
 }

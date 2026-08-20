@@ -95,15 +95,17 @@ public class ResetUserTotpCommandHandler : IRequestHandler<ResetUserTotpCommand,
 
     private async Task NotifyAsync(Guid clinicId, string userId, string? email, CancellationToken cancellationToken)
     {
-        const string subject = "Votre second facteur a été réinitialisé";
-        const string body =
-            "Un administrateur de votre clinique a réinitialisé votre second facteur d'authentification. "
-            + "Vous devrez en enrôler un nouveau à votre prochaine connexion. "
-            + "Si vous n'êtes pas à l'origine de cette demande, prévenez immédiatement votre administrateur.";
+        // ⚠️ Both channels read from `SecondFactorResetNotice`, which is also what the in-app row and the vendor's
+        // own path use. The wording used to live here as two local constants; the console's reset would have made
+        // that four copies of one security sentence, and the copy that drifts is the one telling somebody where to
+        // report an action they did not ask for.
+        var subject = SecondFactorResetNotice.EmailSubject;
+        var body = SecondFactorResetNotice.EmailBody(SecondFactorResetBy.ClinicAdministrator);
 
         try
         {
-            await _notifications.SecondFactorResetAsync(clinicId, userId, cancellationToken);
+            await _notifications.SecondFactorResetAsync(
+                clinicId, userId, SecondFactorResetBy.ClinicAdministrator, cancellationToken);
         }
         catch (Exception ex)
         {

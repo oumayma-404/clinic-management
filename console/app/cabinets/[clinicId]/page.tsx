@@ -5,6 +5,7 @@ import { ActivityTrend } from "@/components/activity-trend";
 import { CancelPeriodDialog } from "@/components/cancel-period-dialog";
 import { MessagingSection } from "@/components/messaging-section";
 import { RecordPaymentSheet } from "@/components/record-payment-sheet";
+import { ResetSecondFactorDialog } from "@/components/reset-second-factor-dialog";
 import { SuspendDialog } from "@/components/suspend-dialog";
 import { ConsoleApiError } from "@/lib/api/client";
 import { CLINIC_NOT_FOUND_CODE, fetchClinicDetail, type PlatformClinicDetail } from "@/lib/api/platform";
@@ -285,15 +286,31 @@ function Suspension({ detail }: { detail: PlatformClinicDetail }) {
   );
 }
 
-/** AC-3.3 — who to call. Staff, never a patient, and the screen says which. */
+/**
+ * AC-3.3 — who to call. Staff, never a patient, and the screen says which.
+ *
+ * ⚠️ **« Réinitialiser un second facteur » lives here, and the placement is the decision.** It is a support action
+ * on a *person*, and this is the only section of the fiche that is about people — the same argument Part 6 makes for
+ * keeping suspension out of « Abonnement et paiements ». Beside the payment history it would read as a billing
+ * lever; here it sits next to the address the vendor is about to ring back, which is exactly the context the
+ * operation needs. It is offered even when the cabinet has no administrator on record, because the person who
+ * telephoned may be a doctor or a secretary whose address the console never displays.
+ */
 function Administrator({ detail }: { detail: PlatformClinicDetail }) {
   const hasContact = detail.adminName !== null || detail.adminEmail !== null;
 
   return (
     <section aria-labelledby="admin-heading" className="rounded-lg border border-border bg-card p-4">
-      <h2 id="admin-heading" className="text-base font-semibold">
-        Administrateur du cabinet
-      </h2>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h2 id="admin-heading" className="text-base font-semibold">
+          Administrateur du cabinet
+        </h2>
+        <ResetSecondFactorDialog
+          clinicId={detail.clinic.clinicId}
+          clinicName={detail.clinic.name}
+          adminEmail={detail.adminEmail}
+        />
+      </div>
 
       {hasContact ? (
         <dl className="mt-3 space-y-3">

@@ -193,3 +193,23 @@ public record PlatformActivityMonthDto(
     int Appointments,
     int PatientsCreated,
     int DaysMeasured);
+
+/// <summary>
+/// What resetting one clinic account's second factor answers with — who was actually disarmed
+/// (<c>hosted-security-hardening</c> FR-1.4, from the console).
+///
+/// <para>⚠️ <b>The target is echoed back, and that is the whole point of the response.</b> The vendor typed an
+/// address off a phone call; the confirmation names the <i>person</i> it landed on — their name and their role —
+/// so « j'ai désarmé le bon compte » is checkable on the screen that did it rather than assumed from the fact
+/// that nothing refused. A mis-keyed address that happens to match a colleague is the failure this catches, and it
+/// is the only one the vendor can still put right by ringing the cabinet back.</para>
+///
+/// <para>No token, no session and nothing about the factor itself: this write ends with the account holding no
+/// second factor at all, and the owner enrols the new one themselves at the next sign-in.</para>
+/// </summary>
+public record PlatformSecondFactorResetDto(
+    Guid ClinicId,
+    string? TargetEmail,
+    string? TargetName,
+    string TargetRole,
+    DateTime ResetAt);

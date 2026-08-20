@@ -96,5 +96,8 @@ public class GetPlatformAccessLogQueryHandler
         // later export or a support question can be matched on without parsing prose.
         Action: entry.Action.ToString(),
         ActionLabel: PlatformAccessLabels.Action(entry.Action),
-        OccurredAt: entry.OccurredAt);
+        OccurredAt: entry.OccurredAt,
+        // Null on every row but a second-factor reset, where they are the only record that exists — see the DTO.
+        TargetEmail: entry.TargetEmail,
+        Reason: entry.Reason);
 }

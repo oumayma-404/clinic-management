@@ -504,6 +504,25 @@ export const CLINIC_ALREADY_SUSPENDED_CODE = "clinic_already_suspended";
 
 export const CLINIC_NOT_SUSPENDED_CODE = "clinic_not_suspended";
 
+/**
+ * What resetting a clinic account's second factor answers with — **who** was actually disarmed.
+ *
+ * ⚠️ The target is echoed back so « j'ai bien désarmé le bon compte » is checkable on the screen that did it. The
+ * vendor typed an address off a telephone call; a mis-keyed character that happens to match a colleague at the same
+ * cabinet is the failure this catches, and the only one still fixable by ringing back.
+ */
+export interface PlatformSecondFactorReset {
+  clinicId: string;
+  targetEmail: string | null;
+  targetName: string | null;
+  targetRole: string;
+  resetAt: string;
+}
+
+export const CLINIC_ACCOUNT_NOT_FOUND_CODE = "clinic_account_not_found";
+
+export const SECOND_FACTOR_NOT_ENROLLED_CODE = "second_factor_not_enrolled";
+
 export async function fetchClinicDetail(token: string, clinicId: string): Promise<PlatformClinicDetail> {
   return consoleFetch<PlatformClinicDetail>(`/platform/clinics/${clinicId}`, { token });
 }
@@ -526,6 +545,15 @@ export interface PlatformAccessEntry {
   action: string;
   actionLabel: string;
   occurredAt: string;
+  /**
+   * Populated for `SecondFactorReset` and null on every other row: the clinic account that was disarmed, and why.
+   *
+   * ⚠️ They are on the row because a reset leaves no trace anywhere else — a suspension's motif lives on the
+   * entitlement, a cancellation's on the entry it strikes through, but `DisableTotp` writes nothing. A journal
+   * showing only « Second facteur d'un compte réinitialisé · Cabinet X » would be evidence of nothing.
+   */
+  targetEmail: string | null;
+  reason: string | null;
 }
 
 export interface PlatformAccessActor {

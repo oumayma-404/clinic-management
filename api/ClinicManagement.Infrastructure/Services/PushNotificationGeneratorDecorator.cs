@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Domain.Entities;
@@ -200,8 +201,11 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
     // this category, so there is nothing to fan out. Enrolling again happens at a keyboard on the next
     // sign-in, which a lock-screen banner cannot make any more actionable.
     public Task SecondFactorResetAsync(
-        Guid clinicId, string targetUserId, CancellationToken cancellationToken = default) =>
-        _inner.SecondFactorResetAsync(clinicId, targetUserId, cancellationToken);
+        Guid clinicId,
+        string targetUserId,
+        SecondFactorResetBy by,
+        CancellationToken cancellationToken = default) =>
+        _inner.SecondFactorResetAsync(clinicId, targetUserId, by, cancellationToken);
 
     // Pass-through for the same reason as the one above: not a locked-phone category.
     public Task SessionEndedForReplayAsync(

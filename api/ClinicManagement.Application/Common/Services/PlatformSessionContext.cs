@@ -41,7 +41,30 @@ public class PlatformSessionContext : IPlatformSessionContext
         return Guid.TryParse(subject, out var id) ? id : null;
     }
 
-    public string? GetEmail() => ConsolePrincipal()?.FindFirst("email")?.Value;
+    /// <summary>
+    /// The acting account's address, for the ledger row that has to stay readable after the account is gone.
+    ///
+    /// <para>⚠️ <b>Both spellings, exactly as <see cref="GetAccountId"/> above does, and for the same reason.</b>
+    /// The JWT handler's inbound claim mapping is on (nothing sets <c>MapInboundClaims = false</c>), so the token's
+    /// <c>email</c> claim reaches the principal as <see cref="ClaimTypes.Email"/> — the long WS-Federation URI — and
+    /// a lookup for the short name finds nothing. Reading one spelling was silent: <c>PlatformAccessEntry</c> stores
+    /// <c>GetEmail() ?? string.Empty</c>, so <b>every</b> row in the console's access ledger carried a blank address
+    /// while the column's own docstring promised « the account's address at the time, so a row stays readable
+    /// without joining a live account ». Found by reading the rows a real sign-in had written — 34 of them, blank
+    /// across all five action kinds the console had ever performed.</para>
+    /// </summary>
+    public string? GetEmail()
+    {
+        var principal = ConsolePrincipal();
+
+        if (principal is null)
+        {
+            return null;
+        }
+
+        return principal.FindFirst(ClaimTypes.Email)?.Value
+               ?? principal.FindFirst("email")?.Value;
+    }
 
     private ClaimsPrincipal? ConsolePrincipal()
     {

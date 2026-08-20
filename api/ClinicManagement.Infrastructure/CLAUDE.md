@@ -301,6 +301,14 @@ documents, nullable-patient appointments, and the multi-tenant clinic/user/docto
   entry » rule is what ran; `verify-schema` went 1 DRIFT → clean on those two checks, and corrupting one row turned
   the new `subscription-cover-kind-matches-ledger` red.
 
+- **`20260820153508_AddPlatformAccessTargetAndReason`** — three nullable columns on `PlatformAccessEntries`
+  (`TargetUserId` 128, `TargetEmail` 256, `Reason` 500) so the console's journal can record a **second-factor
+  reset**: whose factor, and why. ⚠️ **The motif is on this row because it has nowhere else to be** — a suspension
+  writes its reason onto the entitlement and a cancellation onto the entry it strikes through, but
+  `User.DisableTotp` keeps no trace at all, so without these columns « qui a désarmé le compte de qui, et
+  pourquoi ? » is unanswerable. Purely additive; no `defaultValue` on any of the three (NULL is right for every
+  existing row and for the other eight actions, which act on a cabinet rather than a person); no index (the journal
+  is read by cabinet and by console account, both already indexed). Drift set identical before and after.
 - **`20260820145745_AddTotpReplacementGrant`** — one nullable `Users.TotpReplacementAllowedUntil`: until when an
   account may replace its own second factor without a code from it, which is the window a redeemed **recovery
   code** opens. It exists because a cabinet with a **single administrator** had no way back from a lost phone —
