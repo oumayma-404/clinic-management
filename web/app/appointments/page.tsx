@@ -2,8 +2,6 @@
 
 import { useState, useCallback, useEffect, useRef } from "react"
 import { AppShell } from "@/components/app-shell"
-import { Button } from "@/components/ui/button"
-import { Plus } from "lucide-react"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -139,7 +137,7 @@ export default function AppointmentsPage() {
     setDialogOpen(true)
   }, [])
 
-  /** « Nouveau rendez-vous » from the bar or the floating action — no span, so no duration override. */
+  /** « Nouveau rendez-vous » from the desktop bar or the phone header — no span, so no duration override. */
   const openCreateDialog = useCallback(() => {
     setSelectedDurationMinutes(undefined)
     // `selectedDate` holds the instant the page mounted, so while today is on screen the dialog prefilled a start
@@ -528,44 +526,6 @@ export default function AppointmentsPage() {
             />
           </div>
         </div>
-
-      {/*
-        The agenda's create action below `md:`, where the toolbar row above is hidden. « Nouveau rendez-vous »
-        keeps a stable home at every width (AC-31).
-
-        ⚠️ **Labelled, not a bare `+`.** The toolbar button it replaces carries an explicit note that its label
-        *shortens rather than disappearing*, because an icon-only primary action on the busiest screen in the app
-        is the unlabelled-ghost-icon problem P3 spent a whole part removing. A plain `+` circle would have walked
-        straight back into it, so this is an extended floating action instead.
-
-        `--bottom-inset` is the global bottom nav plus the home indicator, so the action clears navigation.
-
-        ⚠️ **Centred, and it stays centred now that the collision it fixed is gone.** This used to be `right-4`
-        at exactly `bottom-[calc(1rem+var(--bottom-inset))]` — the *byte-identical* anchor the deleted AI
-        assistant gave its minimised launcher, at `z-50` against this `z-40` — so that 56 px circle sat
-        permanently on top of the right-hand end of this pill. The assistant is gone, so the right-hand corner is
-        free again; the centre is kept because it reads correctly on its own terms, the page's own action sitting
-        above the nav it belongs to. Moving it back would be churn for no gain, and this is now the *only*
-        floating element in the app — which is also why `AppShell` no longer pays for `md:pb-20`.
-
-        A bottom-centre toast can still pass over this for its four seconds (`app-toaster.tsx` anchors there on a
-        coarse pointer). That is left alone deliberately: a transient toast over a floating action is ordinary
-        mobile behaviour, whereas a button permanently under another button is a defect.
-
-        The wrapper, rather than positioning classes on the `Button`: `ui/button.tsx` applies
-        `active:scale-[0.97]`, so the press transform and a centring `-translate-x-1/2` would be arguing over the
-        same property. `pointer-events-none` on the full-width strip keeps it from swallowing taps meant for the
-        agenda underneath; the button re-enables them for itself.
-      */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(1rem+var(--bottom-inset))] z-40 flex justify-center md:hidden">
-        <Button
-          onClick={openCreateDialog}
-          className="pointer-events-auto gap-2 rounded-full shadow-lg"
-        >
-          <Plus className="h-4 w-4" />
-          Nouveau RDV
-        </Button>
-      </div>
 
       <CreateAppointmentDialog
         open={dialogOpen}

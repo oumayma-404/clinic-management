@@ -4,9 +4,10 @@ import { useMemo, useState } from "react"
 import { addDays, addMonths, isSameDay, isSameMonth, startOfMonth, startOfWeek } from "date-fns"
 import { fr } from "date-fns/locale"
 import { format } from "date-fns"
-import { ChevronDown, ChevronRight, ChevronLeft, Filter } from "lucide-react"
+import { ChevronDown, ChevronRight, ChevronLeft, Filter, Plus } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { ActiveFilterChip } from "@/components/ui/list-toolbar"
@@ -31,6 +32,13 @@ interface AgendaPhoneHeaderProps {
   showCompleted?: boolean
   onShowCancelledChange?: (show: boolean) => void
   onShowCompletedChange?: (show: boolean) => void
+  /**
+   * « Nouveau RDV ». It used to be a floating pill fixed above the bottom nav, which cost every phone scroller
+   * 56 px of clearance padding plus the home inset — *and* still covered the last hour of the grid it floated
+   * over. Here it occupies the empty right-hand half of a row that exists regardless, so the create action
+   * costs no vertical space at all.
+   */
+  onNewAppointment?: () => void
 }
 
 const VIEWS: { value: CalendarView; label: string }[] = [
@@ -75,6 +83,7 @@ export function AgendaPhoneHeader({
   showCompleted = false,
   onShowCancelledChange,
   onShowCompletedChange,
+  onNewAppointment,
 }: AgendaPhoneHeaderProps) {
   const [monthOpen, setMonthOpen] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -113,13 +122,13 @@ export function AgendaPhoneHeader({
   const showTodayPill = isMonthView ? !isSameMonth(selectedDate, today) : !isSameDay(selectedDate, today)
 
   return (
-    // `pb-2` on the container, not on each branch: with « Prochains RDV » gone the last child differs per view
-    // (the strip in Jour/Semaine, the mini-month when open, the view switch in Mois), and three separate bottom
-    // paddings is three chances for one of them to sit flush against the border.
-    <div className="md:hidden border-b bg-card pb-2">
+    // The bottom padding is on the container, not on each branch: with « Prochains RDV » gone the last child
+    // differs per view (the strip in Jour/Semaine, the mini-month when open, the view switch in Mois), and three
+    // separate bottom paddings is three chances for one of them to sit flush against the border.
+    <div className="md:hidden border-b bg-card pb-1.5">
       {/* Title + Aujourd'hui. The title names the MONTH in Semaine/Mois and the DAY in Jour, because when you
           are reading one day's grid the day is what you need to confirm. */}
-      <div className="flex items-center gap-1 px-3 pt-2">
+      <div className="flex items-center gap-1 px-3 pt-1.5">
         {isMonthView ? (
           <>
             <span className="px-1.5 text-base font-semibold capitalize">
@@ -151,12 +160,22 @@ export function AgendaPhoneHeader({
             type="button"
             onClick={() => setMonthOpen((open) => !open)}
             aria-expanded={monthPickerOpen}
-            className="flex min-h-11 items-center gap-1.5 rounded-lg px-1.5 text-base font-semibold"
+            /* `min-w-0` + `truncate`: with « Aujourd'hui » and « Nouveau » to its right, the date is the one
+               item on this row that may give up width — at 320 px the three together are wider than the row,
+               and a title that pushes instead of shortening would drive the create action off screen.
+
+               ⚠️ Painted **36 px** with a `touch-target` overlay, not `min-h-11`: it was the tallest thing in
+               this header and so it set the row's height, and this header's height is the day grid's. The
+               overlay is safe *here* — its 4 px overhang meets a 4 px gap and then the empty `flex-1` spacer,
+               so there is no later sibling for it to steal a tap from (§ 2). */
+            className="touch-target flex min-h-9 min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-base font-semibold"
           >
-            {view === "day"
-              ? format(selectedDate, "EEE d MMMM", { locale: fr })
-              : format(selectedDate, "MMMM yyyy", { locale: fr })}
-            <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", monthPickerOpen && "rotate-180")} />
+            <span className="truncate">
+              {view === "day"
+                ? format(selectedDate, "EEE d MMMM", { locale: fr })
+                : format(selectedDate, "MMMM yyyy", { locale: fr })}
+            </span>
+            <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", monthPickerOpen && "rotate-180")} />
           </button>
         )}
         <div className="flex-1" />
@@ -173,6 +192,28 @@ export function AgendaPhoneHeader({
             Aujourd&apos;hui
           </button>
         )}
+        {/*
+          The create action, in the row's own empty right-hand half — the user's placement, and it is also the
+          one that costs nothing: this row exists regardless.
+
+          ⚠️ **Still labelled.** « Nouveau », not a bare `+` circle: an icon-only primary action on the busiest
+          screen in the app is the unlabelled-ghost-icon problem P3 spent a whole part removing, and that
+          argument does not change with the button's address.
+
+          ⚠️ It **grows its own box** (`coarse:h-11`) rather than carrying `.touch-target`: « Aujourd'hui » sits
+          4 px away and already overlays a 44 px area, and two overlapping overlays hand every shared pixel to
+          whichever paints last — which is this one, the primary action (§ 2).
+        */}
+        {onNewAppointment && (
+          <Button
+            onClick={onNewAppointment}
+            size="sm"
+            className="h-9 shrink-0 gap-1.5 rounded-full px-3 coarse:h-11"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Nouveau
+          </Button>
+        )}
       </div>
 
       {/*
@@ -186,13 +227,19 @@ export function AgendaPhoneHeader({
         screen-reader user to press arrow keys, and nothing happens. Three toggle buttons that say which one is
         pressed is what this control actually is.
 
-        44 px painted here rather than a `touch-target` overlay: this is the agenda's primary control, it has a
-        full row to itself, and three adjacent 36 px targets is exactly where a mis-tap costs a view switch.
+        The tap area is **grown, never overlaid**: this is the agenda's primary control and its three buttons are
+        adjacent, so a `.touch-target` on each would overhang its neighbours and hand the shared pixels to
+        whichever paints last — a mis-tap that costs a view switch. Hence `coarse:min-h-11` on a finger, and 36 px
+        painted where there is a mouse, since the row is the day grid's space either way.
       */}
       <div
         role="group"
         aria-label="Vue de l'agenda"
-        className="mx-3 mt-2 grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted p-1"
+        /* Full width, and thinner than it was — the frame gave up `p-1` → `p-0.5` and the buttons are painted
+           36 px on a mouse. ⚠️ **`coarse:min-h-11` is a floor, not a preference**: three adjacent targets cannot
+           use a `.touch-target` overlay (each would overhang its neighbour, and the later sibling wins the tap),
+           so on a finger the painted height *is* the tap height and 44 px is where § 2 stops it. */
+        className="mx-3 mt-1.5 grid grid-cols-3 gap-0.5 rounded-lg border border-border bg-muted p-0.5"
       >
         {VIEWS.map((v) => (
           <button
@@ -205,7 +252,7 @@ export function AgendaPhoneHeader({
               // a primary ring on the pressed pill so the state survives a bright screen at arm's length. The
               // desktop twin additionally had to be *un-inverted* (it painted `bg-background`, the page ground,
               // over a white card); this one was already on `bg-card` and only needed the ring and the border.
-              "min-h-11 rounded-md text-xs font-semibold transition-colors",
+              "min-h-9 rounded-md text-xs font-semibold transition-colors coarse:min-h-11",
               view === v.value
                 ? "bg-card text-primary shadow-sm ring-1 ring-primary/30 dark:bg-input/70"
                 : "text-muted-foreground",
@@ -338,7 +385,7 @@ export function AgendaPhoneHeader({
       {/* 7-day strip — tap a day to go to it. Hidden while the mini-month is open (it would say the same thing),
           and in Mois, where the grid below already shows this week among all the others. */}
       {!monthPickerOpen && !isMonthView && (
-        <div className="mt-2 grid grid-cols-7 gap-0.5 px-2">
+        <div className="mt-1.5 grid grid-cols-7 gap-0.5 px-2">
           {weekDays.map((day) => {
             const selected = isSameDay(day, selectedDate)
             const count = countFor(day)
@@ -349,20 +396,24 @@ export function AgendaPhoneHeader({
                 onClick={() => onDateChange(day)}
                 aria-current={selected ? "date" : undefined}
                 aria-label={`${format(day, "EEEE d MMMM", { locale: fr })}${count > 0 ? ` — ${count} rendez-vous` : ""}`}
-                className="flex min-h-[52px] flex-col items-center gap-0.5 rounded-lg pb-1.5 pt-1"
+                /* 58 px, not the 64 it painted: this row is the second-tallest thing in the header and
+                   every pixel of it belongs to the day grid. The tap target stays 14 px past the § 2 floor. */
+                className="flex min-h-[52px] flex-col items-center rounded-lg pb-1 pt-0.5"
               >
                 <span className="text-2xs uppercase tracking-wide text-muted-foreground">
                   {format(day, "EEE", { locale: fr })}
                 </span>
                 <span
                   className={cn(
-                    "grid h-[30px] w-[30px] place-items-center rounded-full text-base font-semibold tabular-nums",
+                    "grid h-[28px] w-[28px] place-items-center rounded-full text-base font-semibold tabular-nums",
                     selected && "bg-primary text-primary-foreground",
                   )}
                 >
                   {format(day, "d")}
                 </span>
-                <span className="flex h-1 gap-0.5" aria-hidden="true">
+                {/* `mt-0.5` here rather than a `gap` on the column: the density dots need clearing from the date
+                    circle (flush, they read as part of it), while the weekday label above does not. */}
+                <span className="mt-0.5 flex h-1 gap-0.5" aria-hidden="true">
                   {Array.from({ length: Math.min(count, MAX_DOTS) }).map((_, i) => (
                     <span key={i} className="h-1 w-1 rounded-full bg-primary opacity-75" />
                   ))}

@@ -126,17 +126,18 @@ export function AppShell({
             "animate-page-in flex-1",
             mainClassName ?? "overflow-y-auto",
             /*
-             * `pb-20` is scroll runway for a page's floating action, not spacing taste. A `fixed` FAB
-             * permanently occupies the last ~72 px of `<main>`'s content once the page is scrolled to the
-             * end, and with only `p-4` there the final table row's actions and the pager sit underneath it
-             * and cannot be tapped.
+             * ⚠️ **No `pb-20` runway any more, because nothing floats over `<main>` at any width.** It was
+             * scroll clearance for a `fixed` FAB, which permanently occupies the last ~72 px of the content
+             * once a page is scrolled to the end — the last table row's actions and the pager sit under it
+             * and cannot be tapped. Two deletions removed every such element: the AI assistant's launcher
+             * (the only one that rendered at every width) and then `/appointments`' « Nouveau RDV », which
+             * moved into the agenda header's own date row. On a phone that runway was 64 px past `p-4` on
+             * every page in the app, spent on a collision that can no longer happen.
              *
-             * ⚠️ Coarse-pointer widths ONLY, and that is a consequence of deleting the AI assistant. Its
-             * launcher was the one floating element that rendered at every width; the remaining FAB
-             * (`/appointments`) is `md:hidden`, so from `md:` up nothing floats over `<main>` any more and
-             * `md:pb-20` was 80 px of dead space on every page. Re-add it the day a desktop FAB appears.
+             * Re-add it — `coarse:pb-20` for a phone-only FAB, unprefixed for one that renders at every
+             * width — the day something floats over `<main>` again.
              */
-            gutter && "p-4 pb-20 md:p-6",
+            gutter && "p-4 md:p-6",
           )}
         >
           {widthClass || contentClassName ? (

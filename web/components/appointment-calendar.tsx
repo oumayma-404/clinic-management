@@ -230,16 +230,6 @@ const PHONE_MONTH_MAX_DOTS = 3
  */
 const PHONE_WEEKDAY_INITIALS = ["L", "M", "M", "J", "V", "S", "D"] as const
 
-/**
- * Bottom padding every phone scroller needs so the « Nouveau RDV » floating action is not sitting on top of the
- * last ~52 px of content.
- *
- * The FAB is `fixed` at `bottom-[calc(1rem+var(--bottom-inset))]` and is roughly 40 px tall, so it permanently
- * covers the tail of whatever is scrolled underneath it — the last hour of the day grid, the last week of Mois,
- * Sunday's row in the week strip. Scroll padding is the only fix: a fixed element is out of flow, so nothing
- * below it can shrink around it. `md:pb-0` because the FAB itself is `md:hidden`.
- */
-const PHONE_FAB_CLEARANCE = "pb-[calc(var(--bottom-inset)+3.5rem)] md:pb-0"
 
 /**
  * A procedure colour, validated. Returns `#rrggbb` or `null`.
@@ -854,7 +844,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
    * overlay's `left`, which are computed in three different places. Changing one alone drifts the blocks or the
    * red line sideways — the same failure the `WEEK_COLS` note describes for the week grid.
    */
-  const hourHeight = isNarrow ? HOUR_HEIGHT_PHONE : HOUR_HEIGHT
+  // The floor, not the rendered height: on a wide screen `hourHeight` below stretches it to fill the scrollport.
+  const baseHourHeight = isNarrow ? HOUR_HEIGHT_PHONE : HOUR_HEIGHT
   const gutterPx = isNarrow ? 48 : 60
   const dayGridCols = isNarrow ? "grid-cols-[48px_1fr]" : "grid-cols-[60px_1fr]"
 
@@ -971,6 +962,42 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
 
   /** Is the grid currently showing less than the whole day? Drives the « afficher les 24 heures » disclosure. */
   const isTrimmed = gridWindow.fromHour > 0 || gridWindow.toHour < 24
+
+  /** The scrollport's own height, measured — the grid has no other way to know how much room it was given. */
+  const [gridViewportHeight, setGridViewportHeight] = useState(0)
+
+  /*
+   * A trimmed window is usually SHORTER than the screen, and the leftover was painted as blank card: a clinic
+   * open 09:00–17:00 is 8 rows = 384 px at `HOUR_HEIGHT` inside a ~640 px scrollport, so a third of the agenda
+   * was white below the last hour — which reads as a rendering fault rather than as "the day is over". Growing
+   * this one number is enough, because rows, blocks, the « maintenant » line and the drag hook's own cell rects
+   * are all derived from it.
+   *
+   * ⚠️ **It only ever grows.** Shrinking to fit would clamp a 24-hour window to ~25 px/hour, at which a
+   * 30-minute visit is 12 px — the degraded rendering `HOUR_HEIGHT`'s own docstring exists to prevent. Past the
+   * point where the rows no longer fit, the scrollport goes back to scrolling.
+   *
+   * ⚠️ **Desktop only.** A phone shows one day and the vertical axis IS its scroll axis, so `HOUR_HEIGHT_PHONE`
+   * is tuned for a fingertip rather than for a screenful — stretching a three-hour window over 600 px there
+   * would put one appointment on a screen.
+   */
+  const hourHeight = useMemo(() => {
+    if (isNarrow || gridViewportHeight <= 0 || visibleHours.length === 0) return baseHourHeight
+    const room = gridViewportHeight - hourGridOffsetTop
+    return Math.max(baseHourHeight, Math.floor(room / visibleHours.length))
+  }, [isNarrow, gridViewportHeight, hourGridOffsetTop, visibleHours.length, baseHourHeight])
+
+  /* Re-measured on resize, not once on mount: the subscription banner and the filter-chips row both appear above
+     this scrollport, and the deps are the four things that decide whether the ref points at anything at all. */
+  useEffect(() => {
+    const scroller = scrollContainerRef.current
+    if (!scroller) return
+    const measure = () => setGridViewportHeight(scroller.clientHeight)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(scroller)
+    return () => observer.disconnect()
+  }, [view, isNarrow, mounted, loading])
 
   // Update current time every minute
   useEffect(() => {
@@ -1943,7 +1970,6 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     <ul
       className={cn(
         "divide-y overflow-y-auto transition-opacity duration-200 ease-snap",
-        PHONE_FAB_CLEARANCE,
         refetching && "opacity-60",
       )}
       aria-label="Semaine — choisissez un jour"
@@ -2056,7 +2082,6 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           onScroll={handlePhoneMonthScroll}
           className={cn(
             "min-h-0 flex-1 overflow-y-auto transition-opacity duration-200 ease-snap",
-            PHONE_FAB_CLEARANCE,
             refetching && "opacity-60",
           )}
         >
@@ -2448,6 +2473,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
            * screen saying why and no way to clear it. The chips and the « Filtres » disclosure now live in the
            * header, which is the phone's only toolbar.
            */
+          /* The create action's phone home. It was a floating pill fixed above the bottom nav, which cost every
+             scroller below 56 px of clearance padding and covered the last hour of the grid. */
+          onNewAppointment={onNewAppointment}
           showCancelled={showCancelled}
           showCompleted={showCompleted}
           onShowCancelledChange={onShowCancelledChange}
@@ -2832,28 +2860,31 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       </details>
 
       {/*
-        Edge-to-edge on a phone. A card's border, radius, shadow and — the expensive one — the `py-6` it inherits
-        from the primitive spend about 56 px of the one screen the agenda has, to draw a frame around content that
-        already fills the viewport. No phone calendar app frames its own grid.
-
-        ⚠️ **`py-0` at every width now, not `md:py-6`.** That padding was 24 px of dead white *inside* the card,
-        above the sticky day header and below the footer strip — two bands of nothing framing a grid that already
-        draws its own header, its own gridlines and its own footer border. It is the second of the three
-        "rendering gaps" this pass was opened for (the first was an always-mounted, always-empty filter-chip row
-        on the page; the third was the two headers painting `bg-white` instead of `bg-card`). A calendar's chrome
-        is its ruler, and a ruler has to start at the edge of the instrument.
+        ⚠️ **`py-0` at every width, not `md:py-6`.** That padding was 24 px of dead white *inside* the card, above
+        the sticky day header and below the footer strip — two bands of nothing framing a grid that already draws
+        its own header, its own gridlines and its own footer border. A calendar's chrome is its ruler, and a ruler
+        has to start at the edge of the instrument.
       */}
       {/*
-        ⚠️ **`md:border-border`, and the colour is the whole point — `md:border` alone drew nothing.** The `Card`
+        ⚠️ **`border-border`, and the colour is the whole point — `border` alone draws nothing.** The `Card`
         primitive sets `border-transparent` (it carries elevation with `shadow-md` instead, deliberately), and a
         Tailwind `border` sets only the *width*, so this card had a 1 px transparent rule: a white surface on a
         near-white ground with no edge at all. It is also the one card in the app that downgrades the shadow
-        (`md:shadow-sm`), because a full-height working surface is not a floating object — so it had opted out of
-        both of the two things the system uses to express a surface. The stroke is the right half to restore here
-        rather than the shadow: the grid's own hairlines run to the card's edge, and they need an edge of the same
-        weight to terminate against or the ruler bleeds off the page.
+        (`shadow-sm`), because a full-height working surface is not a floating object — so it had opted out of
+        both of the two things the system uses to express a surface. The stroke is the right half to restore
+        rather than the shadow: the grid's own hairlines run to the card's edge and need an edge to terminate
+        against, or the ruler bleeds off the page.
+
+        ⚠️ **The edge is drawn at EVERY width now, and the phone was the case that needed it most.** It used to
+        be `md:`-only, under the heading « edge-to-edge on a phone » — but the card is **not** edge-to-edge at any
+        width: `AppShell` gutters `<main>` with `p-4`, so below `md:` this was a square, border-less, shadow-less
+        white slab inset 16 px into a near-white page. Both of the two things that say « this is a surface » were
+        off, on the one screen where the grid's hairlines run all the way to the edge — so the ruler simply
+        stopped in the middle of the page. Going *actually* edge-to-edge (bleeding the card back through the
+        gutter with `-mx-4`) is the other coherent answer and would buy 32 px of width; drawing the edge is the
+        smaller one, and it is what « lacks definition » asks for.
       */}
-      <Card className="min-h-0 flex-1 overflow-hidden rounded-none border-0 py-0 shadow-none md:rounded-xl md:border md:border-border md:shadow-sm">
+      <Card className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border py-0 shadow-sm">
         {!mounted ? (
           renderGeometrySkeleton()
         ) : view === "month" ? (
@@ -2911,13 +2942,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             )}
           >
           {/* `lg:w-full`, matching `WEEK_COLS` — the two are one contract and moving only one of them is what
-              puts every block in the wrong column. `PHONE_FAB_CLEARANCE` is padding-bottom only, so it changes
-              neither the padding box's width (the `100%` the bands resolve against) nor the `top: 0` origin the
-              absolutely-positioned blocks measure from. */}
+              puts every block in the wrong column. It carries no padding of its own: anything added here has to
+              leave both the padding box's width (the `100%` the bands resolve against) and the `top: 0` origin
+              the absolutely-positioned blocks measure from untouched. */}
           <div
             className={cn(
               "relative",
-              PHONE_FAB_CLEARANCE,
               view === "week" ? "w-max min-w-full lg:w-full" : "w-full",
             )}
           >
@@ -3025,9 +3055,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           )}
 
           {loading ? (
-            // Skeleton rows at the real hour height, so the grid does not resize when the appointments land.
+            // Skeleton rows at the real hour height AND the real row count, so the grid does not resize when the
+            // appointments land — 12 fixed rows overflowed a stretched scrollport and then snapped back.
             <div role="status" aria-label="Chargement des rendez-vous">
-              {Array.from({ length: 12 }).map((_, i) => (
+              {Array.from({ length: visibleHours.length }).map((_, i) => (
                 <div
                   key={i}
                   className={cn("grid border-b", view === "week" ? WEEK_COLS : dayGridCols)}
@@ -3168,7 +3199,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                           in Semaine, so giving each a `tabIndex` would put 168 tab stops between the toolbar and
                           the appointments — a keyboard user would have to traverse the empty grid to reach the
                           only things on it. The keyboard route to creating an appointment is « Nouveau
-                          rendez-vous » (the toolbar button, and the phone's floating action), which opens the
+                          rendez-vous » (the toolbar button, and the phone header's own), which opens the
                           same dialog with the same date; the cell click is a pointer shortcut on top of it. */}
                       {view === "week"
                         ? weekDays.map((day) => {
@@ -3321,7 +3352,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             card: it read as a modal, it sat on top of the very hours the user was trying to click, and — with the
             grid now also answering to a drag across those hours — it covered the whole gesture. A quiet line under
             the grid states the same fact and takes nothing away, and « Nouveau rendez-vous » keeps its two
-            existing homes (the bar's own button, and the phone's floating action), so the overlay's duplicate went
+            existing homes (the bar's own button, and the phone header's), so the overlay's duplicate went
             with the overlay.
 
             ⚠️ Suppressed while `loading` **or** `error` is set. The banner above already says the fetch failed;
