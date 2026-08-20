@@ -128,7 +128,9 @@ export function AppointmentTrendChart({ points, loading = false }: AppointmentTr
           />
         ) : (
           <>
-            <div className="min-h-44 flex-1">
+            {/* Out of flow for the ratchet reason in `appointment-status-chart.tsx` — same construct here. */}
+            <div className="relative min-h-44 flex-1">
+              <div className="absolute inset-0">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={points} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
                   <defs>
@@ -197,6 +199,7 @@ export function AppointmentTrendChart({ points, loading = false }: AppointmentTr
                   />
                 </AreaChart>
               </ResponsiveContainer>
+              </div>
             </div>
 
             {/* The one direct label: the endpoint, and whether it is a whole month. */}

@@ -309,9 +309,12 @@ export function AppointmentStatusChart({
               otherwise flash empty and the card's height would jump on every period change.
             */}
             <div className={cn("flex min-w-0 flex-1 flex-col gap-2", refetching && "opacity-60 transition-opacity")}>
-              {/* § 11 — wide content scrolls in ITS OWN container; the page body never scrolls sideways. */}
-              <div className="min-h-44 min-w-0 flex-1 overflow-x-auto">
-                <div className="h-full min-h-44" style={{ minWidth: `${trackWidth}px` }}>
+              {/* ⚠️ `absolute` is what stops the ratchet: in flow, ResponsiveContainer's measured height becomes
+                  the card's content height, which grows `flex-1`, which grows the next measurement (+140 px per
+                  toggle, measured 516→656→796→936). Scrolls in its own container per § 11. */}
+              <div className="relative min-h-44 min-w-0 flex-1">
+                <div className="absolute inset-0 min-w-0 overflow-x-auto">
+                  <div className="h-full" style={{ minWidth: `${trackWidth}px` }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 4, left: 0 }} barCategoryGap={COLUMN_GAP_PX}>
                       {/* Horizontal hairlines only, solid — a dashed grid reads as a threshold. */}
@@ -355,6 +358,7 @@ export function AppointmentStatusChart({
                       ))}
                     </BarChart>
                   </ResponsiveContainer>
+                  </div>
                 </div>
               </div>
               {rows.length * (COLUMN_MAX_PX + COLUMN_GAP_PX) > 0 && (

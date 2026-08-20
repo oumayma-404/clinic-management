@@ -536,6 +536,9 @@ function DashboardContent() {
               `auto-rows-fr` inside it so the extra height goes to the CELLS and not to the `bg-border`
               container showing through underneath them.
             */}
+            {/* `DashboardSection` wraps children in one gapless div (its `space-y-3` is on the <section> above),
+                so two sibling rows here would touch. */}
+            <div className="space-y-4">
             {(hasVisible("activity", "figure") || isVisible("procedureMix")) && (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
               <div className="flex flex-col gap-3">
@@ -599,6 +602,7 @@ function DashboardContent() {
                 )}
               </div>
             )}
+            </div>
           </DashboardSection>
         )}
 
