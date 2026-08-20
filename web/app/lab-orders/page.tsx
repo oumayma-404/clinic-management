@@ -20,9 +20,7 @@ import {
   ChevronsUpDown,
   FlaskConical,
   MoreHorizontal,
-  Pencil,
   Plus,
-  Trash2,
 } from "lucide-react"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -78,7 +76,7 @@ import { labOrdersApi, type LabWorkOrderPayload } from "@/lib/api/lab-orders"
 import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
 import type { LabWorkOrderDto, PatientDto } from "@/lib/api/types"
-import { formatDT, parseAmountInput } from "@/lib/format"
+import { formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
 
 // The four lifecycle stages a lab work order moves through (mirrors the backend enum).
 type LabOrderStatus = "Sent" | "InProgress" | "Received" | "Fitted"
@@ -119,6 +117,25 @@ function formatDateFr(iso?: string | null): string {
   }
 }
 
+/**
+ * The same date with the year dropped when it is the current one — the table's three date columns cost 329 px of
+ * an 1086 px budget, and « 2026 » is repeated on every row of every column all year.
+ *
+ * <p>The year comes back for a bon from another year, so « 18 déc. 2025 » stays unambiguous rather than reading as
+ * this December. Compared on the PARSED year, not `iso.slice(0, 4)`: an instant just before UTC midnight on 31
+ * December is already the next year in Tunisia, which is the year `format` below would print.</p>
+ */
+function formatDateFrCompact(iso?: string | null): string {
+  if (!iso) return "—"
+  try {
+    const date = parseISO(iso)
+    const thisYear = Number(todayLocalIso().slice(0, 4))
+    return format(date, date.getFullYear() === thisYear ? "d MMM" : "d MMM yyyy", { locale: fr })
+  } catch {
+    return "—"
+  }
+}
+
 // Tunisian dinar through the app's one money formatter; "—" when no cost recorded (AC-P6.18).
 // It used to interpolate `toFixed(3)` by hand, which printed a period and no thousands grouping — every other
 // amount in the product reads « 1 234,500 DT ». `formatDT` treats null as 0, hence the explicit null branch:
@@ -154,8 +171,9 @@ function parseAmountOrNull(value: string): number | null {
 }
 
 /** Column widths the loading skeleton mirrors, in the table's own order (10 columns). */
+// Patient · Travail · Prothésiste · Dent · Envoyé · Prévu · Reçu · Coût · Statut · Actions.
 const LAB_COLUMN_WIDTHS = [
-  "w-[16%]", "w-[16%]", "w-[13%]", "w-[6%]", "w-[9%]", "w-[9%]", "w-[9%]", "w-[8%]", "w-[8%]", "w-[6%]",
+  "w-[13%]", "w-[18%]", "w-[14%]", "w-[5%]", "w-[8%]", "w-[8%]", "w-[8%]", "w-[8%]", "w-[12%]", "w-[6%]",
 ] as const
 
 /**
@@ -800,7 +818,7 @@ export default function LabOrdersPage() {
                            rendering at 32px, the smallest tap target on the screen it matters most on. */
                         <select
                           aria-label="Changer le statut"
-                          className={`${SELECT_CLASS} h-8 w-full`}
+                          className={cn(SELECT_CLASS, "h-8 w-full")}
                           value={o.status}
                           disabled={
                             statusUpdatingId === o.id || (o.allowedNextStatuses?.length ?? 0) === 0
@@ -816,27 +834,7 @@ export default function LabOrdersPage() {
                         </select>
                       ),
                     },
-                    {
-                      label: "Prothésiste",
-                      value: (
-                        <span className="inline-flex items-center gap-1">
-                          <span className="truncate">{o.prosthetist}</span>
-                          {/* Only when a fiche fournisseur is linked — the free-text name alone has no number
-                              behind it, which is the whole reason the link exists. */}
-                          {o.supplierId ? (
-                            <WhatsAppAction
-                              phoneE164={o.supplierPhoneE164}
-                              contactName={o.supplierName ?? o.prosthetist}
-                              message={labOrderFollowUpMessage(
-                                o.workDescription,
-                                o.patientName,
-                                formatDateFr(o.expectedDate),
-                              )}
-                            />
-                          ) : null}
-                        </span>
-                      ),
-                    },
+                    { label: "Prothésiste", value: o.prosthetist },
                     { label: "Dent", value: o.toothNumber },
                     { label: "Coût", value: formatCost(o.cost) },
                     { label: "Envoyé", value: formatDateFr(o.sentDate) },
@@ -844,22 +842,40 @@ export default function LabOrdersPage() {
                     { label: "Reçu", value: formatDateFr(o.receivedDate) },
                   ]}
                   actions={(o) => (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" aria-label={`Actions pour le bon de ${o.patientName ?? "ce patient"}`}>
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onSelect={() => handleEdit(o)}>Modifier</DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onSelect={() => handleDelete(o)}
-                        >
-                          Supprimer
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    /* « Relancer le labo » is here rather than beside the prothésiste's name for the reason the
+                       table documents, and it was WORSE on a card: measured at 320 px the icon rendered from
+                       x=312 to 348 inside a field cell ending at 239 — 8 of its 36 px on screen, and the phone
+                       is where a laboratory actually gets called. Only when a fiche fournisseur is linked; the
+                       free-text name alone has no number behind it. */
+                    <div className="flex items-center gap-1">
+                      {o.supplierId ? (
+                        <WhatsAppAction
+                          phoneE164={o.supplierPhoneE164}
+                          contactName={o.supplierName ?? o.prosthetist}
+                          message={labOrderFollowUpMessage(
+                            o.workDescription,
+                            o.patientName,
+                            formatDateFr(o.expectedDate),
+                          )}
+                        />
+                      ) : null}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label={`Actions pour le bon de ${o.patientName ?? "ce patient"}`}>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onSelect={() => handleEdit(o)}>Modifier</DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onSelect={() => handleDelete(o)}
+                          >
+                            Supprimer
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   )}
                   empty={renderEmpty("compact")}
                 />
@@ -898,28 +914,81 @@ export default function LabOrdersPage() {
                     ) : (
                       orders.map((order) => (
                         <TableRow key={order.id}>
-                          <TableCell className="font-medium">
-                            {/* AC-23: the bon names a patient and, until now, offered no way to reach them —
-                                the one thing a prothésiste's call always needs. */}
+                          {/* AC-23: the bon names a patient and, until now, offered no way to reach them —
+                              the one thing a prothésiste's call always needs. « Voir le RDV » goes on its own
+                              line rather than inline: beside the name it widened this column by its own length. */}
+                          <TableCell className="max-w-[9.5rem] font-medium">
                             <Link
                               href={`/patients/${order.patientId}`}
-                              className="text-foreground underline-offset-4 hover:underline"
+                              className="block truncate text-foreground underline-offset-4 hover:underline"
                             >
                               {order.patientName ?? "Patient inconnu"}
                             </Link>
                             {order.appointmentId && (
                               <Link
                                 href={`/appointments?appointmentId=${order.appointmentId}`}
-                                className="ms-2 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                                className="text-xs text-muted-foreground underline-offset-4 hover:underline"
                               >
                                 Voir le RDV
                               </Link>
                             )}
                           </TableCell>
-                          <TableCell>{order.workDescription}</TableCell>
-                          <TableCell className="text-muted-foreground">
-                            <span className="inline-flex items-center gap-1">
-                              <span className="truncate">{order.prosthetist}</span>
+                          {/* Capped and truncated, with the full text on hover: sized by their longest row these
+                              two took 452 px of the table's 1402 and were the reason it could not fit a laptop. */}
+                          <TableCell className="max-w-[12rem]">
+                            <span className="block truncate" title={order.workDescription}>
+                              {order.workDescription}
+                            </span>
+                          </TableCell>
+                          <TableCell className="max-w-[9.5rem] text-muted-foreground">
+                            <span className="block truncate" title={order.prosthetist}>
+                              {order.prosthetist}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{order.toothNumber ?? "—"}</TableCell>
+                          <TableCell className="whitespace-nowrap text-muted-foreground">
+                            {formatDateFrCompact(order.sentDate)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-muted-foreground">
+                            {formatDateFrCompact(order.expectedDate)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-muted-foreground">
+                            {formatDateFrCompact(order.receivedDate)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-muted-foreground">
+                            {formatCost(order.cost)}
+                          </TableCell>
+                          {/* The stage lives in the « Statut » column because the select IS the status display —
+                              a Badge here beside it printed the same word twice and squeezed the control that sets
+                              it down to a bare chevron. `allowedNextStatuses` is the domain's table (AC-P2.40): the
+                              client never re-derives it, and a legacy row in an unmapped state gets an empty list
+                              and a disabled control rather than a transition the server would refuse. */}
+                          <TableCell>
+                            <select
+                              aria-label="Changer le statut"
+                              className={cn(SELECT_CLASS, "h-8 w-full min-w-[6.5rem]")}
+                              value={order.status}
+                              disabled={
+                                statusUpdatingId === order.id ||
+                                (order.allowedNextStatuses?.length ?? 0) === 0
+                              }
+                              onChange={(e) => handleStatusChange(order, e.target.value)}
+                            >
+                              <option value={order.status}>{statusLabel(order.status)}</option>
+                              {(order.allowedNextStatuses ?? []).map((s) => (
+                                <option key={s} value={s}>
+                                  {statusLabel(s)}
+                                </option>
+                              ))}
+                            </select>
+                          </TableCell>
+                          {/* « Relancer le labo » sits HERE, beside the ⋯ trigger, which is where
+                              `WhatsAppAction`'s own contract puts it. Inline after the prothésiste's name a long
+                              name pushed it toward the clip; anchored to the row's right edge it cannot be hidden
+                              by content. Two labelled buttons became one menu — the page's card view and
+                              `suppliers-table` already use exactly this — taking the column from 268 px to ~100. */}
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
                               {order.supplierId ? (
                                 <WhatsAppAction
                                   phoneE164={order.supplierPhoneE164}
@@ -931,65 +1000,26 @@ export default function LabOrdersPage() {
                                   )}
                                 />
                               ) : null}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">{order.toothNumber ?? "—"}</TableCell>
-                          <TableCell className="text-muted-foreground">{formatDateFr(order.sentDate)}</TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {formatDateFr(order.expectedDate)}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {formatDateFr(order.receivedDate)}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">{formatCost(order.cost)}</TableCell>
-                          <TableCell>
-                            <Badge variant={statusVariant(order.status)}>{statusLabel(order.status)}</Badge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              {/* AC-P2.40 — offer only the stages the server will accept from here. It
-                                  used to list all four unconditionally, so « Posé » → « Envoyé » looked
-                                  like a normal choice and (before the domain had any rules) silently
-                                  rewound a delivered prothèse. The current stage stays in the list as the
-                                  selected value; `allowedNextStatuses` comes from the domain's table, so
-                                  the client never re-derives it. A legacy row in an unmapped state gets an
-                                  empty list — the control is then disabled rather than offering a
-                                  transition that would be refused. */}
-                              <select
-                                aria-label="Changer le statut"
-                                className={`${SELECT_CLASS} h-8 w-32`}
-                                value={order.status}
-                                disabled={
-                                  statusUpdatingId === order.id ||
-                                  (order.allowedNextStatuses?.length ?? 0) === 0
-                                }
-                                onChange={(e) => handleStatusChange(order, e.target.value)}
-                              >
-                                <option value={order.status}>{statusLabel(order.status)}</option>
-                                {(order.allowedNextStatuses ?? []).map((s) => (
-                                  <option key={s} value={s}>
-                                    {statusLabel(s)}
-                                  </option>
-                                ))}
-                              </select>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEdit(order)}
-                                className="h-8 gap-1"
-                              >
-                                <Pencil className="h-3 w-3" />
-                                Modifier
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDelete(order)}
-                                className="h-8 gap-1 text-destructive hover:text-destructive"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                                Supprimer
-                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label={`Actions pour le bon de ${order.patientName ?? "ce patient"}`}
+                                  >
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onSelect={() => handleEdit(order)}>Modifier</DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onSelect={() => handleDelete(order)}
+                                  >
+                                    Supprimer
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
                           </TableCell>
                         </TableRow>
