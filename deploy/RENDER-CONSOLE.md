@@ -76,7 +76,27 @@ up the key-ring certificate** — see `KEY-CUSTODY.md`.
 | Type | Web Service, Docker |
 | Dockerfile | `console/Dockerfile` |
 | Docker context | `console/` |
-| `CONSOLE_API_URL` | `http://<api-internal-host>:5443/api` |
+| `CONSOLE_API_URL` | `http://<api-internal-host>:5443/api` — see below for what that is |
+
+⚠️ **`<api-internal-host>` is NOT the service's public URL**, and the mistake costs an afternoon. Render gives each
+service two addresses:
+
+| | |
+|---|---|
+| **Public** | `https://<name>-<suffix>.onrender.com` — for browsers, routed to `$PORT` **only** |
+| **Internal** | plain `http://<service-name>` — reachable only from other services in the same project and region, on **any** port |
+
+The random suffix belongs to the *URL*, not usually to the internal name. Read the real value off the API
+service's page in the Render dashboard rather than deriving it from the public URL. Measured against this
+deployment's public URL, to show why it cannot be used here:
+
+```
+https://<public-url>:5443/api/platform/auth/meta   → connection times out   (the edge forwards one port)
+https://<public-url>/api/platform/auth/meta        → 404                    (ConsolePortGate, public port)
+```
+
+`http://`, not `https://`: there is no TLS on Render's internal network, which is the same reason
+`Security:AllowUnverifiedInternalTls` is already set on this deployment.
 
 Nothing else. The image already sets `HOSTNAME=0.0.0.0` and honours Render's `PORT`, `output: "standalone"` is
 configured, the CSP is `default-src 'self'` with `connect-src 'self'` (the browser only ever talks to the console's
@@ -104,6 +124,10 @@ certificate, `Security__AllowUnverifiedInternalTls`, …). It is the same applic
 configuration.
 
 Then point the console service's `CONSOLE_API_URL` at `https://<console-api-service>.onrender.com/api`.
+
+⚠️ **Here it IS a public URL** — of the *second* API service, not the clinic one — because that service's routed
+port is the console port. That is the whole difference from Option 1, and it is the thing to double-check if the
+console reports « impossible de joindre le serveur ».
 
 **What this buys:** `ConsolePortGate` means that public service answers **only** `/api/platform/*`. Every clinic
 route — every patient, appointment and document endpoint — 404s on it. The exposure is exactly the platform
