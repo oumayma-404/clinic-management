@@ -352,7 +352,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `IPatientFolderRepository` | `PatientFolderRepository` |
 | `IPatientFileRepository` | `PatientFileRepository` |
 | `IMedicalDocumentRepository` | `MedicalDocumentRepository` |
-| `IUserRepository` | `UserRepository` |
+| `IUserRepository` | `UserRepository`. ⚠️ `GetByAuth0SubAsync` and `GetByEmailAsync` **include `RecoveryCodes`**, and every second-factor path depends on it. `User.RecoveryCodes` projects a private backing list, so an unloaded collection is not stale — it is **empty**, and every question asked of it answers as if the account held no codes: « Sécurité » reported « 0 code inutilisé » over eight live rows, `ReplaceRecoveryCodes`' `Clear()` revoked nothing so a regeneration *added* eight instead of replacing, `DisableTotp` left spendable rows behind an un-enrolled factor, and `ConsumeRecoveryCode` matched nothing — so the one way back a user can take alone refused every code they owned. Nothing threw in any of the four. `GetByIdAsync` deliberately does **not** include them (the per-request enforcement middleware reads it); `RecoveryCodeLoadingCoverageTests` derives which reads must, from which files touch the collection |
 | `IClinicRepository` | `ClinicRepository` |
 | `IDoctorRepository` | `DoctorRepository` |
 | `IInvoiceRepository` | `InvoiceRepository` (billing) |

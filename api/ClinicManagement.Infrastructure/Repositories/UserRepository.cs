@@ -123,18 +123,41 @@ public class UserRepository : IUserRepository
                 group => new ClinicAdminContact(group.First().FullName, group.First().Email, group.First().IsActive));
     }
 
+    /// <summary>
+    /// The signed-in caller's own account, by the subject their token carries.
+    ///
+    /// <para>⚠️ <b><c>RecoveryCodes</c> is included, and every second-factor path depends on it.</b>
+    /// <see cref="User.RecoveryCodes"/> projects a private backing list, so with the collection left unloaded it
+    /// is not stale — it is <i>empty</i>, and every question asked of it answers as if the account held no codes.
+    /// That is silent in all four directions: « Sécurité » reports « 0 code inutilisé » over eight live codes,
+    /// <c>ReplaceRecoveryCodes</c>' <c>Clear()</c> revokes nothing so a regeneration <i>adds</i> eight rather
+    /// than replacing, <c>DisableTotp</c> leaves spendable rows behind an un-enrolled factor, and
+    /// <c>ConsumeRecoveryCode</c> matches nothing so the one way back a user can take alone refuses every code
+    /// they own. Nothing throws in any of those cases.
+    /// <c>RecoveryCodeLoadingCoverageTests</c> holds this read and <see cref="GetByEmailAsync"/> to it.</para>
+    /// </summary>
     public async Task<User?> GetByAuth0SubAsync(string auth0Sub, CancellationToken cancellationToken = default)
     {
         return await _context.Users
             .Include(u => u.Clinic)
+            .Include(u => u.RecoveryCodes)
             .FirstOrDefaultAsync(u => u.Id == auth0Sub, cancellationToken);
     }
 
+    /// <summary>
+    /// Looks up a local (password-backed) account by email — the sign-in reads.
+    ///
+    /// <para>⚠️ <b><c>RecoveryCodes</c> is included</b> for the reason <see cref="GetByAuth0SubAsync"/> states:
+    /// this is the read behind <c>RedeemRecoveryCodeCommand</c>, and without the collection that command refuses
+    /// every code in the table. At most <c>CountPerEnrolment</c> rows per account travel with it, which is what
+    /// makes carrying them on the ordinary login path affordable.</para>
+    /// </summary>
     public async Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default)
     {
         var normalized = EmailNormalization.Normalize(email);
         return await _context.Users
             .Include(u => u.Clinic)
+            .Include(u => u.RecoveryCodes)
             .FirstOrDefaultAsync(
                 u => u.PasswordHash != null && u.Email != null && u.Email.ToLower() == normalized,
                 cancellationToken);

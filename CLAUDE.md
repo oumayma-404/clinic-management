@@ -190,6 +190,12 @@ touching the area.
   name — a `Contains("déjà facturée")` once made rewording a sentence change behaviour.
 - **`IFileStorage.UploadAsync` requires a `Guid clinicId`**, so an unprefixed key is unwritable; but
   `DownloadAsync`/`DeleteAsync` take the stored key **verbatim**, because pre-US-5 rows hold flat keys.
+- **An unloaded collection navigation is empty, not stale**, and a domain property over it answers confidently
+  and wrongly. `UserRepository`'s two account reads never `Include`d `RecoveryCodes`, so « Sécurité » read
+  « 0 code inutilisé » over eight live codes, a regeneration *added* eight instead of replacing them, and
+  `ConsumeRecoveryCode` refused every code the account owned — four silent failures, no exception in any of them,
+  and a mock-repository suite that hands back an in-memory aggregate cannot see it. There is no lazy loading and
+  no `AutoInclude` in this solution. `RecoveryCodeLoadingCoverageTests` is the derived guard.
 - **A scroll container must be `relative`, or it does not clip its own `absolute` children.** Tailwind's
   `sr-only` *is* `position: absolute`, so with `AppShell`'s `<main>` left static every screen-reader-only line
   below the fold resolved against `<body>`, escaped the page scroller and made the *document* taller than
