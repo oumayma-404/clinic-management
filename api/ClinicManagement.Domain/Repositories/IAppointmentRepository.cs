@@ -21,6 +21,34 @@ public interface IAppointmentRepository
         Guid clinicId, DateTime from, DateTime toInclusive, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Every appointment in <c>[from, toInclusive]</c> as just its <b>slot start and status</b>, oldest first —
+    /// the row-level feed behind « Rendez-vous par statut ».
+    ///
+    /// <para><b>Why this returns rows and not a GROUP BY.</b> The chart buckets by clinic-<i>local</i> day, week or
+    /// month, and clinic-local date arithmetic has no valid translation against a <c>timestamptz</c> column here:
+    /// <c>DashboardTrendReader</c> records the exact failure — <c>GroupBy(p =&gt; p.PaidOn.AddMinutes(offset).Month)</c>
+    /// compiled, passed its unit tests (they mock the repository) and died on the first real request with
+    /// <c>42883: function pg_catalog.timezone(unknown, interval) does not exist</c>. The trend reader could dodge it
+    /// by issuing one aggregate per month; a window of up to 366 daily buckets cannot, so the shift happens in C#
+    /// through <c>ClinicClock</c> and this read hands over the two columns that need shifting.</para>
+    ///
+    /// <para>Projected deliberately: two value-type columns, no navigations and no entity tracking, so a year of a
+    /// busy practice is a few thousand small rows rather than a few thousand hydrated aggregates. The caller's
+    /// window is capped (<c>AppointmentStatusWindow.MaxDays</c>), which is what keeps that bound true.</para>
+    ///
+    /// <para>Ordered on the slot start with <c>Id</c> as a unique tie-break. Nothing here pages, so the order is
+    /// not load-bearing for correctness — it is kept so two identical requests hand the buckets their rows in the
+    /// same sequence, which makes a failing test reproducible.</para>
+    /// </summary>
+    /// <param name="doctorId">Narrows to one practitioner's own séances; null is the whole cabinet.</param>
+    Task<IReadOnlyList<AppointmentStatusSlot>> GetStatusTimelineAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime toInclusive,
+        Guid? doctorId = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// What the clinic's work in <c>[from, toInclusive]</c> was actually made of, as one <c>GROUP BY</c> over the
     /// séances' <b>acts</b> — count and total minutes per act type.
     ///

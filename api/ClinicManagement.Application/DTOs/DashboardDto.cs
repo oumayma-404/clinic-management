@@ -23,6 +23,14 @@ public class DashboardDto
     public List<MonthlyCollectedPointDto> Trend { get; set; } = new();
 
     /// <summary>
+    /// Six months of appointment counts, oldest first, gaps filled with zero.
+    ///
+    /// <para>Rides this response rather than the card's own endpoint because its window is fixed at six months and
+    /// owes nothing to either period control — the same reason <see cref="Trend"/> does.</para>
+    /// </summary>
+    public List<MonthlyAppointmentPointDto> AppointmentTrend { get; set; } = new();
+
+    /// <summary>
     /// What the period's work was made of, by act type — busiest first, capped.
     ///
     /// <para>The one figure on this response counted over <b>acts</b> rather than appointments or money, which is
@@ -198,4 +206,119 @@ public class MonthlyCollectedPointDto
     public string Month { get; set; } = string.Empty;
 
     public decimal Collected { get; set; }
+
+    /// <summary>
+    /// True when this month is <b>not over yet</b>.
+    ///
+    /// <para>Added alongside <see cref="MonthlyAppointmentPointDto.IsPartial"/> rather than after it, because the
+    /// two series sit a card apart on the same screen and only one of them saying so would be worse than neither.
+    /// On the 3rd of a month the last point holds three days of takings beside five full months and draws a
+    /// collapse in revenue that is not in the data — the client marks it (a hollow endpoint, and the caption says
+    /// so) instead of letting it be read as a trend.</para>
+    ///
+    /// <para>It is a fact about the <b>window</b>, so the server owns it: the browser would have to re-derive the
+    /// clinic's today to know, and Tunisia is UTC+1 — for the first hour of every local day a browser-side
+    /// derivation names yesterday, and on the 1st, last month.</para>
+    /// </summary>
+    public bool IsPartial { get; set; }
+}
+
+/// <summary>
+/// One month of the « Rendez-vous — 6 derniers mois » series.
+///
+/// <para>Carries <b>both</b> measures rather than the one the card is currently showing, because the card's
+/// Tous / Honorés toggle must not cost a round trip — and because the two are read from the same
+/// <c>GROUP BY</c>, so they cannot disagree about which month a visit fell in.</para>
+/// </summary>
+public class MonthlyAppointmentPointDto
+{
+    /// <summary>Clinic-local calendar month as <c>yyyy-MM</c> — sortable, locale-free, formatted by the client.</summary>
+    public string Month { get; set; } = string.Empty;
+
+    /// <summary>Every séance in the book that month, whatever became of it.</summary>
+    public int Total { get; set; }
+
+    /// <summary>
+    /// The <c>Completed</c> ones only.
+    ///
+    /// <para>Produced by the same method and the same bounds « Rendez-vous honorés » uses, so the last point of
+    /// this series and the figure above it cannot contradict each other — the guarantee
+    /// <c>DashboardTrendReader</c> makes for the money series, kept here for the same reason.</para>
+    /// </summary>
+    public int Completed { get; set; }
+
+    /// <summary>
+    /// True when this month is <b>not over yet</b>, i.e. the window ends before the month's last day.
+    ///
+    /// <para>Without it the current month is a cliff: on the 3rd of a month the last point holds three days of
+    /// work beside five full months and reads as a collapse in bookings. The client draws this point with a hollow
+    /// marker and says how far through the month the figure goes. It is a fact about the window, so the server
+    /// owns it — the browser would have to re-derive the clinic's today to know.</para>
+    /// </summary>
+    public bool IsPartial { get; set; }
+}
+
+/// <summary>
+/// « Rendez-vous par statut » — one window, cut into buckets, each bucket cut into the five
+/// <see cref="AppointmentStatusClass"/> classes.
+/// </summary>
+public class AppointmentStatusMixDto
+{
+    /// <summary>Inclusive first clinic-local day of the window, as <c>yyyy-MM-dd</c>.</summary>
+    public string From { get; set; } = string.Empty;
+
+    /// <summary>Inclusive last clinic-local day of the window, as <c>yyyy-MM-dd</c>.</summary>
+    public string ToInclusive { get; set; } = string.Empty;
+
+    /// <summary><c>Day</c> | <c>Week</c> | <c>Month</c> — how wide one bucket is. The client says so in words.</summary>
+    public string Granularity { get; set; } = string.Empty;
+
+    /// <summary>Oldest first, gaps filled with zero, first and last clamped to the window.</summary>
+    public List<AppointmentStatusBucketDto> Buckets { get; set; } = new();
+
+    /// <summary>Appointments in the window, all classes — the card's lead figure.</summary>
+    public int Total { get; set; }
+
+    /// <summary>
+    /// The same count over the immediately preceding window of the <b>same length</b>.
+    ///
+    /// <para>Same length rather than the same calendar unit, because a free range has no calendar unit. Read as an
+    /// indexed <c>GROUP BY</c> rather than by widening the row-level read — the comparison costs one cheap
+    /// aggregate, not a second window of rows.</para>
+    /// </summary>
+    public int PreviousTotal { get; set; }
+
+    /// <summary>
+    /// Of <see cref="AppointmentStatusBucketDto.Upcoming"/> across the window, how many the patient has confirmed.
+    ///
+    /// <para>The Scheduled/Confirmed distinction the five-class fold gives up, handed back as a footnote so the
+    /// legend can read « À venir · dont 20 confirmés ». In the agenda that distinction is what the colour carries;
+    /// on an aggregate it is a footnote, and this is the footnote.</para>
+    /// </summary>
+    public int ConfirmedUpcoming { get; set; }
+}
+
+/// <summary>One column of « Rendez-vous par statut ».</summary>
+public class AppointmentStatusBucketDto
+{
+    /// <summary>Inclusive first clinic-local day of the bucket, as <c>yyyy-MM-dd</c>.</summary>
+    public string Start { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Inclusive last clinic-local day of the bucket, as <c>yyyy-MM-dd</c>.
+    ///
+    /// <para>Sent rather than derived client-side so the browser never holds a second copy of the Monday-based
+    /// week rule or the month-length rule. A partial first or last bucket is already clamped here, so the label
+    /// the client builds from these two dates is always the period actually counted.</para>
+    /// </summary>
+    public string EndInclusive { get; set; } = string.Empty;
+
+    public int Done { get; set; }
+    public int Upcoming { get; set; }
+    public int ToClose { get; set; }
+    public int Cancelled { get; set; }
+    public int Absent { get; set; }
+
+    /// <summary>The five classes summed — sent so the client never re-adds them to draw a column height.</summary>
+    public int Total { get; set; }
 }

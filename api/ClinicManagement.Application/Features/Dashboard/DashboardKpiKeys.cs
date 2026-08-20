@@ -76,6 +76,18 @@ public static class DashboardKpiKeys
     /// <summary>« Répartition des actes » — the period's work by act type.</summary>
     public const string ProcedureMix = "procedureMix";
 
+    /// <summary>
+    /// « Rendez-vous par statut » — the appointment mix over the card's own window.
+    ///
+    /// <para>Hideable like the other charts. A single-dentist practice whose agenda never carries a cancellation
+    /// genuinely has one green column per day, and a chart that only ever says one thing is one more thing to
+    /// scroll past.</para>
+    /// </summary>
+    public const string AppointmentStatusMix = "appointmentStatusMix";
+
+    /// <summary>« Rendez-vous — 6 derniers mois » — the appointment-count trend.</summary>
+    public const string AppointmentTrend = "appointmentTrend";
+
     /// <summary>« Rendez-vous du jour », the appointment list under the figures.</summary>
     public const string TodayAppointments = "todayAppointments";
 
@@ -98,7 +110,9 @@ public static class DashboardKpiKeys
         LowStock,
         ExpiringStock,
         ProcedureMix,
+        AppointmentStatusMix,
         Trend,
+        AppointmentTrend,
         TodayAppointments,
     };
 

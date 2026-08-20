@@ -1,5 +1,10 @@
 import { apiGet, apiPut } from './client';
-import type { DashboardDto, DashboardPeriodKey, DashboardPreferencesDto } from './types';
+import type {
+  AppointmentStatusMixDto,
+  DashboardDto,
+  DashboardPeriodKey,
+  DashboardPreferencesDto,
+} from './types';
 
 export const dashboardApi = {
   /**
@@ -11,6 +16,22 @@ export const dashboardApi = {
    */
   get: async (period: DashboardPeriodKey = 'Month', doctorId?: string): Promise<DashboardDto> => {
     return apiGet<DashboardDto>('/dashboard', { period, doctorId });
+  },
+
+  /**
+   * « Rendez-vous par statut » for one window.
+   *
+   * Its own call because that card carries its own period control, so its window is not the page's. The bounds are
+   * bare **day keys** (`yyyy-MM-dd`) and never instants: `new Date(day + 'T00:00:00').toISOString()` is midnight
+   * on the *workstation*, so on a machine that is not UTC+1 the window is offset by hours — the AC-6 defect
+   * la caisse had to fix. Omit both to get the current clinic-local week.
+   */
+  getAppointmentStatusMix: async (
+    from?: string,
+    to?: string,
+    doctorId?: string,
+  ): Promise<AppointmentStatusMixDto> => {
+    return apiGet<AppointmentStatusMixDto>('/dashboard/appointments-by-status', { from, to, doctorId });
   },
 
   /**

@@ -55,6 +55,42 @@ public class DashboardController : ApiControllerBase
     }
 
     /// <summary>
+    /// « Rendez-vous par statut » for one window: the séances in it, bucketed by clinic-local day, week or month and
+    /// folded into five status classes.
+    /// </summary>
+    /// <remarks>
+    /// Its own action because this card carries its own period control, so its window is not the page's. Everything
+    /// else on the dashboard still arrives in one <c>GET /api/dashboard</c> call.
+    /// </remarks>
+    /// <param name="from">
+    /// Inclusive first clinic-local day, as bare <c>YYYY-MM-DD</c>. A <b>day key and not an instant</b>, so the
+    /// clinic's day stays a fact about the clinic rather than about the workstation reading it — the AC-6 defect
+    /// la caisse already had to fix. Both bounds omitted ⇒ the current clinic-local week.
+    /// </param>
+    /// <param name="to">Inclusive last clinic-local day. Capped at 366 days from <paramref name="from"/>.</param>
+    /// <param name="doctorId">Narrow to one practitioner's own séances; omit for the whole cabinet.</param>
+    [HttpGet("appointments-by-status")]
+    public async Task<ActionResult<AppointmentStatusMixDto>> GetAppointmentsByStatus(
+        [FromQuery] string? from = null,
+        [FromQuery] string? to = null,
+        [FromQuery] Guid? doctorId = null)
+    {
+        var result = await _mediator.Send(new GetAppointmentStatusMixQuery
+        {
+            From = from,
+            To = to,
+            DoctorId = doctorId
+        });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
     /// The signed-in user's dashboard layout choices, plus every block the dashboard can show.
     /// </summary>
     /// <remarks>

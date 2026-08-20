@@ -1,5 +1,9 @@
 import { periodCalendarRange, type DashboardKpiKey } from '@/lib/dashboard-links';
-import type { DashboardPeriodDto, DashboardPeriodKey } from '@/lib/api/types';
+import type {
+  AppointmentBucketGranularity,
+  DashboardPeriodDto,
+  DashboardPeriodKey,
+} from '@/lib/api/types';
 
 /**
  * French labels for the dashboard's figures — display-time mapping over the English wire keys, the same convention as
@@ -150,4 +154,120 @@ export function formatMonthLong(month: string): string {
   const [year, monthPart] = month.split('-');
   const date = new Date(Number(year), Number(monthPart) - 1, 1);
   return date.toLocaleDateString('fr-TN', { month: 'long', year: 'numeric' });
+}
+
+/**
+ * The five appointment-status classes the chart stacks, **in stack order, bottom to top**.
+ *
+ * <p>⚠️ The order is not cosmetic. In a stacked column only *adjacent* pairs touch, and this sequence is the one
+ * that maximises the weakest of them: it keeps green away from amber (which collapse under protanopia) and green
+ * away from red (which collapse under deuteranopia). Reordering these five re-breaks the palette silently — the
+ * measured numbers are in `globals.css` beside the tokens.</p>
+ *
+ * <p>It also reads: the work done at the base, the losses on top, so the « cap » of cancellations and absences on
+ * each column can be compared across the window at a glance.</p>
+ */
+export const APPOINTMENT_STATUS_CLASSES = [
+  { key: 'done', label: 'Terminé', token: 'appt-done' },
+  { key: 'upcoming', label: 'À venir', token: 'appt-upcoming' },
+  { key: 'toClose', label: 'À clôturer', token: 'appt-toclose' },
+  { key: 'cancelled', label: 'Annulé', token: 'appt-cancelled' },
+  { key: 'absent', label: 'Absent', token: 'appt-absent' },
+] as const;
+
+export type AppointmentStatusClassKey = (typeof APPOINTMENT_STATUS_CLASSES)[number]['key'];
+
+/**
+ * What each class actually counts, for the table view's header tooltip and the legend's title attribute.
+ *
+ * <p>Stated because two of the five are folds of two statuses each, and « À clôturer » in particular is *not* the
+ * same population as the « Séances à clôturer » chip at the top of the page — that chip counts what a visit still
+ * owes (a presence, a fiche, a payment) and a `Terminé` visit can be on it. Here it is the visit's own status.</p>
+ */
+export const APPOINTMENT_STATUS_CLASS_HINTS: Record<AppointmentStatusClassKey, string> = {
+  done: 'Séances terminées',
+  upcoming: 'Planifiées ou confirmées, pas encore passées',
+  toClose: 'En cours, ou passées sans réponse sur la venue',
+  cancelled: 'Annulées avant la séance',
+  absent: 'Le patient ne s’est pas présenté',
+};
+
+/** How the chart says how wide one column is. */
+export const GRANULARITY_LABELS: Record<AppointmentBucketGranularity, string> = {
+  Day: 'par jour',
+  Week: 'par semaine',
+  Month: 'par mois',
+};
+
+/**
+ * The window a bucket covers, in French — « lun 17 », « 17 – 23 août », « août 2026 ».
+ *
+ * <p>Built from the two day keys the SERVER sent, never from a recomputed week or month: a bucket clamped to the
+ * edge of the window covers fewer days than its calendar unit, and labelling it « semaine du 17 » when it holds
+ * four days would be a label that contradicts its own column.</p>
+ */
+export function bucketLabel(
+  start: string,
+  endInclusive: string,
+  granularity: AppointmentBucketGranularity,
+): string {
+  if (granularity === 'Day') {
+    const d = splitDay(start);
+    const date = new Date(d.year, d.month - 1, d.day);
+    const weekday = date.toLocaleDateString('fr-TN', { weekday: 'short' }).replace('.', '');
+    return `${weekday} ${d.day}`;
+  }
+
+  if (granularity === 'Month') {
+    const s = splitDay(start);
+    // A clamped month bucket is named by its days, not by the month — « 15 – 31 janvier » is honest where
+    // « janvier » would claim a whole month the read does not cover.
+    const isWholeMonth =
+      s.day === 1 && splitDay(endInclusive).day === new Date(s.year, s.month, 0).getDate();
+    if (isWholeMonth) return `${monthName(s)} ${String(s.year).slice(2)}`;
+  }
+
+  const from = splitDay(start);
+  const to = splitDay(endInclusive);
+  if (from.month === to.month && from.year === to.year) {
+    return `${from.day} – ${to.day} ${monthName(to)}`;
+  }
+  return `${from.day} ${monthName(from)} – ${to.day} ${monthName(to)}`;
+}
+
+/**
+ * The sentence naming the card's own window — « du 17 au 23 août », above the columns.
+ *
+ * <p>The card states this because it is the one block whose window is not the page's, so « Cette semaine » on its
+ * own control is a button rather than a claim about dates.</p>
+ */
+export function windowLabel(from: string, toInclusive: string): string {
+  const a = splitDay(from);
+  const b = splitDay(toInclusive);
+  if (from === toInclusive) return `le ${a.day} ${monthName(a)}`;
+  if (a.year === b.year && a.month === b.month) return `du ${a.day} au ${b.day} ${monthName(b)}`;
+  if (a.year === b.year) return `du ${a.day} ${monthName(a)} au ${b.day} ${monthName(b)}`;
+  return `du ${a.day} ${monthName(a)} ${a.year} au ${b.day} ${monthName(b)} ${b.year}`;
+}
+
+/**
+ * How the appointment card names what it is comparing against.
+ *
+ * <p>⚠️ Deliberately « aux N jours précédents » and never « au mois dernier », even when the window happens to be
+ * a calendar month: the server compares against the same *number of days* immediately before, which for August is
+ * the 31 days ending 31 July — not the month of July. Naming the calendar unit would describe a comparison the
+ * figure is not making.</p>
+ */
+export function comparedToDaysLabel(dayCount: number): string {
+  if (dayCount === 1) return 'Comparé à la veille';
+  if (dayCount === 7) return 'Comparé aux 7 jours précédents';
+  return `Comparé aux ${dayCount.toLocaleString('fr-TN')} jours précédents`;
+}
+
+/** Inclusive day count between two day keys. Parsed as parts, so no `Date` and no timezone can shift it. */
+export function dayCountBetween(from: string, toInclusive: string): number {
+  const a = splitDay(from);
+  const b = splitDay(toInclusive);
+  const ms = Date.UTC(b.year, b.month - 1, b.day) - Date.UTC(a.year, a.month - 1, a.day);
+  return Math.round(ms / 86_400_000) + 1;
 }

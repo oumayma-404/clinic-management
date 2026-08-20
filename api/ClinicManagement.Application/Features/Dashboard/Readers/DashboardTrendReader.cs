@@ -21,6 +21,11 @@ namespace ClinicManagement.Application.Features.Dashboard.Readers;
 /// method the « Encaissé » card uses (<c>GetCollectedBetweenAsync</c>), over bounds built by the same clock, so the
 /// sparkline's last point and the card above it cannot disagree.</para>
 ///
+/// <para><b>The current month is flagged, not silently plotted like the rest.</b> Read on the 3rd, the final point
+/// holds three days of takings beside five whole months, which draws a collapse in revenue that is not in the data.
+/// <c>MonthlyCollectedPointDto.IsPartial</c> says so and the client marks that point; the figure itself is left
+/// exactly as computed, because it is correct — it is the <i>comparison</i> that is not.</para>
+///
 /// <para><b>Gaps are filled, never omitted.</b> A month in which the clinic collected nothing is a real and
 /// informative zero — dropping it would silently shorten the series and slide every later point left, so a quiet
 /// August would render as though it never happened.</para>
@@ -47,18 +52,20 @@ public class DashboardTrendReader : IDashboardTrendReader
         var (windowStart, _) = period.TrendWindow(nowUtc);
         var firstMonth = ClinicClock.ToClinicLocal(windowStart);
         var firstOfFirstMonth = new DateTime(firstMonth.Year, firstMonth.Month, 1);
+        var clinicToday = ClinicClock.ClinicToday(nowUtc);
 
         var points = new List<MonthlyCollectedPointDto>(DashboardPeriod.TrendMonths);
 
         for (var offset = 0; offset < DashboardPeriod.TrendMonths; offset++)
         {
             var month = firstOfFirstMonth.AddMonths(offset);
+            var lastDayOfMonth = month.AddMonths(1).AddDays(-1);
 
             // Both bounds are clinic-local midnights expressed as UTC, and the upper one is the last TICK of the
             // month's final day — GetCollectedBetweenAsync is inclusive on both ends, so the next midnight would
             // count a payment made at exactly that instant in this month AND the next (finding #20).
             var monthStartUtc = ClinicClock.StartOfLocalDayUtc(month);
-            var monthEndUtc = ClinicClock.EndOfLocalDayUtc(month.AddMonths(1).AddDays(-1)).AddTicks(-1);
+            var monthEndUtc = ClinicClock.EndOfLocalDayUtc(lastDayOfMonth).AddTicks(-1);
 
             var collected = await _invoiceRepository.GetCollectedBetweenAsync(
                 clinicId, monthStartUtc, monthEndUtc, cancellationToken: cancellationToken);
@@ -66,7 +73,13 @@ public class DashboardTrendReader : IDashboardTrendReader
             points.Add(new MonthlyCollectedPointDto
             {
                 Month = $"{month.Year:D4}-{month.Month:D2}",
-                Collected = InvoiceCalculator.RoundMoney(collected)
+                Collected = InvoiceCalculator.RoundMoney(collected),
+                /*
+                 * A month is partial when the clinic's today has not reached its last day. Computed per month
+                 * rather than assumed of the final point: read on the 1st, the last point holds a single day, and
+                 * "the last one is partial" would be a rule that happens to be right rather than one that is.
+                 */
+                IsPartial = clinicToday < lastDayOfMonth
             });
         }
 

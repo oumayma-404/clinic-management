@@ -15,6 +15,8 @@ import type { DashboardKpiKey } from '@/lib/dashboard-links';
 export type DashboardBlockKey =
   | DashboardKpiKey
   | 'procedureMix'
+  | 'appointmentStatusMix'
+  | 'appointmentTrend'
   | 'trend'
   | 'todayAppointments';
 
@@ -103,6 +105,10 @@ export const DASHBOARD_BLOCKS: Record<DashboardBlockKey, DashboardBlockMeta> = {
   newPatients: { section: 'activity', form: 'figure', label: 'Nouveaux patients' },
   acceptedPlans: { section: 'activity', form: 'figure', label: 'Devis acceptés' },
   procedureMix: { section: 'activity', form: 'chart', label: 'Répartition des actes' },
+  // The only block on the page with its own period control, which is why its label names the window it defaults
+  // to rather than a fixed one — « Semaine » is where it opens, not what it can show.
+  appointmentStatusMix: { section: 'activity', form: 'chart', label: 'Rendez-vous par statut' },
+  appointmentTrend: { section: 'activity', form: 'chart', label: 'Rendez-vous — 6 derniers mois' },
 
   // ── L'argent ──────────────────────────────────────────────────────────────────────────────────────────────────
   net: { section: 'money', form: 'figure', label: 'Net' },

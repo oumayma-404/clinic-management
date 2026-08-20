@@ -61,6 +61,8 @@ public static class Extensions
         services.AddScoped<IDashboardAlertsReader, DashboardAlertsReader>();
         services.AddScoped<IDashboardTrendReader, DashboardTrendReader>();
         services.AddScoped<IDashboardProcedureMixReader, DashboardProcedureMixReader>();
+        services.AddScoped<IDashboardAppointmentStatusReader, DashboardAppointmentStatusReader>();
+        services.AddScoped<IDashboardAppointmentTrendReader, DashboardAppointmentTrendReader>();
 
         return services;
     }

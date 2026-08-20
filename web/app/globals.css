@@ -190,6 +190,43 @@
   --chart-3: oklch(0.61 0.13 308);
   --chart-4: oklch(0.67 0.13 45);
   --chart-5: oklch(0.56 0.12 155);
+
+  /*
+   * ── Appointment status, pastel ─────────────────────────────────────────────────────────────────────────────
+   *
+   * The five classes « Rendez-vous par statut » stacks, as PASTEL fills each paired with a stronger same-hue
+   * `-edge`. Deliberately their own family rather than `--chart-*` or the status washes:
+   *
+   *   · `--chart-*` is a CATEGORICAL ramp — it answers "which series", and an appointment status answers
+   *     "how did it go". Painting Absent in chart slot 5 would say the two are the same kind of fact.
+   *   · `--success-wash` and friends sit near L 0.96 — a badge background. As a chart fill they land at ~1.15:1
+   *     against the card, so the columns stop being shapes.
+   *
+   * ⚠️ **The lightness deliberately VARIES across the five, and that is load-bearing.** At one uniform pastel
+   * lightness the validator collapses Annulé against Absent (ΔE 3.7–5.7 under protanopia, floor 6) — a pale grey
+   * and a pale red are the same colour to that reader, and they are ADJACENT in the stack. Spreading the five
+   * across L 0.755–0.885 gives lightness as a second channel and clears both gates: worst adjacent pair ΔE 12.3
+   * under deuteranopia and 15.1 in normal vision. Re-flattening these to one lightness re-breaks it silently.
+   *
+   * ⚠️ Every fill is BELOW 3:1 against the card, which is admitted rather than accidental — that is what pastel
+   * means. It is legal only because the chart ships the relief the rule requires: the `-edge` hairline gives each
+   * segment a defined boundary, the legend names and COUNTS all five, and a table view carries every value. A
+   * pastel fill with no legend and no table would be a defect.
+   *
+   * Annulé is near-neutral on purpose (C 0.020): a cancelled visit expects nothing of anybody, so it is the
+   * de-emphasis slot rather than a fifth identity hue.
+   */
+  --appt-done: oklch(0.755 0.11 155);
+  --appt-done-edge: oklch(0.62 0.135 155);
+  --appt-upcoming: oklch(0.86 0.07 234);
+  --appt-upcoming-edge: oklch(0.66 0.115 234);
+  --appt-toclose: oklch(0.80 0.105 78);
+  --appt-toclose-edge: oklch(0.67 0.135 78);
+  --appt-cancelled: oklch(0.885 0.020 250);
+  --appt-cancelled-edge: oklch(0.72 0.030 250);
+  --appt-absent: oklch(0.775 0.105 25);
+  --appt-absent-edge: oklch(0.62 0.165 25);
+
   --radius: 0.75rem;
 
   /*
@@ -326,6 +363,28 @@
   --chart-3: oklch(0.705 0.13 308);
   --chart-4: oklch(0.745 0.13 50);
   --chart-5: oklch(0.70 0.12 155);
+
+  /*
+   * The same five, re-picked for the dark card (L 0.305) — SELECTED, never an inversion of the light steps.
+   *
+   * ⚠️ The recessive end FLIPS. In light, Annulé is the palest (0.885) because pale recedes against white; here it
+   * is the DARKEST (0.505), because on a dark ground it is the near-black that recedes. Carrying the light
+   * ordering over would have made « Annulé » the loudest thing in the column, and it also collapses against
+   * Absent — measured ΔE 4.7 under protanopia before the flip, 11.6 after.
+   *
+   * Worst adjacent pair here: ΔE 11.6 (protanopia) and 15.9 in normal vision. Only Annulé falls below 3:1 against
+   * the card, which is the same admitted trade as light — see the note there for the relief that licenses it.
+   */
+  --appt-done: oklch(0.635 0.10 155);
+  --appt-done-edge: oklch(0.78 0.125 155);
+  --appt-upcoming: oklch(0.755 0.075 234);
+  --appt-upcoming-edge: oklch(0.83 0.10 234);
+  --appt-toclose: oklch(0.70 0.095 78);
+  --appt-toclose-edge: oklch(0.85 0.12 78);
+  --appt-cancelled: oklch(0.505 0.020 250);
+  --appt-cancelled-edge: oklch(0.62 0.028 250);
+  --appt-absent: oklch(0.665 0.105 25);
+  --appt-absent-edge: oklch(0.80 0.14 25);
 
   /* The rail sits one step BELOW the card, mirroring light's rail → ground → card stack. See the note in
      `:root`: these eight tokens were previously identical to the card's and read by nothing at all. */

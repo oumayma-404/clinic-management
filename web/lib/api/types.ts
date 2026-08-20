@@ -261,6 +261,14 @@ export interface MonthlyCollectedPointDto {
   /** Clinic-local calendar month as `yyyy-MM`. */
   month: string;
   collected: number;
+  /**
+   * True when the month is not over yet.
+   *
+   * The figure is correct; it is the *comparison* with the five whole months beside it that is not — on the 3rd
+   * of a month the last point holds three days of takings and draws a collapse in revenue that is not real. The
+   * server owns the flag because the browser would have to re-derive the clinic's today, and Tunisia is UTC+1.
+   */
+  isPartial: boolean;
 }
 
 /**
@@ -291,6 +299,71 @@ export interface DashboardPreferencesDto {
   availableKpis: string[];
 }
 
+/** One month of « Rendez-vous — 6 derniers mois ». Carries both measures so the card's toggle costs no round trip. */
+export interface MonthlyAppointmentPointDto {
+  /** Clinic-local calendar month as `yyyy-MM`. */
+  month: string;
+  /** Every séance in the book that month, whatever became of it. */
+  total: number;
+  /** The `Completed` ones only — same method and bounds as « Rendez-vous honorés », so the two cannot disagree. */
+  completed: number;
+  /**
+   * True when the month is not over yet.
+   *
+   * The client draws such a point with a hollow marker and says how far through the month the figure goes —
+   * without it, the current month holds a few days beside five full ones and reads as a collapse in bookings.
+   * A fact about the window, so the server owns it: the browser would have to re-derive the clinic's today.
+   */
+  isPartial: boolean;
+}
+
+/** How wide one column of « Rendez-vous par statut » is. Mirrors the backend `AppointmentBucketGranularity`. */
+export type AppointmentBucketGranularity = 'Day' | 'Week' | 'Month';
+
+/**
+ * One column of « Rendez-vous par statut ».
+ *
+ * The five class counts are the server's fold of the seven appointment statuses — see
+ * `AppointmentStatusClass` on the backend for which status goes where, and why five rather than seven. Never
+ * re-derive that mapping here: a second copy is how a chart and a badge start disagreeing about the same visit.
+ */
+export interface AppointmentStatusBucketDto {
+  /** Inclusive first clinic-local day of the bucket, `yyyy-MM-dd`. */
+  start: string;
+  /**
+   * Inclusive last clinic-local day, `yyyy-MM-dd`.
+   *
+   * Sent rather than derived so the browser holds no copy of the Monday-based week rule or the month-length rule,
+   * and so a clamped first/last bucket is labelled as the days actually counted.
+   */
+  endInclusive: string;
+  done: number;
+  upcoming: number;
+  toClose: number;
+  cancelled: number;
+  absent: number;
+  /** The five summed — sent so a column height never needs re-adding. */
+  total: number;
+}
+
+export interface AppointmentStatusMixDto {
+  /** Inclusive first clinic-local day of the window, `yyyy-MM-dd`. */
+  from: string;
+  /** Inclusive last clinic-local day of the window, `yyyy-MM-dd`. */
+  toInclusive: string;
+  granularity: AppointmentBucketGranularity;
+  /** Oldest first, gaps filled with zero, first and last clamped to the window. */
+  buckets: AppointmentStatusBucketDto[];
+  total: number;
+  /**
+   * The same count over the immediately preceding window of the **same length** — not the previous calendar
+   * unit, because a free range has none. The card says so in words.
+   */
+  previousTotal: number;
+  /** Of `upcoming` across the window, how many the patient confirmed — the legend's « dont N confirmés ». */
+  confirmedUpcoming: number;
+}
+
 export interface DashboardDto {
   period: DashboardPeriodDto;
   activity: DashboardActivityDto;
@@ -300,6 +373,8 @@ export interface DashboardDto {
   trend: MonthlyCollectedPointDto[];
   /** Busiest act types of the period, already ordered and capped server-side. */
   procedureMix: ProcedureMixPointDto[];
+  /** Six months of appointment counts, oldest first. Fixed window — owes nothing to either period control. */
+  appointmentTrend: MonthlyAppointmentPointDto[];
 }
 
 export interface InvoiceLineDto {

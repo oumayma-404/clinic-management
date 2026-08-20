@@ -17,6 +17,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { formatDT } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import type { MonthlyCollectedPointDto } from "@/lib/api/types"
 import { formatMonthLong, formatMonthShort } from "./dashboard-labels"
 
@@ -49,6 +50,13 @@ interface CollectedTrendChartProps {
  * label follows. A table view is always reachable, so no value is gated behind hovering.</p>
  *
  * <p>No legend: there is one series and the card title names it. A one-swatch legend restates the title.</p>
+ *
+ * <p><b>The current month is marked rather than plotted as if it were finished.</b> That was a latent defect for the
+ * life of this chart: on the 1st of a month the final point held a single day's takings beside five whole months and
+ * drew a collapse in revenue that was not in the data — loudest at exactly the point a reader looks at first. The
+ * endpoint marker is hollow while the month is running, the caption says so, and the tooltip and the table view
+ * repeat it, because a marker's <i>shape</i> is not something a screen reader can report. `isPartial` comes from the
+ * server, which is the only side that knows the clinic's today.</p>
  */
 export function CollectedTrendChart({ points, loading = false }: CollectedTrendChartProps) {
   const [showTable, setShowTable] = useState(false)
@@ -157,21 +165,33 @@ export function CollectedTrendChart({ points, loading = false }: CollectedTrendC
                      * reports — so it earns a fixed anchor the eye can land on without hovering. Returning `null`
                      * for the others rather than `false` keeps recharts' own typing happy.
                      */
-                    dot={(props: { key?: string; cx?: number; cy?: number; index?: number }) =>
-                      props.index === points.length - 1 ? (
+                    dot={(props: { key?: string; cx?: number; cy?: number; index?: number }) => {
+                      if (props.index !== points.length - 1) {
+                        return <g key={props.key ?? `trend-dot-${props.index}`} />
+                      }
+                      /*
+                       * HOLLOW while the month is still running.
+                       *
+                       * This chart used to plot the current month exactly like the five whole ones beside it, so
+                       * on the 1st it ended on a cliff — a collapse in revenue that is not in the data, drawn at
+                       * the one point a reader's eye goes to first. The figure is right; the comparison is not,
+                       * and the marker is what says so before the caption is read. Its twin
+                       * (`appointment-trend-chart.tsx`) does the same thing, deliberately: two trend charts a
+                       * card apart, only one of which qualifies its last point, is worse than neither doing it.
+                       */
+                      const partial = points[points.length - 1]?.isPartial
+                      return (
                         <circle
                           key={props.key ?? "trend-endpoint"}
                           cx={props.cx}
                           cy={props.cy}
                           r={5}
-                          fill={SERIES_COLOR}
-                          stroke="var(--card)"
+                          fill={partial ? "var(--card)" : SERIES_COLOR}
+                          stroke={partial ? SERIES_COLOR : "var(--card)"}
                           strokeWidth={2.5}
                         />
-                      ) : (
-                        <g key={props.key ?? `trend-dot-${props.index}`} />
                       )
-                    }
+                    }}
                     isAnimationActive={false}
                   />
                 </AreaChart>
@@ -183,6 +203,11 @@ export function CollectedTrendChart({ points, loading = false }: CollectedTrendC
               <p className="text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">{formatMonthLong(latest.month)}</span> :{" "}
                 {formatDT(latest.collected)}
+                {/* Colour alone would not carry this — a hollow marker is a shape a reader has to already know
+                    how to read, so the fact is also stated. */}
+                {latest.isPartial && (
+                  <span className="text-warning-ink"> — mois en cours, pas encore complet</span>
+                )}
               </p>
             )}
           </>
@@ -200,7 +225,12 @@ export function CollectedTrendChart({ points, loading = false }: CollectedTrendC
             <TableBody>
               {points.map((point) => (
                 <TableRow key={point.month}>
-                  <TableCell>{formatMonthLong(point.month)}</TableCell>
+                  {/* The table is the WCAG-clean equivalent of the plot, so it must carry every fact the plot
+                      does — a marker shape is not reachable by a screen reader. */}
+                  <TableCell className={cn(point.isPartial && "text-muted-foreground")}>
+                    {formatMonthLong(point.month)}
+                    {point.isPartial && " (en cours)"}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">{formatDT(point.collected)}</TableCell>
                 </TableRow>
               ))}
@@ -238,6 +268,7 @@ function TrendTooltip({
         />
         {formatMonthLong(point.month)}
       </p>
+      {point.isPartial && <p className="mt-1 text-2xs text-warning-ink">Mois en cours, pas encore complet</p>}
     </div>
   )
 }

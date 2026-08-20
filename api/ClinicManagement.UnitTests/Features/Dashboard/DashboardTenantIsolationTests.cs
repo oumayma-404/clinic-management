@@ -29,11 +29,12 @@ public class DashboardTenantIsolationTests
     private readonly Mock<IDashboardAlertsReader> _alerts = new();
     private readonly Mock<IDashboardTrendReader> _trend = new();
     private readonly Mock<IDashboardProcedureMixReader> _procedureMix = new();
+    private readonly Mock<IDashboardAppointmentTrendReader> _appointmentTrend = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
 
     private GetDashboardQueryHandler Handler() => new(
         _activity.Object, _money.Object, _alerts.Object, _trend.Object, _procedureMix.Object,
-        _clinicResolver.Object, NullLogger<GetDashboardQueryHandler>.Instance);
+        _appointmentTrend.Object, _clinicResolver.Object, NullLogger<GetDashboardQueryHandler>.Instance);
 
     private void WireResolved(Guid clinicId)
     {
@@ -52,6 +53,9 @@ public class DashboardTenantIsolationTests
         _procedureMix.Setup(r => r.ReadAsync(
                 It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ProcedureMixPointDto>());
+        _appointmentTrend.Setup(r => r.ReadAsync(
+                It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<MonthlyAppointmentPointDto>());
     }
 
     // [AC-1] Every reader is handed the resolved clinic, and no reader is ever asked about a different one.
@@ -67,11 +71,13 @@ public class DashboardTenantIsolationTests
         _money.Verify(r => r.ReadAsync(ClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Once);
         _alerts.Verify(r => r.ReadAsync(ClinicId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
         _trend.Verify(r => r.ReadAsync(ClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
+        _appointmentTrend.Verify(r => r.ReadAsync(ClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
 
         _activity.Verify(r => r.ReadAsync(OtherClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<CancellationToken>()), Times.Never);
         _money.Verify(r => r.ReadAsync(OtherClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
         _alerts.Verify(r => r.ReadAsync(OtherClinicId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
         _trend.Verify(r => r.ReadAsync(OtherClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+        _appointmentTrend.Verify(r => r.ReadAsync(OtherClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // [AC-1] An unresolvable clinic reads nothing at all — no section is attempted, so there is no path on which a
@@ -89,6 +95,7 @@ public class DashboardTenantIsolationTests
         _money.Verify(r => r.ReadAsync(It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
         _alerts.Verify(r => r.ReadAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
         _trend.Verify(r => r.ReadAsync(It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+        _appointmentTrend.Verify(r => r.ReadAsync(It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // [AC-2] All four sections receive the SAME period instance and the same `now`. Reading DateTime.UtcNow per

@@ -32,6 +32,11 @@ import { DashboardSection } from "@/components/dashboard/dashboard-section"
 import { DashboardCustomizer } from "@/components/dashboard/dashboard-customizer"
 import { PeriodSelector } from "@/components/dashboard/period-selector"
 import { CollectedTrendChart } from "@/components/dashboard/collected-trend-chart"
+import {
+  AppointmentStatusChart,
+  type StatusWindowMode,
+} from "@/components/dashboard/appointment-status-chart"
+import { AppointmentTrendChart } from "@/components/dashboard/appointment-trend-chart"
 import { ProcedureMixChart } from "@/components/dashboard/procedure-mix-chart"
 import { DayGreeting } from "@/components/dashboard/day/day-greeting"
 import { NowNextCards } from "@/components/dashboard/day/now-next-cards"
@@ -48,6 +53,7 @@ import {
 import { useDashboard } from "@/lib/hooks/use-dashboard"
 import { useDashboardPreferences } from "@/lib/hooks/use-dashboard-preferences"
 import { useAppointments } from "@/lib/hooks/use-appointments"
+import { useAppointmentStatusMix } from "@/lib/hooks/use-appointment-status-mix"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { dashboardLink } from "@/lib/dashboard-links"
@@ -130,6 +136,37 @@ function DashboardContent() {
   const [period, setPeriod] = useState<DashboardPeriodKey>("Month")
   // L9 — the Argent section's practitioner filter. `ALL_DOCTORS` because Radix cannot hold an empty Select value.
   const [moneyDoctorId, setMoneyDoctorId] = useState<string>(ALL_DOCTORS)
+  /*
+   * « Rendez-vous par statut » carries its OWN window, which is why this state lives here and not in `period`.
+   *
+   * It is the one block on the page whose period is not the page's. `week` is the default and needs no bounds at
+   * all — the server resolves the current clinic-local Monday-to-Sunday week, so the browser holds no copy of the
+   * week rule. `month` sends explicit day keys because the month rule is trivial and unambiguous; `custom` sends
+   * whatever the user applied.
+   */
+  const [statusMode, setStatusMode] = useState<StatusWindowMode>("week")
+  const [customRange, setCustomRange] = useState<{ from: string; to: string } | null>(null)
+
+  const statusWindow = useMemo(() => {
+    if (statusMode === "week") return { from: undefined, to: undefined }
+    if (statusMode === "custom" && customRange) return { from: customRange.from, to: customRange.to }
+    if (statusMode === "custom") return { from: undefined, to: undefined }
+    // `todayLocalIso()` and never `toISOString()`: for the first hour of every Tunisian day the latter names
+    // yesterday, and on the 1st it names last month — which here would silently read the wrong month entirely.
+    const today = todayLocalIso()
+    const [year, month] = today.split("-")
+    const lastDay = new Date(Number(year), Number(month), 0).getDate()
+    return { from: `${year}-${month}-01`, to: `${year}-${month}-${String(lastDay).padStart(2, "0")}` }
+  }, [statusMode, customRange])
+
+  const {
+    data: statusMix,
+    loading: statusLoading,
+    refetching: statusRefetching,
+    error: statusError,
+    refetch: refetchStatusMix,
+  } = useAppointmentStatusMix(statusWindow.from, statusWindow.to)
+
   const { doctors, clinic } = useDoctors()
   const { data, loading, refetching, error, refetch } = useDashboard(
     period,
@@ -238,12 +275,19 @@ function DashboardContent() {
     window.history.replaceState({}, "", url)
   }, [])
 
-  /** One refetch for all three reads — a peer's edit can move a figure in any, tomorrow's included. */
+  /**
+   * One refetch for every read on the page — a peer's edit can move a figure in any, tomorrow's included.
+   *
+   * ⚠️ `refetchStatusMix` belongs here even though that card has its own window: an appointment booked or
+   * cancelled by a colleague changes its columns exactly as it changes the figures above them, and leaving it out
+   * would make the one card on the page that silently went stale the one with the most detail on it.
+   */
   const refetchAll = useCallback(() => {
     refetch()
     refetchDay()
     refetchNextDay()
-  }, [refetch, refetchDay, refetchNextDay])
+    refetchStatusMix()
+  }, [refetch, refetchDay, refetchNextDay, refetchStatusMix])
 
   useClinicRealtime(
     [
@@ -472,7 +516,11 @@ function DashboardContent() {
           className="border-t pt-8"
         />
 
-        {!error && (hasVisible("activity", "figure") || isVisible("procedureMix")) && (
+        {!error &&
+          (hasVisible("activity", "figure") ||
+            isVisible("procedureMix") ||
+            isVisible("appointmentStatusMix") ||
+            isVisible("appointmentTrend")) && (
           <DashboardSection
             title={SECTION_LABELS.activity}
             hint={comparedToLabel(period)}
@@ -488,6 +536,7 @@ function DashboardContent() {
               `auto-rows-fr` inside it so the extra height goes to the CELLS and not to the `bg-border`
               container showing through underneath them.
             */}
+            {(hasVisible("activity", "figure") || isVisible("procedureMix")) && (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
               <div className="flex flex-col gap-3">
                 <KpiGrid columns={1}>
@@ -518,6 +567,38 @@ function DashboardContent() {
                 <ProcedureMixChart points={data?.procedureMix ?? []} loading={loading} />
               )}
             </div>
+            )}
+
+            {/*
+              The appointment row. `items-stretch` is the grid default and is what the two cards' internal
+              `flex-1` plots need: the taller card sets the row's height and the other's plot grows into it,
+              rather than one card trailing a block of empty surface — which is what a chart card looks like
+              when it is shorter than its neighbour.
+
+              ⚠️ `xl:` and not `lg:`, for the reason the rows above it use: a tablet portrait is 820 px and the
+              256 px rail leaves ~532 px, which would give the status chart's columns nowhere to go.
+            */}
+            {(isVisible("appointmentStatusMix") || isVisible("appointmentTrend")) && (
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+                {isVisible("appointmentStatusMix") && (
+                  <AppointmentStatusChart
+                    data={statusMix}
+                    loading={statusLoading}
+                    refetching={statusRefetching}
+                    error={statusError}
+                    mode={statusMode}
+                    onModeChange={setStatusMode}
+                    onCustomRange={(from, to) => setCustomRange({ from, to })}
+                    customFrom={customRange?.from}
+                    customTo={customRange?.to}
+                    onRetry={refetchStatusMix}
+                  />
+                )}
+                {isVisible("appointmentTrend") && (
+                  <AppointmentTrendChart points={data?.appointmentTrend ?? []} loading={loading} />
+                )}
+              </div>
+            )}
           </DashboardSection>
         )}
 

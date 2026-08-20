@@ -123,6 +123,38 @@ public class AppointmentRepository : IAppointmentRepository
         return rows.ToDictionary(r => r.Status, r => r.Count);
     }
 
+    public async Task<IReadOnlyList<AppointmentStatusSlot>> GetStatusTimelineAsync(
+        Guid clinicId,
+        DateTime from,
+        DateTime toInclusive,
+        Guid? doctorId = null,
+        CancellationToken cancellationToken = default)
+    {
+        // ⚠️ NO date arithmetic here, and that is the point of the whole method. The caller buckets by
+        // clinic-LOCAL day/week/month, and shifting a `timestamptz` inside the query is what produced
+        // `42883: function pg_catalog.timezone(unknown, interval) does not exist` for the money trend. So this
+        // stays a plain range filter and a projection, and `ClinicClock` does the shifting in memory.
+        //
+        // Projected to two value-type columns — no navigations, no tracking — so the row count the window allows
+        // (up to 366 days) stays a cheap transfer rather than a few thousand hydrated aggregates.
+        var query = _context.Appointments
+            .AsNoTracking()
+            .Where(a => a.ClinicId == clinicId
+                        && a.AppointmentDateTime >= from
+                        && a.AppointmentDateTime <= toInclusive);
+
+        if (doctorId.HasValue)
+        {
+            query = query.Where(a => a.DoctorId == doctorId.Value);
+        }
+
+        return await query
+            .OrderBy(a => a.AppointmentDateTime)
+            .ThenBy(a => a.Id)
+            .Select(a => new AppointmentStatusSlot(a.AppointmentDateTime, a.Status))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<ProcedureMixRow>> GetProcedureMixBetweenAsync(
         Guid clinicId,
         DateTime from,

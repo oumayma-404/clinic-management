@@ -45,6 +45,7 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
     private readonly IDashboardAlertsReader _alertsReader;
     private readonly IDashboardTrendReader _trendReader;
     private readonly IDashboardProcedureMixReader _procedureMixReader;
+    private readonly IDashboardAppointmentTrendReader _appointmentTrendReader;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetDashboardQueryHandler> _logger;
 
@@ -54,6 +55,7 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
         IDashboardAlertsReader alertsReader,
         IDashboardTrendReader trendReader,
         IDashboardProcedureMixReader procedureMixReader,
+        IDashboardAppointmentTrendReader appointmentTrendReader,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetDashboardQueryHandler> logger)
     {
@@ -62,6 +64,7 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
         _alertsReader = alertsReader;
         _trendReader = trendReader;
         _procedureMixReader = procedureMixReader;
+        _appointmentTrendReader = appointmentTrendReader;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -91,6 +94,10 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
             // is a question about one dentist's own work, which is exactly what that filter asks.
             var procedureMix = await _procedureMixReader.ReadAsync(
                 clinicId, period, request.DoctorId, cancellationToken);
+            // Clinic-wide like the money trend beside it: the six-month shape of the practice is not one
+            // practitioner's, and « Rendez-vous par statut » is where a per-praticien cut would belong.
+            var appointmentTrend = await _appointmentTrendReader.ReadAsync(
+                clinicId, period, nowUtc, cancellationToken);
 
             var dto = new DashboardDto
             {
@@ -107,7 +114,8 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
                 Receivables = receivables,
                 Alerts = alerts,
                 Trend = trend,
-                ProcedureMix = procedureMix
+                ProcedureMix = procedureMix,
+                AppointmentTrend = appointmentTrend
             };
 
             return Result<DashboardDto>.Success(dto);

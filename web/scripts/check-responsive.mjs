@@ -247,6 +247,12 @@ const CARD_FALLBACK_EXEMPT = new Map([
     "2 columns, and the table IS the chart's accessible fallback — cards would be a fallback for a fallback",
   ],
   [
+    "components/dashboard/appointment-trend-chart.tsx",
+    "the same 2 columns as its twin above, and the same reason: the table IS this chart's accessible fallback. " +
+      "Note its sibling `appointment-status-chart` is NOT here — that one's table is 7 columns wide, which is " +
+      "exactly the defect this check exists for, so it carries a real CardList",
+  ],
+  [
     "components/cnam-letter-values-card.tsx",
     "a form in a table: the value cell is an editable <Input> with a per-row save, not a value to read",
   ],

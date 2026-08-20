@@ -168,6 +168,57 @@ public class DashboardTrendReaderTests
         Assert.Equal("2026-01", points[0].Month);
     }
 
+    /// <summary>
+    /// Only the month the clinic is currently in is flagged partial. Without the flag the last point holds a
+    /// fraction of a month beside five whole ones and reads as a collapse in revenue — the same defect the
+    /// appointment trend beside it was built to avoid, fixed here in the same pass so the two cards cannot
+    /// disagree about whether their final point is comparable.
+    /// </summary>
+    [Fact]
+    public async Task Only_The_Current_Month_Is_Marked_Partial()
+    {
+        WireEmpty();
+
+        var points = await Reader().ReadAsync(ClinicId, Period, FixedNow, CancellationToken.None);
+
+        // FixedNow is 15 June 2026 — June is still running, the five before it are not.
+        Assert.Equal("2026-06", points[^1].Month);
+        Assert.True(points[^1].IsPartial);
+        Assert.All(points.Take(DashboardPeriod.TrendMonths - 1), p => Assert.False(p.IsPartial));
+    }
+
+    /// <summary>
+    /// On the last day of a month nothing is partial. Computed per month rather than assumed of the last point,
+    /// so this is a property of the rule rather than a coincidence of where the loop ends.
+    /// </summary>
+    [Fact]
+    public async Task On_The_Last_Day_Of_The_Month_No_Point_Is_Partial()
+    {
+        WireEmpty();
+        var lastDayOfJune = new DateTime(2026, 6, 30, 10, 0, 0, DateTimeKind.Utc);
+        var period = DashboardPeriod.Resolve(DashboardPeriodKey.Month, lastDayOfJune);
+
+        var points = await Reader().ReadAsync(ClinicId, period, lastDayOfJune, CancellationToken.None);
+
+        Assert.All(points, p => Assert.False(p.IsPartial));
+    }
+
+    /// <summary>
+    /// The figure itself is untouched by the flag — a partial month reports what was actually collected, because
+    /// that number is correct. It is the *comparison* with its neighbours that the flag exists to qualify.
+    /// </summary>
+    [Fact]
+    public async Task A_Partial_Month_Still_Reports_Its_Real_Figure()
+    {
+        WireEmpty();
+        WireMonth(2026, 6, 1234.567m);
+
+        var points = await Reader().ReadAsync(ClinicId, Period, FixedNow, CancellationToken.None);
+
+        Assert.True(points[^1].IsPartial);
+        Assert.Equal(1234.567m, points[^1].Collected);
+    }
+
     // [AC-1] Nothing is ever read for another clinic.
     [Fact]
     public async Task Every_Read_Is_Scoped_To_The_Callers_Clinic()
