@@ -39,6 +39,13 @@ public class LabWorkOrderDto
     public DateTime? ExpectedDate { get; set; }
     public DateTime? ReceivedDate { get; set; }
     public decimal? Cost { get; set; }
+
+    /// <summary>
+    /// The caisse dépense this bon produced on arrival, or null when none has been posted — because the bon is
+    /// not in yet, or because it carries no coût. Read by the UI only to say which of the two happened.
+    /// </summary>
+    public Guid? ExpenseId { get; set; }
+
     public string Status { get; set; } = string.Empty;
     /// <summary>
     /// The stages this order may legally move to from its current one (AC-P2.40), so the UI's status control can
@@ -75,6 +82,7 @@ public static class LabWorkOrderMappingExtensions
         ExpectedDate = order.ExpectedDate,
         ReceivedDate = order.ReceivedDate,
         Cost = order.Cost,
+        ExpenseId = order.ExpenseId,
         Status = order.Status.ToString(),
         AllowedNextStatuses = LabWorkOrder.NextStatusesFrom(order.Status).Select(s => s.ToString()).ToList(),
         Notes = order.Notes,

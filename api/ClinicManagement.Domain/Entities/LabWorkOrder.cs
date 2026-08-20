@@ -51,6 +51,22 @@ public class LabWorkOrder : AggregateRoot<Guid>
     public DateTime? ExpectedDate { get; private set; }
     public DateTime? ReceivedDate { get; private set; }
     public decimal? Cost { get; private set; }
+
+    /// <summary>
+    /// The caisse dépense this bon produced when the work came in, or null while nothing has been posted.
+    /// <para>
+    /// ⚠️ It exists to make posting <b>idempotent</b>, not to be read. « Reçu » → « En cours » → « Reçu » is a
+    /// legal round trip (a piece that arrives wrong goes back to the lab) and <see cref="ReceivedDate"/> is
+    /// deliberately re-stamped on every arrival — so without this column the same crown would be charged to la
+    /// caisse once per arrival, and the day's net would simply be wrong. The laboratory is paid once.
+    /// </para>
+    /// <para>
+    /// The FK is <c>SetNull</c>, like <see cref="AppointmentId"/>: a dépense deleted in la caisse must leave the
+    /// bon standing with its link cleared, never take the bon with it.
+    /// </para>
+    /// </summary>
+    public Guid? ExpenseId { get; private set; }
+
     public LabOrderStatus Status { get; private set; }
     public string? Notes { get; private set; }
     public DateTime CreatedAt { get; private set; }
@@ -186,6 +202,25 @@ public class LabWorkOrder : AggregateRoot<Guid>
             ReceivedDate = DateTime.UtcNow;
         }
 
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Whether receiving this bon still owes la caisse a dépense: the work is in, it has a cost, and nothing has
+    /// been posted for it yet.
+    /// <para>
+    /// The rule lives on the aggregate rather than in the handler that happens to move the status today, so any
+    /// later path that receives a bon — a job, an import, a second command — cannot forget half of it. All three
+    /// clauses matter: a bon with no <see cref="Cost"/> has no amount to post (<c>Expense</c> refuses ≤ 0), and
+    /// an <see cref="ExpenseId"/> already set means this is a re-arrival, not a second purchase.
+    /// </para>
+    /// </summary>
+    public bool NeedsCaisseExpense => Status == LabOrderStatus.Received && ExpenseId is null && Cost is > 0;
+
+    /// <summary>Record which caisse dépense this bon produced. Called once, in the same transaction as the arrival.</summary>
+    public void LinkExpense(Guid expenseId)
+    {
+        ExpenseId = expenseId;
         UpdatedAt = DateTime.UtcNow;
     }
 

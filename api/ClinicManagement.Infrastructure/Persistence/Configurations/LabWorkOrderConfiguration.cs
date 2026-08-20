@@ -71,6 +71,14 @@ public class LabWorkOrderConfiguration : IEntityTypeConfiguration<LabWorkOrder>
 
         builder.Property(o => o.Cost);
 
+        // The caisse dépense this bon produced on arrival — the column that keeps posting idempotent across a
+        // « Reçu » → « En cours » → « Reçu » round trip. `SetNull` for the same reason as the appointment above:
+        // a dépense deleted in la caisse clears the link and leaves the bon standing.
+        builder.HasOne<Expense>()
+            .WithMany()
+            .HasForeignKey(o => o.ExpenseId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.Property(o => o.Status)
             .IsRequired()
             .HasConversion<int>();

@@ -41,6 +41,7 @@ public class UpdateLabWorkOrderCommandHandler : IRequestHandler<UpdateLabWorkOrd
     private readonly ILabWorkOrderRepository _labWorkOrderRepository;
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly ISupplierRepository _supplierRepository;
+    private readonly IExpenseRepository _expenseRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
@@ -48,12 +49,14 @@ public class UpdateLabWorkOrderCommandHandler : IRequestHandler<UpdateLabWorkOrd
         ILabWorkOrderRepository labWorkOrderRepository,
         IAppointmentRepository appointmentRepository,
         ISupplierRepository supplierRepository,
+        IExpenseRepository expenseRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork)
     {
         _labWorkOrderRepository = labWorkOrderRepository;
         _appointmentRepository = appointmentRepository;
         _supplierRepository = supplierRepository;
+        _expenseRepository = expenseRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
@@ -99,6 +102,11 @@ public class UpdateLabWorkOrderCommandHandler : IRequestHandler<UpdateLabWorkOrd
                 string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
                 request.AppointmentId,
                 supplier.Value?.Id);
+
+            // The second door onto the caisse posting, and the one that is easy to miss: a bon routinely arrives
+            // before the laboratory's facture does, so it is received with no coût and edited to enter it after.
+            // Wired only to the status transition, that bon would owe a dépense with nothing left to post it.
+            await LabOrderCaisseExpense.PostIfDueAsync(_expenseRepository, order, clinic.Value, cancellationToken);
 
             await _labWorkOrderRepository.UpdateAsync(order, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

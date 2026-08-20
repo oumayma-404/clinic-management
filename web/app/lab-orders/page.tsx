@@ -264,8 +264,13 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
     try {
       setSaving(true)
       if (editingOrder) {
-        await labOrdersApi.update(editingOrder.id, common)
+        const updated = await labOrdersApi.update(editingOrder.id, common)
         toast.success("Bon de laboratoire mis à jour")
+        // A bon routinely arrives before the labo's facture does — received with no coût, then edited to enter
+        // it. That edit is what posts the dépense, so it is what has to say so.
+        if (!editingOrder.expenseId && updated.expenseId) {
+          toast.success(`Dépense enregistrée en caisse : ${formatCost(updated.cost)} — Laboratoire`)
+        }
       } else {
         await labOrdersApi.create({ patientId, ...common })
         toast.success("Bon de laboratoire créé")
@@ -591,8 +596,18 @@ export default function LabOrdersPage() {
     if (status === order.status) return
     try {
       setStatusUpdatingId(order.id)
-      await labOrdersApi.updateStatus(order.id, status)
+      const updated = await labOrdersApi.updateStatus(order.id, status)
       toast.success(`Statut mis à jour : ${statusLabel(status)}`)
+      // Receiving the work spends money, so the response says whether la caisse actually learned of it. A bon
+      // with no coût cannot be posted at all — silence there would read as « c'est fait », and the dépense would
+      // simply never be filed. `order.expenseId` guards the re-arrival: the lab is paid once, not once per trip.
+      if (status === "Received" && !order.expenseId) {
+        if (updated.expenseId) {
+          toast.success(`Dépense enregistrée en caisse : ${formatCost(updated.cost)} — Laboratoire`)
+        } else {
+          toast.warning("Aucun coût saisi sur ce bon — rien n'a été porté en caisse.")
+        }
+      }
       await loadOrders()
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Échec de la mise à jour du statut")

@@ -19,6 +19,7 @@ public class UpdateLabWorkOrderStatusCommandHandler : IRequestHandler<UpdateLabW
 {
     private readonly ILabWorkOrderRepository _labWorkOrderRepository;
     private readonly ISupplierRepository _supplierRepository;
+    private readonly IExpenseRepository _expenseRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<UpdateLabWorkOrderStatusCommandHandler> _logger;
@@ -26,12 +27,14 @@ public class UpdateLabWorkOrderStatusCommandHandler : IRequestHandler<UpdateLabW
     public UpdateLabWorkOrderStatusCommandHandler(
         ILabWorkOrderRepository labWorkOrderRepository,
         ISupplierRepository supplierRepository,
+        IExpenseRepository expenseRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<UpdateLabWorkOrderStatusCommandHandler> logger)
     {
         _labWorkOrderRepository = labWorkOrderRepository;
         _supplierRepository = supplierRepository;
+        _expenseRepository = expenseRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -53,6 +56,11 @@ public class UpdateLabWorkOrderStatusCommandHandler : IRequestHandler<UpdateLabW
                 return Result<LabWorkOrderDto>.Failure("Bon de laboratoire introuvable.");
 
             order.SetStatus(status);
+
+            // The work arriving is money leaving, so la caisse learns of it here rather than waiting for somebody
+            // to remember to file it. Both writes go in on the one SaveChangesAsync below — a bon must never be
+            // « Reçu » with its dépense missing.
+            await LabOrderCaisseExpense.PostIfDueAsync(_expenseRepository, order, clinic.Value, cancellationToken);
 
             await _labWorkOrderRepository.UpdateAsync(order, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

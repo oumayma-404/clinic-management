@@ -1390,6 +1390,11 @@ export interface LabWorkOrderDto {
   supplierName?: string | null;
   /** The laboratory's deliverable Tunisian E.164 number, or null — decides the row's « Relancer » action. */
   supplierPhoneE164?: string | null;
+  /**
+   * The caisse dépense this bon produced on arrival, or null when none was posted — because the bon is not in
+   * yet, or because it carries no coût. Read only to say which of the two happened.
+   */
+  expenseId?: string | null;
   workDescription: string;
   sentDate?: string | null;
   expectedDate?: string | null;
