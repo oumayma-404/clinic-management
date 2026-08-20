@@ -665,6 +665,54 @@ check(
   },
 );
 
+check(
+  "page-scroller-contains-its-absolutes",
+  "N10",
+  "`AppShell`'s `<main>` is `relative`, so the page scroller clips its own absolute children",
+  "`overflow-y-auto` does NOT clip an absolutely-positioned descendant whose containing block lies OUTSIDE " +
+    "the scroller — and Tailwind's `sr-only` sets `position: absolute`. With `<main>` left `position: static`, " +
+    "every `sr-only` on the page (the charts' « Comparé aux 7 jours précédents », their tabular-fallback " +
+    "notes) resolved against `<body>`, escaped the page scroller, and registered as DOCUMENT overflow. The " +
+    "document then grew past the shell's `h-dvh` and the WINDOW became a third scroller onto blank space: " +
+    "1168 px of it on the dashboard at 1440x900, and 2611 px at 390x844, where the header and the bottom bar " +
+    "scroll off the screen with it. There is nothing to see at the far end, `tsc` cannot see it, and the " +
+    "page's own scrollbar looks right the whole time — the only symptom is that scrolling does not stop when " +
+    "the content does. `relative` makes `<main>` the containing block, so its `overflow-y-auto` clips them. " +
+    "It is safe for the fixed overlays this shell hosts: `position: relative` creates no containing block for " +
+    "`position: fixed`, which is exactly why it is the right tool and `transform` (banned in the shell's own " +
+    "`animate-page-in` note, for that reason) is not.",
+  () => {
+    const file = ALL_FILES.find((f) => rel(f) === "components/app-shell.tsx");
+    // A moved shell must fail loudly rather than pass vacuously — a check that greps a file that is gone is a
+    // check that has stopped working.
+    if (!file) return [{ file: "components/app-shell.tsx", line: 0, text: "shell not found", full: "AppShell has moved — repoint this check at its new home" }];
+    const src = read(file);
+    // Skipping comments is not optional here: this file's own doc block writes `<main>` in prose, and that is
+    // the match a bare regex finds first.
+    const srcLines = src.split(/\r?\n/);
+    const srcComment = commentMask(srcLines);
+    const hitLine = srcLines.findIndex((line, n) => !srcComment[n] && /<main\b/.test(line));
+    if (hitLine === -1) return [{ file: rel(file), line: 0, text: "no <main>", full: "AppShell no longer renders <main> — repoint this check" }];
+    const lineStart = srcLines.slice(0, hitLine).reduce((n, l) => n + l.length + 1, 0);
+    // Walk to the end of the opening tag, brace-aware, so the whole `className={cn(…)}` call is included.
+    let i = lineStart + srcLines[hitLine].indexOf("<main") + "<main".length;
+    let depth = 0;
+    while (i < src.length) {
+      const c = src[i];
+      if (c === "{") depth++;
+      else if (c === "}") depth--;
+      else if (c === ">" && depth === 0) break;
+      i++;
+    }
+    const tagLines = src.slice(lineStart, i).split(/\r?\n/);
+    const inComment = commentMask(tagLines);
+    // A BARE `relative`, never a prefixed one: the containing block has to exist at every width.
+    const declared = tagLines.some((line, n) => !inComment[n] && /(?:^|["'`\s])relative(?:["'`\s]|$)/.test(line));
+    if (declared) return [];
+    return [{ file: rel(file), line: hitLine + 1, text: "<main> is not `relative`", full: "add `relative` to the always-applied classes on <main>" }];
+  },
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

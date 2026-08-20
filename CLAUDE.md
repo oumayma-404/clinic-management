@@ -190,6 +190,11 @@ touching the area.
   name — a `Contains("déjà facturée")` once made rewording a sentence change behaviour.
 - **`IFileStorage.UploadAsync` requires a `Guid clinicId`**, so an unprefixed key is unwritable; but
   `DownloadAsync`/`DeleteAsync` take the stored key **verbatim**, because pre-US-5 rows hold flat keys.
+- **A scroll container must be `relative`, or it does not clip its own `absolute` children.** Tailwind's
+  `sr-only` *is* `position: absolute`, so with `AppShell`'s `<main>` left static every screen-reader-only line
+  below the fold resolved against `<body>`, escaped the page scroller and made the *document* taller than
+  `h-dvh` — a third scrollbar onto blank space (1168 px on the dashboard at 1440×900, 2611 px at 390×844).
+  `check:responsive`'s `page-scroller-contains-its-absolutes` holds it.
 - **Before any frontend code, read [`.claude/rules/frontend-web.md`](.claude/rules/frontend-web.md).** `web/`
   has no test runner and `npm run lint` cannot run (eslint is scripted but not installed), so the gate is
   `npm run check:responsive` + `npx tsc --noEmit` + `npm run build`, then an eye pass at

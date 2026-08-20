@@ -123,7 +123,9 @@ export function AppShell({
         <main
           id="contenu-principal"
           className={cn(
-            "animate-page-in flex-1",
+            // ⚠️ `relative` is load-bearing, not decoration: `overflow-y-auto` does NOT clip an `absolute`
+            // descendant whose containing block is outside it, and Tailwind's `sr-only` IS `absolute`.
+            "animate-page-in relative flex-1",
             mainClassName ?? "overflow-y-auto",
             /*
              * ⚠️ **No `pb-20` runway any more, because nothing floats over `<main>` at any width.** It was
