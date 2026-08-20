@@ -355,11 +355,17 @@ const CLOSURE_STEP_ORDER: VisitClosureStep[] = ["Presence", "Fiche", "Billing"]
  * The row's left stripe — its next step's hue, as a raw colour for an inline `backgroundColor`.
  *
  * <p>Interpolated rather than written out three times because a `style` value is not a class: Tailwind's
- * source scan is irrelevant here, so deriving it is what keeps a step's stripe and its badge from disagreeing.
- * `reminder-log-table.tsx`'s `STRIPE` is the same shape.</p>
+ * source scan is irrelevant here, so deriving it is what keeps a step's stripe and its badge from disagreeing.</p>
+ *
+ * <p>⚠️ <b>`--zone-*`, never `--color-zone-*`.</b> The `--color-` aliases live in `globals.css`'s
+ * **`@theme inline`** block, and `inline` means Tailwind substitutes the value into the utilities it generates
+ * and never emits the property itself — so `var(--color-zone-daily)` resolves to nothing at runtime and the
+ * stripe paints **transparent**, silently. The raw token is declared on `:root` and again under `.dark`, so it
+ * is also the theme-aware one. (`reminder-log-table.tsx`'s `STRIPE` has the same defect with
+ * `var(--color-success)`; this was copied from it before that was known.)</p>
  */
 function stripeFor(visit: VisitToCloseDto): string {
-  return `var(--color-zone-${CLOSURE_STEPS[visit.nextStep].zone})`
+  return `var(--zone-${CLOSURE_STEPS[visit.nextStep].zone})`
 }
 
 /**
