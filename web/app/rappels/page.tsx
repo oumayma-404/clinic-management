@@ -1,22 +1,30 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { SlidersHorizontal } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { SlidersHorizontal, X } from "lucide-react"
 
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PageHeader } from "@/components/ui/page-header"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
-import { KpiGrid } from "@/components/dashboard/kpi-grid"
+import { STATUS_TONE_CLASS } from "@/components/ui/status-tone"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import {
+  DELIVERY_LABEL_PLURAL,
+  DELIVERY_TONE,
+  asStatusFilter,
+  type StatusFilter,
+} from "@/components/rappels/delivery-tone"
+import { ReminderCounters } from "@/components/rappels/reminder-counters"
 import { ReminderLogTable } from "@/components/rappels/reminder-log-table"
 import { MessagingAllowanceCard } from "@/components/rappels/messaging-allowance-card"
 import { WhatsAppConnectCard } from "@/components/rappels/whatsapp-connect-card"
 import { MessagingAllowanceHistory } from "@/components/rappels/messaging-allowance-history"
 import { ReminderSettings } from "@/components/reminder-settings"
-import { reminderSettingsApi, type ReminderDeliveryStatus, type ReminderLogDto } from "@/lib/api/reminder-settings"
+import { reminderSettingsApi, type ReminderLogDto } from "@/lib/api/reminder-settings"
 import {
   reminderAllowanceApi,
   type ReminderAllowanceDto,
@@ -33,7 +41,6 @@ import { cn } from "@/lib/utils"
 /** How far back the log looks by default. Wide enough that last week's failure is on the first screen. */
 const DEFAULT_WINDOW_DAYS = 14
 
-type StatusFilter = ReminderDeliveryStatus | "all"
 type ChannelFilter = "all" | "SMS" | "WhatsApp"
 
 /**
@@ -42,6 +49,18 @@ type ChannelFilter = "all" | "SMS" | "WhatsApp"
  * <p>The configuration used to be a card at the bottom of « Paramètres », with a twenty-row status list under it.
  * That got the priority backwards: credentials are set roughly once, whereas « est-ce que ce patient a bien reçu
  * son SMS ? » is asked every day. Here the log <b>is</b> the page and the configuration is a button.</p>
+ *
+ * <p><b>The order of the page is the whole design</b>, and it was wrong twice over before this pass. Three cards —
+ * the WhatsApp connection, the forfait figures and the monthly history — sat between the filters and the log, so
+ * the thing the screen exists for started at the <i>seventh</i> block. And the four counters were flat white cells
+ * restating the numbers that the five status chips directly beneath them <i>also</i> carried. Now:</p>
+ * <ol>
+ *   <li>the counters carry the colour and <b>are</b> the filter, so the chips are gone;</li>
+ *   <li>the forfait keeps its place at the top as one line with a meter — « combien me reste-t-il ? » is the
+ *       question a secretary arrives with — while the connection and the history move down;</li>
+ *   <li>the log is the fifth block, above the fold on a desk machine;</li>
+ *   <li>« Configuration » closes the page, on the quiet end of the palette, because it is read rarely.</li>
+ * </ol>
  *
  * <p>Reading the log is open to all staff — it is the secretary fielding « je n'ai rien reçu » who needs it, and a
  * row carries a patient name and a phone masked to two digits. <b>Writing</b> the channel settings stays admin.</p>
@@ -111,19 +130,19 @@ export default function RappelsPage() {
    * `window.location.search` + `replaceState` rather than `useSearchParams` — the repo's idiom, and it keeps this
    * page out of a Suspense boundary. The param is consumed and cleared so a refresh does not re-apply a filter the
    * user has since cleared. Tolerant, like every other deep-link here: an unknown value leaves the filter alone
-   * rather than refusing.
+   * rather than refusing — which is what `asStatusFilter` returning `null` means.
    */
   useEffect(() => {
-    const incoming = new URLSearchParams(window.location.search).get("status")
-    if (incoming === "sent" || incoming === "pending" || incoming === "failed" || incoming === "blocked") {
+    const incoming = asStatusFilter(new URLSearchParams(window.location.search).get("status"))
+    if (incoming) {
       setStatus(incoming)
       window.history.replaceState({}, "", "/rappels")
     }
   }, [])
 
   /**
-   * The forfait section's read. Both endpoints together, because the card and the history are one section on screen
-   * and a half-loaded section is worse than a retry.
+   * The forfait section's read. Both endpoints together, because the strip and the history are one subject on
+   * screen — even now that they sit at opposite ends of the page — and a half-loaded pair is worse than a retry.
    */
   const loadAllowance = useCallback(async () => {
     setAllowanceLoading(true)
@@ -203,26 +222,6 @@ export default function RappelsPage() {
   const looksUnconfigured =
     data !== null && data.sentToday === 0 && data.pending === 0 && data.page.totalCount === 0 && !isFiltered
 
-  const counters = useMemo(
-    () => [
-      { key: "sent", label: "Envoyés aujourd'hui", value: data?.sentToday, tone: "success" as const },
-      { key: "pending", label: "En attente", value: data?.pending, tone: "warning" as const },
-      /*
-       * L3a — « Bloqués » is the counter this page was missing, and the reason a whole install's queue could stop
-       * sending with nothing on any screen to say so. A blocked row is not waiting its turn: it needs a setting
-       * changed, and the reason is printed on the row itself.
-       *
-       * It is a counter rather than a banner because it is a figure of the same kind as the other three, and
-       * because zero is the normal reading — a banner that is absent 99 % of the time is a banner nobody learns
-       * to look for.
-       */
-      { key: "blocked", label: "Bloqués", value: data?.blocked, tone: "blocked" as const },
-      // Several days, not today: a send that failed at 23:00 must still be counted the next morning.
-      { key: "failed", label: "Échecs (7 j)", value: data?.failedRecent, tone: "destructive" as const },
-    ],
-    [data],
-  )
-
   /*
    * AC-4.9 — « en attente de forfait », counted apart from the undifferentiated « Bloqués » it is a subset of.
    *
@@ -236,64 +235,33 @@ export default function RappelsPage() {
   return (
     <ClinicGuard>
       <AppShell contentClassName="flex flex-col gap-6">
-
-        {/* PageHeader: mono zone crumb, one title size, a subtitle carrying a FACT, actions right. */}
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground">
-              Opérations
-            </p>
-            <h1 className="mt-1 text-title font-[650] leading-tight tracking-[-0.022em]">Rappels</h1>
-            <p className="mt-1 max-w-[56ch] text-sm text-muted-foreground">
-              {data
-                ? `${data.page.totalCount.toLocaleString("fr-TN")} message${data.page.totalCount === 1 ? "" : "s"} sur la période · SMS et WhatsApp`
-                : "Messages envoyés aux patients — SMS et WhatsApp."}
-            </p>
-          </div>
-          {isAdmin && (
-            <Button variant="outline" className="gap-2" onClick={() => setConfigOpen(true)}>
-              <SlidersHorizontal className="h-4 w-4" />
-              Configurer les canaux
-            </Button>
-          )}
-        </div>
-
         {/*
-          Counters on the shared `KpiGrid` surface — the same object « Factures » and la caisse draw their
-          figures on. This grid was hand-rolled from the identical `gap-px bg-border` idiom but WITHOUT
-          `shadow-sm`, which is how the widest surface on the page ended up flatter than the cards below it;
-          and its value was `font-[650] tracking-[-0.01em]` where la caisse's was `font-semibold
-          tracking-tight` — two hand-tuned near-misses for the same treatment.
+          The shared `PageHeader`, which this page used to hand-roll — and lost three things by doing so: the
+          zone's 44 px icon chip, the 128 px band that carries the hue behind the title, and the `font-semibold`
+          every other page's title uses (this one had drifted to `font-[650]`). Its eyebrow is the zone's own
+          label from `lib/zones.ts`, so it now reads « Gestion » — the rail's group heading for this route —
+          rather than the « Opérations » that was typed here and matched nothing.
         */}
-        {/* Four columns now, and `sm:grid-cols-2` before them: four figures at 320 px would be four 80 px
-            columns, and « Envoyés aujourd'hui » does not fit in one. Two-up on a phone, four-up from `lg:`. */}
-        <KpiGrid columns={4} className="sm:grid-cols-2 lg:grid-cols-4">
-          {counters.map((c) => (
-            <div key={c.key} className="flex flex-col gap-0.5 bg-card p-4">
-              <span className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                <i aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[c.tone])} />
-                {c.label}
-              </span>
-              {c.value === undefined ? (
-                <span className="h-7 w-12 animate-pulse rounded bg-muted" aria-label="Chargement" />
-              ) : (
-                <span
-                  className={cn(
-                    "text-2xl font-semibold tabular-nums tracking-tight",
-                    // Only the two actionable counters can colour up, and only when non-zero: a red or amber
-                    // zero would raise an alarm about nothing. « Bloqués » is amber, not red — nothing failed,
-                    // a setting is missing — but it is emphasised, because a non-zero here means messages are
-                    // not going out at all.
-                    c.tone === "destructive" && c.value > 0 && "text-destructive",
-                    c.tone === "blocked" && c.value > 0 && "text-warning-ink",
-                  )}
-                >
-                  {c.value.toLocaleString("fr-TN")}
-                </span>
-              )}
-            </div>
-          ))}
-        </KpiGrid>
+        <PageHeader
+          title="Rappels"
+          subtitle={
+            data
+              ? `${data.page.totalCount.toLocaleString("fr-TN")} message${data.page.totalCount === 1 ? "" : "s"} sur la période · SMS et WhatsApp`
+              : "Messages envoyés aux patients — SMS et WhatsApp."
+          }
+          actions={
+            isAdmin && (
+              <Button variant="outline" className="gap-2" onClick={() => setConfigOpen(true)}>
+                <SlidersHorizontal className="h-4 w-4" />
+                Configurer les canaux
+              </Button>
+            )
+          }
+        />
+
+        {/* The counters, which are also the filter — see `reminder-counters.tsx` for why the status chips that
+            used to sit under them are gone. */}
+        <ReminderCounters data={data} status={status} onPick={setFilter(setStatus)} />
 
         {heldByAllowance > 0 && (
           <p role="status" className="-mt-2 text-sm text-warning-ink">
@@ -311,31 +279,30 @@ export default function RappelsPage() {
           </p>
         )}
 
-        {/* ListToolbar: only what NARROWS the list. Counted chips, so an active filter is visible as a
-            state rather than having to be read out of a changing button label. */}
-        <div className="flex flex-wrap items-center gap-2 border-b pb-3">
-          {/* `touch-target` gives each chip a 44px hit area on a finger without repainting it — these are ~28px
-              tall, and this page is read on the tablet at the desk (AC-10). */}
-          {STATUS_CHIPS.map((chip) => (
-            <button
-              key={chip.value}
-              type="button"
-              aria-pressed={status === chip.value}
-              onClick={() => setFilter(setStatus)(chip.value)}
-              className={cn(
-                "touch-target inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors",
-                status === chip.value
-                  ? "border-primary bg-accent font-semibold text-accent-foreground"
-                  : "border-border text-muted-foreground hover:bg-accent/50",
-              )}
-            >
-              {chip.label}
-              {chip.count(data) !== undefined && (
-                <span className="font-mono text-2xs opacity-75 tabular-nums">{chip.count(data)}</span>
-              )}
-            </button>
-          ))}
+        {/*
+          US-2 — the forfait, still above the log because « combien me reste-t-il ? » is the question a secretary
+          arrives with. It is one line with a meter now instead of three big figures in a card; the connection
+          (US-1) and the monthly history moved to « Configuration » at the foot of the page, which is what let the
+          log come up.
 
+          ⚠️ Rendered only where the deployment answered something other than 404 (AC-1.6, EC-16): on a clinic's own
+          PC and on the Auth0 deployment there is no strip, no button and no message at all — absent, not
+          present-and-refusing. `available === null` still renders, so it shows its own skeleton on first paint
+          instead of appearing a beat late.
+        */}
+        {available !== false && (
+          <MessagingAllowanceCard
+            data={allowance}
+            loading={allowanceLoading}
+            error={allowanceError}
+            onRetry={() => void loadAllowance()}
+          />
+        )}
+
+        {/* ListToolbar: only what NARROWS the list, which is now the channel and the period. The status chips
+            moved into the counters above; what remains of them here is the one pill that says a status filter is
+            on and takes it off again. */}
+        <div className="flex flex-wrap items-center gap-2 border-b pb-3">
           {/* The shared primitives, not a raw `<select>` and two raw `<input type="date">`. These were the only
               controls in the app rendering with browser-default chrome — a native dropdown arrow and a native
               date widget sitting beside shadcn fields — and they carried neither the focus ring nor the 44px
@@ -374,39 +341,30 @@ export default function RappelsPage() {
               className="h-8 w-auto max-w-full tabular-nums"
             />
           </span>
+
+          {/*
+            The active status filter, in its own tone, with the only way to clear it. The pressed tile above says
+            the same thing — but a counter says « voici combien », and this says « et c'est ce que vous regardez
+            en ce moment », which is the part that has to be undoable from where the list is.
+
+            `aria-label` overrides the visible text on purpose: the label alone would announce « Bloqués » on a
+            control whose job is to remove that filter.
+          */}
+          {status !== "all" && (
+            <button
+              type="button"
+              aria-label={`Retirer le filtre « ${DELIVERY_LABEL_PLURAL[status]} »`}
+              onClick={() => setFilter(setStatus)("all")}
+              className={cn(
+                "touch-target inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-medium",
+                STATUS_TONE_CLASS[DELIVERY_TONE[status]],
+              )}
+            >
+              {DELIVERY_LABEL_PLURAL[status]}
+              <X aria-hidden="true" className="size-3.5" />
+            </button>
+          )}
         </div>
-
-        {/*
-          US-2 — the forfait section, above the log because « combien me reste-t-il ? » is the question a secretary
-          arrives with, and the log below answers « et qui n'a pas été prévenu ? ».
-
-          ⚠️ Rendered only where the deployment answered something other than 404 (AC-1.6, EC-16): on a clinic's own
-          PC and on the Auth0 deployment there is no card, no button and no message at all — absent, not
-          present-and-refusing. `available === null` still renders, so the section shows its own skeleton on first
-          paint instead of appearing a beat late.
-        */}
-        {available !== false && (
-          <div className="flex flex-col gap-4">
-            {/*
-              US-1 — the connection, above the figures: « puis-je envoyer ? » comes before « combien m'en
-              reste-t-il ? », and a cabinet that has never connected has no use for a forfait it cannot spend.
-              It renders its own five states in words and offers the button only to an admin (AC-1.1/1.4).
-            */}
-            <WhatsAppConnectCard data={allowance} isAdmin={isAdmin} onConnected={() => void loadAllowance()} />
-            <MessagingAllowanceCard
-              data={allowance}
-              loading={allowanceLoading}
-              error={allowanceError}
-              onRetry={() => void loadAllowance()}
-            />
-            <MessagingAllowanceHistory
-              data={allowanceHistory}
-              loading={allowanceLoading}
-              error={allowanceError}
-              onRetry={() => void loadAllowance()}
-            />
-          </div>
-        )}
 
         <ReminderLogTable
           rows={rows}
@@ -420,6 +378,56 @@ export default function RappelsPage() {
 
         {data && data.page.totalCount > 0 && (
           <DataTablePagination page={data.page} onPageChange={setPage} onPageSizeChange={setPageSize} />
+        )}
+
+        {/*
+          « Configuration » — the two surfaces that are set up once and then consulted rarely, which is exactly
+          why they are last. They were above the log, where they pushed it off the first screen every day for the
+          sake of a question asked twice a year.
+
+          The eyebrow is deliberately `text-muted-foreground` and **not** a zone hue: `lib/zones.ts` lists the
+          five places a zone colour may appear and a section heading is not one of them. Nothing is lost — the
+          Configuration zone's own hue is near-neutral by design (chroma 0.02), so this is the colour it would
+          have been anyway.
+
+          Gated as a whole on `available !== false`: with no vendor messaging here there is nothing inside it, and
+          a heading over an empty grid reads as a failure to load. The « Configurer les canaux » button lives in
+          the page header at every width, so nothing is out of reach when this section is absent.
+        */}
+        {available !== false && (
+          <section aria-labelledby="rappels-configuration" className="flex flex-col gap-4 border-t pt-6">
+            <div>
+              <p className="flex items-center gap-1.5 font-mono text-2xs font-medium uppercase tracking-[0.1em] text-muted-foreground">
+                <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
+                Configuration
+              </p>
+              <h2 id="rappels-configuration" className="mt-1 text-base font-semibold">
+                Canaux et forfait
+              </h2>
+              <p className="mt-0.5 max-w-[56ch] text-sm text-muted-foreground">
+                Réglé une fois, consulté rarement — d&apos;où sa place sous le journal.
+              </p>
+            </div>
+
+            {/*
+              `items-start` matters: the connection card is three lines and the history is a twelve-row table, so
+              stretching them to a common height would leave the short one with a lake of empty card under it.
+            */}
+            <div className="grid items-start gap-4 lg:grid-cols-2">
+              {/*
+                US-1 — the connection. It renders its own five states in words and offers the button only to an
+                admin (AC-1.1/1.4), and returns nothing at all while `allowance` is still null, which is why it
+                needs no skeleton of its own here.
+              */}
+              <WhatsAppConnectCard data={allowance} isAdmin={isAdmin} onConnected={() => void loadAllowance()} />
+              <MessagingAllowanceHistory
+                data={allowanceHistory}
+                loading={allowanceLoading}
+                error={allowanceError}
+                onRetry={() => void loadAllowance()}
+              />
+            </div>
+          </section>
         )}
 
         {/*
@@ -453,36 +461,6 @@ export default function RappelsPage() {
     </ClinicGuard>
   )
 }
-
-const TONE_DOT = {
-  success: "bg-success",
-  warning: "bg-warning",
-  destructive: "bg-destructive",
-  // Same amber as « En attente » — a blocked row has not failed, it is waiting on a setting. The label and the
-  // reason on each row carry the distinction; a fourth hue would imply a fourth kind of severity.
-  blocked: "bg-warning",
-} as const
-
-/**
- * The status chips carry their counts, so the cost of a filter is visible before it is applied.
- *
- * ⚠️ The counts come from the **clinic-wide** counters, not from the rows on screen — deriving them from
- * `page.items` would render « les échecs parmi ces 25 ». « Tous » deliberately shows none: the total is already in
- * the page subtitle, and repeating it on a chip that removes filters would read as a fourth category.
- */
-const STATUS_CHIPS: {
-  value: StatusFilter
-  label: string
-  count: (d: ReminderLogDto | null) => number | undefined
-}[] = [
-  { value: "all", label: "Tous", count: () => undefined },
-  { value: "sent", label: "Envoyés", count: (d) => d?.sentToday },
-  { value: "pending", label: "En attente", count: (d) => d?.pending },
-  // L3a — the filter that turns the counter into a worklist: « 12 bloqués » is only useful if one tap lists
-  // which twelve, with the reason on each row.
-  { value: "blocked", label: "Bloqués", count: (d) => d?.blocked },
-  { value: "failed", label: "Échecs", count: (d) => d?.failedRecent },
-]
 
 /** `yyyy-MM-dd` n days back, through local date parts — never `toISOString`, which converts to UTC first. */
 function isoDaysAgo(days: number): string {

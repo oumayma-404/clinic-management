@@ -6,10 +6,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { BellOff, SearchX, Send } from "lucide-react"
+import { STATUS_TONE_CLASS, STATUS_TONE_INK, STATUS_TONE_RAIL } from "@/components/ui/status-tone"
 import { cn } from "@/lib/utils"
 import { formatDateTime } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import type { ReminderDeliveryStatus, ReminderStatusDto } from "@/lib/api/reminder-settings"
+import { DELIVERY_LABEL, DELIVERY_TONE } from "./delivery-tone"
 
 /**
  * The delivery log — who was sent what, when, and why it failed.
@@ -26,9 +28,10 @@ import type { ReminderDeliveryStatus, ReminderStatusDto } from "@/lib/api/remind
  *       « Envoyé » green, leaving the reader decoding two different meanings from one hue.</li>
  * </ul>
  *
- * <p>Every pill goes through the semantic theme tokens (<code>bg-success-wash text-success</code> …) rather than
- * hardcoded <code>bg-green-100 text-green-800</code> pairs, so dark mode needs no <code>dark:</code> variant and
- * the palette cannot drift from the rest of the app.</p>
+ * <p>Every colour here comes from <code>delivery-tone.ts</code> → <code>ui/status-tone.ts</code>, the app's one
+ * status palette. This file used to carry <b>three parallel maps of its own</b> — classes, stripe colours and
+ * reason colours — which is three chances for « bloqué » to disagree with itself, and a fourth map on the page
+ * above painted the counters' dots. There is now one map, keyed on the tone.</p>
  */
 interface ReminderLogTableProps {
   rows: ReminderStatusDto[]
@@ -138,11 +141,11 @@ export function ReminderLogTable({
         items={rows}
         getKey={(r) => r.id}
         title={(r) => r.patientName ?? "Patient inconnu"}
-        accent={(r) => STRIPE[r.status]}
+        accent={(r) => STATUS_TONE_RAIL[DELIVERY_TONE[r.status]]}
         status={(r) => (
           <>
-            <Badge variant="secondary" className={STATUS_CLASS[r.status]}>
-              {STATUS_LABEL[r.status]}
+            <Badge variant="secondary" className={STATUS_TONE_CLASS[DELIVERY_TONE[r.status]]}>
+              {DELIVERY_LABEL[r.status]}
             </Badge>
             {holdKindLabel(r.blockReason) && (
               <Badge variant="secondary" className="bg-muted font-mono text-2xs text-muted-foreground">
@@ -157,7 +160,7 @@ export function ReminderLogTable({
           </>
         )}
         subtitle={(r) =>
-          r.failureReason ? <span className={REASON_CLASS[r.status]}>{r.failureReason}</span> : null
+          r.failureReason ? <span className={reasonClass(r.status)}>{r.failureReason}</span> : null
         }
         fields={(r) => [
           { label: "Canal", value: <span className="font-mono text-2xs">{r.channel}</span> },
@@ -189,7 +192,7 @@ export function ReminderLogTable({
                 <span
                   aria-hidden="true"
                   className="absolute inset-y-0 left-0 w-[2px]"
-                  style={{ backgroundColor: STRIPE[row.status] }}
+                  style={{ backgroundColor: STATUS_TONE_RAIL[DELIVERY_TONE[row.status]] }}
                 />
                 <span className="font-medium">{row.patientName ?? "Patient inconnu"}</span>
                 {/*
@@ -219,8 +222,8 @@ export function ReminderLogTable({
               </TableCell>
               <TableCell>
                 <span className="flex flex-wrap items-center gap-2">
-                  <Badge variant="secondary" className={STATUS_CLASS[row.status]}>
-                    {STATUS_LABEL[row.status]}
+                  <Badge variant="secondary" className={STATUS_TONE_CLASS[DELIVERY_TONE[row.status]]}>
+                    {DELIVERY_LABEL[row.status]}
                   </Badge>
                   {holdKindLabel(row.blockReason) && (
                     <Badge variant="secondary" className="bg-muted font-mono text-2xs text-muted-foreground">
@@ -236,9 +239,20 @@ export function ReminderLogTable({
                 {/*
                   The reason lives IN the row, not in a tooltip. It is the only thing that makes a failure
                   actionable, and a tooltip is unreachable on the tablet a dentist actually holds.
+
+                  ⚠️ `whitespace-normal` is load-bearing, and its absence was silently defeating the sentence
+                  above. `ui/table.tsx` puts `whitespace-nowrap` on **every** `TableCell` — right for a date or an
+                  amount — and this paragraph inherited it, so `max-w-[38ch]` capped the box at 302 px while the
+                  text refused to wrap: measured 425 px of sentence rendered on one 302 px line, cut mid-word with
+                  no ellipsis and no way to read the rest. « Forfait de rappels WhatsApp introuvable — envoi en
+                  attente du rétablissement » arrived as « …envoi en attente du rétab ». Fixed here rather than in
+                  the primitive: `nowrap` is the right default for the twenty other tables in the app, and this is
+                  the one cell holding prose.
                 */}
                 {row.failureReason && (
-                  <p className={cn("mt-1 max-w-[38ch] text-xs", REASON_CLASS[row.status])}>{row.failureReason}</p>
+                  <p className={cn("mt-1 max-w-[38ch] whitespace-normal text-xs", reasonClass(row.status))}>
+                    {row.failureReason}
+                  </p>
                 )}
               </TableCell>
             </TableRow>
@@ -252,47 +266,22 @@ export function ReminderLogTable({
 /** « Rappels » lives in the Gestion zone; its empty states wear the hue the rail and the page eyebrow already do. */
 const OPS_CHIP = zoneChipClass(ZONES.ops)
 
-const STATUS_LABEL: Record<ReminderDeliveryStatus, string> = {
-  sent: "Envoyé",
-  pending: "En attente",
-  failed: "Échec",
-  // « Bloqué » and not « En attente »: the row is not queued behind others, it is not going anywhere until
-  // somebody changes a setting. The reason beside it says which one.
-  blocked: "Bloqué",
-}
-
-/**
- * Semantic theme tokens, never hardcoded Tailwind colour pairs — dark mode follows with no `dark:` variant.
- *
- * ⚠️ `pending` is `text-warning-ink`, not `text-warning`. `--warning` sits at L 0.62, which measures around
- * 3.5:1 against its own wash — under the floor for badge-sized text, and this pill appears on every queued row.
- * `--warning-ink` is the darkened step added for exactly this pairing (`ui/status-tone.ts` carries the same note);
- * `--success` and `--destructive` clear it at their normal step, which is why only the amber differs.
- */
-const STATUS_CLASS: Record<ReminderDeliveryStatus, string> = {
-  sent: "bg-success-wash text-success",
-  pending: "bg-warning-wash text-warning-ink",
-  failed: "bg-destructive-wash text-destructive",
-  // Amber like `pending`, because a blocked row is not a delivery failure — nothing was attempted and the
-  // message will still go out once the channel works. It is « à régler », not « perdu », and painting it red
-  // beside real failures would bury the ones that need a phone call.
-  blocked: "bg-warning-wash text-warning-ink",
-}
-
-/**
- * The status stripe, as a CSS colour rather than a Tailwind class.
- *
- * It has two consumers now — the table row's 2px rule and the card's accent bar — and the card list paints its
- * accent through `style`, since a card's accent can also be a per-row hex from the database. Keeping one map of
- * colours and letting both read it beats a class map plus a parallel colour map that can disagree about what
- * « failed » looks like.
- */
 /**
  * The tone of the row's reason line. It follows the **status**, not the mere presence of a reason: a blocked
  * row's reason is « le canal SMS n'est pas configuré », which is an instruction, not an incident. Rendering it in
  * the same red as a real delivery failure is what would make a screen full of misconfiguration look like a screen
  * full of patients who were never reached.
+ *
+ * <p>⚠️ A `sent` or `pending` row's reason stays **muted** rather than taking its tone's ink. On those two rows a
+ * reason is a note about something already handled — a retry that succeeded — and coloured prose in a table cell
+ * reads as a link. Only the two statuses that ask for something wear their colour here.</p>
  */
+function reasonClass(status: ReminderDeliveryStatus): string {
+  return status === "blocked" || status === "failed"
+    ? STATUS_TONE_INK[DELIVERY_TONE[status]]
+    : "text-muted-foreground"
+}
+
 /**
  * AC-4.9 — **what kind of hold this is, read off the machine-readable reason** rather than off the French sentence
  * beside it.
@@ -323,30 +312,4 @@ function holdKindLabel(blockReason: string | null): string | null {
     default:
       return null
   }
-}
-
-const REASON_CLASS: Record<ReminderDeliveryStatus, string> = {
-  sent: "text-muted-foreground",
-  pending: "text-muted-foreground",
-  failed: "text-destructive",
-  blocked: "text-warning-ink",
-}
-
-/**
- * The row's status stripe, as a raw colour for an inline `backgroundColor`.
- *
- * ⚠️ **`--success`, never `--color-success`.** The `--color-` aliases are `@theme inline` entries, and Tailwind v4
- * emits such a variable to `:root` only when it judges it **used** — so which ones exist at runtime is a property
- * of the current build, not of the stylesheet. Measured in the browser: `--color-zone-clinical` was **absent**
- * while `--color-zone-daily` and `--color-zone-money` resolved. A `var(--color-…)` in an inline `style` is
- * therefore a coin flip that re-flips whenever utility usage changes, and it paints **transparent** when it loses
- * — silently, because an unresolvable custom property is not an error. The raw tokens are declared
- * unconditionally on `:root` and again under `.dark`, so they always resolve *and* follow the theme. Utilities are
- * unaffected: only an inline style needs a property that exists at runtime.
- */
-const STRIPE: Record<ReminderDeliveryStatus, string> = {
-  sent: "var(--success)",
-  pending: "var(--warning)",
-  failed: "var(--destructive)",
-  blocked: "var(--warning)",
 }
