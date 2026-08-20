@@ -386,7 +386,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
               >
                 <Command>
                   <CommandInput
-                    placeholder="Rechercher ou saisir…"
+                    placeholder="Rechercher ou créer…"
                     value={categoryQuery}
                     onValueChange={setCategoryQuery}
                   />
@@ -454,7 +454,8 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
               </PopoverContent>
             </Popover>
             <p className="text-xs text-muted-foreground">
-              Regroupe l&apos;acte dans le catalogue et dans les listes de sélection.
+              Choisissez une catégorie ou saisissez-en une nouvelle — elle regroupe l&apos;acte dans le
+              catalogue et dans les listes de sélection.
             </p>
           </div>
 

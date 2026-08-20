@@ -95,7 +95,13 @@ export function CategoryCombobox({
         style={{ width: "var(--radix-popover-trigger-width)" }}
       >
         <Command>
-          <CommandInput placeholder="Rechercher ou saisir…" value={query} onValueChange={setQuery} />
+          {/* « ou créer », not « ou saisir » — the create row is the whole point of this component and nothing
+              said it existed until you guessed you could type. Kept short so it survives a 320 px popover. */}
+          <CommandInput
+            placeholder="Rechercher ou créer…"
+            value={query}
+            onValueChange={setQuery}
+          />
           <CommandList>
             {/* No CommandEmpty: with a query typed there is always the « Utiliser » row below, and with none
                 there is always the clear row — so the list is never actually empty, and « Aucun résultat »
