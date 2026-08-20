@@ -4,11 +4,16 @@ import type { VisitToCloseDto } from "@/lib/api/types"
 /**
  * « À clôturer », cut into the journées the séances happened on.
  *
- * <p><b>Why the list needed this at all.</b> The worklist is ordered oldest-first and every row carries a full
- * `JJ/MM/AAAA HH:MM`, so a week of visits reads as one column of near-identical dates with nothing to catch the
- * eye. « Aujourd'hui / Hier / mercredi 12 août » is the prise a reader actually navigates by — you remember a
+ * <p><b>Why the list needed this at all.</b> The worklist is ordered most-recent-first and every row carries a
+ * full `JJ/MM/AAAA HH:MM`, so a week of visits reads as one column of near-identical dates with nothing to catch
+ * the eye. « Aujourd'hui / Hier / mercredi 12 août » is the prise a reader actually navigates by — you remember a
  * *day*, not a timestamp — and it is what makes « celle-là traîne depuis quatre jours » visible without adding a
  * second badge to every row.</p>
+ *
+ * <p><b>`daysAgo` is what the sort stopped carrying.</b> While the list opened on the oldest séance, its age was
+ * the order itself; opening on today puts the stalest work at the bottom, so the group states its own age instead.
+ * It is deliberately `null` inside two days: the heading already says « Aujourd'hui » / « Hier », and an alarm
+ * that is always on is one nobody reads.</p>
  *
  * <p>⚠️ <b>The day is the workstation's, deliberately, and this is the one place that is the right call.</b> The
  * standing rule in this product is that a clinic day is a fact about Tunis (`ClinicClock` server-side,
@@ -22,6 +27,8 @@ export interface VisitClosureDayGroup {
   key: string
   /** « Aujourd'hui », « Hier », else « mercredi 12 août ». */
   label: string
+  /** Whole days back, from 2 — `null` for today, yesterday and an unparseable instant. See the note above. */
+  daysAgo: number | null
   visits: VisitToCloseDto[]
 }
 
@@ -40,10 +47,28 @@ export function visitClosureDayGroups(visits: VisitToCloseDto[]): VisitClosureDa
       continue
     }
 
-    groups.push({ key, label: dayLabel(key, date), visits: [visit] })
+    groups.push({ key, label: dayLabel(key, date), daysAgo: daysAgo(key), visits: [visit] })
   }
 
   return groups
+}
+
+/**
+ * Whole days between `key` and today, from 2 up — `null` below that and for an unknown date.
+ *
+ * <p>Counted over the two **day keys**, never over the instants: a séance at 18:00 the day before yesterday is
+ * « il y a 2 jours » whatever hour it is now, and subtracting timestamps would call it 1 all morning.</p>
+ */
+function daysAgo(key: string): number | null {
+  if (key === "") return null
+
+  const [y, m, d] = key.split("-").map(Number)
+  const then = new Date(y, m - 1, d)
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const days = Math.round((today.getTime() - then.getTime()) / 86_400_000)
+
+  return days >= 2 ? days : null
 }
 
 function dayLabel(key: string, date: Date): string {

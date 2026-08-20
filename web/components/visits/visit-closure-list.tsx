@@ -15,13 +15,13 @@ import {
 import { BillDentalRecordDialog } from "@/components/factures/bill-dental-record-dialog"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
-import type { DentalRecordDto, VisitToCloseDto } from "@/lib/api/types"
+import type { DentalRecordDto, VisitClosureStep, VisitToCloseDto } from "@/lib/api/types"
 import { showErrorToast } from "@/lib/errors"
 import { formatDateTime } from "@/lib/format"
-import { zoneChipClass, zoneForPath } from "@/lib/zones"
+import { ZONES, zoneChipClass, zoneForPath, type ZoneKey } from "@/lib/zones"
 import { cn } from "@/lib/utils"
 import { NothingToBillDialog } from "./nothing-to-bill-dialog"
-import { visitClosureDayGroups } from "./visit-closure-days"
+import { visitClosureDayGroups, type VisitClosureDayGroup } from "./visit-closure-days"
 
 /**
  * « À clôturer » — the séances still owing a presence, a fiche or a money document.
@@ -192,24 +192,26 @@ export function VisitClosureList({
               <TableBody>
                 {dayGroups.map((group) => (
                   <Fragment key={group.key || group.label}>
-                    {/* A day separator, not a column: the list is oldest-first over up to 90 days, and a column
-                        of near-identical timestamps gives the eye nothing to navigate by. */}
+                    {/* A day separator, not a column: the list is most-recent-first over up to 90 days, and a
+                        column of near-identical timestamps gives the eye nothing to navigate by. */}
                     <TableRow className="hover:bg-transparent">
                       <TableCell
                         colSpan={5}
                         className="bg-muted/40 py-1.5 font-mono text-2xs uppercase tracking-[0.07em] text-muted-foreground"
                       >
-                        <span className="flex items-center justify-between gap-3">
-                          <span>{group.label}</span>
-                          <span>
-                            {group.visits.length} séance{group.visits.length > 1 ? "s" : ""}
-                          </span>
-                        </span>
+                        <DayHeading group={group} />
                       </TableCell>
                     </TableRow>
                     {group.visits.map((visit) => (
                       <TableRow key={visit.appointmentId}>
-                        <TableCell className="font-medium">
+                        <TableCell className="relative font-medium">
+                          {/* The row's one question, as a colour, before a word is read. `reminder-log-table`'s
+                              stripe: absolute in the first cell, so it needs no column of its own. */}
+                          <span
+                            aria-hidden="true"
+                            className="absolute inset-y-0 start-0 w-[3px]"
+                            style={{ backgroundColor: stripeFor(visit) }}
+                          />
                           <Link
                             href={`/patients/${encodeURIComponent(visit.patientId)}`}
                             className="underline-offset-4 hover-hover:hover:underline"
@@ -256,18 +258,15 @@ export function VisitClosureList({
               {dayGroups.map((group) => (
                 <section key={group.key || group.label}>
                   <h3 className="border-b bg-muted/40 px-4 py-1.5 font-mono text-2xs uppercase tracking-[0.07em] text-muted-foreground">
-                    <span className="flex items-center justify-between gap-3">
-                      <span>{group.label}</span>
-                      <span>
-                        {group.visits.length} séance{group.visits.length > 1 ? "s" : ""}
-                      </span>
-                    </span>
+                    <DayHeading group={group} />
                   </h3>
                   <CardList
                     items={group.visits}
                     getKey={(v) => v.appointmentId}
                     ariaLabel={`Séances à clôturer — ${group.label}`}
                     title={(v) => v.patientName}
+                    // The table's stripe, through the primitive's own accent bar — same hue, same meaning.
+                    accent={stripeFor}
                     href={(v) => `/patients/${encodeURIComponent(v.patientId)}`}
                     subtitle={(v) => formatDateTime(v.appointmentDateTime)}
                     status={(v) => <ClosureProgress visit={v} />}
@@ -322,11 +321,45 @@ export function VisitClosureList({
   )
 }
 
-/** The wire's `nextStep` values, in the order the cascade asks them. Server-derived; never re-derived here. */
-const STEP_FOR: Record<"Presence" | "Fiche" | "Billing", string> = {
-  Presence: "Venue",
-  Fiche: "Fiche",
-  Billing: "Encaissement",
+/**
+ * The three answers a séance owes, and **the zone each one is recorded in**.
+ *
+ * <p>A row asks one question, and there are only ever three of them — so the colour that carries the most is
+ * <i>which</i> question this row is asking, not how it is going. That is a « where does this go? », which is
+ * exactly what a zone hue answers: « Venue » is a status on the agenda, « Fiche » is the clinical record,
+ * « Encaissement » is la caisse, and each action on the row navigates to that zone's own surface. The three hues
+ * are also the only three in the palette that are legible against each other at chip size.</p>
+ *
+ * <p>Deliberately <b>not</b> `ui/status-tone.ts`: those six tones mean « nothing to do / booked / agreed /
+ * underway / finished / failed », and none of the three steps is any of those — they are all « pas encore », on
+ * a visit where nothing has gone wrong. Borrowing a status tone would say something false in colour.</p>
+ *
+ * <p>Exhaustive over `VisitClosureStep`, so a fourth step added to the wire is a `tsc` error rather than a row
+ * that renders with no hue at all.</p>
+ */
+const CLOSURE_STEPS: Record<VisitClosureStep, {
+  label: string
+  zone: ZoneKey
+  /** Whether the visit has already answered this step. Read from the server's flags, never re-derived. */
+  answered: (visit: VisitToCloseDto) => boolean
+}> = {
+  Presence: { label: "Venue", zone: "daily", answered: (v) => v.presenceAnswered },
+  Fiche: { label: "Fiche", zone: "clinical", answered: (v) => v.ficheRecorded },
+  Billing: { label: "Encaissement", zone: "money", answered: (v) => v.billingSettled },
+}
+
+/** The order the cascade asks them in. Server-derived per row (`nextStep`); this is only the drawing order. */
+const CLOSURE_STEP_ORDER: VisitClosureStep[] = ["Presence", "Fiche", "Billing"]
+
+/**
+ * The row's left stripe — its next step's hue, as a raw colour for an inline `backgroundColor`.
+ *
+ * <p>Interpolated rather than written out three times because a `style` value is not a class: Tailwind's
+ * source scan is irrelevant here, so deriving it is what keeps a step's stripe and its badge from disagreeing.
+ * `reminder-log-table.tsx`'s `STRIPE` is the same shape.</p>
+ */
+function stripeFor(visit: VisitToCloseDto): string {
+  return `var(--color-zone-${CLOSURE_STEPS[visit.nextStep].zone})`
 }
 
 /**
@@ -340,45 +373,51 @@ const STEP_FOR: Record<"Presence" | "Fiche" | "Billing", string> = {
  * that exists to be emptied — so an ordinary afternoon's work read as a page of errors. The one step the row is
  * actually asking for is picked out instead (`nextStep`, which the server already computes), so the row states
  * its question rather than making the reader infer it from three identical badges.</p>
+ *
+ * <p>⚠️ <b>The « fait » badge had no colour at all, and no layer could say so.</b> It asked for
+ * `text-success-ink`/`border-success-ink` — and `--success-ink` does not exist; `globals.css` defines that
+ * darkened step for amber only, because `--warning` is the one token that fails contrast against its own wash.
+ * Tailwind generates nothing for an undeclared token, so the tick rendered in the outline badge's default ink on
+ * every row of the page. It is the `--success`/`--success-wash` pair every other surface uses now.</p>
+ *
+ * <p>And the picked-out step takes <b>its own step's hue</b> rather than one shared `--primary`: with three
+ * questions in the list, the badge's colour is the fastest way to see which rows are waiting on money and which
+ * on a fiche — see `CLOSURE_STEPS`.</p>
  */
 function ClosureProgress({ visit }: { visit: VisitToCloseDto }) {
-  const nextLabel = STEP_FOR[visit.nextStep as keyof typeof STEP_FOR] ?? null
-
-  const steps: Array<{ label: string; done: boolean }> = [
-    { label: "Venue", done: visit.presenceAnswered },
-    { label: "Fiche", done: visit.ficheRecorded },
-    { label: "Encaissement", done: visit.billingSettled },
-  ]
-
   return (
     <ul className="flex flex-wrap gap-1.5">
-      {steps.map((step) => {
-        const isNext = !step.done && step.label === nextLabel
+      {CLOSURE_STEP_ORDER.map((key) => {
+        const step = CLOSURE_STEPS[key]
+        const done = step.answered(visit)
+        const isNext = !done && visit.nextStep === key
+        const zone = ZONES[step.zone]
         return (
-          <li key={step.label}>
+          <li key={key}>
             <Badge
               variant="outline"
               className={cn(
                 "gap-1 font-normal",
-                step.done && "border-success-ink/30 text-success-ink",
-                isNext && "border-primary/40 bg-primary/5 font-medium text-primary",
-                !step.done && !isNext && "text-muted-foreground",
+                done && "border-success/25 bg-success-wash text-success",
+                isNext && cn("font-medium", zone.wash, zone.text, zone.border),
+                !done && !isNext && "text-muted-foreground",
               )}
             >
-              {step.done ? (
+              {done ? (
                 <Check aria-hidden="true" className="size-3" />
               ) : (
-                // A hollow ring: « pas encore », with no claim that anything went wrong.
+                // A hollow ring: « pas encore », with no claim that anything went wrong. The asked-for step
+                // fills its own, so the row's question is legible without reading a word.
                 <span
                   aria-hidden="true"
                   className={cn(
                     "size-2 rounded-full border-[1.5px] border-current",
-                    isNext && "bg-primary/25",
+                    isNext && "bg-current",
                   )}
                 />
               )}
               <span className="sr-only">
-                {step.done ? "Fait : " : isNext ? "À faire maintenant : " : "En attente : "}
+                {done ? "Fait : " : isNext ? "À faire maintenant : " : "En attente : "}
               </span>
               {step.label}
             </Badge>
@@ -386,6 +425,34 @@ function ClosureProgress({ visit }: { visit: VisitToCloseDto }) {
         )
       })}
     </ul>
+  )
+}
+
+/**
+ * A journée's heading, in both trees — the label, its age, and how many séances it holds.
+ *
+ * <p>One component rather than the two copies it replaced: the table's `colSpan` row and the card list's `<h3>`
+ * carried byte-identical markup, and the age chip would have been the third thing to keep in step by hand.</p>
+ *
+ * <p>The chip appears only from two days back (`daysAgo` is `null` below that) and is the one amber thing on the
+ * screen. It exists because the list opens on <i>today</i>: the séance nobody has closed since Monday is now at
+ * the bottom of the page rather than at the top of it, and its age has to be said somewhere.</p>
+ */
+function DayHeading({ group }: { group: VisitClosureDayGroup }) {
+  return (
+    <span className="flex items-center justify-between gap-3">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate text-foreground">{group.label}</span>
+        {group.daysAgo !== null && (
+          <span className="shrink-0 rounded-full bg-warning-wash px-1.5 text-warning-ink">
+            il y a {group.daysAgo} jours
+          </span>
+        )}
+      </span>
+      <span className="shrink-0">
+        {group.visits.length} séance{group.visits.length > 1 ? "s" : ""}
+      </span>
+    </span>
   )
 }
 

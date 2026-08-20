@@ -20,8 +20,16 @@ import { buildNavSections } from "@/lib/nav"
  *   <li>the nav icon of the active row, a 12 % wash behind it, <b>and the active row's own background</b>;</li>
  *   <li>the `PageHeader` eyebrow and its 6 px dot;</li>
  *   <li><b>a 10 % gradient band behind the `PageHeader`</b>, fading to nothing over 128 px;</li>
- *   <li>the icon chip of a zone-scoped empty state.</li>
+ *   <li>the icon chip of a zone-scoped empty state;</li>
+ *   <li><b>a worklist chip and row stripe naming the zone a task must be answered in</b> — « À clôturer »
+ *       (`components/visits/visit-closure-list.tsx`) and nothing else so far.</li>
  * </ol>
+ *
+ * <p>Entry 5 is the one place a hue leaves the page's own chrome and lands on a record, and it is admitted for
+ * the reason the others are: it still answers « where ». Each row of that worklist asks exactly one of three
+ * questions, each is answered on a different zone's surface — the agenda, the clinical record, la caisse — and
+ * the row's action navigates there. It is <i>not</i> licence to tint a record by anything about its own state;
+ * that is what `ui/status-tone.ts` is for, and the two palettes stay apart.</p>
  *
  * <p>Entries 1 and 3 grew in the identity pass, and both are the same correction rather than a relaxation. The
  * rail's active row used to fill with a fixed `--accent` while the 3 px bar beside it drew the zone, so on

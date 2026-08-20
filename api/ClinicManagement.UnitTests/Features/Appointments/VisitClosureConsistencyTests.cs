@@ -34,11 +34,12 @@ public class VisitClosureConsistencyTests
     private readonly Mock<IStockItemRepository> _stock = new();
     private readonly Mock<IClinicRepository> _clinics = new();
 
-    /// <summary>A closed visit: two hours ago, an hour long, one patient.</summary>
-    private static Appointment Visit(AppointmentStatus status)
+    /// <summary>A closed visit: <paramref name="hoursAgo"/> back, an hour long, one patient.</summary>
+    private static Appointment Visit(AppointmentStatus status, int hoursAgo = 3)
     {
         var appointment = new Appointment(
-            Guid.NewGuid(), ClinicId, Guid.NewGuid(), doctorId: null, Now.AddHours(-3), TimeSpan.FromHours(1));
+            Guid.NewGuid(), ClinicId, Guid.NewGuid(), doctorId: null, Now.AddHours(-hoursAgo),
+            TimeSpan.FromHours(1));
         Advance(appointment, status);
         return appointment;
     }
@@ -200,5 +201,22 @@ public class VisitClosureConsistencyTests
 
         Assert.Empty(await ReadWorklist());
         Assert.Equal(0, (await ReadDashboard()).VisitsToClose);
+    }
+
+    // The order is the client's day grouping — « Aujourd'hui » must be the first heading — and it has to be
+    // decided here because the read is paged: reversing a page in the browser only reverses within it.
+    [Fact]
+    public async Task The_Worklist_Is_Most_Recent_First()
+    {
+        var oldest = Visit(AppointmentStatus.Scheduled, hoursAgo: 72);
+        var newest = Visit(AppointmentStatus.Scheduled, hoursAgo: 3);
+        var middle = Visit(AppointmentStatus.Scheduled, hoursAgo: 30);
+        Wire(oldest, newest, middle);
+
+        var worklist = await ReadWorklist();
+
+        Assert.Equal(
+            new[] { newest.Id, middle.Id, oldest.Id },
+            worklist.Select(v => v.Appointment.Id).ToArray());
     }
 }

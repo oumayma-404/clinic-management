@@ -43,7 +43,7 @@ public static class VisitClosureReader
     public static int ResolveDays(int? days) => Math.Clamp(days ?? DefaultDays, MinDays, MaxDays);
 
     /// <summary>
-    /// The clinic's still-open séances over the window, oldest first.
+    /// The clinic's still-open séances over the window, most recent first.
     /// </summary>
     /// <param name="days">Clinic-local days back, including today. See <see cref="ResolveDays"/>.</param>
     /// <param name="doctorId">Optional practitioner filter.</param>
@@ -133,13 +133,15 @@ public static class VisitClosureReader
             open.Add(new OpenVisit(appointment, state, fiches?.FirstOrDefault().DentalRecordId, invoice));
         }
 
-        // Oldest first: the séance nobody has closed for six days matters most, and is also the one anybody
-        // remembers least. `.ThenBy(Id)` is the unique tie-break every paged read here needs — OFFSET over a
-        // non-unique sort can show a row on two pages and skip another, which on this screen reads as « une
-        // séance a disparu ».
+        // Most recent first: the client cuts this into « Aujourd'hui / Hier / mercredi 12 août », and a list
+        // opening on a day three months back reads as the wrong list. The séance open longest still matters most,
+        // so the day header states its age rather than the sort implying it. ⚠️ Decided HERE, never in the
+        // browser: the read is paged, so reversing a page reverses only within it. The descending tie-break is
+        // the unique one every paged read needs — OFFSET over a non-unique sort can show a row on two pages and
+        // skip another, which on this screen reads as « une séance a disparu ».
         return open
-            .OrderBy(o => o.Appointment.AppointmentDateTime)
-            .ThenBy(o => o.Appointment.Id)
+            .OrderByDescending(o => o.Appointment.AppointmentDateTime)
+            .ThenByDescending(o => o.Appointment.Id)
             .ToList();
     }
 
