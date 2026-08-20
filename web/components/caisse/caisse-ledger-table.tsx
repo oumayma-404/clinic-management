@@ -140,9 +140,9 @@ export function CaisseLedgerTable({
       {/*
         ⚠️ `runningBalance` is deliberately NOT a card field. It is « Solde de la période » — a fact about a
         movement's *position in an ordered list*, not about the movement. A card can be read on its own, and a
-        running balance read on its own is a number with no referent. The period's closing balance is the last
-        row's, and it is already stated above the statement; a footer restates it once for the card list rather
-        than repeating a meaningless figure on every card.
+        running balance read on its own is a number with no referent. The statement reads newest first, so the
+        period's closing balance is the FIRST row's; a footer restates it once for the card list rather than
+        repeating a meaningless figure on every card.
 
         Entrée/Sortie collapse into one signed « Montant » for the same reason: two columns where exactly one is
         ever filled is a table's way of aligning direction, and a card shows direction with a sign and a colour.
@@ -204,7 +204,8 @@ export function CaisseLedgerTable({
       />
       {movements.length > 0 && (
         <p className="border-t px-3 py-2 text-2xs text-muted-foreground md:hidden">
-          Solde de la période : <span className="tabular-nums">{formatDT(movements[movements.length - 1].runningBalance)}</span>
+          {/* `[0]`, not the last row: the statement reads newest first, so the closing balance is at the TOP. */}
+          Solde de la période : <span className="tabular-nums">{formatDT(movements[0].runningBalance)}</span>
         </p>
       )}
       <Table containerClassName={TABLE_ONLY}>
@@ -217,9 +218,9 @@ export function CaisseLedgerTable({
             <TableHead>Mode</TableHead>
             <TableHead className="text-right">Entrée</TableHead>
             <TableHead className="text-right">Sortie</TableHead>
-            {/* Not « Solde » on its own: this opens at zero on the first line of the selected range and is not
-                an account balance. Naming it after the period is the difference between a useful column and a
-                figure a reader will take for the money in the drawer. */}
+            {/* Not « Solde » on its own: read bottom-up this column starts at zero at the range's oldest line and
+                is not an account balance. Naming it after the period is the difference between a useful column and
+                a figure a reader will take for the money in the drawer. */}
             <TableHead className="text-right">Solde de la période</TableHead>
           </TableRow>
         </TableHeader>

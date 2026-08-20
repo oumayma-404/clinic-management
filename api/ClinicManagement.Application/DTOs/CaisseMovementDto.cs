@@ -124,9 +124,15 @@ public class CaisseMovementDto
     public string? VoidedByName { get; set; }
 
     /// <summary>
-    /// Cumulative net across the returned window, oldest → newest, skipping voided rows.
+    /// Cumulative net across the returned window, accumulated oldest → newest, skipping voided rows.
     /// <para>
-    /// ⚠️ <b>Window-relative</b>: it opens at zero on the first line of the selected range, and is not an
+    /// ⚠️ <b>Accumulated in the opposite order from the one it is listed in.</b> The statement is returned newest
+    /// first, so this column reads <b>upward</b>: the first row carries the window's closing balance and the last
+    /// carries the first movement's. It is a fact about a movement's position in the window, never about the
+    /// movement — which is why a filter or a page can never be applied before it is computed.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>Window-relative</b>: read bottom-up it opens at zero at the range's oldest line, and is not an
     /// all-time cash balance. The UI must label it as « Solde de la période » — a column called « Solde » next
     /// to bank-statement-shaped rows reads as an account balance, which this is not.
     /// </para>

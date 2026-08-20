@@ -188,9 +188,9 @@ public class CaisseLedgerTests
         Assert.Equal(summary.CashOut, spent);
         Assert.Equal(summary.Net, moneyIn - refunded - spent);
 
-        // And the last running balance is the period's net, so the column a reader follows down the page lands
-        // on the figure printed above it.
-        Assert.Equal(summary.Net, ledger.Movements[^1].RunningBalance);
+        // And the FIRST running balance is the period's net: the statement reads newest first, so the closing
+        // figure is the top row's and matches the total printed above the table.
+        Assert.Equal(summary.Net, ledger.Movements[0].RunningBalance);
     }
 
     /// <summary>
@@ -227,7 +227,7 @@ public class CaisseLedgerTests
     // ---- Ordering and the running balance -----------------------------------
 
     [Fact]
-    public async Task Movements_Are_Oldest_First()
+    public async Task Movements_Are_Newest_First()
     {
         Wire(
             payments: new[] { Payment(100m, 20), Payment(100m, 3) },
@@ -235,8 +235,9 @@ public class CaisseLedgerTests
 
         var ledger = await LedgerAsync();
 
-        // A statement reads forward; the running balance is meaningless in any other order.
-        Assert.Equal(new[] { Day(3), Day(11), Day(20) }, ledger.Movements.Select(m => m.OccurredOn));
+        // The movement somebody is looking for is nearly always the one that just happened, so « aujourd'hui »
+        // must not sit on the last page of a month.
+        Assert.Equal(new[] { Day(20), Day(11), Day(3) }, ledger.Movements.Select(m => m.OccurredOn));
     }
 
     [Fact]
@@ -251,7 +252,10 @@ public class CaisseLedgerTests
 
         // Two reads of one window must not shuffle — a statement whose rows move looks like the data changed.
         Assert.Equal(a.Movements.Select(m => m.Id), b.Movements.Select(m => m.Id));
-        Assert.Equal(new[] { first, second }, a.Movements.Select(m => m.Id));
+
+        // Descending, so the `Kind`-then-`Id` tie-break inverts with the list. Stability is the whole claim here;
+        // which of two movements sharing an instant comes first was arbitrary before and is arbitrary now.
+        Assert.Equal(new[] { second, first }, a.Movements.Select(m => m.Id));
     }
 
     [Fact]
@@ -267,9 +271,10 @@ public class CaisseLedgerTests
         Assert.Equal("Erreur de saisie", voided.VoidReason);
         Assert.Equal("Dr Ben Ali", voided.VoidedByName);
 
-        Assert.Equal(500m, ledger.Movements[0].RunningBalance);
+        // Newest first, so the 600 close is the top row and the 500 open is the bottom one.
+        Assert.Equal(600m, ledger.Movements[0].RunningBalance);
         Assert.Equal(500m, voided.RunningBalance);          // unchanged across the voided row
-        Assert.Equal(600m, ledger.Movements[^1].RunningBalance);
+        Assert.Equal(500m, ledger.Movements[^1].RunningBalance);
     }
 
     [Fact]
@@ -282,7 +287,10 @@ public class CaisseLedgerTests
 
         var ledger = await LedgerAsync();
 
-        Assert.Equal(new[] { 1000m, 750m, 600m }, ledger.Movements.Select(m => m.RunningBalance));
+        // Read bottom-up: 1000 in, then −250, then −150. This also pins that the reversal happens AFTER the
+        // balance is accumulated — reversing first would accumulate the outflows before the payment and give
+        // {−150, −400, 600}.
+        Assert.Equal(new[] { 600m, 750m, 1000m }, ledger.Movements.Select(m => m.RunningBalance));
     }
 
     // ---- Per-kind mapping ---------------------------------------------------

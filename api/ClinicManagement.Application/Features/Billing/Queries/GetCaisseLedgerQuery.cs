@@ -14,7 +14,7 @@ using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Application.Features.Billing.Queries;
 
 /// <summary>
-/// The « extrait de caisse » — every movement behind the caisse's totals, oldest first, like a bank statement.
+/// The « extrait de caisse » — every movement behind the caisse's totals, newest first, like a bank statement.
 ///
 /// <para><b>Why a read and not a table.</b> La caisse showed three figures and, underneath them, a table of
 /// *expenses only* — so the money-out side was itemised while « Encaissé », the bigger number, was opaque. The
@@ -163,10 +163,11 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
                     : null)));
             movements.AddRange(expenses.Select(FromExpense));
 
-            // Oldest first — a statement reads forward, and the running balance below only means anything in that
-            // order. `Kind` then `Id` break ties so two movements on the same date never swap places between two
-            // reads of the same window (an unstable statement looks like the data changed). Kind is a name rather
-            // than the enum, so the tie-break is alphabetical — arbitrary but stable, which is all it must be.
+            // Oldest first HERE because the running balance below can only be accumulated in that order — this is
+            // not the order the statement is read in (see the reversal after the loop). `Kind` then `Id` break ties
+            // so two movements on the same date never swap places between two reads of the same window (an unstable
+            // statement looks like the data changed); `Kind` is a name, so the tie-break is alphabetical — arbitrary
+            // but stable, which is all it must be.
             var ordered = movements
                 .OrderBy(m => m.OccurredOn)
                 .ThenBy(m => m.Kind)
@@ -189,6 +190,15 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
                 }
                 movement.RunningBalance = InvoiceCalculator.RoundMoney(balance);
             }
+
+            // Newest first is what is READ — the movement somebody is looking for is nearly always the one that
+            // just happened, and « aujourd'hui » should not be on the last page of a month.
+            //
+            // ⚠️ It reverses AFTER the balance loop and BEFORE the filter/page below, and neither half is
+            // interchangeable: reversing first would accumulate « Solde de la période » backwards, and reversing
+            // after paging would only flip the rows within a page, leaving page 1 on the oldest movements. Each
+            // row keeps the balance its position in the window earned it, so the column now reads upward.
+            ordered.Reverse();
 
             // Filtered and paged in memory for the same reason as « Créances »: a statement is the ordered union
             // of four ledgers, so no single query knows a row's position in it. Unlike the other lists this one is
