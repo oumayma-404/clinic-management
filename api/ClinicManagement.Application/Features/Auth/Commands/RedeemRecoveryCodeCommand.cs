@@ -30,6 +30,15 @@ public class RedeemRecoveryCodeCommand : IRequest<Result<LoginResultDto>>
 public class RedeemRecoveryCodeCommandHandler
     : IRequestHandler<RedeemRecoveryCodeCommand, Result<LoginResultDto>>
 {
+    /// <summary>
+    /// How long a redeemed code leaves the second factor replaceable.
+    ///
+    /// <para>Long enough to find the new phone, install the app and scan a QR; short enough that a session left
+    /// open on a reception desk is not still holding the right to re-enrol an hour later. It is spent by a
+    /// completed enrolment either way, so the window is the ceiling on an abandoned attempt, not on a normal one.</para>
+    /// </summary>
+    internal static readonly TimeSpan ReplacementWindow = TimeSpan.FromMinutes(15);
+
     private readonly IUserRepository _userRepository;
     private readonly ILocalAuthService _localAuthService;
     private readonly ILoginAttemptTracker _attemptTracker;
@@ -120,6 +129,16 @@ public class RedeemRecoveryCodeCommandHandler
             }
 
             _attemptTracker.ClearForCurrentSource(user.Id);
+
+            // ⚠️ The point of this whole path for a cabinet with ONE administrator. Signing in was never the
+            // problem — the account is still bound to the authenticator that was lost, and every other way to
+            // move it demands a code from that device: `DisableTotpCommand` and
+            // `RegenerateRecoveryCodesCommand` both do, and `EnrolTotpCommand` refuses an account already
+            // enrolled. So a sole admin could enter eight times, replace nothing, and be locked out for good on
+            // the ninth. This opens a short window in which they may re-enrol, earned by the two things they
+            // just proved: the password, and a single-use code that IS a second factor.
+            user.GrantTotpReplacement(ReplacementWindow);
+
             user.RecordSuccessfulLogin();
             var token = _localAuthService.GenerateToken(user);
 
@@ -142,6 +161,11 @@ public class RedeemRecoveryCodeCommandHandler
                 ExpiresAt = token.ExpiresAtUtc,
                 RefreshExpiresAt = refreshToken.ExpiresAtUtc,
                 MustChangePassword = user.MustChangePassword,
+
+                // Read back off the account rather than hard-coded true: this is the same predicate the
+                // enrolment step will apply, so the screen cannot offer a replacement the server would refuse.
+                MayReplaceSecondFactor = user.IsTotpReplacementGranted(),
+
                 User = new UserDto
                 {
                     Id = user.Id,

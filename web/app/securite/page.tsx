@@ -195,6 +195,24 @@ function SecurityContent() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* ⚠️ Above the « peu / aucun » warning, because it is the more urgent fact and the one with a
+                    deadline: the window a redeemed code opened is the only way to move the factor off a lost
+                    phone without an administrator or the vendor, and it lapses in minutes. Shown here because
+                    somebody who dismissed the prompt on the login screen will come looking on this page. */}
+                {state.mayReplace && (
+                  <p
+                    role="status"
+                    className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm"
+                  >
+                    Vous vous êtes connecté avec un code de récupération. Pendant quelques minutes, vous pouvez
+                    lier votre second facteur à un nouveau téléphone sans code de vérification.{' '}
+                    <a href="/login?replace=1" className="font-medium underline underline-offset-4">
+                      Remplacer maintenant
+                    </a>
+                    .
+                  </p>
+                )}
+
                 {/* ⚠️ The warning appears HERE and nowhere else — beside the control that resolves it. There is
                     deliberately no badge or banner on any other screen (Stated Assumption 7). */}
                 {/* « peu » and « aucun » are different facts, and the second is the one that locks somebody out:

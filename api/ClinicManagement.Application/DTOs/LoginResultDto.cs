@@ -23,5 +23,20 @@ public class LoginResultDto
     /// </summary>
     public DateTime? RefreshExpiresAt { get; set; }
     public bool MustChangePassword { get; set; }
+
+    /// <summary>
+    /// True when this sign-in was made with a <b>recovery code</b> and the account may therefore replace its
+    /// second factor now, without a code from the authenticator it has presumably lost.
+    ///
+    /// <para>⚠️ <b>It is an offer, not an obligation</b>, so it is deliberately not modelled on
+    /// <see cref="MustChangePassword"/>. A recovery code is also what somebody uses whose phone is at home rather
+    /// than gone, and forcing them through a re-scan would cost them a working enrolment. The screen prompts
+    /// prominently and lets them decline — which is also why nothing server-side blocks a request on it.</para>
+    ///
+    /// <para>False on every other sign-in path, including a refresh: the window is a property of the account row
+    /// (<c>User.TotpReplacementAllowedUntil</c>) and this only reports that it was just opened.</para>
+    /// </summary>
+    public bool MayReplaceSecondFactor { get; set; }
+
     public UserDto User { get; set; } = null!;
 }

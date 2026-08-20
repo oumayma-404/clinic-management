@@ -48,6 +48,14 @@ public record TotpEnrolmentDto(
 /// <para>⚠️ <b>It issues no session</b>, deliberately: enrolling a factor is not signing in. The screen stops on
 /// the recovery codes and the user then signs in normally with their new code — which also proves the
 /// authenticator works before they are relying on it.</para>
+///
+/// <para>⚠️ <b>Step one leaves the account momentarily un-enrolled, and that is pre-existing rather than new.</b>
+/// <c>IssueTotpSecret</c> clears the confirmed secret and every recovery code, so an abandoned replacement leaves
+/// the account in the same state an administrator's reset leaves it in: whoever next presents the password can
+/// complete an enrolment. The exposure is not widened by the replacement grant, because reaching that state
+/// still requires a grant, a reset or the vendor's verb — a caller holding the password alone is refused above.
+/// Narrowing it further means holding the new secret <i>pending</i> beside the old one until step two confirms,
+/// which would change <c>IssueTotpSecret</c>'s contract for the reset paths too, and is not attempted here.</para>
 /// </summary>
 public class EnrolTotpCommand : IRequest<Result<TotpEnrolmentDto>>
 {
@@ -112,10 +120,16 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
                 return Refuse(ClinicAuthRefusals.InvalidCredentials);
             }
 
-            // A second enrolment is refused rather than silently replacing the first: re-securing a lost factor
-            // is an administrator's or the vendor's action, and letting the password alone do it would make the
-            // second factor worth exactly as much as the password.
-            if (user.IsTotpEnrolled)
+            // A second enrolment is refused rather than silently replacing the first, because letting the
+            // password alone do it would make the second factor worth exactly as much as the password.
+            //
+            // ⚠️ **Unless the account holds a live replacement grant**, which only a redeemed recovery code
+            // opens — i.e. the caller has already presented a second factor for this very purpose. Without that
+            // exception the refusal was absolute, and re-securing a lost factor was an administrator's or the
+            // vendor's action *only*: a cabinet whose single admin lost their phone could sign in with each of
+            // their eight codes and never once move the factor to the new one. The grant is what distinguishes
+            // « somebody knows this password » from « the owner is standing here holding their recovery codes ».
+            if (user.IsTotpEnrolled && !user.IsTotpReplacementGranted())
             {
                 return Refuse(ClinicAuthRefusals.TotpAlreadyEnrolled);
             }

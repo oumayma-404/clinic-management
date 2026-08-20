@@ -394,6 +394,180 @@ public class ClinicTotpAuthTests
         Assert.Equal(ClinicAuthRefusals.TotpInvalid, second.Code);
     }
 
+    // ── Replacing a lost factor with a recovery code (the sole-administrator way back) ──────────────────
+    //
+    // ⚠️ What these pin is a pair of opposites that must BOTH hold. Signing in with a recovery code has to make
+    // the factor replaceable — a cabinet with one administrator has nobody to reset it for them, so without this
+    // they could enter eight times and be locked out for good on the ninth. And nothing else may make it
+    // replaceable, because a factor a password alone can move is worth exactly what the password is worth.
+
+    private static EnrolTotpCommand Enrol(string? code = null) => new()
+    {
+        Email = "someone@clinic.com",
+        Password = "un-mot-de-passe-long",
+        TotpCode = code
+    };
+
+    private RedeemRecoveryCodeCommand Redeem(string code) => new()
+    {
+        Email = "someone@clinic.com",
+        Password = "un-mot-de-passe-long",
+        RecoveryCode = code
+    };
+
+    /// <summary>Enrols the account and leaves it holding exactly one known recovery code.</summary>
+    private User EnrolledWithOneCode(out string code, string role = User.RoleAdmin)
+    {
+        var user = Enrolled(Account(role));
+        code = UserRecoveryCode.NewCode();
+        user.ReplaceRecoveryCodes(new[] { code });
+        return user;
+    }
+
+    // A redeemed code opens the window, and says so in the result the screen reads.
+    [Fact]
+    public async Task Redeeming_A_Recovery_Code_Allows_The_Factor_To_Be_Replaced()
+    {
+        var user = EnrolledWithOneCode(out var code);
+
+        var result = await RecoveryHandler().Handle(Redeem(code), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(user.IsTotpReplacementGranted());
+        Assert.True(result.Value!.MayReplaceSecondFactor);
+    }
+
+    /// <summary>
+    /// The point of the whole grant: enrolment step one is accepted on an account that is <b>already enrolled</b>,
+    /// which is otherwise <c>totp_already_enrolled</c> and the reason a lost phone could not be replaced.
+    /// </summary>
+    [Fact]
+    public async Task With_The_Window_Open_An_Enrolled_Account_May_Start_A_New_Enrolment()
+    {
+        var user = EnrolledWithOneCode(out var code);
+        await RecoveryHandler().Handle(Redeem(code), CancellationToken.None);
+        _totp.Setup(t => t.GenerateSecret()).Returns("NEWSECRET234567");
+
+        var result = await EnrolHandler().Handle(Enrol(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Value!.SecretUri);
+        // Step one clears the old enrolment and every code it was proven with.
+        Assert.False(user.IsTotpEnrolled);
+        Assert.Equal(0, user.UnusedRecoveryCodeCount);
+    }
+
+    /// <summary>
+    /// ⚠️ The other half, and the one that must never regress: <b>without</b> a redeemed code the refusal stands.
+    /// A caller holding only the password is exactly who this refusal exists for.
+    /// </summary>
+    [Fact]
+    public async Task Without_The_Window_An_Enrolled_Account_Still_Cannot_Re_Enrol()
+    {
+        var user = Enrolled(Account(User.RoleAdmin));
+
+        var result = await EnrolHandler().Handle(Enrol(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ClinicAuthRefusals.TotpAlreadyEnrolled, result.Code);
+        // Untouched: a refused step one must not have cleared the factor it refused to replace.
+        Assert.True(user.IsTotpEnrolled);
+    }
+
+    // The window is a deadline, not a flag: once it passes, the refusal is back.
+    [Fact]
+    public async Task An_Expired_Window_Does_Not_Allow_A_Replacement()
+    {
+        var user = Enrolled(Account(User.RoleAdmin));
+        user.GrantTotpReplacement(TimeSpan.FromMinutes(15), DateTime.UtcNow.AddHours(-2));
+
+        Assert.False(user.IsTotpReplacementGranted());
+
+        var result = await EnrolHandler().Handle(Enrol(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ClinicAuthRefusals.TotpAlreadyEnrolled, result.Code);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>Single-use, like the code that bought it.</b> A completed enrolment spends the grant, so the window
+    /// cannot be reused later by whoever next presents the password.
+    /// </summary>
+    [Fact]
+    public async Task Completing_The_New_Enrolment_Spends_The_Window()
+    {
+        var user = EnrolledWithOneCode(out var code);
+        await RecoveryHandler().Handle(Redeem(code), CancellationToken.None);
+        _totp.Setup(t => t.GenerateSecret()).Returns("NEWSECRET234567");
+        _totp.Setup(t => t.VerifyCode(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
+
+        await EnrolHandler().Handle(Enrol(), CancellationToken.None);
+        var confirmed = await EnrolHandler().Handle(Enrol("123456"), CancellationToken.None);
+
+        Assert.True(confirmed.IsSuccess);
+        Assert.Equal(UserRecoveryCode.CountPerEnrolment, confirmed.Value!.RecoveryCodes!.Count);
+        Assert.True(user.IsTotpEnrolled);
+        Assert.False(user.IsTotpReplacementGranted());
+    }
+
+    // A wrong code is refused, and refusing must not hand out the right to replace the factor.
+    [Fact]
+    public async Task A_Refused_Recovery_Code_Opens_No_Window()
+    {
+        var user = Enrolled(Account(User.RoleAdmin));
+
+        var result = await RecoveryHandler().Handle(
+            Redeem(UserRecoveryCode.NewCode()), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.False(user.IsTotpReplacementGranted());
+    }
+
+    /// <summary>
+    /// A deactivated account spends its code (that rule is pinned above) but earns nothing: the sign-in was
+    /// refused, and a window opened here would outlive the refusal by fifteen minutes.
+    /// </summary>
+    [Fact]
+    public async Task A_Disabled_Account_Spends_Its_Code_But_Earns_No_Window()
+    {
+        var user = EnrolledWithOneCode(out var code);
+        user.Deactivate();
+
+        var result = await RecoveryHandler().Handle(Redeem(code), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(0, user.UnusedRecoveryCodeCount);
+        Assert.False(user.IsTotpReplacementGranted());
+    }
+
+    // An administrator's or the vendor's reset settles the factor, so any window it had is moot.
+    [Fact]
+    public async Task Resetting_The_Factor_Closes_An_Open_Window()
+    {
+        var user = EnrolledWithOneCode(out var code);
+        await RecoveryHandler().Handle(Redeem(code), CancellationToken.None);
+        Assert.True(user.IsTotpReplacementGranted());
+
+        user.DisableTotp();
+
+        Assert.False(user.IsTotpReplacementGranted());
+    }
+
+    // The ordinary ladder hands out no window — only a redeemed code does.
+    [Fact]
+    public async Task An_Ordinary_Sign_In_Opens_No_Window()
+    {
+        _policy.SetupGet(p => p.RequiresAdminSecondFactor).Returns(true);
+        var user = Enrolled(Account(User.RoleAdmin));
+        _totp.Setup(t => t.VerifyCode(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
+
+        var result = await LoginHandler().Handle(Login("123456"), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(user.IsTotpReplacementGranted());
+        Assert.False(result.Value!.MayReplaceSecondFactor);
+    }
+
     // ── The vocabulary ──────────────────────────────────────────────────────────────────────────────────
 
     // Every declared code resolves to a French sentence. Derived from the constants, so a new code cannot be

@@ -21,7 +21,16 @@ namespace ClinicManagement.Application.Features.Auth.Queries;
 /// </param>
 /// <param name="RecoveryCodesRemaining">Unused codes left. Null when nothing is enrolled.</param>
 /// <param name="EnrolledAt">When the current factor was confirmed.</param>
-public record TotpStateDto(bool IsEnrolled, bool IsRequired, int? RecoveryCodesRemaining, DateTime? EnrolledAt);
+/// <param name="MayReplace">
+/// Whether this account may replace its factor right now without a code from it — i.e. it signed in with a
+/// recovery code within the last few minutes.
+///
+/// <para>⚠️ It is reported so the screen can <b>say so while it lasts</b>. Someone who redeemed a code and then
+/// navigated away from the login prompt has no other way to discover that the offer exists, and the window
+/// closes silently; « Sécurité » is where they will look for it.</para>
+/// </param>
+public record TotpStateDto(
+    bool IsEnrolled, bool IsRequired, int? RecoveryCodesRemaining, DateTime? EnrolledAt, bool MayReplace);
 
 public class GetTotpStateQuery : IRequest<Result<TotpStateDto>>;
 
@@ -61,7 +70,8 @@ public class GetTotpStateQueryHandler : IRequestHandler<GetTotpStateQuery, Resul
                 IsEnrolled: user.IsTotpEnrolled,
                 IsRequired: _secondFactorPolicy.RequiresAdminSecondFactor && user.IsAdmin(),
                 RecoveryCodesRemaining: user.IsTotpEnrolled ? user.UnusedRecoveryCodeCount : null,
-                EnrolledAt: user.TotpEnrolledAt));
+                EnrolledAt: user.TotpEnrolledAt,
+                MayReplace: user.IsTotpReplacementGranted()));
         }
         catch (Exception)
         {

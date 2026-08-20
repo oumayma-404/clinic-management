@@ -31,6 +31,15 @@ export interface TotpState {
   isRequired: boolean;
   recoveryCodesRemaining: number | null;
   enrolledAt: string | null;
+
+  /**
+   * Whether the factor may be replaced right now without a code from it — i.e. this session was opened with a
+   * recovery code minutes ago.
+   *
+   * ⚠️ Reported so the screen can say so **while it lasts**. Somebody who redeemed a code and dismissed the
+   * prompt on the login screen has no other way to learn the offer exists, and it closes silently.
+   */
+  mayReplace: boolean;
 }
 
 export interface RecoveryCodes {

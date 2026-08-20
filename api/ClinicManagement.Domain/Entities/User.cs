@@ -245,6 +245,63 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     public int UnusedRecoveryCodeCount => _recoveryCodes.Count(c => !c.IsUsed);
 
     /// <summary>
+    /// Until when this account may <b>replace</b> its own second factor without presenting a code from it — the
+    /// short grant a redeemed recovery code earns. Null, or in the past, means no.
+    ///
+    /// <para>⚠️ <b>Server state rather than a claim on the token</b>, and that is the whole reason it is a column.
+    /// A JWT lives 12 h here and <c>RefreshTokenCommand</c> re-mints it, so a claim would either outlive the
+    /// window or have to be stripped on every exchange — one forgotten path and the grant becomes permanent. A
+    /// column expires by arithmetic, is visible to « Sécurité », and is auditable.</para>
+    /// </summary>
+    public DateTime? TotpReplacementAllowedUntil { get; private set; }
+
+    /// <summary>
+    /// Opens the replacement window. Called only where a <b>second factor has just been proven</b> — today that
+    /// is <c>RedeemRecoveryCodeCommand</c>, which reaches it having verified the password <i>and</i> spent a
+    /// single-use code.
+    ///
+    /// <para>⚠️ <b>Why this exists at all, since a phone can be lost by the only administrator a cabinet has.</b>
+    /// Clearing a factor may never rest on the password alone — that would make the factor worth exactly what the
+    /// password is worth, which is <c>EnrolTotpCommand</c>'s stated reason for refusing a second enrolment. But a
+    /// recovery code <i>is</i> a second factor (<c>SecondFactorCoverageTests</c> records that position for the
+    /// redeem path in writing), so a caller holding one has proven precisely what an authenticator code proves.
+    /// Before this, that proof opened the door marked « sign in » and no other, so a sole administrator could
+    /// enter eight times and never re-secure the account — and the eight are not replaceable either, because
+    /// regenerating them also demands a code from the lost device.</para>
+    ///
+    /// <para>⚠️ It grants <b>replacement</b> and not <c>DisableTotp</c>. Removing the factor and moving it to a
+    /// new phone are different intentions, and only one of them is what somebody holding a recovery code is
+    /// asking for.</para>
+    /// </summary>
+    public void GrantTotpReplacement(TimeSpan window, DateTime? nowUtc = null)
+    {
+        if (window <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(window), "La fenêtre de remplacement du second facteur doit être positive.");
+        }
+
+        TotpReplacementAllowedUntil = (nowUtc ?? DateTime.UtcNow) + window;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Whether the window is open. <paramref name="nowUtc"/> is explicit so the boundary is testable — the
+    /// deadline is a plain instant, not a question about the clinic's day, so <c>ClinicClock</c> has no part in it.
+    /// </summary>
+    public bool IsTotpReplacementGranted(DateTime? nowUtc = null) =>
+        TotpReplacementAllowedUntil is { } until && until > (nowUtc ?? DateTime.UtcNow);
+
+    /// <summary>
+    /// Shuts the window. Called wherever the account's factor reaches a settled state — a completed enrolment
+    /// spent the grant, and a reset by an administrator or the vendor makes it moot.
+    ///
+    /// <para>⚠️ Deliberately <b>not</b> called by <see cref="IssueTotpSecret"/>, which is step <i>one</i> of the
+    /// replacement the grant exists to permit: closing it there would refuse step two.</para>
+    /// </summary>
+    private void RevokeTotpReplacementGrant() => TotpReplacementAllowedUntil = null;
+
+    /// <summary>
     /// Issues (or re-issues) the enrolment secret, leaving it <b>unconfirmed</b>.
     ///
     /// <para>Re-issuing clears the previous enrolment <i>and every recovery code</i> and bumps
@@ -313,6 +370,11 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         }
 
         TotpEnrolledAt = DateTime.UtcNow;
+
+        // The grant is spent by the thing it existed to allow. Leaving it open would let the next caller holding
+        // the password alone replace the factor that was just established.
+        RevokeTotpReplacementGrant();
+
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -380,6 +442,11 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         ProtectedTotpSecret = null;
         TotpEnrolledAt = null;
         _recoveryCodes.Clear();
+
+        // An administrator or the vendor has settled this account's factor, so any window a redeemed code had
+        // opened is moot — and the codes it was proven with are gone on the line above.
+        RevokeTotpReplacementGrant();
+
         TokenVersion++;
         UpdatedAt = DateTime.UtcNow;
     }

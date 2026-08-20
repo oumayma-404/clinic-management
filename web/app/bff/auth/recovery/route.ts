@@ -57,9 +57,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { refreshToken, accessToken, expiresAt, refreshExpiresAt, mustChangePassword } = data.value;
+    const {
+      refreshToken,
+      accessToken,
+      expiresAt,
+      refreshExpiresAt,
+      mustChangePassword,
+      mayReplaceSecondFactor,
+    } = data.value;
     const mustChange = Boolean(mustChangePassword);
-    const response = NextResponse.json({ mustChangePassword: mustChange });
+
+    // ⚠️ Forwarded to the browser, and it is the only signal the screen gets. Redeeming a code proves the
+    // owner is present, so the server has opened a short window in which the factor may be moved to a new
+    // phone — but the account is still bound to the old one, and nothing else in the response says so.
+    // Dropping this field here would sign the user in and leave them exactly where they started.
+    const response = NextResponse.json({
+      mustChangePassword: mustChange,
+      mayReplaceSecondFactor: Boolean(mayReplaceSecondFactor),
+    });
     writeSessionCookies(response, request, {
       credential: refreshToken || accessToken,
       expiresAt: refreshToken ? refreshExpiresAt : expiresAt,

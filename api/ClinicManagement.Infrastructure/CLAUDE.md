@@ -301,6 +301,16 @@ documents, nullable-patient appointments, and the multi-tenant clinic/user/docto
   entry » rule is what ran; `verify-schema` went 1 DRIFT → clean on those two checks, and corrupting one row turned
   the new `subscription-cover-kind-matches-ledger` red.
 
+- **`20260820145745_AddTotpReplacementGrant`** — one nullable `Users.TotpReplacementAllowedUntil`: until when an
+  account may replace its own second factor without a code from it, which is the window a redeemed **recovery
+  code** opens. It exists because a cabinet with a **single administrator** had no way back from a lost phone —
+  `DisableTotpCommand` and `RegenerateRecoveryCodesCommand` both demand a code from the lost device and
+  `EnrolTotpCommand` refused an account already enrolled, so eight codes bought eight sign-ins and no repair.
+  ⚠️ **No `defaultValue`, deliberately**: NULL is the right reading for every existing row, and a default of any
+  instant would hand every account on the deployment a standing right to replace its factor. ⚠️ Purely additive,
+  so no backfill and nothing for the destructive-before-backfill hazard to bite on; EF emitted no `xmin` because
+  an `AddColumn` creates no table. Verified against the live database: the drift set before and after is
+  **identical** (4 pre-existing, none touching `Users`).
 - **`20260815110947_AddSuppliers`** (`stock-fournisseurs`) — one new `Suppliers` table, `SupplierId` on
   `StockItems` **and** `LabWorkOrders`, four backfills, and the drop of the free-text `StockItems.Supplier`.
   ⚠️ **The statement order is the design, not the scaffolder's.** EF emitted `DropColumn("Supplier")` as the

@@ -17,12 +17,31 @@ export default function LoginPage() {
   const { user, isLoading, mode } = useSession()
   const router = useRouter()
 
+  /*
+   * ⚠️ **Two flows only this screen can serve, and a SIGNED-IN account legitimately needs both** — so being
+   * signed in must not bounce you away from them.
+   *
+   * `?replace=1` (« Sécurité » → replace a factor bound to a lost phone) and `?enrol=1` (a live session that
+   * met `totp_enrolment_required`) both run through the **anonymous** enrolment endpoint, which takes an address
+   * and a password rather than a session. Without this exemption the effect below sent an authenticated user
+   * straight back to `/`, so « Remplacer maintenant » navigated here and returned home having done nothing —
+   * a dead affordance that type-checks and builds perfectly, and was only visible by clicking it.
+   *
+   * Computed in a lazy initialiser rather than an effect on purpose: an effect would leave one commit in which
+   * the flag is still false, and the redirect below would win that race.
+   */
+  const [factorFlow] = useState(() => {
+    if (typeof window === 'undefined') return false
+    const params = new URLSearchParams(window.location.search)
+    return params.get('replace') === '1' || params.get('enrol') === '1'
+  })
+
   useEffect(() => {
-    if (user && !isLoading) {
+    if (user && !isLoading && !factorFlow) {
       // Cloud: go to /setup (redirects onward if a clinic exists). Local: go to the app.
       router.push(mode === 'local' ? '/' : '/setup')
     }
-  }, [user, isLoading, mode, router])
+  }, [user, isLoading, mode, router, factorFlow])
 
   if (isLoading) {
     return (
@@ -32,7 +51,9 @@ export default function LoginPage() {
     )
   }
 
-  if (user) {
+  // The redirect above is running — render nothing rather than a form that is about to disappear. Exempt for
+  // the two factor flows, which are exactly the case where a signed-in account still needs this screen.
+  if (user && !factorFlow) {
     return null
   }
 
@@ -92,7 +113,7 @@ function LoginShell({
  * already accepted stayed live, so a mistyped code invited re-checking the password, and the button gave no sign
  * that the first half had succeeded. A separate step states what is being asked and for which account.
  */
-type Mode = 'login' | 'totp' | 'enrol' | 'recovery' | 'codes'
+type Mode = 'login' | 'totp' | 'enrol' | 'recovery' | 'codes' | 'replace'
 
 interface EnrolmentMaterial {
   secretUri: string | null
@@ -137,6 +158,15 @@ function LocalLoginForm() {
     // (A.4, step 28): the refusal has to have a destination, or the app looks usable and is dead.
     if (params.get('enrol') === '1') {
       setMode('enrol')
+      const address = params.get('email')
+      if (address) setEmail(address)
+    }
+
+    // « Sécurité » routes here with `?replace=1` while the window a redeemed code opened is still open. Same
+    // reason as the branch above: the offer has to have a destination, or the sentence on that page points at a
+    // password form and reads as having lost the session.
+    if (params.get('replace') === '1') {
+      setMode('replace')
       const address = params.get('email')
       if (address) setEmail(address)
     }
@@ -277,6 +307,18 @@ function LocalLoginForm() {
         setIsSubmitting(false)
         return
       }
+
+      // ⚠️ Signed in, but still bound to the authenticator they no longer have — and the server has just opened
+      // a short window in which that can be fixed. Going straight home would spend the code and change nothing:
+      // for a cabinet with a single administrator that is the whole difference between recovering and running
+      // out of codes one sign-in at a time.
+      if (data?.mayReplaceSecondFactor) {
+        setRecoveryCode('')
+        setMode('replace')
+        setIsSubmitting(false)
+        return
+      }
+
       goHome()
     } catch {
       setError('Impossible de joindre le serveur de la clinique. Veuillez réessayer.')
@@ -412,6 +454,55 @@ function LocalLoginForm() {
             }}
           >
             Revenir à la connexion
+          </Button>
+        </form>
+      </LoginShell>
+    )
+  }
+
+  // ── After a recovery code: offer to move the factor to the new phone ──────────────────────────────────
+  //
+  // ⚠️ An OFFER, not a wall. A recovery code is also what somebody uses whose phone is at home rather than
+  // gone, and forcing a re-scan would cost them a working enrolment for nothing. « Plus tard » is therefore a
+  // real way out — the window simply lapses, and « Sécurité » says so while it lasts.
+  if (mode === 'replace') {
+    return (
+      <LoginShell
+        title="Remplacer votre second facteur"
+        description="Vous êtes connecté. Votre second facteur est encore lié à votre ancien appareil."
+      >
+        {/* A form with both fields rather than a bare button, because this screen has TWO entry points: straight
+            off the recovery sign-in (where both are already in state, so it is pre-filled and one click) and
+            « Sécurité »'s `?replace=1` link (where the page has just loaded and holds neither). One code path
+            serves both, which is the same reason this whole flow is one component. */}
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void requestEnrolmentMaterial()
+          }}
+        >
+          <FormErrorBanner message={error} />
+          <p className="text-sm text-muted-foreground">
+            Si vous avez perdu ce téléphone, remplacez-le maintenant : vous obtiendrez un nouveau QR code à
+            scanner et une nouvelle série de codes de récupération. Vos anciens codes seront annulés.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Cette possibilité n’est ouverte que quelques minutes après l’utilisation d’un code de récupération.
+          </p>
+          <EmailField value={email} onChange={setEmail} disabled={isSubmitting} />
+          <PasswordField value={password} onChange={setPassword} disabled={isSubmitting} />
+          <Button type="submit" className="min-h-11 w-full" disabled={isSubmitting}>
+            {isSubmitting ? 'Préparation…' : 'Remplacer maintenant'}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="min-h-11 w-full"
+            disabled={isSubmitting}
+            onClick={goHome}
+          >
+            Plus tard
           </Button>
         </form>
       </LoginShell>
