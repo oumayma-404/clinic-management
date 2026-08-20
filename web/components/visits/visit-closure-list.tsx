@@ -357,12 +357,16 @@ const CLOSURE_STEP_ORDER: VisitClosureStep[] = ["Presence", "Fiche", "Billing"]
  * <p>Interpolated rather than written out three times because a `style` value is not a class: Tailwind's
  * source scan is irrelevant here, so deriving it is what keeps a step's stripe and its badge from disagreeing.</p>
  *
- * <p>⚠️ <b>`--zone-*`, never `--color-zone-*`.</b> The `--color-` aliases live in `globals.css`'s
- * **`@theme inline`** block, and `inline` means Tailwind substitutes the value into the utilities it generates
- * and never emits the property itself — so `var(--color-zone-daily)` resolves to nothing at runtime and the
- * stripe paints **transparent**, silently. The raw token is declared on `:root` and again under `.dark`, so it
- * is also the theme-aware one. (`reminder-log-table.tsx`'s `STRIPE` has the same defect with
- * `var(--color-success)`; this was copied from it before that was known.)</p>
+ * <p>⚠️ <b>`--zone-*`, never `--color-zone-*`.</b> The `--color-` aliases are `@theme inline` entries, and
+ * Tailwind v4 emits such a variable to `:root` only when it judges it **used** — so which ones exist at runtime
+ * is a property of the current build, not of the stylesheet. Measured in the browser:
+ * <b>`--color-zone-clinical` was absent</b> while `--color-zone-daily` and `--color-zone-money` resolved, and an
+ * earlier reading had all three empty. So a `var(--color-…)` in an inline `style` paints <b>transparent</b>
+ * whenever it loses that coin flip — silently, because an unresolvable custom property is not an error. The raw
+ * tokens are declared unconditionally on `:root` and again under `.dark`, so they always resolve *and* follow the
+ * theme; the `zone.wash`/`zone.text` <i>classes</i> above were never affected.
+ * (`reminder-log-table.tsx`'s `STRIPE` was the source of this pattern and had the identical defect; both are
+ * fixed.)</p>
  */
 function stripeFor(visit: VisitToCloseDto): string {
   return `var(--zone-${CLOSURE_STEPS[visit.nextStep].zone})`

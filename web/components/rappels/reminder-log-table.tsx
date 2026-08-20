@@ -332,9 +332,21 @@ const REASON_CLASS: Record<ReminderDeliveryStatus, string> = {
   blocked: "text-warning-ink",
 }
 
+/**
+ * The row's status stripe, as a raw colour for an inline `backgroundColor`.
+ *
+ * ⚠️ **`--success`, never `--color-success`.** The `--color-` aliases are `@theme inline` entries, and Tailwind v4
+ * emits such a variable to `:root` only when it judges it **used** — so which ones exist at runtime is a property
+ * of the current build, not of the stylesheet. Measured in the browser: `--color-zone-clinical` was **absent**
+ * while `--color-zone-daily` and `--color-zone-money` resolved. A `var(--color-…)` in an inline `style` is
+ * therefore a coin flip that re-flips whenever utility usage changes, and it paints **transparent** when it loses
+ * — silently, because an unresolvable custom property is not an error. The raw tokens are declared
+ * unconditionally on `:root` and again under `.dark`, so they always resolve *and* follow the theme. Utilities are
+ * unaffected: only an inline style needs a property that exists at runtime.
+ */
 const STRIPE: Record<ReminderDeliveryStatus, string> = {
-  sent: "var(--color-success)",
-  pending: "var(--color-warning)",
-  failed: "var(--color-destructive)",
-  blocked: "var(--color-warning)",
+  sent: "var(--success)",
+  pending: "var(--warning)",
+  failed: "var(--destructive)",
+  blocked: "var(--warning)",
 }
