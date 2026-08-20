@@ -356,23 +356,11 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
             {errors.patientId && <p className="text-xs text-destructive">{errors.patientId}</p>}
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="prosthetist">
-              Prothésiste / laboratoire <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="prosthetist"
-              placeholder="ex. Labo Dentaire Tunis"
-              value={prosthetist}
-              onChange={(e) => setProsthetist(e.target.value)}
-            />
-            {errors.prosthetist && <p className="text-xs text-destructive">{errors.prosthetist}</p>}
-          </div>
-
+          {/* Deliberately ABOVE the prothésiste name it prefills. `adoptSupplierName` only writes into an empty
+              field, so asked second it almost never fired — the common case was retyping a name the app had just
+              been given. Asked first, the name below arrives already filled. */}
           <div className="space-y-2">
             <Label htmlFor="lab-supplier">Fiche fournisseur (pour le contacter)</Label>
-            {/* Optional and separate from the name above: linking a fiche is what gives the bon a number, so
-                « Relancer » becomes a WhatsApp action instead of a note to go and look the number up. */}
             <SupplierPicker
               id="lab-supplier"
               value={supplierId}
@@ -389,9 +377,22 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
               reloadKey={supplierReloadKey}
             />
             <p className="text-xs text-muted-foreground">
-              Facultatif. Sans fiche, le bon garde le nom saisi ci-dessus mais ne pourra pas être relancé par
+              Facultatif. Sans fiche, le bon garde le nom saisi ci-dessous mais ne pourra pas être relancé par
               WhatsApp.
             </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="prosthetist">
+              Prothésiste / laboratoire <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="prosthetist"
+              placeholder="ex. Labo Dentaire Tunis"
+              value={prosthetist}
+              onChange={(e) => setProsthetist(e.target.value)}
+            />
+            {errors.prosthetist && <p className="text-xs text-destructive">{errors.prosthetist}</p>}
           </div>
 
           <div className="space-y-2">
