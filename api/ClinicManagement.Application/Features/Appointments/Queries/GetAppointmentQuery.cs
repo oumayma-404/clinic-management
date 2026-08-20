@@ -18,17 +18,20 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly IUserRepository _userRepository;
+    private readonly IDoctorRepository _doctorRepository;
     private readonly IClinicContext _clinicContext;
 
     public GetAppointmentQueryHandler(
         IAppointmentRepository appointmentRepository,
         IInvoiceRepository invoiceRepository,
         IUserRepository userRepository,
+        IDoctorRepository doctorRepository,
         IClinicContext clinicContext)
     {
         _appointmentRepository = appointmentRepository;
         _invoiceRepository = invoiceRepository;
         _userRepository = userRepository;
+        _doctorRepository = doctorRepository;
         _clinicContext = clinicContext;
     }
 
@@ -64,6 +67,11 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
             var invoiceLinks = await AppointmentInvoiceLinks.ResolveAsync(
                 _invoiceRepository, user.ClinicId, new[] { appointment.Id }, cancellationToken);
 
+            // Same helper, same reason: the practitioner's name is resolved from `DoctorId`, never read off the
+            // `DoctorName` snapshot no write path fills.
+            var roster = await AppointmentDoctorNames.ResolveRosterAsync(
+                _doctorRepository, user.ClinicId, cancellationToken);
+
             var dto = new AppointmentDto
             {
                 Id = appointment.Id,
@@ -75,7 +83,8 @@ public class GetAppointmentQueryHandler : IRequestHandler<GetAppointmentQuery, R
                     ? appointment.AppointmentDateTime
                     : DateTime.SpecifyKind(appointment.AppointmentDateTime, DateTimeKind.Utc),
                 Duration = appointment.Duration,
-                DoctorName = appointment.DoctorName,
+                DoctorName = AppointmentDoctorNames.For(
+                    appointment.DoctorId, appointment.DoctorName, roster),
                 Notes = appointment.Notes,
                 Status = appointment.Status.ToString(),
                 AllowedNextStatuses = Appointment.NextStatusesFrom(appointment.Status).Select(s => s.ToString()).ToList(),

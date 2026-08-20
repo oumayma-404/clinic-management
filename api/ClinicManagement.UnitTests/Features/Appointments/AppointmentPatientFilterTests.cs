@@ -69,6 +69,16 @@ public class AppointmentPatientFilterTests
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
 
-        return new GetAppointmentsQueryHandler(repo.Object, invoices.Object, users.Object, context.Object);
+        return new GetAppointmentsQueryHandler(
+            repo.Object, invoices.Object, users.Object, NoDoctors(), context.Object);
     }
+    /// <summary>An empty practitioner roster — these cases assert other columns, not the praticien.</summary>
+    private static IDoctorRepository NoDoctors()
+    {
+        var doctors = new Mock<IDoctorRepository>();
+        doctors.Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Doctor>());
+        return doctors.Object;
+    }
+
 }

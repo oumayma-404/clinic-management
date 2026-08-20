@@ -52,6 +52,7 @@ public class GetVisitsToCloseQueryHandler
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IDoctorRepository _doctorRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetVisitsToCloseQueryHandler> _logger;
 
@@ -61,6 +62,7 @@ public class GetVisitsToCloseQueryHandler
         IInvoiceRepository invoiceRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
         IPatientRepository patientRepository,
+        IDoctorRepository doctorRepository,
         ICurrentClinicResolver clinicResolver,
         ILogger<GetVisitsToCloseQueryHandler> logger)
     {
@@ -69,6 +71,7 @@ public class GetVisitsToCloseQueryHandler
         _invoiceRepository = invoiceRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
         _patientRepository = patientRepository;
+        _doctorRepository = doctorRepository;
         _clinicResolver = clinicResolver;
         _logger = logger;
     }
@@ -111,9 +114,14 @@ public class GetVisitsToCloseQueryHandler
             // Paged in memory, deliberately, and for the reason « Créances » and the « extrait de caisse » are:
             // the exact end-of-slot test and the three-way gap rule cannot be expressed in SQL, so no single
             // query knows a row's position in the list. The WINDOW is what bounds the work — see the reader.
+            // The practitioner's name comes from `DoctorId`, not from the unpopulated `DoctorName` snapshot —
+            // see `AppointmentDoctorNames`. One roster read per request, bounded by the clinic's own staff.
+            var roster = await AppointmentDoctorNames.ResolveRosterAsync(
+                _doctorRepository, clinicId, cancellationToken);
+
             var page = PagedResult<OpenVisit>.FromSource(open, request.Paging);
 
-            return Result<PagedResult<VisitToCloseDto>>.Success(page.Map(o => Map(o, patients)));
+            return Result<PagedResult<VisitToCloseDto>>.Success(page.Map(o => Map(o, patients, roster)));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
@@ -122,7 +130,10 @@ public class GetVisitsToCloseQueryHandler
         }
     }
 
-    private static VisitToCloseDto Map(OpenVisit open, IReadOnlyDictionary<Guid, Patient> patients)
+    private static VisitToCloseDto Map(
+        OpenVisit open,
+        IReadOnlyDictionary<Guid, Patient> patients,
+        IReadOnlyDictionary<Guid, string> roster)
     {
         var a = open.Appointment;
         var patientId = a.PatientId!.Value;
@@ -141,7 +152,7 @@ public class GetVisitsToCloseQueryHandler
             AppointmentDateTime = a.AppointmentDateTime,
             DurationMinutes = (int)a.Duration.TotalMinutes,
             DoctorId = a.DoctorId,
-            DoctorName = a.DoctorName,
+            DoctorName = AppointmentDoctorNames.For(a.DoctorId, a.DoctorName, roster),
             Procedures = a.Procedures
                 .Select(p => p.ProcedureName)
                 .Where(n => !string.IsNullOrWhiteSpace(n))

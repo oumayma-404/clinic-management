@@ -238,7 +238,7 @@ public class InvoiceAppointmentLinkTests
             });
 
         var handler = new GetAppointmentsQueryHandler(
-            _appointments.Object, _invoices.Object, users.Object, context.Object);
+            _appointments.Object, _invoices.Object, users.Object, NoDoctors(), context.Object);
         var result = await handler.Handle(new GetAppointmentsQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -253,4 +253,13 @@ public class InvoiceAppointmentLinkTests
             It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 2),
             It.IsAny<CancellationToken>()), Times.Once);
     }
+    /// <summary>An empty practitioner roster — these cases assert other columns, not the praticien.</summary>
+    private static IDoctorRepository NoDoctors()
+    {
+        var doctors = new Mock<IDoctorRepository>();
+        doctors.Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Doctor>());
+        return doctors.Object;
+    }
+
 }

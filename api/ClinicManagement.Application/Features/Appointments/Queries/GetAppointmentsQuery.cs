@@ -28,17 +28,20 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly IUserRepository _userRepository;
+    private readonly IDoctorRepository _doctorRepository;
     private readonly IClinicContext _clinicContext;
 
     public GetAppointmentsQueryHandler(
         IAppointmentRepository appointmentRepository,
         IInvoiceRepository invoiceRepository,
         IUserRepository userRepository,
+        IDoctorRepository doctorRepository,
         IClinicContext clinicContext)
     {
         _appointmentRepository = appointmentRepository;
         _invoiceRepository = invoiceRepository;
         _userRepository = userRepository;
+        _doctorRepository = doctorRepository;
         _clinicContext = clinicContext;
     }
 
@@ -77,6 +80,11 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
             var invoiceLinks = await AppointmentInvoiceLinks.ResolveAsync(
                 _invoiceRepository, clinicId, appointmentList.Select(a => a.Id).ToList(), cancellationToken);
 
+            // The practitioner's name comes from `DoctorId`; `DoctorName` is an unpopulated snapshot kept only
+            // as a fallback for rows that carry one — see `AppointmentDoctorNames`.
+            var roster = await AppointmentDoctorNames.ResolveRosterAsync(
+                _doctorRepository, clinicId, cancellationToken);
+
             var dtos = appointmentList.Select(a => new AppointmentDto
             {
                 Id = a.Id,
@@ -84,7 +92,7 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
                 PatientId = a.PatientId,
                 PatientName = a.Patient?.GetFullName() ?? "Occupé",
                 DoctorId = a.DoctorId,
-                DoctorName = a.DoctorName,
+                DoctorName = AppointmentDoctorNames.For(a.DoctorId, a.DoctorName, roster),
                 AppointmentDateTime = a.AppointmentDateTime,
                 Duration = a.Duration,
                 Notes = a.Notes,

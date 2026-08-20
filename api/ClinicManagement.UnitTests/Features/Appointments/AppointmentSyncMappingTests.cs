@@ -81,7 +81,7 @@ public class AppointmentSyncMappingTests
         users.Setup(r => r.GetByAuth0SubAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var handler = new GetAppointmentQueryHandler(
-            repo.Object, NoInvoices(), users.Object, context.Object);
+            repo.Object, NoInvoices(), users.Object, NoDoctors(), context.Object);
         var result = await handler.Handle(new GetAppointmentQuery { Id = appointment.Id }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -106,7 +106,7 @@ public class AppointmentSyncMappingTests
             .ReturnsAsync(new[] { synced, unsynced });
 
         var handler = new GetAppointmentsQueryHandler(
-            repo.Object, NoInvoices(), users.Object, context.Object);
+            repo.Object, NoInvoices(), users.Object, NoDoctors(), context.Object);
         var result = await handler.Handle(new GetAppointmentsQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -213,4 +213,13 @@ public class AppointmentSyncMappingTests
         factory.Setup(f => f.CreateScope()).Returns(scope.Object);
         return factory.Object;
     }
+    /// <summary>An empty practitioner roster — these cases assert other columns, not the praticien.</summary>
+    private static IDoctorRepository NoDoctors()
+    {
+        var doctors = new Mock<IDoctorRepository>();
+        doctors.Setup(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Doctor>());
+        return doctors.Object;
+    }
+
 }
