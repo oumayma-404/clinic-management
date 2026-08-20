@@ -610,6 +610,11 @@ listener, no reachable route, and every `/api/platform/*` path 404s. Off means a
 
 It is published on **loopback only**, so there is no address to reach from the internet and no DNS name for one.
 
+> **On a platform that cannot give you a tunnel** (Render and its like: one public port per service, no SSH into a
+> private one) see [`RENDER-CONSOLE.md`](RENDER-CONSOLE.md). It gives two topologies, the test that decides which
+> applies, and what publishing the console costs — read its first paragraph before the rest, because where you
+> have a shell the verbs below are the lower-risk answer and none of it is needed.
+
 ```bash
 ssh -L 9443:127.0.0.1:9443 <host>
 # then, on your own machine:
