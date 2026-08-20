@@ -5,7 +5,7 @@ import type React from "react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
-import { format, parseISO } from "date-fns"
+import { format, parseISO, startOfMonth } from "date-fns"
 import { fr } from "date-fns/locale"
 import { toast } from "sonner"
 import { AppShell } from "@/components/app-shell"
@@ -59,7 +59,7 @@ import { CashInByMethod } from "@/components/caisse/cash-in-by-method"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
 import { ApiError } from "@/lib/api/client"
-import { formatAmount, formatDT, parseAmountInput } from "@/lib/format"
+import { formatAmount, formatDT, parseAmountInput, toLocalIso, todayLocalIso } from "@/lib/format"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import type { CaisseLedgerDto, CaisseSummaryDto, ExpenseDto } from "@/lib/api/types"
@@ -156,9 +156,11 @@ export default function CaissePage() {
 }
 
 function CaisseContent() {
-  const [selectedDay, setSelectedDay] = useState<string>(() => format(new Date(), "yyyy-MM-dd"))
-  // The range's end. Empty means "one day" — the daily till, which is what this screen is for.
-  const [endDay, setEndDay] = useState<string>("")
+  // The window opens on the month TO DATE, not on today: every figure here is read to answer « how is the month
+  // going », and a one-day default made that question start with widening the range by hand.
+  const [selectedDay, setSelectedDay] = useState<string>(() => toLocalIso(startOfMonth(new Date())))
+  // The range's end. Empty means "one day" — the daily till, which « Aujourd'hui » comes back to.
+  const [endDay, setEndDay] = useState<string>(() => todayLocalIso())
   const [summary, setSummary] = useState<CaisseSummaryDto | null>(null)
   // The « extrait »: every movement behind the three totals above it. Fetched alongside them from the same
   // window, so the lines and the figures can never describe different periods.
@@ -191,6 +193,12 @@ function CaisseContent() {
   // Bare `YYYY-MM-DD`, exactly as the date inputs hold them — no conversion, which is the whole point.
   const fromDay = selectedDay
   const toDay = isRange ? endDay : selectedDay
+  // A dépense is dated the day it happened, so its form opens on TODAY — clamped into the window on screen, since
+  // `selectedDay` is now the 1st and pre-filling that would date every new dépense to the start of the month.
+  const newExpenseDay = useMemo(() => {
+    const today = todayLocalIso()
+    return today < fromDay ? fromDay : today > toDay ? toDay : today
+  }, [fromDay, toDay])
 
   const loadData = useCallback(async () => {
     try {
@@ -249,12 +257,16 @@ function CaisseContent() {
 
   // Dashboard drill-through (« Dépenses » / « Net »): ?from=&to= opens the range the KPI was computed over, so la
   // caisse and the dashboard show the same three figures. window.location in an effect rather than useSearchParams —
-  // the repo's idiom. A malformed date is ignored, leaving today's till.
+  // the repo's idiom. A malformed date is ignored, leaving the month to date.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const urlFrom = params.get("from")
     const urlTo = params.get("to")
-    if (urlFrom && !Number.isNaN(Date.parse(urlFrom))) setSelectedDay(urlFrom)
+    if (urlFrom && !Number.isNaN(Date.parse(urlFrom))) {
+      setSelectedDay(urlFrom)
+      // `?from=` alone names ONE day; without this the month default's end would silently widen it to today.
+      if (!urlTo) setEndDay("")
+    }
     if (urlTo && !Number.isNaN(Date.parse(urlTo))) setEndDay(urlTo)
   }, [])
 
@@ -394,8 +406,14 @@ function CaisseContent() {
                 />
               </div>
               {isRange && (
-                <Button variant="outline" onClick={() => setEndDay("")}>
-                  Journée
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedDay(todayLocalIso())
+                    setEndDay("")
+                  }}
+                >
+                  Aujourd&apos;hui
                 </Button>
               )}
               {/* L5 — the « extrait de caisse », over the window on screen. ⚠️ The free-text `search` is
@@ -557,7 +575,7 @@ function CaisseContent() {
                 <span aria-hidden="true" className={MONEY_HEADER_CHIP}>
                   <Wallet className="size-4" strokeWidth={1.75} />
                 </span>
-                Dépenses du jour
+                {isRange ? "Dépenses de la période" : "Dépenses du jour"}
                 <Badge variant="secondary">{expensePage.totalCount}</Badge>
               </CardTitle>
               {/*
@@ -697,7 +715,7 @@ function CaisseContent() {
           open={modalOpen}
           onOpenChange={setModalOpen}
           editingExpense={editingExpense}
-          defaultDay={selectedDay}
+          defaultDay={newExpenseDay}
           onSaved={loadData}
         />
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -742,7 +760,7 @@ interface ExpenseFormModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   editingExpense: ExpenseDto | null
-  /** yyyy-MM-dd — the currently viewed day; new expenses default to it. */
+  /** yyyy-MM-dd — today, clamped into the window on screen; new expenses default to it. */
   defaultDay: string
   onSaved: () => void | Promise<void>
 }
