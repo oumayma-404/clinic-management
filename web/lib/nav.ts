@@ -8,6 +8,7 @@ import {
   CreditCard,
   FileCheck,
   FlaskConical,
+  FolderOpen,
   LayoutDashboard,
   Package,
   Pill,
@@ -38,8 +39,14 @@ export type NavItem = { name: string; href: string; icon: LucideIcon }
 export type NavSection = { title: string; items: NavItem[] }
 
 // Daily-use sections. Config/catalog screens live in a separate "Configuration" group (built below with
-// role gating) so the everyday rail stays short. Mon profil moved to the header user menu; the read-only
-// /records and global /files shortcuts were removed (the patient page owns that data).
+// role gating) so the everyday rail stays short. Mon profil moved to the header user menu, and the read-only
+// /records shortcut was removed (the patient page owns that data).
+//
+// ⚠️ « Fichiers » (/fichiers) is NOT a return of the old global /files screen, which was a second file manager
+// over every patient at once. This one is a *directory*: it lists patients with the size of each one's drawer
+// and links to `/patients/{id}/files`, which is still the only place a file is uploaded, moved or deleted. The
+// old row was removed because it duplicated that page; this one exists because nothing answered « which patient
+// has the scan? » without opening records one by one.
 export const baseSections: NavSection[] = [
   {
     title: "Quotidien",
@@ -52,6 +59,12 @@ export const baseSections: NavSection[] = [
       // itself are deliberately intact (`app/recurring-series/page.tsx` keeps the component, unrouted).
       { name: "Liste d'attente", href: "/waiting-list", icon: Clock },
       { name: "Patients", href: "/patients", icon: Users },
+      // Beside « Patients » because it is the same population read a different way: the patient list answers
+      // « qui est ce patient ? » and this one answers « où sont ses radios ? ». It is a *shortcut*, not a second
+      // file manager — every card opens `/patients/{id}/files`, which owns uploading, folders and deletion. The
+      // pair is deliberately adjacent, since a user who cannot remember which of the two they want will find
+      // the other one in the row below.
+      { name: "Fichiers", href: "/fichiers", icon: FolderOpen },
     ],
   },
   {

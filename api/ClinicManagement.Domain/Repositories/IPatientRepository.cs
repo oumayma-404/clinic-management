@@ -139,6 +139,30 @@ public interface IPatientRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// One page of the « Fichiers » directory — every non-archived patient of the clinic with the size of their
+    /// own file drawer beside them (see <see cref="PatientFileSummary"/> for why the counts are computed here
+    /// rather than annotated onto an already-cut page).
+    /// </summary>
+    /// <param name="searchTerm">
+    /// The same free-text filter <see cref="GetByClinicIdAsync"/> takes, matched over the same columns by the
+    /// same predicate — not a second copy of it. « Rechercher un patient » must mean one thing, or a name found
+    /// on the patients list and not on the files list reads as a missing record.
+    /// </param>
+    /// <param name="withFilesOnly">
+    /// Drop the patients with an empty drawer. Applied <b>in SQL, before the page is cut</b>: as a filter over
+    /// the returned rows it would mean « those of these 25 who have files », shrinking pages unpredictably and
+    /// hiding every patient with files who is not on the current one.
+    /// </param>
+    /// <param name="paging">The page, or <c>null</c> for every row — the first-class unpaged case.</param>
+    Task<PagedResult<PatientFileSummary>> GetFileSummariesAsync(
+        Guid clinicId,
+        string? searchTerm = null,
+        bool withFilesOnly = false,
+        PatientFileSummarySort sort = PatientFileSummarySort.Name,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The bounded candidate set for « patients à relancer » (AC-P4.41–4.43). Everything expressible in SQL is
     /// applied in SQL — clinic scope, archived exclusion, active snooze, a future Scheduled/Confirmed booking,
     /// the last completed visit per patient, and an upper bound on the recall anchor — so the handler no longer

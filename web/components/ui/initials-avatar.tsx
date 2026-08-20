@@ -43,17 +43,27 @@ const TONES = [
 ] as const
 
 /**
- * A stable index for a name.
+ * A stable index for a name — `0…4`, the bucket both this disc and anything tinted to match it draw from.
  *
  * <p>A plain character-code sum, on purpose: it must give the same answer in every browser, on every machine and
  * across reloads, since a patient whose colour changed between two page loads would be worse than no colour at
  * all. Distribution does not need to be cryptographic — five buckets over real Tunisian names is even enough
  * that no group of rows reads as one block.</p>
+ *
+ * <p><b>Exported because a second surface tints more than a disc.</b> The « Fichiers » directory
+ * (`components/files/patient-files-directory.tsx`) washes a whole card in the same hue as the disc inside it, and
+ * two independent hash functions is how you end up with a violet disc on an amber card. Only the <i>index</i> is
+ * shared: each surface still writes its own literal class strings, because Tailwind scans source text and a
+ * `bg-chart-N/8` composed at runtime is never generated at all.</p>
  */
-function toneFor(name: string): string {
+export function toneIndexFor(name: string): number {
   let sum = 0
   for (let i = 0; i < name.length; i++) sum += name.charCodeAt(i)
-  return TONES[sum % TONES.length]
+  return sum % TONES.length
+}
+
+function toneFor(name: string): string {
+  return TONES[toneIndexFor(name)]
 }
 
 /**

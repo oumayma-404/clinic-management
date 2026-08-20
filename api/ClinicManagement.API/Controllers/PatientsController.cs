@@ -6,6 +6,7 @@ using ClinicManagement.Application.Features.Patients.Commands;
 using ClinicManagement.Application.Features.Patients.Queries;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Domain.Common;
+using ClinicManagement.Domain.Repositories;
 using ClinicManagement.API.Models;
 using ClinicManagement.Application.Common.Csv;
 using ClinicManagement.Application.Common.Files;
@@ -257,6 +258,55 @@ public class PatientsController : ApiControllerBase
 
         return Ok(result.Value);
     }
+
+    /// <summary>
+    /// The « Fichiers » directory — one page of the clinic's patients with the size of each one's file drawer
+    /// beside them, so staff can reach a patient's files without first opening their record.
+    ///
+    /// <para>A literal segment, so it is matched ahead of <c>{id}</c> — the same shape <c>export</c> and
+    /// <c>import/preview</c> already rely on.</para>
+    /// </summary>
+    /// <param name="sort">
+    /// <c>name</c> (default) · <c>files</c> (fullest drawer first) · <c>recent</c> (most recent upload first).
+    /// An unrecognised value falls back to <c>name</c> rather than refusing: a stale bookmark should show the
+    /// directory, not a French error.
+    /// </param>
+    [HttpGet("file-summaries")]
+    public async Task<ActionResult<PagedResult<PatientFileSummaryDto>>> GetPatientFileSummaries(
+        [FromQuery] string? searchTerm = null,
+        [FromQuery] bool withFilesOnly = false,
+        [FromQuery] string? sort = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
+    {
+        var result = await _mediator.Send(new GetPatientFileSummariesQuery
+        {
+            SearchTerm = searchTerm,
+            WithFilesOnly = withFilesOnly,
+            Sort = ParseFileSummarySort(sort),
+            Page = page,
+            PageSize = pageSize,
+        });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Sort key → enum, clamping instead of refusing. Taken as a string rather than bound straight onto the
+    /// enum because <c>[ApiController]</c> turns an unbindable enum value into an automatic 400, which would
+    /// make a typo in a shared URL look like a broken screen.
+    /// </summary>
+    private static PatientFileSummarySort ParseFileSummarySort(string? sort) => sort?.Trim().ToLowerInvariant() switch
+    {
+        "files" => PatientFileSummarySort.MostFiles,
+        "recent" => PatientFileSummarySort.RecentUpload,
+        _ => PatientFileSummarySort.Name,
+    };
 
     /// <summary>
     /// Get a patient by ID

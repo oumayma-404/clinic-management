@@ -1,6 +1,13 @@
 import { apiGet, apiGetBlob, apiPost, apiPut, apiPostFormData, apiDelete } from './client';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
-import type { PatientFileDto, PatientFolderDto } from './types';
+import type { PatientFileDto, PatientFileSummaryDto, PatientFolderDto } from './types';
+
+/**
+ * How the « Fichiers » directory is ordered. The three keys the server accepts, as a union so a typo is a `tsc`
+ * error rather than a silent fall-back to alphabetical (the endpoint clamps an unknown value on purpose, which
+ * is right for a stale bookmark and wrong for our own code).
+ */
+export type PatientFileDirectorySort = 'name' | 'files' | 'recent';
 
 /**
  * Patient folders and files.
@@ -13,6 +20,24 @@ import type { PatientFileDto, PatientFolderDto } from './types';
  * had no request deadline (a dead transport froze the drop zone with no toast and no retry) and no 401 retry.
  */
 export const patientFilesApi = {
+  /**
+   * One page of the « Fichiers » directory — every patient of the clinic with the size of their file drawer
+   * beside them (`/fichiers`).
+   *
+   * ⚠️ **Every narrowing decision is the server's.** `search`, `withFilesOnly` and `sort` are all applied before
+   * the page is cut, so none of them may be re-applied to the returned rows: filtering an already-cut window
+   * means « those of these 25 », which shrinks pages unpredictably and hides every match on another page.
+   */
+  getPatientSummaries: async (
+    params: PageParams & { withFilesOnly?: boolean; sort?: PatientFileDirectorySort },
+  ): Promise<PagedResponse<PatientFileSummaryDto>> => {
+    const { search, ...rest } = params;
+    return apiGet<PagedResponse<PatientFileSummaryDto>>('/patients/file-summaries', {
+      ...rest,
+      searchTerm: search,
+    });
+  },
+
   // Get folders for a patient
   getFolders: async (patientId: string, parentFolderId?: string): Promise<PatientFolderDto[]> => {
     const params = parentFolderId ? { parentFolderId } : undefined;

@@ -921,6 +921,24 @@ export interface PatientFolderDto {
   updatedAt?: string;
 }
 
+/**
+ * One card of the « Fichiers » directory (`/fichiers`) — a patient plus the state of their own file drawer.
+ *
+ * `lastUploadedAt` is null for an empty drawer, and the card says « Aucun fichier » rather than rendering a date
+ * it does not have. `totalBytes` is 0 in that case: `fileCount` is what tells « rien » from « des fichiers
+ * vides », so a nullable size would be a second way to ask the same question.
+ */
+export interface PatientFileSummaryDto {
+  patientId: string;
+  firstName: string;
+  lastName: string;
+  /** The stored number, exactly as typed. Null when the patient gave none. */
+  phoneNumber?: string | null;
+  fileCount: number;
+  totalBytes: number;
+  lastUploadedAt?: string | null;
+}
+
 export interface MedicalDocumentDto {
   id: string;
   patientId: string;

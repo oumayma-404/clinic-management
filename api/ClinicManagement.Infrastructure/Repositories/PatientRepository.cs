@@ -123,23 +123,9 @@ public class PatientRepository : IPatientRepository
             query = query.Where(p => p.CreatedAt <= createdTo.Value);
         }
 
-        // The search runs in SQL over the whole filtered set, not over the page. It used to run in the handler
-        // over every patient of the clinic, which was equivalent only because the handler also held every
-        // patient; with a page of 25 the two stop being the same question and the in-memory version answers the
-        // wrong one — « aucun patient » for someone sitting on page 7.
-        //
-        // Fields match what the old in-memory filter matched: first name, last name, "first last", phone. The
-        // concatenation is there because staff type « ahmed ben salah » as one string, which no single column
-        // contains.
-        var pattern = SearchTerm.ToLikePattern(searchTerm);
-        if (pattern is not null)
-        {
-            query = query.Where(p =>
-                EF.Functions.ILike(SqlSearch.Unaccent(p.FirstName)!, pattern, SqlSearch.EscapeString) ||
-                EF.Functions.ILike(SqlSearch.Unaccent(p.LastName)!, pattern, SqlSearch.EscapeString) ||
-                EF.Functions.ILike(SqlSearch.Unaccent(p.FirstName + " " + p.LastName)!, pattern, SqlSearch.EscapeString) ||
-                EF.Functions.ILike(SqlSearch.Unaccent(p.PhoneNumber!.Value)!, pattern, SqlSearch.EscapeString));
-        }
+        // The search runs in SQL over the whole filtered set, not over the page — see ApplySearch, which is
+        // shared with the « Fichiers » directory so « rechercher un patient » means one thing in both places.
+        query = ApplySearch(query, searchTerm);
 
         // Id is the tiebreaker, and it is not cosmetic: OFFSET paging over a non-unique sort can show a row
         // twice or skip it entirely when two patients share a surname and PostgreSQL picks a different order
@@ -149,6 +135,116 @@ public class PatientRepository : IPatientRepository
             .OrderBy(p => p.LastName)
             .ThenBy(p => p.FirstName)
             .ThenBy(p => p.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
+    }
+
+    /// <summary>
+    /// « What a free-text search over patients means » — one expression, two reads.
+    ///
+    /// <para>The columns are the ones the pre-paging in-memory filter matched: first name, last name,
+    /// « prénom nom » and phone. The concatenation is there because staff type « ahmed ben salah » as one
+    /// string, which no single column contains.</para>
+    ///
+    /// <para><b>A queryable-level builder, not the scalar helper <see cref="SqlSearch"/> rules out.</b> That
+    /// note forbids a <c>Matches(column, pattern)</c> method — EF cannot translate a call inside a predicate,
+    /// so the per-column form must stay inline. Composing on <c>IQueryable</c> is the ordinary EF idiom and the
+    /// only way two reads can share the rule instead of holding a copy each: a second copy is exactly how the
+    /// files directory would come to disagree with the patients list about which « Béchir » exists.</para>
+    /// </summary>
+    private static IQueryable<Patient> ApplySearch(IQueryable<Patient> query, string? searchTerm)
+    {
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is null)
+        {
+            return query;
+        }
+
+        return query.Where(p =>
+            EF.Functions.ILike(SqlSearch.Unaccent(p.FirstName)!, pattern, SqlSearch.EscapeString) ||
+            EF.Functions.ILike(SqlSearch.Unaccent(p.LastName)!, pattern, SqlSearch.EscapeString) ||
+            EF.Functions.ILike(SqlSearch.Unaccent(p.FirstName + " " + p.LastName)!, pattern, SqlSearch.EscapeString) ||
+            EF.Functions.ILike(SqlSearch.Unaccent(p.PhoneNumber!.Value)!, pattern, SqlSearch.EscapeString));
+    }
+
+    /// <summary>
+    /// One page of the « Fichiers » directory. Filter, count, sort and window are all in SQL; nothing about a
+    /// patient's drawer is decided after the page is cut (see <see cref="PatientFileSummary"/>).
+    ///
+    /// <para>The three aggregates are correlated subqueries over <c>PatientFiles</c>, which carries its own
+    /// <c>ClinicId</c> and therefore its own global query filter — so the tenant scope holds inside the
+    /// subquery too, on top of the explicit clinic predicate on the outer set.</para>
+    ///
+    /// <para>The aggregates are selected into an <b>anonymous</b> shape first and only then into the record.
+    /// <c>Where</c> and <c>OrderBy</c> have to reach back into those subquery expressions, which EF translates
+    /// reliably through an anonymous projection and not always through a positional constructor — and the
+    /// failure there is a runtime translation exception, not a compile error.</para>
+    /// </summary>
+    public async Task<PagedResult<PatientFileSummary>> GetFileSummariesAsync(
+        Guid clinicId,
+        string? searchTerm = null,
+        bool withFilesOnly = false,
+        PatientFileSummarySort sort = PatientFileSummarySort.Name,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Archived patients are excluded, exactly as they are from the patients list and the header search: the
+        // directory is a way into a live record, and an archived one is reached from the patient itself.
+        var patients = ApplySearch(
+            _context.Patients.Where(p => p.ClinicId == clinicId && !p.IsArchived),
+            searchTerm);
+
+        var rows = patients.Select(p => new
+        {
+            p.Id,
+            p.FirstName,
+            p.LastName,
+            // The stored value, warts and all — the same choice GetIdentitiesAsync documents.
+            Phone = p.PhoneNumber != null ? p.PhoneNumber.Value : null,
+            FileCount = _context.PatientFiles.Count(f => f.PatientId == p.Id),
+            // `(long?)` then coalesce: SUM over no rows is NULL in SQL, and mapping that onto a non-nullable
+            // long throws rather than yielding 0.
+            TotalBytes = _context.PatientFiles.Where(f => f.PatientId == p.Id).Sum(f => (long?)f.FileSize),
+            LastUploadedAt = _context.PatientFiles.Where(f => f.PatientId == p.Id).Max(f => (DateTime?)f.UploadedAt),
+        });
+
+        if (withFilesOnly)
+        {
+            rows = rows.Where(r => r.FileCount > 0);
+        }
+
+        // Every branch ends on the id: OFFSET paging over a non-unique sort can show a row on two pages and skip
+        // another, which reads as « un dossier a disparu ». Two patients with four files each is the ordinary
+        // case here, not an edge one.
+        var ordered = sort switch
+        {
+            PatientFileSummarySort.MostFiles => rows
+                .OrderByDescending(r => r.FileCount)
+                .ThenBy(r => r.LastName)
+                .ThenBy(r => r.FirstName)
+                .ThenBy(r => r.Id),
+            // `HasValue` descending first, so the patients who have never had a file sort LAST rather than
+            // heading the list — PostgreSQL orders NULLs first on a descending column.
+            PatientFileSummarySort.RecentUpload => rows
+                .OrderByDescending(r => r.LastUploadedAt.HasValue)
+                .ThenByDescending(r => r.LastUploadedAt)
+                .ThenBy(r => r.LastName)
+                .ThenBy(r => r.FirstName)
+                .ThenBy(r => r.Id),
+            _ => rows
+                .OrderBy(r => r.LastName)
+                .ThenBy(r => r.FirstName)
+                .ThenBy(r => r.Id),
+        };
+
+        return await ordered
+            .Select(r => new PatientFileSummary(
+                r.Id,
+                r.FirstName,
+                r.LastName,
+                r.Phone,
+                r.FileCount,
+                r.TotalBytes ?? 0L,
+                r.LastUploadedAt))
             .ToPagedResultAsync(paging, cancellationToken);
     }
 

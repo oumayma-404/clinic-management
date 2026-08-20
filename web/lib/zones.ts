@@ -143,6 +143,10 @@ const ROUTE_ZONES: Array<[string, ZoneKey]> = [
   ["/recurring-series", "daily"],
   ["/waiting-list", "daily"],
   ["/patients", "daily"],
+  // « Fichiers » is the patient list read a different way, so it shares its zone — and it must be listed
+  // explicitly rather than left to the `daily` fall-back, or the rail would highlight one hue while the page
+  // header drew the default and the two surfaces would stop reading as the same place.
+  ["/fichiers", "daily"],
   ["/documents", "clinical"],
   ["/treatment-plans", "clinical"],
   ["/lab-orders", "clinical"],
