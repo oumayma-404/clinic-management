@@ -84,7 +84,13 @@ if (!skipImages && existsSync(join(SRC, 'img'))) {
   const FF = ffmpegPath()
   for (const name of readdirSync(join(SRC, 'img'))) {
     const from = join(SRC, 'img', name)
-    if (/\.(png|jpg|jpeg)$/i.test(name)) {
+    // ⚠️ `og-*` is passed through untouched. WhatsApp — which is how a link
+    //    gets shared in Tunisia — does not reliably render a WebP social card,
+    //    so the one image on the site that must stay a JPEG is this one.
+    if (/^og-/i.test(name)) {
+      copyFileSync(from, join(OUT, 'assets', 'img', name))
+      imgReport.push(`${name} (copied, social card)`)
+    } else if (/\.(png|jpg|jpeg)$/i.test(name)) {
       const to = join(OUT, 'assets', 'img', name.replace(/\.\w+$/, '.webp'))
       if (existsSync(to) && statSync(to).mtimeMs > statSync(from).mtimeMs) {
         imgReport.push(`${name} → cached`)

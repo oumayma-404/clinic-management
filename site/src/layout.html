@@ -7,6 +7,7 @@
 <meta name="description" content="{{DESC}}">
 <meta name="theme-color" content="#0e1b2a">
 <link rel="canonical" href="{{BASE}}{{PATH}}">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%230e1b2a'/%3E%3Cpath d='M8 4.6c-2.1 0-3.4 1.7-3.4 4.1 0 2.6.9 4.7 1.7 6.8.5 1.4 1 2.7 2 2.7 1 0 1.1-1.3 1.4-2.7.3-1.3.5-2.2 1.8-2.2s1.5.9 1.8 2.2c.3 1.4.3 2.7 1.4 2.7 1 0 1.5-1.3 2-2.7.8-2.1 1.7-4.2 1.7-6.8 0-2.4-1.3-4.1-3.4-4.1-1.4 0-2.3.7-3.4.7s-2-.7-3.4-.7Z' fill='none' stroke='%232dd4bf' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 
 <meta property="og:type" content="website">
 <meta property="og:locale" content="fr_TN">
@@ -14,6 +15,12 @@
 <meta property="og:title" content="{{TITLE}}">
 <meta property="og:description" content="{{DESC}}">
 <meta property="og:url" content="{{BASE}}{{PATH}}">
+<!-- ⚠️ An ABSOLUTE url, and a JPEG. A relative og:image is ignored by most
+     scrapers, and a WebP one does not render in WhatsApp. -->
+<meta property="og:image" content="{{BASE}}assets/img/og-card.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
