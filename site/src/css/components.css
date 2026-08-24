@@ -5614,3 +5614,90 @@
 @media (max-width: 61.99rem) {
   .s3-foot { display: none; }
 }
+
+
+/* ── 32 · Sur téléphone, dire que ça glisse ────────────────────────────────
+   The strip advanced by itself and nothing said it could be pushed. Three
+   things now say it, because no one of them survives every case: the peek
+   works when nothing is moving, the arrows work when the reader is looking for
+   a control, and the nudge works in the first four seconds when they are not
+   looking for anything. */
+
+@media (max-width: 61.99rem) {
+
+  /* 1 · THE PEEK. A slide is now narrower than the track by exactly the sliver
+     of the next one that shows past the right edge. `scroll-snap-align: start`
+     keeps the current moment flush left, so the cut is always on the right,
+     where a left-to-right reader looks for more.
+     ⚠️ The gap comes down with it. At the full gutter the next slide starts
+     beyond the track's own edge and the peek is a strip of page background —
+     which reads as a layout fault, not as a carousel. */
+  .jour-track {
+    grid-auto-columns: calc(100% - 1.5rem);
+    gap: 0.5rem;
+    /* the peek must not be clipped away by the scroller's own end padding */
+    scroll-padding-inline: 0;
+  }
+
+  /* 2 · THE ARROWS COME OFF THE FLOOR and onto the panel's two edges. They were
+     right-aligned under it, where they read as a footer for the section rather
+     than as a control for the strip. */
+  /* ⚠️ The bottom 62%, not the whole stage. A slide on a phone is the copy
+     stacked on the panel, so centring on the SLIDE puts the arrows 50px into
+     the top of the panel — measured, and it reads as if they belong to the
+     heading above. Centring them in the lower band lands them on the panel. */
+  .jour-arrows {
+    position: absolute; inset: auto 0 0 0; height: 62%;
+    display: flex; align-items: center; justify-content: space-between;
+    pointer-events: none;
+    padding-inline: 0.375rem;
+    margin-top: 0;
+  }
+  .jour-arrows .jour-arrow { pointer-events: auto; }
+  .jour-ctl { margin-top: clamp(1rem, 0.8rem + 1vw, 1.5rem); }
+
+  /* A white disc on the paper half and on the ink half both: the shadow is what
+     separates it from either ground, not the fill. */
+  .jour-arrow {
+    width: 2.75rem; height: 2.75rem;
+    background: color-mix(in oklab, var(--page) 92%, transparent);
+    border-color: color-mix(in oklab, var(--ink) 12%, transparent);
+    box-shadow: var(--shadow-lift);
+    backdrop-filter: blur(6px);
+  }
+
+  /* 3 · THE NUDGE. It rocks while `data-auto` is « on » — which is precisely
+     « the reader has not touched anything yet » — and stops for good when they
+     do, because the driver sets the attribute to « off » on the first real
+     interaction. A hint that keeps hinting after you have obeyed it is nagging.
+     ⚠️ transform only, and it must not fight the press state: the :active rule
+     below re-declares the scale so a tap still answers. */
+  .jour[data-auto="on"] .jour-arrow[data-dir="1"] {
+    animation: jour-nudge 4s var(--ease-in-out) 1.4s infinite;
+  }
+  .jour-arrow[data-dir="1"]:active { animation: none; transform: scale(0.94); }
+}
+
+@keyframes jour-nudge {
+  0%, 55%, 100% { transform: none; }
+  62%           { transform: translateX(5px); }
+  70%           { transform: none; }
+  77%           { transform: translateX(5px); }
+  85%           { transform: none; }
+}
+
+/* An automatic movement is exactly what this setting is asking not to have. */
+@media (prefers-reduced-motion: reduce) {
+  .jour[data-auto] .jour-arrow[data-dir="1"] { animation: none; }
+}
+
+
+/* ⚠️ Two proofs, not four, so the 5/7 rhythm has nothing left to alternate.
+   The grid ran span-5 then span-7 and back, which put the two dense cards in
+   the wide slot each time. With the two narrow cards removed — the dinar and
+   the language, both cut as obvious or awkward — the survivors are two span-7
+   cards, and two sevenths of twelve cannot share a row: they stacked, each 685px
+   wide in a 1272px wrap, with five columns of nothing beside them. Equal halves. */
+@media (min-width: 62rem) {
+  .s5-card--b, .s5-card--c { grid-column: span 6; }
+}
