@@ -1,0 +1,3326 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMPONENTS — each one traced from the reference, then re-coloured.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1 · Top bar ───────────────────────────────────────────────────────────
+   Transparent over the dark hero, solid white once the page has moved.
+   `.stuck` comes from a 1px sentinel, not a scroll listener. */
+
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  transition: background var(--mid) var(--ease), border-color var(--mid) var(--ease);
+}
+.topbar.stuck {
+  background: rgb(255 255 255 / 0.9);
+  backdrop-filter: saturate(1.5) blur(14px);
+  border-bottom-color: var(--rule);
+  /* It re-enters from above instead of appearing in place — the state change
+     is a small movement, so the eye follows it rather than being surprised. */
+  animation: bar-drop 320ms var(--ease-out);
+}
+@keyframes bar-drop { from { transform: translateY(-100%); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .topbar.stuck { animation: none; } }
+.topbar.on-light, .topbar.on-light.stuck {
+  background: rgb(255 255 255 / 0.9); border-bottom-color: var(--rule);
+}
+
+.topbar-in { display: flex; align-items: center; gap: clamp(0.75rem, 0.1rem + 1.8vw, 2rem); height: 4.5rem; }
+
+.brand {
+  display: inline-flex; align-items: center; gap: 0.5625rem; min-width: 0;
+  /* The wordmark's own box is 28px tall; a finger needs 44. */
+  min-height: 2.75rem;
+  font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.035em;
+  color: var(--on-ink); text-decoration: none; white-space: nowrap;
+}
+.brand .mark {
+  display: grid; place-items: center; flex: none;
+  width: 1.75rem; height: 1.75rem; border-radius: 7px;
+  background: var(--accent); color: var(--on-accent);
+}
+.brand .mark svg { width: 1.0625rem; height: 1.0625rem; }
+.stuck .brand, .on-light .brand { color: var(--text); }
+
+.nav { display: none; align-items: center; gap: 0.125rem; margin-inline-start: 0.25rem; }
+.nav a, .nav button {
+  display: inline-flex; align-items: center; gap: 0.3125rem;
+  height: 2.5rem; padding-inline: 0.75rem; border-radius: 6px;
+  font-size: var(--t-small); font-weight: 400;
+  color: var(--on-ink); text-decoration: none;
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.nav a:hover, .nav button:hover { background: rgb(255 255 255 / 0.08); }
+.stuck .nav a, .stuck .nav button, .on-light .nav a, .on-light .nav button { color: var(--text); }
+.stuck .nav a:hover, .stuck .nav button:hover,
+.on-light .nav a:hover, .on-light .nav button:hover { background: var(--paper); }
+.nav .caret { width: 0.75rem; height: 0.75rem; opacity: 0.75; transition: transform var(--fast) var(--ease); }
+.nav [aria-expanded="true"] .caret { transform: rotate(180deg); }
+
+.topbar-cta { display: none; margin-inline-start: auto; align-items: center; gap: 0.5rem; }
+@media (min-width: 48rem) { .topbar-cta { display: flex; } }
+.topbar-cta .btn { min-height: 2.5rem; padding: 0.4375rem 1.125rem; font-size: 0.9375rem; }
+.topbar-cta .btn-ghost { display: none; }
+/* The bar is not inside .on-ink, so its transparent state styles itself —
+   otherwise the ghost button renders dark-on-dark and reads as disabled. */
+.topbar:not(.stuck):not(.on-light) .btn-ghost { color: var(--on-ink); border-color: #3a5b7d; }
+.topbar:not(.stuck):not(.on-light) .btn-ghost:hover { background: #1b3049; border-color: #557eab; }
+.stuck .btn-ghost, .on-light .btn-ghost { color: var(--text); border-color: #d4d4d1; }
+
+/* ── 1b · Dropdown ─────────────────────────────────────────────────────── */
+
+.has-menu { position: relative; }
+.menu {
+  position: absolute; top: calc(100% + 0.375rem); left: -0.75rem;
+  min-width: 21rem; padding: 0.5rem;
+  background: var(--page); border: 1px solid var(--rule);
+  border-radius: var(--r-med); box-shadow: var(--shadow-lift);
+  display: grid; gap: 1px;
+  /* Origin-aware: it grows out of the trigger above it. `center` would have it
+     bloom from its own middle, which reads as unanchored. Never from scale(0)
+     — nothing in the world appears out of nothing. */
+  transform-origin: top left;
+  opacity: 0; transform: translateY(-6px) scale(0.97); pointer-events: none;
+  transition: opacity var(--fast) var(--ease-out), transform var(--fast) var(--ease-out);
+}
+.has-menu[data-open="true"] .menu { opacity: 1; transform: none; pointer-events: auto; }
+.menu a { transition: background var(--press) var(--ease); }
+.menu a {
+  display: grid; grid-template-columns: 1.5rem 1fr; gap: 0.625rem; align-items: start;
+  height: auto; padding: 0.625rem 0.75rem; border-radius: 8px;
+  color: var(--text) !important;
+}
+.menu a:hover { background: var(--paper) !important; }
+.menu .mi-name { display: block; font-weight: 500; font-size: 0.9375rem; line-height: 1.35; }
+.menu .mi-desc { display: block; font-size: 0.8125rem; line-height: 1.4; color: var(--text-muted); }
+.menu .mi-dot { width: 0.5625rem; height: 0.5625rem; border-radius: 50%; margin-top: 0.4375rem; background: var(--zc, var(--accent)); }
+
+/* ── 1c · Phone drawer ─────────────────────────────────────────────────── */
+
+.burger {
+  display: grid; place-items: center; flex: none;
+  width: 2.75rem; height: 2.75rem; margin-inline-start: auto;
+  border-radius: 8px; color: var(--on-ink);
+}
+.stuck .burger, .on-light .burger { color: var(--text); }
+.burger svg { width: 1.375rem; height: 1.375rem; }
+
+.drawer {
+  position: fixed; inset: 0; z-index: 150;
+  display: grid; grid-template-rows: auto 1fr;
+  background: var(--page); height: 100dvh;   /* dvh, or iOS clips the last item */
+  transform: translateY(-100%); visibility: hidden;
+  transition: transform var(--mid) var(--ease), visibility 0s linear var(--mid);
+}
+.drawer[data-open="true"] { transform: none; visibility: visible; transition-delay: 0s; }
+.drawer-top { display: flex; align-items: center; height: 4.5rem; border-bottom: 1px solid var(--rule); }
+.drawer-top .brand { color: var(--text); }
+.drawer-body { overflow-y: auto; overscroll-behavior: contain; padding-block: 1rem 2.5rem; }
+.drawer-body nav { display: grid; }
+.drawer-body a {
+  display: flex; align-items: center; min-height: 3.25rem;
+  font-size: 1.0625rem; text-decoration: none; border-bottom: 1px solid var(--rule-soft);
+}
+.drawer-body .sub a { padding-inline-start: 1.125rem; font-size: 1rem; color: var(--text-muted); }
+.drawer-body .grp {
+  padding-top: 1.5rem; font-size: var(--t-eyebrow); letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.drawer-actions { display: grid; gap: 0.625rem; margin-top: 1.75rem; }
+.drawer-actions .btn { width: 100%; }
+
+@media (min-width: 62rem) {
+  .nav { display: flex; }
+  .burger { display: none; }
+  .topbar-cta .btn-ghost { display: inline-flex; }
+}
+
+/* ── 2 · Hero ──────────────────────────────────────────────────────────── */
+
+.hero {
+  position: relative;
+  margin-top: -4.5rem;                       /* the bar floats over it */
+  padding-top: calc(4.5rem + clamp(2.25rem, 1rem + 5vw, 4.5rem));
+  padding-bottom: clamp(2.5rem, 1.4rem + 4vw, 4.5rem);
+  overflow: clip;
+}
+.hero-grid { position: relative; display: grid; gap: clamp(2.25rem, 1rem + 4.4vw, 3.5rem); align-items: center; }
+@media (min-width: 62rem) {
+  .hero-grid { grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr); }
+}
+.hero h1 { margin-bottom: 1.25rem; max-width: 17ch; }
+.hero .lede { max-width: 36ch; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 2rem; }
+.hero-actions .btn { flex: 1 1 12rem; }
+@media (min-width: 30rem) { .hero-actions .btn { flex: 0 0 auto; } }
+.hero-aside { margin-top: 1.75rem; font-size: var(--t-small); color: var(--on-ink-muted); }
+.hero-aside .link-arrow { min-height: 2.25rem; margin-top: 0.25rem; }
+@media (pointer: coarse) { .hero-aside .link-arrow { min-height: 2.75rem; } }
+
+/* ── 3 · The stage ─────────────────────────────────────────────────────────
+   The reference NEVER frames a whole screenshot. It builds a panel — warm
+   grey, a colour wash in one corner, a line icon top-left, a big title
+   bottom-left — and lets one screenshot BLEED off the panel's right and
+   bottom edges, with two or three legible UI chips floating over its edge.
+   That composite is what stops it looking like a screenshot dump. */
+
+.stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-card);
+  padding: clamp(1.25rem, 0.8rem + 1.8vw, 2rem);
+  min-height: clamp(17rem, 12rem + 22vw, 24rem);
+  display: grid;
+  align-content: space-between;
+  gap: 1.5rem;
+  background:
+    radial-gradient(92% 105% at 86% -12%, color-mix(in oklab, var(--zc, var(--accent)) 30%, transparent), transparent 70%),
+    var(--stage-base, var(--paper));
+}
+.stage--ink {
+  --stage-base: #16283c;
+  color: var(--on-ink);
+  border: 1px solid var(--rule-ink);
+}
+.stage-icon {
+  display: grid; place-items: center; width: 2.625rem; height: 2.625rem;
+  border: 1px solid rgb(9 9 11 / 0.22); border-radius: 10px;
+}
+.stage--ink .stage-icon { border-color: rgb(255 255 255 / 0.26); }
+.stage-icon svg { width: 1.375rem; height: 1.375rem; }
+.stage-copy { max-width: 21rem; position: relative; z-index: 2; }
+/* ⚠️ The shot is absolutely positioned over the card, so the copy has to stop
+   before its left edge. A fixed 21rem is fine in the 872px feature panel and
+   runs straight under the image in the ~583px card of a .duo, where it made
+   the heading unreadable. Tie the copy to the card's own width. */
+.stage:has(.stage-shot) .stage-copy { max-width: min(21rem, 44%); }
+@media (max-width: 47.99rem) {
+  /* Below 48rem the shot is back in normal flow, so the copy gets it all. */
+  .stage:has(.stage-shot) .stage-copy { max-width: 100%; }
+}
+.stage-copy h3 { font-size: clamp(1.5rem, 1.15rem + 1.4vw, 1.875rem); font-weight: 400; margin-bottom: 0.5rem; }
+.stage-copy p { font-size: var(--t-small); color: var(--text-muted); }
+.stage--ink .stage-copy p { color: var(--on-ink-muted); }
+
+/* The screenshot: off the right edge, off the bottom edge, clipped by the
+   panel. Never centred, never fully contained. */
+.stage-shot {
+  position: absolute;
+  right: -1.5rem; bottom: -2.5rem; top: 23%;
+  width: 58%;
+  border-radius: var(--r-med);
+  overflow: hidden;
+  box-shadow: var(--shadow-shot);
+  z-index: 1;
+}
+/* Inside a positioned shot the crop fills the box, so the panel decides the
+   height and --ar is not consulted. */
+.stage-shot > .crop { position: absolute; inset: 0; aspect-ratio: auto; }
+@media (max-width: 47.99rem) {
+  .stage { min-height: 0; }
+  /* On a phone a bleeding shot has nowhere to bleed to, so it becomes a
+     normal figure under the copy instead of a sliver at the edge. */
+  .stage-shot { position: static; width: 100%; margin-top: 0.5rem; }
+  .stage-shot > .crop { position: relative; inset: auto; aspect-ratio: var(--ar, 16 / 10); }
+}
+
+/* A crop expressed in numbers, not in a re-encoded file. --cx/--cy are the
+   fraction of the SOURCE sitting left of / above the frame; --cz is how many
+   frame-widths the source is scaled to. --cz ≈ 2 renders the app near 1:1,
+   which is the difference between a fragment that is read and one that is
+   guessed at. */
+.crop {
+  /* --cz is set inline per shot; --czz is the value actually used, so a media
+     query can override the zoom without fighting an inline style. */
+  --czz: var(--cz, 1);
+  position: relative; overflow: hidden;
+  aspect-ratio: var(--ar, 16 / 10);
+  background: #0d1620;
+}
+.crop img {
+  position: absolute; max-width: none;
+  width: calc(var(--czz) * 100%);
+  left: calc(-1 * var(--cx, 0) * var(--czz) * 100%);
+  top:  calc(-1 * var(--cy, 0) * var(--czz) * 100%);
+}
+/* On a 342px-wide figure the desktop zoom renders the app at half size and
+   nothing can be read. A phone gets a narrower slice at near full size. */
+@media (max-width: 47.99rem) { .crop { --czz: 4; } }
+
+/* ── 4 · Floating chips ────────────────────────────────────────────────── */
+
+.chip {
+  position: absolute; z-index: 3;
+  display: grid; gap: 0.1875rem;
+  padding: 0.6875rem 0.875rem; min-width: 9rem;
+  background: var(--page); color: var(--text);
+  border-radius: 10px; box-shadow: var(--shadow-chip);
+  font-size: 0.8125rem; line-height: 1.3;
+}
+.chip--dark { background: var(--ink); color: var(--on-ink); }
+.chip-k {
+  display: flex; align-items: center; gap: 0.375rem;
+  font-size: 0.6875rem; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-faint);
+}
+.chip--dark .chip-k { color: var(--on-ink-faint); }
+.chip-k i { width: 0.4375rem; height: 0.4375rem; border-radius: 50%; background: var(--zc, var(--accent)); flex: none; }
+.chip-v { font-size: 1.125rem; font-weight: 600; letter-spacing: -0.02em; }
+.chip-s { font-size: 0.75rem; color: var(--text-muted); }
+.chip--dark .chip-s { color: var(--on-ink-muted); }
+
+.chip { opacity: 0; transform: translateY(10px) scale(0.97); }
+.in .chip, .no-js .chip {
+  animation: chip-in 600ms var(--ease-out) forwards var(--cd, 0ms),
+             chip-float 7s ease-in-out infinite calc(var(--cd, 0ms) + 680ms);
+}
+@keyframes chip-in    { to { opacity: 1; transform: none; } }
+@keyframes chip-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .chip { opacity: 1; transform: none; animation: none !important; } }
+/* Below 48rem the shot is in normal flow, so chips would land on the copy. */
+@media (max-width: 47.99rem) { .chip { display: none; } }
+
+/* ── 5 · The dark band ─────────────────────────────────────────────────────
+   A rounded dark card inside the container: question on the left, one button
+   on the right. The reference uses it twice as a divider between big blocks. */
+
+.band {
+  display: grid; gap: 1.5rem; align-items: center;
+  background: var(--ink); color: var(--on-ink);
+  border-radius: var(--r-card);
+  padding: clamp(1.75rem, 1.2rem + 2.2vw, 2.75rem);
+}
+@media (min-width: 52rem) { .band { grid-template-columns: minmax(0, 1fr) auto; gap: 2.5rem; } }
+.band h2 { font-size: clamp(1.375rem, 1.15rem + 0.9vw, 1.75rem); font-weight: 500; margin-bottom: 0.625rem; }
+.band p { font-size: var(--t-small); color: var(--on-ink-muted); max-width: 52ch; }
+
+/* ── 6 · Who it is for: numbered accordion + a dark card ───────────────── */
+
+.serve { display: grid; gap: clamp(2rem, 1.2rem + 3vw, 3rem); align-items: start; }
+@media (min-width: 62rem) { .serve { grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr); gap: 4rem; } }
+
+.serve-list { display: grid; }
+.serve-item { border-bottom: 1px solid var(--rule); position: relative; }
+.serve-item > button {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  width: 100%; min-height: 3.5rem; padding: 0.75rem 0; text-align: start;
+  font-size: 1.125rem; color: var(--text-muted);
+  transition: color var(--fast) var(--ease);
+}
+.serve-item > button:hover { color: var(--text); }
+.serve-item .num { font-size: 0.9375rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.serve-item[data-open="true"] > button { color: var(--text); }
+/* Open is the DEFAULT so a reader without JS gets every description; the
+   script collapses the closed ones by stamping data-open="false". */
+.serve-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--mid) var(--ease); }
+.serve-item[data-open="false"] .serve-body { grid-template-rows: 0fr; }
+.serve-body > div { overflow: hidden; }
+.serve-body p { font-size: var(--t-small); color: var(--text-muted); max-width: 34ch; padding-bottom: 0.5rem; }
+/* The short heavy underline that marks the open item on the reference. */
+.serve-item[data-open="true"] { border-bottom-color: transparent; }
+.serve-item[data-open="true"]::after {
+  content: ""; position: absolute; left: 0; bottom: -1px; height: 2px; background: var(--text);
+  width: 4.75rem;
+  animation: draw-line 420ms var(--ease-out);
+}
+@keyframes draw-line { from { width: 0; } }
+.serve-body p { transition: opacity var(--mid) var(--ease); }
+.serve-item[data-open="false"] .serve-body p { opacity: 0; }
+.serve-item > button { transition: color var(--fast) var(--ease); }
+@media (prefers-reduced-motion: reduce) { .serve-item[data-open="true"]::after { animation: none; } }
+
+/* ── 7 · Feature card: rail · stage · black links panel ────────────────── */
+
+.feat { display: grid; gap: clamp(1.75rem, 1rem + 3vw, 3rem); }
+@media (min-width: 62rem) { .feat { grid-template-columns: 16.5rem minmax(0, 1fr); gap: 3.5rem; align-items: start; } }
+
+.rail { display: none; }
+@media (min-width: 62rem) { .rail { display: block; position: sticky; top: 7rem; } }
+/* The 2px marker is ONE element that slides down the rail, not a border that
+   blinks from item to item. --i and --n are set by the script. */
+.rail ul {
+  position: relative; list-style: none; padding: 0; display: grid;
+  border-left: 1px solid var(--rule);
+}
+.rail ul::after {
+  content: "";
+  position: absolute; left: -1px; top: 0;
+  width: 2px; height: calc(100% / var(--n, 4));
+  background: var(--text);
+  transform: translateY(calc(var(--i, 0) * 100%));
+  transition: transform var(--mid) var(--ease-in-out);
+}
+.rail button {
+  position: relative; display: grid; grid-template-columns: 1.75rem 1fr; gap: 0.75rem; align-items: center;
+  width: 100%; min-height: 3rem; padding: 0.5rem 0 0.5rem 1rem; text-align: start;
+  font-size: var(--t-body); color: var(--text-muted);
+  transition: color var(--fast) var(--ease), transform var(--press) var(--ease-out);
+}
+.rail button:active { transform: scale(0.985); }
+.rail button[aria-selected="true"] { color: var(--text); font-weight: 500; }
+.rail .ri {
+  width: 1.375rem; height: 1.375rem; color: var(--zc);
+  opacity: 0.45; transition: opacity var(--fast) var(--ease), transform var(--mid) var(--ease-out);
+}
+.rail button[aria-selected="true"] .ri { opacity: 1; transform: scale(1.08); }
+@media (hover: hover) and (pointer: fine) {
+  .rail button:hover { color: var(--text); }
+  .rail button:hover .ri { opacity: 0.85; }
+}
+.rail-foot { margin-top: 2.5rem; padding-top: 1.75rem; border-top: 1px solid var(--rule); }
+.rail-foot p { font-size: var(--t-small); color: var(--text-muted); margin-bottom: 1.25rem; max-width: 24ch; }
+
+.panel[hidden] { display: none; }
+.panel .stage { border-radius: var(--r-card) var(--r-card) 0 0; }
+
+/* Above the rail's breakpoint every panel occupies the same grid cell, so the
+   switch is a crossfade and the page below it never jumps. The blur is what
+   makes it read as one card changing rather than two cards swapping. */
+@media (min-width: 62rem) {
+  .panel-stack { display: grid; }
+  .panel-stack > .panel { grid-area: 1 / 1; }
+  .panel[hidden] { display: block; }
+  .panel {
+    opacity: 0; filter: blur(7px); transform: scale(0.994);
+    pointer-events: none; visibility: hidden;
+    transition: opacity var(--mid) var(--ease-out), filter var(--mid) var(--ease-out),
+                transform var(--mid) var(--ease-out), visibility 0s linear var(--mid);
+  }
+  .panel[data-active="true"] {
+    opacity: 1; filter: none; transform: none;
+    pointer-events: auto; visibility: visible;
+    transition-delay: 0s;
+  }
+}
+@media (prefers-reduced-motion: reduce) and (min-width: 62rem) {
+  .panel { transition: opacity 120ms linear, visibility 0s linear 120ms; filter: none; transform: none; }
+}
+
+.panel-links {
+  display: grid; gap: 1px; grid-template-columns: 1fr;
+  background: var(--rule-ink);
+  border-radius: 0 0 var(--r-card) var(--r-card);
+  overflow: hidden;
+}
+@media (min-width: 40rem) { .panel-links { grid-template-columns: 1fr 1fr; } }
+.panel-links li { list-style: none; background: var(--ink); }
+.panel-links a {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  min-height: 3.5rem; padding: 0.75rem clamp(1rem, 0.7rem + 1vw, 1.5rem);
+  color: var(--on-ink); font-size: var(--t-small); text-decoration: none;
+}
+@media (hover: hover) and (pointer: fine) { .panel-links a:hover { background: var(--ink-2); } }
+.panel-links a { transition: background var(--press) var(--ease); }
+.panel-links svg {
+  width: 1.0625rem; height: 1.0625rem; color: var(--on-ink-faint); flex: none;
+  transition: color var(--fast) var(--ease);
+}
+@media (hover: hover) and (pointer: fine) {
+  .panel-links a:hover svg { color: var(--accent-lit); animation: arrow-cross 460ms var(--ease-out); }
+}
+
+/* Below the rail's breakpoint every zone renders as its own block; the stage
+   title names it, so no extra heading is added. */
+.panel + .panel { margin-top: 2.5rem; }
+@media (min-width: 62rem) { .panel + .panel { margin-top: 0; } }
+
+/* ── 8 · Tile grid ─────────────────────────────────────────────────────── */
+
+.tiles { display: grid; gap: 1.25rem; grid-template-columns: 1fr; }
+@media (min-width: 40rem) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 62rem) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.tile {
+  display: grid; gap: 0.5rem; align-content: start;
+  padding: 1.5rem; border: 1px solid var(--rule); border-radius: var(--r-med);
+  background: var(--page);
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+.tile { transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease-out); }
+@media (hover: hover) and (pointer: fine) {
+  .tile:hover { border-color: #d2d2ce; box-shadow: var(--shadow-card); transform: translateY(-3px); }
+  .tile:hover .ti { transform: scale(1.1) rotate(-3deg); }
+}
+.tile .ti { transition: transform var(--mid) var(--ease-out); }
+.tile .ti { width: 1.5rem; height: 1.5rem; color: var(--zc, var(--accent-ink)); margin-bottom: 0.375rem; }
+.tile h4 { font-size: 1.0625rem; }
+.tile p { font-size: 0.9375rem; color: var(--text-muted); }
+
+/* ── 9 · Two big paper cards side by side ──────────────────────────────── */
+
+.duo { display: grid; gap: 1.25rem; }
+@media (min-width: 56rem) { .duo { grid-template-columns: 1fr 1fr; } }
+.duo > .stage { min-height: clamp(16rem, 11rem + 18vw, 21rem); border-radius: var(--r-card); }
+
+/* ── 10 · The closing CTA band ─────────────────────────────────────────────
+   Full bleed, centred, the largest type on the page (60px, weight 600), one
+   button. On the reference this is the only place the type gets that big. */
+
+.cta-band {
+  background: var(--ink); color: var(--on-ink); text-align: center;
+  padding-block: clamp(3.5rem, 2rem + 6vw, 6.5rem);
+}
+.cta-band h2 {
+  font-size: var(--t-cta); font-weight: 600; letter-spacing: -0.028em;
+  line-height: 1; margin-inline: auto; max-width: 16ch;
+}
+.cta-band p { margin: 1.25rem auto 0; max-width: 48ch; color: var(--on-ink-muted); }
+.cta-band .btn { margin-top: 2rem; }
+
+/* ── 11 · Assurance strip ──────────────────────────────────────────────── */
+
+.assure { display: grid; gap: 2rem; align-items: center; }
+@media (min-width: 62rem) { .assure { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 4rem; } }
+.assure h2 { font-size: clamp(1.375rem, 1.15rem + 0.9vw, 1.75rem); font-weight: 500; margin-bottom: 0.75rem; }
+.assure p { font-size: var(--t-small); color: var(--text-muted); max-width: 44ch; }
+.assure-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem 1.25rem; }
+@media (min-width: 48rem) { .assure-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.assure-grid div { display: grid; gap: 0.4375rem; justify-items: center; text-align: center; align-content: start; }
+.assure-grid svg { width: 1.75rem; height: 1.75rem; color: var(--text); }
+.assure-grid b { font-size: 0.9375rem; font-weight: 500; }
+.assure-grid span { font-size: 0.8125rem; color: var(--text-muted); line-height: 1.4; }
+
+/* ── 12 · Footer ───────────────────────────────────────────────────────── */
+
+.footer { background: var(--paper); border-top: 1px solid var(--rule); padding-block: clamp(3rem, 2rem + 3vw, 4.5rem) 2rem; }
+.footer-cols { display: grid; gap: 2.25rem 2rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 48rem) { .footer-cols { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 62rem) { .footer-cols { grid-template-columns: 1.5fr repeat(4, minmax(0, 1fr)); } }
+.footer h4 { font-size: var(--t-eyebrow); font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 0.875rem; }
+.footer ul { list-style: none; padding: 0; display: grid; }
+.footer li a {
+  display: flex; align-items: center; min-height: 2.25rem;
+  font-size: 0.9375rem; color: var(--text-muted); text-decoration: none;
+  transition: color var(--fast) var(--ease);
+}
+/* Keyed to the POINTER, not to a width: a touch laptop needs the bigger row
+   at 1440 just as much as a phone does. */
+@media (pointer: coarse) { .footer li a { min-height: 2.75rem; } }
+.footer li a:hover { color: var(--text); }
+.footer-brand .brand { color: var(--text); margin-bottom: 0.875rem; }
+.footer-brand p { font-size: 0.9375rem; color: var(--text-muted); max-width: 26rem; }
+.footer-base { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: center; margin-top: clamp(2.5rem, 2rem + 2vw, 3.5rem); padding-top: 1.75rem; border-top: 1px solid var(--rule); font-size: 0.875rem; color: var(--text-faint); }
+.footer-base a { text-decoration: none; display: inline-flex; align-items: center; transition: color var(--fast) var(--ease); }
+@media (pointer: coarse) { .footer-base a { min-height: 2.75rem; } }
+@media (hover: hover) and (pointer: fine) { .footer-base a:hover { color: var(--text); } }
+
+/* ── 13 · The loop ─────────────────────────────────────────────────────────
+   Four numbered steps inside a dark card. It sits where the reference puts a
+   video testimonial — the slot has to carry weight, and one true mechanic
+   carries more than a claim we cannot back. */
+
+.loop { display: grid; gap: 0; }
+.loop li { list-style: none; display: grid; grid-template-columns: 1.75rem 1fr; gap: 0.875rem; align-items: start; padding: 0.9375rem 0; border-bottom: 1px solid var(--rule-ink); }
+.loop li:last-child { border-bottom: 0; }
+.loop .n {
+  display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 50%;
+  border: 1px solid var(--rule-ink); font-size: 0.75rem; color: var(--accent-lit);
+  font-variant-numeric: tabular-nums;
+}
+.loop b { display: block; font-weight: 500; font-size: var(--t-small); }
+.loop span { display: block; font-size: 0.875rem; color: var(--on-ink-muted); }
+.loop-note { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--rule-ink); font-size: 0.9375rem; color: var(--on-ink-muted); }
+.loop-card { background: var(--ink); color: var(--on-ink); border-radius: var(--r-card); padding: clamp(1.5rem, 1rem + 2vw, 2.25rem); }
+.loop-card > h3 { font-weight: 500; margin-bottom: 1.25rem; }
+
+/* The hero's stage shows more of the app than a feature card does. */
+.stage--hero { min-height: clamp(19rem, 11rem + 31vw, 31rem); align-content: end; }
+/* The photograph is the ground and the app is inset into its lower right, so
+   the human half of the picture is never covered. A shot spread across the
+   whole panel left 9% of a photograph showing, which is the same as none. */
+.stage--hero .stage-shot { left: 47%; right: -1.5rem; top: 38%; bottom: -1.5rem; width: auto; }
+
+/* ── 14 · The marquee ──────────────────────────────────────────────────────
+   The reference runs a logo carousel here. We have no client logos, so the
+   same slot runs the twenty-four screens past instead — the one honest thing
+   that belongs in a strip of that shape.
+
+   The track holds the list TWICE and travels exactly -50%, so the seam lands
+   on an identical frame and the loop is invisible. `linear` because constant
+   motion that eases reads as a stutter. */
+
+.marquee {
+  position: relative;
+  overflow: hidden;
+  padding-block: 1.5rem;
+  border-block: 1px solid var(--rule);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+          mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+.marquee-track { display: flex; width: max-content; animation: marquee 46s linear infinite; }
+.marquee-track > ul { display: flex; align-items: center; gap: 2.5rem; padding: 0 1.25rem; list-style: none; }
+.marquee li {
+  display: flex; align-items: center; gap: 0.625rem;
+  white-space: nowrap; font-size: 0.9375rem; color: var(--text-muted);
+}
+.marquee li::before { content: ""; width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--zc, var(--accent-ink)); opacity: 0.55; }
+@keyframes marquee { to { transform: translateX(-50%); } }
+/* Pausing on hover lets a reader actually read one, and costs nothing. */
+@media (hover: hover) and (pointer: fine) { .marquee:hover .marquee-track { animation-play-state: paused; } }
+@media (prefers-reduced-motion: reduce) { .marquee-track { animation: none; } }
+
+/* ── 15 · FAQ ──────────────────────────────────────────────────────────────
+   Where the reference has customer stories doing the reassurance, this does
+   it by answering the objection out loud. Same accordion mechanics. */
+
+.faq { display: grid; gap: clamp(2rem, 1.2rem + 3vw, 3rem); align-items: start; }
+@media (min-width: 62rem) { .faq { grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr); gap: 4rem; } }
+.faq-list { display: grid; border-top: 1px solid var(--rule); }
+.faq-item { border-bottom: 1px solid var(--rule); }
+.faq-item > button {
+  display: flex; align-items: center; justify-content: space-between; gap: 1.5rem;
+  width: 100%; min-height: 4rem; padding: 1rem 0; text-align: start;
+  font-size: 1.0625rem; font-weight: 500; color: var(--text);
+  transition: color var(--fast) var(--ease);
+}
+.faq-item .sign {
+  position: relative; flex: none; width: 1.125rem; height: 1.125rem;
+  transition: transform var(--mid) var(--ease-in-out);
+}
+.faq-item .sign::before, .faq-item .sign::after {
+  content: ""; position: absolute; inset: 50% 0 auto 0; height: 1.5px; background: var(--text-muted);
+  transition: transform var(--mid) var(--ease-in-out), opacity var(--fast) var(--ease);
+}
+.faq-item .sign::after { transform: rotate(90deg); }
+.faq-item[data-open="true"] .sign::after { transform: rotate(0deg); opacity: 0; }
+.faq-item[data-open="true"] .sign { transform: rotate(180deg); }
+.faq-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--mid) var(--ease-in-out); }
+.faq-item[data-open="false"] .faq-body { grid-template-rows: 0fr; }
+.faq-body > div { overflow: hidden; }
+.faq-body p {
+  font-size: var(--t-small); color: var(--text-muted); max-width: 62ch; padding-bottom: 1.25rem;
+  transition: opacity var(--mid) var(--ease);
+}
+.faq-item[data-open="false"] .faq-body p { opacity: 0; }
+@media (hover: hover) and (pointer: fine) { .faq-item > button:hover { color: var(--accent-ink); } }
+
+/* ── 16 · Counting figures ─────────────────────────────────────────────────
+   `tabular-nums` so the digits do not jitter while the value climbs. */
+.count { font-variant-numeric: tabular-nums; }
+
+/* ── 17 · Photo cards ──────────────────────────────────────────────────────
+   The reference carries its warmth in photography, and a page of screenshots
+   and text alone reads cold next to it. A photo is never dropped in raw: it
+   sits under a scrim in the brand's own dark, so white type stays legible on
+   it whatever the picture does, and so every photo on the page reads as one
+   family rather than as stock. */
+
+.photo-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: var(--r-card);
+  background: var(--ink);
+  color: var(--on-ink);
+  display: grid;
+  align-content: end;
+  min-height: clamp(19rem, 13rem + 24vw, 27rem);
+  padding: clamp(1.5rem, 1rem + 2vw, 2.25rem);
+}
+.photo-card > img {
+  position: absolute; inset: 0; z-index: -2;
+  width: 100%; height: 100%; object-fit: cover;
+}
+/* Two layers: a vertical scrim so the type at the bottom holds, and a wash of
+   the brand hue so the photograph belongs to this page. */
+.photo-card::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  /* This card is text from top to bottom, so the scrim is near-opaque rather
+     than bottom-weighted: the photograph is texture and depth here, not the
+     subject. A 0.30 top let a window's blinds sit behind the first two lines
+     and they could not be read. */
+  background:
+    linear-gradient(180deg, rgb(14 27 42 / 0.90) 0%, rgb(14 27 42 / 0.93) 50%, rgb(14 27 42 / 0.97) 100%),
+    linear-gradient(140deg, rgb(45 212 191 / 0.20), transparent 58%);
+}
+.photo-card h3 { font-weight: 500; margin-bottom: 0.75rem; }
+.photo-card p { color: var(--on-ink-muted); font-size: var(--t-small); }
+
+/* A photo used as a section's own backdrop rather than as a card. */
+.photo-band { position: relative; isolation: isolate; overflow: hidden; }
+.photo-band > img { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; }
+.photo-band::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background:
+    linear-gradient(180deg, rgb(14 27 42 / 0.90), rgb(14 27 42 / 0.96)),
+    linear-gradient(120deg, rgb(45 212 191 / 0.16), transparent 60%);
+}
+
+/* The hero stage carries a photograph behind the app rather than flat ink.
+   ⚠️ The scrim has to sit ABOVE the image. A ::before and an <img> child at
+   the same z-index paint in DOM order, so an un-layered scrim ends up beneath
+   the photo and does nothing — which is what happened first time. */
+.stage--photo > img.stage-bg {
+  position: absolute; inset: 0; z-index: 0;
+  width: 100%; height: 100%; object-fit: cover;
+  /* The source is pre-cropped to the practitioner (ffmpeg, in src/img), so
+     the framing does not depend on CSS panning against an unknown aspect
+     ratio — which is what put the ceiling in frame the first two times. */
+  object-position: 50% 40%;
+}
+.stage--photo::before {
+  content: ""; position: absolute; inset: 0; z-index: 1;
+  background:
+    linear-gradient(160deg, rgb(14 27 42 / 0.58) 0%, rgb(14 27 42 / 0.30) 38%, rgb(14 27 42 / 0.86) 100%),
+    linear-gradient(200deg, rgb(45 212 191 / 0.22), transparent 58%);
+}
+.stage--photo > .stage-shot, .stage--photo > .chip { z-index: 3; }
+.stage--photo > .stage-shot, .stage--photo > .chip, .stage--photo > .stage-copy { position: relative; }
+.stage--photo > .stage-shot { position: absolute; }
+.stage--photo > .chip { position: absolute; }
+
+/* The loop, laid over a photograph instead of on flat ink. */
+.photo-card .loop li { border-bottom-color: rgb(255 255 255 / 0.16); }
+.photo-card .loop .n { border-color: rgb(255 255 255 / 0.28); }
+.photo-card .loop-note { border-top-color: rgb(255 255 255 / 0.16); }
+
+/* ── 18 · The hero trust row ───────────────────────────────────────────── */
+.trust { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin-top: 1.25rem; }
+.trust li { list-style: none; display: flex; align-items: center; gap: 0.5rem; font-size: 0.9375rem; color: var(--on-ink-muted); }
+.trust svg { width: 1rem; height: 1rem; color: var(--accent); flex: none; }
+
+/* ── 19 · « Le quotidien » — six moments, six diptychs ─────────────
+   The selling section. Each moment is one card: the words on one side, and on
+   the other a DIPTYCH — the paper world and the software, the same moment
+   played twice. The diptych itself is block 28.
+
+   Three shapes have been tried here and two were wrong:
+
+   1. Six real screenshots, one panel each. It said « here is a screen » when
+      the section's job is to say « here is what your day costs you ». A
+      picture of a list cannot make that argument.
+   2. The same six behind a STICKY pane, advanced by scroll. It animated well
+      and it read as a page that had stopped responding — six screens of
+      turning the wheel with nothing moving. ⚠️ Do not go back to it.
+   3. What is here: six cards in normal flow, alternating sides, each playing
+      as it arrives. The scroll never stops and nothing is behind a control.
+
+   Nothing in this section is behind JavaScript except the TIMING of the
+   entrances — and `.no-js` settles every one of them, because otherwise a
+   blocked script leaves the section blank rather than merely still. */
+
+.jour { position: relative; }
+
+/* The sentinels carry the scroll height in sticky mode and nothing elsewhere. */
+.jour-stops { display: none; }
+
+.jour-deck  { display: grid; gap: clamp(3rem, 1.8rem + 4vw, 5rem); }
+.jour-item  { display: grid; gap: 1.75rem; align-content: start; }
+.jour-rail  { display: none; }
+
+/* ⚠️ Two columns from 48rem, with a NARROW copy — 17rem, not the 21rem this
+   started at. Stacking to one column makes the shot big but makes the section
+   6 500px tall on a 1024px laptop, which is seven screens for section 2; the
+   narrow copy keeps the card the height of its text and still leaves the shot
+   most of the width. */
+/* ⚠️ 62rem, not 48rem. The diptych stacks its two halves below 62rem, so a
+   two-column card in between put a 17rem block of copy beside a panel three
+   times its height. One column until both can be side by side. */
+
+/* ── The copy half ──────────────────────────────────────────────────────── */
+.jour-n {
+  display: flex; align-items: baseline; gap: 0.375rem;
+  font-variant-numeric: tabular-nums; margin-bottom: 1rem;
+}
+.jour-n b {
+  font-size: 1.75rem; font-weight: 500; letter-spacing: -0.03em;
+  color: var(--zc, var(--accent-ink));
+}
+.jour-n span { font-size: var(--t-eyebrow); color: var(--text-faint); }
+
+.jour-k {
+  font-size: var(--t-eyebrow); letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 0.5rem;
+}
+.jour-t {
+  font-size: clamp(1.5rem, 1.2rem + 1.3vw, 2rem);
+  font-weight: 400; line-height: 1.14; letter-spacing: -0.02em;
+}
+/* The native line-through cannot be animated, so <s> loses it and the bar is
+   drawn — in `currentColor`, so it dims with the words rather than sitting on
+   top of them. */
+/* ⚠️ The strike is a BACKGROUND, not an absolutely-positioned bar. These
+   titles wrap at this column width, and one absolute box over a two-line
+   inline draws a single rectangle across both lines — it read as two
+   underlines. A background with `box-decoration-break: clone` gets its own
+   box per line fragment, and `background-size` animates, so the draw survives
+   the wrap. The native `text-decoration` cannot be animated at all, which is
+   why <s> loses it. */
+.jour-t s {
+  text-decoration: none; color: var(--text);
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: 0 56%;
+  background-size: 0% 2px;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  transition: color 320ms var(--ease) 260ms;
+}
+.jour-p { margin-top: 0.875rem; color: var(--text-muted); font-size: var(--t-small); max-width: 36ch; }
+
+.jour-a {
+  margin-top: 1.75rem; padding-top: 1.5rem; border-top: 1px solid var(--rule);
+  display: grid; grid-template-columns: 1.5rem 1fr; gap: 0.25rem 0.875rem;
+  max-width: 36ch;
+}
+.jour-a svg { grid-row: span 2; width: 1.5rem; height: 1.5rem; color: var(--accent-ink); margin-top: 0.125rem; }
+.jour-a b { font-size: 1.125rem; font-weight: 500; }
+.jour-a span { color: var(--text-muted); font-size: var(--t-small); }
+
+/* ── The stage half ─────────────────────────────────────────────────────────
+   The same recipe as `.stage`: an ink panel with the moment's own zone colour
+   washed into the top-right corner, so the six read as one family while each
+   keeps an identity. Written out rather than reusing `.stage`, which is a
+   three-part composition (icon · copy · bleeding shot) this does not need. */
+/* One aspect ratio for all six panels. They share a single grid cell in sticky
+   mode, so panels of different heights would make the copy beside them jump on
+   every change — and the change is the one thing the reader is watching. */
+/* The chip overhangs the frame's bottom-left rather than covering its content:
+   it is an annotation on the screen, not part of it. */
+.jour-shot {
+  position: relative; margin: 0;
+  border-radius: var(--r-card); overflow: hidden;
+  aspect-ratio: 16 / 10.4;
+  padding: clamp(0.75rem, 0.45rem + 1vw, 1.125rem);
+  display: grid; align-content: center;
+  border: 1px solid var(--rule-ink);
+  background:
+    radial-gradient(92% 105% at 88% -10%, color-mix(in oklab, var(--zc, var(--accent)) 34%, transparent), transparent 70%),
+    #16283c;
+}
+
+/* ⚠️ WHOLE screens, not fragments. An earlier pass cropped into each shot so
+   the app's type stayed near 1:1 and let it bleed off two edges; read back, the
+   cuts landed mid-word and mid-column and the panels looked like screenshots
+   somebody had trimmed badly. A complete screen in a window frame is smaller
+   but coherent — and the frame is what makes the scale read as deliberate
+   rather than as a shrunken picture. Same treatment the phone already gets.
+
+   The captures are 2x, so at the ~55% this renders they still land near one
+   device pixel per CSS pixel on a retina screen. */
+.jour-win {
+  border-radius: 10px; overflow: hidden;
+  background: var(--page);
+  box-shadow: var(--shadow-shot);
+}
+.jour-bar {
+  display: flex; align-items: center; gap: 0.375rem;
+  height: 1.625rem; padding-inline: 0.625rem;
+  background: #edeef1; border-bottom: 1px solid #e0e2e7;
+}
+.jour-bar i { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: #c8cbd2; flex: none; }
+/* The viewport inside the frame. From 62rem up it is exactly the capture's own
+   16/9, so the whole screen fills it and nothing is cut. Below that a whole
+   desktop screen would render the app at under a quarter size — unreadable on
+   any phone — so the same frame shows a legible slice instead, by numbers
+   rather than by a second file. Same bargain `.crop` strikes, same reason. */
+.jour-view { overflow: hidden; aspect-ratio: 16 / 11; }
+/* ⚠️ The offsets are a percentage of the VIEW's width, not the image's — a
+   percentage margin always resolves against the containing block's width, even
+   `margin-top`. So skipping the app's own left rail, which is 18.5% of the
+   capture, costs 0.185 x the zoom: -66% at 360%, -41% at 220%. Get that wrong
+   and the slice opens mid-way through the navigation, which is what made the
+   first version of this look like a badly trimmed screenshot. */
+.jour-view img { display: block; width: 360%; max-width: none; margin: -8% 0 0 -66%; }
+@media (min-width: 48rem) { .jour-view img { width: 220%; margin: -5% 0 0 -41%; } }
+/* ⚠️ The whole-screen breakpoint (72rem) is NOT the sticky one (62rem), and
+   they are deliberately different. 72rem is where a complete screen still
+   renders the app near half size, and half of a 2x capture is about one device
+   pixel per CSS pixel. Between 62 and 72rem the stage is sticky but the frame
+   shows a slice, because the alternative there is a complete screen nobody can
+   read. */
+@media (min-width: 72rem) {
+  .jour-view { aspect-ratio: 16 / 9; }
+  .jour-view img { width: 100%; margin: 0; }
+}
+
+/* The phone is anchored to the bottom and BLEEDS off the panel rather than
+   being shrunk to fit it. A 390x844 capture scaled to fit a 16/10.6 panel
+   renders the app at about half size, where nothing on it can be read — which
+   is the whole failure the panel treatment exists to avoid. */
+/* Weighted right like the framed screens are, so the six panels share one
+   composition and the chip always has the same corner to live in. */
+@media (min-width: 62rem) { .jour-shot--phone .mob-phone { width: min(26rem, 62%); } }
+.jour-shot--phone {
+  /* `start`, not `end`: the phone bleeds off the BOTTOM of the panel and keeps
+     its top bezel. Anchored to the bottom instead, it loses the bezel and the
+     cut reads as a rendering fault rather than as a composition. */
+  align-content: start; justify-items: end;
+  padding-bottom: 0; padding-right: clamp(1.5rem, 0.5rem + 4vw, 4.5rem);
+}
+.jour-shot--phone .mob-phone {
+  --mob-r: clamp(1.15rem, 0.55rem + 1.7vw, 2.1rem);
+  --mob-bz: clamp(0.3rem, 0.16rem + 0.5vw, 0.5625rem);
+  /* A fraction of the PANEL, capped. A fixed cap alone is too small on the
+     wide sticky panel and a fraction alone is too small on the narrow stacked
+     one, so it is both, and the fraction rises where the panel is narrow. */
+  width: min(26rem, 78%);
+}
+
+/* ── In the flow, one card after another ──────────────────────────────────
+   ⚠️ This replaced a STICKY pane that held one panel for six screens of
+   scrolling. It animated well and it read as a page that had stopped
+   responding — the wheel turns and nothing moves. Do not put it back. If the
+   section has to be shortened, cut moments; never the reader's scroll.
+
+   The six cards alternate sides. Six identical left-copy/right-panel rows
+   read as a list, and this section's whole problem, through five passes, was
+   that it read as a list. */
+
+/* ── The strip ──────────────────────────────────────
+   Six slides, one viewport wide each, snapped. `scroll-snap-type` and
+   `overflow-x` are the whole interaction — a phone swipes it and a keyboard
+   arrows it with no script — and the rail below is the visible control. */
+.jour-track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 100%;
+  gap: var(--gutter);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  /* the panels carry a lift shadow, and a scroller clips at its own edge */
+  padding-block: 0.75rem;
+  margin-block: -0.75rem;
+}
+.jour-track::-webkit-scrollbar { display: none; }
+/* The track takes focus because it scrolls, so it has to be able to show it. */
+.jour-track:focus-visible {
+  outline: 2px solid var(--accent-ink); outline-offset: 4px;
+  border-radius: var(--r-card);
+}
+.jour-item { scroll-snap-align: start; scroll-snap-stop: always; }
+
+@media (prefers-reduced-motion: reduce) { .jour-track { scroll-behavior: auto; } }
+
+@media (min-width: 62rem) {
+  .jour-item {
+    grid-template-columns: minmax(0, 21rem) minmax(0, 1fr);
+    gap: clamp(1.75rem, 0.6rem + 3vw, 3.25rem);
+    /* ⚠️ STRETCH, not centre. Every slide is as tall as the tallest one — they
+       are columns of one grid — so a centred panel on a short slide left a
+       150px band of nothing between it and the rail. Stretched, the panel
+       fills the slide and its diagram gets the room instead. */
+    align-items: stretch;
+    /* ⚠️ `align-content` too, and it is the one that actually does it. Block 19
+       sets `align-content: start` on `.jour-item`, so the card's single auto row
+       stayed at its content height (485) inside a 577px slide and the panel
+       still stopped 90px short of the rail. `align-items` alone cannot stretch
+       an item inside a row that has not itself been stretched. */
+    align-content: stretch;
+  }
+  .jour-copy { align-self: center; }
+
+  /* ⚠️ NO fixed ratio, and that is the fix for a whole class of bug. A ratio
+     hands each half a height its diagram then has to fit inside, and five of
+     the twelve did not: measured against a 401px drawing area, moment 3's
+     chart ran 160px past it and three cahiers 25px each — straight over their
+     own closing lines, because the art sits in a `minmax(0, 1fr)` row that
+     does not push, it overlaps.
+
+     The one reason there ever WAS a single ratio is gone: the six panels used
+     to share one grid cell in the sticky pane, where unequal heights made the
+     copy beside them jump on every change. In the flow they are six separate
+     cards and may each be their own height. The two halves are grid columns,
+     so they still match each other exactly. */
+  .jour-shot--jd { aspect-ratio: auto; min-height: 28rem; }
+}
+
+/* ── What happens when a card arrives ─────────────────────────────────────
+   Three beats over ~900ms: the copy lands a line at a time, the strike draws
+   through the paper moment and greys it, and the diptych plays — the paper
+   half first, the software half after it, which is the order the argument is
+   read in. Every rule hangs off `data-active`, which the observer sets once. */
+.jour-copy > * {
+  opacity: 0; transform: translateY(11px);
+  transition: opacity 420ms var(--ease-out), transform 420ms var(--ease-out);
+}
+.jour-item[data-active="true"] .jour-copy > * { opacity: 1; transform: none; }
+.jour-item[data-active="true"] .jour-copy > *:nth-child(1) { transition-delay:  40ms; }
+.jour-item[data-active="true"] .jour-copy > *:nth-child(2) { transition-delay:  90ms; }
+.jour-item[data-active="true"] .jour-copy > *:nth-child(3) { transition-delay: 140ms; }
+.jour-item[data-active="true"] .jour-copy > *:nth-child(4) { transition-delay: 190ms; }
+.jour-item[data-active="true"] .jour-copy > *:nth-child(5) { transition-delay: 240ms; }
+
+.jour-item[data-active="true"] .jour-t s {
+  color: var(--text-faint); background-size: 100% 2px;
+  transition: background-size 400ms var(--ease-in-out) 260ms,
+              color 320ms var(--ease) 260ms;
+}
+
+/* ⚠️ With the script blocked no observer ever runs and `data-active` is never
+   stamped, so every entrance state above would stay at its `from` value and the
+   section would render EMPTY. `.no-js` is not polish here; it is the difference
+   between the six moments being readable and the six moments being invisible. */
+.no-js .jour-copy > * { opacity: 1; transform: none; }
+.no-js .jour-t s { color: var(--text-faint); background-size: 100% 2px; }
+.no-js .jd-in, .no-js .jd-drop, .no-js .jd-fly, .no-js .jd-tab,
+.no-js .jd-th--on { opacity: 1 !important; transform: none !important; }
+.no-js .jd-field em, .no-js .jd-sum b { clip-path: none !important; }
+.no-js .jd-tick::after { opacity: 1 !important; transform: rotate(-45deg) scale(1) !important; }
+
+/* ── 20 · A figure that carries a section ──────────────────────────────── */
+.big-figure {
+  font-size: clamp(3rem, 1.8rem + 5vw, 5rem);
+  font-weight: 500; line-height: 0.95; letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.figure-row { display: grid; gap: 1.75rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 48rem) { .figure-row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2.5rem; } }
+.figure-row > div { display: grid; gap: 0.375rem; align-content: start; }
+.figure-row .lbl { font-size: 0.9375rem; color: var(--text-muted); line-height: 1.45; }
+.on-ink .figure-row .lbl { color: var(--on-ink-muted); }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MERGED SECTION BLOCKS (21-26)
+   Written in parallel, reconciled on merge: one card-hover behaviour, the
+   traced 600 on the closing CTA, no bespoke shadows, no nested radius larger
+   than its parent, and --zc scoped to the grid rather than the section.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ═══ merged block: pourqui ═══════════════════════════════ */
+/* ── 21 · "À qui il s'adresse": the list drives the card ──────────────────
+   The five profiles keep the existing .serve-item mechanics untouched; what
+   is added is the colour that ties a row to the card it opens, and a stack of
+   five cards sharing one grid cell so that opening a row changes the picture
+   instead of only the paragraph under it.
+
+   ⚠️ The stack is OPT-IN: without `data-stack` the five cards sit in normal
+   flow, one under the other, and every profile is read. The script stamps the
+   attribute, exactly as it stamps `data-open` on the rows. */
+
+/* ── The list ──────────────────────────────────────────────────────────── */
+
+.serve-item.sv-item > button {
+  gap: 0.75rem;
+  transition: color var(--fast) var(--ease), transform var(--press) var(--ease-out);
+}
+/* A full-width row is not a 46px button: 0.97 on 400px of rule reads as the
+   layout lurching, so it presses by the same amount the feature rail does. */
+.serve-item.sv-item > button:active { transform: scale(0.985); }
+
+.sv-head { display: inline-flex; align-items: center; gap: 0.6875rem; min-width: 0; }
+.sv-dot {
+  flex: none; width: 0.5rem; height: 0.5rem; border-radius: 50%;
+  background: var(--zc, var(--accent-ink)); opacity: 0.3;
+  transition: opacity var(--fast) var(--ease), transform var(--mid) var(--ease-out),
+              box-shadow var(--mid) var(--ease-out);
+}
+.sv-item[data-open="true"] .sv-dot {
+  opacity: 1; transform: scale(1.2);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--zc, var(--accent-ink)) 16%, transparent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .sv-item > button:hover .sv-dot { opacity: 0.72; }
+}
+/* The open row's underline takes the profile's own colour, and the card's
+   kicker repeats it: that is the whole visual thread across the gap. */
+.serve-item.sv-item[data-open="true"]::after { background: var(--zc, var(--text)); }
+
+/* No rule of its own: the list already closes on one, and two hairlines
+   20px apart read as a mistake. */
+.sv-foot { margin-top: 2rem; }
+.sv-foot p { font-size: var(--t-small); color: var(--text-muted); max-width: 34ch; margin-bottom: 0.5rem; }
+
+/* ── The card the list drives ──────────────────────────────────────────── */
+
+.sv-stage { display: grid; gap: 1.25rem; }
+.sv-face {
+  position: relative; overflow: hidden;
+  border-radius: var(--r-card);
+  background: var(--ink); color: var(--on-ink);
+  box-shadow: var(--shadow-card);
+}
+/* Stacked: all five share one cell, so the card keeps the height of the
+   tallest and the page below it never jumps as the reader opens rows. */
+.sv-stage[data-stack="true"] { gap: 0; }
+.sv-stage[data-stack="true"] > .sv-face {
+  grid-area: 1 / 1;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transform: scale(0.994); filter: blur(7px);
+  transition: opacity var(--mid) var(--ease-out), filter var(--mid) var(--ease-out),
+              transform var(--mid) var(--ease-out), visibility 0s linear var(--mid);
+}
+.sv-stage[data-stack="true"] > .sv-face[data-active="true"] {
+  opacity: 1; visibility: visible; pointer-events: auto;
+  transform: none; filter: none; transition-delay: 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sv-stage[data-stack="true"] > .sv-face { filter: none; transform: none; }
+}
+
+.sv-media { position: relative; overflow: hidden; aspect-ratio: 16 / 9.5; background: #0d1620; }
+.sv-shot { position: absolute; inset: 0; }
+.sv-shot > img { width: 100%; height: 100%; object-fit: cover; }
+/* Inside a filled box the crop takes the box's height, so --ar is not read —
+   the same contract .stage-shot has. */
+.sv-shot > .crop { position: absolute; inset: 0; aspect-ratio: auto; }
+.sv-badge {
+  position: absolute; z-index: 2; left: 0.875rem; bottom: 0.875rem;
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  max-width: calc(100% - 1.75rem);
+  padding: 0.4375rem 0.75rem; border-radius: 999px;
+  background: var(--page); color: var(--text);
+  font-size: 0.8125rem; line-height: 1.25; font-weight: 500;
+  /* No scrim under it: a scrim heavy enough to matter would grey out the
+     lower half of a screenshot. The hairline is what holds the pill on a
+     bright picture, and it costs the picture nothing. */
+  box-shadow: 0 0 0 1px rgb(9 9 11 / 0.06), var(--shadow-chip);
+}
+.sv-badge i { flex: none; width: 0.4375rem; height: 0.4375rem; border-radius: 50%; background: var(--zc, var(--accent-ink)); }
+/* On a phone the picture is only ~170px tall, and the desktop pill covers a
+   third of it. */
+@media (max-width: 30rem) {
+  .sv-badge { left: 0.625rem; bottom: 0.625rem; padding: 0.3125rem 0.625rem; font-size: 0.75rem; }
+}
+
+.sv-note {
+  position: relative;
+  display: grid; gap: 0.625rem; align-content: start;
+  padding: clamp(1.25rem, 0.9rem + 1.4vw, 1.875rem);
+  /* The wash changes hue with the profile, so the plate itself confirms the
+     switch even before the words are read. */
+  background:
+    radial-gradient(125% 190% at 88% -70%, color-mix(in oklab, var(--zcl, var(--accent-lit)) 15%, transparent), transparent 68%),
+    var(--ink);
+}
+.sv-kicker {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.75rem; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--zcl, var(--accent-lit));
+}
+.sv-kicker i { flex: none; width: 0.4375rem; height: 0.4375rem; border-radius: 50%; background: currentColor; }
+.sv-note h3 { font-size: clamp(1.25rem, 1.05rem + 0.8vw, 1.5rem); font-weight: 400; }
+.sv-note > p:not(.sv-kicker) { font-size: var(--t-small); color: var(--on-ink-muted); max-width: 48ch; }
+.sv-facts { display: flex; flex-wrap: wrap; gap: 0.4375rem; margin-top: 0.375rem; padding: 0; list-style: none; }
+.sv-facts li {
+  padding: 0.3125rem 0.6875rem; border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.16); background: rgb(255 255 255 / 0.05);
+  font-size: 0.8125rem; color: var(--on-ink-muted);
+}
+/* The copy arrives just behind the crossfade, so a switch reads as the card
+   being rewritten rather than as two cards trading places. */
+.sv-stage[data-stack="true"] > .sv-face[data-active="true"] .sv-note > * {
+  animation: sv-lift 460ms var(--ease-out) backwards;
+}
+.sv-stage[data-stack="true"] > .sv-face[data-active="true"] .sv-note > *:nth-child(2) { animation-delay: 55ms; }
+.sv-stage[data-stack="true"] > .sv-face[data-active="true"] .sv-note > *:nth-child(3) { animation-delay: 110ms; }
+.sv-stage[data-stack="true"] > .sv-face[data-active="true"] .sv-note > *:nth-child(4) { animation-delay: 165ms; }
+@keyframes sv-lift { from { opacity: 0; transform: translateY(9px); } }
+
+/* ── The mechanic under both halves ──────────────────────────────────────
+   True whichever of the five profiles the reader is, so it sits under the
+   pair rather than inside the card. Paper, not ink: the band that follows is
+   already dark, and three dark rectangles in a row read as one long block.
+   The cells are divided by a 1px gap over a ruled ground, so the panel stays
+   one surface instead of becoming four tiles. */
+
+.sv-flow {
+  margin-top: clamp(2.25rem, 1.5rem + 2.6vw, 3.5rem);
+  border: 1px solid var(--rule); border-radius: var(--r-card);
+  background: var(--rule); overflow: hidden;
+}
+.sv-flow-head {
+  display: grid; gap: 0.75rem;
+  padding: clamp(1.25rem, 0.9rem + 1.4vw, 1.75rem);
+  background: var(--paper);
+}
+@media (min-width: 56rem) {
+  .sv-flow-head { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 2.5rem; align-items: end; }
+}
+.sv-flow-head h3 { font-weight: 400; max-width: 18ch; }
+.sv-flow-head p { font-size: var(--t-small); color: var(--text-muted); max-width: 56ch; }
+
+.sv-steps { display: grid; gap: 1px; margin: 1px 0 0; padding: 0; list-style: none; }
+@media (min-width: 40rem) { .sv-steps { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 62rem) { .sv-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.sv-steps li {
+  display: grid; gap: 0.375rem; align-content: start;
+  padding: clamp(1.25rem, 0.9rem + 1.4vw, 1.75rem);
+  background: var(--paper);
+}
+.sv-sn {
+  display: grid; place-items: center; width: 1.75rem; height: 1.75rem; margin-bottom: 0.375rem;
+  border-radius: 50%; background: var(--page);
+  border: 1px solid color-mix(in oklab, var(--zc, var(--accent-ink)) 42%, var(--rule));
+  color: var(--zc, var(--accent-ink));
+  font-size: 0.8125rem; font-variant-numeric: tabular-nums;
+}
+.sv-steps b { font-weight: 500; font-size: var(--t-small); }
+.sv-steps li > span:not(.sv-sn) { font-size: 0.9375rem; color: var(--text-muted); line-height: 1.45; }
+
+/* ═══ merged block: band-cta ═══════════════════════════════ */
+/* ── 22 · The mid-page shift band: three sources collapsing into one ──────
+   The band used to be a dark rectangle holding a question and a button. The
+   question is about fragmentation, so the block now SHOWS the fragmentation:
+   three provisional cards, three hairlines merging into one point, and a
+   single white card carrying the result. White is the only opaque surface in
+   the band, so the eye lands on the answer. */
+
+.bc-shift.on-ink {
+  display: grid;
+  align-items: center;
+  gap: clamp(2rem, 1.2rem + 3.4vw, 3.5rem);
+  border: 1px solid var(--rule-ink);
+  border-radius: var(--r-card);
+  padding: clamp(1.5rem, 1rem + 2.6vw, 3rem);
+  overflow: hidden;
+  background:
+    radial-gradient(72% 96% at 3% -10%, rgb(45 212 191 / 0.20), transparent 62%),
+    radial-gradient(78% 108% at 97% 110%, rgb(2 132 199 / 0.18), transparent 64%),
+    var(--ink);
+}
+@media (min-width: 62rem) {
+  .bc-shift.on-ink {
+    grid-template-columns: minmax(0, 0.84fr) minmax(0, 1fr);
+    gap: clamp(2.5rem, 0.5rem + 4.4vw, 4.5rem);
+  }
+}
+
+.bc-shift .eyebrow { margin-bottom: 0.875rem; }
+.bc-shift__copy h2 { max-width: 17ch; margin-bottom: 0.875rem; }
+.bc-shift__copy > p { font-size: var(--t-small); color: var(--on-ink-muted); max-width: 42ch; }
+.bc-shift__copy .btn { margin-top: 1.75rem; }
+
+/* The diagram. One column at every width: three sources, a merge, one card. */
+.bc-flow { display: grid; }
+
+.bc-flow__k {
+  display: flex; align-items: baseline; gap: 0.5rem;
+  margin-bottom: 0.875rem;
+  font-size: 0.6875rem; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--on-ink-faint);
+}
+.bc-flow__k i {
+  flex: none; align-self: center;
+  width: 0.4375rem; height: 0.4375rem; border-radius: 50%;
+  background: var(--on-ink-faint);
+}
+
+.bc-flow__src { list-style: none; padding: 0; display: grid; gap: 0.625rem; }
+@media (min-width: 48rem) { .bc-flow__src { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* Dashed, dim, and each one at its own angle: three notes that were never
+   meant to be a system. The tilt applies only once they are side by side;
+   stacked on a phone it would read as a rendering fault. */
+.bc-src {
+  display: grid; gap: 0.3125rem; align-content: start;
+  padding: 0.9375rem 1rem;
+  border: 1px dashed rgb(255 255 255 / 0.22);
+  border-radius: var(--r-med);
+  background: rgb(255 255 255 / 0.045);
+}
+.bc-src svg { width: 1.125rem; height: 1.125rem; color: var(--on-ink-faint); margin-bottom: 0.125rem; }
+.bc-src b { font-size: 0.9375rem; font-weight: 500; }
+.bc-src span { font-size: 0.8125rem; color: var(--on-ink-faint); }
+@media (min-width: 48rem) {
+  .bc-flow__src > :nth-child(1) { transform: rotate(-1.1deg) translateY(3px); }
+  .bc-flow__src > :nth-child(2) { transform: rotate(0.6deg) translateY(-3px); }
+  .bc-flow__src > :nth-child(3) { transform: rotate(-0.5deg) translateY(4px); }
+}
+
+/* The merge. `preserveAspectRatio: none` lets three fixed curves stretch to
+   whatever width the column has; `vector-effect` keeps the hairline a
+   hairline while they do. Below 48rem the sources are stacked, so the three
+   curves make no sense and a single stem replaces them. */
+.bc-flow__merge { position: relative; height: 2.75rem; }
+.bc-merge { display: none; width: 100%; height: 100%; color: rgb(255 255 255 / 0.26); }
+.bc-merge path { fill: none; stroke: currentColor; stroke-width: 1; stroke-linecap: round; }
+.bc-flow__merge::before {
+  content: ""; position: absolute; left: 50%; top: 0; bottom: 0.375rem; width: 1px;
+  background: rgb(255 255 255 / 0.26);
+}
+.bc-flow__merge::after {
+  content: ""; position: absolute; left: 50%; bottom: -0.21875rem;
+  width: 0.4375rem; height: 0.4375rem; margin-left: -0.21875rem;
+  border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 0 4px rgb(45 212 191 / 0.16);
+}
+@media (min-width: 48rem) {
+  .bc-merge { display: block; }
+  .bc-flow__merge::before { display: none; }
+}
+
+/* The answer: the one opaque surface in the band. */
+.bc-one {
+  display: grid; gap: 0.5rem;
+  padding: clamp(1.125rem, 0.85rem + 1.1vw, 1.5rem);
+  border-radius: var(--r-med);
+  background: var(--page);
+  color: var(--text);
+  box-shadow: 0 2px 8px rgb(9 9 11 / 0.18), 0 26px 60px -28px rgb(45 212 191 / 0.45);
+}
+.bc-one__k {
+  display: flex; align-items: center; gap: 0.375rem;
+  font-size: 0.6875rem; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--accent-ink);
+}
+.bc-one__k i { flex: none; width: 0.4375rem; height: 0.4375rem; border-radius: 50%; background: var(--accent-ink); }
+.bc-one__t { font-size: 1.0625rem; font-weight: 500; letter-spacing: -0.01em; }
+.bc-one__l { list-style: none; padding: 0; display: grid; gap: 0.4375rem; margin-top: 0.125rem; }
+.bc-one__l li {
+  display: grid; grid-template-columns: 1.0625rem minmax(0, 1fr); gap: 0.5rem; align-items: start;
+  font-size: 0.875rem; line-height: 1.45; color: var(--text-muted);
+}
+.bc-one__l svg { width: 1.0625rem; height: 1.0625rem; color: var(--accent-ink); margin-top: 0.09375rem; }
+
+/* ── 20 · The closing band, on a photograph ──────────────────────────────
+   Same type, same single button. What changes is the ground: a real surgery
+   under a radial scrim that is near-opaque where the 60px line sits and
+   lifts to about half at the edges, so the room stays a room instead of
+   becoming a texture. Two chips carry the practical answers the headline
+   cannot. */
+
+.bc-close { position: relative; isolation: isolate; overflow: hidden; }
+.cta-band.bc-close { padding-block: clamp(4rem, 2.2rem + 7vw, 8rem); }
+/* h1 is the only heading on this site set above 400. */
+
+.cta-band.bc-close .btn-primary {  }
+
+.bc-close__photo {
+  position: absolute; inset: 0; z-index: -2;
+  width: 100%; height: 100%; object-fit: cover; object-position: 50% 62%;
+}
+.bc-close::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background:
+    radial-gradient(58% 128% at 50% 46%,
+      rgb(14 27 42 / 0.955) 0%, rgb(14 27 42 / 0.93) 40%,
+      rgb(14 27 42 / 0.74) 78%, rgb(14 27 42 / 0.52) 100%),
+    linear-gradient(122deg, rgb(45 212 191 / 0.16), transparent 56%);
+}
+@media (max-width: 47.99rem) {
+  /* Narrow: the measure spans the whole band, so the picture cannot be let
+     under it. The scrim goes vertical and the room shows in the two strips
+     the copy does not occupy, above the heading and below the trust row. */
+  .bc-close::before {
+    background:
+      linear-gradient(180deg,
+        rgb(14 27 42 / 0.62) 0%, rgb(14 27 42 / 0.92) 19%,
+        rgb(14 27 42 / 0.93) 82%, rgb(14 27 42 / 0.64) 100%),
+      linear-gradient(122deg, rgb(45 212 191 / 0.16), transparent 56%);
+  }
+  .bc-close__photo { object-position: 50% 50%; }
+}
+
+.bc-close__in { position: relative; }
+.bc-close__trust { justify-content: center; margin-top: 1.75rem; }
+
+/* The chips need real emptiness either side of the measure, so they appear
+   only once the band is wide enough to have some. */
+.bc-close__deco { display: none; }
+@media (min-width: 72rem) {
+  .bc-close__deco { display: block; position: absolute; inset: 0; pointer-events: none; }
+  .bc-close__deco .chip { max-width: 12.5rem; text-align: start; }
+  /* Inset by the gutter, not to 0: below 79.5rem the wrap IS the viewport,
+     and a chip pinned to 0 would touch the screen edge. */
+  .bc-close__chip--a { top: 14%; left: var(--gutter); }
+  .bc-close__chip--b { bottom: 17%; right: var(--gutter); }
+}
+
+/* ═══ merged block: tunisie ═══════════════════════════════ */
+/* ── 23 · Conçu en Tunisie: the proof grid ─────────────────────────────────
+   Six claims, six DIFFERENT artefacts: one real crop of the chèque register,
+   three UI elements rebuilt in HTML so they stay crisp at any size, one
+   photograph and two large figures. Twelve columns so the rows can run 7/5,
+   4/4/4 and full width — an editorial rhythm instead of six equal boxes. */
+
+.tn-grid { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 40rem) {
+  .tn-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tn-a, .tn-f { grid-column: 1 / -1; }
+}
+@media (min-width: 62rem) {
+  .tn-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  .tn-a { grid-column: span 7; }
+  .tn-b { grid-column: span 5; }
+  .tn-c, .tn-d, .tn-e { grid-column: span 4; }
+}
+
+.tn-card {
+  --tn-pad: clamp(1.25rem, 0.95rem + 1.2vw, 1.75rem);
+  position: relative; isolation: isolate; overflow: hidden;
+  display: flex; flex-direction: column;
+  background: var(--page); border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+.tn-card--paper { background: var(--paper); border-color: transparent; }
+.tn-card--ink { background: var(--ink); color: var(--on-ink); border-color: var(--rule-ink); }
+/* Nothing here is clickable, so the hover raises the surface and stops there:
+   a lift would promise a link the card does not have. */
+@media (hover: hover) and (pointer: fine) {
+  .tn-card:hover { box-shadow: var(--shadow-card); border-color: #d9d9d5; }
+  .tn-card--paper:hover { border-color: #dededa; }
+  .tn-card--ink:hover { box-shadow: none; border-color: #3a5b7d; }
+}
+
+.tn-body { flex: 1; display: flex; flex-direction: column; gap: 0.5rem; padding: var(--tn-pad); }
+.tn-k { display: flex; align-items: center; gap: 0.4375rem; font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-faint); }
+.tn-k i { flex: none; width: 0.4375rem; height: 0.4375rem; border-radius: 50%; background: var(--zc, var(--accent-ink)); }
+.tn-card--ink .tn-k { color: var(--on-ink-faint); }
+.tn-card h3 { margin-top: 0.125rem; font-size: clamp(1.1875rem, 1.06rem + 0.4vw, 1.375rem); }
+.tn-p { font-size: 0.9375rem; color: var(--text-muted); max-width: 46ch; }
+.tn-card--ink .tn-p { max-width: 54ch; color: var(--on-ink-muted); }
+
+/* ── A · the two figures, then the register bleeding to three edges ────── */
+
+.tn-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0 clamp(0.875rem, 2.4vw, 1.375rem); margin-top: 0.75rem; padding: 0; list-style: none; }
+.tn-stats li:first-child { padding-right: clamp(0.875rem, 2.4vw, 1.375rem); border-right: 1px solid var(--rule-ink); }
+.tn-stats b { display: block; font-size: clamp(1.0625rem, 0.95rem + 0.45vw, 1.25rem); font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.tn-stats li > span { display: block; margin-top: 0.1875rem; font-size: 0.8125rem; line-height: 1.4; color: var(--on-ink-muted); }
+@media (max-width: 29.99rem) {
+  .tn-stats { grid-template-columns: 1fr; gap: 0.75rem; }
+  .tn-stats li:first-child { padding: 0 0 0.75rem; border-right: 0; border-bottom: 1px solid var(--rule-ink); }
+}
+
+.tn-shot { margin-top: 1.25rem; }
+/* The card clips it, so the screenshot needs no radius of its own. */
+.tn-shot > .crop { border-top: 1px solid rgb(255 255 255 / 0.1); }
+/* Below 48rem this card is one column, so the shot gets a squarer frame than
+   the 2.75:1 strip it wears on a desktop. --ar and --cy have to move TOGETHER:
+   the crop positions its image with `top`, which resolves against the frame's
+   height, so the same --cy lands somewhere else at a different ratio. --tn-cy
+   is the hook that lets one media query change both, since --cy itself is an
+   inline style a rule cannot override. And components.css forces --czz: 4 on
+   every crop under 48rem, which is right for a 320px figure and far too close
+   for a card that is full width from 30rem up. */
+@media (max-width: 47.99rem) {
+  .tn-shot > .crop { --czz: 3; --tn-cy: 0.654; aspect-ratio: 1.95 / 1; }
+}
+@media (max-width: 29.99rem) { .tn-shot > .crop { --czz: 4; } }
+
+/* ── The rendered UI insets, one family ───────────────────────────────── */
+
+.tn-ui {
+  --tn-rule: var(--rule);
+  margin-top: auto;                       /* aligns the artefacts across a row */
+  padding: 0.875rem 1rem 1rem;
+  background: var(--page); border: 1px solid var(--rule); border-radius: var(--r-med);
+}
+.tn-ui--paper { --tn-rule: rgb(9 9 11 / 0.1); background: var(--paper); border-color: transparent; }
+
+/* B · a note d’honoraires whose sous-total and total are the same number */
+.tn-note { display: grid; gap: 0.5rem; }
+.tn-note-top { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); }
+.tn-note-top b { font-weight: 500; color: var(--text-muted); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+.tn-note-lines { display: grid; gap: 0.3125rem; margin: 0; padding: 0; list-style: none; }
+.tn-note-lines li,
+.tn-note-sub { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; font-size: 0.875rem; color: var(--text-muted); }
+.tn-note-lines b,
+.tn-note-sub b { flex: none; font-weight: 400; color: var(--text); font-variant-numeric: tabular-nums; }
+.tn-note-sub { padding-top: 0.5rem; border-top: 1px solid var(--tn-rule); }
+.tn-note-total { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem 1rem; flex-wrap: wrap; padding-top: 0.5rem; border-top: 1px solid var(--tn-rule); }
+.tn-note-total > span { font-size: 0.875rem; color: var(--text-muted); }
+.tn-note-total b { font-size: clamp(1.375rem, 1.15rem + 0.85vw, 1.75rem); font-weight: 500; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
+
+/* C · four consecutive numbers, three workstations, one ladder */
+.tn-seq { display: grid; gap: 0.625rem; }
+.tn-seq-h { font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); }
+.tn-seq ol { position: relative; display: grid; gap: 0.5rem; margin: 0; padding: 0 0 0 1rem; list-style: none; }
+.tn-seq ol::before { content: ""; position: absolute; left: 3px; top: 0.5rem; bottom: 0.5rem; width: 1px; background: var(--tn-rule); }
+.tn-seq li { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; gap: 0.5rem; }
+.tn-seq li::before { content: ""; position: absolute; left: -1rem; top: 0.375rem; width: 7px; height: 7px; border-radius: 50%; background: var(--zc); opacity: 0.3; }
+.tn-seq li:last-child::before { opacity: 1; }
+.tn-seq b { font-size: 0.875rem; font-weight: 500; letter-spacing: 0.005em; font-variant-numeric: tabular-nums; }
+.tn-seq li > span,
+.tn-seq li > time { font-size: 0.8125rem; color: var(--text-muted); }
+.tn-seq li > time { font-variant-numeric: tabular-nums; }
+
+/* D · one stacked bar, four totals */
+.tn-modes { display: grid; gap: 0.75rem; }
+.tn-modes-h { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem 0.75rem; flex-wrap: wrap; }
+.tn-modes-h > span { font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); }
+.tn-modes-h b { font-size: 1.0625rem; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.tn-bar { display: flex; gap: 2px; height: 0.625rem; }
+.tn-bar span { flex: 0 1 var(--w); min-width: 4px; border-radius: 999px; background: color-mix(in oklab, var(--zc) var(--s), #fff); }
+.tn-modes-list { display: grid; gap: 0.375rem; margin: 0; padding: 0; list-style: none; }
+.tn-modes-list li { display: grid; grid-template-columns: 0.5rem minmax(0, 1fr) auto; align-items: baseline; gap: 0.5625rem; font-size: 0.875rem; }
+.tn-modes-list i { align-self: center; width: 0.5rem; height: 0.5rem; border-radius: 2px; background: color-mix(in oklab, var(--zc) var(--s), #fff); }
+.tn-modes-list li > span { color: var(--text-muted); }
+.tn-modes-list b { font-weight: 400; font-variant-numeric: tabular-nums; }
+
+/* E · one large figure over two format lines */
+.tn-loc { display: grid; gap: 0.5rem; }
+.tn-big { font-size: clamp(2.5rem, 1.85rem + 2.6vw, 3.5rem); line-height: 0.9; letter-spacing: -0.045em; font-variant-numeric: tabular-nums; }
+.tn-big-cap { max-width: 24ch; font-size: 0.8125rem; line-height: 1.45; color: var(--text-muted); }
+.tn-fields { display: grid; gap: 0.4375rem; margin: 0.375rem 0 0; padding-top: 0.75rem; border-top: 1px solid var(--tn-rule); }
+.tn-fields > div { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
+.tn-fields dt { font-size: 0.8125rem; color: var(--text-muted); }
+.tn-fields dd { margin: 0; font-size: 0.875rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* F · the wide vocabulary band, a photograph flush to its left edge */
+.tn-photo { position: relative; margin: 0; overflow: hidden; aspect-ratio: 16 / 9; }
+.tn-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 62% 34%; }
+/* Every photograph on this page is washed in the brand’s own ink so the set
+   reads as one family. No type sits on this one, so the wash stays light. */
+.tn-photo::after {
+  content: ""; position: absolute; inset: 0;
+  background:
+    linear-gradient(155deg, rgb(14 27 42 / 0.24), rgb(14 27 42 / 0.04) 55%),
+    linear-gradient(20deg, rgb(45 212 191 / 0.16), transparent 62%);
+}
+@media (min-width: 48rem) {
+  .tn-wide { flex-direction: row; align-items: stretch; }
+  .tn-photo { flex: 0 0 clamp(12rem, 30%, 21rem); aspect-ratio: auto; }
+  .tn-wide-body { padding: clamp(1.5rem, 1rem + 1.8vw, 2.25rem); justify-content: center; }
+}
+.tn-wide-body h3 { font-size: clamp(1.25rem, 1.05rem + 0.75vw, 1.5rem); }
+.tn-words { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.75rem 0 0; padding: 0; list-style: none; }
+.tn-words li {
+  display: inline-flex; align-items: center; white-space: nowrap;
+  padding: 0.375rem 0.8125rem; border-radius: 999px;
+  background: var(--page); border: 1px solid var(--rule);
+  font-size: 0.875rem;
+}
+.tn-words li::before { content: "«\00a0"; color: var(--text-faint); }
+.tn-words li::after  { content: "\00a0»"; color: var(--text-faint); }
+
+/* The narrowest phones: the rendered rows lose a size rather than wrap. */
+@media (max-width: 26rem) {
+  .tn-seq b { font-size: 0.8125rem; }
+  .tn-seq li > span, .tn-seq li > time { font-size: 0.75rem; }
+  .tn-modes-list li { font-size: 0.8125rem; }
+  .tn-note-lines li, .tn-note-sub { font-size: 0.8125rem; }
+}
+
+/* ═══ merged block: mobile ═══════════════════════════════ */
+/* ── 24 · The phone deck ───────────────────────────────────────────────────
+   The page never showed a phone, and the claim "Android comme iPhone" was
+   text only. Three real 390×844 captures in CSS-drawn frames, fanned and
+   overlapped over the dark ground, on the same warm-ink family as the hero.
+   The frame is drawn rather than photographed so it costs nothing and scales:
+   --mob-bz is the bezel, --mob-r the outer radius, and the screen's radius is
+   the difference between the two, which is what keeps the corners concentric. */
+
+.mob { position: relative; isolation: isolate; overflow: clip; }
+/* Two washes, not one: a teal pool under the phones so they sit ON something,
+   and a cold azure high on the right so the band is not a flat rectangle. */
+.mob::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(58% 46% at 50% 78%, rgb(45 212 191 / 0.20), transparent 72%),
+    radial-gradient(46% 38% at 90% 2%, rgb(2 132 199 / 0.20), transparent 74%);
+}
+
+.mob-deck {
+  --mob-r:  clamp(1.15rem, 0.55rem + 1.7vw, 2.1rem);
+  --mob-bz: clamp(0.3rem, 0.16rem + 0.5vw, 0.5625rem);
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  max-width: 54rem; margin: clamp(2.5rem, 1.6rem + 2.6vw, 3.75rem) auto 0;
+}
+/* The pool of light the deck stands in. Softer and wider than the section's
+   own wash, so the cluster reads as lit from below rather than pasted on. */
+.mob-deck::before {
+  content: ""; position: absolute; z-index: 0; left: 50%; top: 14%;
+  width: min(44rem, 96%); aspect-ratio: 16 / 11;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(45 212 191 / 0.20), transparent 76%);
+}
+
+.mob-phone {
+  position: relative; flex: none;
+  transform: rotate(var(--rot, 0deg)) translate(var(--dx, 0rem), var(--dy, 0rem));
+  transition: transform var(--mid) var(--ease-out);
+}
+.mob-phone--a { display: none; z-index: 1; }
+.mob-phone--b { z-index: 3; width: min(78%, 15.5rem); }
+.mob-phone--c { display: none; z-index: 2; }
+
+.mob-frame {
+  position: relative;
+  padding: var(--mob-bz);
+  border-radius: var(--mob-r);
+  /* A machined edge: light catches the top-left and the bottom-right, the
+     body stays near-black so the screen is the brightest thing in the band. */
+  background: linear-gradient(152deg, #3a5170 0%, #0b1420 24%, #080f18 72%, #2c4059 100%);
+  box-shadow:
+    0 2px 6px rgb(0 0 0 / 0.4),
+    0 42px 80px -34px rgb(0 0 0 / 0.85),
+    inset 0 0 0 1px rgb(255 255 255 / 0.07);
+}
+/* The volume pair and the side button, drawn on the frame's own edges. Kept
+   dark: a light bar on a dark band reads as a rendering fault, not a button. */
+.mob-frame::before, .mob-frame::after {
+  content: ""; position: absolute; width: 0.1563rem; border-radius: 0.1563rem;
+  background: linear-gradient(#2b3e57, #101d2c);
+}
+.mob-frame::before { left: -0.0313rem; top: 21%; height: 17%;
+  background: linear-gradient(#2b3e57 0 42%, transparent 42% 58%, #2b3e57 58% 100%); }
+.mob-frame::after  { right: -0.0313rem; top: 27%; height: 11%; }
+
+.mob-screen {
+  position: relative; overflow: hidden;
+  aspect-ratio: 390 / 844;
+  border-radius: calc(var(--mob-r) - var(--mob-bz));
+  background: #eef4f9;
+}
+.mob-screen img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 0; }
+/* The glass: a hairline inside the bezel and one diagonal sheen. Kept under
+   12% or it stops reading as glass and starts reading as a wash over the UI. */
+.mob-screen::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgb(9 9 11 / 0.14);
+  background: linear-gradient(148deg, rgb(255 255 255 / 0.11) 0%, rgb(255 255 255 / 0.02) 26%, transparent 46%);
+}
+
+@media (min-width: 34rem) {
+  .mob-phone--b { width: 46%; }
+  .mob-phone--c { display: block; width: 40%; margin-inline-start: -8%; --rot: 5deg; --dy: 1.25rem; }
+}
+@media (min-width: 48rem) {
+  .mob-phone--a { display: block; width: 28%; margin-inline-end: -5.5%; --rot: -6deg; --dy: 2.25rem; }
+  .mob-phone--b { width: 32%; --dy: -1rem; }
+  .mob-phone--c { width: 28%; margin-inline-start: -5.5%; --rot: 6deg; --dy: 2.25rem; }
+}
+/* The deck fans open under the cursor. It is the one hover on this band, and
+   it says "three of them" better than the still composition can. */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .mob-deck:hover .mob-phone--a { --rot: -9deg; --dx: -1.5rem; --dy: 1.5rem; }
+  .mob-deck:hover .mob-phone--b { --dy: -1.6rem; }
+  .mob-deck:hover .mob-phone--c { --rot: 9deg; --dx: 1.5rem; --dy: 1.5rem; }
+}
+
+/* ── 19b · What each screen answers ────────────────────────────────────────
+   Three cells divided by hairlines rather than separated by a gap, so the row
+   reads as one surface: the reference's logo-wall trick, in type. */
+
+.mob-facts { display: grid; gap: 1.25rem; margin-top: clamp(2.75rem, 1.8rem + 3vw, 4rem); padding: 0; }
+.mob-facts li { list-style: none; padding-top: 1.125rem; border-top: 1px solid rgb(255 255 255 / 0.14); }
+.mob-facts b {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 1rem; font-weight: 500; color: var(--on-ink); margin-bottom: 0.375rem;
+}
+.mob-facts b::before {
+  content: ""; flex: none; width: 0.4375rem; height: 0.4375rem;
+  border-radius: 50%; background: var(--zc, var(--accent));
+}
+.mob-facts p { font-size: 0.9375rem; color: var(--on-ink-muted); }
+@media (min-width: 48rem) {
+  .mob-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
+  .mob-facts li { padding: 1.25rem clamp(1.25rem, 0.7rem + 1.6vw, 2.25rem) 0; }
+  .mob-facts li + li { border-left: 1px solid rgb(255 255 255 / 0.14); }
+  .mob-facts li:first-child { padding-inline-start: 0; }
+  .mob-facts li:last-child { padding-inline-end: 0; }
+}
+
+.mob-note {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 1rem 2rem; margin-top: clamp(1.75rem, 1.2rem + 1.8vw, 2.5rem);
+}
+.mob-note p { font-size: var(--t-small); color: var(--on-ink-muted); max-width: 62ch; }
+.mob-plat { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0; margin: 0; }
+.mob-plat li {
+  list-style: none; display: inline-flex; align-items: center; gap: 0.5rem;
+  min-height: 2.375rem; padding: 0.375rem 0.875rem;
+  border: 1px solid rgb(255 255 255 / 0.2); border-radius: 999px;
+  background: rgb(255 255 255 / 0.05);
+  font-size: 0.9375rem; color: var(--on-ink); white-space: nowrap;
+}
+.mob-plat svg { width: 1.125rem; height: 1.125rem; color: var(--accent-lit); flex: none; }
+
+/* A dark chip has a photograph under it in the hero and reads on its own.
+   Here the ground is the same ink it is made of, so it needs an edge. */
+.mob .chip--dark { border: 1px solid rgb(255 255 255 / 0.16); }
+
+/* ═══ merged block: fiabilite ═══════════════════════════════ */
+/* ── 25 · Fiabilité: two drawn figures ─────────────────────────────────────
+   The two questions this section answers are the only two claims on the page
+   that NO screenshot can prove: a network that survives a cut line, and a
+   backup that has already been taken. Both are drawn, in the page's own
+   hairline + zone-colour vocabulary, and both are built from real elements
+   rather than an SVG file so the labels stay real text at every width.
+
+   Everything is namespaced `fi-`. The one shared piece is `.stage`, re-laid-
+   out by `--fig`: the copy sits at the top at full width and the figure is
+   pinned to the card's foot, where the screenshot variant bleeds off the edge.
+
+   Reveal: the base state of every part is its FINAL state, and the entrance
+   is an animation with `both`, so a blocked script leaves the figure whole
+   and one `animation: none` switches the whole thing off for reduced motion.
+   ──────────────────────────────────────────────────────────────────────── */
+
+.stage--fig {
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
+}
+.stage--fig .stage-copy { max-width: 38ch; }
+.stage--fig .fi-fig { flex: 1 0 auto; grid-template-rows: 1fr auto; }
+
+.fi-fig {
+  margin: 0;
+  display: grid;
+  gap: 0.8125rem;
+  padding: clamp(0.875rem, 0.55rem + 1.1vw, 1.25rem);
+  background: var(--page);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-med);
+}
+.fi-lan, .fi-tl, .fi-fig figcaption { width: 100%; max-width: 32rem; justify-self: center; }
+.fi-fig figcaption {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* ── A node: the same object in three states — a post, the hub, the outside
+      world. The posts are the card's own paper on the figure's white, so the
+      hierarchy is card → figure → node without a single shadow. ────────── */
+
+.fi-node {
+  position: relative;
+  margin: 0;
+  display: grid;
+  justify-items: center;
+  gap: 0.1875rem;
+  padding: 0.5rem 0.5rem 0.5625rem;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+  text-align: center;
+  line-height: 1.25;
+}
+.fi-node svg { width: 1.0625rem; height: 1.0625rem; color: var(--zc, var(--accent-ink)); }
+.fi-node b { font-size: 0.75rem; font-weight: 500; letter-spacing: -0.005em; }
+.fi-node > span { font-size: 0.6875rem; color: var(--text-muted); }
+
+.fi-hub {
+  width: 100%;
+  max-width: 16rem;
+  padding: 0.75rem 0.875rem 0.8125rem;
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--on-ink);
+  box-shadow: var(--shadow-sm);
+}
+.fi-hub svg { width: 1.1875rem; height: 1.1875rem; color: var(--zcl, var(--accent-lit)); }
+.fi-hub b { font-size: 0.8125rem; }
+.fi-hub > span { color: var(--on-ink-muted); }
+
+/* The outside world: a row, not a stack, and drawn in the dashed grey the
+   dead wire uses — it is the one thing in the figure that is switched off. */
+.fi-off {
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0.4375rem 0.75rem;
+  background: var(--page);
+  border-style: dashed;
+  border-color: #dadad8;
+  color: var(--text-faint);
+}
+.fi-off svg { width: 1rem; height: 1rem; color: currentColor; }
+.fi-off b { font-weight: 400; color: currentColor; }
+
+/* ── The cut line ─────────────────────────────────────────────────────── */
+
+.fi-wire {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 1.9375rem;
+}
+.fi-wire::before {
+  content: "";
+  position: absolute;
+  left: 50%; top: 0; bottom: 0;
+  width: 0;
+  margin-left: -1px;
+  border-left: 2px dashed #d8d8d6;
+  transform-origin: top;
+}
+.fi-wire .fi-cut {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 1.125rem; height: 1.125rem;
+  border-radius: 50%;
+  background: var(--page);
+  border: 1px solid #dadad8;
+  color: var(--text-faint);
+}
+.fi-wire .fi-cut svg { width: 0.5rem; height: 0.5rem; }
+.fi-wire em {
+  position: absolute;
+  left: calc(50% + 0.9375rem); top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.6875rem;
+  font-style: normal;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* ── The local network: a dashed enclosure with its name written on its own
+      top edge, the way a schematic labels a boundary. ──────────────────── */
+
+.fi-lan {
+  --fi-line: color-mix(in oklab, var(--zc, var(--accent-ink)) 45%, transparent);
+  display: grid;
+  justify-items: center;
+  align-content: space-between;
+}
+
+.fi-net {
+  --fi-g: 0.5rem;
+  position: relative;
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  padding: 1rem 0.75rem 0.8125rem;
+  border: 1px dashed color-mix(in oklab, var(--zc, var(--accent-ink)) 38%, transparent);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--zc, var(--accent-ink)) 4%, transparent);
+}
+.fi-net-tag {
+  position: absolute;
+  top: 0; left: 0.875rem;
+  transform: translateY(-50%);
+  padding-inline: 0.375rem;
+  background: var(--page);
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: color-mix(in oklab, var(--zc, var(--accent-ink)) 72%, var(--text));
+}
+
+/* Three cells, each drawing its own share of one continuous bus: the halves
+   of the gap are covered by the neighbouring cell's segment, so the line is
+   unbroken without anyone needing to know the panel's width. */
+.fi-branch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--fi-g);
+  width: 100%;
+  height: 1.375rem;
+}
+.fi-branch i { position: relative; }
+.fi-branch i::before,
+.fi-branch i::after { content: ""; position: absolute; background: var(--fi-line); }
+.fi-branch i::before {
+  left: 50%; width: 2px; margin-left: -1px;
+  top: 50%; bottom: 0;
+  transform-origin: top;
+}
+.fi-branch i::after { top: 50%; height: 2px; margin-top: -1px; }
+.fi-branch i:nth-child(1)::after { left: 50%; right: calc(var(--fi-g) / -2); transform-origin: right; }
+.fi-branch i:nth-child(2)::after { left: calc(var(--fi-g) / -2); right: calc(var(--fi-g) / -2); transform-origin: center; }
+.fi-branch i:nth-child(3)::after { left: calc(var(--fi-g) / -2); right: 50%; transform-origin: left; }
+/* The trunk: the middle cell's stub runs the whole height, hub to post. */
+.fi-branch i:nth-child(2)::before { top: 0; }
+
+.fi-posts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--fi-g);
+  width: 100%;
+  margin: 0; padding: 0;
+  list-style: none;
+}
+.fi-posts .fi-node { padding-inline: 0.25rem; }
+
+/* ── The backup timeline ──────────────────────────────────────────────── */
+
+/* Three rows, spread: the day at the top, the rail in the middle of the
+   panel, the promise at the foot. The rail and its bracket are one row, or
+   spreading would prise the bracket off the ticks it belongs to. */
+.fi-tl { display: grid; align-content: space-between; gap: 0.6875rem; }
+.fi-rail-wrap { display: grid; gap: 0; }
+
+.fi-tl-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.125rem 0.75rem;
+}
+.fi-day {
+  font-size: 0.6875rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.fi-last {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.fi-last i {
+  width: 0.4375rem; height: 0.4375rem;
+  border-radius: 50%;
+  background: var(--zc, var(--accent-ink));
+  flex: none;
+}
+
+.fi-rail {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  margin: 0; padding: 0;
+  list-style: none;
+}
+.fi-rail::before {
+  content: "";
+  position: absolute;
+  left: 0.5rem; right: 0.5rem;
+  top: 0.5rem; height: 2px; margin-top: -1px;
+  background: color-mix(in oklab, var(--zc, var(--accent-ink)) 28%, transparent);
+  transform-origin: left;
+}
+
+.fi-tick { position: relative; display: grid; justify-items: center; gap: 0.3125rem; }
+.fi-tick > i {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 1rem; height: 1rem;
+  border-radius: 50%;
+  background: var(--page);
+  border: 1.5px solid color-mix(in oklab, var(--zc, var(--accent-ink)) 50%, transparent);
+}
+/* The tick mark itself: two borders of an empty box, turned 45°. */
+.fi-tick > i::after {
+  content: "";
+  width: 0.1875rem; height: 0.375rem;
+  margin-top: -1px;
+  border: solid color-mix(in oklab, var(--zc, var(--accent-ink)) 88%, var(--text));
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+.fi-tick > span {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.fi-tick--now > i { background: var(--zc, var(--accent-ink)); border-color: var(--zc, var(--accent-ink)); }
+.fi-tick--now > i::after { border-color: #fff; }
+.fi-tick--now > span { color: var(--text); font-weight: 500; }
+
+/* The one thing that keeps moving: the most recent backup. */
+.fi-tick--now::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 50%;
+  width: 1rem; height: 1rem;
+  margin-left: -0.5rem;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--zc, var(--accent-ink)) 40%, transparent);
+  opacity: 0;
+}
+
+/* The bracket: every tick above it, not one of them. */
+.fi-span {
+  height: 0.5625rem;
+  margin: -0.0625rem 0.5rem 0;
+  border: 1.5px solid color-mix(in oklab, var(--zc, var(--accent-ink)) 36%, transparent);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  transform-origin: center;
+}
+
+.fi-restore {
+  justify-self: center;
+  margin-top: 0.5625rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  max-width: 100%;
+  padding: 0.375rem 0.8125rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--zc, var(--accent-ink)) 11%, transparent);
+  color: color-mix(in oklab, var(--zc, var(--accent-ink)) 78%, var(--text));
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: center;
+}
+.fi-restore svg { width: 0.875rem; height: 0.875rem; flex: none; }
+
+/* What a restore actually gives back. The two boxes are the figure A node in
+   its two states — the copy on the left, the cabinet it rebuilds on the right
+   — so the two drawings share one vocabulary instead of inventing a second. */
+.fi-back {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0.4375rem;
+  padding-top: 0.8125rem;
+  border-top: 1px solid var(--rule-soft);
+}
+.fi-back .fi-node {
+  align-content: center;
+  padding: 0.4375rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+.fi-node--out {
+  background: color-mix(in oklab, var(--zc, var(--accent-ink)) 12%, transparent);
+  border-color: color-mix(in oklab, var(--zc, var(--accent-ink)) 30%, transparent);
+  color: color-mix(in oklab, var(--zc, var(--accent-ink)) 82%, var(--text));
+  font-weight: 500;
+}
+.fi-arrow {
+  align-self: center;
+  width: 1.125rem; height: 1.125rem;
+  color: color-mix(in oklab, var(--zc, var(--accent-ink)) 62%, transparent);
+}
+
+/* ── The reveal ────────────────────────────────────────────────────────────
+   `both` holds each part at its `from` state through its delay, so the whole
+   figure assembles in the order a person would draw it: the outside first,
+   the wire, the enclosure, the machine that holds the data, then the posts —
+   and the line is cut LAST, on a network that is already visibly working. */
+
+@keyframes fi-node-in { from { opacity: 0; transform: translateY(7px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes fi-fade    { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fi-draw-y  { from { transform: scaleY(0); } to { transform: none; } }
+@keyframes fi-draw-x  { from { transform: scaleX(0); } to { transform: none; } }
+@keyframes fi-pop     { from { opacity: 0; transform: translate(-50%, -50%) scale(0.3); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes fi-pulse   { 0% { opacity: 0.55; transform: scale(1); } 70%, 100% { opacity: 0; transform: scale(2.2); } }
+
+.in .fi-off        { animation: fi-node-in 400ms var(--ease-out) var(--fi-d, 0ms) both; }
+.in .fi-wire::before { animation: fi-draw-y 220ms var(--ease-out) 180ms both; }
+.in .fi-wire .fi-cut { animation: fi-pop 300ms var(--ease-out) 1080ms both; }
+.in .fi-wire em    { animation: fi-fade 280ms var(--ease-out) 1180ms both; }
+.in .fi-net        { animation: fi-fade 380ms var(--ease-out) 240ms both; }
+.in .fi-hub        { animation: fi-node-in 400ms var(--ease-out) var(--fi-d, 0ms) both; }
+.in .fi-branch i:nth-child(2)::before { animation: fi-draw-y 220ms var(--ease-out) 430ms both; }
+.in .fi-branch i:nth-child(2)::after  { animation: fi-draw-x 150ms var(--ease-out) 550ms both; }
+.in .fi-branch i:nth-child(1)::after,
+.in .fi-branch i:nth-child(3)::after  { animation: fi-draw-x 170ms var(--ease-out) 650ms both; }
+.in .fi-branch i:nth-child(1)::before,
+.in .fi-branch i:nth-child(3)::before { animation: fi-draw-y 150ms var(--ease-out) 790ms both; }
+.in .fi-posts .fi-node { animation: fi-node-in 380ms var(--ease-out) var(--fi-d, 0ms) both; }
+
+.in .fi-rail::before { animation: fi-draw-x 380ms var(--ease-out) 140ms both; }
+.in .fi-tick         { animation: fi-node-in 340ms var(--ease-out) calc(240ms + var(--i, 0) * 50ms) both; }
+.in .fi-tick--now::before { animation: fi-pulse 2.9s var(--ease-out) 1200ms infinite; }
+.in .fi-span         { animation: fi-draw-x 280ms var(--ease-out) 780ms both; }
+.in .fi-restore      { animation: fi-node-in 320ms var(--ease-out) 920ms both; }
+.in .fi-back         { animation: fi-node-in 360ms var(--ease-out) 1060ms both; }
+
+/* One switch: every base state above is already the finished drawing. */
+@media (prefers-reduced-motion: reduce) {
+  .fi-fig, .fi-fig *, .fi-fig *::before, .fi-fig *::after { animation: none !important; }
+}
+
+/* At 320 the three posts are 70px wide. They still hold their label on one
+   line, at one step down — the shape of the drawing is the explanation, so it
+   is the type that gives way, never the layout. */
+@media (max-width: 26rem) {
+  .fi-node b { font-size: 0.6875rem; }
+  .fi-tag-long { display: none; }
+  .fi-posts .fi-node { padding-inline: 0.125rem; }
+  .fi-net { padding-inline: 0.5rem; }
+}
+
+/* ═══ merged block: faq-donnees ═══════════════════════════════ */
+/* ── 26 · FAQ: the aside that fills the column ─────────────────────────────
+   Everything here is scoped to `.fq` (the section) or prefixed `fq-`, so the
+   shared `.faq*` component keeps its behaviour on every other page. */
+
+.fq-aside { display: grid; align-content: start; gap: clamp(1.75rem, 1.2rem + 1.6vw, 2.5rem); }
+.fq-aside .head { margin-bottom: 0; }
+
+/* Numbered questions, like the "à qui ça s'adresse" list. The row is taller
+   than the shared component's: six of them face a photo card, and a 4rem row
+   left the two columns badly out of balance. */
+.fq .faq-item > button { gap: 1rem; min-height: 5rem; }
+.fq .fq-n {
+  flex: none; width: 1.75rem;
+  font-size: 0.8125rem; color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  transition: color var(--fast) var(--ease);
+}
+.fq .fq-q { margin-inline-end: auto; }
+.fq .faq-item[data-open="true"] .fq-n { color: var(--accent-ink); }
+/* At 320 the number costs 28 px the question needs more. */
+@media (max-width: 29.99rem) { .fq .fq-n { display: none; } }
+
+/* The contact card: a photograph that is actually visible — the scrim only
+   closes over the last third, where the ink body begins — and one address. */
+.fq-card {
+  position: relative; isolation: isolate; overflow: hidden;
+  border-radius: var(--r-card);
+  background: var(--ink); color: var(--on-ink);
+  box-shadow: var(--shadow-card);
+}
+.fq-photo { position: relative; aspect-ratio: 16 / 9; }
+.fq-photo img {
+  width: 100%; height: 100%; object-fit: cover;
+  /* the source is 3:2 and the frame is wider, so only the vertical crop
+     counts: 34% keeps her face and the counter, and drops the ceiling. */
+  object-position: 62% 34%;
+  
+}
+.fq-photo::after {
+  content: ""; position: absolute; inset: 0;
+  background:
+    linear-gradient(180deg, rgb(14 27 42 / 0) 48%, rgb(14 27 42 / 0.5) 78%, var(--ink) 100%),
+    linear-gradient(115deg, rgb(45 212 191 / 0.16), transparent 62%);
+}
+.fq-card-body { display: grid; gap: 0.625rem; padding: clamp(1.125rem, 0.8rem + 1.2vw, 1.5rem); }
+.fq-card-k {
+  font-size: var(--t-eyebrow); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--accent-lit);
+}
+.fq-card-body h3 { font-size: clamp(1.125rem, 1rem + 0.5vw, 1.375rem); font-weight: 400; }
+
+.fq-mail {
+  display: flex; align-items: center; gap: 0.75rem;
+  min-height: 3.25rem; margin-top: 0.25rem; padding: 0.5rem 0.75rem;
+  border: 1px solid var(--rule-ink); border-radius: var(--r-med);
+  background: rgb(255 255 255 / 0.05);
+  color: inherit; text-decoration: none;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease),
+              transform var(--press) var(--ease-out);
+}
+.fq-mail:active { transform: scale(0.97); }
+.fq-mail-ico {
+  display: grid; place-items: center; flex: none;
+  width: 2.25rem; height: 2.25rem; border-radius: 9px;
+  background: var(--accent); color: var(--on-accent);
+  transition: transform var(--mid) var(--ease-out);
+}
+.fq-mail-ico svg { width: 1.125rem; height: 1.125rem; }
+.fq-mail-txt { min-width: 0; }
+.fq-mail-v {
+  display: block; font-weight: 500; letter-spacing: -0.01em;
+  font-size: clamp(0.875rem, 0.8rem + 0.35vw, 1rem);
+  overflow-wrap: anywhere;
+}
+.fq-mail-s { display: block; font-size: 0.8125rem; color: var(--on-ink-muted); }
+@media (hover: hover) and (pointer: fine) {
+  .fq-mail:hover { background: rgb(255 255 255 / 0.1); border-color: #557eab; }
+  .fq-mail:hover .fq-mail-ico { transform: scale(1.06) rotate(-4deg); }
+}
+.fq-card-s { font-size: 0.9375rem; color: var(--on-ink-muted); }
+.fq-demo { color: var(--accent-lit); }
+
+/* The list ends on the two pages that answer questions 02 and 06 rather than
+   on a hard stop, which also brings the two columns back within a line or two
+   of each other. */
+.fq-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1.75rem; padding-top: 1.5rem; }
+.fq-foot > span { font-size: 0.875rem; color: var(--text-faint); }
+.fq-foot .link-arrow { color: var(--accent-ink); }
+
+/* ── 20 · "Vos données vous appartiennent" ─────────────────────────────────
+   Four paper cards, each holding one interface vignette drawn in CSS — no
+   screenshot exists for an export, a backup or a permission grid, and a real
+   fragment of the app is what these four claims were missing. All of it is
+   scoped to `.dn`. */
+
+.dn-grid { --zc: var(--green); }
+
+.dn-grid { display: grid; gap: clamp(0.875rem, 0.5rem + 1.2vw, 1.25rem); grid-template-columns: 1fr; }
+@media (min-width: 48rem) { .dn-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.dn-card {
+  display: grid; grid-template-rows: 1fr auto; gap: 1.125rem;
+  padding: clamp(1rem, 0.7rem + 1.2vw, 1.5rem);
+  border-radius: var(--r-card);
+  background: var(--paper);
+  transition: box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .dn-card:hover { box-shadow: var(--shadow-card); transform: translateY(-3px); }
+}
+.dn-txt { display: grid; gap: 0.4375rem; align-content: start; }
+.dn-h { font-size: clamp(1.25rem, 1.1rem + 0.5vw, 1.5rem); font-weight: 400; }
+.dn-p { font-size: 0.9375rem; color: var(--text-muted); }
+
+/* The vignette: a white panel inset in the warm-grey card, 12 px inside a
+   20 px radius. `space-between` pins its footnote to the bottom, so the four
+   of them line up whatever their middle holds. */
+.dn-viz {
+  display: grid; gap: 0.75rem; align-content: space-between;
+  min-height: 11.5rem; padding: 0.875rem 1rem 1rem;
+  background: var(--page);
+  border: 1px solid var(--rule); border-radius: var(--r-med);
+  box-shadow: var(--shadow-sm);
+}
+.dn-viz-top {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem;
+  padding-bottom: 0.5rem; border-bottom: 1px solid var(--rule);
+}
+.dn-viz-t { font-size: 0.8125rem; font-weight: 500; }
+.dn-viz-m { font-size: 0.6875rem; color: var(--text-faint); white-space: nowrap; }
+.dn-viz-foot {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.75rem; line-height: 1.35; color: var(--text-muted);
+}
+
+/* One tick, drawn rather than fetched: two borders on a rotated box. */
+.dn-ck, .dn-y {
+  display: grid; place-items: center; flex: none;
+  color: var(--zc); background: color-mix(in oklab, var(--zc) 14%, transparent);
+}
+.dn-ck { width: 1rem; height: 1rem; border-radius: 50%; }
+.dn-y { width: 1.25rem; height: 1.25rem; border-radius: 6px; }
+.dn-ck::before, .dn-y::before {
+  content: ""; margin-top: -0.125rem;
+  width: 0.25rem; height: 0.5rem;
+  border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor;
+  transform: rotate(45deg);
+}
+.dn-y::before { width: 0.3125rem; height: 0.5625rem; }
+.dn-no { display: block; width: 0.625rem; height: 1.5px; border-radius: 1px; background: var(--rule); }
+
+.dn-rows { list-style: none; padding: 0; margin: 0; display: grid; align-content: start; }
+.dn-rows li + li { border-top: 1px solid var(--rule-soft); }
+
+/* Vignette 1 — the export */
+.dn-files li { display: flex; align-items: center; gap: 0.625rem; padding: 0.5rem 0; font-size: 0.8125rem; }
+.dn-ext {
+  flex: none; padding: 0.125rem 0.3125rem; border-radius: 4px;
+  font-size: 0.5625rem; letter-spacing: 0.06em;
+  background: color-mix(in oklab, var(--zc) 12%, transparent); color: var(--zc);
+}
+.dn-f { min-width: 0; overflow-wrap: anywhere; }
+.dn-fm {
+  margin-inline-start: auto; padding-inline-start: 0.375rem;
+  font-size: 0.75rem; color: var(--text-faint);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* Vignette 2 — the backup line. The rule is drawn behind the dots, inset by
+   half a tick's label at each end so it starts and stops under them. */
+.dn-tl { list-style: none; padding: 0; margin: 0; position: relative; display: flex; justify-content: space-between; gap: 0.25rem; }
+.dn-tl::before {
+  content: ""; position: absolute; left: 0.8125rem; right: 0.8125rem; top: 0.25rem;
+  height: 2px; border-radius: 1px; background: var(--rule);
+}
+.dn-tl li {
+  position: relative; display: grid; justify-items: center; gap: 0.4375rem;
+  font-size: 0.625rem; color: var(--text-faint); font-variant-numeric: tabular-nums;
+}
+.dn-tl i { width: 0.625rem; height: 0.625rem; border-radius: 50%; background: var(--zc); opacity: 0.45; }
+.dn-tl .is-next i { background: var(--page); border: 1.5px solid var(--rule); opacity: 1; }
+.dn-tl .is-now { color: var(--text); font-weight: 500; }
+.dn-tl .is-now i { opacity: 1; box-shadow: 0 0 0 3px color-mix(in oklab, var(--zc) 20%, transparent); }
+@media (prefers-reduced-motion: no-preference) {
+  .dn-tl .is-now i { animation: dn-pulse 2.8s var(--ease-in-out) infinite; }
+}
+@keyframes dn-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in oklab, var(--zc) 20%, transparent); }
+  50%      { box-shadow: 0 0 0 7px color-mix(in oklab, var(--zc) 0%, transparent); }
+}
+
+/* Vignette 3 — the journal */
+.dn-log li { display: flex; gap: 0.625rem; padding: 0.5rem 0; font-size: 0.8125rem; line-height: 1.35; }
+.dn-time {
+  flex: none; width: 2.5rem; padding-top: 0.0625rem;
+  font-size: 0.75rem; color: var(--text-faint); font-variant-numeric: tabular-nums;
+}
+.dn-act { display: grid; gap: 0.1875rem; min-width: 0; }
+.dn-act em { font-style: normal; font-size: 0.75rem; color: var(--text-muted); overflow-wrap: anywhere; }
+
+/* Vignette 4 — the rights grid. Every column is minmax(0, …) and every label
+   may break, so the grid can never push the card sideways at 320. */
+.dn-mx { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); }
+/* ⚠️ Every cell has to STRETCH to its row. `align-items: center` shrank each
+   one to its own content, and the row rule came out as four segments at four
+   different heights. Centre the content inside the cell instead. */
+.dn-mx-h {
+  display: flex; align-items: flex-end; justify-content: center;
+  font-size: 0.6875rem; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--text-faint); text-align: center; padding-bottom: 0.5rem;
+  overflow-wrap: anywhere;
+}
+.dn-mx-r { display: flex; align-items: center; font-size: 0.75rem; padding: 0.4375rem 0.375rem 0.4375rem 0; overflow-wrap: anywhere; }
+.dn-mx-c { display: grid; place-items: center; padding: 0.4375rem 0; }
+.dn-mx > :nth-child(n + 5) { border-top: 1px solid var(--rule-soft); }
+
+/* ── The closing statement, and the three figures ──────────────────────── */
+
+.dn-vow {
+  display: grid; gap: 2rem;
+  margin-top: clamp(2rem, 1.4rem + 2.4vw, 3rem);
+  padding-top: clamp(1.75rem, 1.2rem + 2vw, 2.5rem);
+  border-top: 1px solid var(--rule);
+}
+@media (min-width: 62rem) {
+  .dn-vow { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 4rem; align-items: start; }
+}
+.dn-vow-t {
+  font-size: clamp(1.5rem, 1.15rem + 1.6vw, 2.25rem);
+  line-height: 1.14; letter-spacing: -0.018em; text-wrap: balance;
+  max-width: 18ch;
+}
+.dn-vow-s { margin-top: 0.875rem; font-size: var(--t-small); color: var(--text-muted); max-width: 46ch; }
+
+.dn-figs { list-style: none; padding: 0; margin: 0; display: grid; gap: 1.5rem; }
+@media (min-width: 30rem) {
+  .dn-figs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
+  /* the hairline between two figures IS the table — no boxes, no gap */
+  .dn-figs li { padding-inline-end: clamp(0.75rem, 0.4rem + 1.2vw, 1.5rem); }
+  .dn-figs li + li { border-inline-start: 1px solid var(--rule); padding-inline-start: clamp(0.75rem, 0.4rem + 1.2vw, 1.5rem); }
+}
+.dn-fig-v {
+  display: flex; align-items: baseline; gap: 0.3125rem;
+  font-size: clamp(2rem, 1.5rem + 2.2vw, 3rem); font-weight: 500;
+  line-height: 1; letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.dn-u { font-size: 0.38em; font-weight: 400; letter-spacing: 0; color: var(--text-muted); }
+.dn-fig-k { display: block; margin-top: 0.625rem; font-size: 0.875rem; line-height: 1.4; color: var(--text-muted); }
+:root { --r-sm: 10px; }
+
+
+/* ── 27 · The animated hero scene ──────────────────────────────────────────
+   The scene lives in its own document (src/scenes/), so it needs a frame with
+   a fixed ratio and nothing else. It is decorative: `aria-hidden` on the frame
+   and one visually-hidden sentence beside it carry the meaning instead.
+
+   ⚠️ The ratio must match the one the scene was composed at (700 x 560 = 5/4)
+   or its fixed internal layout anchors top-left in a box it does not fill. */
+
+.hero-film {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 700 / 560;
+  border-radius: var(--r-card);
+  overflow: hidden;
+  background: var(--ink-2);
+  border: 1px solid var(--rule-ink);
+  box-shadow: var(--shadow-lift);
+}
+.hero-film__frame {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  border: 0; display: block;
+  color-scheme: dark;   /* the frame must not be painted white before it loads */
+}
+
+/* ⚠️ The scene switches to a TALLER composition on a narrow container, so one
+   ratio cannot serve both. Measured: it wants ~1.27x its width in height below
+   640px and was overflowing a 5/4 frame by 130-149px, cutting the patient
+   card's bottom row clean off. 3/4 clears it at 320 and at 390. */
+@media (max-width: 47.99rem) { .hero-film { aspect-ratio: 3 / 4; } }
+
+/* ⚠️ Do NOT widen this frame on a phone. Bleeding it to the full viewport was
+   tried and made things worse: the scene switches composition on its OWN
+   container width, and the extra 40px tipped it from its phone layout into the
+   desktop one, which then scales down harder — smallest label went 9.7px to
+   6.6px. Keeping the frame inside the gutters keeps the scene in the layout
+   that was designed for a narrow slot. */
+
+
+/* ── 28 · « Le quotidien » — le diptyque ───────────────────────────────────
+   Section 2's panel used to be a screenshot of the app. It is now a DIAGRAM,
+   split down the middle: the paper world on the left, the software on the
+   right, the same moment played twice.
+
+   Why the change. The screenshots said "here is a screen"; the section's job
+   is to say "here is what your day costs you, and here is what it becomes".
+   A picture of a list cannot make that argument — a comparison can. The real
+   screens still carry §5 and §6, so nothing is lost: §2 argues, §5 proves.
+
+   Why the split is PAPER | INK and not two neutral cards. The argument is
+   literally paper against screen, so the two halves are made of the two
+   materials. Nothing has to label the difference; the surfaces do it.
+
+   ⚠️ Side by side ONLY from 62rem, which is the sticky breakpoint, not a
+   second one. Below it the panel is at most ~350px wide and a half would be
+   ~170px — no diagram with words in it survives that. The two halves stack
+   instead, full width, and read top to bottom with the same labels. Do not
+   introduce an in-between band: at 48–62rem the halves land near 250px, where
+   the supporting rows fall under 10px.
+
+   ⚠️ Transitions, not @keyframes, for everything the reader drives. The panel
+   is scroll-driven and can be scrubbed back and forth; a transition retargets
+   from where it is, a keyframe restarts from zero. Keyframes are used only for
+   the ambient loops — the searching lens, the ringing handset, the séance that
+   drifts off the page — which are meant to restart. */
+
+.jour-shot--jd {
+  padding: 0;
+  background: var(--paper);
+  border-color: var(--rule);
+  align-content: stretch;
+  /* Stacked by default. The two-column form is the >=62rem exception below. */
+  grid-template-rows: 1fr 1fr;
+}
+@media (min-width: 62rem) {
+  .jour-shot--jd { grid-template-rows: none; grid-template-columns: 1fr 1fr; }
+}
+
+/* ── One half ───────────────────────────────────────────────────────────── */
+.jd-half {
+  position: relative;
+  container-type: inline-size;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0.55em;
+  padding: clamp(0.75rem, 0.4rem + 1.1vw, 1.25rem);
+  min-width: 0; min-height: 0;
+  font-size: clamp(0.6875rem, 0.34rem + 2.4cqi, 0.875rem);
+  line-height: 1.35;
+}
+.jd-sans { background: var(--paper); color: var(--text); }
+.jd-avec {
+  color: var(--on-ink);
+  background:
+    radial-gradient(88% 100% at 92% -8%, color-mix(in oklab, var(--zc, var(--accent)) 32%, transparent), transparent 68%),
+    #16283c;
+  /* A hairline of light where the two materials meet, so the seam reads as a
+     join rather than as two boxes that happen to touch. */
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+@media (min-width: 62rem) {
+  .jd-avec { box-shadow: inset 1px 0 0 rgb(255 255 255 / 0.07); }
+}
+
+/* ── The two fixed labels and the two closing lines ─────────────────────── */
+.jd-lab {
+  display: flex; align-items: center; gap: 0.5em;
+  font-size: 0.8em; letter-spacing: 0.1em; text-transform: uppercase;
+  font-weight: 500;
+}
+.jd-lab::before {
+  content: ""; width: 0.5em; height: 0.5em; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+.jd-sans .jd-lab { color: #9a6a3a; }
+.jd-avec .jd-lab { color: var(--zcl, var(--accent-lit)); }
+
+.jd-note {
+  padding-top: 0.55em; border-top: 1px solid var(--rule);
+  font-size: 0.92em;
+}
+.jd-sans .jd-note { color: var(--text-muted); }
+.jd-avec .jd-note { color: var(--on-ink-muted); border-top-color: var(--rule-ink); }
+
+/* ── The drawing area ───────────────────────────────────────────────────── */
+.jd-art {
+  position: relative;               /* it clips its own absolute children */
+  min-height: 0; min-width: 0;
+  display: grid; align-content: center; gap: 0.55em;
+}
+/* Stacked, the halves have no panel height to divide, so the art needs a floor
+   or a two-row diagram collapses to nothing. */
+@media (max-width: 61.99rem) { .jd-art { min-height: 11.5em; } }
+
+/* ── The one entrance every part shares ─────────────────────────────────────
+   `--i` is the element's place in its half's sequence, `--base` the half's own
+   head start. The right half begins after the left has said its piece, which
+   is the order the argument is read in. */
+.jd-in {
+  opacity: 0; transform: translateY(0.6em);
+  transition: opacity 460ms var(--ease-out), transform 460ms var(--ease-out);
+  transition-delay: calc(var(--base, 0ms) + var(--i, 0) * 65ms);
+}
+.jd-sans { --base: 140ms; }
+.jd-avec { --base: 320ms; }
+.jour-item[data-active="true"] .jd-in { opacity: 1; transform: none; }
+
+/* Arrives from above rather than from below: used where something is being
+   FILED — the caisse lines. And from the left where something LEAVES. */
+.jd-drop { opacity: 0; transform: translateY(-0.7em); }
+.jd-fly  { opacity: 0; transform: translateX(-0.9em); }
+.jd-drop, .jd-fly {
+  transition: opacity 500ms var(--ease-out), transform 500ms var(--ease-out);
+  transition-delay: calc(var(--base, 0ms) + var(--i, 0) * 85ms);
+}
+.jour-item[data-active="true"] .jd-drop,
+.jour-item[data-active="true"] .jd-fly { opacity: 1; transform: none; }
+
+/* ── Shared parts ───────────────────────────────────────────────────────── */
+/* A row on the ink side: dot · name · detail · figure. */
+.jd-row {
+  display: flex; align-items: center; gap: 0.55em;
+  padding: 0.45em 0.6em;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.05);
+  border: 1px solid var(--rule-ink);
+  min-width: 0;
+}
+.jd-row > i {
+  width: 0.5em; height: 0.5em; border-radius: 50%; flex: none;
+  background: var(--dc, var(--accent));
+}
+.jd-row > b { font-weight: 500; white-space: nowrap; }
+.jd-row > s {
+  text-decoration: none; color: var(--on-ink-faint); font-size: 0.9em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.jd-row > em {
+  margin-left: auto; font-style: normal; font-variant-numeric: tabular-nums;
+  color: var(--on-ink); white-space: nowrap;
+}
+
+/* A row on the paper side: the same skeleton, drawn in graphite on a rule. */
+.jd-prow {
+  display: flex; align-items: center; gap: 0.55em;
+  padding: 0.4em 0.1em;
+  border-bottom: 1px solid #dcdcd4;
+  min-width: 0;
+}
+.jd-prow > b { font-weight: 500; white-space: nowrap; }
+.jd-prow > em {
+  margin-left: auto; font-style: normal; font-size: 0.9em;
+  color: var(--text-faint); white-space: nowrap;
+}
+.jd-prow > em.no { color: #a2560f; }
+
+/* The tick. Drawn, not faded: a check that appears whole reads as a graphic,
+   one that draws reads as an answer being given. */
+.jd-tick {
+  width: 1.1em; height: 1.1em; border-radius: 50%; flex: none;
+  display: grid; place-items: center;
+  background: color-mix(in oklab, var(--accent) 22%, transparent);
+  position: relative;
+}
+.jd-tick::after {
+  content: ""; width: 0.48em; height: 0.24em;
+  border-left: 1.6px solid var(--accent-lit);
+  border-bottom: 1.6px solid var(--accent-lit);
+  transform: rotate(-45deg) scale(0.4); opacity: 0;
+  transition: transform 320ms var(--ease-out), opacity 200ms var(--ease-out);
+  transition-delay: calc(var(--base, 0ms) + var(--i, 0) * 85ms + 240ms);
+}
+.jour-item[data-active="true"] .jd-tick::after { transform: rotate(-45deg) scale(1); opacity: 1; }
+
+/* ── 1 · La pile de dossiers ────────────────────────────────────────────── */
+.jd-pile { display: block; }
+.jd-tab {
+  position: absolute; left: 50%; top: var(--y);
+  width: 78%;
+  display: grid; gap: 0.05em;
+  padding: 0.4em 0.65em 0.4em 0.9em;
+  background: #fff;
+  border: 1px solid #dcdcd4;
+  border-left: 3px solid #cfcfc7;
+  border-radius: 3px 7px 7px 3px;
+  box-shadow: 0 1px 2px rgb(9 9 11 / 0.07), 0 6px 14px -10px rgb(9 9 11 / 0.3);
+  transform: translate(calc(-50% + var(--x)), 0) rotate(var(--r));
+  transform-origin: 20% 50%;
+  opacity: 0;
+  transition: opacity 420ms var(--ease-out), transform 520ms var(--ease-out);
+  transition-delay: calc(var(--base, 0ms) + var(--i, 0) * 65ms);
+}
+.jour-item[data-active="true"] .jd-tab { opacity: 1; }
+.jd-tab b { font-weight: 500; }
+.jd-tab s { text-decoration: none; font-size: 0.85em; color: #a2560f; }
+/* The one that was pulled out and was not him. It sits proud of the pile and
+   stays there: nothing is ever put back. */
+.jd-tab--out {
+  border-left-color: #d99a4e;
+  background: #fffaf2;
+  z-index: 2;
+  box-shadow: 0 2px 4px rgb(9 9 11 / 0.09), 0 12px 22px -12px rgb(9 9 11 / 0.35);
+}
+.jour-item[data-active="true"] .jd-tab--out {
+  transform: translate(calc(-50% + var(--x) + 13%), 0) rotate(var(--r));
+}
+/* The lens. An ambient loop: it is meant to restart every time the moment is
+   returned to, which is what a keyframe does and a transition does not. */
+.jd-hunt {
+  position: absolute; top: 6%; left: 10%;
+  width: 2.4em; height: 2.4em; border-radius: 50%;
+  border: 1.5px solid #b98a52;
+  opacity: 0;
+  pointer-events: none; z-index: 3;
+}
+.jd-hunt::after {
+  content: ""; position: absolute; right: -0.7em; bottom: -0.5em;
+  width: 0.9em; height: 1.5px; background: #b98a52; transform: rotate(42deg);
+  transform-origin: left center;
+}
+.jour-item[data-active="true"] .jd-hunt {
+  animation: jd-hunt 5.2s var(--ease-in-out) 900ms infinite;
+}
+@keyframes jd-hunt {
+  0%   { opacity: 0;   transform: translate(0, 0) }
+  12%  { opacity: .85; transform: translate(20%, 30%) }
+  32%  { opacity: .85; transform: translate(150%, 130%) }
+  54%  { opacity: .85; transform: translate(30%, 250%) }
+  76%  { opacity: .85; transform: translate(170%, 340%) }
+  92%  { opacity: .55; transform: translate(60%, 400%) }
+  100% { opacity: 0;   transform: translate(40%, 430%) }
+}
+
+/* ── 1b · La recherche ──────────────────────────────────────────────────── */
+.jd-field {
+  display: flex; align-items: center; gap: 0.5em;
+  padding: 0.5em 0.65em;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.07);
+  border: 1px solid var(--rule-ink);
+}
+.jd-field svg { width: 1.05em; height: 1.05em; flex: none; color: var(--on-ink-faint); }
+/* The name is typed, not faded in. A clip travels left to right, so nothing
+   about the box changes size on a frame. */
+.jd-field em {
+  font-style: normal; color: var(--on-ink);
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 560ms steps(5, end);
+  transition-delay: calc(var(--base, 0ms) + 300ms);
+}
+.jour-item[data-active="true"] .jd-field em { clip-path: inset(0 0 0 0); }
+.jd-caret {
+  width: 1.4px; height: 1.05em; background: var(--accent-lit); flex: none;
+  opacity: 0;
+}
+.jour-item[data-active="true"] .jd-caret {
+  animation: jd-caret 1.05s steps(1, end) calc(var(--base, 0ms) + 240ms) infinite;
+}
+@keyframes jd-caret { 0%, 55% { opacity: 1 } 56%, 100% { opacity: 0 } }
+
+.jd-hit {
+  display: grid; gap: 0.05em;
+  padding: 0.5em 0.65em;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--zc, var(--accent)) 20%, transparent);
+  border: 1px solid color-mix(in oklab, var(--zcl, var(--accent-lit)) 38%, transparent);
+}
+.jd-hit b { font-weight: 500; }
+.jd-hit s { text-decoration: none; font-size: 0.88em; color: var(--on-ink-muted); }
+
+.jd-secs { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 0.4em; }
+.jd-secs li {
+  display: flex; align-items: center; gap: 0.45em;
+  padding: 0.4em 0.5em;
+  border-radius: 7px;
+  border: 1px solid var(--rule-ink);
+  background: rgb(255 255 255 / 0.04);
+  color: var(--on-ink-muted);
+  white-space: nowrap; min-width: 0;
+}
+
+/* ── 2 · De mémoire ─────────────────────────────────────────────────────── */
+.jd-ring { display: flex; align-items: center; gap: 0.5em; justify-self: center; }
+.jd-ring svg { width: 1.6em; height: 1.6em; color: #6b6b73; }
+.jd-ring i {
+  width: 0.4em; height: 1em; border-right: 1.5px solid #b98a52;
+  border-radius: 0 60% 60% 0 / 0 50% 50% 0;
+}
+.jour-item[data-active="true"] .jd-ring i { animation: jd-ring 1.7s var(--ease-in-out) infinite; }
+.jour-item[data-active="true"] .jd-ring i:last-child { animation-delay: 170ms; height: 1.6em; }
+@keyframes jd-ring { 0%, 100% { opacity: .18 } 45% { opacity: 1 } }
+
+.jd-bubble {
+  justify-self: center;
+  width: 96%;
+  display: grid; gap: 0.4em; justify-items: center;
+  padding: 0.85em 0.85em 0.9em;
+  background: #fff;
+  border: 1px solid #dcdcd4;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgb(9 9 11 / 0.06);
+  text-align: center;
+}
+.jd-bubble s { text-decoration: none; color: var(--text-muted); }
+/* Each fragment surfaces, then goes. The half-remembered thing is the point,
+   so it is not allowed to settle on screen. */
+.jour-item[data-active="true"] .jd-fade {
+  animation: jd-fade 5.4s var(--ease-in-out) infinite;
+  animation-delay: calc(var(--base, 0ms) + var(--i, 0) * 240ms);
+}
+@keyframes jd-fade {
+  0%, 8%    { opacity: 0 }
+  22%, 46%  { opacity: 1 }
+  70%, 100% { opacity: .14 }
+}
+.jd-q { font-size: 2em; font-weight: 400; line-height: 1; color: #a2560f; }
+.jour-item[data-active="true"] .jd-q { animation: jd-q 5.4s var(--ease-in-out) infinite; }
+@keyframes jd-q { 0%, 52% { opacity: .22 } 76%, 100% { opacity: 1 } }
+
+.jd-phone {
+  justify-self: center;
+  width: min(14em, 92%);
+  display: grid; gap: 0.4em; align-content: start;
+  padding: 0.65em;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.05);
+  border: 1px solid var(--rule-ink);
+}
+.jd-ph-top { display: grid; gap: 0.05em; padding-bottom: 0.4em; border-bottom: 1px solid var(--rule-ink); }
+.jd-ph-top b { font-weight: 500; }
+.jd-ph-top s { text-decoration: none; font-size: 0.85em; color: var(--on-ink-faint); }
+.jd-ph-row { display: grid; grid-template-columns: 0.5em 1fr; gap: 0 0.5em; align-items: center; }
+.jd-ph-row i {
+  grid-row: span 2; width: 0.5em; height: 0.5em; border-radius: 50%;
+  background: var(--dc, var(--accent));
+}
+.jd-ph-row b { font-weight: 500; }
+.jd-ph-row s { text-decoration: none; font-size: 0.88em; color: var(--on-ink-muted); }
+
+/* ── 3 · L'odontogramme ─────────────────────────────────────────────────── */
+.jd-teeth { display: flex; gap: 0.28em; justify-content: center; }
+.jd-th {
+  position: relative;
+  width: 1.4em; height: 1.7em; flex: none;
+  border-radius: 45% 45% 34% 34% / 52% 52% 48% 48%;
+}
+.jd-sans .jd-th { background: #fff; border: 1px solid #cfcfc7; }
+.jd-avec .jd-th { background: rgb(255 255 255 / 0.09); border: 1px solid var(--rule-ink); }
+/* A tooth that carries an act takes that act's colour. */
+.jd-avec .jd-th--on {
+  border-color: color-mix(in oklab, var(--dc, var(--accent)) 65%, transparent);
+  background: color-mix(in oklab, var(--dc, var(--accent)) 42%, transparent);
+  opacity: 0; transform: translateY(0.3em);
+  transition: opacity 420ms var(--ease-out), transform 420ms var(--ease-out);
+  transition-delay: calc(var(--base, 0ms) + var(--i, 0) * 85ms);
+}
+.jour-item[data-active="true"] .jd-avec .jd-th--on { opacity: 1; transform: none; }
+
+/* The marks that pile up on the paper chart: circles, crosses and a date
+   scratched out. Three passes over the same eight teeth is what stops a paper
+   chart being readable, so they are drawn ON TOP of each other on purpose. */
+.jd-marks { position: absolute; inset: 0; pointer-events: none; }
+.jd-mk {
+  position: absolute; left: var(--x); top: var(--y);
+  opacity: 0;
+  transition: opacity 380ms var(--ease-out);
+  transition-delay: calc(var(--base, 0ms) + var(--i, 0) * 110ms);
+}
+.jour-item[data-active="true"] .jd-mk { opacity: 1; }
+.jd-mk--o {
+  width: 1.7em; height: 2em; border: 1.6px solid var(--mc, #6b6b73);
+  border-radius: 50%; transform: rotate(var(--r, 0deg));
+}
+.jd-mk--x { width: 1.4em; height: 1.4em; }
+.jd-mk--x::before, .jd-mk--x::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1.6px;
+  background: var(--mc, #6b6b73);
+}
+.jd-mk--x::before { transform: rotate(38deg) }
+.jd-mk--x::after  { transform: rotate(-38deg) }
+.jd-mk--d {
+  font-size: 0.8em; color: #6b6b73; white-space: nowrap;
+  transform: rotate(var(--r, -7deg));
+}
+.jd-mk--d.out { text-decoration: line-through; color: #9a6a3a; }
+
+.jd-hist { list-style: none; display: grid; gap: 0.35em; }
+.jd-hist li {
+  display: flex; align-items: center; gap: 0.5em;
+  padding: 0.35em 0.55em; border-radius: 7px;
+  background: rgb(255 255 255 / 0.05); border: 1px solid var(--rule-ink);
+  min-width: 0;
+}
+.jd-hist i { width: 0.5em; height: 0.5em; border-radius: 50%; background: var(--dc); flex: none; }
+.jd-hist b { font-weight: 500; font-variant-numeric: tabular-nums; }
+.jd-hist s {
+  text-decoration: none; color: var(--on-ink-muted); font-size: 0.9em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.jd-hist em {
+  margin-left: auto; font-style: normal; font-size: 0.88em;
+  color: var(--on-ink-faint); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* ── 4 · Le cahier et la caisse ─────────────────────────────────────────── */
+.jd-cahier { align-content: start; gap: 0; }
+.jd-ru {
+  display: flex; align-items: baseline; gap: 0.5em;
+  padding-bottom: 0.4em; margin-bottom: 0.2em;
+  border-bottom: 1.5px solid #cfcfc7;
+}
+.jd-ru b { font-weight: 500; }
+.jd-ru s { text-decoration: none; margin-left: auto; font-size: 0.88em; color: var(--text-faint); }
+/* The gaps are the argument, so they are drawn rather than left empty: a ruled
+   line with nothing written on it. */
+.jd-blank {
+  display: inline-block; width: 3.2em; height: 1px;
+  background: repeating-linear-gradient(90deg, #c6c6bd 0 4px, transparent 4px 8px);
+  vertical-align: middle;
+}
+.jd-tot {
+  display: flex; align-items: baseline; gap: 0.5em;
+  margin-top: 0.45em; padding-top: 0.4em;
+  border-top: 1.5px solid #cfcfc7;
+}
+.jd-tot s { text-decoration: none; font-weight: 500; }
+.jd-tot em {
+  margin-left: auto; font-style: normal; font-size: 1.2em;
+  color: #a2560f; font-variant-numeric: tabular-nums;
+}
+
+.jd-ln { list-style: none; display: grid; gap: 0.35em; }
+.jd-sum {
+  display: grid; gap: 0.05em;
+  margin-top: 0.15em; padding: 0.55em 0.65em;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent-lit) 34%, transparent);
+}
+.jd-sum s { text-decoration: none; font-size: 0.86em; color: var(--on-ink-muted); }
+.jd-sum b {
+  font-size: 1.3em; font-weight: 500; letter-spacing: -0.01em;
+  color: var(--accent-lit); font-variant-numeric: tabular-nums;
+  /* Uncovered rather than faded: the figure arrives, it does not materialise. */
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 640ms var(--ease-out);
+  transition-delay: calc(var(--base, 0ms) + var(--i, 0) * 85ms + 180ms);
+}
+.jour-item[data-active="true"] .jd-sum b { clip-path: inset(0 0 0 0); }
+
+/* ── 5 · Les appels et les rappels ──────────────────────────────────────── */
+.jd-hand { display: flex; align-items: center; gap: 0.5em; }
+.jd-hand svg { width: 1.15em; height: 1.15em; color: #6b6b73; flex: none; }
+.jd-hand b { font-weight: 500; }
+.jd-hand s { text-decoration: none; margin-left: auto; font-size: 0.88em; color: var(--text-faint); }
+
+.jd-list { list-style: none; display: grid; }
+.jd-hdr { display: flex; align-items: baseline; gap: 0.5em; }
+.jd-hdr b { font-weight: 500; }
+.jd-hdr s { text-decoration: none; margin-left: auto; font-size: 0.88em; color: var(--on-ink-faint); }
+
+.jd-all {
+  justify-self: start;
+  display: inline-flex; align-items: center; gap: 0.45em;
+  margin-top: 0.1em; padding: 0.35em 0.7em;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
+  color: var(--accent-lit);
+  border: 1px solid color-mix(in oklab, var(--accent-lit) 34%, transparent);
+}
+
+/* ── 6 · Ce qui se perd, et ce qui est tenu ─────────────────────────────── */
+/* The séance nobody wrote up does not stay on the page to be noticed. It
+   drifts off the top and is gone, which is the whole of the problem. */
+.jd-gap { color: var(--text-faint); }
+.jd-gap em { color: #a2560f; }
+.jour-item[data-active="true"] .jd-gap {
+  animation: jd-lost 5.6s var(--ease-in-out) infinite;
+  animation-delay: calc(var(--base, 0ms) + 1000ms);
+}
+@keyframes jd-lost {
+  0%, 26%   { opacity: 1; transform: none }
+  54%, 100% { opacity: 0; transform: translateY(-1.1em) }
+}
+.jd-vanish { font-size: 0.9em; color: var(--text-faint); }
+
+.jd-cl {
+  display: grid; gap: 0.05em;
+  padding: 0.5em 0.65em; border-radius: 9px;
+  background: color-mix(in oklab, var(--zc, var(--accent)) 20%, transparent);
+  border: 1px solid color-mix(in oklab, var(--zcl, var(--accent-lit)) 36%, transparent);
+}
+.jd-cl b { font-weight: 500; }
+.jd-cl s { text-decoration: none; font-size: 0.88em; color: var(--on-ink-muted); }
+
+.jd-qs { list-style: none; display: grid; gap: 0.35em; }
+.jd-qs li {
+  display: flex; align-items: center; gap: 0.5em;
+  padding: 0.4em 0.55em; border-radius: 7px;
+  border: 1px solid var(--rule-ink);
+  background: rgb(255 255 255 / 0.04);
+  color: var(--on-ink-muted);
+}
+/* ⚠️ ONE question is live and the other two are settled. That is not a drawing
+   choice: `VisitClosureState.NextStep` yields a single next step — presence,
+   then fiche, then money — precisely so a visit that ended an hour ago does not
+   show three red badges. Drawing three live questions here would picture a
+   product that does not exist. */
+.jd-qs .jd-now {
+  color: var(--on-ink);
+  border-color: color-mix(in oklab, var(--accent-lit) 40%, transparent);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+}
+.jd-dot {
+  width: 1.1em; height: 1.1em; border-radius: 50%; flex: none;
+  border: 1.6px solid var(--accent-lit);
+}
+.jour-item[data-active="true"] .jd-dot { animation: jd-pulse 2.4s var(--ease-in-out) infinite; }
+@keyframes jd-pulse { 0%, 100% { opacity: .4 } 50% { opacity: 1 } }
+
+/* ── Below 62rem: one half at a time ──────────────────────────────────────
+   ⚠️ The two halves were STACKED here and it was wrong. It made the panel
+   1 082px tall at 390, so the paper world and the software world were never on
+   screen together — which is the only thing a diptych is for — and it halved
+   the width each diagram had to say anything in. They now share one cell and
+   cross-fade, named by a switch. Do not stack them again. */
+@media (max-width: 61.99rem) {
+  .jour-shot--jd {
+    aspect-ratio: auto;
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    background: var(--paper);
+  }
+  /* Both halves in the SAME cell, so the box is the taller of the two and
+     nothing jumps when it flips. */
+  .jd-half { grid-area: 2 / 1; }
+  /* The switch already names both sides; the in-panel labels would say it
+     twice, and one of the two would be naming a half that is not on screen. */
+  .jd-half .jd-lab { display: none; }
+
+  /* Blur masks the cross-fade. Without it you see two panels overlapping
+     rather than one panel becoming the other — and here the two are different
+     colours, so the overlap is especially loud. Kept well under 20px. */
+  .jd-half {
+    transition: opacity 320ms var(--ease-out), filter 320ms var(--ease-out);
+  }
+  .jour-shot--jd[data-flip="0"] .jd-avec,
+  .jour-shot--jd[data-flip="1"] .jd-sans {
+    opacity: 0; filter: blur(7px); pointer-events: none;
+  }
+}
+
+/* ── The switch ───────────────────────────────────────────────────────────
+   Two real buttons, 44px of target each, and it is the panel's own header
+   rather than a control floating beside it. */
+.jd-switch { display: none; }
+@media (max-width: 61.99rem) {
+  .jd-switch {
+    display: grid; grid-template-columns: 1fr 1fr;
+    grid-area: 1 / 1;
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper-2);
+  }
+  .jd-switch button {
+    font: inherit; font-size: var(--t-eyebrow); font-weight: 500;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    min-height: 2.75rem; padding: 0.5rem 0.5rem;
+    border: 0; background: none; cursor: pointer;
+    color: var(--text-faint);
+    position: relative;
+    transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+  }
+  .jd-switch button::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+    background: currentColor; transform: scaleX(0);
+    transition: transform 320ms var(--ease-out);
+  }
+  .jd-switch button[aria-pressed="true"] { color: var(--text); background: var(--paper); }
+  .jd-switch button[aria-pressed="true"]::after { transform: none; }
+  .jd-switch button:active { transform: scale(0.97); }
+  /* The second tab is the answer, so when it is the one showing the whole
+     header takes the software's ground and the flip reads as a change of
+     world rather than as a tab. */
+  .jour-shot--jd[data-flip="1"] .jd-switch { background: #10202f; border-bottom-color: var(--rule-ink); }
+  .jour-shot--jd[data-flip="1"] .jd-switch button { color: var(--on-ink-faint); }
+  .jour-shot--jd[data-flip="1"] .jd-switch button[aria-pressed="true"] { color: var(--on-ink); background: #16283c; }
+}
+
+/* ── 28b · The two chart bodies and the leftovers ─────────────────────────
+   `.jd-chart-p` exists so the marks position against the TEETH and not against
+   the drawing area: the art box is centred, so a percentage measured on it
+   moves the marks every time the panel changes height, and the circles would
+   drift off the teeth they are supposed to be scrawled over. */
+.jd-chart-p { position: relative; display: grid; gap: 0.5em; justify-items: center; }
+
+/* ⚠️ Several parts of these diagrams are <i>, chosen because they carry no
+   meaning and must stay out of the accessibility tree — but <i> is italic by
+   default, and the folder tabs and the scrawled dates came out slanted. */
+.jd-art i, .jd-art i s, .jd-art i b { font-style: normal; }
+
+/* The pile needs more room than the other five diagrams: five tabs spread over
+   71% of the box, and the last one still has to have its own height below it. */
+@media (max-width: 61.99rem) { .jd-pile { min-height: 14.5em; } }
+
+/* The blank rule sits inside the row's figure slot, which is `em`-styled. */
+.jd-prow > em > .jd-blank { margin-bottom: 0.15em; }
+
+/* `.jd-cahier` runs at gap 0 so its rules touch. The closing line is not a
+   rule, so it buys its own space back. */
+.jd-cahier .jd-vanish { margin-top: 0.6em; }
+.jd-cahier .jd-ru s { margin-left: auto; }
+
+/* ── 28c · Built for the panel it actually gets ───────────────────────────
+   Measured: at 1440 the panel is 928 x 603 and each half 463 x 601, leaving
+   423 x 505 of drawing area. The first pass sized these diagrams at roughly a
+   third of that and they floated in a void with the note stranded at the
+   bottom. Everything below is the correction: a bigger base size, more rows,
+   and elements that occupy the box instead of sitting in the middle of it. */
+
+.jd-half { font-size: clamp(0.75rem, 0.28rem + 3.4cqi, 1.125rem); }
+
+/* ── 1 · The pile ──────────────────────────────────────────────────────── */
+.jd-tab { width: var(--w, 76%); padding: 0.55em 0.8em 0.55em 1em; }
+.jd-tab u { text-decoration: none; font-size: 0.8em; color: var(--text-faint); }
+.jd-tab s { font-size: 0.82em; }
+
+.jd-secs li { display: grid; grid-template-columns: 1.15em 1fr; gap: 0 0.5em; padding: 0.6em 0.7em; }
+.jd-secs li > .jd-tick { grid-row: span 2; align-self: center; }
+.jd-secs li b { font-weight: 500; color: var(--on-ink); }
+.jd-secs li u { text-decoration: none; font-size: 0.8em; color: var(--on-ink-faint); }
+
+.jd-last {
+  display: grid; gap: 0.05em;
+  padding: 0.55em 0.7em; border-radius: 8px;
+  border: 1px solid var(--rule-ink); background: rgb(255 255 255 / 0.04);
+}
+.jd-last s { text-decoration: none; font-size: 0.8em; color: var(--on-ink-faint); }
+.jd-last b { font-weight: 500; }
+
+/* ── 2 · Memory, and the phone ─────────────────────────────────────────── */
+.jd-mem { align-content: center; gap: 1.4em; }
+.jd-ring b { font-weight: 500; margin-left: 0.3em; }
+.jd-ring svg { width: 1.5em; height: 1.5em; }
+.jd-bubble { padding: 1.4em 1.2em 1.5em; gap: 0.7em; }
+/* ⚠️ The resting opacity is 0.45, not 0.14. At 0.14 the paper half read as
+   EMPTY for two thirds of every loop — the fragments are meant to look
+   half-remembered, not deleted. */
+@keyframes jd-fade {
+  0%, 8%    { opacity: .28 }
+  22%, 46%  { opacity: 1 }
+  72%, 100% { opacity: .45 }
+}
+.jd-q { font-size: 2.6em; }
+
+/* A phone, not a card. The bezel is what makes the right half of this moment
+   say « dans votre poche » without a word of caption. */
+.jd-phone {
+  width: min(16em, 86%);
+  padding: 0.5em;
+  border-radius: 2em;
+  background: #0a1420;
+  border: 1px solid var(--rule-ink);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.3), 0 30px 60px -30px rgb(0 0 0 / 0.7);
+  position: relative;
+}
+.jd-ph-notch {
+  position: absolute; top: 0.5em; left: 50%; transform: translateX(-50%);
+  width: 3.4em; height: 0.42em; border-radius: 999px;
+  background: #0a1420; z-index: 2;
+}
+.jd-ph-screen {
+  display: grid; gap: 0.5em;
+  padding: 1.1em 0.75em 0.9em;
+  border-radius: 1.6em;
+  background: #16283c;
+}
+.jd-ph-top { padding-bottom: 0.5em; }
+.jd-ph-row { padding: 0.15em 0; }
+
+/* ── 3 · The two charts ────────────────────────────────────────────────── */
+.jd-th { width: 2.4em; height: 2.9em; }
+.jd-teeth { gap: 0.26em; }
+
+.jd-th[data-n]::after {
+  content: attr(data-n);
+  position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  margin-top: 0.28em;
+  font-size: 0.62em; color: var(--on-ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.jd-chart-p { gap: 0.7em; }
+/* The scrawled notes under the paper chart. Positioned in flow, unlike the
+   marks, because they are lines of writing rather than annotations on a tooth. */
+.jd-scrawl { display: grid; gap: 0.55em; justify-items: start; padding-left: 0.4em; }
+.jd-scrawl .jd-mk { position: static; }
+
+/* ── 4/5/6 · Rows ──────────────────────────────────────────────────────── */
+.jd-prow { padding: 0.55em 0.15em; }
+.jd-row { padding: 0.55em 0.7em; }
+.jd-ru { padding-bottom: 0.55em; }
+.jd-tot { margin-top: 0.7em; padding-top: 0.55em; }
+.jd-qs li { display: grid; grid-template-columns: 1.15em 1fr; gap: 0 0.55em; padding: 0.6em 0.7em; }
+.jd-qs li > .jd-tick, .jd-qs li > .jd-dot { grid-row: span 2; align-self: center; }
+.jd-qs li b { font-weight: 500; }
+.jd-qs li u { text-decoration: none; font-size: 0.82em; color: var(--on-ink-faint); }
+.jd-all { padding: 0.5em 0.85em; }
+
+/* ── The art fills its box ─────────────────────────────────────────────────
+   `space-between` rather than `center`: these diagrams now have enough in them
+   that spreading them reads as a composition, where centring them left a band
+   of nothing above and below. `.jd-mem` and the pile keep their own rules. */
+.jd-art { align-content: space-between; gap: 0.6em; }
+.jd-mem, .jd-art:has(> .jd-phone) { align-content: center; }
+
+/* ── 28d · Five defects found by reading the rendered panels ──────────── */
+
+/* ⚠️ A guard, not a layout. The art sits in a `minmax(0, 1fr)` row, so
+   content taller than the box does not push the note down — it paints straight
+   over it, which is exactly what moment 4's cahier did. Clipping makes that
+   failure visible as a cut instead of as overlapping text. */
+.jd-art { overflow: hidden; }
+
+/* ⚠️ `.jd-row > i` is (0,2,0) and `.jd-tick` is (0,1,0), so every tick inside
+   a row lost its size, its ground and its check and rendered as a bare dot.
+   All six rappels in moment 5 were plain circles. */
+.jd-row > i.jd-tick {
+  width: 1.1em; height: 1.1em;
+  background: color-mix(in oklab, var(--accent) 22%, transparent);
+}
+
+/* The scrawl has to out-weigh the chart it is scrawled on. Teeth drop to a
+   hairline; the marks gain a stroke and a real graphite. */
+.jd-sans .jd-th { border-color: #e2e2d8; }
+.jd-mk--o { border-width: 2px; }
+.jd-mk--x::before, .jd-mk--x::after { height: 2px; }
+.jd-mk { --mc: #3f3f46; }
+
+/* The dossier that is not with you. It is dashed and greyed because it is the
+   one thing in the frame that is NOT there. */
+.jd-away {
+  justify-self: center; width: 96%;
+  display: flex; align-items: baseline; gap: 0.5em;
+  padding: 0.7em 0.9em;
+  border: 1px dashed #cfcfc7; border-radius: 10px;
+  color: var(--text-faint);
+}
+.jd-away b { font-weight: 500; }
+.jd-away s { text-decoration: none; margin-left: auto; font-size: 0.88em; }
+.jd-mem { gap: 1.1em; }
+
+/* ⚠️ The lost séance must not take its rule with it. Fading the whole row
+   removed the ruled line too, and the register was left with a blank band that
+   reads as a rendering fault. Only the writing goes; the empty line stays, and
+   turns dashed — which is what an unfilled line in a paper register looks like. */
+.jd-gap { border-bottom-style: dashed; }
+.jour-item[data-active="true"] .jd-gap { animation: none; }
+.jour-item[data-active="true"] .jd-gap > b,
+.jour-item[data-active="true"] .jd-gap > em {
+  animation: jd-lost 5.6s var(--ease-in-out) infinite;
+  animation-delay: calc(var(--base, 0ms) + 1000ms);
+}
+
+.jd-tot em { font-size: 1.45em; }
+
+/* ── 28e · Two things the phone found ────────────────────────
+   Both only exist below 62rem, where the halves stack and get the FULL panel
+   width instead of half of it. */
+
+/* The pile is positioned in percentages of its own box, so a box that is too
+   short does not squash it — `overflow: hidden` cuts the last folder in half.
+   Measured at 390: the sixth tab needed 291px and had 257. */
+@media (max-width: 61.99rem) { .jd-pile { min-height: 17em; } }
+
+/* Two tiles across a 289px half puts « Paiements » 6px past its own border at
+   the base size the stacked halves run at. One column, and the words fit. */
+@media (max-width: 61.99rem) { .jd-secs { grid-template-columns: 1fr; } }
+
+/* ── 28f · The chart has to be fluid, not eight fixed teeth ───────────
+   ⚠️ Eight teeth at a fixed 2.4em in a nowrap flex row is 373px of MIN-content.
+   A `1fr` grid column is `minmax(auto, 1fr)`, so that min-content wins and the
+   whole half blows out — measured 74px past its own padding at 390, taking the
+   heading, the marks and the history list with it. Eight equal fractions of the
+   row, capped at the size they want, and the chart fits any width it is given. */
+.jd-teeth {
+  display: grid; grid-template-columns: repeat(16, minmax(0, 1fr));
+  gap: 0.22em; justify-items: center; width: 100%;
+  /* ⚠️ SIXTEEN, one arch. Eight wrapped each arch onto two lines and the
+     chart came out as four rows of a quadrant each — which is not how anyone
+     reads an odontogramme, and put 18–11 above 21–28 instead of beside it. */
+  padding-bottom: 1.2em;   /* the tooth numbers hang below; without this they
+                              land on the arch underneath */
+}
+.jd-th { width: 100%; max-width: 2.4em; height: auto; aspect-ratio: 24 / 29; }
+.jd-chart-p { width: 100%; }
+
+/* The same guard one level up, so a future fixed-width child cannot do it
+   again: a grid column that may not exceed its share. */
+.jd-half { grid-template-columns: minmax(0, 1fr); }
+
+/* The printed form has its numbers too, but faintly: on the paper side the
+   pen marks are the story and the numbering is just the form underneath. */
+.jd-sans .jd-th[data-n]::after { color: #b6b6ab; }
+
+/* ── 29 · The strip's control ───────────────────────────────
+   A numbered rail and two arrows. The rail is not decoration: it is the only
+   thing that says how many moments there are, which is what a reader needs
+   before deciding to go through them. */
+.jour-ctl {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1.5rem;
+  margin-top: clamp(1.5rem, 1rem + 2vw, 2.25rem);
+}
+
+.jour-dots { display: flex; gap: clamp(0.25rem, 1.4vw, 0.75rem); list-style: none; padding: 0; margin: 0; }
+.jour-dots button {
+  position: relative;
+  font: inherit; font-size: var(--t-eyebrow); font-variant-numeric: tabular-nums;
+  border: 0; background: none; cursor: pointer;
+  /* 44px of target on a coarse pointer, and the underline is what is seen */
+  min-width: 2.75rem; min-height: 2.75rem;
+  padding: 0 0.25rem;
+  color: var(--text-faint);
+  transition: color var(--fast) var(--ease);
+}
+.jour-dots button b { font-weight: 500; }
+.jour-dots button::after {
+  content: ""; position: absolute; left: 0.25rem; right: 0.25rem; bottom: 0.7rem;
+  height: 2px; background: var(--rule);
+}
+.jour-dots button::before {
+  content: ""; position: absolute; left: 0.25rem; right: 0.25rem; bottom: 0.7rem;
+  height: 2px; background: var(--accent-ink); z-index: 1;
+  transform: scaleX(0); transform-origin: left;
+  transition: transform 380ms var(--ease-out);
+}
+.jour-dots button[aria-current="true"] { color: var(--text); }
+.jour-dots button[aria-current="true"]::before { transform: none; }
+@media (hover: hover) and (pointer: fine) {
+  .jour-dots button:hover { color: var(--text); }
+}
+.jour-dots button:active { transform: scale(0.94); }
+
+/* ── The arrows flank the strip ───────────────────────────────────────────
+   ⚠️ They used to sit at the bottom of the section beside the rail, where
+   they were below the fold with it — the strip looked like a single static
+   panel because nothing on screen said it moved. They now overlap the panel's
+   two edges, which is where a reader looks for them. */
+.jour-stage { position: relative; }
+.jour-arrows { position: absolute; inset: 0; pointer-events: none; display: flex;
+               align-items: center; justify-content: space-between; }
+.jour-arrows .jour-arrow { pointer-events: auto; }
+/* ⚠️ The arrows flank the PANEL, not the slide. Spanning the whole stage put
+   the left one straight over the paragraph in the copy column — the words were
+   under the button. The offset is the copy column plus the card's gap, i.e.
+   exactly where the panel starts, and both sit inside its edges so neither can
+   be clipped by a narrow viewport. */
+@media (min-width: 62rem) {
+  .jour-arrows {
+    left: calc(21rem + clamp(1.75rem, 0.6rem + 3vw, 3.25rem) + 0.75rem);
+    right: 0.75rem;
+  }
+}
+@media (max-width: 61.99rem) {
+  /* No room to flank a 335px panel without covering it, so on a phone they go
+     back under it, right-aligned. In the FLOW rather than offset out of it:
+     an absolute `bottom: -3.5rem` measured against a stage taller than the
+     panel dropped them 109px clear of it, floating in the gap. */
+  .jour-arrows { position: static; justify-content: flex-end; gap: 0.5rem; margin-top: 0.875rem; }
+  .jour-ctl { margin-top: 0; }
+}
+.jour-arrow {
+  display: grid; place-items: center;
+  width: 2.75rem; height: 2.75rem; flex: none;
+  border: 1px solid var(--rule); border-radius: 50%;
+  background: var(--page); color: var(--text);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease),
+              transform var(--press) var(--ease-out), opacity var(--fast) var(--ease);
+}
+.jour-arrow svg { width: 1.25rem; height: 1.25rem; }
+@media (hover: hover) and (pointer: fine) {
+  .jour-arrow:hover:not(:disabled) { background: var(--paper); border-color: var(--rule-soft); }
+}
+.jour-arrow:active { transform: scale(0.94); }
+.jour-arrow:disabled { opacity: 0.35; cursor: default; }
+
+/* ⚠️ With the script blocked the strip still scrolls — it is a native
+   scroller — but the rail and the arrows would be dead controls on screen, and
+   a control that does nothing is worse than no control. `data-slider` is
+   stamped by the driver, so they exist only once something can drive them. */
+.jour:not([data-slider]) .jour-ctl { display: none; }
+
+/* The chart is eight teeth an arch and carries no numbers: a full 16-tooth
+   FDI form was tried and 32 numbered ovals read as a clinical document rather
+   than as a diagram of the problem. */
+.jd-teeth { grid-template-columns: repeat(8, minmax(0, 1fr)); padding-bottom: 0; }
+
+/* ── 30 · The phone ─────────────────────────────────────
+
+   ⚠️ Six 44px number buttons + two 44px arrows + their gaps is 410px of
+   control, and a 390px phone has 335px of content width — measured 59px of
+   horizontal PAGE overflow, the one thing a page may never have. The rail goes
+   and the arrows stay: every slide already prints « 01 / 06 » in its own copy,
+   so the position is still on screen, and no target drops below 44px. */
+@media (max-width: 47.99rem) {
+  .jour-dots { display: none; }
+  .jour-ctl { justify-content: flex-end; }
+}
+
+/* Every slide is as tall as the TALLEST slide — they are columns of one grid —
+   so one heavy diagram is paid for six times. Stacked, these rows go.
+   ⚠️ Never mark a row the diagram counts: hiding two of six rappels under a
+   header that reads « 6 rendez-vous » makes the picture contradict itself. */
+@media (max-width: 61.99rem) {
+  .jd-x { display: none; }
+  .jd-art { min-height: 9.5em; }
+}
+
+/* ── 30b · Both halves on one phone screen ────────────────────────
+   Stacked, the comparison only works if the paper half and the software half
+   are in view together. Measured at 390 they were 541px each — 1 082px of
+   panel, so the reader saw one world at a time and the diptych stopped being
+   a diptych. The base size comes down to 16px below 62rem, which shrinks
+   every diagram about a tenth and takes the section tiles back to two across
+   (« Paiements » was 6px too wide at 17.75px, which is what forced one
+   column and cost 120px of height on its own). */
+@media (max-width: 61.99rem) {
+  .jd-half {
+    font-size: clamp(0.75rem, 0.3rem + 3.1cqi, 1rem);
+    padding: 0.85rem;
+    gap: 0.45em;
+  }
+  .jd-secs { grid-template-columns: 1fr 1fr; }
+  .jd-secs li { padding: 0.5em 0.45em; }
+  .jd-art  { min-height: 8em; }
+  .jd-pile { min-height: 15em; }
+  .jd-note { font-size: 0.86em; padding-top: 0.45em; }
+}
+
+/* One half now has the whole width, so the diagrams get their size back: the
+   compaction below 62rem existed only to survive two halves of 167px. */
+@media (max-width: 61.99rem) {
+  .jd-half { font-size: clamp(0.8125rem, 0.3rem + 3.3cqi, 1.0625rem); padding: 1rem; }
+  .jd-art  { min-height: 13em; }
+  /* The tabs are placed in percentages of this box, so its height IS their
+     spacing: at 17em the five steps were 55px against a 46px tab and the
+     sub-lines were clipped by the folder below. */
+  .jd-pile { min-height: 19em; }
+}
+/* `.jd-x` marks the rows that carry least. With one half on screen there is
+   room for them again down to the smallest phone, where there is not. */
+@media (max-width: 47.99rem) { .jd-x { display: none; } }
+@media (min-width: 48rem) and (max-width: 61.99rem) { .jd-x { display: revert; } }
+
+/* ⚠️ The three rows of a half are ASSIGNED, not auto-placed. `.jd-lab` is
+   `display: none` below 62rem, and a display:none child is removed from grid
+   layout entirely — so auto-placement slid the art into row 1 (`auto`) and the
+   note into row 2 (`1fr`). The drawing then took only its content height and
+   the closing line inherited every spare pixel: on the phone, moment 3's paper
+   half sat 170px above the bottom of its own panel with nothing under it. */
+.jd-half > .jd-lab  { grid-row: 1; }
+.jd-half > .jd-art  { grid-row: 2; }
+.jd-half > .jd-note { grid-row: 3; }
+
+/* The rappel rows carry a tick, a name, an hour and a channel. On a 335px
+   panel the hour is the one that loses — measured, « 08:45 » rendered as
+   « 0… », which reads as a fault rather than as a truncation. It goes; the
+   name and the channel are what the moment is about. */
+@media (max-width: 47.99rem) { .jd-ln .jd-row > s { display: none; } }
+
+/* ── 31 · It moves on its own ──────────────────────────────────────────────
+   ⚠️ The fill on the current number is not decoration. A carousel that jumps
+   without warning reads as the page doing something to you; a number that
+   fills for five seconds and then moves reads as a thing keeping time. If the
+   autoplay is ever removed, remove this with it — a progress bar that fills
+   towards nothing is worse than none. */
+@keyframes jour-fill { from { transform: scaleX(0) } to { transform: scaleX(1) } }
+
+.jour[data-auto="on"] .jour-dots button[aria-current="true"]::before {
+  animation: jour-fill var(--auto, 5.5s) linear forwards;
+}
+.jour[data-auto="paused"] .jour-dots button[aria-current="true"]::before {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .jour[data-auto] .jour-dots button[aria-current="true"]::before { animation: none; }
+}
+
+/* Shorter, so the slide and its rail are on screen together: measured at
+   1440x900 the two did not both fit, and the rail is the only thing that says
+   how many moments there are. */
+@media (min-width: 62rem) {
+  .jd-half { font-size: clamp(0.6875rem, 0.3rem + 3.2cqi, 1.0625rem); }
+  .jd-row, .jd-prow { padding-block: 0.45em; }
+  .jd-secs li { padding: 0.5em 0.65em; }
+  .jd-half { padding: 1rem; gap: 0.45em; }
+}
+.jour-ctl { margin-top: clamp(1.25rem, 0.9rem + 1.4vw, 1.75rem); }
+
+/* ⚠️ Stacked, the panel has to absorb the slack too. Every slide is as tall
+   as the tallest, and block 19's `align-content: start` left the short ones
+   with the panel at the top and up to 99px of nothing under it — which put the
+   arrows adrift in the gap instead of under the panel they steer. */
+@media (max-width: 61.99rem) {
+  .jour-item { grid-template-rows: auto minmax(0, 1fr); align-content: stretch; }
+}

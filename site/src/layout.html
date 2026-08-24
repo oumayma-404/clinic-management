@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{TITLE}}</title>
+<meta name="description" content="{{DESC}}">
+<meta name="theme-color" content="#0e1b2a">
+<link rel="canonical" href="{{BASE}}{{PATH}}">
+
+<meta property="og:type" content="website">
+<meta property="og:locale" content="fr_TN">
+<meta property="og:site_name" content="Gestion Clinique">
+<meta property="og:title" content="{{TITLE}}">
+<meta property="og:description" content="{{DESC}}">
+<meta property="og:url" content="{{BASE}}{{PATH}}">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="{{ROOT}}assets/site.css">
+</head>
+<body class="{{BODYCLASS}}">
+
+<a class="skip" href="#main">Aller au contenu</a>
+<div id="top-sentinel" aria-hidden="true" style="position:absolute;top:0;height:1px;width:1px"></div>
+
+{{NAV}}
+
+<main id="main">
+{{BODY}}
+</main>
+
+{{FOOTER}}
+
+<script src="{{ROOT}}assets/site.js" defer></script>
+</body>
+</html>

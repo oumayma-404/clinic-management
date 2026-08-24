@@ -1,0 +1,93 @@
+<header class="topbar {{BARCLASS}}">
+  <div class="wrap topbar-in">
+
+    <a class="brand" href="{{ROOT}}">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 3.5c-2.5 0-4 2-4 4.8 0 3 1 5.5 2 8 .6 1.6 1.2 3.2 2.3 3.2 1.2 0 1.3-1.6 1.6-3.2.3-1.5.6-2.6 2.1-2.6s1.8 1.1 2.1 2.6c.3 1.6.4 3.2 1.6 3.2 1.1 0 1.7-1.6 2.3-3.2 1-2.5 2-5 2-8 0-2.8-1.5-4.8-4-4.8-1.6 0-2.7.8-4 .8s-2.4-.8-4-.8Z"/>
+        </svg>
+      </span>
+      Gestion Clinique
+    </a>
+
+    <nav class="nav" aria-label="Principal">
+      <div class="has-menu">
+        <button type="button" aria-expanded="false" aria-haspopup="true" data-nav="features">
+          Fonctionnalités
+          <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="menu" role="menu">
+          <a role="menuitem" href="{{ROOT}}fonctionnalites/quotidien.html" style="--zc: var(--azure)">
+            <span class="mi-dot" aria-hidden="true"></span>
+            <span><span class="mi-name">Quotidien</span><span class="mi-desc">Agenda, patients, séances à clôturer, rappels SMS et WhatsApp.</span></span>
+          </a>
+          <a role="menuitem" href="{{ROOT}}fonctionnalites/clinique.html" style="--zc: var(--violet)">
+            <span class="mi-dot" aria-hidden="true"></span>
+            <span><span class="mi-name">Clinique</span><span class="mi-desc">Odontogramme, fiches de soins, plans de traitement, laboratoire, radios.</span></span>
+          </a>
+          <a role="menuitem" href="{{ROOT}}fonctionnalites/finances.html" style="--zc: var(--amber)">
+            <span class="mi-dot" aria-hidden="true"></span>
+            <span><span class="mi-name">Finances</span><span class="mi-desc">Notes d'honoraires, caisse, chèques par échéance, créances.</span></span>
+          </a>
+          <a role="menuitem" href="{{ROOT}}fonctionnalites/gestion.html" style="--zc: var(--green)">
+            <span class="mi-dot" aria-hidden="true"></span>
+            <span><span class="mi-name">Gestion</span><span class="mi-desc">Stock et péremptions, fournisseurs, rôles, sauvegardes, journal.</span></span>
+          </a>
+          <a role="menuitem" href="{{ROOT}}fonctionnalites/" style="--zc: var(--teal)">
+            <span class="mi-dot" aria-hidden="true"></span>
+            <span><span class="mi-name">Les vingt-quatre écrans</span><span class="mi-desc">La liste complète, zone par zone.</span></span>
+          </a>
+        </div>
+      </div>
+
+      <a href="{{ROOT}}hors-ligne.html" data-nav="offline">Hors ligne et sécurité</a>
+      <a href="{{ROOT}}mobile.html" data-nav="mobile">Mobile</a>
+      <a href="{{ROOT}}tarifs.html" data-nav="pricing">Tarifs</a>
+    </nav>
+
+    <div class="topbar-cta">
+      <a class="btn btn-ghost" href="{{ROOT}}demo.html">Demander une démo</a>
+      <a class="btn btn-primary" href="{{ROOT}}demo.html#essai">Essayer gratuitement</a>
+    </div>
+
+    <button class="burger" id="burger" type="button" aria-expanded="false" aria-controls="drawer">
+      <span class="sr-only">Ouvrir le menu</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="drawer" id="drawer" data-open="false">
+  <div class="wrap drawer-top">
+    <a class="brand" href="{{ROOT}}">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5c-2.5 0-4 2-4 4.8 0 3 1 5.5 2 8 .6 1.6 1.2 3.2 2.3 3.2 1.2 0 1.3-1.6 1.6-3.2.3-1.5.6-2.6 2.1-2.6s1.8 1.1 2.1 2.6c.3 1.6.4 3.2 1.6 3.2 1.1 0 1.7-1.6 2.3-3.2 1-2.5 2-5 2-8 0-2.8-1.5-4.8-4-4.8-1.6 0-2.7.8-4 .8s-2.4-.8-4-.8Z"/></svg>
+      </span>
+      Gestion Clinique
+    </a>
+    <button class="burger" id="drawer-close" type="button" style="margin-inline-start:auto">
+      <span class="sr-only">Fermer le menu</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="wrap drawer-body">
+    <nav aria-label="Menu">
+      <p class="grp">Fonctionnalités</p>
+      <div class="sub">
+        <a href="{{ROOT}}fonctionnalites/quotidien.html">Quotidien</a>
+        <a href="{{ROOT}}fonctionnalites/clinique.html">Clinique</a>
+        <a href="{{ROOT}}fonctionnalites/finances.html">Finances</a>
+        <a href="{{ROOT}}fonctionnalites/gestion.html">Gestion</a>
+        <a href="{{ROOT}}fonctionnalites/">Les vingt-quatre écrans</a>
+      </div>
+      <p class="grp">Le produit</p>
+      <a href="{{ROOT}}hors-ligne.html">Hors ligne et sécurité</a>
+      <a href="{{ROOT}}mobile.html">Mobile</a>
+      <a href="{{ROOT}}tarifs.html">Tarifs</a>
+    </nav>
+    <div class="drawer-actions">
+      <a class="btn btn-primary" href="{{ROOT}}demo.html#essai">Essayer gratuitement</a>
+      <a class="btn btn-ghost" href="{{ROOT}}demo.html">Demander une démo</a>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,1517 @@
+<!--{
+  "path": "index.html",
+  "root": "",
+  "nav": "",
+  "bodyClass": "",
+  "barClass": "",
+  "title": "Gestion Clinique — logiciel de cabinet dentaire, Tunisie",
+  "desc": "Agenda, dossiers, caisse et sauvegardes dans un seul logiciel, écrit pour les cabinets dentaires tunisiens. Fonctionne sans internet. Essai 30 jours, sans carte bancaire."
+}-->
+
+<!-- ══ 1 · HERO ═════════════════════════════════════════════════════════════════ -->
+<section class="hero on-ink">
+  <div class="wrap hero-grid">
+
+    <div>
+      <p class="eyebrow rise">Logiciel de gestion pour cabinet dentaire</p>
+      <h1 class="rise d1">Vos dossiers, votre agenda et votre argent, à jour sans y penser</h1>
+      <p class="lede rise d2">Un acte noté au fauteuil remplit la fiche du patient, la note d’honoraires et la caisse. Le logiciel vous demande le minimum de saisie, et vous signale ce qui manque avant que vous l’ayez oublié.</p>
+
+      <div class="hero-actions rise d3">
+        <a class="btn btn-primary" href="demo.html#essai">Essayer gratuitement</a>
+        <a class="btn btn-ghost" href="demo.html">Découvrir le logiciel</a>
+      </div>
+
+      <ul class="trust rise d4">
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>30 jours, sans carte bancaire</li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Sans engagement</li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Vos données exportables à tout moment</li>
+      </ul>
+
+      <div class="hero-aside rise d5">
+        <p>Vous utilisez déjà un logiciel ?</p>
+        <a class="link-arrow" href="fonctionnalites/gestion.html#reprise">Reprendre vos données en CSV
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <div class="hero-film rise d2">
+      <iframe class="hero-film__frame"
+              src="assets/scenes/hero-quatre-temps.html"
+              title="Le logiciel en quatre temps"
+              loading="eager" scrolling="no" tabindex="-1" aria-hidden="true"></iframe>
+    </div>
+    <p class="sr-only">Une animation en quatre temps&nbsp;: la journée s’organise dans l’agenda, le dossier du patient s’ouvre, la note d’honoraires se crée, puis la caisse se met à jour et le rappel de contrôle part.</p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══ 2 · LE QUOTIDIEN ═════════════════════════════════════════════════════════
+     The page's selling section, and the one that has to be SHOWN rather than
+     read. Six moments, one at a time: the paper moment struck through on the
+     left, the screen that answers it on the right. Scroll advances it — no
+     rail, no tabs, no auto-play, so it does not compete with the hero above
+     and does not repeat §3's card switcher or §5's zone rail.
+
+     Every item carries its own copy AND its own shot, so the same markup is
+     six cards in normal flow wherever the sticky version cannot run: below
+     62rem, under reduced motion, and with the script blocked. Nothing is ever
+     hidden behind a control that is not rendered. ══════════════════════════ -->
+<section class="sec" id="avant-avec">
+  <div class="wrap">
+    <div class="head rise">
+      <p class="eyebrow">Le quotidien</p>
+      <h2>Rien de grave, pris un par un. Mis bout à bout, la journée y passe.</h2>
+      <p class="lede">Six situations que vous avez déjà vécues, à gauche sur le papier, à droite dans le logiciel.</p>
+    </div>
+
+    <div class="jour" data-jour>
+      <div class="jour-stage">
+      <div class="jour-track" tabindex="0" role="group" aria-label="Six situations du quotidien : faites défiler pour les parcourir">
+
+          <article class="jour-item" style="--zc: var(--azure); --zcl: var(--azure-lit)">
+            <div class="jour-copy">
+              <p class="jour-n"><b>01</b><span>/ 06</span></p>
+              <p class="jour-k">Aujourd’hui</p>
+              <h3 class="jour-t"><s>La fiche introuvable</s></h3>
+              <p class="jour-p">Le patient est installé, son dossier est dans une autre pile. Vous cherchez, il attend.</p>
+              <p class="jour-a">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+                <b>Le dossier s’ouvre au nom du patient</b>
+                <span>Fiche, radios, soins et paiements au même endroit, pour tout le cabinet.</span>
+              </p>
+            </div>
+
+            <figure class="jour-shot jour-shot--jd" data-flip="0">
+              <div class="jd-switch">
+                <button type="button" data-flip-to="0" aria-pressed="true">Sur le papier</button>
+                <button type="button" data-flip-to="1" aria-pressed="false">Avec le logiciel</button>
+              </div>
+              <div class="jd-half jd-sans">
+                <p class="jd-lab">Sur le papier</p>
+                <div class="jd-art jd-pile" aria-hidden="true">
+                  <i class="jd-tab" style="--y: 0%;  --x: -9%; --r: -5deg; --w: 76%; --i: 0"><b>Trabelsi</b><u>Nadia · 1998</u></i>
+                  <i class="jd-tab" style="--y: 19%; --x: 7%;  --r: 5deg;  --w: 70%; --i: 1"><b>Khelifi</b><u>Amine · 1986</u></i>
+                  <i class="jd-tab jd-tab--out" style="--y: 38%; --x: -5%; --r: -2deg; --w: 82%; --i: 2"><b>Gharbi</b><s>ce n’est pas lui</s></i>
+                  <i class="jd-tab" style="--y: 57%; --x: 8%;  --r: 7deg;  --w: 72%; --i: 3"><b>Mansour</b><u>Leïla · 2004</u></i>
+                  <i class="jd-tab" style="--y: 76%; --x: -7%; --r: -4deg; --w: 78%; --i: 4"><b>Sassi</b><u>Hatem · 1979</u></i>
+                  <span class="jd-hunt"></span>
+                </div>
+                <p class="jd-note">Il faut se souvenir où il a été rangé, et qui l’a sorti en dernier.</p>
+              </div>
+
+              <div class="jd-half jd-avec">
+                <p class="jd-lab">Avec le logiciel</p>
+                <div class="jd-art" aria-hidden="true">
+                  <span class="jd-field jd-in" style="--i: 0">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+                    <em>ben&nbsp;a</em><i class="jd-caret"></i>
+                  </span>
+                  <span class="jd-hit jd-in" style="--i: 2"><b>Sonia Ben Amor</b><s>34 ans · 12 séances · Ariana</s></span>
+                  <ul class="jd-secs">
+                    <li class="jd-in" style="--i: 3"><i class="jd-tick"></i><b>Fiche</b><u>à jour</u></li>
+                    <li class="jd-in" style="--i: 4"><i class="jd-tick"></i><b>Radios</b><u>3 clichés</u></li>
+                    <li class="jd-in" style="--i: 5"><i class="jd-tick"></i><b>Soins</b><u>9 actes</u></li>
+                    <li class="jd-in" style="--i: 6"><i class="jd-tick"></i><b>Paiements</b><u>à jour</u></li>
+                  </ul>
+                  <span class="jd-x jd-last jd-in" style="--i: 7"><s>Dernière séance</s><b>12 mars · Composite · 26</b></span>
+                </div>
+                <p class="jd-note">On tape le nom. Le dossier entier s’ouvre, pour tout le cabinet à la fois.</p>
+              </div>
+            </figure>
+          </article>
+
+          <article class="jour-item" style="--zc: var(--violet); --zcl: var(--violet-lit)">
+            <div class="jour-copy">
+              <p class="jour-n"><b>02</b><span>/ 06</span></p>
+              <p class="jour-k">Dimanche</p>
+              <h3 class="jour-t"><s>Le dimanche, de mémoire</s></h3>
+              <p class="jour-p">Un patient appelle et vous demande ce que vous lui avez fait la dernière fois. Vous n’avez que votre mémoire.</p>
+              <p class="jour-a">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+                <b>Le dossier vous suit sur le téléphone</b>
+                <span>Vous relisez ce que vous avez fait et ce que vous avez diagnostiqué, de chez vous.</span>
+              </p>
+            </div>
+
+            <figure class="jour-shot jour-shot--jd" data-flip="0">
+              <div class="jd-switch">
+                <button type="button" data-flip-to="0" aria-pressed="true">Sur le papier</button>
+                <button type="button" data-flip-to="1" aria-pressed="false">Avec le logiciel</button>
+              </div>
+              <div class="jd-half jd-sans">
+                <p class="jd-lab">Sur le papier</p>
+                <div class="jd-art jd-mem" aria-hidden="true">
+                  <span class="jd-ring jd-in" style="--i: 0">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5h3l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2A17 17 0 0 1 4.5 5.7a2 2 0 0 1 2-2.2Z"/></svg>
+                    <i></i><i></i>
+                    <b>Dimanche, 19&nbsp;h</b>
+                  </span>
+                  <span class="jd-bubble jd-in" style="--i: 2">
+                    <s class="jd-fade" style="--i: 1">« Vous m’avez fait quoi la dernière fois&nbsp;?&nbsp;»</s>
+                    <s class="jd-fade" style="--i: 2">une couronne… ou un composite&nbsp;?</s>
+                    <s class="jd-fade" style="--i: 3">c’était en mars, je crois</s>
+                    <b class="jd-q">?</b>
+                  </span>
+                  <span class="jd-away jd-in" style="--i: 4">
+                    <b>Le dossier</b><s>au cabinet, dans la pile</s>
+                  </span>
+                </div>
+                <p class="jd-note">Le dossier est au cabinet. Vous répondez de mémoire, ou vous rappelez lundi.</p>
+              </div>
+
+              <div class="jd-half jd-avec">
+                <p class="jd-lab">Avec le logiciel</p>
+                <div class="jd-art" aria-hidden="true">
+                  <span class="jd-phone jd-in" style="--i: 0">
+                    <i class="jd-ph-notch"></i>
+                    <span class="jd-ph-screen">
+                      <span class="jd-ph-top"><b>Sonia Ben Amor</b><s>34 ans · 12 séances</s></span>
+                      <span class="jd-ph-row jd-in" style="--i: 2; --dc: var(--violet-lit)"><i></i><b>12 mars</b><s>Composite · 26</s></span>
+                      <span class="jd-ph-row jd-in" style="--i: 3; --dc: var(--azure-lit)"><i></i><b>Diagnostic</b><s>Carie occlusale, face mésiale</s></span>
+                      <span class="jd-x jd-ph-row jd-in" style="--i: 4; --dc: var(--amber-lit)"><i></i><b>Radios</b><s>3 clichés au dossier</s></span>
+                      <span class="jd-ph-row jd-in" style="--i: 5; --dc: var(--accent)"><i></i><b>Contrôle</b><s>Prévu le 12 septembre</s></span>
+                      <span class="jd-ph-row jd-in" style="--i: 6; --dc: var(--green-lit)"><i></i><b>Reste à payer</b><s>0,000 DT</s></span>
+                    </span>
+                  </span>
+                </div>
+                <p class="jd-note">Vous ouvrez l’application, vous lisez, vous répondez. Sans repasser au cabinet.</p>
+              </div>
+            </figure>
+          </article>
+
+          <article class="jour-item" style="--zc: var(--violet); --zcl: var(--violet-lit)">
+            <div class="jour-copy">
+              <p class="jour-n"><b>03</b><span>/ 06</span></p>
+              <p class="jour-k">Au fauteuil</p>
+              <h3 class="jour-t"><s>L’odontogramme sur une feuille</s></h3>
+              <p class="jour-p">Trois ans de soins au même endroit&nbsp;: au bout d’un moment, plus personne ne le lit, vous compris.</p>
+              <p class="jour-a">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+                <b>Un odontogramme toujours lisible</b>
+                <span>Dent par dent, daté, avec l’historique derrière. Il ne se sature jamais.</span>
+              </p>
+            </div>
+
+            <figure class="jour-shot jour-shot--jd" data-flip="0">
+              <div class="jd-switch">
+                <button type="button" data-flip-to="0" aria-pressed="true">Sur le papier</button>
+                <button type="button" data-flip-to="1" aria-pressed="false">Avec le logiciel</button>
+              </div>
+              <div class="jd-half jd-sans">
+                <p class="jd-lab">Sur le papier</p>
+                <div class="jd-art" aria-hidden="true">
+                  <span class="jd-ru jd-in" style="--i: 0"><b>Odontogramme</b><s>Sonia Ben Amor</s></span>
+                  <span class="jd-chart-p">
+                    <span class="jd-teeth"><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i></span>
+                    <span class="jd-teeth"><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i></span>
+                    <span class="jd-marks">
+                      <i class="jd-mk jd-mk--o" style="--x: 6%;  --y: -14%; --r: -13deg; --i: 0"></i>
+                      <i class="jd-mk jd-mk--x" style="--x: 9%;  --y: 8%;   --i: 1"></i>
+                      <i class="jd-mk jd-mk--o" style="--x: 14%; --y: 44%;  --r: 9deg; --mc: #9a6a3a; --i: 2"></i>
+                      <i class="jd-mk jd-mk--x" style="--x: 76%; --y: 50%;  --mc: #9a6a3a; --i: 3"></i>
+                      <i class="jd-mk jd-mk--o" style="--x: 79%; --y: -8%;  --r: 16deg; --i: 4"></i>
+                      <i class="jd-mk jd-mk--o" style="--x: 72%; --y: 38%;  --r: -21deg; --mc: #9a6a3a; --i: 5"></i>
+                      <i class="jd-mk jd-mk--x" style="--x: 4%;  --y: 52%;  --i: 6"></i>
+                      <i class="jd-mk jd-mk--o" style="--x: 11%; --y: -2%;  --r: 27deg; --mc: #9a6a3a; --i: 7"></i>
+                    </span>
+                  </span>
+                  <span class="jd-scrawl">
+                    <i class="jd-mk jd-mk--d out" style="--r: -3deg; --i: 8">12/03 — compo 26</i>
+                    <i class="jd-mk jd-mk--d" style="--r: 2deg; --i: 9">04/11 — ext&nbsp;? à revoir</i>
+                    <i class="jd-mk jd-mk--d out" style="--r: -2deg; --i: 10">21/01 — couronne (voir radio)</i>
+                  </span>
+                </div>
+                <p class="jd-note">Trois ans de reprises sur la même feuille. À la fin, personne ne la relit.</p>
+              </div>
+
+              <div class="jd-half jd-avec">
+                <p class="jd-lab">Avec le logiciel</p>
+                <div class="jd-art" aria-hidden="true">
+                  <span class="jd-hdr jd-in" style="--i: 0"><b>Odontogramme</b><s>32 dents suivies</s></span>
+                  <span class="jd-chart-p">
+                    <span class="jd-teeth"><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th jd-th--on" style="--dc: var(--azure); --i: 3"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th jd-th--on" style="--dc: var(--violet); --i: 1"></i><i class="jd-th"></i></span>
+                    <span class="jd-teeth"><i class="jd-th"></i><i class="jd-th jd-th--on" style="--dc: var(--amber); --i: 2"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th jd-th--on" style="--dc: var(--green); --i: 4"></i><i class="jd-th"></i><i class="jd-th"></i></span>
+                  </span>
+                  <ul class="jd-hist">
+                    <li class="jd-in" style="--i: 4; --dc: var(--violet-lit)"><i></i><b>26</b><s>Composite</s><em>12/03</em></li>
+                    <li class="jd-in" style="--i: 5; --dc: var(--amber-lit)"><i></i><b>47</b><s>Extraction</s><em>04/11</em></li>
+                    <li class="jd-in" style="--i: 6; --dc: var(--azure-lit)"><i></i><b>16</b><s>Couronne</s><em>21/01</em></li>
+                    <li class="jd-x jd-in" style="--i: 7; --dc: var(--green-lit)"><i></i><b>36</b><s>Détartrage</s><em>03/09</em></li>
+                  </ul>
+                </div>
+                <p class="jd-note">Chaque acte porte sa dent et sa date. La feuille ne se sature jamais.</p>
+              </div>
+            </figure>
+          </article>
+
+          <article class="jour-item" style="--zc: var(--amber); --zcl: var(--amber-lit)">
+            <div class="jour-copy">
+              <p class="jour-n"><b>04</b><span>/ 06</span></p>
+              <p class="jour-k">Fin du mois</p>
+              <h3 class="jour-t"><s>Le mois, à peu près</s></h3>
+              <p class="jour-p">Vous savez que ça s’est bien passé. Vous ne savez pas combien, et personne au cabinet ne le sait non plus.</p>
+              <p class="jour-a">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+                <b>Les recettes se comptent seules</b>
+                <span>Vous n’entrez que les dépenses. Chaque séance terminée alimente la caisse et le chiffre du mois.</span>
+              </p>
+            </div>
+
+            <figure class="jour-shot jour-shot--jd" data-flip="0">
+              <div class="jd-switch">
+                <button type="button" data-flip-to="0" aria-pressed="true">Sur le papier</button>
+                <button type="button" data-flip-to="1" aria-pressed="false">Avec le logiciel</button>
+              </div>
+              <div class="jd-half jd-sans">
+                <p class="jd-lab">Sur le papier</p>
+                <div class="jd-art jd-cahier" aria-hidden="true">
+                  <span class="jd-ru jd-in" style="--i: 0"><b>Mars</b><s>cahier de caisse</s></span>
+                  <span class="jd-prow jd-in" style="--i: 1"><b>04/03</b><em>180,000</em></span>
+                  <span class="jd-prow jd-in" style="--i: 2"><b>07/03</b><em><i class="jd-blank"></i></em></span>
+                  <span class="jd-prow jd-in" style="--i: 3"><b>11/03</b><em>250,000</em></span>
+                  <span class="jd-x jd-prow jd-in" style="--i: 4"><b>14/03</b><em><i class="jd-blank"></i></em></span>
+                  <span class="jd-prow jd-in" style="--i: 6"><b>22/03</b><em>405,000</em></span>
+                  <span class="jd-tot jd-in" style="--i: 8"><s>Total du mois</s><em>≈&nbsp;?</em></span>
+                </div>
+                <p class="jd-note">Ce qui n’a pas été recopié le soir même ne sera jamais compté.</p>
+              </div>
+
+              <div class="jd-half jd-avec">
+                <p class="jd-lab">Avec le logiciel</p>
+                <div class="jd-art" aria-hidden="true">
+                  <span class="jd-hdr jd-in" style="--i: 0"><b>Caisse</b><s>séances terminées</s></span>
+                  <ul class="jd-ln">
+                    <li class="jd-row jd-drop" style="--i: 0; --dc: var(--violet-lit)"><i></i><b>Composite · 26</b><em>240,000</em></li>
+                    <li class="jd-row jd-drop" style="--i: 1; --dc: var(--azure-lit)"><i></i><b>Détartrage</b><em>80,000</em></li>
+                    <li class="jd-row jd-drop" style="--i: 2; --dc: var(--amber-lit)"><i></i><b>Couronne</b><em>405,000</em></li>
+                    <li class="jd-row jd-drop" style="--i: 3; --dc: var(--green-lit)"><i></i><b>Contrôle</b><em>50,000</em></li>
+                    <li class="jd-x jd-row jd-drop" style="--i: 4; --dc: var(--violet-lit)"><i></i><b>Extraction · 47</b><em>120,000</em></li>
+                  </ul>
+                  <span class="jd-sum jd-in" style="--i: 6"><s>Encaissé ce mois</s><b>19 280,000&nbsp;DT</b></span>
+                </div>
+                <p class="jd-note">Une séance terminée écrit sa ligne toute seule. Vous n’entrez que les dépenses.</p>
+              </div>
+            </figure>
+          </article>
+
+          <article class="jour-item" style="--zc: var(--green); --zcl: var(--green-lit)">
+            <div class="jour-copy">
+              <p class="jour-n"><b>05</b><span>/ 06</span></p>
+              <p class="jour-k">La veille</p>
+              <h3 class="jour-t"><s>Les rappels, un par un</s></h3>
+              <p class="jour-p">Votre secrétaire passe la matinée au téléphone pour confirmer les rendez-vous du lendemain.</p>
+              <p class="jour-a">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+                <b>Les rappels partent tout seuls</b>
+                <span>SMS ou WhatsApp, à la date prévue. Votre secrétaire ne téléphone plus que pour les cas particuliers.</span>
+              </p>
+            </div>
+
+            <figure class="jour-shot jour-shot--jd" data-flip="0">
+              <div class="jd-switch">
+                <button type="button" data-flip-to="0" aria-pressed="true">Sur le papier</button>
+                <button type="button" data-flip-to="1" aria-pressed="false">Avec le logiciel</button>
+              </div>
+              <div class="jd-half jd-sans">
+                <p class="jd-lab">Sur le papier</p>
+                <div class="jd-art jd-cahier" aria-hidden="true">
+                  <span class="jd-ru jd-in" style="--i: 0"><b>Demain</b><s>6 rendez-vous à confirmer</s></span>
+                  <span class="jd-prow jd-in" style="--i: 1"><b>Trabelsi</b><em>appelée</em></span>
+                  <span class="jd-prow jd-in" style="--i: 2"><b>Ben Amor</b><em class="no">pas de réponse</em></span>
+                  <span class="jd-prow jd-in" style="--i: 3"><b>Gharbi</b><em>appelé</em></span>
+                  <span class="jd-prow jd-in" style="--i: 4"><b>Khelifi</b><em class="no">pas de réponse</em></span>
+                  <span class="jd-prow jd-in" style="--i: 5"><b>Mansour</b><em class="no">à rappeler</em></span>
+                  <span class="jd-prow jd-in" style="--i: 6"><b>Sassi</b><em class="no">à rappeler</em></span>
+                  <span class="jd-x jd-tot jd-in" style="--i: 8"><s>Confirmés</s><em>2 / 6</em></span>
+                </div>
+                <p class="jd-note">Une matinée au téléphone, et la moitié de la liste est encore à refaire.</p>
+              </div>
+
+              <div class="jd-half jd-avec">
+                <p class="jd-lab">Avec le logiciel</p>
+                <div class="jd-art" aria-hidden="true">
+                  <span class="jd-hdr jd-in" style="--i: 0"><b>Demain</b><s>6 rendez-vous</s></span>
+                  <ul class="jd-ln">
+                    <li class="jd-row jd-fly" style="--i: 1"><i class="jd-tick"></i><b>Trabelsi</b><s>08:00</s><em>SMS</em></li>
+                    <li class="jd-row jd-fly" style="--i: 2"><i class="jd-tick"></i><b>Ben Amor</b><s>08:45</s><em>WhatsApp</em></li>
+                    <li class="jd-row jd-fly" style="--i: 3"><i class="jd-tick"></i><b>Gharbi</b><s>09:30</s><em>SMS</em></li>
+                    <li class="jd-row jd-fly" style="--i: 4"><i class="jd-tick"></i><b>Khelifi</b><s>10:15</s><em>WhatsApp</em></li>
+                    <li class="jd-row jd-fly" style="--i: 5"><i class="jd-tick"></i><b>Mansour</b><s>11:00</s><em>SMS</em></li>
+                    <li class="jd-row jd-fly" style="--i: 6"><i class="jd-tick"></i><b>Sassi</b><s>11:45</s><em>WhatsApp</em></li>
+                  </ul>
+                  <span class="jd-x jd-all jd-in" style="--i: 8">Partis à la date prévue</span>
+                </div>
+                <p class="jd-note">Le téléphone du cabinet ne sert plus qu’aux cas particuliers.</p>
+              </div>
+            </figure>
+          </article>
+
+          <article class="jour-item" style="--zc: var(--amber); --zcl: var(--amber-lit)">
+            <div class="jour-copy">
+              <p class="jour-n"><b>06</b><span>/ 06</span></p>
+              <p class="jour-k">Le soir</p>
+              <h3 class="jour-t"><s>La séance jamais facturée</s></h3>
+              <p class="jour-p">Le soin est fait, la note n’a jamais été écrite. Rien ne vous le rappellera.</p>
+              <p class="jour-a">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+                <b>Rien ne se termine à moitié</b>
+                <span>La page « à clôturer » vous montre en permanence ce qui n’est pas terminé.</span>
+              </p>
+            </div>
+
+            <figure class="jour-shot jour-shot--jd" data-flip="0">
+              <div class="jd-switch">
+                <button type="button" data-flip-to="0" aria-pressed="true">Sur le papier</button>
+                <button type="button" data-flip-to="1" aria-pressed="false">Avec le logiciel</button>
+              </div>
+              <div class="jd-half jd-sans">
+                <p class="jd-lab">Sur le papier</p>
+                <div class="jd-art jd-cahier" aria-hidden="true">
+                  <span class="jd-ru jd-in" style="--i: 0"><b>Mardi</b><s>6 séances</s></span>
+                  <span class="jd-prow jd-in" style="--i: 1"><b>Trabelsi</b><em>notée</em></span>
+                  <span class="jd-prow jd-in" style="--i: 2"><b>Ben Amor</b><em>notée</em></span>
+                  <span class="jd-prow jd-in jd-gap" style="--i: 3"><b>Gharbi</b><em class="no">rien d’écrit</em></span>
+                  <span class="jd-prow jd-in" style="--i: 4"><b>Khelifi</b><em>notée</em></span>
+                  <span class="jd-prow jd-in" style="--i: 5"><b>Mansour</b><em>notée</em></span>
+                  <span class="jd-prow jd-in" style="--i: 6"><b>Sassi</b><em>notée</em></span>
+                  <span class="jd-x jd-vanish jd-in" style="--i: 8">La page tourne, et la séance part avec elle.</span>
+                </div>
+                <p class="jd-note">Une séance oubliée ne réclame rien. C’est pour ça qu’elle reste oubliée.</p>
+              </div>
+
+              <div class="jd-half jd-avec">
+                <p class="jd-lab">Avec le logiciel</p>
+                <div class="jd-art" aria-hidden="true">
+                  <span class="jd-hdr jd-in" style="--i: 0"><b>À clôturer</b><s>1 séance</s></span>
+                  <span class="jd-cl jd-in" style="--i: 1"><b>Youssef Gharbi</b><s>Mardi · 14:30 · Fauteuil 2</s></span>
+                  <ul class="jd-qs">
+                    <li class="jd-in" style="--i: 3"><i class="jd-tick"></i><b>Est-il venu&nbsp;?</b><u>oui</u></li>
+                    <li class="jd-in" style="--i: 4"><i class="jd-tick"></i><b>Qu’a-t-on fait&nbsp;?</b><u>composite · 26</u></li>
+                    <li class="jd-in jd-now" style="--i: 5"><i class="jd-dot"></i><b>Combien a-t-il payé&nbsp;?</b><u>à renseigner</u></li>
+                  </ul>
+                  <span class="jd-x jd-all jd-in" style="--i: 7">Une question à la fois</span>
+                </div>
+                <p class="jd-note">La séance reste sur la liste tant qu’il y manque une réponse.</p>
+              </div>
+            </figure>
+          </article>
+
+      </div>
+        <div class="jour-arrows">
+          <button type="button" class="jour-arrow" data-dir="-1" aria-label="Situation précédente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+          <button type="button" class="jour-arrow" data-dir="1" aria-label="Situation suivante"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+        </div>
+      </div>
+
+      <div class="jour-ctl">
+        <ol class="jour-dots">
+          <li><button type="button" data-go="0" aria-label="Situation 1 sur 6"><b>01</b></button></li>
+          <li><button type="button" data-go="1" aria-label="Situation 2 sur 6"><b>02</b></button></li>
+          <li><button type="button" data-go="2" aria-label="Situation 3 sur 6"><b>03</b></button></li>
+          <li><button type="button" data-go="3" aria-label="Situation 4 sur 6"><b>04</b></button></li>
+          <li><button type="button" data-go="4" aria-label="Situation 5 sur 6"><b>05</b></button></li>
+          <li><button type="button" data-go="5" aria-label="Situation 6 sur 6"><b>06</b></button></li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 3 · À QUI IL S'ADRESSE ═══════════════════════════════════════════════════ -->
+<section class="sec" id="pour-qui">
+  <div class="wrap">
+    <div class="head rise">
+      <p class="eyebrow">À qui il s’adresse</p>
+      <h2>Que vous soyez seul ou à plusieurs, le logiciel suit votre pratique</h2>
+      <p class="lede">Cinq façons de tenir un cabinet, un seul logiciel. Ouvrez celle qui vous ressemble pour voir ce que ça donne au quotidien.</p>
+    </div>
+
+    <div class="serve">
+      <div>
+        <div class="serve-list rise" data-serve>
+
+          <div class="serve-item sv-item" style="--zc: var(--azure); --zcl: var(--azure-lit)">
+            <button type="button" aria-expanded="true">
+              <span class="sv-head"><span class="sv-dot" aria-hidden="true"></span>Cabinet individuel</span>
+              <span class="num">01</span>
+            </button>
+            <div class="serve-body"><div>
+              <p>Un praticien, une assistante, un poste. Les actes, les tarifs et les rôles sont déjà paramétrés&nbsp;: vous travaillez dès le premier jour.</p>
+            </div></div>
+          </div>
+
+          <div class="serve-item sv-item" style="--zc: var(--green); --zcl: var(--green-lit)">
+            <button type="button" aria-expanded="false">
+              <span class="sv-head"><span class="sv-dot" aria-hidden="true"></span>Cabinet à plusieurs praticiens</span>
+              <span class="num">02</span>
+            </button>
+            <div class="serve-body"><div>
+              <p>Chacun son agenda, chacun ses chiffres. La caisse et le stock restent communs, et vous savez à tout moment qui a produit quoi.</p>
+            </div></div>
+          </div>
+
+          <div class="serve-item sv-item" style="--zc: var(--violet); --zcl: var(--violet-lit)">
+            <button type="button" aria-expanded="false">
+              <span class="sv-head"><span class="sv-dot" aria-hidden="true"></span>Cabinet spécialisé</span>
+              <span class="num">03</span>
+            </button>
+            <div class="serve-body"><div>
+              <p>Orthodontie, parodontologie, implantologie&nbsp;: plans de traitement au long cours, suivi dent par dent, commandes au laboratoire. Le tout dans un seul dossier.</p>
+            </div></div>
+          </div>
+
+          <div class="serve-item sv-item" style="--zc: var(--amber); --zcl: var(--amber-lit)">
+            <button type="button" aria-expanded="false">
+              <span class="sv-head"><span class="sv-dot" aria-hidden="true"></span>Cabinet en création</span>
+              <span class="num">04</span>
+            </button>
+            <div class="serve-body"><div>
+              <p>Rien à reprendre, rien à paramétrer pendant trois semaines. Vous ajustez vos tarifs, vous ouvrez votre agenda, et vous recevez.</p>
+            </div></div>
+          </div>
+
+          <div class="serve-item sv-item" style="--zc: var(--accent-ink); --zcl: var(--accent-lit)">
+            <button type="button" aria-expanded="false">
+              <span class="sv-head"><span class="sv-dot" aria-hidden="true"></span>Cabinet qui change de logiciel</span>
+              <span class="num">05</span>
+            </button>
+            <div class="serve-body"><div>
+              <p>Vos patients et vos actes se reprennent en CSV. Un essai à blanc vous montre exactement ce qui sera importé, avant la moindre écriture.</p>
+            </div></div>
+          </div>
+
+        </div>
+
+        <div class="sv-foot rise d2">
+          <p>Votre cabinet ne rentre dans aucune de ces cases&nbsp;? Décrivez-le-nous, nous vous dirons ce que ça donne chez vous.</p>
+          <a class="link-arrow" href="demo.html">Nous parler de votre cabinet
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+        </div>
+      </div>
+
+      <div class="sv-stage rise d1" data-serve-stage>
+
+        <article class="sv-face on-ink" style="--zc: var(--azure); --zcl: var(--azure-lit)">
+          <div class="sv-media">
+            <div class="sv-shot reveal-clip">
+              <img src="assets/img/photo-praticien.webp" alt="Un praticien en gants, miroir et détartreur en main, au fauteuil" width="1700" height="1133" style="object-position: 50% 42%" loading="lazy" decoding="async">
+            </div>
+            <p class="sv-badge"><i aria-hidden="true"></i>Un seul poste</p>
+          </div>
+          <div class="sv-note">
+            <p class="sv-kicker"><i aria-hidden="true"></i>Cabinet individuel</p>
+            <h3>Rien à construire avant de commencer</h3>
+            <p>Le catalogue d’actes et les tarifs arrivent renseignés&nbsp;: vous ne corrigez que ce qui vous est propre. Un poste suffit, et il tourne sans internet.</p>
+            <ul class="sv-facts">
+              <li>Actes et tarifs prêts</li>
+              <li>Agenda et caisse compris</li>
+              <li>Sans internet</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="sv-face on-ink" style="--zc: var(--green); --zcl: var(--green-lit)">
+          <div class="sv-media">
+            <div class="sv-shot reveal-clip">
+              <img src="assets/img/photo-equipe2.webp" alt="Deux praticiens et une assistante réunis autour du même dossier patient" width="1700" height="1124" style="object-position: 50% 38%" loading="lazy" decoding="async">
+            </div>
+            <p class="sv-badge"><i aria-hidden="true"></i>Agendas séparés</p>
+          </div>
+          <div class="sv-note">
+            <p class="sv-kicker"><i aria-hidden="true"></i>Cabinet à plusieurs praticiens</p>
+            <h3>Des plannings distincts, une caisse commune</h3>
+            <p>Chaque praticien garde son agenda et sa production, tandis que le stock, les fournisseurs et l’extrait de caisse restent partagés.</p>
+            <ul class="sv-facts">
+              <li>Agenda par praticien</li>
+              <li>Production par praticien</li>
+              <li>Journal d’activité</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="sv-face on-ink" style="--zc: var(--violet); --zcl: var(--violet-lit)">
+          <div class="sv-media">
+            <div class="sv-shot reveal-clip">
+              <div class="crop" style="--cx: .415; --cy: .611; --cz: 3">
+                <img src="assets/img/odonto.webp" alt="L’odontogramme du patient, dent par dent, avec les actes portés dessus" width="3072" height="1728" loading="lazy" decoding="async">
+              </div>
+            </div>
+            <p class="sv-badge"><i aria-hidden="true"></i>Un seul dossier</p>
+          </div>
+          <div class="sv-note">
+            <p class="sv-kicker"><i aria-hidden="true"></i>Cabinet spécialisé</p>
+            <h3>Un traitement long tient dans un seul dossier</h3>
+            <p>L’odontogramme porte l’état de chaque dent, le plan de traitement suit les séances une à une, et les commandes au laboratoire restent attachées au patient.</p>
+            <ul class="sv-facts">
+              <li>Odontogramme</li>
+              <li>Plans de traitement</li>
+              <li>Commandes laboratoire</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="sv-face on-ink" style="--zc: var(--amber); --zcl: var(--amber-lit)">
+          <div class="sv-media">
+            <div class="sv-shot reveal-clip">
+              <img src="assets/img/photo-salle.webp" alt="Une salle de soins neuve, fauteuil et unit installés, prête à ouvrir" width="1700" height="1136" style="object-position: 50% 62%" loading="lazy" decoding="async">
+            </div>
+            <p class="sv-badge"><i aria-hidden="true"></i>Rien à reprendre</p>
+          </div>
+          <div class="sv-note">
+            <p class="sv-kicker"><i aria-hidden="true"></i>Cabinet en création</p>
+            <h3>Vos tarifs le matin, vos rendez-vous l’après-midi</h3>
+            <p>Aucune donnée à récupérer, aucun paramétrage qui traîne. Vous réglez vos horaires, vos fauteuils et vos prix, puis vous ouvrez l’agenda.</p>
+            <ul class="sv-facts">
+              <li>Horaires et fauteuils</li>
+              <li>Tarifs modifiables</li>
+              <li>30 jours, sans carte</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="sv-face on-ink" style="--zc: var(--accent-ink); --zcl: var(--accent-lit)">
+          <div class="sv-media">
+            <div class="sv-shot reveal-clip">
+              <div class="crop" style="--cx: .185; --cy: .275; --cz: 2.05">
+                <img src="assets/img/patients.webp" alt="Le fichier patients du cabinet après une reprise en CSV" width="3072" height="1728" loading="lazy" decoding="async">
+              </div>
+            </div>
+            <p class="sv-badge"><i aria-hidden="true"></i>Reprise en CSV</p>
+          </div>
+          <div class="sv-note">
+            <p class="sv-kicker"><i aria-hidden="true"></i>Cabinet qui change de logiciel</p>
+            <h3>L’essai à blanc, avant la première écriture</h3>
+            <p>Vous chargez vos fichiers et le logiciel vous montre, ligne par ligne, ce qui entrera et ce qui bloque. Rien n’est enregistré tant que vous n’avez pas validé.</p>
+            <ul class="sv-facts">
+              <li>Import CSV</li>
+              <li>Essai à blanc</li>
+              <li>Export CSV à tout moment</li>
+            </ul>
+          </div>
+        </article>
+
+      </div>
+    </div>
+
+    <div class="sv-flow rise d2">
+      <div class="sv-flow-head">
+        <h3>Une seule saisie, tout le reste suit</h3>
+        <p>Aucun de ces chiffres n’est recopié&nbsp;: ils viennent tous de la même écriture. Votre tableau de bord et votre caisse ne peuvent donc pas se contredire.</p>
+      </div>
+      <ol class="sv-steps">
+        <li style="--zc: var(--violet)"><span class="sv-sn">1</span><b>Vous notez l’acte au fauteuil</b><span>Sur l’odontogramme ou dans la fiche de séance.</span></li>
+        <li style="--zc: var(--amber)"><span class="sv-sn">2</span><b>La note d’honoraires se crée</b><span>Au tarif de votre catalogue, numérotée sans trou.</span></li>
+        <li style="--zc: var(--amber)"><span class="sv-sn">3</span><b>La ligne de caisse apparaît</b><span>Avec le mode de paiement et le solde à jour.</span></li>
+        <li style="--zc: var(--azure)"><span class="sv-sn">4</span><b>Le rappel du contrôle part</b><span>Par SMS ou WhatsApp, à la date prévue.</span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 4 · LE CONSTAT ═══════════════════════════════════════════════════════════ -->
+<section class="sec-tight">
+  <div class="wrap">
+    <div class="bc-shift on-ink">
+
+      <div class="bc-shift__copy rise">
+        <p class="eyebrow">Le constat</p>
+        <h2>Votre organisation actuelle vous coûte du temps&nbsp;?</h2>
+        <p>Un cahier pour l’agenda, un tableur pour les chiffres, un dossier Windows pour les radios. Trois sources, trois vérités, et des heures perdues à les recouper.</p>
+        <a class="btn btn-primary" href="demo.html">Demander une démo</a>
+      </div>
+
+      <div class="bc-flow rise d1">
+        <p class="bc-flow__k"><i></i>Aujourd’hui&nbsp;: trois endroits à recouper à la main</p>
+
+        <ul class="bc-flow__src">
+          <li class="bc-src">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3.5h10.5A1.5 1.5 0 0 1 19 5v14a1.5 1.5 0 0 1-1.5 1.5H7"/><path d="M7 3.5A2 2 0 0 0 5 5.5v13a2 2 0 0 0 2 2M9.5 8h6M9.5 12h4"/></svg>
+            <b>Le cahier</b><span>l’agenda de la semaine</span>
+          </li>
+          <li class="bc-src">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10"/></svg>
+            <b>Le tableur</b><span>les chiffres du mois</span>
+          </li>
+          <li class="bc-src">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5a2 2 0 0 1 2-2h3.4a2 2 0 0 1 1.5.7l1.1 1.3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z"/></svg>
+            <b>Le dossier Windows</b><span>les radios des patients</span>
+          </li>
+        </ul>
+
+        <div class="bc-flow__merge" aria-hidden="true">
+          <svg class="bc-merge" viewBox="0 0 300 44" preserveAspectRatio="none" focusable="false">
+            <path d="M50 0V10C50 26 150 14 150 30V44" vector-effect="non-scaling-stroke"/>
+            <path d="M150 0V44" vector-effect="non-scaling-stroke"/>
+            <path d="M250 0V10C250 26 150 14 150 30V44" vector-effect="non-scaling-stroke"/>
+          </svg>
+        </div>
+
+        <div class="bc-one">
+          <p class="bc-one__k"><i></i>Avec Gestion Clinique</p>
+          <p class="bc-one__t">Une seule saisie, une seule vérité</p>
+          <ul class="bc-one__l">
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>L’agenda, les actes, la caisse et les radios dans le même dossier</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Une sauvegarde vérifiée toutes les heures, et restaurable</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Ouvert sur chaque poste du cabinet, même sans internet</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ══ 5 · FONCTIONNALITÉS ══════════════════════════════════════════════════════ -->
+<section class="sec" id="fonctionnalites">
+  <div class="wrap">
+    <div class="head head-split rise">
+      <p class="eyebrow">Fonctionnalités</p>
+      <h2>Tout votre cabinet, dans un seul logiciel</h2>
+      <p class="lede">Quatre zones, vingt-quatre écrans, aucune option payante. La caisse, les rappels et les sauvegardes sont compris.</p>
+      <a class="link-arrow head-link" href="fonctionnalites/">Découvrir les 24 écrans
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+    </div>
+
+    <div class="feat" data-zones>
+
+      <div class="rail">
+        <ul role="tablist" aria-orientation="vertical" aria-label="Zones du logiciel">
+          <li role="presentation" style="--zc: var(--azure)"><button type="button" role="tab" aria-selected="true">
+            <svg class="ri" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+            Quotidien</button></li>
+          <li role="presentation" style="--zc: var(--violet)"><button type="button" role="tab" aria-selected="false">
+            <svg class="ri" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3.5c-2.5 0-4 2-4 4.8 0 3 1 5.5 2 8 .6 1.6 1.2 3.2 2.3 3.2 1.2 0 1.3-1.6 1.6-3.2.3-1.5.6-2.6 2.1-2.6s1.8 1.1 2.1 2.6c.3 1.6.4 3.2 1.6 3.2 1.1 0 1.7-1.6 2.3-3.2 1-2.5 2-5 2-8 0-2.8-1.5-4.8-4-4.8-1.6 0-2.7.8-4 .8s-2.4-.8-4-.8Z"/></svg>
+            Clinique</button></li>
+          <li role="presentation" style="--zc: var(--amber)"><button type="button" role="tab" aria-selected="false">
+            <svg class="ri" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H18a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3Z"/><path d="M3 8.5h13M16.5 13.5h.01"/></svg>
+            Finances</button></li>
+          <li role="presentation" style="--zc: var(--green)"><button type="button" role="tab" aria-selected="false">
+            <svg class="ri" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7.5 12 3.5l8 4v9l-8 4-8-4Z"/><path d="M4 7.5 12 11.5l8-4M12 11.5V20"/></svg>
+            Gestion</button></li>
+        </ul>
+        <div class="rail-foot">
+          <p>Chaque zone a sa page, écran par écran.</p>
+          <a class="btn btn-ghost" href="fonctionnalites/">Voir le détail</a>
+        </div>
+      </div>
+
+      <div class="panel-stack">
+        <!-- ── Quotidien ── -->
+        <div class="panel" style="--zc: var(--azure)">
+          <div class="stage rise">
+            <span class="stage-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span>
+            <div class="stage-copy">
+              <h3>Quotidien</h3>
+              <p>Votre journée s’ouvre sur ce qu’il reste à faire : séances à clôturer, devis en attente, prothèses en retard, stock à recommander.</p>
+            </div>
+            <div class="stage-shot reveal-clip">
+              <div class="crop" style="--ar: 16/10; --cx: .185; --cy: .085; --cz: 2.6">
+                <img src="assets/img/agenda.webp" alt="L'agenda de la journée, rendez-vous par rendez-vous" width="3072" height="1728" loading="lazy" decoding="async">
+              </div>
+            </div>
+            <div class="chip" style="--zc: var(--azure); --cd: 300ms; bottom: 15%; right: 33%">
+              <span class="chip-k"><i></i>À traiter</span>
+              <span class="chip-v">3 séances</span>
+              <span class="chip-s">à clôturer aujourd'hui</span>
+            </div>
+          </div>
+          <ul class="panel-links">
+            <li><a href="fonctionnalites/quotidien.html#tableau">Tableau de bord <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/quotidien.html#agenda">Agenda et rendez-vous <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/quotidien.html#cloturer">Séances à clôturer <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/quotidien.html#attente">Liste d'attente <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/quotidien.html#patients">Fichier patients <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/quotidien.html#rappels">Rappels SMS et WhatsApp <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+          </ul>
+        </div>
+
+        <!-- ── Clinique ── -->
+        <div class="panel" style="--zc: var(--violet)" hidden>
+          <div class="stage rise">
+            <span class="stage-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3.5c-2.5 0-4 2-4 4.8 0 3 1 5.5 2 8 .6 1.6 1.2 3.2 2.3 3.2 1.2 0 1.3-1.6 1.6-3.2.3-1.5.6-2.6 2.1-2.6s1.8 1.1 2.1 2.6c.3 1.6.4 3.2 1.6 3.2 1.1 0 1.7-1.6 2.3-3.2 1-2.5 2-5 2-8 0-2.8-1.5-4.8-4-4.8-1.6 0-2.7.8-4 .8s-2.4-.8-4-.8Z"/></svg></span>
+            <div class="stage-copy">
+              <h3>Clinique</h3>
+              <p>Odontogramme, fiche de soins, plan de traitement et radios : un seul dossier, mis à jour une seule fois.</p>
+            </div>
+            <div class="stage-shot reveal-clip">
+              <div class="crop" style="--ar: 16/10; --cx: .185; --cy: .085; --cz: 2.6">
+                <img src="assets/img/odonto.webp" alt="L'odontogramme du patient, dent par dent, avec les actes portés dessus" width="3072" height="1728" loading="lazy" decoding="async">
+              </div>
+            </div>
+            <div class="chip" style="--zc: var(--violet); --cd: 300ms; bottom: 15%; right: 33%">
+              <span class="chip-k"><i></i>Plan de traitement</span>
+              <span class="chip-v">6 actes</span>
+              <span class="chip-s">3 faits, 3 à venir</span>
+            </div>
+          </div>
+          <ul class="panel-links">
+            <li><a href="fonctionnalites/clinique.html#odontogramme">Odontogramme <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/clinique.html#soins">Fiches de soins <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/clinique.html#plans">Plans de traitement <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/clinique.html#documents">Ordonnances et certificats <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/clinique.html#laboratoire">Commandes laboratoire <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/clinique.html#fichiers">Radios et fichiers <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+          </ul>
+        </div>
+
+        <!-- ── Finances ── -->
+        <div class="panel" style="--zc: var(--amber)" hidden>
+          <div class="stage rise">
+            <span class="stage-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H18a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3Z"/><path d="M3 8.5h13M16.5 13.5h.01"/></svg></span>
+            <div class="stage-copy">
+              <h3>Finances</h3>
+              <p>Encaissé, dépensé, net, créances. Chaque chiffre s’ouvre sur les lignes qui le composent, à la journée comme au mois.</p>
+            </div>
+            <div class="stage-shot reveal-clip">
+              <div class="crop" style="--ar: 16/10; --cx: .185; --cy: .085; --cz: 2.6">
+                <img src="assets/img/caisse.webp" alt="La caisse du mois : encaissements, dépenses, net, et l'extrait ligne par ligne" width="3072" height="1728" loading="lazy" decoding="async">
+              </div>
+            </div>
+            <div class="chip" style="--zc: var(--amber); --cd: 300ms; bottom: 15%; right: 33%">
+              <span class="chip-k"><i></i>Chèques</span>
+              <span class="chip-v">4 à l'échéance</span>
+              <span class="chip-s">cette semaine</span>
+            </div>
+          </div>
+          <ul class="panel-links">
+            <li><a href="fonctionnalites/finances.html#honoraires">Notes d'honoraires <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/finances.html#caisse">Caisse et extrait <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/finances.html#paiements">Espèces, chèque, carte, virement <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/finances.html#cheques">Chèques par échéance <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/finances.html#creances">Créances et relances <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/finances.html#avoirs">Avoirs et annulations <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+          </ul>
+        </div>
+
+        <!-- ── Gestion ── -->
+        <div class="panel" style="--zc: var(--green)" hidden>
+          <div class="stage rise">
+            <span class="stage-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7.5 12 3.5l8 4v9l-8 4-8-4Z"/><path d="M4 7.5 12 11.5l8-4M12 11.5V20"/></svg></span>
+            <div class="stage-copy">
+              <h3>Gestion</h3>
+              <p>Un stock qui alerte avant la péremption, vos fournisseurs, les droits de chacun, et un journal qui retrace chaque action.</p>
+            </div>
+            <div class="stage-shot reveal-clip">
+              <div class="crop" style="--ar: 16/10; --cx: .185; --cy: .085; --cz: 2.6">
+                <img src="assets/img/historique.webp" alt="Le journal d'activité du cabinet, action par action" width="3072" height="1728" loading="lazy" decoding="async">
+              </div>
+            </div>
+            <div class="chip" style="--zc: var(--green); --cd: 300ms; bottom: 15%; right: 33%">
+              <span class="chip-k"><i></i>Sauvegarde</span>
+              <span class="chip-v">il y a 41 min</span>
+              <span class="chip-s">vérifiée, restaurable</span>
+            </div>
+          </div>
+          <ul class="panel-links">
+            <li><a href="fonctionnalites/gestion.html#stock">Stock et péremptions <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/gestion.html#fournisseurs">Fournisseurs <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/gestion.html#roles">Utilisateurs et rôles <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/gestion.html#sauvegardes">Sauvegardes et restauration <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/gestion.html#journal">Journal d'activité <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+            <li><a href="fonctionnalites/gestion.html#reprise">Reprise et export CSV <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ══ 6 · LES VINGT-QUATRE ÉCRANS ══════════════════════════════════════════════ -->
+<div class="marquee" aria-label="Les vingt-quatre écrans du logiciel">
+  <div class="marquee-track">
+    <ul>
+      <li style="--zc: var(--azure)">Tableau de bord</li>
+      <li style="--zc: var(--azure)">Agenda</li>
+      <li style="--zc: var(--azure)">Séances à clôturer</li>
+      <li style="--zc: var(--azure)">Liste d'attente</li>
+      <li style="--zc: var(--azure)">Patients</li>
+      <li style="--zc: var(--azure)">Rappels SMS et WhatsApp</li>
+      <li style="--zc: var(--violet)">Odontogramme</li>
+      <li style="--zc: var(--violet)">Fiches de soins</li>
+      <li style="--zc: var(--violet)">Plans de traitement</li>
+      <li style="--zc: var(--violet)">Ordonnances et certificats</li>
+      <li style="--zc: var(--violet)">Laboratoire</li>
+      <li style="--zc: var(--violet)">Radios et fichiers</li>
+      <li style="--zc: var(--amber)">Notes d'honoraires</li>
+      <li style="--zc: var(--amber)">Caisse et extrait</li>
+      <li style="--zc: var(--amber)">Modes de paiement</li>
+      <li style="--zc: var(--amber)">Chèques</li>
+      <li style="--zc: var(--amber)">Créances</li>
+      <li style="--zc: var(--amber)">Avoirs</li>
+      <li style="--zc: var(--green)">Stock et péremptions</li>
+      <li style="--zc: var(--green)">Fournisseurs</li>
+      <li style="--zc: var(--green)">Utilisateurs et rôles</li>
+      <li style="--zc: var(--green)">Sauvegardes</li>
+      <li style="--zc: var(--green)">Journal d'activité</li>
+      <li style="--zc: var(--green)">Réglages</li>
+    </ul>
+    <ul aria-hidden="true">
+      <li style="--zc: var(--azure)">Tableau de bord</li>
+      <li style="--zc: var(--azure)">Agenda</li>
+      <li style="--zc: var(--azure)">Séances à clôturer</li>
+      <li style="--zc: var(--azure)">Liste d'attente</li>
+      <li style="--zc: var(--azure)">Patients</li>
+      <li style="--zc: var(--azure)">Rappels SMS et WhatsApp</li>
+      <li style="--zc: var(--violet)">Odontogramme</li>
+      <li style="--zc: var(--violet)">Fiches de soins</li>
+      <li style="--zc: var(--violet)">Plans de traitement</li>
+      <li style="--zc: var(--violet)">Ordonnances et certificats</li>
+      <li style="--zc: var(--violet)">Laboratoire</li>
+      <li style="--zc: var(--violet)">Radios et fichiers</li>
+      <li style="--zc: var(--amber)">Notes d'honoraires</li>
+      <li style="--zc: var(--amber)">Caisse et extrait</li>
+      <li style="--zc: var(--amber)">Modes de paiement</li>
+      <li style="--zc: var(--amber)">Chèques</li>
+      <li style="--zc: var(--amber)">Créances</li>
+      <li style="--zc: var(--amber)">Avoirs</li>
+      <li style="--zc: var(--green)">Stock et péremptions</li>
+      <li style="--zc: var(--green)">Fournisseurs</li>
+      <li style="--zc: var(--green)">Utilisateurs et rôles</li>
+      <li style="--zc: var(--green)">Sauvegardes</li>
+      <li style="--zc: var(--green)">Journal d'activité</li>
+      <li style="--zc: var(--green)">Réglages</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ══ 7 · CONÇU EN TUNISIE ═════════════════════════════════════════════════════ -->
+<section class="sec" id="tunisie">
+  <div class="wrap">
+    <div class="head rise">
+      <p class="eyebrow">Conçu en Tunisie</p>
+      <h2>Pensé pour la façon dont on travaille ici</h2>
+      <p class="lede">Le logiciel n’a pas été traduit, il a été écrit sur place&nbsp;: la monnaie, les moyens de paiement et le vocabulaire sont ceux de votre cabinet.</p>
+    </div>
+
+    <div class="tn-grid">
+
+      <!-- A · Chèques postdatés — le registre réel du logiciel -->
+      <article class="tn-card tn-card--ink tn-a rise" style="--zc: var(--amber-lit)">
+        <div class="tn-body">
+          <p class="tn-k"><i></i>Chèques postdatés</p>
+          <h3>Classés par échéance, pas par date de saisie</h3>
+          <p class="tn-p">En retard, bientôt, plus tard. Chaque chèque garde sa banque, son numéro et le patient à relancer, jusqu’au jour où vous le portez en banque.</p>
+          <ul class="tn-stats">
+            <li><b>1&nbsp;515,000&nbsp;DT</b><span>7 chèques en retard, encaissables maintenant</span></li>
+            <li><b>1&nbsp;405,000&nbsp;DT</b><span>6 chèques à échéance sous 30 jours</span></li>
+          </ul>
+        </div>
+        <div class="tn-shot reveal-clip">
+          <div class="crop" style="--ar: 2.75/1; --cx: .185; --cy: var(--tn-cy, .922); --cz: 2.24">
+            <img src="assets/img/cheques.webp"
+                 alt="Le registre des chèques détenus par le cabinet&nbsp;: pour chaque ligne, la date d’encaissement, l’échéance, le numéro du chèque, la banque et le montant"
+                 width="3072" height="1728" loading="lazy" decoding="async">
+          </div>
+        </div>
+      </article>
+
+      <!-- B · Le prix de l'acte — la note d'honoraires rendue -->
+      <article class="tn-card tn-b rise d1" style="--zc: var(--amber)">
+        <div class="tn-body">
+          <p class="tn-k"><i></i>Note d’honoraires</p>
+          <h3>Le patient paie le prix de l’acte</h3>
+          <p class="tn-p">Le montant annoncé au fauteuil est celui que l’accueil encaisse&nbsp;: rien ne vient s’ajouter au tarif de votre catalogue entre les deux.</p>
+
+          <div class="tn-ui tn-ui--paper tn-note">
+            <p class="tn-note-top"><span>Note d’honoraires</span><b>2026-0063</b></p>
+            <ul class="tn-note-lines">
+              <li><span>Consultation</span><b>30,000</b></li>
+              <li><span>Radiographie rétro-alvéolaire</span><b>20,000</b></li>
+              <li><span>Détartrage, deux arcades</span><b>80,000</b></li>
+              <li><span>Composite, dent 26</span><b>70,000</b></li>
+              <li><span>Polissage et fluoration</span><b>40,000</b></li>
+            </ul>
+            <p class="tn-note-sub"><span>Sous-total</span><b>240,000</b></p>
+            <p class="tn-note-total"><span>Total à régler</span><b><span class="count" data-count="240">240</span>,000&nbsp;DT</b></p>
+          </div>
+        </div>
+      </article>
+
+      <!-- C · Numérotation continue — la séquence rendue -->
+      <article class="tn-card tn-c rise" style="--zc: var(--amber)">
+        <div class="tn-body">
+          <p class="tn-k"><i></i>Numérotation</p>
+          <h3>Une numérotation qui ne saute jamais</h3>
+          <p class="tn-p">Vos notes se suivent par année, sans trou ni doublon, même quand trois postes en créent à la même minute.</p>
+
+          <div class="tn-ui tn-ui--paper tn-seq">
+            <p class="tn-seq-h">Mardi 18 août, trois postes ouverts</p>
+            <ol>
+              <li><b>2026-0061</b><span>Accueil</span><time>10:42</time></li>
+              <li><b>2026-0062</b><span>Fauteuil 1</span><time>10:44</time></li>
+              <li><b>2026-0063</b><span>Fauteuil 2</span><time>10:44</time></li>
+              <li><b>2026-0064</b><span>Accueil</span><time>10:47</time></li>
+            </ol>
+          </div>
+        </div>
+      </article>
+
+      <!-- D · Modes de paiement — la répartition rendue -->
+      <article class="tn-card tn-card--paper tn-d rise d1" style="--zc: var(--green)">
+        <div class="tn-body">
+          <p class="tn-k"><i></i>Modes de paiement</p>
+          <h3>Chaque mode a son propre total</h3>
+          <p class="tn-p">Votre caisse sait comment l’argent est entré, pas seulement combien.</p>
+
+          <div class="tn-ui tn-modes">
+            <p class="tn-modes-h"><span>Encaissé du mois</span><b>19&nbsp;280,000&nbsp;DT</b></p>
+            <div class="tn-bar" aria-hidden="true">
+              <span style="--w: 85.9%; --s: 100%"></span>
+              <span style="--w: 7.8%; --s: 70%"></span>
+              <span style="--w: 3.8%; --s: 48%"></span>
+              <span style="--w: 2.5%; --s: 30%"></span>
+            </div>
+            <ul class="tn-modes-list">
+              <li style="--s: 100%"><i></i><span>Espèces</span><b>16&nbsp;570,000</b></li>
+              <li style="--s: 70%"><i></i><span>Chèque</span><b>1&nbsp;510,000</b></li>
+              <li style="--s: 48%"><i></i><span>Virement</span><b>720,000</b></li>
+              <li style="--s: 30%"><i></i><span>Carte bancaire</span><b>480,000</b></li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <!-- E · Formats tunisiens — un grand chiffre et deux champs -->
+      <article class="tn-card tn-e rise d2" style="--zc: var(--azure)">
+        <div class="tn-body">
+          <p class="tn-k"><i></i>Formats tunisiens</p>
+          <h3>Le dinar au millime, les vingt-quatre gouvernorats</h3>
+          <p class="tn-p">Les montants, les numéros et les adresses sont déjà au bon format. Vous n’avez rien à convertir.</p>
+
+          <div class="tn-ui tn-ui--paper tn-loc">
+            <p class="tn-big"><span class="count" data-count="24">24</span></p>
+            <p class="tn-big-cap">gouvernorats déjà dans la liste, de&nbsp;Tunis à&nbsp;Tataouine</p>
+            <dl class="tn-fields">
+              <div><dt>Montant</dt><dd>1&nbsp;250,000&nbsp;DT</dd></div>
+              <div><dt>Téléphone</dt><dd>+216&nbsp;71&nbsp;234&nbsp;567</dd></div>
+            </dl>
+          </div>
+        </div>
+      </article>
+
+      <!-- F · Le vocabulaire, sur une bande large avec une photographie -->
+      <article class="tn-card tn-card--paper tn-wide tn-f rise" style="--zc: var(--violet)">
+        <figure class="tn-photo">
+          <img src="assets/img/photo-accueil2.webp" alt="" width="1700" height="1133" loading="lazy" decoding="async">
+        </figure>
+        <div class="tn-body tn-wide-body">
+          <p class="tn-k"><i></i>Vocabulaire</p>
+          <h3>Écrit en français, pas traduit de l’anglais</h3>
+          <p class="tn-p">Les écrans reprennent les mots que votre équipe emploie déjà au comptoir. Personne n’a à deviner le sens d’un terme avant de cliquer dessus.</p>
+          <ul class="tn-words">
+            <li>séance</li>
+            <li>fauteuil</li>
+            <li>note d’honoraires</li>
+            <li>extrait de caisse</li>
+            <li>à clôturer</li>
+            <li>avoir</li>
+          </ul>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ══ 8 · L'ARGENT ═════════════════════════════════════════════════════════════ -->
+<section class="sec on-ink" id="argent">
+  <div class="wrap">
+    <div class="head rise">
+      <p class="eyebrow">L’argent</p>
+      <h2>Savoir ce que le mois a rapporté, sans avoir rien recopié</h2>
+      <p class="lede">La saisie à la main ne se fait jamais jusqu’au bout, et le chiffre du mois finit en estimation. Ici vous n’entrez que les dépenses&nbsp;: le reste est déjà écrit.</p>
+    </div>
+
+    <div class="figure-row rise d1" style="margin-bottom: clamp(2rem, 1.4rem + 2vw, 3rem)">
+      <div>
+        <span class="big-figure" style="color: var(--accent-lit)">1</span>
+        <span class="lbl">saisie au fauteuil, au lieu de quatre écritures à tenir séparément</span>
+      </div>
+      <div>
+        <span class="big-figure" style="color: var(--accent-lit)">0</span>
+        <span class="lbl">recette à saisir&nbsp;: une séance terminée alimente la caisse toute seule</span>
+      </div>
+      <div>
+        <span class="big-figure" style="color: var(--accent-lit)">4</span>
+        <span class="lbl">modes de paiement suivis séparément&nbsp;: espèces, chèque, carte, virement</span>
+      </div>
+    </div>
+
+    <div class="stage stage--ink rise d2" style="--zc: var(--amber)">
+      <span class="stage-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H18a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3Z"/><path d="M3 8.5h13M16.5 13.5h.01"/></svg></span>
+      <div class="stage-copy">
+        <h3>La caisse du mois, à la ligne près</h3>
+        <p>Encaissé, dépensé, net, créances. Chaque chiffre s’ouvre sur les mouvements qui le composent, et vous pouvez remonter jusqu’à la séance qui l’a produit.</p>
+      </div>
+      <div class="stage-shot reveal-clip">
+        <div class="crop" style="--ar: 16/10; --cx: .185; --cy: .085; --cz: 2.6">
+          <img src="assets/img/caisse.webp" alt="La caisse du mois : encaissements, dépenses, net, et l’extrait ligne par ligne" width="3072" height="1728" loading="lazy" decoding="async">
+        </div>
+      </div>
+      <div class="chip" style="--zc: var(--amber); --cd: 300ms; bottom: 15%; right: 33%">
+        <span class="chip-k"><i></i>Encaissé ce mois</span>
+        <span class="chip-v"><span class="count" data-count="19280">19 280</span>,000 DT</span>
+        <span class="chip-s">sans une ligne recopiée</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 9 · SUR LE TÉLÉPHONE ═════════════════════════════════════════════════════ -->
+<section class="sec on-ink mob" id="mobile">
+  <div class="wrap">
+    <div class="head head-split rise">
+      <p class="eyebrow">Mobile</p>
+      <h2>Votre cabinet tient dans votre poche</h2>
+      <p class="lede">La fiche d’un patient, l’agenda du jour, les chiffres de la caisse&nbsp;: les mêmes données que sur le poste du cabinet, consultables entre deux fauteuils.</p>
+      <a class="link-arrow head-link" href="mobile.html">Le logiciel sur téléphone
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+    </div>
+
+    <div class="mob-deck rise d1">
+
+      <div class="mob-phone mob-phone--a">
+        <div class="mob-frame">
+          <div class="mob-screen">
+            <img src="assets/img/m-odonto.webp"
+                 alt="L’odontogramme sur téléphone : chaque dent porte son diagnostic et les actes réalisés"
+                 width="390" height="844" loading="lazy" decoding="async">
+          </div>
+        </div>
+      </div>
+
+      <div class="mob-phone mob-phone--b">
+        <div class="mob-frame">
+          <div class="mob-screen">
+            <img src="assets/img/m-agenda.webp"
+                 alt="L’agenda du jour sur téléphone : les rendez-vous heure par heure, avec le patient et l’acte prévu"
+                 width="390" height="844" loading="lazy" decoding="async">
+          </div>
+        </div>
+      </div>
+
+      <div class="mob-phone mob-phone--c">
+        <div class="mob-frame">
+          <div class="mob-screen">
+            <img src="assets/img/m-cloturer.webp"
+                 alt="Les chiffres du cabinet sur téléphone : le net, l’encaissé et les dépenses du mois"
+                 width="390" height="844" loading="lazy" decoding="async">
+          </div>
+        </div>
+      </div>
+
+      <div class="chip" style="--zc: var(--violet); --cd: 520ms; top: 6%; left: 0">
+        <span class="chip-k"><i></i>Odontogramme</span>
+        <span class="chip-v">Dent 14</span>
+        <span class="chip-s">traitement de canal à prévoir</span>
+      </div>
+
+      <div class="chip" style="--zc: var(--amber); --cd: 940ms; bottom: 9%; right: 0">
+        <span class="chip-k"><i></i>À clôturer</span>
+        <span class="chip-v">3 séances</span>
+        <span class="chip-s">signalées avant que vous les oubliiez</span>
+      </div>
+
+    </div>
+
+    <ul class="mob-facts rise d2">
+      <li style="--zc: var(--violet-lit)">
+        <b>La fiche du patient</b>
+        <p>L’odontogramme, les actes déjà réalisés et le plan de traitement en cours, dent par dent.</p>
+      </li>
+      <li style="--zc: var(--azure-lit)">
+        <b>L’agenda du jour</b>
+        <p>Qui arrive, à quelle heure et pour quel acte. Les séances restées ouvertes sont annoncées en tête.</p>
+      </li>
+      <li style="--zc: var(--amber-lit)">
+        <b>Les chiffres</b>
+        <p>L’encaissé, les dépenses et le net du mois, avec les lignes qui composent chaque montant.</p>
+      </li>
+    </ul>
+
+    <div class="mob-note rise d3">
+      <p>Ce n’est pas une seconde application allégée&nbsp;: le téléphone affiche l’interface du cabinet, la même que sur le poste, avec les droits de chacun.</p>
+      <ul class="mob-plat">
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 12.4a6 6 0 0 1 12 0"/><path d="M8.3 9.3 6.7 6.9M15.7 9.3l1.6-2.4M9.6 10.9h.01M14.4 10.9h.01"/><path d="M6 12.4h12v5a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 6 17.4Z"/></svg>
+          Android
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.6"/><path d="M10.6 5.2h2.8M10.2 18.6h3.6"/></svg>
+          iPhone
+        </li>
+      </ul>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══ 10 · FIABILITÉ ═══════════════════════════════════════════════════════════ -->
+<section class="sec" id="fiabilite">
+  <div class="wrap">
+    <div class="head rise">
+      <p class="eyebrow">Fiabilité</p>
+      <h2>Les deux questions qu’on nous pose toujours</h2>
+      <p class="lede">Deux pannes finissent par arriver dans tous les cabinets&nbsp;: la connexion, puis la machine. Voici ce qui se passe dans chacun des deux cas.</p>
+    </div>
+
+    <div class="duo">
+
+      <!-- A · le réseau local, et l'internet coupé -->
+      <article class="stage stage--fig rise" style="--zc: var(--azure); --zcl: var(--azure-lit)">
+        <span class="stage-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8.5" y="2.5" width="7" height="5.5" rx="1.5"/><rect x="1.5" y="16" width="6.5" height="5.5" rx="1.5"/><rect x="16" y="16" width="6.5" height="5.5" rx="1.5"/><path d="M12 8v4M4.75 16v-4h14.5v4"/></svg></span>
+        <div class="stage-copy">
+          <h3>Et si la connexion tombe&nbsp;?</h3>
+          <p>Le logiciel est installé sur un poste du cabinet, les autres s’y connectent par le réseau local. Une coupure ne bloque ni l’agenda, ni la caisse, ni les dossiers.</p>
+        </div>
+
+        <figure class="fi-fig">
+          <div class="fi-lan">
+
+            <p class="fi-node fi-off" style="--fi-d: 40ms">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 18.5a4.5 4.5 0 0 1-.4-8.98A6 6 0 0 1 17.7 8.6a3.95 3.95 0 0 1-.2 9.9z"/></svg>
+              <b>Internet</b>
+            </p>
+
+            <span class="fi-wire">
+              <i class="fi-cut" aria-hidden="true"><svg viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.4 1.4 6.6 6.6M6.6 1.4 1.4 6.6"/></svg></i>
+              <em><span class="fi-tag-long">connexion </span>coupée</em>
+            </span>
+
+            <div class="fi-net">
+              <span class="fi-net-tag">Réseau local<span class="fi-tag-long"> du cabinet</span></span>
+
+              <p class="fi-node fi-hub" style="--fi-d: 300ms">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.5 6.5h7M8.5 10h7M8.5 17.5h3"/></svg>
+                <b>Poste du cabinet</b>
+                <span>le logiciel et les données</span>
+              </p>
+
+              <div class="fi-branch" aria-hidden="true"><i></i><i></i><i></i></div>
+
+              <ul class="fi-posts">
+                <li class="fi-node" style="--fi-d: 880ms">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4" width="19" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg>
+                  <b>Accueil</b>
+                </li>
+                <li class="fi-node" style="--fi-d: 920ms">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4" width="19" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg>
+                  <b>Fauteuil&nbsp;1</b>
+                </li>
+                <li class="fi-node" style="--fi-d: 960ms">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4" width="19" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg>
+                  <b>Fauteuil&nbsp;2</b>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <figcaption>L’agenda, la caisse et les dossiers restent accessibles depuis chaque poste.</figcaption>
+        </figure>
+      </article>
+
+      <!-- B · la sauvegarde horaire -->
+      <article class="stage stage--fig rise d1" style="--zc: var(--green); --zcl: var(--green-lit)">
+        <span class="stage-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.9-6.4"/><path d="M3.5 4.5V9H8"/><path d="M12 8v4.4l3 1.8"/></svg></span>
+        <div class="stage-copy">
+          <h3>Et si l’ordinateur lâche&nbsp;?</h3>
+          <p>Une sauvegarde part toutes les heures, elle est vérifiée, et elle se restaure. Si rien n’est sorti du cabinet depuis trop longtemps, le logiciel vous prévient.</p>
+        </div>
+
+        <figure class="fi-fig">
+          <div class="fi-tl">
+            <div class="fi-tl-head">
+              <span class="fi-day">Aujourd’hui</span>
+              <span class="fi-last"><i aria-hidden="true"></i>Dernière&nbsp;: il y a 12&nbsp;min</span>
+            </div>
+
+            <div class="fi-rail-wrap">
+              <ol class="fi-rail" aria-label="Les sauvegardes de la journée, une par heure">
+                <li class="fi-tick" style="--i: 0"><i aria-hidden="true"></i><span>09</span></li>
+                <li class="fi-tick" style="--i: 1"><i aria-hidden="true"></i><span>10</span></li>
+                <li class="fi-tick" style="--i: 2"><i aria-hidden="true"></i><span>11</span></li>
+                <li class="fi-tick" style="--i: 3"><i aria-hidden="true"></i><span>12</span></li>
+                <li class="fi-tick" style="--i: 4"><i aria-hidden="true"></i><span>13</span></li>
+                <li class="fi-tick" style="--i: 5"><i aria-hidden="true"></i><span>14</span></li>
+                <li class="fi-tick" style="--i: 6"><i aria-hidden="true"></i><span>15</span></li>
+                <li class="fi-tick" style="--i: 7"><i aria-hidden="true"></i><span>16</span></li>
+                <li class="fi-tick fi-tick--now" style="--i: 8"><i aria-hidden="true"></i><span>17</span></li>
+              </ol>
+
+              <div class="fi-span" aria-hidden="true"></div>
+
+              <p class="fi-restore">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.9-6.4"/><path d="M3.5 4.5V9H8"/></svg>
+                Chacune est restaurable
+              </p>
+            </div>
+
+            <div class="fi-back">
+              <span class="fi-node">Sauvegarde de 17&nbsp;h&nbsp;00</span>
+              <svg class="fi-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13.5 6.5 20 12l-6.5 5.5"/></svg>
+              <span class="fi-node fi-node--out"><span class="sr-only">Restauration&nbsp;: </span>Le cabinet tel qu’à 17&nbsp;h&nbsp;00</span>
+            </div>
+          </div>
+
+          <figcaption>Une sauvegarde par heure, contrôlée dans la foulée.</figcaption>
+        </figure>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ══ 11 · QUESTIONS ═══════════════════════════════════════════════════════════ -->
+<section class="sec fq" id="questions">
+  <div class="wrap faq">
+
+    <div class="fq-aside">
+      <div class="head rise">
+        <p class="eyebrow">Questions</p>
+        <h2>Les questions qu’on nous pose avant de commencer</h2>
+        <p class="lede">Celles qui reviennent à chaque premier rendez-vous, avec des réponses franches&nbsp;: ce que le logiciel fait, et ce qu’il ne prétend pas faire.</p>
+      </div>
+
+      <div class="fq-card on-ink rise d1">
+        <div class="fq-photo">
+          <img src="assets/img/photo-sourire.webp" alt="" width="1700" height="1133" loading="lazy" decoding="async">
+        </div>
+        <div class="fq-card-body">
+          <p class="fq-card-k">Écrivez-nous</p>
+          <h3>Votre question n’est pas dans la liste&nbsp;?</h3>
+          <a class="fq-mail" href="mailto:contact@gestion-clinique.tn">
+            <span class="fq-mail-ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m3.6 6.6 7.3 5.4a2 2 0 0 0 2.2 0l7.3-5.4"/></svg>
+            </span>
+            <span class="fq-mail-txt">
+              <span class="fq-mail-v">contact@gestion-clinique.tn</span>
+              <span class="fq-mail-s">Nous répondons dans la journée.</span>
+            </span>
+          </a>
+          <p class="fq-card-s">Vous préférez le voir tourner&nbsp;?</p>
+          <a class="link-arrow fq-demo" href="demo.html">Demander une démo
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="fq-main">
+      <div class="faq-list rise d1" data-faq>
+        <div class="faq-item">
+          <button type="button" aria-expanded="true"><span class="fq-n" aria-hidden="true">01</span><span class="fq-q">Combien de temps pour être opérationnel&nbsp;?</span><span class="sign" aria-hidden="true"></span></button>
+          <div class="faq-body"><div><p>Une demi-journée pour un cabinet qui démarre&nbsp;: les actes, les tarifs et les rôles sont déjà en place, vous n’ajustez que ce qui vous est propre. Comptez une journée de plus si vous reprenez un fichier existant, le temps de l’importer et de le vérifier.</p></div></div>
+        </div>
+        <div class="faq-item">
+          <button type="button" aria-expanded="false"><span class="fq-n" aria-hidden="true">02</span><span class="fq-q">Faut-il un serveur ou un abonnement internet&nbsp;?</span><span class="sign" aria-hidden="true"></span></button>
+          <div class="faq-body"><div><p>Non. Le logiciel s’installe sur un PC Windows du cabinet, les autres postes s’y connectent par le réseau local. Internet ne sert qu’aux rappels SMS et WhatsApp et à la synchronisation avec Google Agenda. Sans lui, tout le reste continue.</p></div></div>
+        </div>
+        <div class="faq-item">
+          <button type="button" aria-expanded="false"><span class="fq-n" aria-hidden="true">03</span><span class="fq-q">Et mes données, si j’arrête&nbsp;?</span><span class="sign" aria-hidden="true"></span></button>
+          <div class="faq-body"><div><p>Elles sortent en CSV quand vous le décidez&nbsp;: patients, actes, paiements. Vous pouvez aussi produire une archive complète du cabinet en un clic. Rien n’est retenu pour vous faire rester.</p></div></div>
+        </div>
+        <div class="faq-item">
+          <button type="button" aria-expanded="false"><span class="fq-n" aria-hidden="true">04</span><span class="fq-q">Mon équipe n’est pas à l’aise avec l’informatique</span><span class="sign" aria-hidden="true"></span></button>
+          <div class="faq-body"><div><p>Les écrans suivent le déroulement d’une séance, pas la structure d’une base de données, et le vocabulaire est celui du cabinet. Chacun ne voit que ce qui le concerne&nbsp;: votre assistante n’a pas la caisse sous les yeux si vous ne le souhaitez pas.</p></div></div>
+        </div>
+        <div class="faq-item">
+          <button type="button" aria-expanded="false"><span class="fq-n" aria-hidden="true">05</span><span class="fq-q">Depuis quand le logiciel existe-t-il&nbsp;?</span><span class="sign" aria-hidden="true"></span></button>
+          <div class="faq-body"><div><p>C’est un produit récent, et nous préférons le dire. C’est aussi pourquoi l’essai dure trente jours sans carte bancaire&nbsp;: vous jugez sur pièces, pas sur une liste de références.</p></div></div>
+        </div>
+        <div class="faq-item">
+          <button type="button" aria-expanded="false"><span class="fq-n" aria-hidden="true">06</span><span class="fq-q">Peut-on l’utiliser sur téléphone&nbsp;?</span><span class="sign" aria-hidden="true"></span></button>
+          <div class="faq-body"><div><p>Oui, sur Android comme sur iPhone. Mêmes données, même cabinet&nbsp;: l’agenda du jour, la fiche d’un patient et vos chiffres, consultables entre deux fauteuils.</p></div></div>
+        </div>
+      </div>
+
+      <div class="fq-foot rise d2">
+        <span>Pour aller plus loin</span>
+        <a class="link-arrow" href="hors-ligne.html">Le fonctionnement hors ligne
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a class="link-arrow" href="mobile.html">Android et iPhone
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══ 12 · ESSAI ═══════════════════════════════════════════════════════════════ -->
+<section class="cta-band bc-close on-ink">
+  <img class="bc-close__photo" src="assets/img/photo-tablette.webp" alt="" width="1700" height="1136" loading="lazy" decoding="async">
+
+  <div class="wrap bc-close__in">
+
+    <div class="bc-close__deco rise" aria-hidden="true">
+      <div class="chip bc-close__chip--a" style="--zc: var(--azure); --cd: 420ms">
+        <span class="chip-k"><i></i>Mise en route</span>
+        <span class="chip-v">une demi-journée</span>
+        <span class="chip-s">actes et tarifs déjà en place</span>
+      </div>
+      <div class="chip bc-close__chip--b" style="--zc: var(--green); --cd: 780ms">
+        <span class="chip-k"><i></i>Reprise de vos données</span>
+        <span class="chip-v">3 fichiers CSV</span>
+        <span class="chip-s">patients, actes, paiements</span>
+      </div>
+    </div>
+
+    <h2 class="rise">Essayez gratuitement pendant trente jours</h2>
+    <p class="rise d1">Sans carte bancaire et sans engagement. Nous installons avec vous, nous reprenons vos données, et vous décidez ensuite.</p>
+    <a class="btn btn-primary rise d2" href="demo.html#essai">Démarrer l’essai</a>
+
+    <ul class="trust bc-close__trust rise d3">
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Windows, Android, iPhone</li>
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Export CSV à tout moment</li>
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Sans engagement</li>
+    </ul>
+
+  </div>
+</section>
+
+<!-- ══ 13 · VOS DONNÉES ═════════════════════════════════════════════════════════ -->
+<section class="sec dn" id="donnees">
+  <div class="wrap">
+
+    <div class="head head-split rise">
+      <p class="eyebrow">Vos données</p>
+      <h2>Vos données vous appartiennent</h2>
+      <p class="lede">Elles sortent quand vous le décidez, dans un format que n’importe quel tableur ouvre. Et chaque action reste datée et signée.</p>
+      <a class="link-arrow head-link" href="fonctionnalites/gestion.html#reprise">Reprise et export CSV
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+    </div>
+
+    <div class="dn-grid">
+
+      <!-- ── Export CSV ─────────────────────────────────────────────────── -->
+      <article class="dn-card rise">
+        <div class="dn-viz" aria-hidden="true">
+          <div class="dn-viz-top">
+            <span class="dn-viz-t">Exporter les données</span>
+            <span class="dn-viz-m">3 fichiers</span>
+          </div>
+          <ul class="dn-rows dn-files">
+            <li><span class="dn-ext">CSV</span><span class="dn-f">patients.csv</span><span class="dn-fm">1 284 lignes</span></li>
+            <li><span class="dn-ext">CSV</span><span class="dn-f">actes.csv</span><span class="dn-fm">6 902 lignes</span></li>
+            <li><span class="dn-ext">CSV</span><span class="dn-f">paiements.csv</span><span class="dn-fm">5 130 lignes</span></li>
+          </ul>
+          <p class="dn-viz-foot"><span class="dn-ck"></span>Archive complète du cabinet, en un clic</p>
+        </div>
+        <div class="dn-txt">
+          <h3 class="dn-h">Export CSV</h3>
+          <p class="dn-p">Patients, actes et paiements sortent en trois fichiers qu’un tableur ouvre sans rien installer. Le cabinet entier part aussi en une seule archive.</p>
+        </div>
+      </article>
+
+      <!-- ── Sauvegarde horaire ─────────────────────────────────────────── -->
+      <article class="dn-card rise d1">
+        <div class="dn-viz" aria-hidden="true">
+          <div class="dn-viz-top">
+            <span class="dn-viz-t">Sauvegardes</span>
+            <span class="dn-viz-m">toutes les heures</span>
+          </div>
+          <ol class="dn-tl">
+            <li><i></i><b>09:00</b></li>
+            <li><i></i><b>10:00</b></li>
+            <li><i></i><b>11:00</b></li>
+            <li><i></i><b>12:00</b></li>
+            <li class="is-now"><i></i><b>13:00</b></li>
+            <li class="is-next"><i></i><b>14:00</b></li>
+          </ol>
+          <p class="dn-viz-foot"><span class="dn-ck"></span>Il y a 12 min · vérifiée et restaurable</p>
+        </div>
+        <div class="dn-txt">
+          <h3 class="dn-h">Sauvegarde horaire</h3>
+          <p class="dn-p">Une sauvegarde part toutes les heures, elle est vérifiée, et elle se restaure. Si plus rien n’est sorti du cabinet depuis trop longtemps, le logiciel vous le dit.</p>
+        </div>
+      </article>
+
+      <!-- ── Journal d'activité ─────────────────────────────────────────── -->
+      <article class="dn-card rise">
+        <div class="dn-viz" aria-hidden="true">
+          <div class="dn-viz-top">
+            <span class="dn-viz-t">Journal d’activité</span>
+            <span class="dn-viz-m">aujourd’hui</span>
+          </div>
+          <ul class="dn-rows dn-log">
+            <li><span class="dn-time">14:32</span><span class="dn-act">Note d’honoraires n° 2026-0412 corrigée<em>Salma, assistante · 240,000 → 210,000 DT</em></span></li>
+            <li><span class="dn-time">11:48</span><span class="dn-act">Séance clôturée, trois actes portés<em>Dr Trabelsi · dossier n° 1042</em></span></li>
+            <li><span class="dn-time">09:15</span><span class="dn-act">Encaissement enregistré<em>Salma, assistante · 180,000 DT en espèces</em></span></li>
+          </ul>
+          <p class="dn-viz-foot"><span class="dn-ck"></span>Une correction garde la trace de l’écriture d’origine</p>
+        </div>
+        <div class="dn-txt">
+          <h3 class="dn-h">Journal d’activité</h3>
+          <p class="dn-p">Qui a fait quoi, et quand. Les corrections y figurent aussi&nbsp;: une écriture se rectifie, elle ne s’efface pas.</p>
+        </div>
+      </article>
+
+      <!-- ── Droits par personne ────────────────────────────────────────── -->
+      <article class="dn-card rise d1">
+        <div class="dn-viz" aria-hidden="true">
+          <div class="dn-viz-top">
+            <span class="dn-viz-t">Utilisateurs et rôles</span>
+            <span class="dn-viz-m">3 rôles</span>
+          </div>
+          <div class="dn-mx">
+            <span class="dn-mx-h"></span>
+            <span class="dn-mx-h">Agenda</span>
+            <span class="dn-mx-h">Soins</span>
+            <span class="dn-mx-h">Caisse</span>
+            <span class="dn-mx-r">Praticien</span>
+            <span class="dn-mx-c"><span class="dn-y"></span></span>
+            <span class="dn-mx-c"><span class="dn-y"></span></span>
+            <span class="dn-mx-c"><span class="dn-y"></span></span>
+            <span class="dn-mx-r">Assistante</span>
+            <span class="dn-mx-c"><span class="dn-y"></span></span>
+            <span class="dn-mx-c"><span class="dn-y"></span></span>
+            <span class="dn-mx-c"><span class="dn-no"></span></span>
+            <span class="dn-mx-r">Secrétaire</span>
+            <span class="dn-mx-c"><span class="dn-y"></span></span>
+            <span class="dn-mx-c"><span class="dn-no"></span></span>
+            <span class="dn-mx-c"><span class="dn-no"></span></span>
+          </div>
+          <p class="dn-viz-foot"><span class="dn-ck"></span>Modifiable rôle par rôle, à tout moment</p>
+        </div>
+        <div class="dn-txt">
+          <h3 class="dn-h">Droits par personne</h3>
+          <p class="dn-p">Chacun n’ouvre que ce qui le concerne. La caisse n’est pas ouverte à tous, et c’est vous qui en décidez, rôle par rôle.</p>
+        </div>
+      </article>
+
+    </div>
+
+    <div class="dn-vow rise">
+      <div>
+        <p class="dn-vow-t">Partir doit être aussi simple qu’arriver.</p>
+        <p class="dn-vow-s">Vos données sortent en trois fichiers CSV, votre cabinet entier en une archive&nbsp;: sans formulaire, sans délai, sans frais.</p>
+      </div>
+      <ul class="dn-figs">
+        <li>
+          <b class="dn-fig-v"><span class="count" data-count="3">3</span></b>
+          <span class="dn-fig-k">fichiers CSV&nbsp;: patients, actes, paiements</span>
+        </li>
+        <li>
+          <b class="dn-fig-v"><span class="count" data-count="60">60</span><span class="dn-u">min</span></b>
+          <span class="dn-fig-k">entre deux sauvegardes vérifiées</span>
+        </li>
+        <li>
+          <b class="dn-fig-v">0<span class="dn-u">DT</span></b>
+          <span class="dn-fig-k">pour repartir avec l’intégralité du dossier</span>
+        </li>
+      </ul>
+    </div>
+
+  </div>
+</section>

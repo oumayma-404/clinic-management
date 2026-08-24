@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>La journée se remplit</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:#0e1b2a;color:#fff;
+ font-family:"Geist",ui-sans-serif,system-ui,sans-serif;font-weight:400}
+.demo{max-width:1272px;margin:0 auto;padding:40px 24px}
+.wrap{max-width:636px}
+@media (max-width:700px){.demo{padding:16px}}
+/* ============ HERO FILM : copy from here ============ */
+
+.hf{--dw:636;--dh:500;--agx:14px;--agy:12px;--agw:608px;--agh:288px;--ttly:26px;--hh1:46px;--hh2:72px;--gx:72px;--gy:78px;--cw:101px;--cgap:7px;--rh:36px;--rgap:7px;--dhy:56px;--tlx:28px;--tlw:34px;--gutx:68px;--fx:286px;--fy:164px;--fw:336px;--fh:228px;--fpad:16px;--nmy:182px;--nmh:24px;--mty:212px;--divy:240px;--dcy:358px;--oux:454px;--ouy:298px;--oua:78px;--oub:30px;--olx:454px;--oly:316px;--ola:78px;--olb:27px;--tw:11px;--th:15px;--nfx:180px;--nfy:-100px;--nx:14px;--ny:328px;--nw:252px;--nh:152px;--npad:16px;--kx:322px;--ky:430px;--kw:300px;--kh:50px;--kpad:16px;--olh:24px;--cpx:14px;--cpy:330px;--rpx:400px;--rpy:126px;--amx:170px;--amy:436px;--hx:325px;--hy:59px;--ax:300px;--ay:16px;--rx:130px;--ry:-168px;--fly:-150px;--fsDay:11.5px;--fsTime:10.5px;--fsBlk:14.5px;--fsTtl:12.5px;--fsName:19px;--fsMeta:12px;--fsNCap:9.5px;--fsNLine:13.5px;--fsNSub:11px;--fsNTot:16px;--fsNTotLab:12px;--fsKLab:11.5px;--fsKNum:19px;--fsCapAct:15px;--fsCapTime:12px;--fsChip:11.5px;--fsDent:11px;--fsAmt:15px;--T:15.5s}
+
+.hf-box{container-type:inline-size;width:100%;max-width:100%}
+.hf{position:relative;width:100%;aspect-ratio:var(--dw)/var(--dh);overflow:hidden;
+ border-radius:20px;background:#0e1b2a;contain:paint;
+ --eo:cubic-bezier(.23,1,.32,1);--eio:cubic-bezier(.77,0,.175,1);
+ --s:tan(atan2(100cqw,calc(var(--dw) * 1px)));
+ --line:#2a3f57;--surf:#16283c;--surf2:#1d3550;--mut:#a9b6c4;--faint:#7c8b9b;
+ --teal:#2dd4bf;--tealo:#7defdc;
+ font-family:"Geist",ui-sans-serif,system-ui,sans-serif;font-weight:400;
+ -webkit-font-smoothing:antialiased}
+.hf *{box-sizing:border-box;margin:0}
+.st{position:absolute;left:0;top:0;width:calc(var(--dw)*1px);height:calc(var(--dh)*1px);
+ transform:scale(var(--s));transform-origin:0 0}
+.glow{position:absolute;left:-12%;top:-28%;width:88%;height:96%;border-radius:50%;
+ background:radial-gradient(closest-side,rgba(45,212,191,.14),rgba(45,212,191,0) 72%)}
+.glow2{position:absolute;right:-16%;bottom:-30%;width:78%;height:88%;border-radius:50%;
+ background:radial-gradient(closest-side,rgba(124,58,237,.13),rgba(124,58,237,0) 72%)}
+
+/* ---- agenda ---- */
+.ag{position:absolute;inset:0;will-change:transform,opacity}
+.agcard{position:absolute;left:var(--agx);top:var(--agy);width:var(--agw);height:var(--agh);
+ background:var(--surf);border-radius:20px;
+ box-shadow:inset 0 0 0 1px var(--line),0 12px 30px -14px rgba(0,0,0,.6)}
+.times,.fhead{position:absolute;inset:0}
+.ttl{position:absolute;left:calc(var(--agx) + var(--fpad));top:var(--ttly);
+ display:flex;align-items:center;gap:7px;
+ font-size:var(--fsTtl);color:#fff;letter-spacing:.01em;white-space:nowrap}
+.ttl i{font-style:normal;color:var(--faint)}
+.ttlr{position:absolute;right:calc(var(--dw)*1px - var(--agx) - var(--agw) + var(--fpad));
+ top:var(--ttly);display:flex;align-items:center;gap:6px;
+ font-size:var(--fsTtl);color:var(--mut);white-space:nowrap}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--teal);flex:none}
+.grid,.slots{position:absolute;inset:0}
+.hv{position:absolute;top:var(--gy);height:calc(var(--rh)*5 + var(--rgap)*4);width:1px;
+ background:var(--line);opacity:.55;
+ left:calc(var(--gx) + var(--i)*(var(--cw) + var(--cgap)) + var(--cw) + var(--cgap)/2 - .5px)}
+.hgut{position:absolute;top:var(--gy);height:calc(var(--rh)*5 + var(--rgap)*4);width:1px;
+ left:var(--gutx);background:var(--line);opacity:.42}
+.hh{position:absolute;left:calc(var(--agx) + var(--fpad));width:calc(var(--agw) - var(--fpad)*2);
+ height:1px;background:var(--line);opacity:.5;top:var(--hhy)}
+.dh{position:absolute;top:var(--dhy);width:var(--cw);text-align:center;font-size:var(--fsDay);
+ letter-spacing:.14em;color:var(--faint);
+ left:calc(var(--gx) + var(--c)*(var(--cw) + var(--cgap)))}
+.tl{position:absolute;left:var(--tlx);width:var(--tlw);font-size:var(--fsTime);color:var(--faint);
+ height:var(--rh);display:flex;align-items:center;justify-content:flex-end;
+ font-variant-numeric:tabular-nums;
+ top:calc(var(--gy) + var(--r)*(var(--rh) + var(--rgap)))}
+.sl{position:absolute;width:var(--cw);height:var(--rh);border-radius:10px;background:rgba(29,53,80,.55);
+ left:calc(var(--gx) + var(--c)*(var(--cw) + var(--cgap)));
+ top:calc(var(--gy) + var(--r)*(var(--rh) + var(--rgap)))}
+.bp{position:absolute;width:var(--cw);height:var(--rh);
+ left:calc(var(--gx) + var(--c)*(var(--cw) + var(--cgap)));
+ top:calc(var(--gy) + var(--r)*(var(--rh) + var(--rgap)))}
+.blk{position:absolute;inset:0;border-radius:10px;overflow:hidden;background:var(--surf2);
+ box-shadow:inset 0 0 0 1px var(--line);display:flex;align-items:center}
+.wash{position:absolute;inset:0;background:var(--z);transform-origin:0 50%}
+.bar{position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--zl)}
+.lab{position:relative;padding-left:11px;font-size:var(--fsBlk);font-weight:500;color:#fff;
+ letter-spacing:.005em;white-space:nowrap}
+.ghost{position:absolute;width:var(--cw);height:var(--rh);border-radius:10px;
+ box-shadow:inset 0 0 0 1px rgba(196,174,255,.45);background:rgba(124,58,237,.1);
+ left:calc(var(--gx) + var(--c)*(var(--cw) + var(--cgap)));
+ top:calc(var(--gy) + var(--r)*(var(--rh) + var(--rgap)))}
+.scrim{position:absolute;left:var(--agx);top:var(--agy);width:var(--agw);height:var(--agh);
+ border-radius:20px;background:rgba(14,27,42,.72);opacity:.85;z-index:3}
+
+/* ---- the lifted seance ---- */
+.hero{position:absolute;width:var(--cw);height:var(--rh);z-index:6;
+ transform:translate(var(--hx),var(--hy));will-change:transform;
+ left:calc(var(--gx) + var(--c)*(var(--cw) + var(--cgap)));
+ top:calc(var(--gy) + var(--r)*(var(--rh) + var(--rgap)))}
+.hsh{position:absolute;inset:0;border-radius:10px;opacity:0;
+ box-shadow:0 16px 30px -10px rgba(0,0,0,.75)}
+
+/* ---- patient file ---- */
+.file{position:absolute;left:var(--fx);top:var(--fy);width:var(--fw);height:var(--fh);z-index:5;
+ will-change:transform,opacity}
+.fsh{position:absolute;inset:0;border-radius:20px;
+ box-shadow:0 22px 46px -14px rgba(0,0,0,.62),0 3px 8px rgba(0,0,0,.28)}
+.sheet{position:absolute;inset:0;border-radius:20px;background:#fff;overflow:hidden}
+.nm{position:absolute;left:var(--fpad);top:calc(var(--nmy) - var(--fy));height:var(--nmh);
+ display:flex;align-items:center;font-size:var(--fsName);color:#09090b;
+ letter-spacing:-.01em;white-space:nowrap}
+.mt{position:absolute;left:var(--fpad);top:calc(var(--mty) - var(--fy));
+ font-size:var(--fsMeta);color:#52525b;white-space:nowrap}
+.dv{position:absolute;left:var(--fpad);right:var(--fpad);top:calc(var(--divy) - var(--fy));
+ height:1px;background:#e4e4e3;transform-origin:0 50%}
+.tw{position:absolute;width:0;height:0;transform:rotate(var(--ang))}
+.tw.up{left:calc(var(--oux) - var(--fx) + var(--oua)*sin(var(--ang)));
+ top:calc(var(--ouy) - var(--fy) - var(--oub)*cos(var(--ang)))}
+.tw.lo{left:calc(var(--olx) - var(--fx) + var(--ola)*sin(var(--ang)));
+ top:calc(var(--oly) - var(--fy) + var(--olb)*cos(var(--ang)))}
+.tt{position:absolute;width:var(--tw);height:var(--th);
+ left:calc(var(--tw)/-2);top:calc(var(--th)/-2);
+ border-radius:5px 5px 3px 3px;background:#e6e6e1;box-shadow:inset 0 0 0 1px #cdcdc6}
+.tw.lo .tt{border-radius:3px 3px 5px 5px}
+.mk{position:absolute;inset:0;border-radius:inherit;background:#7c3aed}
+.ring{position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;
+ border-radius:50%;box-shadow:0 0 0 2px rgba(124,58,237,.55);opacity:0}
+.dent{position:absolute;left:var(--fpad);right:var(--fpad);top:calc(var(--dcy) - var(--fy));
+ display:flex;align-items:center;gap:6px;font-size:var(--fsDent);color:#52525b;white-space:nowrap}
+.dent b{font-weight:500;color:#09090b}
+.dent s{width:6px;height:6px;border-radius:50%;background:#7c3aed;flex:none}
+.dent u{margin-left:auto;text-decoration:none}
+
+/* ---- note d honoraires ---- */
+.note{position:absolute;left:var(--nx);top:var(--ny);width:var(--nw);height:var(--nh);z-index:4;
+ background:#fff;border-radius:12px;padding:var(--npad);display:flex;flex-direction:column;
+ box-shadow:0 18px 38px -14px rgba(0,0,0,.58),0 2px 6px rgba(0,0,0,.24);
+ will-change:transform,opacity}
+.ncap{font-size:var(--fsNCap);letter-spacing:.13em;color:#52525b;white-space:nowrap}
+.nno{font-size:var(--fsNSub);color:#52525b;margin-top:3px;white-space:nowrap}
+.nhr{height:1px;background:#e4e4e3;margin:9px 0}
+.nact{font-size:var(--fsNLine);color:#09090b;white-space:nowrap}
+.nsub{font-size:var(--fsNSub);color:#52525b;margin-top:2px;white-space:nowrap}
+.ntot{margin-top:auto;display:flex;align-items:baseline;justify-content:space-between}
+.ntot i{font-style:normal;font-size:var(--fsNTotLab);color:#52525b}
+.ntot b{font-weight:500;font-size:var(--fsNTot);color:#09090b;font-variant-numeric:tabular-nums}
+
+/* ---- caisse ---- */
+.caisse{position:absolute;left:var(--kx);top:var(--ky);width:var(--kw);height:var(--kh);z-index:4;
+ background:var(--surf);border-radius:12px;
+ box-shadow:inset 0 0 0 1px var(--line),0 12px 26px -14px rgba(0,0,0,.6);
+ padding:0 var(--kpad);display:flex;align-items:center;gap:9px}
+.klab{font-size:var(--fsKLab);color:var(--mut);white-space:nowrap}
+.kwin{margin-left:auto;display:block;height:var(--olh);overflow:hidden}
+.kstrip{display:block;transform:translateY(calc(var(--olh)*-1))}
+.knum{height:var(--olh);display:flex;align-items:center;justify-content:flex-end;
+ font-size:var(--fsKNum);font-weight:500;color:#fff;letter-spacing:-.01em;
+ white-space:nowrap;font-variant-numeric:tabular-nums}
+.kdot{width:9px;height:9px;border-radius:3px;background:var(--teal);flex:none}
+
+/* ---- transient chips ---- */
+.cap{position:absolute;left:var(--cpx);top:var(--cpy);z-index:7;
+ display:inline-flex;align-items:center;gap:9px;padding:9px 15px;border-radius:12px;
+ background:var(--surf);box-shadow:inset 0 0 0 1px var(--line),0 10px 24px -12px rgba(0,0,0,.6);
+ white-space:nowrap;opacity:0}
+.cap s{width:8px;height:8px;border-radius:50%;background:var(--z);flex:none}
+.cap i{font-style:normal;font-size:var(--fsCapTime);color:var(--faint);font-variant-numeric:tabular-nums}
+.cap b{font-weight:400;font-size:var(--fsCapAct);color:#fff}
+.amt{position:absolute;left:var(--amx);top:var(--amy);z-index:8;opacity:0}
+.amt-i{display:inline-flex;align-items:center;padding:6px 12px;border-radius:10px;
+ background:rgba(45,212,191,.16);box-shadow:inset 0 0 0 1px rgba(45,212,191,.45);
+ font-size:var(--fsAmt);font-weight:500;color:var(--tealo);
+ white-space:nowrap;font-variant-numeric:tabular-nums}
+.rap{position:absolute;left:var(--rpx);top:var(--rpy);z-index:7}
+.rap-i{display:inline-flex;align-items:center;gap:8px;padding:8px 13px;border-radius:10px;
+ background:var(--surf);box-shadow:inset 0 0 0 1px rgba(45,212,191,.38),0 10px 22px -12px rgba(0,0,0,.6);
+ font-size:var(--fsChip);color:var(--mut);white-space:nowrap}
+.rap-i b{font-weight:400;color:#fff}
+.rap-i s{width:7px;height:7px;border-radius:50%;background:var(--teal);flex:none}
+.sr{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;
+ clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+
+.kshort{display:none}
+.ncap .kfull,.ncap .kshort{letter-spacing:inherit}
+
+@container (max-width:520px){
+ .hf{--dw:400;--dh:434;--agx:6px;--agy:8px;--agw:388px;--agh:186px;--ttly:18px;--hh1:34px;--hh2:52px;--gx:12px;--gy:58px;--cw:122px;--cgap:5px;--rh:22px;--rgap:3px;--dhy:38px;--tlx:0px;--tlw:0px;--gutx:0px;--fx:188px;--fy:212px;--fw:202px;--fh:154px;--fpad:12px;--nmy:226px;--nmh:18px;--mty:0px;--divy:278px;--dcy:0px;--oux:289px;--ouy:312px;--oua:45px;--oub:22px;--olx:289px;--oly:322px;--ola:45px;--olb:20px;--tw:7.5px;--th:10px;--nfx:56px;--nfy:-72px;--nx:10px;--ny:244px;--nw:170px;--nh:122px;--npad:12px;--kx:120px;--ky:380px;--kw:270px;--kh:42px;--kpad:14px;--olh:20px;--cpx:10px;--cpy:246px;--rpx:18px;--rpy:82px;--amx:26px;--amy:332px;--hx:108px;--hy:172px;--ax:210px;--ay:62px;--rx:80px;--ry:-124px;--fly:-95px;--fsDay:10.5px;--fsTime:9px;--fsBlk:14.5px;--fsTtl:11.5px;--fsName:16px;--fsMeta:11px;--fsNCap:9px;--fsNLine:12.5px;--fsNSub:10px;--fsNTot:14px;--fsNTotLab:10.5px;--fsKLab:11px;--fsKNum:16px;--fsCapAct:14px;--fsCapTime:11px;--fsChip:11px;--fsDent:9px;--fsAmt:13px}
+ .c3,.c4{display:none}
+ .hv.c2{display:none}
+ .hgut,.times,.mt,.dent,.nno,.nsub,.kfull{display:none}
+ .kshort{display:inline}
+ .ncap{letter-spacing:.07em}
+ .lab{padding-left:9px}
+ .rap-i{padding:3px 10px;gap:6px}
+ .ring{width:18px;height:18px;margin:-9px 0 0 -9px}
+ .ntot{flex-direction:column;align-items:flex-start;gap:1px}
+ /* Legibility floor. The stage is drawn at 400 design px and then scaled to the
+    slot, so a 10.5px label lands at 7.6px on a phone. --fl is 11 real px expressed
+    in design px, so max() holds the floor through the scale. */
+ .hf{
+  --fl:calc(11px / var(--s));
+  --fsDay:max(var(--fl),10.5px);--fsBlk:max(var(--fl),14.5px);--fsTtl:max(var(--fl),11.5px);
+  --fsName:max(var(--fl),16px);--fsNCap:max(var(--fl),9px);--fsNLine:max(var(--fl),12.5px);
+  --fsNTot:max(var(--fl),14px);--fsNTotLab:max(var(--fl),10.5px);--fsKLab:max(var(--fl),11px);
+  --fsKNum:max(var(--fl),16px);--fsCapAct:max(var(--fl),14px);--fsCapTime:max(var(--fl),11px);
+  --fsChip:max(var(--fl),11px);--fsAmt:max(var(--fl),13px);
+ }
+}
+.ag{animation:ag var(--T) linear infinite both}
+.grid{animation:wipe var(--T) linear infinite both}
+.slots{animation:wipe2 var(--T) linear infinite both}
+.ttl,.ttlr{animation:fadeup var(--T) linear infinite both}
+.times{animation:fade var(--T) linear infinite both}
+.d0{animation:dh0 var(--T) linear infinite both}
+.d1{animation:dh1 var(--T) linear infinite both}
+.d2{animation:dh2 var(--T) linear infinite both}
+.d3{animation:dh3 var(--T) linear infinite both}
+.d4{animation:dh4 var(--T) linear infinite both}
+.b0 .blk{animation:bk0 var(--T) linear infinite both}
+.b1 .blk{animation:bk1 var(--T) linear infinite both}
+.b2 .blk{animation:bk2 var(--T) linear infinite both}
+.b4 .blk{animation:bk4 var(--T) linear infinite both}
+.b5 .blk{animation:bk5 var(--T) linear infinite both}
+.b6 .blk{animation:bk6 var(--T) linear infinite both}
+.b7 .blk{animation:bk7 var(--T) linear infinite both}
+.b8 .blk{animation:bk8 var(--T) linear infinite both}
+.b9 .blk{animation:bk9 var(--T) linear infinite both}
+.b10 .blk{animation:bk10 var(--T) linear infinite both}
+.b11 .blk{animation:bk11 var(--T) linear infinite both}
+.b0 .wash{animation:wash var(--T) linear infinite both;animation-delay:0.00s}
+.b0 .lab{animation:lab var(--T) linear infinite both;animation-delay:0.00s}
+.b0 .bar{animation:barin var(--T) linear infinite both;animation-delay:0.00s}
+.b1 .wash{animation:wash var(--T) linear infinite both;animation-delay:0.32s}
+.b1 .lab{animation:lab var(--T) linear infinite both;animation-delay:0.32s}
+.b1 .bar{animation:barin var(--T) linear infinite both;animation-delay:0.32s}
+.b2 .wash{animation:wash var(--T) linear infinite both;animation-delay:0.64s}
+.b2 .lab{animation:lab var(--T) linear infinite both;animation-delay:0.64s}
+.b2 .bar{animation:barin var(--T) linear infinite both;animation-delay:0.64s}
+.hero .wash{animation:wash var(--T) linear infinite both;animation-delay:0.96s}
+.hero .lab{animation:lab var(--T) linear infinite both;animation-delay:0.96s}
+.hero .bar{animation:barin var(--T) linear infinite both;animation-delay:0.96s}
+.b4 .wash{animation:wash var(--T) linear infinite both;animation-delay:1.28s}
+.b4 .lab{animation:lab var(--T) linear infinite both;animation-delay:1.28s}
+.b4 .bar{animation:barin var(--T) linear infinite both;animation-delay:1.28s}
+.b5 .wash{animation:wash var(--T) linear infinite both;animation-delay:1.60s}
+.b5 .lab{animation:lab var(--T) linear infinite both;animation-delay:1.60s}
+.b5 .bar{animation:barin var(--T) linear infinite both;animation-delay:1.60s}
+.b6 .wash{animation:wash var(--T) linear infinite both;animation-delay:1.92s}
+.b6 .lab{animation:lab var(--T) linear infinite both;animation-delay:1.92s}
+.b6 .bar{animation:barin var(--T) linear infinite both;animation-delay:1.92s}
+.b7 .wash{animation:wash var(--T) linear infinite both;animation-delay:2.24s}
+.b7 .lab{animation:lab var(--T) linear infinite both;animation-delay:2.24s}
+.b7 .bar{animation:barin var(--T) linear infinite both;animation-delay:2.24s}
+.b8 .wash{animation:wash var(--T) linear infinite both;animation-delay:2.56s}
+.b8 .lab{animation:lab var(--T) linear infinite both;animation-delay:2.56s}
+.b8 .bar{animation:barin var(--T) linear infinite both;animation-delay:2.56s}
+.b9 .wash{animation:wash var(--T) linear infinite both;animation-delay:2.88s}
+.b9 .lab{animation:lab var(--T) linear infinite both;animation-delay:2.88s}
+.b9 .bar{animation:barin var(--T) linear infinite both;animation-delay:2.88s}
+.b10 .wash{animation:wash var(--T) linear infinite both;animation-delay:3.20s}
+.b10 .lab{animation:lab var(--T) linear infinite both;animation-delay:3.20s}
+.b10 .bar{animation:barin var(--T) linear infinite both;animation-delay:3.20s}
+.b11 .wash{animation:wash var(--T) linear infinite both;animation-delay:3.52s}
+.b11 .lab{animation:lab var(--T) linear infinite both;animation-delay:3.52s}
+.b11 .bar{animation:barin var(--T) linear infinite both;animation-delay:3.52s}
+.k0{animation:cap0 var(--T) linear infinite both}
+.k1{animation:cap1 var(--T) linear infinite both}
+.k2{animation:cap2 var(--T) linear infinite both}
+.k3{animation:cap3 var(--T) linear infinite both}
+.scrim{animation:scrim var(--T) linear infinite both}
+.hero{animation:hero var(--T) linear infinite both}
+.hsh{animation:hsh var(--T) linear infinite both}
+.ghost{animation:ghost var(--T) linear infinite both}
+.file{animation:file var(--T) linear infinite both}
+.fsh{animation:fsh var(--T) linear infinite both}
+.sheet{animation:unroll var(--T) linear infinite both}
+.fhead{animation:fhead var(--T) linear infinite both}
+.dv{animation:divide var(--T) linear infinite both}
+.tt{animation:tooth var(--T) linear infinite both;animation-delay:var(--d)}
+.mk{animation:mark var(--T) linear infinite both}
+.ring{animation:ring var(--T) linear infinite both}
+.dent{animation:dent var(--T) linear infinite both}
+.note{animation:note var(--T) linear infinite both}
+.nr0{animation:nr0 var(--T) linear infinite both}
+.nr1{animation:nr1 var(--T) linear infinite both}
+.nr2{animation:nr2 var(--T) linear infinite both}
+.caisse{animation:caisse var(--T) linear infinite both}
+.kstrip{animation:odo var(--T) linear infinite both}
+.amt{animation:amtx var(--T) linear infinite both}
+.amt-i{animation:amty var(--T) linear infinite both}
+.rap{animation:rap var(--T) linear infinite both}
+.rap-i{animation:rapfly var(--T) linear infinite both}
+@media (prefers-reduced-motion:reduce){
+ .hf *,.hf *::before,.hf *::after{animation:none!important;transition:none!important}
+}
+@keyframes ag{0%{opacity:0;transform:translateY(14px) scale(.985);animation-timing-function:var(--eo);}4.6452%{opacity:1;transform:none;}96.129%{opacity:1;transform:none;animation-timing-function:var(--eo);}100%{opacity:0;transform:translateY(-10px) scale(.99);}}
+@keyframes wipe{0%{clip-path:inset(0 100% 0 0);}2.2581%{clip-path:inset(0 100% 0 0);animation-timing-function:var(--eo);}7.4194%{clip-path:inset(0 0 0 0);}100%{clip-path:inset(0 0 0 0);}}
+@keyframes wipe2{0%{clip-path:inset(0 100% 0 0);}3.5484%{clip-path:inset(0 100% 0 0);animation-timing-function:var(--eo);}9.0323%{clip-path:inset(0 0 0 0);}100%{clip-path:inset(0 0 0 0);}}
+@keyframes fadeup{0%{opacity:0;transform:translateY(7px);}1.6129%{opacity:0;transform:translateY(7px);animation-timing-function:var(--eo);}5.4839%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes fade{0%{opacity:0;}3.5484%{opacity:0;animation-timing-function:var(--eo);}7.0968%{opacity:1;}100%{opacity:1;}}
+@keyframes dh0{0%{opacity:0;transform:translateY(8px);}1.9355%{opacity:0;transform:translateY(8px);animation-timing-function:var(--eo);}4.7742%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes dh1{0%{opacity:0;transform:translateY(8px);}2.3226%{opacity:0;transform:translateY(8px);animation-timing-function:var(--eo);}5.1613%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes dh2{0%{opacity:0;transform:translateY(8px);}2.7097%{opacity:0;transform:translateY(8px);animation-timing-function:var(--eo);}5.5484%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes dh3{0%{opacity:0;transform:translateY(8px);}3.0968%{opacity:0;transform:translateY(8px);animation-timing-function:var(--eo);}5.9355%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes dh4{0%{opacity:0;transform:translateY(8px);}3.4839%{opacity:0;transform:translateY(8px);animation-timing-function:var(--eo);}6.3226%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes bk0{0%{opacity:0;transform:translateX(var(--fly)) scale(.96);}9.3548%{opacity:0;transform:translateX(var(--fly)) scale(.96);animation-timing-function:var(--eo);}13.3548%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes bk1{0%{opacity:0;transform:translateX(var(--fly)) scale(.96);}11.4194%{opacity:0;transform:translateX(var(--fly)) scale(.96);animation-timing-function:var(--eo);}15.4194%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes bk2{0%{opacity:0;transform:translateX(var(--fly)) scale(.96);}13.4839%{opacity:0;transform:translateX(var(--fly)) scale(.96);animation-timing-function:var(--eo);}17.4839%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes bk4{0%{opacity:0;transform:translateX(var(--fly)) scale(.96);}17.6129%{opacity:0;transform:translateX(var(--fly)) scale(.96);animation-timing-function:var(--eo);}21.6129%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes bk5{0%{opacity:0;transform:translateX(var(--fly)) scale(.96);}19.6774%{opacity:0;transform:translateX(var(--fly)) scale(.96);animation-timing-function:var(--eo);}23.6774%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes bk6{0%{opacity:0;transform:translateX(var(--fly)) scale(.96);}21.7419%{opacity:0;transform:translateX(var(--fly)) scale(.96);animation-timing-function:var(--eo);}25.7419%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes bk7{0%{opacity:0;transform:translateX(var(--fly)) scale(.96);}23.8065%{opacity:0;transform:translateX(var(--fly)) scale(.96);animation-timing-function:var(--eo);}27.8065%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes bk8{0%{opacity:0;transform:translateX(var(--fly)) scale(.96);}25.871%{opacity:0;transform:translateX(var(--fly)) scale(.96);animation-timing-function:var(--eo);}29.871%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes bk9{0%{opacity:0;transform:translateX(var(--fly)) scale(.96);}27.9355%{opacity:0;transform:translateX(var(--fly)) scale(.96);animation-timing-function:var(--eo);}31.9355%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes bk10{0%{opacity:0;transform:translateX(var(--fly)) scale(.96);}30%{opacity:0;transform:translateX(var(--fly)) scale(.96);animation-timing-function:var(--eo);}34%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes bk11{0%{opacity:0;transform:translateX(var(--fly)) scale(.96);}32.0645%{opacity:0;transform:translateX(var(--fly)) scale(.96);animation-timing-function:var(--eo);}36.0645%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes wash{0%{transform:scaleX(0);}11.5484%{transform:scaleX(0);animation-timing-function:var(--eo);}15.0323%{transform:scaleX(1);}100%{transform:scaleX(1);}}
+@keyframes lab{0%{opacity:0;transform:translateX(-6px);}12.9032%{opacity:0;transform:translateX(-6px);animation-timing-function:var(--eo);}15.2903%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes barin{0%{opacity:0;}12.9032%{opacity:0;animation-timing-function:var(--eo);}15.2903%{opacity:1;}100%{opacity:1;}}
+@keyframes cap0{0%{opacity:0;transform:translateY(8px) scale(.96);}10.3226%{opacity:0;transform:translateY(8px) scale(.96);animation-timing-function:var(--eo);}12.5161%{opacity:1;transform:none;}15.4839%{opacity:1;transform:none;animation-timing-function:var(--eo);}17.2903%{opacity:0;transform:translateY(-8px) scale(.98);}100%{opacity:0;transform:translateY(-8px) scale(.98);}}
+@keyframes cap1{0%{opacity:0;transform:translateY(8px) scale(.96);}17.1613%{opacity:0;transform:translateY(8px) scale(.96);animation-timing-function:var(--eo);}19.3548%{opacity:1;transform:none;}22.3226%{opacity:1;transform:none;animation-timing-function:var(--eo);}24.129%{opacity:0;transform:translateY(-8px) scale(.98);}100%{opacity:0;transform:translateY(-8px) scale(.98);}}
+@keyframes cap2{0%{opacity:0;transform:translateY(8px) scale(.96);}24%{opacity:0;transform:translateY(8px) scale(.96);animation-timing-function:var(--eo);}26.1935%{opacity:1;transform:none;}29.1613%{opacity:1;transform:none;animation-timing-function:var(--eo);}30.9677%{opacity:0;transform:translateY(-8px) scale(.98);}100%{opacity:0;transform:translateY(-8px) scale(.98);}}
+@keyframes cap3{0%{opacity:0;transform:translateY(8px) scale(.96);}30.8387%{opacity:0;transform:translateY(8px) scale(.96);animation-timing-function:var(--eo);}33.0323%{opacity:1;transform:none;}36%{opacity:1;transform:none;animation-timing-function:var(--eo);}37.8065%{opacity:0;transform:translateY(-8px) scale(.98);}100%{opacity:0;transform:translateY(-8px) scale(.98);}}
+@keyframes scrim{0%{opacity:0;}38.3871%{opacity:0;animation-timing-function:var(--eo);}42.9032%{opacity:.85;}89.3548%{opacity:.85;animation-timing-function:var(--eo);}92.5806%{opacity:0;}100%{opacity:0;}}
+@keyframes hero{0%{opacity:0;transform:translateX(var(--fly)) scale(.96);}15.5484%{opacity:0;transform:translateX(var(--fly)) scale(.96);animation-timing-function:var(--eo);}19.5484%{opacity:1;transform:none;}38.3871%{opacity:1;transform:none;animation-timing-function:var(--eo);}42.2581%{opacity:1;transform:translateY(-9px) scale(1.05);animation-timing-function:var(--eio);}48.0645%{opacity:1;transform:translate(var(--hx),var(--hy));}85.1613%{opacity:1;transform:translate(var(--hx),var(--hy));animation-timing-function:var(--eio);}90%{opacity:1;transform:none;}96.129%{opacity:1;transform:none;animation-timing-function:var(--eo);}100%{opacity:0;transform:translateY(-10px);}}
+@keyframes hsh{0%{opacity:0;}38.7097%{opacity:0;animation-timing-function:var(--eo);}41.9355%{opacity:1;}46.129%{opacity:1;animation-timing-function:var(--eo);}48.7097%{opacity:0;}85.4839%{opacity:0;animation-timing-function:var(--eo);}87.7419%{opacity:.8;animation-timing-function:var(--eo);}90%{opacity:0;}100%{opacity:0;}}
+@keyframes ghost{0%{opacity:0;}39.0323%{opacity:0;animation-timing-function:var(--eo);}42.2581%{opacity:1;}87.7419%{opacity:1;animation-timing-function:var(--eo);}90.9677%{opacity:0;}100%{opacity:0;}}
+@keyframes file{0%{opacity:0;transform:translateY(10px) scale(.97);}47.4194%{opacity:0;transform:translateY(10px) scale(.97);animation-timing-function:var(--eo);}48.5161%{opacity:1;transform:translateY(8px) scale(.976);animation-timing-function:var(--eo);}52.9032%{opacity:1;transform:none;}87.4194%{opacity:1;transform:none;animation-timing-function:var(--eo);}90.4516%{opacity:1;transform:translateY(4px) scale(.992);animation-timing-function:var(--eo);}91.4839%{opacity:0;transform:translateY(4px) scale(.992);}100%{opacity:0;transform:translateY(4px) scale(.992);}}
+@keyframes unroll{0%{clip-path:inset(0 0 94% 0 round 20px);}47.4194%{clip-path:inset(0 0 94% 0 round 20px);animation-timing-function:var(--eo);}52.9032%{clip-path:inset(0 0 0 0 round 20px);}87.4194%{clip-path:inset(0 0 0 0 round 20px);animation-timing-function:var(--eo);}90.7097%{clip-path:inset(0 0 90% 0 round 20px);}100%{clip-path:inset(0 0 90% 0 round 20px);}}
+@keyframes fsh{0%{opacity:0;}50.9677%{opacity:0;animation-timing-function:var(--eo);}54.8387%{opacity:1;}87.0968%{opacity:1;animation-timing-function:var(--eo);}89.8065%{opacity:0;}100%{opacity:0;}}
+@keyframes fhead{0%{opacity:0;transform:translateY(6px);}51.2903%{opacity:0;transform:translateY(6px);animation-timing-function:var(--eo);}54.1935%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes divide{0%{transform:scaleX(0);}51.9355%{transform:scaleX(0);animation-timing-function:var(--eo);}54.8387%{transform:scaleX(1);}100%{transform:scaleX(1);}}
+@keyframes tooth{0%{opacity:0;transform:scale(.35);}52.5806%{opacity:0;transform:scale(.35);animation-timing-function:var(--eo);}54.7097%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes mark{0%{opacity:0;}58.0645%{opacity:0;animation-timing-function:var(--eo);}60%{opacity:1;}100%{opacity:1;}}
+@keyframes ring{0%{opacity:0;transform:scale(.55);}58.3871%{opacity:0;transform:scale(.55);}58.6452%{opacity:.9;transform:scale(.55);animation-timing-function:var(--eo);}62.0645%{opacity:0;transform:scale(2);}100%{opacity:0;transform:scale(2);}}
+@keyframes dent{0%{opacity:0;transform:translateY(5px);}59.6774%{opacity:0;transform:translateY(5px);animation-timing-function:var(--eo);}62.2581%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes note{0%{opacity:0;transform:translate(var(--nfx),var(--nfy)) scale(.9);}61.6129%{opacity:0;transform:translate(var(--nfx),var(--nfy)) scale(.9);animation-timing-function:var(--eo);}63.0968%{opacity:1;transform:translate(calc(var(--nfx)*.42),calc(var(--nfy)*.42)) scale(.958);animation-timing-function:var(--eo);}66.7742%{opacity:1;transform:none;}87.4194%{opacity:1;transform:none;animation-timing-function:var(--eo);}90.4516%{opacity:0;transform:translateY(18px) scale(.965);}100%{opacity:0;transform:translateY(18px) scale(.965);}}
+@keyframes nr0{0%{opacity:0;transform:translateY(5px);}63.2258%{opacity:0;transform:translateY(5px);animation-timing-function:var(--eo);}65.8065%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes nr1{0%{opacity:0;transform:translateY(5px);}63.871%{opacity:0;transform:translateY(5px);animation-timing-function:var(--eo);}66.4516%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes nr2{0%{opacity:0;transform:translateY(5px);}64.5161%{opacity:0;transform:translateY(5px);animation-timing-function:var(--eo);}67.0968%{opacity:1;transform:none;}100%{opacity:1;transform:none;}}
+@keyframes caisse{0%{opacity:0;transform:translateY(12px) scale(.97);}69.6774%{opacity:0;transform:translateY(12px) scale(.97);animation-timing-function:var(--eo);}73.5484%{opacity:1;transform:none;}77.0968%{opacity:1;transform:none;animation-timing-function:var(--eo);}78.1935%{opacity:1;transform:scale(1.035);animation-timing-function:var(--eo);}80%{opacity:1;transform:none;}96.129%{opacity:1;transform:none;animation-timing-function:var(--eo);}100%{opacity:0;transform:translateY(10px);}}
+@keyframes odo{0%{transform:translateY(0);}77.0968%{transform:translateY(0);animation-timing-function:var(--eo);}79.2258%{transform:translateY(calc(var(--olh)*-1));}100%{transform:translateY(calc(var(--olh)*-1));}}
+@keyframes amtx{0%{opacity:0;transform:translateX(0);}72.7742%{opacity:0;transform:translateX(0);animation-timing-function:var(--eo);}73.6774%{opacity:1;transform:translateX(0);animation-timing-function:var(--eio);}77.6774%{opacity:1;transform:translateX(var(--ax));animation-timing-function:var(--eo);}78.5806%{opacity:0;transform:translateX(var(--ax));}100%{opacity:0;transform:translateX(var(--ax));}}
+@keyframes amty{0%{transform:translateY(0);}73.6774%{transform:translateY(0);animation-timing-function:var(--eo);}75.7419%{transform:translateY(-42px);animation-timing-function:var(--eio);}77.6774%{transform:translateY(var(--ay));}100%{transform:translateY(var(--ay));}}
+@keyframes rap{0%{opacity:0;transform:translateY(9px) scale(.94);}79.6774%{opacity:0;transform:translateY(9px) scale(.94);animation-timing-function:var(--eo);}82.9032%{opacity:1;transform:none;}86.5806%{opacity:1;transform:none;animation-timing-function:var(--eo);}89.0323%{opacity:0;transform:none;}100%{opacity:0;transform:none;}}
+@keyframes rapfly{0%{transform:none;}83.5484%{transform:none;animation-timing-function:var(--eio);}89.0323%{transform:translate(var(--rx),var(--ry)) scale(.86) rotate(5deg);}100%{transform:translate(var(--rx),var(--ry)) scale(.86) rotate(5deg);}}
+
+/* ============ HERO FILM : to here ============ */
+</style></head>
+<body><div class="demo"><div class="wrap">
+<div class="hf-box"><div class="hf"><div class="st" aria-hidden="true"><div class="glow"></div><div class="glow2"></div><div class="ag"><div class="agcard"></div><div class="ttl">Agenda<i>· semaine</i></div><div class="ttlr"><span class="dot"></span>Fauteuil 1</div><div class="hh" style="--hhy:var(--hh1)"></div><div class="hh" style="--hhy:var(--hh2)"></div><div class="grid"><div class="hgut"></div><div class="hv c0" style="--i:0"></div><div class="hv c1" style="--i:1"></div><div class="hv c2" style="--i:2"></div><div class="hv c3" style="--i:3"></div></div><div class="dh d0 c0" style="--c:0">LUN</div><div class="dh d1 c1" style="--c:1">MAR</div><div class="dh d2 c2" style="--c:2">MER</div><div class="dh d3 c3" style="--c:3">JEU</div><div class="dh d4 c4" style="--c:4">VEN</div><div class="times"><div class="tl" style="--r:0">09:00</div><div class="tl" style="--r:1">10:00</div><div class="tl" style="--r:2">11:00</div><div class="tl" style="--r:3">14:00</div><div class="tl" style="--r:4">15:00</div></div><div class="slots"><div class="sl c0" style="--c:0;--r:0"></div><div class="sl c1" style="--c:1;--r:0"></div><div class="sl c2" style="--c:2;--r:0"></div><div class="sl c3" style="--c:3;--r:0"></div><div class="sl c4" style="--c:4;--r:0"></div><div class="sl c0" style="--c:0;--r:1"></div><div class="sl c1" style="--c:1;--r:1"></div><div class="sl c2" style="--c:2;--r:1"></div><div class="sl c3" style="--c:3;--r:1"></div><div class="sl c4" style="--c:4;--r:1"></div><div class="sl c0" style="--c:0;--r:2"></div><div class="sl c1" style="--c:1;--r:2"></div><div class="sl c2" style="--c:2;--r:2"></div><div class="sl c3" style="--c:3;--r:2"></div><div class="sl c4" style="--c:4;--r:2"></div><div class="sl c0" style="--c:0;--r:3"></div><div class="sl c1" style="--c:1;--r:3"></div><div class="sl c2" style="--c:2;--r:3"></div><div class="sl c3" style="--c:3;--r:3"></div><div class="sl c4" style="--c:4;--r:3"></div><div class="sl c0" style="--c:0;--r:4"></div><div class="sl c1" style="--c:1;--r:4"></div><div class="sl c2" style="--c:2;--r:4"></div><div class="sl c3" style="--c:3;--r:4"></div><div class="sl c4" style="--c:4;--r:4"></div></div><div class="bp b0 c0" style="--c:0;--r:0;--z:#0284c7;--zl:#7dd0fb"><div class="blk"><span class="wash"></span><span class="bar"></span><span class="lab">Contrôle</span></div></div><div class="bp b1 c2" style="--c:2;--r:0;--z:#047857;--zl:#6ee7b7"><div class="blk"><span class="wash"></span><span class="bar"></span><span class="lab">Détartrage</span></div></div><div class="bp b2 c4" style="--c:4;--r:0;--z:#0284c7;--zl:#7dd0fb"><div class="blk"><span class="wash"></span><span class="bar"></span><span class="lab">Contrôle</span></div></div><div class="ghost c1" style="--c:1;--r:1"></div><div class="bp b4 c3" style="--c:3;--r:4;--z:#b45309;--zl:#fbc76a"><div class="blk"><span class="wash"></span><span class="bar"></span><span class="lab">Couronne</span></div></div><div class="bp b5 c0" style="--c:0;--r:2;--z:#047857;--zl:#6ee7b7"><div class="blk"><span class="wash"></span><span class="bar"></span><span class="lab">Détartrage</span></div></div><div class="bp b6 c2" style="--c:2;--r:2;--z:#0284c7;--zl:#7dd0fb"><div class="blk"><span class="wash"></span><span class="bar"></span><span class="lab">Contrôle</span></div></div><div class="bp b7 c4" style="--c:4;--r:2;--z:#7c3aed;--zl:#c4aeff"><div class="blk"><span class="wash"></span><span class="bar"></span><span class="lab">Composite</span></div></div><div class="bp b8 c1" style="--c:1;--r:3;--z:#b45309;--zl:#fbc76a"><div class="blk"><span class="wash"></span><span class="bar"></span><span class="lab">Couronne</span></div></div><div class="bp b9 c3" style="--c:3;--r:3;--z:#7c3aed;--zl:#c4aeff"><div class="blk"><span class="wash"></span><span class="bar"></span><span class="lab">Extraction</span></div></div><div class="bp b10 c0" style="--c:0;--r:4;--z:#7c3aed;--zl:#c4aeff"><div class="blk"><span class="wash"></span><span class="bar"></span><span class="lab">Composite</span></div></div><div class="bp b11 c2" style="--c:2;--r:4;--z:#047857;--zl:#6ee7b7"><div class="blk"><span class="wash"></span><span class="bar"></span><span class="lab">Détartrage</span></div></div></div><div class="scrim"></div><div class="hero" style="--c:1;--r:1;--z:#7c3aed;--zl:#c4aeff"><span class="hsh"></span><div class="blk"><span class="wash"></span><span class="bar"></span><span class="lab">Composite</span></div></div><div class="file"><span class="fsh"></span><div class="sheet"><div class="fhead"><div class="nm">Yasmine Ben Ali</div><div class="mt">Fiche patient · 34 ans</div></div><div class="dv"></div><span class="tw up" style="--ang:-66.00deg"><span class="tt" style="--d:0.000s"></span></span><span class="tw up" style="--ang:-54.00deg"><span class="tt" style="--d:0.028s"></span></span><span class="tw up" style="--ang:-42.00deg"><span class="tt" style="--d:0.056s"></span></span><span class="tw up" style="--ang:-30.00deg"><span class="tt" style="--d:0.084s"></span></span><span class="tw up" style="--ang:-18.00deg"><span class="tt" style="--d:0.112s"></span></span><span class="tw up" style="--ang:-6.00deg"><span class="tt" style="--d:0.140s"></span></span><span class="tw up" style="--ang:6.00deg"><span class="tt" style="--d:0.168s"></span></span><span class="tw up" style="--ang:18.00deg"><span class="tt" style="--d:0.196s"></span></span><span class="tw up" style="--ang:30.00deg"><span class="tt" style="--d:0.224s"></span></span><span class="tw up" style="--ang:42.00deg"><span class="tt" style="--d:0.252s"><span class="mk"></span></span><span class="ring"></span></span><span class="tw up" style="--ang:54.00deg"><span class="tt" style="--d:0.280s"></span></span><span class="tw up" style="--ang:66.00deg"><span class="tt" style="--d:0.308s"></span></span><span class="tw lo" style="--ang:66deg"><span class="tt" style="--d:0.336s"></span></span><span class="tw lo" style="--ang:54deg"><span class="tt" style="--d:0.364s"></span></span><span class="tw lo" style="--ang:42deg"><span class="tt" style="--d:0.392s"></span></span><span class="tw lo" style="--ang:30deg"><span class="tt" style="--d:0.420s"></span></span><span class="tw lo" style="--ang:18deg"><span class="tt" style="--d:0.448s"></span></span><span class="tw lo" style="--ang:6deg"><span class="tt" style="--d:0.476s"></span></span><span class="tw lo" style="--ang:-6deg"><span class="tt" style="--d:0.504s"></span></span><span class="tw lo" style="--ang:-18deg"><span class="tt" style="--d:0.532s"></span></span><span class="tw lo" style="--ang:-30deg"><span class="tt" style="--d:0.560s"></span></span><span class="tw lo" style="--ang:-42deg"><span class="tt" style="--d:0.588s"></span></span><span class="tw lo" style="--ang:-54deg"><span class="tt" style="--d:0.616s"></span></span><span class="tw lo" style="--ang:-66deg"><span class="tt" style="--d:0.644s"></span></span><div class="dent"><s></s><b>Dent 26</b><u>composite 2 faces</u></div></div></div><div class="note"><div class="nr0"><div class="ncap"><span class="kfull">NOTE D’HONORAIRES</span><span class="kshort">HONORAIRES</span></div><div class="nno">N° 2026-0148</div></div><div class="nhr nr1"></div><div class="nr1"><div class="nact">Composite 2 faces</div><div class="nsub">Dent 26 · Dr Selmi</div></div><div class="ntot nr2"><i>Total</i><b>120,000 DT</b></div></div><div class="caisse"><span class="kdot"></span><span class="klab kfull">Encaissé aujourd’hui</span><span class="klab kshort">Encaissé</span><span class="kwin"><span class="kstrip"><span class="knum">980,000 DT</span><span class="knum">1 100,000 DT</span></span></span></div><div class="cap k0" style="--z:#0284c7"><s></s><i>09:00</i><b>Contrôle</b></div><div class="cap k1" style="--z:#7c3aed"><s></s><i>10:00</i><b>Composite</b></div><div class="cap k2" style="--z:#047857"><s></s><i>11:00</i><b>Détartrage</b></div><div class="cap k3" style="--z:#b45309"><s></s><i>14:00</i><b>Couronne</b></div><div class="amt"><span class="amt-i">+ 120,000 DT</span></div><div class="rap"><span class="rap-i"><s></s><b>Rappel</b> · contrôle 6 mois</span></div></div><p class="sr">Animation : une semaine d’agenda se remplit de séances colorées par acte. Une séance se détache et s’ouvre en fiche patient avec son odontogramme, la dent 26 marquée. La fiche produit une note d’honoraires de 120,000 DT, le montant tombe dans la caisse qui passe à 1 100,000 DT, et un rappel de contrôle part tout seul.</p></div></div>
+</div></div></body></html>
