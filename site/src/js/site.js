@@ -13,7 +13,9 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 /* ── Reveal on scroll ─────────────────────────────────────────────────────
    One observer for the page. Elements reveal once and are then released. */
 (() => {
-  const items = document.querySelectorAll('.rise');
+  // `.rise` fades a block in; `[data-reveal]` only wants the `.in` class,
+  // because sections 3 to 7 choreograph their own contents against it.
+  const items = document.querySelectorAll('.rise, [data-reveal]');
   if (!items.length) return;
   if (reduced || !('IntersectionObserver' in window)) {
     items.forEach(el => el.classList.add('in'));
