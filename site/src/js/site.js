@@ -314,6 +314,9 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (i < 0 || i === current) return;
     current = i;
     dots.forEach((d, n) => d.setAttribute('aria-current', n === i ? 'true' : 'false'));
+    // The moment arriving starts on paper and turns over; the ones leaving stop
+    // where they are, so nothing is still animating off screen.
+    panels.forEach((p, n) => { if (!p) return; if (n === i) { if (seen) p.play(); } else p.stop(); });
     // Re-arm the interval with the slide, so the number that is filling and the
     // move it is counting down to cannot drift apart.
     if (timer) { clearInterval(timer); timer = setInterval(tick, DWELL); }
@@ -349,7 +352,6 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
      Reduced motion turns it off entirely: an automatic change of view is
      exactly the kind of unrequested movement that setting is asking about. */
-  const DWELL = 5500;
   let timer = null, seen = false, taken = reduced, held = false;
 
   const stop = () => { clearInterval(timer); timer = null; root.dataset.auto = 'off'; };
@@ -358,6 +360,10 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (taken || !seen) { clearInterval(timer); timer = null; return; }
     if (held) { root.dataset.auto = 'paused'; clearInterval(timer); timer = null; return; }
     root.dataset.auto = 'on';
+    // ⚠️ The section has only just come on screen, so the moment showing has
+    // never played. Start it here, or the first thing the reader sees is a
+    // panel that was reset to paper and then left there.
+    if (panels[current]) panels[current].play();
     clearInterval(timer);
     timer = setInterval(tick, DWELL);
   };
@@ -395,42 +401,56 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
      to put the window in front. Touch and keys only. */
   track.addEventListener('touchstart', take, { passive: true });
   track.addEventListener('keydown', take);
-  root.querySelectorAll('.jd-switch button').forEach((b) => b.addEventListener('click', take));
+  root.querySelectorAll('.jd-switch button').forEach((b) => b.addEventListener('click', () => {
+    take();
+    panels.forEach((p) => p && p.stop());   // and nothing turns over on its own again
+  }));
 
-  /* Below 62rem the two halves of a panel share one cell and only one is on
-     screen. It flips itself once, shortly after the slide arrives, so the
-     answer does not depend on the reader finding a control — and a tap cancels
-     that for good, because a control that keeps moving on its own after you
-     have used it is a control fighting you. */
-  const reveal = items.map((it) => {
+  /* ── Chaque moment part du papier ────────────────────────────────────────
+     Below 62rem the two halves share one cell and only one is on screen at a
+     time. The panel turns itself over so the answer does not depend on the
+     reader finding a control, and a tap cancels that for good — a control that
+     keeps moving after you have used it is a control fighting you.
+
+     ⚠️ THE RESET IS THE POINT, and its absence was a real bug. The observer
+     below has the TRACK as its root, not the viewport, so slide 1 intersects
+     from the moment the page lays out — several screens before anyone reaches
+     the section. Its flip fired into an empty room and the paper half, which is
+     the half that states the problem, was never seen. A moment is now reset to
+     paper every time it becomes current, and nothing turns over until `seen`
+     says the section is on screen. */
+  const FLIP_AT = 1600;   /* paper is readable for this long                */
+  const DWELL   = 5600;   /* 1.6s paper + the turn + 4s software, then next */
+
+  const panels = items.map((it) => {
     const fig = it.querySelector('.jour-shot--jd');
     const btns = [...it.querySelectorAll('.jd-switch button')];
-    if (!fig || !btns.length) return () => {};
-    let timer = null, taken = false;
+    if (!fig || !btns.length) return null;
+    let timer = null;
     const set = (n) => {
       fig.dataset.flip = String(n);
-      btns.forEach((b, i) => b.setAttribute('aria-pressed', i === n ? 'true' : 'false'));
+      btns.forEach((b, k) => b.setAttribute('aria-pressed', k === n ? 'true' : 'false'));
     };
-    btns.forEach((b, i) => b.addEventListener('click', () => {
-      taken = true; clearTimeout(timer); set(i);
-    }));
-    return () => {
-      if (taken) return;
-      if (reduced) { set(1); return; }
-      clearTimeout(timer);
-      timer = setTimeout(() => { if (!taken) set(1); }, 1400);
+    btns.forEach((b, k) => b.addEventListener('click', () => { clearTimeout(timer); set(k); }));
+    return {
+      play () {
+        clearTimeout(timer);
+        if (reduced) { set(1); return; }   // the answer, with no turn
+        set(0);                            // paper first, always
+        timer = setTimeout(() => set(1), FLIP_AT);
+      },
+      stop () { clearTimeout(timer); },
     };
   });
 
   if (reduced || !('IntersectionObserver' in window)) {
-    items.forEach((it, n) => { it.dataset.active = 'true'; reveal[n](); });
+    items.forEach((it, n) => { it.dataset.active = 'true'; if (panels[n]) panels[n].play(); });
   } else {
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) if (e.isIntersecting) {
         const n = items.indexOf(e.target);
-        e.target.dataset.active = 'true';       // stays lit: a moment already
-        mark(n);                                // read does not replay on return
-        reveal[n]();
+        e.target.dataset.active = 'true';   // stays lit: a moment already read
+        mark(n);                            // does not replay its entrance
       }
     }, { root: track, threshold: 0.6 });
     items.forEach((it) => { it.dataset.active = 'false'; io.observe(it); });

@@ -5597,3 +5597,20 @@
   .s7-flag > i { animation: none !important; opacity: 1 !important; }
   .s7-btn--primary::after { display: none; }
 }
+
+
+/* ── Reprises du propriétaire ─────────────────────────────────────────────
+   « the text no one is gonna read on phone » — the two closing captions under
+   the caisse drawings. Both are `.s3-foot`, and both restate what the drawing
+   beside them has just shown: « Une ligne par séance terminée, écrite le jour
+   même » and « Quatre colonnes tenues séparément ». On a wide screen they sit
+   in the margin of the picture and cost nothing. On a phone they are two
+   paragraphs stacked under it, and nobody reads them.
+
+   ⚠️ `display: none`, not `visibility` or a clip: they are decorative
+   restatements, and the section's own `.s3-sr` line already carries the same
+   meaning for a screen reader. Removing them from the layout is the point —
+   hiding them while they still take their space would fix nothing. */
+@media (max-width: 61.99rem) {
+  .s3-foot { display: none; }
+}
