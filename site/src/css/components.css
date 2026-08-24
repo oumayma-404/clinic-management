@@ -5635,9 +5635,33 @@
   .jour-track {
     grid-auto-columns: calc(100% - 1.5rem);
     gap: 0.5rem;
-    /* the peek must not be clipped away by the scroller's own end padding */
     scroll-padding-inline: 0;
   }
+
+  /* ⚠️ THE TRAILING SPACE IS NOT COSMETIC. Making every slide 1.5rem narrower
+     than the track leaves the LAST one unable to reach its own snap point: it
+     starts at 1575px and the scroller stops at 1551, so slide 6 sat 24px out of
+     place for ever, `go(5)` asked for a position the browser clamped away, and
+     the strip could not come to rest on the sixth moment.
+
+     ⚠️ It is a MARGIN on the last slide, not `padding-inline-end` on the track.
+     Padding at the end of a scroll container is not added to `scrollWidth` here
+     — measured, `maxScroll` stayed at 1551 with the padding applied — which is
+     the long-standing scroller quirk. A margin on the last child is. */
+  /* ⚠️ FLEX, not grid, and only here. Measured: with `grid-auto-flow: column`
+     the scroller reported scrollWidth 1882 — exactly 6×307 + 5×8, the items and
+     their gaps — and NOTHING else counted. Neither `padding-inline-end` on the
+     track nor `margin-inline-end` on the last child was added to it, so the
+     trailing space did not exist as far as scrolling was concerned. Under flex
+     the end margin IS part of the scrollable overflow, which is the whole
+     reason for the switch. Everything else about the strip is identical. */
+  .jour-track { display: flex; }
+  .jour-track > .jour-item {
+    flex: 0 0 calc(100% - 1.5rem);
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+  .jour-track > .jour-item:last-child { margin-inline-end: 1.5rem; }
 
   /* 2 · THE ARROWS COME OFF THE FLOOR and onto the panel's two edges. They were
      right-aligned under it, where they read as a footer for the section rather
