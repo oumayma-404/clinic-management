@@ -399,7 +399,24 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
      ⚠️ `pointerdown` on the track was tried and is too wide: on a desktop that
      is any click anywhere on the panel, including a click that was only meant
      to put the window in front. Touch and keys only. */
-  track.addEventListener('touchstart', take, { passive: true });
+  /* ⚠️ A TOUCH IS NOT A SWIPE, and treating it as one killed the feature on
+     every phone. `touchstart` on the track fired the moment a finger landed on
+     it — including the finger of someone scrolling PAST the section, which is
+     most fingers — so the strip stopped advancing before it had advanced once.
+     Only a movement that is mostly horizontal is the reader steering the
+     carousel; a drag up or down the screen is them reading the page. */
+  let tx = 0, ty = 0, swiped = false;
+  track.addEventListener('touchstart', (e) => {
+    const t = e.touches[0];
+    tx = t.clientX; ty = t.clientY; swiped = false;
+  }, { passive: true });
+  track.addEventListener('touchmove', (e) => {
+    if (swiped) return;
+    const t = e.touches[0];
+    const dx = Math.abs(t.clientX - tx);
+    const dy = Math.abs(t.clientY - ty);
+    if (dx > 12 && dx > dy) { swiped = true; take(); }
+  }, { passive: true });
   track.addEventListener('keydown', take);
   root.querySelectorAll('.jd-switch button').forEach((b) => b.addEventListener('click', () => {
     take();
