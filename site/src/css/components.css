@@ -5849,7 +5849,16 @@
    2.18:1 and the stage is not, so `meet` would leave two bars of dead film; a
    width-first box clipped top and bottom crops the condyles and the soft
    tissue under the chin, which is what a practice crops out anyway. */
-.s5-fwrap { position: relative; flex: 1 1 auto; min-height: 0; }
+/* ⚠️ THE WRAPPER IS SIZED FOR THE FILM, in the pane's own container units. The
+   panel hugs its content, so the film is exactly half its own width tall and
+   the ratio can never break — but the wrapper only ever had the spare height
+   the taller sibling pane happened to leave it, and the panel was cropped by
+   36px at 1440. `50cqw` is the film's height (it is 2:1 and spans the wrapper)
+   and the rest is the title bar, the gaps and the two paddings. */
+.s5-fwrap {
+  position: relative; flex: 1 1 auto;
+  min-height: calc(50cqw + 2.5rem);
+}
 
 .s5-open {
   /* -0.7em across, not -0.5em: `.s5-f--k::before` already bleeds 0.5em past
@@ -5902,11 +5911,49 @@
 
 .s5-stage {
   position: relative; overflow: hidden;
+  display: grid;
   border-radius: 5px;
   background: #05090e;
 }
-.s5-film { position: relative; width: 100%; aspect-ratio: 720 / 330; }
-.s5-pano { display: block; width: 100%; height: 100%; }
+
+/* ⚠️ THE FILM IS FITTED BY HEIGHT, AND THAT NEEDS A DEFINITE ONE TO FIT INTO.
+   `height: 100%` against an auto-height parent resolves to `auto`, so the box
+   collapsed to the image's natural size and burst out of the panel; and
+   `aspect-ratio` + `max-height` does not save it either, because when the clamp
+   binds the used height changes and the ratio simply breaks. The chain is what
+   makes it work: the backdrop is `inset`-positioned so ITS height is definite,
+   it stretches the panel, the panel's second row is `minmax(0, 1fr)`, and only
+   then does `100%` here mean anything.
+
+   The source is also cropped to 2:1 (528x264) before it ever gets here — the
+   vault of the skull and the soft tissue under the chin are the two parts of a
+   panoramic that carry nothing, and cutting them is what lets a radiograph sit
+   in a space twice as wide as it is tall without being squeezed. */
+.s5-film {
+  position: relative; overflow: hidden;
+  width: 100%; aspect-ratio: 2 / 1;
+  border-radius: 4px;
+}
+.s5-pano { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* Les deux repères, posés sur les obturations du haut. Percentages of the film,
+   so they hold at every size it is drawn at.
+   ⚠️ They go below 48rem. `object-fit: cover` crops horizontally once the stage
+   is squarer than the film, and a mark placed at a percentage of the BOX then
+   points at the wrong part of the IMAGE. A mark in the wrong place is worse
+   than no mark. */
+.s5-ring {
+  position: absolute; z-index: 2;
+  left: var(--x); top: var(--y);
+  width: 2.2em; height: 2.2em;
+  margin: -1.1em 0 0 -1.1em;
+  border: 2px solid var(--accent-lit);
+  border-radius: 50%;
+  box-shadow: 0 0 12px color-mix(in oklab, var(--accent-lit) 45%, transparent);
+  opacity: 0;
+  transition: opacity 0s 300ms;
+}
+@media (max-width: 47.999rem) { .s5-ring { display: none; } }
 
 /* La barre de balayage. It leads the reveal by nothing: its trailing edge
    starts at 0% and its leading edge ends at 100%, so the film develops behind
@@ -6316,11 +6363,10 @@
 }
 .s5-body[data-file="open"] .s5-scan { animation: s5-scan 1000ms var(--ease-in-out) 130ms both; }
 
-/* The obturations are anatomy and develop with the film. The rings are an
-   annotation, so they arrive after it, once there is something to ring. */
-.s5-p-ring { opacity: 0; transition: opacity 0s 300ms; }
-.s5-body[data-file="open"] .s5-p-ring {
-  opacity: 0.85;
+/* The restorations are on the film itself. The rings are an annotation, so they
+   arrive after the scan has passed, once there is something to ring. */
+.s5-body[data-file="open"] .s5-ring {
+  opacity: 0.9;
   transition: opacity 460ms var(--ease-out) 1240ms;
 }
 
