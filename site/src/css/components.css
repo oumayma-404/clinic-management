@@ -5261,8 +5261,17 @@
 .s5-dossier {
   container-type: inline-size;
   display: grid;
-  gap: clamp(0.75rem, 0.5rem + 1vw, 1.25rem);
-  padding: clamp(0.875rem, 0.55rem + 1.5vw, 1.5rem);
+  /* ⚠️ `minmax(0, 1fr)`, NOT the implicit `auto`. An auto track sizes to
+     max-content, so the scrolling tab strip (753px of tabs at 390) made the
+     CARD 753px wide and `overflow: hidden` clipped it — the strip never
+     scrolled, it was just cut off. The section's own rule, and it bit here. */
+  grid-template-columns: minmax(0, 1fr);
+  /* ⚠️ NO PADDING AND NO GAP ON THE CARD ITSELF. The title bar is a full-bleed
+     ink surface and cannot be inset from the card's own edge; each row pads
+     itself instead. `overflow: hidden` is what makes the bar take the card's
+     top corners. */
+  gap: 0;
+  overflow: hidden;
   background: var(--paper);
   border: 1px solid var(--rule);
   border-radius: var(--r-card);
@@ -5275,26 +5284,45 @@
 }
 .s5.in .s5-dossier { opacity: 1; transform: none; filter: none; }
 
+/* ── La barre de titre ────────────────────────────────────────────────────
+   §3 (l'argent) and §5 (le téléphone) both get their weight from a dark
+   ground. This section cannot have one — it sits between the dark hero and
+   dark §3, and the page alternates all the way down — so the CARD takes the
+   ink instead of the section. Same contrast step, alternation untouched, and
+   an app is what it now reads as rather than a diagram. */
+.s5-chrome {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 0.75rem 1.25rem;
+  --chrome-x: clamp(0.875rem, 0.55rem + 1.5vw, 1.5rem);
+  padding: clamp(0.75rem, 0.5rem + 1vw, 1.125rem) var(--chrome-x);
+  background:
+    radial-gradient(76% 180% at 88% -30%,
+      color-mix(in oklab, var(--accent) 13%, transparent), transparent 66%),
+    var(--ink);
+  color: var(--on-ink);
+  border-bottom: 1px solid var(--rule-ink);
+}
+
 /* ── Le nom sur le dossier ────────────────────────────────────────────── */
 .s5-ident {
   display: flex; align-items: center; gap: 0.75rem;
   min-width: 0;
-  padding-bottom: clamp(0.625rem, 0.45rem + 0.7vw, 0.875rem);
-  border-bottom: 1px solid var(--rule);
 }
 .s5-av {
   flex: none; display: grid; place-items: center;
   width: 2.5rem; height: 2.5rem; border-radius: 50%;
-  background: var(--paper-2);
-  color: var(--azure);
+  background: color-mix(in oklab, var(--accent-lit) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent-lit) 30%, transparent);
+  color: var(--accent-lit);
   font-size: 0.8125rem; font-weight: 500; letter-spacing: 0.03em;
 }
 .s5-who { display: grid; gap: 0.125rem; min-width: 0; }
 .s5-who b {
   font-size: clamp(1.0625rem, 0.98rem + 0.35vw, 1.25rem);
   font-weight: 500; letter-spacing: -0.012em;
+  color: var(--on-ink);
 }
-.s5-who s { font-size: 0.875rem; color: var(--text-muted); }
+.s5-who s { font-size: 0.875rem; color: var(--on-ink-muted); }
 /* Written, not faded in: a name that is uncovered reads as a file being
    labelled, one that materialises reads as a page load. */
 .s5-name {
@@ -5319,15 +5347,22 @@
   display: flex; align-items: center;
   min-height: 2.75rem;
   padding: 0.5rem 0.875rem;
-  border: 1px solid var(--rule);
+  border: 1px solid var(--rule-ink);
   border-radius: var(--r-btn);
-  background: var(--page);
-  color: var(--text-muted);
+  background: color-mix(in oklab, var(--on-ink) 5%, transparent);
+  color: var(--on-ink-muted);
   font-size: clamp(0.8125rem, 0.76rem + 0.22vw, 0.9375rem);
   line-height: 1.2;
   white-space: nowrap;
   opacity: 0;
-  transform: translate(var(--tx, 0), var(--ty, 0)) rotate(var(--r, 0deg));
+  /* ⚠️ A MULTIPLIER, not the raw values. `--tx`/`--ty`/`--r` are INLINE on each
+     <li>, so no rule in a media query can override them; multiplying by a
+     `--scatter` the container owns is the only way to switch the scatter off
+     where it cannot work — inside the scrolling strip, where a translated tab
+     would just grow the scroll area. */
+  transform:
+    translate(calc(var(--tx, 0px) * var(--scatter, 0)), calc(var(--ty, 0px) * var(--scatter, 0)))
+    rotate(calc(var(--r, 0deg) * var(--scatter, 0)));
   transition: opacity 420ms var(--ease-out), transform 620ms var(--ease-out);
   transition-delay: calc(var(--t-tabs) + var(--i, 0) * 70ms);
 }
@@ -5336,12 +5371,13 @@
    Two lit tabs would picture a tab strip that cannot exist. */
 .s5-tab--on {
   position: relative;
-  color: var(--text); font-weight: 500;
-  border-color: color-mix(in oklab, var(--accent-ink) 40%, var(--rule));
+  color: var(--on-ink); font-weight: 500;
+  background: color-mix(in oklab, var(--on-ink) 12%, transparent);
+  border-color: color-mix(in oklab, var(--accent-lit) 46%, var(--rule-ink));
 }
 .s5-tab--on::after {
   content: ""; position: absolute; left: 0.75rem; right: 0.75rem; bottom: -1px;
-  height: 2px; border-radius: 2px; background: var(--accent-ink);
+  height: 2px; border-radius: 2px; background: var(--accent-lit);
   transform: scaleX(0); transform-origin: 0 50%;
   transition: transform 460ms var(--ease-out);
   transition-delay: calc(var(--t-tabs) + 240ms);
@@ -5360,6 +5396,7 @@
   display: grid;
   gap: clamp(0.75rem, 0.5rem + 1vw, 1.25rem);
   grid-template-columns: minmax(0, 1fr);
+  padding: clamp(0.875rem, 0.55rem + 1.5vw, 1.5rem);
 }
 .s5-panes {
   display: grid;
@@ -5461,10 +5498,13 @@
    The rule between them is what makes 18…11 | 21…28 read as an arch rather
    than as sixteen boxes. */
 .s5-arch {
-  /* Capped and centred: at 1180px of chart, sixteen 1fr cells would hand each
-     tooth 72px and the arch would read as a row of eggs. 52rem is where a
-     tooth lands at roughly the 40px the app itself draws. */
-  width: 100%; max-width: 52rem; margin-inline: auto;
+  /* ⚠️ THE CAP IS THE WHOLE DIFFERENCE between a chart and a strip of beads.
+     It was 32rem — 512px of arch centred in 1140px of panel, so more than half
+     the panel was blank white and each tooth came out at 30px. At 56rem a
+     tooth lands around 55px, comfortably above the 40px the app itself draws,
+     and the panel is full. Uncapped, sixteen 1fr cells would hand each tooth
+     72px and the arch would read as a row of eggs. */
+  width: 100%; max-width: 56rem; margin-inline: auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
   gap: 0 clamp(4px, 1.1cqi, 12px);
@@ -5499,15 +5539,18 @@
 
 .s5-t > b {
   position: relative;
-  width: 100%; aspect-ratio: 0.82;
+  width: 100%; aspect-ratio: 0.76;
   border: 1px solid var(--rule);
-  /* A crown that is broad and square and a root that tapers. The lower arch
-     mirrors it below, so the two rows face each other and the drawing reads as
-     a mouth rather than as two rows of eggs. */
-  border-radius: 38% 38% 30% 30% / 42% 42% 58% 58%;
+  /* ⚠️ THE RADII ARE WHAT MAKE IT A TOOTH RATHER THAN AN EGG, and they only
+     start to matter once the arch is big. At 30px every value read as "round";
+     at 50px a uniformly-large radius is unmistakably an egg. A crown is nearly
+     square and a root tapers, so the top corners are tight (24%/18%) and the
+     bottom ones are not (46%/82%). The lower arch mirrors it, which is what
+     makes the two rows face each other and read as a mouth. */
+  border-radius: 24% 24% 46% 46% / 18% 18% 82% 82%;
   background: var(--page);
 }
-.s5-arch--low .s5-t > b { border-radius: 30% 30% 38% 38% / 58% 58% 42% 42%; }
+.s5-arch--low .s5-t > b { border-radius: 46% 46% 24% 24% / 82% 82% 18% 18%; }
 .s5-t > s {
   font-size: max(0.6em, 8px);
   color: var(--text-faint);
@@ -6181,6 +6224,7 @@
 /* The entrance's delays are measured from the section's arrival and are poison
    in a loop — the same trap the view labels fell into, 1.8s out of step. */
 .s5-body[data-phase] :is(.s5-edge, .s5-fig, .s5-ad u, .s5-f--k) { transition-delay: 0ms; }
+.s5-body[data-file] .s5-f--p { transition-delay: 0ms; }
 
 /* ── 1 · La fiche s'écrit ────────────────────────────────────────────────
    The acte's own 2px edge draws downward as the act lands on the first tooth.
@@ -6238,7 +6282,12 @@
 
    Two beats, never one: `pick` lights the row, `open` opens the viewer 380ms
    later. Cause on screen before effect, the same rule the acte follows. */
-.s5-f--p { position: relative; isolation: isolate; transition: transform 240ms var(--ease-out); }
+/* ⚠️ NO `transition` OF ITS OWN. The shorthand here replaced `.s5-f`'s, which
+   carries the row's opacity fade — so this one row skipped the staggered
+   entrance and popped in while the other four were still hidden. It inherits
+   `.s5-f`'s transition and the lift rides the transform half of it, exactly as
+   `.s5-f--k` already does. */
+.s5-f--p { position: relative; isolation: isolate; }
 .s5-f--p::before {
   content: ""; position: absolute; inset: -0.15em -0.3em; z-index: -1;
   border-radius: 0.45rem;
@@ -6319,29 +6368,32 @@
 
 /* The seven tabs had a row to themselves under an identity row that was half
    empty. Folded in, they cost nothing and the file still names its own tabs. */
-@media (min-width: 62rem) {
-  /* ⚠️ `.s5-tabs` is a SIBLING of `.s5-ident`, not a child, so no amount of
-     flex on the identity row can pull the tabs into it. The card is already a
-     grid; giving its first row two columns is what puts them side by side. */
-  .s5-dossier { grid-template-columns: auto minmax(0, 1fr); align-items: center; }
-  .s5-ident { grid-column: 1; border-bottom: 0; padding-bottom: 0; }
-  .s5-tabs { grid-column: 2; justify-content: flex-end; }
-  /* the rule that used to sit under the identity now sits under the whole row,
-     because two grid items cannot share one border */
-  .s5-body {
-    grid-column: 1 / -1;
-    border-top: 1px solid var(--rule);
-    padding-top: clamp(0.75rem, 0.5rem + 1vw, 1.25rem);
+/* Below the fold-in width the seven tabs are ONE SCROLLING ROW, which is what
+   `app/patients/[id]/page.tsx` itself does (`overflow-x-auto … sm:grid`).
+   Wrapped, they were four rows and 305px of dark slab at 320 — the title bar
+   became the biggest thing in the section. The strip bleeds to the card's edge
+   and the right end fades, so it reads as continuing rather than as ending. */
+@media (max-width: 61.999rem) {
+  .s5-tabs {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-inline: calc(-1 * var(--chrome-x));
+    padding-inline: var(--chrome-x);
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 2.5rem), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 2.5rem), transparent);
   }
-  .s5-tab { font-size: 0.68rem; padding: 0.3em 0.48em; }
-  .s5-tabs { gap: 0.28rem; flex-wrap: nowrap; }
+  .s5-tabs::-webkit-scrollbar { display: none; }
+  .s5-tab { flex: none; }
 }
-.s5-ident { padding-block: 0.5rem; }
+@media (min-width: 62rem) {
+  /* Name on the left, the seven tabs pushed to the right end of the bar —
+     one flex row, the way a real tab strip sits under a record's name. */
+  .s5-tabs { --scatter: 1; margin-left: auto; justify-content: flex-end; flex-wrap: nowrap; gap: 0.28rem; }
+  .s5-tab { font-size: 0.68rem; padding: 0.3em 0.48em; }
+}
 .s5-av { width: 34px; height: 34px; }
-
-/* A 32rem arch still puts a tooth at about the 36px the app draws one at, and
-   takes 60px off the panel. */
-.s5-arch { max-width: 32rem; }
 
 .s5 { padding-block: clamp(2rem, 1.2rem + 2.2vw, 2.375rem); }
 
