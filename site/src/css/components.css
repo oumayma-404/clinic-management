@@ -13,7 +13,7 @@
   transition: background var(--mid) var(--ease), border-color var(--mid) var(--ease);
 }
 .topbar.stuck {
-  background: rgb(255 255 255 / 0.9);
+  background: color-mix(in srgb, var(--page) 90%, transparent);
   backdrop-filter: saturate(1.5) blur(14px);
   border-bottom-color: var(--rule);
   /* It re-enters from above instead of appearing in place — the state change
@@ -23,7 +23,7 @@
 @keyframes bar-drop { from { transform: translateY(-100%); } to { transform: none; } }
 @media (prefers-reduced-motion: reduce) { .topbar.stuck { animation: none; } }
 .topbar.on-light, .topbar.on-light.stuck {
-  background: rgb(255 255 255 / 0.9); border-bottom-color: var(--rule);
+  background: color-mix(in srgb, var(--page) 90%, transparent); border-bottom-color: var(--rule);
 }
 
 .topbar-in { display: flex; align-items: center; gap: clamp(0.75rem, 0.1rem + 1.8vw, 2rem); height: 4.5rem; }
@@ -65,7 +65,7 @@
 /* The bar is not inside .on-ink, so its transparent state styles itself —
    otherwise the ghost button renders dark-on-dark and reads as disabled. */
 .topbar:not(.stuck):not(.on-light) .btn-ghost { color: var(--on-ink); border-color: #3a5b7d; }
-.topbar:not(.stuck):not(.on-light) .btn-ghost:hover { background: #1b3049; border-color: #557eab; }
+.topbar:not(.stuck):not(.on-light) .btn-ghost:hover { background: #2b4a70; border-color: #6a8fbb; }
 .stuck .btn-ghost, .on-light .btn-ghost { color: var(--text); border-color: #d4d4d1; }
 
 /* ── 1b · Dropdown ─────────────────────────────────────────────────────── */

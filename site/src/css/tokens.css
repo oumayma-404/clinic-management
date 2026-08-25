@@ -10,9 +10,33 @@
      page #ffffff · card #f3f3f0 · dark #152d18 · rule #e4e4e3
      text #09090b · muted #52525b · accent #c8f46e
 
-   Ours keeps every one of those numbers and swaps two hues: the dark is
-   ink-navy instead of forest, and the accent is a clinical teal instead of
+   Ours keeps every one of those numbers and swaps two hues: the dark is a
+   mid navy instead of forest, and the accent is a clinical green instead of
    lime. The app's four zone colours stay meaningful inside the feature card.
+
+   ⚠️ THE DARK IS #1e3a5f AND NOT A NEAR-BLACK, which is the whole point of
+   it. It used to be #0e1b2a, about 10% luminance. A near-black navy under a
+   saturated cyan accent is the palette of a developer tool, and this is a
+   product a dentist buys. At 24% it is still dark enough for a light screen
+   capture to lift off it, and it reads as an institution rather than as a
+   terminal. The accent left #2dd4bf for #2a9d8f, which is not invented: it
+   is the colour the application itself gives to detartrage.
+
+   ⚠️ THE HUES ARE KEPT ON PURPOSE. Collapsing the four zone colours onto
+   the app's nine clinical ones was proposed and REFUSED: the owner wants the
+   page to keep its variety. Do not quietly unify them later.
+
+   ⚠️ A LIGHT TEAL BELONGS ON THE DARK GROUND, NOWHERE ELSE. `--accent-lit`
+   measures 1.49:1 on white, which is invisible. Text on white takes
+   `--accent-ink`, which is dark. The two are not interchangeable, and a
+   preview that swapped them is what caught this.
+
+   ⚠️ AND THE HEX LIVES IN FOUR OTHER PLACES: `theme-color`, the inline SVG
+   favicon (url-encoded, so `%23` and not `#`), and the three hero scenes,
+   62 occurrences between them. Editing this file alone leaves the browser
+   chrome, the tab icon and every animation on the old navy. `og-card.jpg`
+   is NOT one of them: it is a capture of the application's dashboard, so it
+   wears the app's colours and a palette change never reaches it.
 
    ⚠️ ONE palette on bare :root. No dark-mode block — a marketing page is a
    fixed composition, and a token defined only inside a media query never
@@ -23,12 +47,12 @@
   color-scheme: light;
 
   /* ── Ground ──────────────────────────────────────────────────────────── */
-  --page:     #ffffff;
-  --paper:    #f3f3f0;   /* the warm-grey card, CareStack's signature surface */
-  --paper-2:  #ebebe5;
-  --ink:      #0e1b2a;   /* the dark hero, the dark bands, the links panel   */
-  --ink-2:    #16283c;
-  --ink-3:    #1d3550;
+  --page:     #f4f8fd;
+  --paper:    #e9f0f8;   /* the warm-grey card, CareStack's signature surface */
+  --paper-2:  #dde8f3;
+  --ink:      #1e3a5f;   /* the dark hero, the dark bands, the links panel   */
+  --ink-2:    #254768;
+  --ink-3:    #2d5478;
 
   /* ── Text ────────────────────────────────────────────────────────────── */
   --text:          #09090b;
@@ -39,16 +63,16 @@
   --on-ink-faint:  #7c8b9b;
 
   /* ── Rules ───────────────────────────────────────────────────────────── */
-  --rule:      #e4e4e3;
-  --rule-soft: #efefec;
-  --rule-ink:  #2a3f57;
+  --rule:      #d7e2ee;
+  --rule-soft: #e6eef7;
+  --rule-ink:  #3b587c;
 
   /* ── The accent. Buttons and links, nothing else. ────────────────────── */
-  --accent:      #2dd4bf;   /* fills — sits at lime's luminance on the dark  */
-  --accent-hi:   #45e3cf;
-  --accent-ink:  #0b7f74;   /* the same accent as TEXT on white              */
-  --accent-lit:  #7defdc;   /* eyebrows and links on the dark ground         */
-  --on-accent:   #05231f;
+  --accent:      #2a9d8f;   /* fills — sits at lime's luminance on the dark  */
+  --accent-hi:   #35b9a8;
+  --accent-ink:  #1c7d70;   /* the same accent as TEXT on white              */
+  --accent-lit:  #6fd8c6;   /* eyebrows and links on the dark ground         */
+  --on-accent:   #04231f;
 
   /* ── The app's four zones, twice: readable on white, and on ink. ─────── */
   --azure:  #0284c7;  --azure-lit:  #7dd0fb;
