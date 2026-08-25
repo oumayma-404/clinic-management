@@ -179,7 +179,7 @@
     var(--stage-base, var(--paper));
 }
 .stage--ink {
-  --stage-base: #16283c;
+  --stage-base: #254768;
   color: var(--on-ink);
   border: 1px solid var(--rule-ink);
 }
@@ -236,7 +236,7 @@
   --czz: var(--cz, 1);
   position: relative; overflow: hidden;
   aspect-ratio: var(--ar, 16 / 10);
-  background: #0d1620;
+  background: #182c47;
 }
 .crop img {
   position: absolute; max-width: none;
@@ -746,15 +746,12 @@
    box per line fragment, and `background-size` animates, so the draw survives
    the wrap. The native `text-decoration` cannot be animated at all, which is
    why <s> loses it. */
-.jour-t s {
-  text-decoration: none; color: var(--text);
-  background-image: linear-gradient(currentColor, currentColor);
-  background-repeat: no-repeat;
-  background-position: 0 56%;
-  background-size: 0% 2px;
-  -webkit-box-decoration-break: clone; box-decoration-break: clone;
-  transition: color 320ms var(--ease) 260ms;
-}
+/* ⚠️ PLUS DE TRAIT BARRÉ. It was drawn as an animated background so it
+   could be swept across the words. It swept beautifully and it said the
+   wrong thing: a struck-through line reads as « cancelled », and this was
+   the LARGEST text in the column. The reader’s eye landed first on the
+   problem, crossed out, and never reached the sentence that sells. */
+.jour-t s { text-decoration: none; color: inherit; }
 .jour-p { margin-top: 0.875rem; color: var(--text-muted); font-size: var(--t-small); max-width: 36ch; }
 
 .jour-a {
@@ -785,7 +782,7 @@
   border: 1px solid var(--rule-ink);
   background:
     radial-gradient(92% 105% at 88% -10%, color-mix(in oklab, var(--zc, var(--accent)) 34%, transparent), transparent 70%),
-    #16283c;
+    #254768;
 }
 
 /* ⚠️ WHOLE screens, not fragments. An earlier pass cropped into each shot so
@@ -1051,7 +1048,7 @@
   .sv-stage[data-stack="true"] > .sv-face { filter: none; transform: none; }
 }
 
-.sv-media { position: relative; overflow: hidden; aspect-ratio: 16 / 9.5; background: #0d1620; }
+.sv-media { position: relative; overflow: hidden; aspect-ratio: 16 / 9.5; background: #182c47; }
 .sv-shot { position: absolute; inset: 0; }
 .sv-shot > img { width: 100%; height: 100%; object-fit: cover; }
 /* Inside a filled box the crop takes the box's height, so --ar is not read —
@@ -1372,7 +1369,7 @@
   border-radius: var(--mob-r);
   /* A machined edge: light catches the top-left and the bottom-right, the
      body stays near-black so the screen is the brightest thing in the band. */
-  background: linear-gradient(152deg, #3a5170 0%, #0b1420 24%, #080f18 72%, #2c4059 100%);
+  background: linear-gradient(152deg, #3a5170 0%, #172a44 24%, #142440 72%, #3d5a7e 100%);
   box-shadow:
     0 2px 6px rgb(0 0 0 / 0.4),
     0 42px 80px -34px rgb(0 0 0 / 0.85),
@@ -1382,10 +1379,10 @@
    dark: a light bar on a dark band reads as a rendering fault, not a button. */
 .mob-frame::before, .mob-frame::after {
   content: ""; position: absolute; width: 0.1563rem; border-radius: 0.1563rem;
-  background: linear-gradient(#2b3e57, #101d2c);
+  background: linear-gradient(#3b587c, #1d3453);
 }
 .mob-frame::before { left: -0.0313rem; top: 21%; height: 17%;
-  background: linear-gradient(#2b3e57 0 42%, transparent 42% 58%, #2b3e57 58% 100%); }
+  background: linear-gradient(#3b587c 0 42%, transparent 42% 58%, #3b587c 58% 100%); }
 .mob-frame::after  { right: -0.0313rem; top: 27%; height: 11%; }
 
 .mob-screen {
@@ -2207,7 +2204,7 @@
   color: var(--on-ink);
   background:
     radial-gradient(88% 100% at 92% -8%, color-mix(in oklab, var(--zc, var(--accent)) 32%, transparent), transparent 68%),
-    #16283c;
+    #254768;
   /* A hairline of light where the two materials meet, so the seam reads as a
      join rather than as two boxes that happen to touch. */
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
@@ -2708,37 +2705,40 @@
    Two real buttons, 44px of target each, and it is the panel's own header
    rather than a control floating beside it. */
 .jd-switch { display: none; }
-@media (max-width: 61.99rem) {
-  .jd-switch {
-    display: grid; grid-template-columns: 1fr 1fr;
-    grid-area: 1 / 1;
-    border-bottom: 1px solid var(--rule);
-    background: var(--paper-2);
-  }
-  .jd-switch button {
-    font: inherit; font-size: var(--t-eyebrow); font-weight: 500;
-    letter-spacing: 0.06em; text-transform: uppercase;
-    min-height: 2.75rem; padding: 0.5rem 0.5rem;
-    border: 0; background: none; cursor: pointer;
-    color: var(--text-faint);
-    position: relative;
-    transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
-  }
-  .jd-switch button::after {
-    content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
-    background: currentColor; transform: scaleX(0);
-    transition: transform 320ms var(--ease-out);
-  }
-  .jd-switch button[aria-pressed="true"] { color: var(--text); background: var(--paper); }
-  .jd-switch button[aria-pressed="true"]::after { transform: none; }
-  .jd-switch button:active { transform: scale(0.97); }
-  /* The second tab is the answer, so when it is the one showing the whole
-     header takes the software's ground and the flip reads as a change of
-     world rather than as a tab. */
-  .jour-shot--jd[data-flip="1"] .jd-switch { background: #10202f; border-bottom-color: var(--rule-ink); }
-  .jour-shot--jd[data-flip="1"] .jd-switch button { color: var(--on-ink-faint); }
-  .jour-shot--jd[data-flip="1"] .jd-switch button[aria-pressed="true"] { color: var(--on-ink); background: #16283c; }
+/* ⚠️ PAS DANS UNE REQUÊTE MÉDIA. This whole block used to live inside
+   `@media (max-width: 61.99rem)`, because the switch only existed on a
+   phone. Now that the panel turns over at every width, showing the switch
+   without ALSO lifting its styling left two identical-looking tabs with no
+   indication of which side you were on. */
+.jd-switch {
+  display: grid; grid-template-columns: 1fr 1fr;
+  grid-area: 1 / 1;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-2);
 }
+.jd-switch button {
+  font: inherit; font-size: var(--t-eyebrow); font-weight: 500;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  min-height: 2.75rem; padding: 0.5rem 0.5rem;
+  border: 0; background: none; cursor: pointer;
+  color: var(--text-faint);
+  position: relative;
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.jd-switch button::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+  background: currentColor; transform: scaleX(0);
+  transition: transform 320ms var(--ease-out);
+}
+.jd-switch button[aria-pressed="true"] { color: var(--text); background: var(--paper); }
+.jd-switch button[aria-pressed="true"]::after { transform: none; }
+.jd-switch button:active { transform: scale(0.97); }
+/* The second tab is the answer, so when it is the one showing the whole
+   header takes the software's ground and the flip reads as a change of
+   world rather than as a tab. */
+.jour-shot--jd[data-flip="1"] .jd-switch { background: #1d3453; border-bottom-color: var(--rule-ink); }
+.jour-shot--jd[data-flip="1"] .jd-switch button { color: var(--on-ink-faint); }
+.jour-shot--jd[data-flip="1"] .jd-switch button[aria-pressed="true"] { color: var(--on-ink); background: #254768; }
 
 /* ── 28b · The two chart bodies and the leftovers ─────────────────────────
    `.jd-chart-p` exists so the marks position against the TEETH and not against
@@ -2812,7 +2812,7 @@
   width: min(16em, 86%);
   padding: 0.5em;
   border-radius: 2em;
-  background: #0a1420;
+  background: #172a44;
   border: 1px solid var(--rule-ink);
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.3), 0 30px 60px -30px rgb(0 0 0 / 0.7);
   position: relative;
@@ -2820,13 +2820,13 @@
 .jd-ph-notch {
   position: absolute; top: 0.5em; left: 50%; transform: translateX(-50%);
   width: 3.4em; height: 0.42em; border-radius: 999px;
-  background: #0a1420; z-index: 2;
+  background: #172a44; z-index: 2;
 }
 .jd-ph-screen {
   display: grid; gap: 0.5em;
   padding: 1.1em 0.75em 0.9em;
   border-radius: 1.6em;
-  background: #16283c;
+  background: #254768;
 }
 .jd-ph-top { padding-bottom: 0.5em; }
 .jd-ph-row { padding: 0.15em 0; }
@@ -6604,3 +6604,139 @@
   .s3-fig-a { display: none; }
   .s3-sheet[data-phase] .s3-fig-b { opacity: 1; transform: none; }
 }
+
+
+/* ══ « Le quotidien » : une seule chose qui se transforme ═════════════════
+
+   ⚠️ LE PANNEAU CESSE D’ÊTRE UN DIPTYQUE. Côte à côte, une pile de fiches en
+   papier et une recherche dans un logiciel sont deux DESSINS DIFFERENTS : ce ne
+   sont pas deux états d’un même objet, il n’y a donc rien à comparer, et un
+   lecteur à qui on demande de croire sur parole ne comprend pas. Les deux
+   moitiés partagent maintenant une seule cellule à toutes les largeurs et se
+   remplacent l’une l’autre : on VOIT le changement au lieu de le supposer.
+
+   La machinerie existait déjà — elle était enfermée dans la requête téléphone,
+   où la place manquait pour deux colonnes. Ce qui manquait n’était pas le code,
+   c’était de comprendre que la contrainte du téléphone était le meilleur
+   dessin. */
+@media (min-width: 62rem) {
+  .jour-shot--jd { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .jd-half { grid-area: 2 / 1; }
+  /* the switch names both sides; an in-panel label would say it twice, and one
+     of the two would be naming a half that is not on screen */
+  .jd-half .jd-lab { display: none; }
+  .jd-half { transition: opacity 320ms var(--ease-out), filter 320ms var(--ease-out); }
+  .jour-shot--jd[data-flip="0"] .jd-avec,
+  .jour-shot--jd[data-flip="1"] .jd-sans { opacity: 0; filter: blur(7px); pointer-events: none; }
+
+}
+
+/* ── Le bénéfice d’abord, le problème ensuite ────────────────────────
+   ⚠️ L’ORDRE EST INVERSÉ EN CSS, PAS DANS LE MARKUP. Le document garde son ordre
+   logique — la journée, le problème, puis ce qui le règle — qui est celui qu’un
+   lecteur d’écran doit entendre. À l’œil, c’est la phrase qui vend qui doit
+   arriver la première, et elle était la plus petite, tout en bas, sous un filet. */
+.jour-copy { display: flex; flex-direction: column; }
+.jour-n { order: 0; }
+.jour-a { order: 1; }
+.jour-k { order: 2; }
+.jour-t { order: 3; }
+.jour-p { order: 4; }
+
+/* le bénéfice prend la taille que le problème avait */
+.jour-a {
+  margin-top: 1.25rem; padding-top: 0; border-top: 0;
+  align-items: start;
+}
+.jour-a b {
+  font-size: clamp(1.375rem, 1.1rem + 1.2vw, 1.875rem);
+  font-weight: 400; line-height: 1.16; letter-spacing: -0.02em;
+  color: var(--text);
+}
+.jour-a svg { margin-top: 0.35em; color: var(--accent-ink); }
+
+/* et le problème redescend : une mention, pas un titre */
+.jour-k { margin-top: 1.5rem; margin-bottom: 0.25rem; }
+.jour-t {
+  font-size: var(--t-small); font-weight: 400; line-height: 1.35;
+  color: var(--text-muted); letter-spacing: 0;
+}
+.jour-p { margin-top: 0.3rem; font-size: var(--t-small); }
+
+/* ── Sur téléphone, un volet occupe tout l’écran ─────────────────────
+   ⚠️ LE RABAT MONTRAIT LE MAUVAIS BOUT. Il dépassait de 24 px pour dire « il y
+   en a d’autres », mais ce qui dépassait était la COLONNE DE TEXTE du volet
+   suivant : des fragments de mots collés au bord droit, qui lisent comme un
+   défaut d’affichage et non comme un carrousel. Les flèches et leur animation
+   disent déjà la même chose, sans déchirer le texte. */
+@media (max-width: 61.99rem) {
+  .jour-track > .jour-item { flex: 0 0 100%; }
+  .jour-track > .jour-item:last-child { margin-inline-end: 0; }
+  .jour-track { gap: 0.75rem; }
+}
+
+
+/* ── L’art garde la largeur pour laquelle il a été dessiné ─────────────
+   ⚠️ Les fiches penchées, les téléphones et les cahiers de ces six dessins ont
+   été composés dans une demi-colonne. Le panneau fait maintenant toute la
+   largeur : étirées sur 800 px, les cartes penchées se chevauchent en accordéon
+   et le dessin cesse d’être lisible. Plafonné et centré, il retrouve ses
+   proportions — et le blanc autour n’est pas du vide, c’est ce qui fait qu’un
+   panneau plein écran lit comme une seule chose. */
+@media (min-width: 62rem) {
+  .jd-art { width: 100%; max-width: 30rem; margin-inline: auto; }
+  .jd-note { max-width: 34rem; margin-inline: auto; }
+}
+
+
+/* ══ Le texte bascule avec l’image ══════════════════════════════
+
+   ⚠️ LA COLONNE ET LE PANNEAU DISAIENT DEUX MOITIÉS DIFFÉRENTES EN MÊME TEMPS.
+   Le bénéfice — coche verte, plus gros texte de la colonne — restait à l’écran
+   en permanence, y compris pendant que le dessin montrait encore la pile de
+   papier. À l’instant où l’œil se pose, les mots annonçaient la bonne nouvelle
+   et l’image montrait la mauvaise : ils se contredisaient, et rien ne disait
+   lequel des deux était l’« avant ». C’est ça que l’ami de la propriétaire n’a
+   pas compris — pas la vitesse, pas la mise en page.
+
+   Les deux temps partagent maintenant une cellule et se relaient avec le
+   dessin. À tout instant il n’y a qu’UNE idée à lire, et elle est d’accord avec
+   ce qu’on voit. */
+.jour-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
+}
+/* les règles d’ordre de la version précédente n’ont plus d’objet : les deux
+   temps sont désormais deux blocs, pas cinq frères à réordonner */
+.jour-n { grid-area: 1 / 1; order: 0; }
+.jour-when, .jour-then { grid-area: 2 / 1; order: 0; align-self: start; }
+
+.jour-when, .jour-then {
+  transition: opacity 300ms var(--ease-out), filter 300ms var(--ease-out);
+}
+.jour-item[data-flip="0"] .jour-then,
+.jour-item[data-flip="1"] .jour-when {
+  opacity: 0; filter: blur(6px); pointer-events: none;
+}
+
+/* « Avant » / « Après » écrits en toutes lettres. Le commutateur du panneau dit
+   déjà « sur le papier » et « avec le logiciel », qui sont concrets ; ces
+   deux mots-là disent le TEMPS, ce qu’aucun des deux autres ne fait. */
+.jour-state {
+  font-size: var(--t-eyebrow); letter-spacing: 0.12em; text-transform: uppercase;
+  font-weight: 500; margin-bottom: 0.75rem;
+}
+.jour-when .jour-state { color: #9a6a3a; }
+.jour-then .jour-state { color: var(--accent-ink); }
+
+/* le problème reprend la taille d’un titre : il n’est plus en concurrence avec
+   le bénéfice, puisqu’ils ne sont jamais à l’écran ensemble */
+.jour-k { margin: 0 0 0.4rem; }
+.jour-t {
+  font-size: clamp(1.375rem, 1.1rem + 1.2vw, 1.875rem);
+  font-weight: 400; line-height: 1.16; letter-spacing: -0.02em; color: var(--text);
+}
+.jour-p { margin-top: 0.6rem; font-size: var(--t-small); color: var(--text-muted); }
+.jour-a { margin-top: 0; padding-top: 0; border-top: 0; }

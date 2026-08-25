@@ -414,7 +414,7 @@
     <div class="head rise">
       <p class="eyebrow">Le quotidien</p>
       <h2>Tournez la page, gardez tout ce qu’il y a dessus.</h2>
-      <p class="lede">Six moments de votre semaine, avant et après.</p>
+      <p class="lede">Trois moments de votre semaine, avant et après.</p>
     </div>
 
     <div class="jour" data-jour>
@@ -423,14 +423,20 @@
 
           <article class="jour-item" style="--zc: var(--azure); --zcl: var(--azure-lit)">
             <div class="jour-copy">
-              <p class="jour-n"><b>01</b><span>/ 06</span></p>
-              <p class="jour-k">Aujourd’hui</p>
+              <p class="jour-n"><b>01</b><span>/ 03</span></p>
+              <div class="jour-when">
+                <p class="jour-state">Avant</p>
+                <p class="jour-k">Aujourd’hui</p>
               <h3 class="jour-t"><s>La fiche introuvable</s></h3>
               <p class="jour-p">Le patient est installé. Son dossier est ailleurs.</p>
-              <p class="jour-a">
+              </div>
+              <div class="jour-then">
+                <p class="jour-state">Après</p>
+                <p class="jour-a">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
                 <b>Le dossier s’ouvre au nom du patient</b>
               </p>
+              </div>
             </div>
 
             <figure class="jour-shot jour-shot--jd" data-flip="0">
@@ -472,187 +478,22 @@
             </figure>
           </article>
 
-          <article class="jour-item" style="--zc: var(--violet); --zcl: var(--violet-lit)">
+                                        <article class="jour-item" style="--zc: var(--green); --zcl: var(--green-lit)">
             <div class="jour-copy">
-              <p class="jour-n"><b>02</b><span>/ 06</span></p>
-              <p class="jour-k">Dimanche</p>
-              <h3 class="jour-t"><s>Le dimanche, de mémoire</s></h3>
-              <p class="jour-p">Dimanche, un patient appelle. Vous n’avez que votre mémoire.</p>
-              <p class="jour-a">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
-                <b>Le dossier vous suit sur le téléphone</b>
-              </p>
-            </div>
-
-            <figure class="jour-shot jour-shot--jd" data-flip="0">
-              <div class="jd-switch">
-                <button type="button" data-flip-to="0" aria-pressed="true">Sur le papier</button>
-                <button type="button" data-flip-to="1" aria-pressed="false">Avec le logiciel</button>
-              </div>
-              <div class="jd-half jd-sans">
-                <p class="jd-lab">Sur le papier</p>
-                <div class="jd-art jd-mem" aria-hidden="true">
-                  <span class="jd-ring jd-in" style="--i: 0">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5h3l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2A17 17 0 0 1 4.5 5.7a2 2 0 0 1 2-2.2Z"/></svg>
-                    <i></i><i></i>
-                    <b>Dimanche, 19&nbsp;h</b>
-                  </span>
-                  <span class="jd-bubble jd-in" style="--i: 2">
-                    <s class="jd-fade" style="--i: 1">« Vous m’avez fait quoi la dernière fois&nbsp;?&nbsp;»</s>
-                    <s class="jd-fade" style="--i: 2">une couronne… ou un composite&nbsp;?</s>
-                    <s class="jd-fade" style="--i: 3">c’était en mars, je crois</s>
-                    <b class="jd-q">?</b>
-                  </span>
-                  <span class="jd-away jd-in" style="--i: 4">
-                    <b>Le dossier</b><s>au cabinet, dans la pile</s>
-                  </span>
-                </div>
-                <p class="jd-note">Le dossier est au cabinet. Vous rappellerez lundi.</p>
-              </div>
-
-              <div class="jd-half jd-avec">
-                <p class="jd-lab">Avec le logiciel</p>
-                <div class="jd-art" aria-hidden="true">
-                  <span class="jd-phone jd-in" style="--i: 0">
-                    <i class="jd-ph-notch"></i>
-                    <span class="jd-ph-screen">
-                      <span class="jd-ph-top"><b>Sonia Ben Amor</b><s>34 ans · 12 séances</s></span>
-                      <span class="jd-ph-row jd-in" style="--i: 2; --dc: var(--violet-lit)"><i></i><b>12 mars</b><s>Composite · 26</s></span>
-                      <span class="jd-ph-row jd-in" style="--i: 3; --dc: var(--azure-lit)"><i></i><b>Diagnostic</b><s>Carie occlusale, face mésiale</s></span>
-                      <span class="jd-x jd-ph-row jd-in" style="--i: 4; --dc: var(--amber-lit)"><i></i><b>Radios</b><s>3 clichés au dossier</s></span>
-                      <span class="jd-ph-row jd-in" style="--i: 5; --dc: var(--accent)"><i></i><b>Contrôle</b><s>Prévu le 12 septembre</s></span>
-                      <span class="jd-ph-row jd-in" style="--i: 6; --dc: var(--green-lit)"><i></i><b>Reste à payer</b><s>0,000 DT</s></span>
-                    </span>
-                  </span>
-                </div>
-                <p class="jd-note">Vous ouvrez, vous lisez, vous répondez.</p>
-              </div>
-            </figure>
-          </article>
-
-          <article class="jour-item" style="--zc: var(--violet); --zcl: var(--violet-lit)">
-            <div class="jour-copy">
-              <p class="jour-n"><b>03</b><span>/ 06</span></p>
-              <p class="jour-k">Au fauteuil</p>
-              <h3 class="jour-t"><s>L’odontogramme sur une feuille</s></h3>
-              <p class="jour-p">Trois ans de soins sur une seule feuille. Plus personne ne la lit.</p>
-              <p class="jour-a">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
-                <b>Un odontogramme toujours lisible</b>
-              </p>
-            </div>
-
-            <figure class="jour-shot jour-shot--jd" data-flip="0">
-              <div class="jd-switch">
-                <button type="button" data-flip-to="0" aria-pressed="true">Sur le papier</button>
-                <button type="button" data-flip-to="1" aria-pressed="false">Avec le logiciel</button>
-              </div>
-              <div class="jd-half jd-sans">
-                <p class="jd-lab">Sur le papier</p>
-                <div class="jd-art" aria-hidden="true">
-                  <span class="jd-ru jd-in" style="--i: 0"><b>Odontogramme</b><s>Sonia Ben Amor</s></span>
-                  <span class="jd-chart-p">
-                    <span class="jd-teeth"><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i></span>
-                    <span class="jd-teeth"><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i></span>
-                    <span class="jd-marks">
-                      <i class="jd-mk jd-mk--o" style="--x: 6%;  --y: -14%; --r: -13deg; --i: 0"></i>
-                      <i class="jd-mk jd-mk--x" style="--x: 9%;  --y: 8%;   --i: 1"></i>
-                      <i class="jd-mk jd-mk--o" style="--x: 14%; --y: 44%;  --r: 9deg; --mc: #9a6a3a; --i: 2"></i>
-                      <i class="jd-mk jd-mk--x" style="--x: 76%; --y: 50%;  --mc: #9a6a3a; --i: 3"></i>
-                      <i class="jd-mk jd-mk--o" style="--x: 79%; --y: -8%;  --r: 16deg; --i: 4"></i>
-                      <i class="jd-mk jd-mk--o" style="--x: 72%; --y: 38%;  --r: -21deg; --mc: #9a6a3a; --i: 5"></i>
-                      <i class="jd-mk jd-mk--x" style="--x: 4%;  --y: 52%;  --i: 6"></i>
-                      <i class="jd-mk jd-mk--o" style="--x: 11%; --y: -2%;  --r: 27deg; --mc: #9a6a3a; --i: 7"></i>
-                    </span>
-                  </span>
-                  <span class="jd-scrawl">
-                    <i class="jd-mk jd-mk--d out" style="--r: -3deg; --i: 8">12/03 — compo 26</i>
-                    <i class="jd-mk jd-mk--d" style="--r: 2deg; --i: 9">04/11 — ext&nbsp;? à revoir</i>
-                    <i class="jd-mk jd-mk--d out" style="--r: -2deg; --i: 10">21/01 — couronne (voir radio)</i>
-                  </span>
-                </div>
-                <p class="jd-note">Trois ans de reprises sur une feuille.</p>
-              </div>
-
-              <div class="jd-half jd-avec">
-                <p class="jd-lab">Avec le logiciel</p>
-                <div class="jd-art" aria-hidden="true">
-                  <span class="jd-hdr jd-in" style="--i: 0"><b>Odontogramme</b><s>32 dents suivies</s></span>
-                  <span class="jd-chart-p">
-                    <span class="jd-teeth"><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th jd-th--on" style="--dc: var(--azure); --i: 3"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th jd-th--on" style="--dc: var(--violet); --i: 1"></i><i class="jd-th"></i></span>
-                    <span class="jd-teeth"><i class="jd-th"></i><i class="jd-th jd-th--on" style="--dc: var(--amber); --i: 2"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th"></i><i class="jd-th jd-th--on" style="--dc: var(--green); --i: 4"></i><i class="jd-th"></i><i class="jd-th"></i></span>
-                  </span>
-                  <ul class="jd-hist">
-                    <li class="jd-in" style="--i: 4; --dc: var(--violet-lit)"><i></i><b>26</b><s>Composite</s><em>12/03</em></li>
-                    <li class="jd-in" style="--i: 5; --dc: var(--amber-lit)"><i></i><b>47</b><s>Extraction</s><em>04/11</em></li>
-                    <li class="jd-in" style="--i: 6; --dc: var(--azure-lit)"><i></i><b>16</b><s>Couronne</s><em>21/01</em></li>
-                    <li class="jd-x jd-in" style="--i: 7; --dc: var(--green-lit)"><i></i><b>36</b><s>Détartrage</s><em>03/09</em></li>
-                  </ul>
-                </div>
-                <p class="jd-note">Chaque acte porte sa dent et sa date.</p>
-              </div>
-            </figure>
-          </article>
-
-          <article class="jour-item" style="--zc: var(--amber); --zcl: var(--amber-lit)">
-            <div class="jour-copy">
-              <p class="jour-n"><b>04</b><span>/ 06</span></p>
-              <p class="jour-k">Fin du mois</p>
-              <h3 class="jour-t"><s>Le mois, à peu près</s></h3>
-              <p class="jour-p">Le mois s’est bien passé. Personne ne sait combien.</p>
-              <p class="jour-a">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
-                <b>Les recettes se comptent seules</b>
-              </p>
-            </div>
-
-            <figure class="jour-shot jour-shot--jd" data-flip="0">
-              <div class="jd-switch">
-                <button type="button" data-flip-to="0" aria-pressed="true">Sur le papier</button>
-                <button type="button" data-flip-to="1" aria-pressed="false">Avec le logiciel</button>
-              </div>
-              <div class="jd-half jd-sans">
-                <p class="jd-lab">Sur le papier</p>
-                <div class="jd-art jd-cahier" aria-hidden="true">
-                  <span class="jd-ru jd-in" style="--i: 0"><b>Mars</b><s>cahier de caisse</s></span>
-                  <span class="jd-prow jd-in" style="--i: 1"><b>04/03</b><em>180,000</em></span>
-                  <span class="jd-prow jd-in" style="--i: 2"><b>07/03</b><em><i class="jd-blank"></i></em></span>
-                  <span class="jd-prow jd-in" style="--i: 3"><b>11/03</b><em>250,000</em></span>
-                  <span class="jd-x jd-prow jd-in" style="--i: 4"><b>14/03</b><em><i class="jd-blank"></i></em></span>
-                  <span class="jd-prow jd-in" style="--i: 6"><b>22/03</b><em>405,000</em></span>
-                  <span class="jd-tot jd-in" style="--i: 8"><s>Total du mois</s><em>≈&nbsp;?</em></span>
-                </div>
-                <p class="jd-note">Ce qui n’est pas recopié n’est jamais compté.</p>
-              </div>
-
-              <div class="jd-half jd-avec">
-                <p class="jd-lab">Avec le logiciel</p>
-                <div class="jd-art" aria-hidden="true">
-                  <span class="jd-hdr jd-in" style="--i: 0"><b>Caisse</b><s>séances terminées</s></span>
-                  <ul class="jd-ln">
-                    <li class="jd-row jd-drop" style="--i: 0; --dc: var(--violet-lit)"><i></i><b>Composite · 26</b><em>240,000</em></li>
-                    <li class="jd-row jd-drop" style="--i: 1; --dc: var(--azure-lit)"><i></i><b>Détartrage</b><em>80,000</em></li>
-                    <li class="jd-row jd-drop" style="--i: 2; --dc: var(--amber-lit)"><i></i><b>Couronne</b><em>405,000</em></li>
-                    <li class="jd-row jd-drop" style="--i: 3; --dc: var(--green-lit)"><i></i><b>Contrôle</b><em>50,000</em></li>
-                    <li class="jd-x jd-row jd-drop" style="--i: 4; --dc: var(--violet-lit)"><i></i><b>Extraction · 47</b><em>120,000</em></li>
-                  </ul>
-                  <span class="jd-sum jd-in" style="--i: 6"><s>Encaissé ce mois</s><b>19 280,000&nbsp;DT</b></span>
-                </div>
-                <p class="jd-note">Une séance terminée écrit sa ligne.</p>
-              </div>
-            </figure>
-          </article>
-
-          <article class="jour-item" style="--zc: var(--green); --zcl: var(--green-lit)">
-            <div class="jour-copy">
-              <p class="jour-n"><b>05</b><span>/ 06</span></p>
-              <p class="jour-k">La veille</p>
+              <p class="jour-n"><b>02</b><span>/ 03</span></p>
+              <div class="jour-when">
+                <p class="jour-state">Avant</p>
+                <p class="jour-k">La veille</p>
               <h3 class="jour-t"><s>Les rappels, un par un</s></h3>
               <p class="jour-p">Une matinée au téléphone pour confirmer demain.</p>
-              <p class="jour-a">
+              </div>
+              <div class="jour-then">
+                <p class="jour-state">Après</p>
+                <p class="jour-a">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
                 <b>Les rappels partent tout seuls</b>
               </p>
+              </div>
             </div>
 
             <figure class="jour-shot jour-shot--jd" data-flip="0">
@@ -696,14 +537,20 @@
 
           <article class="jour-item" style="--zc: var(--amber); --zcl: var(--amber-lit)">
             <div class="jour-copy">
-              <p class="jour-n"><b>06</b><span>/ 06</span></p>
-              <p class="jour-k">Le soir</p>
+              <p class="jour-n"><b>03</b><span>/ 03</span></p>
+              <div class="jour-when">
+                <p class="jour-state">Avant</p>
+                <p class="jour-k">Le soir</p>
               <h3 class="jour-t"><s>La séance jamais facturée</s></h3>
               <p class="jour-p">Le soin est fait, la note n’a jamais été écrite. Rien ne vous le rappellera.</p>
-              <p class="jour-a">
+              </div>
+              <div class="jour-then">
+                <p class="jour-state">Après</p>
+                <p class="jour-a">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
                 <b>Rien ne se termine à moitié</b>
               </p>
+              </div>
             </div>
 
             <figure class="jour-shot jour-shot--jd" data-flip="0">
@@ -752,13 +599,10 @@
 
       <div class="jour-ctl">
         <ol class="jour-dots">
-          <li><button type="button" data-go="0" aria-label="Situation 1 sur 6"><b>01</b></button></li>
-          <li><button type="button" data-go="1" aria-label="Situation 2 sur 6"><b>02</b></button></li>
-          <li><button type="button" data-go="2" aria-label="Situation 3 sur 6"><b>03</b></button></li>
-          <li><button type="button" data-go="3" aria-label="Situation 4 sur 6"><b>04</b></button></li>
-          <li><button type="button" data-go="4" aria-label="Situation 5 sur 6"><b>05</b></button></li>
-          <li><button type="button" data-go="5" aria-label="Situation 6 sur 6"><b>06</b></button></li>
-        </ol>
+<li><button type="button" data-go="0" aria-label="Situation 1 sur 6"><b>01</b></button></li>
+<li><button type="button" data-go="4" aria-label="Situation 5 sur 6"><b>02</b></button></li>
+<li><button type="button" data-go="5" aria-label="Situation 6 sur 6"><b>03</b></button></li>
+</ol>
       </div>
     </div>
   </div>

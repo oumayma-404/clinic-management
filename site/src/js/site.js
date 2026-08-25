@@ -436,8 +436,12 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
      the half that states the problem, was never seen. A moment is now reset to
      paper every time it becomes current, and nothing turns over until `seen`
      says the section is on screen. */
-  const FLIP_AT = 1600;   /* paper is readable for this long                */
-  const DWELL   = 5600;   /* 1.6s paper + the turn + 4s software, then next */
+  const FLIP_AT = 2500;   /* ⚠️ 2,6 s. A reader has to take in a title, a problem and a drawing before
+     the panel turns; 1,6 s was not enough to do it once, let alone to notice
+     that it HAD turned.                          */
+  const DWELL   = 8000;   /* ⚠️ 9 s. The owner’s friend could not read a panel before it moved on.
+     2,6 s paper + the turn + about 6 s software, which is the time it takes
+     to read one panel out loud.                  */
 
   const panels = items.map((it) => {
     const fig = it.querySelector('.jour-shot--jd');
@@ -446,6 +450,11 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     let timer = null;
     const set = (n) => {
       fig.dataset.flip = String(n);
+      /* ⚠️ ET SUR LE VOLET AUSSI. La colonne de texte est une SŒUR de la figure,
+         pas une descendante : un attribut posé sur la figure ne peut pas être lu
+         par une règle qui vise le texte. Les deux temps du texte se relaient
+         donc sur l’ancêtre commun, et image et mots basculent ensemble. */
+      it.dataset.flip = String(n);
       btns.forEach((b, k) => b.setAttribute('aria-pressed', k === n ? 'true' : 'false'));
     };
     btns.forEach((b, k) => b.addEventListener('click', () => { clearTimeout(timer); set(k); }));
