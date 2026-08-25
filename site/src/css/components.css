@@ -5758,6 +5758,92 @@
 .s5-f b { font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
 .s5-f s { font-size: 0.82em; color: var(--on-ink-faint); min-width: 0; overflow-wrap: anywhere; }
 
+/* ── Le fichier s'ouvre ───────────────────────────────────────────────────
+   The list stays exactly what it was; a viewer opens ON TOP of it, out of the
+   row it belongs to, the way a file opens anywhere else.
+
+   ⚠️ `.s5-fwrap` IS THE POSITIONING CONTEXT, and it takes the pane's spare
+   height. The two panes are stretched to a common height and this one is the
+   shorter, so without `flex: 1` the wrapper is exactly as tall as five rows
+   and the film has nowhere to open into. It is also what the transform origin
+   is measured against — the viewer itself is scaled while closed, so its own
+   rect is the wrong ruler.
+
+   ⚠️ The film OVERFLOWS its stage rather than letterboxing into it. A pano is
+   2.18:1 and the stage is not, so `meet` would leave two bars of dead film; a
+   width-first box clipped top and bottom crops the condyles and the soft
+   tissue under the chin, which is what a practice crops out anyway. */
+.s5-fwrap { position: relative; flex: 1 1 auto; min-height: 0; }
+
+.s5-open {
+  /* -0.7em across, not -0.5em: `.s5-f--k::before` already bleeds 0.5em past
+     its row, and at exactly the same inset it left a lit sliver down the right
+     edge of the backdrop. */
+  position: absolute; inset: -0.55em -0.7em; z-index: 4; overflow: hidden;
+  display: grid; align-content: center;
+  padding: 0.5em;
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--ink) 94%, black);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms var(--ease-out);
+}
+
+/* ⚠️ THE PANEL HUGS THE FILM; the backdrop is what fills the wrapper. A pano
+   is 2.18:1 and the area behind it is nearly square at 320, so a panel pinned
+   to `inset: 0` put 90px of dead black above and below an 85px film. Sized to
+   its content and centred on an opaque ground, it is the same lightbox at
+   every width — and a lightbox over the tab is what opening a file actually
+   looks like. */
+.s5-lightbox {
+  display: grid; gap: 0.4em;
+  padding: 0.4em;
+  border: 1px solid var(--rule-ink);
+  border-radius: 8px;
+  background: var(--ink);
+  box-shadow: 0 14px 34px -14px rgb(0 0 0 / 0.75);
+  transform: scale(0.88);
+  transform-origin: var(--ox, 50%) var(--oy, 50%);
+  will-change: transform;
+  transition: transform 240ms var(--ease-out);
+}
+
+.s5-obar { display: flex; align-items: center; gap: 0.4em; min-width: 0; }
+.s5-odot {
+  flex: none; width: 0.4em; height: 0.4em; border-radius: 50%;
+  background: var(--accent-lit);
+}
+.s5-obar b {
+  font-weight: 500; font-size: 0.84em; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.s5-obar s {
+  margin-left: auto; font-size: 0.78em; color: var(--on-ink-faint); white-space: nowrap;
+}
+/* below about 22rem of pane the filename alone is the whole line */
+@container (max-width: 22rem) { .s5-obar s { display: none; } }
+
+.s5-stage {
+  position: relative; overflow: hidden;
+  border-radius: 5px;
+  background: #05090e;
+}
+.s5-film { position: relative; width: 100%; aspect-ratio: 720 / 330; }
+.s5-pano { display: block; width: 100%; height: 100%; }
+
+/* La barre de balayage. It leads the reveal by nothing: its trailing edge
+   starts at 0% and its leading edge ends at 100%, so the film develops behind
+   the beam rather than in front of it. 16% wide, so 84/16 = 525% of travel. */
+.s5-scan {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 16%;
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in oklab, var(--accent-lit) 26%, transparent) 70%,
+    color-mix(in oklab, var(--accent-lit) 62%, transparent));
+  opacity: 0; transform: translateX(-100%);
+}
+
 /* ── La ligne de fermeture ──────────────────────────────────────────────── */
 .s5-close {
   margin-top: clamp(1rem, 0.7rem + 1.1vw, 1.5rem);
@@ -5870,10 +5956,17 @@
   --green:  var(--c-bridge);
 }
 /* …and text goes back to the readable variant, because the re-point above
-   would otherwise put a 3.6:1 blue on white. */
-.s5 .s5-fig,
-.s5 :is(.s5-an, .s5-am, .s5-ad) em { color: var(--c-obturation-ink); }
+   would otherwise put a 3.6:1 blue on white.
+
+   ⚠️ ON WHITE — and only there. `--c-obturation-ink` is #1d4ed8, chosen against
+   `--page`; the same rule used to catch the two acte amounts and the séance
+   total as well, and those three are on `--ink-2`, where a dark blue is a
+   figure you cannot read. Both already carried a correct colour of their own
+   and were being overridden by this line. The money is white on the ink pane;
+   the tooth numbers under the arch, which really are on white, keep the blue. */
 .s5-t--k[data-t] > s { color: var(--c-obturation-ink); font-weight: 500; }
+.s5 .s5-fig,
+.s5 :is(.s5-an, .s5-am, .s5-ad) em { color: var(--on-ink); }
 
 /* The thirty untouched teeth were a white shape on a white card — invisible,
    which made the arch read as empty rather than as healthy. « Sain » is a
@@ -6097,6 +6190,58 @@
 }
 .s5-body[data-phase="actes"] .s5-f--k::before { opacity: 1; }
 
+/* ── 5 · Et le fichier de cette séance s'ouvre ───────────────────────────
+   Its own attribute, not `data-phase`, because the chart must stay on « Actes
+   réalisés » the whole time the film is up — a fifth phase value would drop
+   every `[data-phase="actes"]` rule above and flip the odontogramme back to
+   Diagnostics under an open radiograph.
+
+   Two beats, never one: `pick` lights the row, `open` opens the viewer 380ms
+   later. Cause on screen before effect, the same rule the acte follows. */
+.s5-f--p { position: relative; isolation: isolate; transition: transform 240ms var(--ease-out); }
+.s5-f--p::before {
+  content: ""; position: absolute; inset: -0.15em -0.3em; z-index: -1;
+  border-radius: 0.45rem;
+  background: color-mix(in oklab, var(--accent-lit) 24%, transparent);
+  opacity: 0;
+  transition: opacity 220ms var(--ease-out);
+}
+.s5-body[data-file] .s5-f--p { transform: translateY(-1px); }
+.s5-body[data-file] .s5-f--p::before { opacity: 1; }
+
+.s5-body[data-file="open"] .s5-open { opacity: 1; }
+.s5-body[data-file="open"] .s5-lightbox {
+  transform: none;
+  transition: transform 420ms var(--ease-out);
+}
+
+/* Le film se développe derrière le faisceau. On the way out the clip snaps
+   back only once the viewer has finished fading, or the wipe plays backwards
+   through a half-transparent panel. */
+.s5-pano { clip-path: inset(0 100% 0 0); transition: clip-path 0s 300ms; }
+.s5-body[data-file="open"] .s5-pano {
+  clip-path: inset(0 0 0 0);
+  transition: clip-path 980ms var(--ease-in-out) 140ms;
+}
+
+/* A keyframe, not a transition: this one ramps 0 → 1 → 0 and is never scrubbed
+   back into — the same licence `s5-strike` already takes. */
+@keyframes s5-scan {
+  0%   { opacity: 0; transform: translateX(-100%); }
+  10%  { opacity: 1; }
+  84%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(525%); }
+}
+.s5-body[data-file="open"] .s5-scan { animation: s5-scan 1000ms var(--ease-in-out) 130ms both; }
+
+/* The obturations are anatomy and develop with the film. The rings are an
+   annotation, so they arrive after it, once there is something to ring. */
+.s5-p-ring { opacity: 0; transition: opacity 0s 300ms; }
+.s5-body[data-file="open"] .s5-p-ring {
+  opacity: 0.85;
+  transition: opacity 460ms var(--ease-out) 1240ms;
+}
+
 /* ── Sans script, et sans mouvement : le document fini ────────────────────
    No `data-phase` is ever set, so every rule above is inert and the section
    resolves to the entrance's own end state — the composed « Actes réalisés »
@@ -6117,41 +6262,20 @@
   .s5-body[data-phase] .s5-ad u:nth-of-type(-n+2)::before { opacity: 1; }
   .s5-body[data-phase] .s5-fig { clip-path: none; }
   .s5-body[data-phase] .s5-f--k::before { opacity: 1; }
+  /* the viewer never opens: no `data-file` is set, so the list IS the finished
+     document and there is nothing to resolve */
+  .s5-scan { animation: none; }
 }
 
 
 /* ── Tenir sur un écran ───────────────────────────────────────────
-   1576px at 1440×900 is 1.75 screens, and this section is read on a laptop.
-   Two thirds of what was cut is layout, not content.
-
-   ⚠️ THE HEADER GOES BESIDE THE CARD, and that alone is 223px. Stacked, an
-   eyebrow, a two-line heading and a three-line lede push the whole card down
-   the page for nothing — the wrap is 1272px wide and the prose only ever uses
-   a third of it. Beside the card, the column that was empty does the work.
-   75rem and not 62rem: below that the card needs the full width, or the arch
-   collapses into a row of beads. */
-@media (min-width: 75rem) {
-  .s5 .wrap {
-    display: grid;
-    /* 3/9, not 4/8. The seven tabs only fold into the identity row if the card
-       is wide enough to hold a name and seven pills on one line — at 8fr the
-       card is 719px against about 815px of content, so they wrapped and the
-       fold saved nothing. At 9fr the card is 940px and they fit. */
-    grid-template-columns: minmax(0, 3fr) minmax(0, 9fr);
-    /* ⚠️ `auto 1fr`, not the implicit `auto auto`. The card spans BOTH rows, so
-       with implicit rows the grid shares its 821px between them and the closing
-       line is pushed halfway down an empty column, marooned. Pinning row 1 to
-       the heading's own height leaves the slack in row 2, under the line. */
-    grid-template-rows: auto 1fr;
-    gap: 0 clamp(1.5rem, 0.6rem + 2vw, 2.5rem);
-    align-items: start;
-  }
-  .s5-head { grid-column: 1; }
-  /* the card spans both rows of the left column, so the heading and the closing
-     line stack beside it rather than under it */
-  .s5-dossier { grid-column: 2; grid-row: 1 / span 2; }
-  .s5-close { grid-column: 1; margin-top: clamp(1rem, 0.5rem + 1vw, 1.75rem); }
-}
+   The header used to sit BESIDE the card here, which bought 223px of height
+   at 1440. It is back on top, in the same grammar as every other section on
+   the page — an eyebrow, a heading and a lede over the thing they introduce —
+   because a section that reads differently from its neighbours reads as a
+   different page. The height came back with it; the rest of what that pass
+   cut (the nine-state legend, the chart caption, two footer lines, « Reste à
+   payer » and « Mode ») stays cut, and those were content, not layout. */
 
 /* The seven tabs had a row to themselves under an identity row that was half
    empty. Folded in, they cost nothing and the file still names its own tabs. */

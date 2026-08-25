@@ -48,12 +48,414 @@
   </div>
 </section>
 
-<!-- ══ 2 · LE QUOTIDIEN ═════════════════════════════════════════════════════════
+<!-- ══ 2 · LE DOSSIER PATIENT ═══════════════════════════════════════════════════
+     The page's opening argument, and the first thing under the hero. LIGHT
+     ground: the hero above it is dark and §3 (l'argent) below it is dark. It
+     changed places with « le quotidien » and l'argent did not move, which is
+     the only reason the whole page still alternates. -->
+<section data-reveal class="s5" id="dossier" aria-labelledby="s5-titre">
+  <div class="wrap">
+
+    <header class="s5-head">
+      <p class="s5-eyebrow" style="--i: 0">Le dossier patient</p>
+      <h2 class="s5-h2" id="s5-titre" style="--i: 1">Un patient, un dossier, sept onglets</h2>
+      <p class="s5-lede" style="--i: 2">Le tiroir, l’agenda, le cahier, l’enveloppe de radios, le carnet de reçus&nbsp;: cinq endroits pour une seule personne. Ici, c’est un seul dossier, et il porte son nom.</p>
+    </header>
+
+    <!-- ── Le dossier : une seule pièce de papier, qui s'assemble ────────── -->
+    <div class="s5-dossier">
+
+      <header class="s5-ident">
+        <i class="s5-av" aria-hidden="true">KH</i>
+        <p class="s5-who">
+          <b class="s5-name">Karim Hamdi</b>
+          <s>42 ans · Homme · +216&nbsp;98&nbsp;445&nbsp;123</s>
+        </p>
+      </header>
+
+      <!-- ── Les sept onglets : ils se distribuent, puis se rangent ──────── -->
+      <ul class="s5-tabs">
+        <li class="s5-tab s5-tab--on" style="--i: 0; --tx: -1.7em; --ty: -1.2em; --r: -5deg">Dossiers médicaux</li>
+        <li class="s5-tab" style="--i: 1; --tx: 1.5em; --ty: -1.5em; --r: 4deg">Rendez-vous</li>
+        <li class="s5-tab" style="--i: 2; --tx: -2.2em; --ty: 1.0em; --r: 6deg">Notes</li>
+        <li class="s5-tab" style="--i: 3; --tx: 2.0em; --ty: 1.3em; --r: -4deg">Documents</li>
+        <li class="s5-tab" style="--i: 4; --tx: -1.3em; --ty: 1.6em; --r: -7deg">Fichiers</li>
+        <li class="s5-tab" style="--i: 5; --tx: 2.3em; --ty: -0.9em; --r: 5deg">Factures</li>
+        <li class="s5-tab" style="--i: 6; --tx: -1.9em; --ty: 1.4em; --r: 3deg">Plan de traitement</li>
+      </ul>
+
+      <div class="s5-body">
+
+        <!-- ── L'odontogramme : deux lectures de la même bouche ──────────── -->
+        <div class="s5-chart">
+          <i class="s5-sweep" aria-hidden="true"></i>
+          <i class="s5-fly" aria-hidden="true"><b>Soin de carie / obturation</b><s>90,000&nbsp;DT · tarif par dent</s></i>
+
+          <div class="s5-chead">
+            <h3 class="s5-ct">Odontogramme</h3>
+            <p class="s5-views">
+              <i class="s5-thumb" aria-hidden="true"></i>
+              <button type="button" class="s5-view s5-view--d" aria-pressed="true">Diagnostics</button>
+              <button type="button" class="s5-view s5-view--a" aria-pressed="false">Actes réalisés</button>
+            </p>
+          </div>
+
+          <div class="s5-mouth" aria-hidden="true">
+            <p class="s5-jaw">Maxillaire (haut)</p>
+            <div class="s5-arch">
+              <div class="s5-quad" style="--q: 0">
+                <i class="s5-t"><b></b><s>18</s></i>
+                <i class="s5-t"><b></b><s>17</s></i>
+                <i class="s5-t s5-t--k" data-t="16">
+                  <b>
+                    <i class="s5-tf s5-tf--d" style="--tc: var(--amber)"></i>
+                    <i class="s5-tf s5-tf--a" style="--tc: var(--azure)"></i>
+                    <i class="s5-halo"></i>
+                  </b><s>16</s>
+                </i>
+                <i class="s5-t"><b></b><s>15</s></i>
+                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--b" style="--tc: var(--violet)"></i></b><s>14</s></i>
+                <i class="s5-t"><b></b><s>13</s></i>
+                <i class="s5-t"><b></b><s>12</s></i>
+                <i class="s5-t"><b></b><s>11</s></i>
+              </div>
+              <i class="s5-mid"></i>
+              <div class="s5-quad" style="--q: 1">
+                <i class="s5-t"><b></b><s>21</s></i>
+                <i class="s5-t"><b></b><s>22</s></i>
+                <i class="s5-t"><b></b><s>23</s></i>
+                <i class="s5-t"><b></b><s>24</s></i>
+                <i class="s5-t"><b></b><s>25</s></i>
+                <i class="s5-t s5-t--k" data-t="26">
+                  <b>
+                    <i class="s5-tf s5-tf--d" style="--tc: var(--amber)"></i>
+                    <i class="s5-tf s5-tf--a" style="--tc: var(--azure)"></i>
+                    <i class="s5-halo"></i>
+                  </b><s>26</s>
+                </i>
+                <i class="s5-t"><b></b><s>27</s></i>
+                <i class="s5-t"><b></b><s>28</s></i>
+              </div>
+            </div>
+
+            <div class="s5-arch s5-arch--low">
+              <div class="s5-quad" style="--q: 2">
+                <i class="s5-t"><b></b><s>48</s></i>
+                <i class="s5-t"><b></b><s>47</s></i>
+                <i class="s5-t"><b></b><s>46</s></i>
+                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--d" style="--tc: var(--amber)"></i></b><s>45</s></i>
+                <i class="s5-t"><b></b><s>44</s></i>
+                <i class="s5-t"><b></b><s>43</s></i>
+                <i class="s5-t"><b></b><s>42</s></i>
+                <i class="s5-t"><b></b><s>41</s></i>
+              </div>
+              <i class="s5-mid"></i>
+              <div class="s5-quad" style="--q: 3">
+                <i class="s5-t"><b></b><s>31</s></i>
+                <i class="s5-t"><b></b><s>32</s></i>
+                <i class="s5-t"><b></b><s>33</s></i>
+                <i class="s5-t"><b></b><s>34</s></i>
+                <i class="s5-t"><b></b><s>35</s></i>
+                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--b" style="--tc: var(--green)"></i></b><s>36</s></i>
+                <i class="s5-t"><b></b><s>37</s></i>
+                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--b" style="--tc: var(--text-faint)"></i></b><s>38</s></i>
+              </div>
+            </div>
+            <p class="s5-jaw">Mandibule (bas)</p>
+          </div>
+
+
+          <p class="s5-still">Deux lectures de la même bouche, sur la même arcade&nbsp;: Diagnostics montre ce qui reste à traiter, Actes réalisés ce qui a été fait. Ici, la lecture Actes réalisés&nbsp;: la 16 et la 26 portent une Obturation, la 45 attend encore.</p>
+        </div>
+
+        <!-- ── Ce qu'il y a derrière deux de ces onglets ─────────────────── -->
+        <div class="s5-side">
+          <p class="s5-sk">Derrière deux de ces onglets</p>
+
+          <div class="s5-panes">
+
+          <!-- Onglet 1 · Dossiers médicaux -->
+          <div class="s5-pane" style="--zc: var(--azure); --zcl: var(--azure-lit)">
+            <i class="s5-mark" aria-hidden="true"></i>
+            <header class="s5-ph">
+              <i aria-hidden="true"></i>
+              <h3>Dossiers médicaux</h3>
+              <s>21/08/2026</s>
+            </header>
+            <p class="s5-pc">Fiche de soins · 2 actes</p>
+
+            <div class="s5-acte" style="--i: 0">
+              <i class="s5-edge" aria-hidden="true"></i>
+              <p class="s5-ak">Acte réalisé</p>
+              <p class="s5-an"><b>Soin de carie / obturation</b><em>90,000&nbsp;DT</em></p>
+              <p class="s5-am"><span class="s5-cond">Obturation</span><s>tarif par dent</s></p>
+              <p class="s5-ad">
+                <s>Dents</s><u>16</u><u>26</u>
+                <s>Surfaces</s><u>M</u><u>O</u>
+              </p>
+            </div>
+
+            <div class="s5-acte" style="--i: 1">
+              <i class="s5-edge" aria-hidden="true"></i>
+              <p class="s5-ak">Acte réalisé</p>
+              <p class="s5-an"><b>Radiographie panoramique</b><em>40,000&nbsp;DT</em></p>
+            </div>
+
+            <dl class="s5-tot">
+              <div><dt>Total</dt><dd class="s5-fig">220,000&nbsp;DT</dd></div>
+              <div><dt>Payé</dt><dd>220,000&nbsp;DT</dd></div>
+            </dl>
+          </div>
+
+          <!-- Onglet 2 · Fichiers -->
+          <div class="s5-pane" style="--zc: var(--green); --zcl: var(--green-lit)">
+            <i class="s5-mark" aria-hidden="true"></i>
+            <header class="s5-ph">
+              <i aria-hidden="true"></i>
+              <h3>Fichiers</h3>
+              <s>3 fichiers</s>
+            </header>
+
+            <div class="s5-fwrap">
+            <ul class="s5-files">
+              <li class="s5-fold" style="--i: 0"><i aria-hidden="true"></i><b>Radiographies</b><em>2</em></li>
+              <li class="s5-f s5-f--p" style="--i: 1">
+                <b>pano-2026-08-21.jpg</b>
+                <s>image/jpeg · 2,4&nbsp;Mo · 21/08/2026 · Dr Salma Ben Youssef</s>
+              </li>
+              <li class="s5-f s5-f--k" style="--i: 2">
+                <b>retro-16-26.jpg</b>
+                <s>image/jpeg · 1,1&nbsp;Mo · 21/08/2026 · Dr Salma Ben Youssef</s>
+              </li>
+              <li class="s5-fold" style="--i: 3"><i aria-hidden="true"></i><b>Consentements</b><em>1</em></li>
+              <li class="s5-f" style="--i: 4">
+                <b>consentement-implant.pdf</b>
+                <s>application/pdf · 186&nbsp;Ko · 04/07/2026 · Dr Salma Ben Youssef</s>
+              </li>
+            </ul>
+
+            <!-- ── Le fichier s'ouvre : la panoramique du 21/08 ─────────────
+                 Le deuxième acte de la fiche est « Radiographie panoramique »,
+                 et ce fichier porte la date de la séance. C'est le même
+                 événement, dans le même dossier, sous deux onglets. -->
+            <i class="s5-open" aria-hidden="true">
+              <i class="s5-lightbox">
+              <i class="s5-obar">
+                <i class="s5-odot"></i>
+                <b>pano-2026-08-21.jpg</b>
+                <s>Radiographie panoramique · 21/08/2026</s>
+              </i>
+              <i class="s5-stage">
+                <i class="s5-film">
+                  <svg class="s5-pano" viewBox="0 0 720 330" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+<defs>
+<linearGradient id="s5p-max" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8496a5" stop-opacity="0"/><stop offset=".38" stop-color="#8b9dac" stop-opacity=".14"/><stop offset=".82" stop-color="#9dafbd" stop-opacity=".34"/><stop offset="1" stop-color="#a8bac8" stop-opacity=".40"/></linearGradient>
+<linearGradient id="s5p-man" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8092a2" stop-opacity=".10"/><stop offset=".30" stop-color="#94a6b4" stop-opacity=".30"/><stop offset=".76" stop-color="#9caebc" stop-opacity=".34"/><stop offset="1" stop-color="#8395a4" stop-opacity=".20"/></linearGradient>
+<linearGradient id="s5p-crest" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c3d2df" stop-opacity=".40"/><stop offset="1" stop-color="#c3d2df" stop-opacity="0"/></linearGradient>
+<linearGradient id="s5p-crestu" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#c3d2df" stop-opacity=".40"/><stop offset="1" stop-color="#c3d2df" stop-opacity="0"/></linearGradient>
+<radialGradient id="s5p-air" cx="50%" cy="50%" r="74%"><stop offset="0" stop-color="#101a24"/><stop offset=".58" stop-color="#090f17"/><stop offset="1" stop-color="#03060a"/></radialGradient>
+<radialGradient id="s5p-sinus" cx="50%" cy="44%" r="64%"><stop offset="0" stop-color="#070d13" stop-opacity=".85"/><stop offset=".70" stop-color="#0a1119" stop-opacity=".55"/><stop offset="1" stop-color="#0a1119" stop-opacity="0"/></radialGradient>
+<linearGradient id="s5p-spine" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a4b5c3" stop-opacity="0"/><stop offset="1" stop-color="#a4b5c3" stop-opacity=".16"/></linearGradient>
+<filter id="s5p-soft" x="-6%" y="-10%" width="112%" height="120%"><feGaussianBlur stdDeviation="2.4"/></filter>
+<filter id="s5p-tooth" x="-6%" y="-10%" width="112%" height="120%"><feGaussianBlur stdDeviation="0.5"/></filter>
+<filter id="s5p-grain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.72" numOctaves="3" seed="7" result="n"/><feColorMatrix in="n" type="matrix" values="0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0 0 0 0 1"/></filter>
+</defs>
+
+<rect width="720" height="330" fill="url(#s5p-air)"/>
+
+<g filter="url(#s5p-soft)">
+<rect x="332" y="216" width="56" height="114" fill="url(#s5p-spine)"/>
+<path d="M120 126C110 98 130 66 192 50C246 36 306 32 360 32C414 32 474 36 528 50C590 66 610 98 600 126L600 126L586 132L572 138L558 144L544 149L530 155L516 160L502 165L488 169L474 173L460 177L446 181L432 184L418 187L404 190L390 192L376 194L362 195L348 194L334 193L320 191L306 188L292 185L278 182L264 178L250 174L236 170L222 166L208 161L194 156L180 151L166 146L152 140L138 134L124 128L120 126Z" fill="url(#s5p-max)"/>
+<ellipse cx="168" cy="118" rx="86" ry="58" fill="#93a5b3" opacity=".12"/><ellipse cx="552" cy="118" rx="86" ry="58" fill="#93a5b3" opacity=".12"/>
+<path d="M104 44C92 92 96 152 106 196C112 226 130 252 160 266C214 288 296 294 360 294C424 294 506 288 560 266C590 252 608 226 614 196C624 152 628 92 616 44C606 66 602 106 596 138C595 152 594 162 590 170L590 170L576 176L562 181L548 187L534 192L520 197L506 202L492 207L478 211L464 215L450 219L436 222L422 226L408 228L394 231L380 233L366 234L352 234L338 232L324 230L310 228L296 225L282 222L268 218L254 215L240 211L226 206L212 201L198 197L184 191L170 186L156 181L142 175L130 170C126 162 125 152 124 138C118 106 114 66 104 44Z" fill="url(#s5p-man)"/>
+<path d="M130 170L144 176L158 181L172 187L186 192L200 197L214 202L228 207L242 211L256 215L270 219L284 222L298 226L312 228L326 231L340 233L354 234L368 234L382 232L396 230L410 228L424 225L438 222L452 218L466 215L480 211L494 206L508 201L522 197L536 191L550 186L564 181L578 175L590 170L590 200L576 206L562 211L548 217L534 222L520 227L506 232L492 237L478 241L464 245L450 249L436 252L422 256L408 258L394 261L380 263L366 264L352 264L338 262L324 260L310 258L296 255L282 252L268 248L254 245L240 241L226 236L212 231L198 227L184 221L170 216L156 211L142 205L130 200Z" fill="url(#s5p-crest)"/>
+<path d="M120 126L134 132L148 138L162 144L176 149L190 155L204 160L218 165L232 169L246 173L260 177L274 181L288 184L302 187L316 190L330 192L344 194L358 195L372 194L386 193L400 191L414 188L428 185L442 182L456 178L470 174L484 170L498 166L512 161L526 156L540 151L554 146L568 140L582 134L596 128L600 126L600 152L586 158L572 164L558 170L544 175L530 181L516 186L502 191L488 195L474 199L460 203L446 207L432 210L418 213L404 216L390 218L376 220L362 221L348 220L334 219L320 217L306 214L292 211L278 208L264 204L250 200L236 196L222 192L208 187L194 182L180 177L166 172L152 166L138 160L124 154L120 152Z" fill="url(#s5p-crestu)"/>
+
+<path d="M106 196C112 226 130 252 160 266C214 288 296 294 360 294C424 294 506 288 560 266C590 252 608 226 614 196" fill="none" stroke="#d5e2ed" stroke-width="2.6" stroke-linecap="round" opacity=".36"/>
+<path d="M104 44C92 92 96 152 106 196M616 44C628 92 624 152 614 196" fill="none" stroke="#c6d4e0" stroke-width="2" stroke-linecap="round" opacity=".24"/>
+<ellipse cx="120" cy="50" rx="23" ry="14" transform="rotate(-18 120 50)" fill="#c2d1de" opacity=".30"/>
+<ellipse cx="600" cy="50" rx="23" ry="14" transform="rotate(18 600 50)" fill="#c2d1de" opacity=".30"/>
+
+<path d="M158 138C162 104 190 88 222 94C250 100 262 118 260 138C258 152 246 159 226 156C198 151 176 150 164 149C158 148 157 144 158 138Z" fill="url(#s5p-sinus)"/>
+<path d="M562 138C558 104 530 88 498 94C470 100 458 118 460 138C462 152 474 159 494 156C522 151 544 150 556 149C562 148 563 144 562 138Z" fill="url(#s5p-sinus)"/>
+<path d="M328 164L328 108C328 84 392 84 392 108L392 164Z" fill="url(#s5p-sinus)"/>
+<g fill="none" stroke="#d3dfea" stroke-width="1.4" stroke-linecap="round" opacity=".26">
+<path d="M160 146C186 155 224 157 250 150"/><path d="M560 146C534 155 496 157 470 150"/>
+<path d="M322 110C338 100 382 100 398 110"/>
+</g>
+<path d="M126 158C156 186 212 200 272 204L272 216C202 214 140 200 118 178Z" fill="#05090e" opacity=".5"/>
+<path d="M594 158C564 186 508 200 448 204L448 216C518 214 580 200 602 178Z" fill="#05090e" opacity=".5"/>
+
+<g fill="none" stroke="#cdd9e5" stroke-width="1.6" stroke-linecap="round" opacity=".22">
+<path d="M360 96L360 164"/>
+<path d="M146 198C172 228 224 247 282 253"/><path d="M574 198C548 228 496 247 438 253"/>
+<path d="M336 238C336 250 384 250 384 238M334 266C334 280 386 280 386 266M336 294C336 306 384 306 384 294"/>
+</g>
+</g>
+
+<g filter="url(#s5p-tooth)">
+<g fill="#c3ceda"><path d="M121 130L131 130Q125 115 122 108Q116 115 121 130Z"/><path d="M133 130L143 130Q146 115 143 108Q137 115 133 130Z"/><path d="M154 142L166 142Q159 124 155 115Q149 124 154 142Z"/><path d="M168 142L180 142Q183 124 179 115Q173 124 168 142Z"/><path d="M365 191L383 191Q381 170 374 164Q367 170 365 191Z"/><path d="M393 189L407 189Q405 170 400 164Q395 170 393 189Z"/><path d="M417 180L435 180Q433 155 426 147Q419 155 417 180Z"/><path d="M297 231L313 231Q311 256 305 264Q299 256 297 231Z"/><path d="M322 231L336 231Q334 250 329 256Q324 250 322 231Z"/><path d="M344 235L356 235Q355 256 350 262Q345 256 344 235Z"/><path d="M435 222L451 222Q449 243 443 250Q437 243 435 222Z"/><path d="M567 175L577 175Q571 190 568 197Q562 190 567 175Z"/><path d="M579 175L589 175Q592 190 589 197Q583 190 579 175Z"/></g><g fill="#bac6d2" opacity=".94"><path d="M285 180L303 180Q301 155 294 147Q287 155 285 180Z"/><path d="M313 189L327 189Q325 170 320 164Q315 170 313 189Z"/><path d="M337 191L355 191Q353 170 346 164Q339 170 337 191Z"/><path d="M472 168L490 168Q488 147 481 141Q474 147 472 168Z"/><path d="M500 155L513 155Q506 135 501 126Q495 135 500 155Z"/><path d="M515 155L528 155Q531 135 527 126Q520 135 515 155Z"/><path d="M131 175L141 175Q135 190 132 197Q126 190 131 175Z"/><path d="M143 175L153 175Q156 190 153 197Q147 190 143 175Z"/><path d="M163 191L176 191Q169 209 164 218Q158 209 163 191Z"/><path d="M178 191L191 191Q194 209 190 218Q183 209 178 191Z"/><path d="M384 231L398 231Q396 250 391 256Q386 250 384 231Z"/><path d="M408 231L424 231Q422 256 416 264Q410 256 408 231Z"/><path d="M461 214L479 214Q477 235 470 241Q463 235 461 214Z"/><path d="M490 206L503 206Q496 226 491 235Q485 226 490 206Z"/><path d="M505 206L518 206Q521 226 517 235Q510 226 505 206Z"/></g><g fill="#cbd6e1"><path d="M192 155L205 155Q198 135 193 126Q187 135 192 155Z"/><path d="M207 155L220 155Q223 135 219 126Q212 135 207 155Z"/><path d="M230 168L248 168Q246 147 239 141Q232 147 230 168Z"/><path d="M259 176L275 176Q273 155 267 148Q261 155 259 176Z"/><path d="M445 176L461 176Q459 155 453 148Q447 155 445 176Z"/><path d="M540 142L552 142Q545 124 541 115Q535 124 540 142Z"/><path d="M554 142L566 142Q569 124 565 115Q559 124 554 142Z"/><path d="M577 130L587 130Q581 115 578 108Q572 115 577 130Z"/><path d="M589 130L599 130Q602 115 599 108Q593 115 589 130Z"/><path d="M202 206L215 206Q208 226 203 235Q197 226 202 206Z"/><path d="M217 206L230 206Q233 226 229 235Q222 226 217 206Z"/><path d="M241 214L259 214Q257 235 250 241Q243 235 241 214Z"/><path d="M270 222L286 222Q284 243 278 250Q272 243 270 222Z"/><path d="M364 235L376 235Q375 256 370 262Q365 256 364 235Z"/><path d="M529 191L542 191Q535 209 530 218Q524 209 529 191Z"/><path d="M544 191L557 191Q560 209 556 218Q549 209 544 191Z"/></g>
+<g fill="#d3dee8"><path d="M117 148Q132 152 147 148Q147 136 144 130L120 130Q117 136 117 148Z"/><path d="M150 162Q167 166 184 162Q184 149 180 142L154 142Q150 149 150 162Z"/><path d="M361 210Q374 214 387 210Q387 197 384 191L364 191Q361 197 361 210Z"/><path d="M390 207Q400 211 410 207Q410 195 408 189L392 189Q390 195 390 207Z"/><path d="M413 202Q426 206 439 202Q439 187 436 180L416 180Q413 187 413 202Z"/><path d="M293 210Q305 206 317 210Q317 224 314 231L296 231Q293 224 293 210Z"/><path d="M319 214Q329 210 339 214Q339 225 337 231L321 231Q319 225 319 214Z"/><path d="M341 217Q350 213 359 217Q359 229 357 235L343 235Q341 229 341 217Z"/><path d="M431 204Q443 200 455 204Q455 216 452 222L434 222Q431 216 431 204Z"/><path d="M563 158Q578 154 593 158Q593 169 590 175L566 175Q563 169 563 158Z"/></g><g fill="#cad5e1"><path d="M281 202Q294 206 307 202Q307 187 304 180L284 180Q281 187 281 202Z"/><path d="M310 207Q320 211 330 207Q330 195 328 189L312 189Q310 195 310 207Z"/><path d="M333 210Q346 214 359 210Q359 197 356 191L336 191Q333 197 333 210Z"/><path d="M468 187Q481 191 494 187Q494 174 491 168L471 168Q468 174 468 187Z"/><path d="M496 176Q514 180 532 176Q532 162 528 155L500 155Q496 162 496 176Z"/><path d="M127 158Q142 154 157 158Q157 169 154 175L130 175Q127 169 127 158Z"/><path d="M159 172Q177 168 195 172Q195 184 191 191L163 191Q159 184 159 172Z"/><path d="M381 214Q391 210 401 214Q401 225 399 231L383 231Q381 225 381 214Z"/><path d="M404 210Q416 206 428 210Q428 224 425 231L407 231Q404 224 404 210Z"/><path d="M457 196Q470 192 483 196Q483 208 480 214L460 214Q457 208 457 196Z"/><path d="M486 186Q504 182 522 186Q522 199 518 206L490 206Q486 199 486 186Z"/></g><g fill="#dae4ed"><path d="M188 176Q206 180 224 176Q224 162 220 155L192 155Q188 162 188 176Z"/><path d="M226 187Q239 191 252 187Q252 174 249 168L229 168Q226 174 226 187Z"/><path d="M255 195Q267 199 279 195Q279 182 276 176L258 176Q255 182 255 195Z"/><path d="M441 195Q453 199 465 195Q465 182 462 176L444 176Q441 182 441 195Z"/><path d="M536 162Q553 166 570 162Q570 149 566 142L540 142Q536 149 536 162Z"/><path d="M573 148Q588 152 603 148Q603 136 600 130L576 130Q573 136 573 148Z"/><path d="M198 186Q216 182 234 186Q234 199 230 206L202 206Q198 199 198 186Z"/><path d="M237 196Q250 192 263 196Q263 208 260 214L240 214Q237 208 237 196Z"/><path d="M266 204Q278 200 290 204Q290 216 287 222L269 222Q266 216 266 204Z"/><path d="M361 217Q370 213 379 217Q379 229 377 235L363 235Q361 229 361 217Z"/><path d="M525 172Q543 168 561 172Q561 184 557 191L529 191Q525 184 525 172Z"/></g>
+<g fill="#e9f1f8" opacity=".7"><path d="M118 148Q132 151 146 148L145 143L119 143Z"/><path d="M151 162Q167 165 183 162L182 156L152 156Z"/><path d="M362 210Q374 213 386 210L385 204L363 204Z"/><path d="M391 207Q400 210 409 207L409 202L391 202Z"/><path d="M414 202Q426 205 438 202L437 195L415 195Z"/><path d="M294 210Q305 206 316 210L316 216L294 216Z"/><path d="M320 214Q329 210 338 214L338 218L320 218Z"/><path d="M342 217Q350 213 358 217L358 222L342 222Z"/><path d="M432 204Q443 200 454 204L454 209L432 209Z"/><path d="M564 158Q578 154 592 158L591 162L565 162Z"/></g><g fill="#e2ebf4" opacity=".62"><path d="M282 202Q294 205 306 202L305 195L283 195Z"/><path d="M311 207Q320 210 329 207L329 202L311 202Z"/><path d="M334 210Q346 213 358 210L357 204L335 204Z"/><path d="M469 187Q481 190 493 187L492 181L470 181Z"/><path d="M497 176Q514 179 531 176L530 170L498 170Z"/><path d="M128 158Q142 154 156 158L155 162L129 162Z"/><path d="M160 172Q177 168 194 172L193 177L161 177Z"/><path d="M382 214Q391 210 400 214L400 218L382 218Z"/><path d="M405 210Q416 206 427 210L427 216L405 216Z"/><path d="M458 196Q470 192 482 196L481 201L459 201Z"/><path d="M487 186Q504 182 521 186L520 191L488 191Z"/></g><g fill="#eef5fb" opacity=".72"><path d="M189 176Q206 179 223 176L222 170L190 170Z"/><path d="M227 187Q239 190 251 187L250 181L228 181Z"/><path d="M256 195Q267 198 278 195L278 189L256 189Z"/><path d="M442 195Q453 198 464 195L464 189L442 189Z"/><path d="M537 162Q553 165 569 162L568 156L538 156Z"/><path d="M574 148Q588 151 602 148L601 143L575 143Z"/><path d="M199 186Q216 182 233 186L232 191L200 191Z"/><path d="M238 196Q250 192 262 196L261 201L239 201Z"/><path d="M267 204Q278 200 289 204L289 209L267 209Z"/><path d="M362 217Q370 213 378 217L378 222L362 222Z"/><path d="M526 172Q543 168 560 172L559 177L527 177Z"/></g>
+<g fill="none" stroke="#0b1219" stroke-width="1.5" stroke-linecap="round" opacity=".45"><path d="M126 127Q124 117 122 113"/><path d="M138 127Q140 117 143 113"/><path d="M160 139Q157 126 155 120"/><path d="M174 139Q177 126 179 120"/><path d="M198 152Q196 138 193 131"/><path d="M214 152Q216 138 219 131"/><path d="M239 165L239 147"/><path d="M267 173L267 154"/><path d="M294 177L294 153"/><path d="M320 186L320 170"/><path d="M346 188L346 170"/><path d="M374 188L374 170"/><path d="M400 186L400 170"/><path d="M426 177L426 153"/><path d="M453 173L453 154"/><path d="M481 165L481 147"/><path d="M506 152Q504 138 501 131"/><path d="M522 152Q524 138 527 131"/><path d="M546 139Q543 126 541 120"/><path d="M560 139Q563 126 565 120"/><path d="M582 127Q580 117 578 113"/><path d="M594 127Q596 117 599 113"/><path d="M136 178Q134 188 132 192"/><path d="M148 178Q150 188 153 192"/><path d="M169 194Q167 207 164 213"/><path d="M185 194Q187 207 190 213"/><path d="M208 209Q206 223 203 230"/><path d="M224 209Q226 223 229 230"/><path d="M250 217L250 235"/><path d="M278 225L278 244"/><path d="M305 234L305 258"/><path d="M329 234L329 250"/><path d="M350 238L350 256"/><path d="M370 238L370 256"/><path d="M391 234L391 250"/><path d="M416 234L416 258"/><path d="M443 225L443 244"/><path d="M470 217L470 235"/><path d="M496 209Q494 223 491 230"/><path d="M512 209Q514 223 517 230"/><path d="M535 194Q533 207 530 213"/><path d="M551 194Q553 207 556 213"/><path d="M572 178Q570 188 568 192"/><path d="M584 178Q586 188 589 192"/></g>
+</g>
+
+<g class="s5-p-ob" fill="#ffffff"><path d="M196 176Q206 179 216 176L212 164L200 164Z"/><path d="M504 176Q514 179 524 176L520 164L508 164Z"/></g>
+<g class="s5-p-ring" fill="none" stroke="#7defdc" stroke-width="2"><circle cx="206" cy="168" r="24"/><circle cx="514" cy="168" r="24"/></g>
+
+<rect width="720" height="330" filter="url(#s5p-grain)" opacity=".13" style="mix-blend-mode:overlay"/>
+</svg>
+                  <i class="s5-scan"></i>
+                </i>
+              </i>
+              </i>
+            </i>
+            </div>
+          </div>
+
+          </div>
+
+          <p class="s5-still">Rendez-vous, Notes, Documents, Factures et Plan de traitement sont dans le même dossier, sous le même nom.</p>
+        </div>
+
+      </div>
+    </div>
+
+    <p class="s5-close">Une seule saisie&nbsp;: le total de la séance et l’odontogramme suivent, sans une deuxième écriture.</p>
+
+    <p class="s5-sr">Illustration&nbsp;: le dossier de Karim Hamdi. Sept onglets, à savoir Dossiers médicaux, Rendez-vous, Notes, Documents, Fichiers, Factures et Plan de traitement, plus un odontogramme qui se lit de deux façons, Diagnostics et Actes réalisés. La fiche de soins du 21/08/2026 porte deux actes, dont un soin de carie sur les dents 16 et 26&nbsp;; à l’enregistrement, ces deux dents passent d’elles-mêmes de l’état À traiter à l’état Obturation, et le total de la séance découle des actes. L'onglet Fichiers contient la panoramique de cette même séance, pano-2026-08-21.jpg, sur laquelle les deux obturations sont visibles.</p>
+  </div>
+</section>
+
+<!-- ══ 3 · L'ARGENT ═════════════════════════════════════════════════════════════ -->
+<section data-reveal class="s3" id="argent">
+  <div class="wrap">
+
+    <div class="s3-head">
+      <p class="s3-eyebrow s3-up" style="--d:0ms">L’argent</p>
+      <h2 class="s3-h2 s3-up" style="--d:70ms">Savoir ce que le mois a rapporté, sans avoir rien recopié</h2>
+      <p class="s3-lede s3-up" style="--d:140ms">La saisie à la main ne se fait jamais jusqu’au bout, et le chiffre du mois finit en estimation. Ici vous n’entrez que les dépenses&nbsp;: le reste est déjà écrit.</p>
+    </div>
+
+    <div class="s3-sheet">
+
+      <div class="s3-strip">
+        <p class="s3-name s3-up" style="--d:60ms"><b>La caisse</b><s>ce mois-ci, jour par jour</s></p>
+        <p class="s3-pin"><b>0</b><s>recette à saisir</s></p>
+      </div>
+
+      <div class="s3-body">
+
+        <div class="s3-col s3-col--field">
+          <div class="s3-colhead">
+            <p class="s3-one s3-up" style="--d:200ms">
+              <b>1</b><span>saisie au fauteuil<s>au lieu de quatre écritures à tenir séparément</s></span>
+            </p>
+            <p class="s3-keys s3-up" style="--d:280ms">
+              <span class="s3-key"><i></i>séance terminée</span>
+              <span class="s3-key s3-key--dep"><i></i>dépense saisie</span>
+            </p>
+          </div>
+
+          <div class="s3-field" aria-hidden="true">
+            <i class="s3-wk">L</i><i class="s3-wk">M</i><i class="s3-wk">M</i><i class="s3-wk">J</i><i class="s3-wk">V</i><i class="s3-wk">S</i><i class="s3-wk">D</i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d" style="--i:5"><i class="s3-ln"></i></i>
+            <i class="s3-d s3-d--v" style="--i:6"></i>
+            <i class="s3-d" style="--i:7"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:8"><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:9"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:10"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln s3-ln--dep"></i></i>
+            <i class="s3-d" style="--i:11"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:12"><i class="s3-ln"></i></i>
+            <i class="s3-d s3-d--v" style="--i:13"></i>
+            <i class="s3-d" style="--i:14"><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:15"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:16"><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:17"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:18"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln s3-ln--dep"></i></i>
+            <i class="s3-d" style="--i:19"><i class="s3-ln"></i></i>
+            <i class="s3-d s3-d--v" style="--i:20"></i>
+            <i class="s3-d" style="--i:21"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:22"><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:23"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:24"><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:25"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln s3-ln--dep"></i></i>
+            <i class="s3-d" style="--i:26"><i class="s3-ln"></i></i>
+            <i class="s3-d s3-d--v" style="--i:27"></i>
+            <i class="s3-d" style="--i:28"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:29"><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:30"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-cr"></i></i>
+            <i class="s3-d s3-d--v s3-d--f" style="--i:31"></i>
+            <i class="s3-d s3-d--v s3-d--f" style="--i:32"></i>
+            <i class="s3-d s3-d--v s3-d--f" style="--i:33"></i>
+            <i class="s3-d s3-d--v s3-d--f" style="--i:34"></i>
+            <i class="s3-d s3-d--v s3-d--f" style="--i:35"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+          </div>
+
+          <div class="s3-rdv" aria-hidden="true">
+            <p class="s3-rdv-k"><i></i>Nouveau rendez-vous</p>
+            <p class="s3-rdv-n"><b>Soin de carie / obturation</b><s>Mme Ben Salah &middot; 09:30</s></p>
+            <p class="s3-rdv-pay"><i></i><b>Payé</b><s>Espèces</s><em>90,000&nbsp;DT</em></p>
+          </div>
+
+          <p class="s3-foot s3-up" style="--d:1420ms">Une ligne par séance terminée, écrite le jour même. Les seules que vous ayez tapées, ce sont les trois dépenses.</p>
+        </div>
+
+        <div class="s3-col s3-col--read">
+          <div class="s3-blk">
+            <p class="s3-lab s3-up" style="--d:300ms">Encaissé ce mois-ci</p>
+            <p class="s3-total">
+              <span class="s3-fig"><i class="s3-fig-a">19&nbsp;190,000&nbsp;DT</i><i class="s3-fig-b">19&nbsp;280,000&nbsp;DT</i></span>
+              <span class="s3-base"><i class="s3-dash"></i><i class="s3-solid"></i></span>
+            </p>
+          </div>
+
+          <div class="s3-blk">
+            <p class="s3-lab s3-up" style="--d:1900ms">Les dernières recettes</p>
+            <ul class="s3-recs" aria-hidden="true">
+              <li class="s3-rec s3-rec--new"><b>Soin de carie / obturation</b><s>Mme Ben Salah</s><em>90,000&nbsp;DT</em></li>
+              <li class="s3-rec" style="--i:1"><b>Radiographie panoramique</b><s>M. Gharbi</s><em>40,000&nbsp;DT</em></li>
+              <li class="s3-rec" style="--i:2"><b>Détartrage</b><s>Mme Trabelsi</s><em>60,000&nbsp;DT</em></li>
+            </ul>
+          </div>
+
+          <div class="s3-blk">
+            <p class="s3-lab s3-up" style="--d:2400ms">Comment il est entré</p>
+            <ul class="s3-modes">
+              <li style="--i:0"><i></i><b>Espèces</b></li>
+              <li style="--i:1"><i></i><b>Chèque</b></li>
+              <li style="--i:2"><i></i><b>Carte</b></li>
+              <li style="--i:3"><i></i><b>Virement</b></li>
+            </ul>
+          </div>
+
+          <p class="s3-foot s3-up" style="--d:3180ms">Quatre colonnes tenues séparément&nbsp;: un chèque n’est pas des espèces, et la caisse ne les mélange pas.</p>
+        </div>
+
+      </div>
+    </div>
+
+    <p class="s3-sr">Illustration&nbsp;: le mois en cours, jour par jour. Chaque séance terminée y inscrit sa ligne toute seule&nbsp;; les seules lignes saisies à la main sont les trois dépenses.</p>
+  </div>
+</section>
+
+<!-- ══ 4 · LE QUOTIDIEN ═════════════════════════════════════════════════════════
      The page's selling section, and the one that has to be SHOWN rather than
      read. Six moments, one at a time: the paper moment struck through on the
      left, the screen that answers it on the right. Scroll advances it — no
-     rail, no tabs, no auto-play, so it does not compete with the hero above
-     and does not repeat §3's card switcher or §5's zone rail.
+     rail, no tabs, no auto-play, so it does not repeat §3's card switcher or
+     §5's zone rail.
 
      Every item carries its own copy AND its own shot, so the same markup is
      six cards in normal flow wherever the sticky version cannot run: below
@@ -417,328 +819,6 @@
         </ol>
       </div>
     </div>
-  </div>
-</section>
-
-<!-- ══ 3 · L'ARGENT ═════════════════════════════════════════════════════════════ -->
-<section data-reveal class="s3" id="argent">
-  <div class="wrap">
-
-    <div class="s3-head">
-      <p class="s3-eyebrow s3-up" style="--d:0ms">L’argent</p>
-      <h2 class="s3-h2 s3-up" style="--d:70ms">Savoir ce que le mois a rapporté, sans avoir rien recopié</h2>
-      <p class="s3-lede s3-up" style="--d:140ms">La saisie à la main ne se fait jamais jusqu’au bout, et le chiffre du mois finit en estimation. Ici vous n’entrez que les dépenses&nbsp;: le reste est déjà écrit.</p>
-    </div>
-
-    <div class="s3-sheet">
-
-      <div class="s3-strip">
-        <p class="s3-name s3-up" style="--d:60ms"><b>La caisse</b><s>ce mois-ci, jour par jour</s></p>
-        <p class="s3-pin"><b>0</b><s>recette à saisir</s></p>
-      </div>
-
-      <div class="s3-body">
-
-        <div class="s3-col s3-col--field">
-          <div class="s3-colhead">
-            <p class="s3-one s3-up" style="--d:200ms">
-              <b>1</b><span>saisie au fauteuil<s>au lieu de quatre écritures à tenir séparément</s></span>
-            </p>
-            <p class="s3-keys s3-up" style="--d:280ms">
-              <span class="s3-key"><i></i>séance terminée</span>
-              <span class="s3-key s3-key--dep"><i></i>dépense saisie</span>
-            </p>
-          </div>
-
-          <div class="s3-field" aria-hidden="true">
-            <i class="s3-wk">L</i><i class="s3-wk">M</i><i class="s3-wk">M</i><i class="s3-wk">J</i><i class="s3-wk">V</i><i class="s3-wk">S</i><i class="s3-wk">D</i>
-            <i class="s3-d s3-d--off"></i>
-            <i class="s3-d s3-d--off"></i>
-            <i class="s3-d s3-d--off"></i>
-            <i class="s3-d s3-d--off"></i>
-            <i class="s3-d s3-d--off"></i>
-            <i class="s3-d" style="--i:5"><i class="s3-ln"></i></i>
-            <i class="s3-d s3-d--v" style="--i:6"></i>
-            <i class="s3-d" style="--i:7"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:8"><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:9"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:10"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln s3-ln--dep"></i></i>
-            <i class="s3-d" style="--i:11"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:12"><i class="s3-ln"></i></i>
-            <i class="s3-d s3-d--v" style="--i:13"></i>
-            <i class="s3-d" style="--i:14"><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:15"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:16"><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:17"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:18"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln s3-ln--dep"></i></i>
-            <i class="s3-d" style="--i:19"><i class="s3-ln"></i></i>
-            <i class="s3-d s3-d--v" style="--i:20"></i>
-            <i class="s3-d" style="--i:21"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:22"><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:23"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:24"><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:25"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln s3-ln--dep"></i></i>
-            <i class="s3-d" style="--i:26"><i class="s3-ln"></i></i>
-            <i class="s3-d s3-d--v" style="--i:27"></i>
-            <i class="s3-d" style="--i:28"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:29"><i class="s3-ln"></i><i class="s3-ln"></i></i>
-            <i class="s3-d" style="--i:30"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-cr"></i></i>
-            <i class="s3-d s3-d--v s3-d--f" style="--i:31"></i>
-            <i class="s3-d s3-d--v s3-d--f" style="--i:32"></i>
-            <i class="s3-d s3-d--v s3-d--f" style="--i:33"></i>
-            <i class="s3-d s3-d--v s3-d--f" style="--i:34"></i>
-            <i class="s3-d s3-d--v s3-d--f" style="--i:35"></i>
-            <i class="s3-d s3-d--off"></i>
-            <i class="s3-d s3-d--off"></i>
-            <i class="s3-d s3-d--off"></i>
-            <i class="s3-d s3-d--off"></i>
-            <i class="s3-d s3-d--off"></i>
-            <i class="s3-d s3-d--off"></i>
-          </div>
-
-          <div class="s3-rdv" aria-hidden="true">
-            <p class="s3-rdv-k"><i></i>Nouveau rendez-vous</p>
-            <p class="s3-rdv-n"><b>Soin de carie / obturation</b><s>Mme Ben Salah &middot; 09:30</s></p>
-            <p class="s3-rdv-pay"><i></i><b>Payé</b><s>Espèces</s><em>90,000&nbsp;DT</em></p>
-          </div>
-
-          <p class="s3-foot s3-up" style="--d:1420ms">Une ligne par séance terminée, écrite le jour même. Les seules que vous ayez tapées, ce sont les trois dépenses.</p>
-        </div>
-
-        <div class="s3-col s3-col--read">
-          <div class="s3-blk">
-            <p class="s3-lab s3-up" style="--d:300ms">Encaissé ce mois-ci</p>
-            <p class="s3-total">
-              <span class="s3-fig"><i class="s3-fig-a">19&nbsp;190,000&nbsp;DT</i><i class="s3-fig-b">19&nbsp;280,000&nbsp;DT</i></span>
-              <span class="s3-base"><i class="s3-dash"></i><i class="s3-solid"></i></span>
-            </p>
-          </div>
-
-          <div class="s3-blk">
-            <p class="s3-lab s3-up" style="--d:1900ms">Les dernières recettes</p>
-            <ul class="s3-recs" aria-hidden="true">
-              <li class="s3-rec s3-rec--new"><b>Soin de carie / obturation</b><s>Mme Ben Salah</s><em>90,000&nbsp;DT</em></li>
-              <li class="s3-rec" style="--i:1"><b>Radiographie panoramique</b><s>M. Gharbi</s><em>40,000&nbsp;DT</em></li>
-              <li class="s3-rec" style="--i:2"><b>Détartrage</b><s>Mme Trabelsi</s><em>60,000&nbsp;DT</em></li>
-            </ul>
-          </div>
-
-          <div class="s3-blk">
-            <p class="s3-lab s3-up" style="--d:2400ms">Comment il est entré</p>
-            <ul class="s3-modes">
-              <li style="--i:0"><i></i><b>Espèces</b></li>
-              <li style="--i:1"><i></i><b>Chèque</b></li>
-              <li style="--i:2"><i></i><b>Carte</b></li>
-              <li style="--i:3"><i></i><b>Virement</b></li>
-            </ul>
-          </div>
-
-          <p class="s3-foot s3-up" style="--d:3180ms">Quatre colonnes tenues séparément&nbsp;: un chèque n’est pas des espèces, et la caisse ne les mélange pas.</p>
-        </div>
-
-      </div>
-    </div>
-
-    <p class="s3-sr">Illustration&nbsp;: le mois en cours, jour par jour. Chaque séance terminée y inscrit sa ligne toute seule&nbsp;; les seules lignes saisies à la main sont les trois dépenses.</p>
-  </div>
-</section>
-
-<!-- ══ 4 · LE DOSSIER PATIENT ═══════════════════════════════════════════════════════ -->
-<!-- ══ 4 · LE DOSSIER PATIENT ═══════════════════════════════════════════════════
-     Replaces « Ici, on paie en chèque ». LIGHT ground: it sits between §3
-     (l'argent, dark) and §5 (sur le téléphone, dark). -->
-<section data-reveal class="s5" id="dossier" aria-labelledby="s5-titre">
-  <div class="wrap">
-
-    <header class="s5-head">
-      <p class="s5-eyebrow" style="--i: 0">Le dossier patient</p>
-      <h2 class="s5-h2" id="s5-titre" style="--i: 1">Un patient, un dossier, sept onglets</h2>
-      <p class="s5-lede" style="--i: 2">Le tiroir, l’agenda, le cahier, l’enveloppe de radios, le carnet de reçus&nbsp;: cinq endroits pour une seule personne. Ici, c’est un seul dossier, et il porte son nom.</p>
-    </header>
-
-    <!-- ── Le dossier : une seule pièce de papier, qui s'assemble ────────── -->
-    <div class="s5-dossier">
-
-      <header class="s5-ident">
-        <i class="s5-av" aria-hidden="true">KH</i>
-        <p class="s5-who">
-          <b class="s5-name">Karim Hamdi</b>
-          <s>42 ans · Homme · +216&nbsp;98&nbsp;445&nbsp;123</s>
-        </p>
-      </header>
-
-      <!-- ── Les sept onglets : ils se distribuent, puis se rangent ──────── -->
-      <ul class="s5-tabs">
-        <li class="s5-tab s5-tab--on" style="--i: 0; --tx: -1.7em; --ty: -1.2em; --r: -5deg">Dossiers médicaux</li>
-        <li class="s5-tab" style="--i: 1; --tx: 1.5em; --ty: -1.5em; --r: 4deg">Rendez-vous</li>
-        <li class="s5-tab" style="--i: 2; --tx: -2.2em; --ty: 1.0em; --r: 6deg">Notes</li>
-        <li class="s5-tab" style="--i: 3; --tx: 2.0em; --ty: 1.3em; --r: -4deg">Documents</li>
-        <li class="s5-tab" style="--i: 4; --tx: -1.3em; --ty: 1.6em; --r: -7deg">Fichiers</li>
-        <li class="s5-tab" style="--i: 5; --tx: 2.3em; --ty: -0.9em; --r: 5deg">Factures</li>
-        <li class="s5-tab" style="--i: 6; --tx: -1.9em; --ty: 1.4em; --r: 3deg">Plan de traitement</li>
-      </ul>
-
-      <div class="s5-body">
-
-        <!-- ── L'odontogramme : deux lectures de la même bouche ──────────── -->
-        <div class="s5-chart">
-          <i class="s5-sweep" aria-hidden="true"></i>
-          <i class="s5-fly" aria-hidden="true"><b>Soin de carie / obturation</b><s>90,000&nbsp;DT · tarif par dent</s></i>
-
-          <div class="s5-chead">
-            <h3 class="s5-ct">Odontogramme</h3>
-            <p class="s5-views">
-              <i class="s5-thumb" aria-hidden="true"></i>
-              <button type="button" class="s5-view s5-view--d" aria-pressed="true">Diagnostics</button>
-              <button type="button" class="s5-view s5-view--a" aria-pressed="false">Actes réalisés</button>
-            </p>
-          </div>
-
-          <div class="s5-mouth" aria-hidden="true">
-            <p class="s5-jaw">Maxillaire (haut)</p>
-            <div class="s5-arch">
-              <div class="s5-quad" style="--q: 0">
-                <i class="s5-t"><b></b><s>18</s></i>
-                <i class="s5-t"><b></b><s>17</s></i>
-                <i class="s5-t s5-t--k" data-t="16">
-                  <b>
-                    <i class="s5-tf s5-tf--d" style="--tc: var(--amber)"></i>
-                    <i class="s5-tf s5-tf--a" style="--tc: var(--azure)"></i>
-                    <i class="s5-halo"></i>
-                  </b><s>16</s>
-                </i>
-                <i class="s5-t"><b></b><s>15</s></i>
-                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--b" style="--tc: var(--violet)"></i></b><s>14</s></i>
-                <i class="s5-t"><b></b><s>13</s></i>
-                <i class="s5-t"><b></b><s>12</s></i>
-                <i class="s5-t"><b></b><s>11</s></i>
-              </div>
-              <i class="s5-mid"></i>
-              <div class="s5-quad" style="--q: 1">
-                <i class="s5-t"><b></b><s>21</s></i>
-                <i class="s5-t"><b></b><s>22</s></i>
-                <i class="s5-t"><b></b><s>23</s></i>
-                <i class="s5-t"><b></b><s>24</s></i>
-                <i class="s5-t"><b></b><s>25</s></i>
-                <i class="s5-t s5-t--k" data-t="26">
-                  <b>
-                    <i class="s5-tf s5-tf--d" style="--tc: var(--amber)"></i>
-                    <i class="s5-tf s5-tf--a" style="--tc: var(--azure)"></i>
-                    <i class="s5-halo"></i>
-                  </b><s>26</s>
-                </i>
-                <i class="s5-t"><b></b><s>27</s></i>
-                <i class="s5-t"><b></b><s>28</s></i>
-              </div>
-            </div>
-
-            <div class="s5-arch s5-arch--low">
-              <div class="s5-quad" style="--q: 2">
-                <i class="s5-t"><b></b><s>48</s></i>
-                <i class="s5-t"><b></b><s>47</s></i>
-                <i class="s5-t"><b></b><s>46</s></i>
-                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--d" style="--tc: var(--amber)"></i></b><s>45</s></i>
-                <i class="s5-t"><b></b><s>44</s></i>
-                <i class="s5-t"><b></b><s>43</s></i>
-                <i class="s5-t"><b></b><s>42</s></i>
-                <i class="s5-t"><b></b><s>41</s></i>
-              </div>
-              <i class="s5-mid"></i>
-              <div class="s5-quad" style="--q: 3">
-                <i class="s5-t"><b></b><s>31</s></i>
-                <i class="s5-t"><b></b><s>32</s></i>
-                <i class="s5-t"><b></b><s>33</s></i>
-                <i class="s5-t"><b></b><s>34</s></i>
-                <i class="s5-t"><b></b><s>35</s></i>
-                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--b" style="--tc: var(--green)"></i></b><s>36</s></i>
-                <i class="s5-t"><b></b><s>37</s></i>
-                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--b" style="--tc: var(--text-faint)"></i></b><s>38</s></i>
-              </div>
-            </div>
-            <p class="s5-jaw">Mandibule (bas)</p>
-          </div>
-
-
-          <p class="s5-still">Deux lectures de la même bouche, sur la même arcade&nbsp;: Diagnostics montre ce qui reste à traiter, Actes réalisés ce qui a été fait. Ici, la lecture Actes réalisés&nbsp;: la 16 et la 26 portent une Obturation, la 45 attend encore.</p>
-        </div>
-
-        <!-- ── Ce qu'il y a derrière deux de ces onglets ─────────────────── -->
-        <div class="s5-side">
-          <p class="s5-sk">Derrière deux de ces onglets</p>
-
-          <div class="s5-panes">
-
-          <!-- Onglet 1 · Dossiers médicaux -->
-          <div class="s5-pane" style="--zc: var(--azure); --zcl: var(--azure-lit)">
-            <i class="s5-mark" aria-hidden="true"></i>
-            <header class="s5-ph">
-              <i aria-hidden="true"></i>
-              <h3>Dossiers médicaux</h3>
-              <s>21/08/2026</s>
-            </header>
-            <p class="s5-pc">Fiche de soins · 2 actes</p>
-
-            <div class="s5-acte" style="--i: 0">
-              <i class="s5-edge" aria-hidden="true"></i>
-              <p class="s5-ak">Acte réalisé</p>
-              <p class="s5-an"><b>Soin de carie / obturation</b><em>90,000&nbsp;DT</em></p>
-              <p class="s5-am"><span class="s5-cond">Obturation</span><s>tarif par dent</s></p>
-              <p class="s5-ad">
-                <s>Dents</s><u>16</u><u>26</u>
-                <s>Surfaces</s><u>M</u><u>O</u>
-              </p>
-            </div>
-
-            <div class="s5-acte" style="--i: 1">
-              <i class="s5-edge" aria-hidden="true"></i>
-              <p class="s5-ak">Acte réalisé</p>
-              <p class="s5-an"><b>Radiographie panoramique</b><em>40,000&nbsp;DT</em></p>
-            </div>
-
-            <dl class="s5-tot">
-              <div><dt>Total</dt><dd class="s5-fig">220,000&nbsp;DT</dd></div>
-              <div><dt>Payé</dt><dd>220,000&nbsp;DT</dd></div>
-            </dl>
-          </div>
-
-          <!-- Onglet 2 · Fichiers -->
-          <div class="s5-pane" style="--zc: var(--green); --zcl: var(--green-lit)">
-            <i class="s5-mark" aria-hidden="true"></i>
-            <header class="s5-ph">
-              <i aria-hidden="true"></i>
-              <h3>Fichiers</h3>
-              <s>3 fichiers</s>
-            </header>
-
-            <ul class="s5-files">
-              <li class="s5-fold" style="--i: 0"><i aria-hidden="true"></i><b>Radiographies</b><em>2</em></li>
-              <li class="s5-f" style="--i: 1">
-                <b>pano-2026-08-21.jpg</b>
-                <s>image/jpeg · 2,4&nbsp;Mo · 21/08/2026 · Dr Salma Ben Youssef</s>
-              </li>
-              <li class="s5-f s5-f--k" style="--i: 2">
-                <b>retro-16-26.jpg</b>
-                <s>image/jpeg · 1,1&nbsp;Mo · 21/08/2026 · Dr Salma Ben Youssef</s>
-              </li>
-              <li class="s5-fold" style="--i: 3"><i aria-hidden="true"></i><b>Consentements</b><em>1</em></li>
-              <li class="s5-f" style="--i: 4">
-                <b>consentement-implant.pdf</b>
-                <s>application/pdf · 186&nbsp;Ko · 04/07/2026 · Dr Salma Ben Youssef</s>
-              </li>
-            </ul>
-          </div>
-
-          </div>
-
-          <p class="s5-still">Rendez-vous, Notes, Documents, Factures et Plan de traitement sont dans le même dossier, sous le même nom.</p>
-        </div>
-
-      </div>
-    </div>
-
-    <p class="s5-close">Une seule saisie&nbsp;: le total de la séance et l’odontogramme suivent, sans une deuxième écriture.</p>
-
-    <p class="s5-sr">Illustration&nbsp;: le dossier de Karim Hamdi. Sept onglets, à savoir Dossiers médicaux, Rendez-vous, Notes, Documents, Fichiers, Factures et Plan de traitement, plus un odontogramme qui se lit de deux façons, Diagnostics et Actes réalisés. La fiche de soins du 21/08/2026 porte deux actes, dont un soin de carie sur les dents 16 et 26&nbsp;; à l’enregistrement, ces deux dents passent d’elles-mêmes de l’état À traiter à l’état Obturation, et le total de la séance découle des actes.</p>
   </div>
 </section>
 
