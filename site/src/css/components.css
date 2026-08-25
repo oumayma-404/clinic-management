@@ -4699,10 +4699,10 @@
 @media (min-width: 46rem) {
   .s7-ticket {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: repeat(5, auto);
+    grid-template-rows: repeat(4, auto);
   }
   .s7-pack {
-    grid-row: span 5;
+    grid-row: span 4;
     grid-template-rows: subgrid;
     row-gap: 0.8rem;
   }
@@ -4798,70 +4798,34 @@
   text-wrap: balance;
 }
 
-/* ── The price slot ───────────────────────────────────────────────────────
-   Three hatched dinar cells and the millimes, in the shape of a Tunisian
-   amount. Amber on ink is this site’s « attention, not an error » colour and
-   it is the only place amber appears in this band. */
-.s7-fig {
-  display: flex; align-items: center; flex-wrap: wrap;
-  gap: 0.15em 0.06em;
-  font-size: clamp(1.875rem, 0.95rem + 3.4vw, 2.75rem);
-  line-height: 1;
-  letter-spacing: -0.02em;
-}
-.s7-slot { display: inline-flex; align-items: center; gap: 0.12em; }
+/* ── The price, which is a sentence and not a number ──────────────────
+   ⚠️ WHAT WAS HERE: three hatched dinar cells, a dashed « ,000 » and a dashed
+   rule after « par », plus the amber footer strip that explained them — the
+   shape of a Tunisian amount, kept warm for a figure that was asked for five
+   times and never supplied. The owner's answer (25 Aug) is that the price is
+   given at the démo, so the slot is not waiting any more — and a slot that is
+   not waiting is an unfinished form on a live page. It is DELETED, with the
+   `.s7-slot/.s7-dg/.s7-dec/.s7-cur/.s7-unit/.s7-par/.s7-blank/.s7-flag`
+   machinery, its `.s7-pop` entrance and the `s7-blink` loop: the block that
+   drew it said it would leave with the placeholder, and it does. Amber leaves
+   the band with it — nothing in section 7 is amber now.
 
-/* ⚠️ The hatch is the whole trick. An empty dashed box reads as a thing that
-   failed to render; a hatched one reads as a space deliberately kept, which is
-   exactly what it is. Both are needed — the dash says « pas définitif », the
-   hatch says « exprès ». */
-.s7-dg {
-  display: inline-block;
-  width: 0.68em; height: 1.06em; flex: none;
-  border: 1.5px dashed color-mix(in oklab, var(--amber-lit) 60%, transparent);
-  border-radius: 6px;
-  background:
-    repeating-linear-gradient(-45deg,
-      color-mix(in oklab, var(--amber-lit) 26%, transparent) 0 1.5px,
-      transparent 1.5px 5px),
-    color-mix(in oklab, var(--amber) 15%, transparent);
-}
-/* The millimes. ⚠️ Three more hatched cells was tried here and rendered as
-   dust at every width; the sanctioned « 000 » in its own dashed box is both
-   legible and instructive — it is the SHAPE of a Tunisian amount, so nobody
-   supplies the figure a thousand times too small. */
-.s7-dec {
-  display: inline-block;
-  font-size: max(0.875rem, 0.4em);
-  padding: 0.16em 0.34em;
-  border: 1.5px dashed color-mix(in oklab, var(--amber-lit) 42%, transparent);
-  border-radius: 5px;
-  color: color-mix(in oklab, var(--amber-lit) 78%, transparent);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.01em;
-}
-.s7-cur {
-  margin-inline-start: 0.28em;
-  font-size: max(0.875rem, 0.42em); font-weight: 500;
-  letter-spacing: 0.06em; color: var(--on-ink-muted);
-}
+   What replaces it holds the same POSITION — the third row of the pack, what
+   the eye lands on after « qui » — at a fifth of the type size, because words
+   at 44px read as a slogan where a number read as a price.
 
-.s7-pop {
-  opacity: 0; transform: translateY(0.16em) scale(0.92);
-  transition: opacity 380ms var(--ease-out), transform 380ms var(--ease-out);
-  transition-delay: calc(560ms + var(--b, 0ms) + var(--i, 0) * 60ms);
-}
-.in .s7-pop { opacity: 1; transform: none; }
-
-/* ── The unit, which is a slot too ────────────────────────────────────── */
-.s7-unit {
-  display: flex; align-items: center; gap: 0.5rem;
-  font-size: var(--t-small); color: var(--on-ink-muted);
-}
-.s7-par { flex: none; }
-.s7-blank {
-  flex: 1 1 3rem; min-width: 2.5rem; max-width: 9rem; height: 0.7rem;
-  border-bottom: 1.5px dashed color-mix(in oklab, var(--amber-lit) 55%, transparent);
+   ⚠️ AND IT IS QUIETER THAN THE AUDIENCE LINE ABOVE IT, deliberately. At the
+   display weight it had first (20px, full `--on-ink`) it read as a second
+   title and the pack had two headlines competing; there is no figure to make
+   loud, so the loudest thing in the pack goes back to being the line the
+   reader is actually choosing between — the description of their own cabinet.
+   The price row states a fact and hands the action to the ticket's foot. */
+.s7-price {
+  font-size: var(--t-small);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--on-ink-muted);
+  text-wrap: balance;
 }
 
 /* ── What one pack includes that the other does not ───────────────────────
@@ -4909,14 +4873,26 @@
    It spans the seam on purpose: the two formules do not differ here, and a
    sentence printed twice would suggest they might. « Aucune option payante »
    is UNCOVERED by a travelling clip rather than faded — the last words on the
-   page arrive, they do not materialise. */
+   page arrive, they do not materialise.
+
+   ⚠️ AND IT NOW CARRIES ITS OWN PROOF. « la caisse, les rappels et les
+   sauvegardes sont compris » named three things and asked to be believed; six
+   named capabilities under it is the same claim shown. Every one of them is on
+   the brief's list of what this site may state — 24 écrans en 4 zones, chèques
+   postdatés par échéance, sauvegarde automatique vérifiée restaurable,
+   import/export CSV, Windows/Android/iPhone — and the two that are not on it
+   verbatim (l'odontogramme et les plans, le stock et les fournisseurs) each
+   have a section of this same page. No « mises à jour comprises »: that is a
+   commercial promise nobody has made.
+
+   Two columns from 34rem, because six lines stacked reads as a list and six
+   lines paired reads as a table — and a table of what you get is what a reader
+   weighs a price against. */
 .s7-incl {
   grid-column: 1 / -1;
   position: relative;
   display: grid;
-  grid-template-columns: 1.15rem minmax(0, 1fr);
-  column-gap: 0.625rem;
-  align-items: start;
+  gap: 0.7rem;
   padding: clamp(0.9rem, 0.6rem + 1.2vw, 1.25rem) clamp(1.125rem, 0.65rem + 1.9vw, 1.75rem);
   font-size: clamp(0.9375rem, 0.86rem + 0.24vw, 1rem);
   line-height: 1.5;
@@ -4930,7 +4906,14 @@
   transition-delay: 820ms;
 }
 .in .s7-incl::before { transform: none; }
-.s7-incl .s7-tick { margin-top: 0.12em; }
+
+.s7-incl-h {
+  display: grid;
+  grid-template-columns: 1.15rem minmax(0, 1fr);
+  column-gap: 0.625rem;
+  align-items: start;
+}
+.s7-incl-h .s7-tick { margin-top: 0.12em; }
 .s7-incl b {
   display: inline-block;
   color: var(--on-ink);
@@ -4940,34 +4923,92 @@
 }
 .in .s7-incl b { clip-path: inset(0 0 0 0); }
 
-/* ── The unfilled strip. It IS the placeholder, and it leaves with it. ─────
-   Edge to edge along the foot of the ticket, under both figures, because both
-   figures are missing. Its dot is the only ambient loop in this band besides
-   the button’s shine, and the finished section has neither the strip nor it. */
-.s7-flag {
+/* The eight. Their bullet is a hairline dash, not a second tick: the tick
+   above has already granted the whole list, and eight more ticks would read as
+   eight separate concessions being made one at a time. The list hangs off the
+   sentence, indented by the tick's own column.
+
+   ⚠️ EIGHT SHORT ONES, NOT SIX LONG ONES. « Odontogramme et plans de
+   traitement », « Sauvegarde automatique, vérifiée, restaurable » and
+   « Import/export CSV, Windows, Android et iPhone » each wrapped to two lines
+   in a 265px column, so six items rendered as nine ragged lines — which reads
+   as prose set in a list, the opposite of scannable. Each is now one line, and
+   two of them split into the two facts they were carrying.
+
+   ⚠️ `grid-auto-flow: column` with the rows fixed, NOT the default row flow:
+   the DOM order is the reading order (what the software does, then how it
+   keeps what it does), and row flow would deal that order across the two
+   columns like cards, putting « Sauvegardes vérifiées » beside
+   « Odontogramme » for no reason. */
+.s7-all {
+  list-style: none; margin: 0;
+  display: grid; gap: 0.3rem 1.5rem;
+  padding: 0 0 0 1.775rem;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: var(--on-ink-muted);
+}
+.s7-all > li {
+  position: relative;
+  padding-inline-start: 0.875rem;
+  opacity: 0; transform: translateX(-4px);
+  transition: opacity 380ms var(--ease-out), transform 380ms var(--ease-out);
+  transition-delay: calc(1260ms + var(--i, 0) * 60ms);
+}
+.in .s7-all > li { opacity: 1; transform: none; }
+.s7-all > li::before {
+  content: ""; position: absolute; left: 0; top: 0.68em;
+  width: 0.4375rem; height: 1px;
+  background: color-mix(in oklab, var(--accent-lit) 70%, transparent);
+}
+@media (min-width: 34rem) {
+  .s7-all {
+    grid-auto-flow: column;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(4, auto);
+  }
+}
+
+/* ── How the figure is obtained ───────────────────────────────────
+   The strip the placeholder used to occupy, doing the job the placeholder was
+   standing in for: the ticket does not print a figure, so the foot of the
+   ticket says how the figure is obtained. Ink, not amber — this is the offer,
+   not a warning about the offer. */
+.s7-devis {
   grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: 0.5rem minmax(0, 1fr);
-  column-gap: 0.5rem;
-  align-items: start;
-  padding: 0.75rem clamp(1.125rem, 0.65rem + 1.9vw, 1.75rem);
-  border-top: 1px dashed color-mix(in oklab, var(--amber-lit) 46%, transparent);
-  background: color-mix(in oklab, var(--amber) 14%, transparent);
-  font-size: 0.8125rem; font-weight: 500; letter-spacing: 0.03em;
-  line-height: 1.45; color: var(--amber-lit);
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: 0.35rem 1rem;
+  padding: 0.85rem clamp(1.125rem, 0.65rem + 1.9vw, 1.75rem);
+  border-top: 1px solid var(--rule-ink);
+  background: color-mix(in oklab, var(--on-ink) 4%, transparent);
+  font-size: 0.9375rem; line-height: 1.45;
+  color: var(--on-ink-faint);
 }
-.s7-flag > i {
-  margin-top: 0.45em;
-  width: 0.5rem; height: 0.5rem; border-radius: 50%;
-  background: var(--amber-lit);
+.s7-devis-a {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  margin-inline-start: auto;
+  font-weight: 500; color: var(--accent-lit);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in oklab, var(--accent-lit) 34%, transparent);
+  transition: border-color 200ms var(--ease-out), color 200ms var(--ease-out);
 }
-.in .s7-flag > i { animation: s7-blink 2.4s var(--ease-in-out) 1200ms infinite; }
-@keyframes s7-blink { 0%, 100% { opacity: 0.32 } 50% { opacity: 1 } }
+/* On a finger, the link is the only tappable thing inside the ticket, and a
+   text link's own box is 24px tall. It keeps its baseline in the strip and
+   grows its hit area downward instead. */
+@media (pointer: coarse) {
+  .s7-devis-a { min-height: 2.75rem; }
+}
+.s7-devis-a > i { transition: transform 240ms var(--ease-out); }
+@media (hover: hover) and (pointer: fine) {
+  .s7-devis-a:hover { border-color: var(--accent-lit); }
+  .s7-devis-a:hover > i { transform: translateX(3px); }
+}
 
 /* ── With the script blocked, everything is at its end state ──────────── */
-.no-js .s7-rise, .no-js .s7-ticket, .no-js .s7-cin, .no-js .s7-pop {
+.no-js .s7-rise, .no-js .s7-ticket, .no-js .s7-cin {
   opacity: 1; transform: none; filter: none;
 }
+.no-js .s7-all > li { opacity: 1; transform: none; }
 .no-js .s7-pack + .s7-pack::before,
 .no-js .s7-incl::before { transform: none; }
 .no-js .s7-tick::after { opacity: 1; transform: rotate(-45deg) scale(1); }
@@ -4978,7 +5019,7 @@
    drawn, the seam ruled, the sentence whole, the strip present. The only
    thing dropped is the travel. */
 @media (prefers-reduced-motion: reduce) {
-  .s7-rise, .s7-ticket, .s7-cin, .s7-pop {
+  .s7-rise, .s7-ticket, .s7-cin, .s7-all > li {
     opacity: 1 !important; transform: none !important; filter: none !important;
     transition: none !important;
   }
@@ -4989,7 +5030,6 @@
     transition: none !important;
   }
   .s7-incl b { clip-path: none !important; transition: none !important; }
-  .s7-flag > i { animation: none !important; opacity: 1 !important; }
   .s7-btn--primary::after { display: none; }
 }
 

@@ -773,3 +773,54 @@ anywhere on the page.
 `c67f2b7` (« la caisse encaisse une séance sous vos yeux ») swept up the finished `index.html`
 half of this work along with its own — the FAQ markup is in that commit, under that message, and
 only the CSS was left to commit as this pass.
+
+## Pass 12 — le prix, sans emplacement vide (25 août)
+
+The owner, asked what the ticket should print now that the two figures have been requested five
+times without being supplied: **« Prix communiqué à la démo »**, and **put what is included on the
+card**.
+
+**The placeholder is gone, not filled.** Three hatched dinar cells, the dashed « ,000 », the dashed
+rule after « par » and the amber footer strip (« Emplacement réservé : les deux montants et l'unité
+de facturation restent à fournir ») were an unfinished form on a live page: honest internally,
+unfinished to a visitor. The price row now says « Prix communiqué à la démo » at `--t-small` and in
+`--on-ink-muted` — *quieter* than the audience line above it, because with no figure to make loud
+the loudest thing in the pack should be the line the reader is actually choosing between (« Un
+praticien et une secrétaire » / « Plusieurs praticiens »). The foot of the ticket, where the amber
+strip used to be, says how the figure is obtained: « Le prix dépend de la formule et de la taille du
+cabinet » + **Demander un devis →**. Amber left section 7 with the strip; nothing in the band is
+amber now.
+
+**« Aucune option payante » now carries its proof.** It named three things and asked to be believed;
+under it are eight named capabilities in two columns — les 24 écrans en 4 zones · odontogramme et
+traitements · chèques postdatés par échéance · stock, péremptions, fournisseurs · sauvegardes
+vérifiées · import/export CSV · Windows, Android et iPhone · rôles et droits par personne. Every one
+is on this brief's list of what the site may state, or has its own section on the page. **No « mises
+à jour comprises »** — that is a commercial promise nobody has made.
+
+| | before | after |
+|---|---|---|
+| 1440 | 685 px | 714 px (the ticket 458, and it now says eight things more) |
+| 820 | — | 1 038 px |
+| 390 | — | 1 396 px |
+| 320 | — | 1 571 px |
+
+Verified in Chrome at 320 · 390 · 820 · 1440: no horizontal overflow, every capability on ONE line
+at every width, the entrance still staged (seam, ticks, the clip on « Aucune option payante », then
+the eight), and the `.no-js` fallback resolving to the finished state.
+
+⚠️ **Eight short lines, not six long ones.** The first version wrote « Odontogramme et plans de
+traitement », « Sauvegarde automatique, vérifiée, restaurable » and « Import/export CSV, Windows,
+Android et iPhone » — each wrapped to two lines in a 265 px column, so six items rendered as nine
+ragged lines, which reads as prose set in a list. Two of them split into the two facts they were
+carrying.
+
+⚠️ **`grid-auto-flow: column`, not the default row flow.** The DOM order is the reading order (what
+the software does, then how it keeps what it does); row flow deals that order across the two columns
+like cards and puts « Sauvegardes vérifiées » beside « Odontogramme » for no reason.
+
+⚠️ **THE SECTION'S TWO CALLS TO ACTION AND ITS NEW DEVIS LINK ALL POINT AT `demo.html`, WHICH DOES
+NOT EXIST.** That was already true of « Essayer gratuitement » and « Demander une démo »; this pass
+adds a third link to the same missing page, and — because the price is now given *at the démo* —
+makes that page the only route to the one thing a visitor came for. It is item 2 of « Left to do »
+and it is now the site's most expensive gap.
