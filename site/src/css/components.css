@@ -6065,3 +6065,65 @@
   .s5-body[data-phase] .s5-fig { clip-path: none; }
   .s5-body[data-phase] .s5-f--k::before { opacity: 1; }
 }
+
+
+/* ── Tenir sur un écran ───────────────────────────────────────────
+   1576px at 1440×900 is 1.75 screens, and this section is read on a laptop.
+   Two thirds of what was cut is layout, not content.
+
+   ⚠️ THE HEADER GOES BESIDE THE CARD, and that alone is 223px. Stacked, an
+   eyebrow, a two-line heading and a three-line lede push the whole card down
+   the page for nothing — the wrap is 1272px wide and the prose only ever uses
+   a third of it. Beside the card, the column that was empty does the work.
+   75rem and not 62rem: below that the card needs the full width, or the arch
+   collapses into a row of beads. */
+@media (min-width: 75rem) {
+  .s5 .wrap {
+    display: grid;
+    /* 3/9, not 4/8. The seven tabs only fold into the identity row if the card
+       is wide enough to hold a name and seven pills on one line — at 8fr the
+       card is 719px against about 815px of content, so they wrapped and the
+       fold saved nothing. At 9fr the card is 940px and they fit. */
+    grid-template-columns: minmax(0, 3fr) minmax(0, 9fr);
+    /* ⚠️ `auto 1fr`, not the implicit `auto auto`. The card spans BOTH rows, so
+       with implicit rows the grid shares its 821px between them and the closing
+       line is pushed halfway down an empty column, marooned. Pinning row 1 to
+       the heading's own height leaves the slack in row 2, under the line. */
+    grid-template-rows: auto 1fr;
+    gap: 0 clamp(1.5rem, 0.6rem + 2vw, 2.5rem);
+    align-items: start;
+  }
+  .s5-head { grid-column: 1; }
+  /* the card spans both rows of the left column, so the heading and the closing
+     line stack beside it rather than under it */
+  .s5-dossier { grid-column: 2; grid-row: 1 / span 2; }
+  .s5-close { grid-column: 1; margin-top: clamp(1rem, 0.5rem + 1vw, 1.75rem); }
+}
+
+/* The seven tabs had a row to themselves under an identity row that was half
+   empty. Folded in, they cost nothing and the file still names its own tabs. */
+@media (min-width: 62rem) {
+  /* ⚠️ `.s5-tabs` is a SIBLING of `.s5-ident`, not a child, so no amount of
+     flex on the identity row can pull the tabs into it. The card is already a
+     grid; giving its first row two columns is what puts them side by side. */
+  .s5-dossier { grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+  .s5-ident { grid-column: 1; border-bottom: 0; padding-bottom: 0; }
+  .s5-tabs { grid-column: 2; justify-content: flex-end; }
+  /* the rule that used to sit under the identity now sits under the whole row,
+     because two grid items cannot share one border */
+  .s5-body {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--rule);
+    padding-top: clamp(0.75rem, 0.5rem + 1vw, 1.25rem);
+  }
+  .s5-tab { font-size: 0.68rem; padding: 0.3em 0.48em; }
+  .s5-tabs { gap: 0.28rem; flex-wrap: nowrap; }
+}
+.s5-ident { padding-block: 0.5rem; }
+.s5-av { width: 34px; height: 34px; }
+
+/* A 32rem arch still puts a tooth at about the 36px the app draws one at, and
+   takes 60px off the panel. */
+.s5-arch { max-width: 32rem; }
+
+.s5 { padding-block: clamp(2rem, 1.2rem + 2.2vw, 2.375rem); }
