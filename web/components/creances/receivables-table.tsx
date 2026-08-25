@@ -227,7 +227,7 @@ export function ReceivablesTable() {
                 >
                   <TableCell className="font-medium">{r.patientName}</TableCell>
                   <TableCell className="text-right font-semibold">{formatDT(r.totalOutstanding)}</TableCell>
-                  <TableCell>{r.oldestOverdueDate ? formatDateFr(r.oldestOverdueDate) : "—"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{r.oldestOverdueDate ? formatDateFr(r.oldestOverdueDate) : "—"}</TableCell>
                   <TableCell className="text-right">
                     {r.daysOverdue != null && r.daysOverdue > 0 ? (
                       <Badge variant="destructive">En retard · {r.daysOverdue} j</Badge>

@@ -18,7 +18,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { MoreHorizontal, Plus, Loader2, ChevronRight, ClipboardList } from "lucide-react"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useRouter } from "next/navigation"
@@ -307,7 +307,7 @@ export function TreatmentPlansTable({
         {/* This table already used a DropdownMenu for its row actions, so the card's menu is the same content —
             it is the template the other conversions followed rather than the other way round. */}
         <CardList
-          className={CARDS_ONLY}
+          className={CARDS_ONLY_LG}
           ariaLabel="Plans de traitement et devis"
           items={plans}
           getKey={(p) => p.id}
@@ -369,7 +369,7 @@ export function TreatmentPlansTable({
           }}
           empty={emptyState}
         />
-        <Table containerClassName={TABLE_ONLY}>
+        <Table containerClassName={TABLE_ONLY_LG}>
           <TableHeader>
             <TableRow>
               <TableHead>Numéro</TableHead>

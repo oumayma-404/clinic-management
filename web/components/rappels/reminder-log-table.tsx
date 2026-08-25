@@ -240,14 +240,9 @@ export function ReminderLogTable({
                   The reason lives IN the row, not in a tooltip. It is the only thing that makes a failure
                   actionable, and a tooltip is unreachable on the tablet a dentist actually holds.
 
-                  ⚠️ `whitespace-normal` is load-bearing, and its absence was silently defeating the sentence
-                  above. `ui/table.tsx` puts `whitespace-nowrap` on **every** `TableCell` — right for a date or an
-                  amount — and this paragraph inherited it, so `max-w-[38ch]` capped the box at 302 px while the
-                  text refused to wrap: measured 425 px of sentence rendered on one 302 px line, cut mid-word with
-                  no ellipsis and no way to read the rest. « Forfait de rappels WhatsApp introuvable — envoi en
-                  attente du rétablissement » arrived as « …envoi en attente du rétab ». Fixed here rather than in
-                  the primitive: `nowrap` is the right default for the twenty other tables in the app, and this is
-                  the one cell holding prose.
+                  `whitespace-normal` is redundant now that `ui/table.tsx` wraps every cell by default, and is
+                  kept only because it is what `max-w-[38ch]` means to do — this box is deliberately narrower
+                  than its column.
                 */}
                 {row.failureReason && (
                   <p className={cn("mt-1 max-w-[38ch] whitespace-normal text-xs", reasonClass(row.status))}>

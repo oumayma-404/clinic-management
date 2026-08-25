@@ -4,7 +4,7 @@ import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Ban, Receipt, CalendarClock, SearchX, Undo2, Wallet } from "lucide-react"
 import { formatDT, formatDate } from "@/lib/format"
@@ -148,7 +148,7 @@ export function CaisseLedgerTable({
         ever filled is a table's way of aligning direction, and a card shows direction with a sign and a colour.
       */}
       <CardList
-        className={CARDS_ONLY}
+        className={CARDS_ONLY_LG}
         ariaLabel="Extrait de caisse"
         items={movements}
         getKey={(m) => `${m.kind}-${m.id}`}
@@ -208,7 +208,7 @@ export function CaisseLedgerTable({
           Solde de la période : <span className="tabular-nums">{formatDT(movements[0].runningBalance)}</span>
         </p>
       )}
-      <Table containerClassName={TABLE_ONLY}>
+      <Table containerClassName={TABLE_ONLY_LG}>
         <TableHeader>
           <TableRow>
             <TableHead>Date</TableHead>
@@ -241,13 +241,15 @@ export function CaisseLedgerTable({
                     {KIND_LABELS[movement.kind]}
                   </Badge>
                 </TableCell>
-                <TableCell className={movement.isVoided ? "line-through" : undefined}>
+                {/* The label clamps, the « Annulé » line below it never does — a void's reason is the row's whole
+                    point and must not be what a two-line cap swallows. */}
+                <TableCell className={movement.isVoided ? "line-through" : undefined} title={movement.label}>
                   {href ? (
-                    <Link href={href} className="underline-offset-4 hover:underline">
+                    <Link href={href} className="line-clamp-2 underline-offset-4 hover:underline">
                       {movement.label}
                     </Link>
                   ) : (
-                    movement.label
+                    <span className="line-clamp-2">{movement.label}</span>
                   )}
                   {movement.isVoided && (
                     /* A void is a correction with an author. Showing the row and hiding who reversed it and why
@@ -266,10 +268,12 @@ export function CaisseLedgerTable({
                   {/* L8 — the same string the card list shows, from the one formatter, so the two trees cannot
                       drift about what a cheque row says. */}
                   {chequeSummary(movement) && (
-                    <span className="mt-0.5 block text-xs">{chequeSummary(movement)}</span>
+                    <span className="mt-0.5 line-clamp-2 text-xs" title={chequeSummary(movement)!}>
+                      {chequeSummary(movement)}
+                    </span>
                   )}
                 </TableCell>
-                <TableCell className="text-right font-medium text-success">
+                <TableCell numeric className="font-medium text-success">
                   {isIn && !movement.isVoided ? (
                     <span className="inline-flex items-center gap-1">
                       <ArrowDownLeft className="h-3 w-3" aria-hidden="true" />
@@ -281,7 +285,7 @@ export function CaisseLedgerTable({
                     "—"
                   )}
                 </TableCell>
-                <TableCell className="text-right font-medium text-destructive">
+                <TableCell numeric className="font-medium text-destructive">
                   {!isIn && !movement.isVoided ? (
                     <span className="inline-flex items-center gap-1">
                       <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
@@ -293,7 +297,7 @@ export function CaisseLedgerTable({
                     "—"
                   )}
                 </TableCell>
-                <TableCell className="text-right tabular-nums">{formatDT(movement.runningBalance)}</TableCell>
+                <TableCell numeric>{formatDT(movement.runningBalance)}</TableCell>
               </TableRow>
             )
           })}

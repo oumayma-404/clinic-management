@@ -665,11 +665,11 @@ function CaisseContent() {
                           <TableCell>
                             <Badge variant="outline">{expense.category}</Badge>
                           </TableCell>
-                          <TableCell className="text-right font-medium text-foreground">
+                          <TableCell numeric className="font-medium text-foreground">
                             {formatDT(expense.amount)}
                           </TableCell>
                           <TableCell className="text-muted-foreground">{methodLabel(expense.method)}</TableCell>
-                          <TableCell className="max-w-xs truncate text-muted-foreground">
+                          <TableCell clamp className="max-w-xs text-muted-foreground" title={expense.description?.trim() || undefined}>
                             {expense.description?.trim() ? expense.description : "—"}
                           </TableCell>
                           <TableCell className="text-right">
@@ -678,19 +678,21 @@ function CaisseContent() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleEdit(expense)}
-                                className="h-8 gap-1"
+                                className="h-8 w-8 p-0 coarse:size-11"
+                                title="Modifier la dépense"
+                                aria-label={`Modifier la dépense ${expense.category}`}
                               >
-                                <Pencil className="h-3 w-3" />
-                                Modifier
+                                <Pencil className="h-4 w-4" />
                               </Button>
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleDelete(expense)}
-                                className="h-8 gap-1 text-destructive hover:text-destructive"
+                                className="h-8 w-8 p-0 text-destructive hover:text-destructive coarse:size-11"
+                                title="Supprimer la dépense"
+                                aria-label={`Supprimer la dépense ${expense.category}`}
                               >
-                                <Trash2 className="h-3 w-3" />
-                                Supprimer
+                                <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>
                           </TableCell>

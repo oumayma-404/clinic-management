@@ -557,7 +557,7 @@ export function StockTable({
                         }
                         className={cn(isHighlighted && "bg-primary/10 ring-1 ring-inset ring-primary")}
                       >
-                        <TableCell className="font-medium text-foreground">{item.name}</TableCell>
+                        <TableCell clamp className="font-medium text-foreground">{item.name}</TableCell>
                         <TableCell>
                           <Badge variant={item.isLowStock ? "destructive" : "default"} className="gap-1">
                             {item.isLowStock && <AlertTriangle className="h-3 w-3" />}
@@ -565,7 +565,7 @@ export function StockTable({
                           </Badge>
                         </TableCell>
                         <TableCell className="text-muted-foreground">{stockUnitLabel(item.unit)}</TableCell>
-                        <TableCell className="text-muted-foreground">{item.minimumStockLevel}</TableCell>
+                        <TableCell numeric className="text-muted-foreground">{item.minimumStockLevel}</TableCell>
                         <TableCell>
                           <Badge variant="outline">{item.category}</Badge>
                         </TableCell>
@@ -599,8 +599,8 @@ export function StockTable({
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {item.supplierName ? (
-                            <span className="inline-flex items-center gap-1">
-                              <span className="truncate">{item.supplierName}</span>
+                            <span className="inline-flex items-center gap-1" title={item.supplierName}>
+                              <span className="line-clamp-2">{item.supplierName}</span>
                               {/* AC-3 — the point of the whole feature: the name is now something you can act
                                   on. No « Ajouter un numéro » fallback here, because this table cannot open the
                                   fournisseur's own form; the row simply reads as a name, as it always did. */}
@@ -627,18 +627,28 @@ export function StockTable({
                             <Button variant="ghost" size="sm" onClick={() => openHistory(item)} className="h-8 w-8 p-0" title="Historique des mouvements">
                               <History className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="sm" onClick={() => onEdit(item)} className="h-8 gap-1">
-                              <Pencil className="h-3 w-3" />
-                              Modifier
+                            {/* Icon-only, like `patients-table`: labelled, these two made Actions 453 px — 42 % of the
+                                table and the last thing that could not compress. « Sortie » and « Entrée » keep
+                                their words, because ∓ alone does not say which way the stock moved. */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onEdit(item)}
+                              className="h-8 w-8 p-0 coarse:size-11"
+                              title="Modifier l'article"
+                              aria-label={`Modifier ${item.name}`}
+                            >
+                              <Pencil className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => handleDelete(item)}
-                              className="h-8 gap-1 text-destructive hover:text-destructive"
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive coarse:size-11"
+                              title="Supprimer l'article"
+                              aria-label={`Supprimer ${item.name}`}
                             >
-                              <Trash2 className="h-3 w-3" />
-                              Supprimer
+                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
                         </TableCell>

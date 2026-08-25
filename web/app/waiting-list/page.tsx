@@ -552,10 +552,10 @@ export default function WaitingListPage() {
                           <TableCell className="text-muted-foreground">
                             {entry.desiredTimeframe?.trim() ? entry.desiredTimeframe : "—"}
                           </TableCell>
-                          <TableCell className="max-w-xs truncate text-muted-foreground">
+                          <TableCell clamp className="max-w-xs text-muted-foreground" title={entry.note?.trim() || undefined}>
                             {entry.note?.trim() ? entry.note : "—"}
                           </TableCell>
-                          <TableCell className="text-muted-foreground">{formatAddedDate(entry.createdAt)}</TableCell>
+                          <TableCell className="whitespace-nowrap text-muted-foreground">{formatAddedDate(entry.createdAt)}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
                               <Button
@@ -576,10 +576,11 @@ export default function WaitingListPage() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleEdit(entry)}
-                                className="h-8 gap-1"
+                                className="h-8 w-8 p-0 coarse:size-11"
+                                title="Modifier l'entrée"
+                                aria-label={`Modifier l'entrée de ${entry.patientName ?? "ce patient"}`}
                               >
-                                <Pencil className="h-3 w-3" />
-                                Modifier
+                                <Pencil className="h-4 w-4" />
                               </Button>
                               {/* AC-25 — « Retirer » records the outcome and keeps the row; « Supprimer » is for
                                   an entry made by mistake. They used to be one button, doing the second. */}
@@ -596,10 +597,11 @@ export default function WaitingListPage() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleDelete(entry)}
-                                className="h-8 gap-1 text-destructive hover:text-destructive"
+                                className="h-8 w-8 p-0 text-destructive hover:text-destructive coarse:size-11"
+                                title="Supprimer l'entrée"
+                                aria-label={`Supprimer l'entrée de ${entry.patientName ?? "ce patient"}`}
                               >
-                                <Trash2 className="h-3 w-3" />
-                                Supprimer
+                                <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>
                           </TableCell>

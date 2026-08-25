@@ -802,7 +802,7 @@ function RecurringSeriesScreen() {
                         </TableCell>
                         <TableCell>{frequencyLabel(s.recurrencePattern)}</TableCell>
                         <TableCell className="text-muted-foreground">{s.interval}</TableCell>
-                        <TableCell className="text-muted-foreground">{formatDateTime(s.startDate)}</TableCell>
+                        <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateTime(s.startDate)}</TableCell>
                         <TableCell className="text-muted-foreground">{formatEnd(s)}</TableCell>
                         <TableCell className="text-muted-foreground">{s.appointmentCount}</TableCell>
                         <TableCell>

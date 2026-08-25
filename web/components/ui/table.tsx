@@ -36,11 +36,9 @@ function Table({
       /*
        * A right-edge fade, so a table that scrolls sideways SAYS it scrolls sideways.
        *
-       * Every `TableHead`/`TableCell` in this file is `whitespace-nowrap`, so no cell ever compresses — and the
-       * widest surfaces (lab orders at 10 columns, invoices at 9) exceed an iPad portrait's content width once
-       * the 256 px rail is subtracted. The container has always had `overflow-x-auto`, but with no affordance
-       * whatsoever, so columns past the edge simply looked like they did not exist. A 24 px gradient in the
-       * card's own colour is the standard cue and costs no layout.
+       * Since cells wrap (see `TableCell`) a table fits its container in almost every case, and this fade is
+       * the last-resort cue for the ones that still cannot — a ten-column surface on a narrow tablet, where the
+       * columns' *min-content* widths already exceed the box. It used to fire on nearly every table.
        *
        * `pointer-events-none` is load-bearing: the fade sits over the last column, and without it the overlay
        * would swallow taps on that column's row actions.
@@ -140,13 +138,18 @@ function TableRow({
  * <p>It was `text-foreground` at the same size as the cells, so the labels were exactly as black as the values and
  * the eye had to work out which of the two was the content. Monospace uppercase at `muted-foreground` settles that
  * instantly and matches the section eyebrows on the dashboard, so the whole app labels data the same way.</p>
+ *
+ * <p>⚠️ **A label wraps**, and it must: uppercase at `tracking-[0.07em]` makes a header the widest thing in its
+ * column far more often than the data is — « Date de naissance » measured 149 px over a 90 px column of
+ * `dd/MM/yyyy`. Held on one line it sets a floor no value asked for. `align-bottom` sits a two-line label on the
+ * same baseline as its one-line neighbours instead of centring it against them.</p>
  */
 function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
     <th
       data-slot="table-head"
       className={cn(
-        "h-9 px-3 text-left align-middle whitespace-nowrap",
+        "h-9 px-3 text-left align-bottom",
         "font-mono text-2xs font-medium uppercase tracking-[0.07em] text-muted-foreground",
         "[&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         className
@@ -160,26 +163,53 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
  * A cell. `px-3 py-2.5` rather than a flat `p-2`: rows need vertical air to be scannable, columns do not need as
  * much horizontal padding as they were given, and the two were the same number for no reason.
  *
- * <p>Use `numeric` on any column of figures or dates — it right-aligns and applies `tabular-nums`. That is the
- * single highest-value change in this file: `/factures` shows three columns of dinars, and with proportional
- * digits their commas do not line up, so the amounts cannot be compared vertically at all.</p>
+ * <p>Use `numeric` on any column of figures or dates — it right-aligns, applies `tabular-nums`, and keeps the
+ * value on one line. That is the single highest-value change in this file: `/factures` shows three columns of
+ * dinars, and with proportional digits their commas do not line up, so the amounts cannot be compared
+ * vertically at all.</p>
+ *
+ * <p>⚠️ **A cell wraps by default, and that is what keeps a table inside the screen.** It was
+ * `whitespace-nowrap`, so a table's intrinsic width was the sum of its longest *unbreakable* value and no column
+ * could ever compress: one free-text column set the width of the whole surface and pushed the rest out of the
+ * scrollport. Measured signed-in, `/caisse`'s ledger rendered 1563 px inside a 1084 px box on a 1440 px laptop —
+ * « Mode », « Entrée », « Sortie » and « Solde » simply absent — because « Libellé » (495 px) and « Mode »
+ * (323 px) hold sentences. `/stock` hid 254 px and `/waiting-list` 161 px at the same width. The reader's only
+ * clue was a 24 px fade, so those columns read as non-existent rather than as off-screen.</p>
+ *
+ * <p>Wrapping shrinks a column to its longest *word* instead, which fits every table in the app at 1440 px and
+ * nearly all at 820 px. `overflow-x-auto` on the container stays as the last resort. Four separate workarounds
+ * existed for the old default — this container's fade, `TableEmptyRow`'s `sticky w-[100cqi]`, `CARDS_ONLY_LG`,
+ * and a hand-added `whitespace-normal` in `reminder-log-table` — and all four were treating this symptom.</p>
+ *
+ * <p>Pass `whitespace-nowrap` at the call site for a value that must stay atomic — a `d MMM yyyy` date, a phone
+ * number, a `F-2026-0142` reference — since those break at their spaces and hyphens like any other text.</p>
+ *
+ * <p>`clamp` caps a free-text column at two lines and puts the full value in the cell's `title`, so one long
+ * note cannot make its row four lines tall. Opt-in, never the default: it needs `display: -webkit-box`, which
+ * would flatten an action column's flex row of buttons.</p>
  */
 function TableCell({
   className,
   numeric = false,
+  clamp = false,
+  title,
+  children,
   ...props
-}: React.ComponentProps<"td"> & { numeric?: boolean }) {
+}: React.ComponentProps<"td"> & { numeric?: boolean; clamp?: boolean }) {
   return (
     <td
       data-slot="table-cell"
+      title={title ?? (clamp && typeof children === "string" ? children : undefined)}
       className={cn(
-        "px-3 py-2.5 align-middle whitespace-nowrap",
-        numeric && "text-right tabular-nums",
+        "px-3 py-2.5 align-middle break-words",
+        numeric && "text-right tabular-nums whitespace-nowrap",
         "[&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         className
       )}
       {...props}
-    />
+    >
+      {clamp ? <span className="line-clamp-2">{children}</span> : children}
+    </td>
   )
 }
 
@@ -222,13 +252,13 @@ function TableMeta({ className, children, ...props }: React.ComponentProps<"div"
 /**
  * The « there is nothing here » row of a table — the one place a `colSpan` cell holds a whole `EmptyState`.
  *
- * <p>⚠️ <b>It exists because a full-width cell is as wide as the TABLE, not as wide as the screen.</b> Every
- * `TableHead`/`TableCell` in this file is `whitespace-nowrap`, so a wide table has an intrinsic width well past a
- * tablet portrait's content box — and the container scrolls, which is right for rows. An empty state centred in
- * that cell is centred on a width nobody can see: measured at 820 px, `/stock`'s invite sat in a 752 px cell
- * inside a 451 px viewport, so « Aucun article en sto… » and half of « Ajouter un article » were off screen with
- * only a horizontal scrollbar to say so. Four tables had it, and it is the one empty state a first-run clinic
- * always meets.</p>
+ * <p>⚠️ <b>It exists because a full-width cell is as wide as the TABLE, not as wide as the screen.</b> A table
+ * whose columns cannot compress below the box still scrolls, which is right for rows — but an empty state
+ * centred in that cell is centred on a width nobody can see: measured at 820 px, `/stock`'s invite sat in a
+ * 752 px cell inside a 451 px viewport, so « Aucun article en sto… » and half of « Ajouter un article » were off
+ * screen with only a horizontal scrollbar to say so. Four tables had it, and it is the one empty state a
+ * first-run clinic always meets. Cells wrapping made this rarer, not impossible — the header row alone can still
+ * outrun a narrow scrollport.</p>
  *
  * <p><b>`sticky left-0 w-[100cqi]` is the fix.</b> `cqi` reads the scroll container's own inline size — its
  * <i>visible</i> width, not its scroll width — so the block is exactly as wide as what the reader can see and
@@ -250,7 +280,7 @@ function TableEmptyRow({
 }) {
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={colSpan} className={cn("p-0 whitespace-normal", className)}>
+      <TableCell colSpan={colSpan} className={cn("p-0", className)}>
         <div className="sticky left-0 w-[100cqi]">{children}</div>
       </TableCell>
     </TableRow>

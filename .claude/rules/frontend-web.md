@@ -40,7 +40,8 @@ v4 redeclaring an existing key silently re-points every utility already using it
 
 `md:` (768) is the ordinary phone↔desktop hinge. **A table of roughly eight or more columns needs `lg:`
 instead** — an iPad portrait is 820 px and therefore already `md:`, so it would get the desktop grid *and* the
-256 px rail: ~532 px for a 10-column table whose every cell is `whitespace-nowrap`.
+256 px rail: ~532 px for a 10-column table. Cells wrap (§ 6), so such a table now *fits* that box instead of
+scrolling out of it — at ~50 px a column, which is legible without being readable.
 
 Never assume a viewport in JS. Layout decisions are CSS; if a component must know, it reads a media query, not
 a `window.innerWidth` snapshot taken once.
@@ -137,6 +138,19 @@ Two trees, **not** a `display:block` reflow: the reflow strips the implicit tabl
 announces « Ben Salah 45,000 12/03 Payée » with no field names — across money and clinical data. The doubled
 DOM is bounded because every list is paged. The `card-fallback` check derives the table surfaces rather than
 listing them, so a new table with no card list fails the gate.
+
+**A cell wraps; keep it that way.** `ui/table.tsx` deliberately does *not* set `whitespace-nowrap` — that
+default made a table's width the sum of its longest unbreakable value, so one free-text column pushed the rest
+out of the scrollport (`/caisse` hid 479 px on a 1440 px laptop). Reach for a per-cell override only with a
+reason:
+
+```tsx
+<TableCell numeric>{formatDT(x)}</TableCell>                  // figures: right + tabular + nowrap
+<TableCell className="whitespace-nowrap">{formatDateFr(d)}</TableCell>  // atomic: `d MMM yyyy`, a phone, `F-2026-0142`
+<TableCell clamp title={note}>{note}</TableCell>              // free text: 2 lines, full value in the tooltip
+```
+
+⚠️ Never `truncate` in a cell — it hides the tail of a value on one line, which is the defect, not the fix.
 
 Card content rule, in this order: **identity → status → money → date**, actions in one menu. A long primary
 value truncates to one line with its full value on tap. **A field with no value is omitted, not rendered as

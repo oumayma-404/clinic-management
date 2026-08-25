@@ -24,7 +24,7 @@ import {
 import { FileDown, CreditCard, Plus, Loader2, ReceiptText, MoreHorizontal, SearchX } from "lucide-react"
 import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
 import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import {
@@ -454,7 +454,7 @@ export function InvoicesTable({
           re-derived here.
         */}
         <CardList
-          className={CARDS_ONLY}
+          className={CARDS_ONLY_LG}
           ariaLabel="Notes d'honoraires"
           items={invoices}
           getKey={(inv) => inv.id}
@@ -499,7 +499,7 @@ export function InvoicesTable({
           actions={renderActions}
           empty={emptyState}
         />
-        <Table containerClassName={TABLE_ONLY}>
+        <Table containerClassName={TABLE_ONLY_LG}>
           {/* Sticky: this list pages, so the columns are gone by row ten and « Reste » becomes an unlabelled
               column of money. The unit is stated once in the three money headers rather than on every cell. */}
           <TableHeader sticky>
@@ -573,7 +573,7 @@ export function InvoicesTable({
                       </div>
                     </TableCell>
                     {showPatientColumn && <TableCell>{invoice.patientName ?? "—"}</TableCell>}
-                    <TableCell>{invoice.issueDate ? formatDateFr(invoice.issueDate) : formatDateFr(invoice.createdAt)}</TableCell>
+                    <TableCell className="whitespace-nowrap">{invoice.issueDate ? formatDateFr(invoice.issueDate) : formatDateFr(invoice.createdAt)}</TableCell>
                     <TableCell>
                       <Badge variant="secondary" className={invoiceStatusBadgeClass(invoice.status)}>
                         {invoiceStatusLabel(invoice.status)}
