@@ -58,9 +58,18 @@ Struck from the old site after verification, and not to be reintroduced:
 - Any client count, testimonial, award or logo.
 
 True and usable: numérotation sans trou par année · le prix de l'acte est ce que le patient paie ·
-chèques postdatés par échéance · dinars, +216, gouvernorats · fonctionne sans internet · sauvegarde
-automatique, vérifiée, restaurable · Windows, Android, iPhone · import/export CSV avec essai à blanc ·
-24 écrans en 4 zones · 30 jours sans carte.
+chèques postdatés par échéance · dinars, +216, gouvernorats · sauvegarde automatique, vérifiée,
+restaurable · Windows, Android, iPhone · import/export CSV avec essai à blanc · 24 écrans en 4 zones ·
+30 jours sans carte.
+
+⚠️ **« fonctionne sans internet » was on that list until 23 Aug, and it must never go back on it.**
+The claim was that the software sits on one PC in the cabinet and the others reach it over the LAN,
+so a dropped line stops nothing. That describes `SelfHostedLan` — one of three deployment kinds —
+and the site sells the hosted one. It had reached **twelve** places, including the meta description
+Google prints and WhatsApp shows, the footer strapline, FAQ 02, a whole drawn figure (« et si la
+connexion tombe ? ») and both copies of the nav. All twelve are gone. The backup claims beside it
+are real and stay. When a capability is true of one `DeploymentProfile` only, it is not a fact about
+the product — it is a fact about an install.
 
 ## Pass 2 — measured, not eyeballed (21 Aug)
 
@@ -681,3 +690,37 @@ see `landing-v2/DEPLOY.md` for the credential trap on this machine (two GitHub a
    `confidentialite.html` does not exist.
 6. **Stock photography licensing.** The photos are Unsplash images of practices that are not
    Tunisian. Confirm or reshoot before any paid traffic.
+
+
+## Pass 10 — « le dossier patient » remplace « Conçu en Tunisie » (24 août)
+
+The owner: « this section feels weird all together … it's a minor feature, does not need to be on
+the first page, replace it with a section about patient data — the odontogramme, actes réalisés,
+diagnostic, files page, types de procédures … discover the patient details page before you write
+anything to website. » Then, on the chosen design: « make the odontogramme replay animation not
+just on scroll, make a veryyy cool animation for it. »
+
+**What the application actually holds**, read out of the code rather than assumed — these are the
+only facts the section is allowed to state:
+
+| | |
+|---|---|
+| The seven tabs, in order | Dossiers médicaux · Rendez-vous · Notes · Documents · Fichiers · Factures · Plan de traitement |
+| The odontogram | **two readings of one mouth**: « Diagnostics » (à traiter) and « Actes réalisés » (fait) |
+| The nine tooth conditions | Sain · Carie · Obturation · Couronne · Traitement de canal · Bridge · Implant · Extrait / Absent · À traiter |
+| Why it is the hero thesis | a `ProcedureType` carries a **`resultingCondition`**, so charting an acte sets the tooth's new state **by itself** — « une seule saisie » proved on the clinical side instead of the money side |
+
+⚠️ **THE `s5-` PREFIX IS ALREADY TAKEN, and the collision is silent.** The outgoing
+« Conçu en Tunisie » owns `components.css` **lines 4132–4624** under the banner
+« 5 · Conçu en Tunisie », plus one later correction (`.s5-card--b, .s5-card--c { grid-column:
+span 6 }`, added when two of its four cards were cut). The incoming section reuses the same prefix
+and shares **nine class names** with it — `.s5-head`, `.s5-eyebrow`, `.s5-lede`, `.s5-still`,
+`.s5-mark`, `.s5-edge`, `.s5-fig`, `.s5-tot`, `.s5-cap`. Whichever block sits later in the file
+wins those selectors, so pasting the new CSS in without **deleting the old block first** silently
+applies the old section's padding, colour and size to the new markup. No error, no warning, and it
+looks like a design that came out wrong.
+
+⚠️ **And there is a THIRD Tunisie block, dead.** Lines 1324–1488, banner
+« 23 · Conçu en Tunisie: the proof grid », 103 `.tn-*` rules from a version before the current
+one. Nothing in `index.html`, `nav.html` or `footer.html` uses a `tn-` class — the only matches
+are `btn-primary` and `btn-ghost` containing the substring. It goes with the same edit.

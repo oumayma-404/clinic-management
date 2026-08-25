@@ -1321,171 +1321,6 @@
 }
 
 /* ═══ merged block: tunisie ═══════════════════════════════ */
-/* ── 23 · Conçu en Tunisie: the proof grid ─────────────────────────────────
-   Six claims, six DIFFERENT artefacts: one real crop of the chèque register,
-   three UI elements rebuilt in HTML so they stay crisp at any size, one
-   photograph and two large figures. Twelve columns so the rows can run 7/5,
-   4/4/4 and full width — an editorial rhythm instead of six equal boxes. */
-
-.tn-grid { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr); }
-@media (min-width: 40rem) {
-  .tn-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .tn-a, .tn-f { grid-column: 1 / -1; }
-}
-@media (min-width: 62rem) {
-  .tn-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
-  .tn-a { grid-column: span 7; }
-  .tn-b { grid-column: span 5; }
-  .tn-c, .tn-d, .tn-e { grid-column: span 4; }
-}
-
-.tn-card {
-  --tn-pad: clamp(1.25rem, 0.95rem + 1.2vw, 1.75rem);
-  position: relative; isolation: isolate; overflow: hidden;
-  display: flex; flex-direction: column;
-  background: var(--page); border: 1px solid var(--rule);
-  border-radius: var(--r-card);
-  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
-}
-.tn-card--paper { background: var(--paper); border-color: transparent; }
-.tn-card--ink { background: var(--ink); color: var(--on-ink); border-color: var(--rule-ink); }
-/* Nothing here is clickable, so the hover raises the surface and stops there:
-   a lift would promise a link the card does not have. */
-@media (hover: hover) and (pointer: fine) {
-  .tn-card:hover { box-shadow: var(--shadow-card); border-color: #d9d9d5; }
-  .tn-card--paper:hover { border-color: #dededa; }
-  .tn-card--ink:hover { box-shadow: none; border-color: #3a5b7d; }
-}
-
-.tn-body { flex: 1; display: flex; flex-direction: column; gap: 0.5rem; padding: var(--tn-pad); }
-.tn-k { display: flex; align-items: center; gap: 0.4375rem; font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-faint); }
-.tn-k i { flex: none; width: 0.4375rem; height: 0.4375rem; border-radius: 50%; background: var(--zc, var(--accent-ink)); }
-.tn-card--ink .tn-k { color: var(--on-ink-faint); }
-.tn-card h3 { margin-top: 0.125rem; font-size: clamp(1.1875rem, 1.06rem + 0.4vw, 1.375rem); }
-.tn-p { font-size: 0.9375rem; color: var(--text-muted); max-width: 46ch; }
-.tn-card--ink .tn-p { max-width: 54ch; color: var(--on-ink-muted); }
-
-/* ── A · the two figures, then the register bleeding to three edges ────── */
-
-.tn-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0 clamp(0.875rem, 2.4vw, 1.375rem); margin-top: 0.75rem; padding: 0; list-style: none; }
-.tn-stats li:first-child { padding-right: clamp(0.875rem, 2.4vw, 1.375rem); border-right: 1px solid var(--rule-ink); }
-.tn-stats b { display: block; font-size: clamp(1.0625rem, 0.95rem + 0.45vw, 1.25rem); font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.tn-stats li > span { display: block; margin-top: 0.1875rem; font-size: 0.8125rem; line-height: 1.4; color: var(--on-ink-muted); }
-@media (max-width: 29.99rem) {
-  .tn-stats { grid-template-columns: 1fr; gap: 0.75rem; }
-  .tn-stats li:first-child { padding: 0 0 0.75rem; border-right: 0; border-bottom: 1px solid var(--rule-ink); }
-}
-
-.tn-shot { margin-top: 1.25rem; }
-/* The card clips it, so the screenshot needs no radius of its own. */
-.tn-shot > .crop { border-top: 1px solid rgb(255 255 255 / 0.1); }
-/* Below 48rem this card is one column, so the shot gets a squarer frame than
-   the 2.75:1 strip it wears on a desktop. --ar and --cy have to move TOGETHER:
-   the crop positions its image with `top`, which resolves against the frame's
-   height, so the same --cy lands somewhere else at a different ratio. --tn-cy
-   is the hook that lets one media query change both, since --cy itself is an
-   inline style a rule cannot override. And components.css forces --czz: 4 on
-   every crop under 48rem, which is right for a 320px figure and far too close
-   for a card that is full width from 30rem up. */
-@media (max-width: 47.99rem) {
-  .tn-shot > .crop { --czz: 3; --tn-cy: 0.654; aspect-ratio: 1.95 / 1; }
-}
-@media (max-width: 29.99rem) { .tn-shot > .crop { --czz: 4; } }
-
-/* ── The rendered UI insets, one family ───────────────────────────────── */
-
-.tn-ui {
-  --tn-rule: var(--rule);
-  margin-top: auto;                       /* aligns the artefacts across a row */
-  padding: 0.875rem 1rem 1rem;
-  background: var(--page); border: 1px solid var(--rule); border-radius: var(--r-med);
-}
-.tn-ui--paper { --tn-rule: rgb(9 9 11 / 0.1); background: var(--paper); border-color: transparent; }
-
-/* B · a note d’honoraires whose sous-total and total are the same number */
-.tn-note { display: grid; gap: 0.5rem; }
-.tn-note-top { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); }
-.tn-note-top b { font-weight: 500; color: var(--text-muted); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
-.tn-note-lines { display: grid; gap: 0.3125rem; margin: 0; padding: 0; list-style: none; }
-.tn-note-lines li,
-.tn-note-sub { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; font-size: 0.875rem; color: var(--text-muted); }
-.tn-note-lines b,
-.tn-note-sub b { flex: none; font-weight: 400; color: var(--text); font-variant-numeric: tabular-nums; }
-.tn-note-sub { padding-top: 0.5rem; border-top: 1px solid var(--tn-rule); }
-.tn-note-total { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem 1rem; flex-wrap: wrap; padding-top: 0.5rem; border-top: 1px solid var(--tn-rule); }
-.tn-note-total > span { font-size: 0.875rem; color: var(--text-muted); }
-.tn-note-total b { font-size: clamp(1.375rem, 1.15rem + 0.85vw, 1.75rem); font-weight: 500; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
-
-/* C · four consecutive numbers, three workstations, one ladder */
-.tn-seq { display: grid; gap: 0.625rem; }
-.tn-seq-h { font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); }
-.tn-seq ol { position: relative; display: grid; gap: 0.5rem; margin: 0; padding: 0 0 0 1rem; list-style: none; }
-.tn-seq ol::before { content: ""; position: absolute; left: 3px; top: 0.5rem; bottom: 0.5rem; width: 1px; background: var(--tn-rule); }
-.tn-seq li { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; gap: 0.5rem; }
-.tn-seq li::before { content: ""; position: absolute; left: -1rem; top: 0.375rem; width: 7px; height: 7px; border-radius: 50%; background: var(--zc); opacity: 0.3; }
-.tn-seq li:last-child::before { opacity: 1; }
-.tn-seq b { font-size: 0.875rem; font-weight: 500; letter-spacing: 0.005em; font-variant-numeric: tabular-nums; }
-.tn-seq li > span,
-.tn-seq li > time { font-size: 0.8125rem; color: var(--text-muted); }
-.tn-seq li > time { font-variant-numeric: tabular-nums; }
-
-/* D · one stacked bar, four totals */
-.tn-modes { display: grid; gap: 0.75rem; }
-.tn-modes-h { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem 0.75rem; flex-wrap: wrap; }
-.tn-modes-h > span { font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); }
-.tn-modes-h b { font-size: 1.0625rem; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.tn-bar { display: flex; gap: 2px; height: 0.625rem; }
-.tn-bar span { flex: 0 1 var(--w); min-width: 4px; border-radius: 999px; background: color-mix(in oklab, var(--zc) var(--s), #fff); }
-.tn-modes-list { display: grid; gap: 0.375rem; margin: 0; padding: 0; list-style: none; }
-.tn-modes-list li { display: grid; grid-template-columns: 0.5rem minmax(0, 1fr) auto; align-items: baseline; gap: 0.5625rem; font-size: 0.875rem; }
-.tn-modes-list i { align-self: center; width: 0.5rem; height: 0.5rem; border-radius: 2px; background: color-mix(in oklab, var(--zc) var(--s), #fff); }
-.tn-modes-list li > span { color: var(--text-muted); }
-.tn-modes-list b { font-weight: 400; font-variant-numeric: tabular-nums; }
-
-/* E · one large figure over two format lines */
-.tn-loc { display: grid; gap: 0.5rem; }
-.tn-big { font-size: clamp(2.5rem, 1.85rem + 2.6vw, 3.5rem); line-height: 0.9; letter-spacing: -0.045em; font-variant-numeric: tabular-nums; }
-.tn-big-cap { max-width: 24ch; font-size: 0.8125rem; line-height: 1.45; color: var(--text-muted); }
-.tn-fields { display: grid; gap: 0.4375rem; margin: 0.375rem 0 0; padding-top: 0.75rem; border-top: 1px solid var(--tn-rule); }
-.tn-fields > div { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
-.tn-fields dt { font-size: 0.8125rem; color: var(--text-muted); }
-.tn-fields dd { margin: 0; font-size: 0.875rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
-
-/* F · the wide vocabulary band, a photograph flush to its left edge */
-.tn-photo { position: relative; margin: 0; overflow: hidden; aspect-ratio: 16 / 9; }
-.tn-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 62% 34%; }
-/* Every photograph on this page is washed in the brand’s own ink so the set
-   reads as one family. No type sits on this one, so the wash stays light. */
-.tn-photo::after {
-  content: ""; position: absolute; inset: 0;
-  background:
-    linear-gradient(155deg, rgb(14 27 42 / 0.24), rgb(14 27 42 / 0.04) 55%),
-    linear-gradient(20deg, rgb(45 212 191 / 0.16), transparent 62%);
-}
-@media (min-width: 48rem) {
-  .tn-wide { flex-direction: row; align-items: stretch; }
-  .tn-photo { flex: 0 0 clamp(12rem, 30%, 21rem); aspect-ratio: auto; }
-  .tn-wide-body { padding: clamp(1.5rem, 1rem + 1.8vw, 2.25rem); justify-content: center; }
-}
-.tn-wide-body h3 { font-size: clamp(1.25rem, 1.05rem + 0.75vw, 1.5rem); }
-.tn-words { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.75rem 0 0; padding: 0; list-style: none; }
-.tn-words li {
-  display: inline-flex; align-items: center; white-space: nowrap;
-  padding: 0.375rem 0.8125rem; border-radius: 999px;
-  background: var(--page); border: 1px solid var(--rule);
-  font-size: 0.875rem;
-}
-.tn-words li::before { content: "«\00a0"; color: var(--text-faint); }
-.tn-words li::after  { content: "\00a0»"; color: var(--text-faint); }
-
-/* The narrowest phones: the rendered rows lose a size rather than wrap. */
-@media (max-width: 26rem) {
-  .tn-seq b { font-size: 0.8125rem; }
-  .tn-seq li > span, .tn-seq li > time { font-size: 0.75rem; }
-  .tn-modes-list li { font-size: 0.8125rem; }
-  .tn-note-lines li, .tn-note-sub { font-size: 0.8125rem; }
-}
-
 /* ═══ merged block: mobile ═══════════════════════════════ */
 /* ── 24 · The phone deck ───────────────────────────────────────────────────
    The page never showed a phone, and the claim "Android comme iPhone" was
@@ -4129,499 +3964,6 @@
   .s4-dot { animation: none !important; opacity: 1 !important; transform: none !important; }
 }
 
-/* ── 5 · Conçu en Tunisie ─────────────────────────────────────── */
-/* ═══════════════════════════════════════════════════════════════════════════
-   SECTION 5 · CONÇU EN TUNISIE — « Quatre corrections »
-
-   The device. Section 2 sets paper AGAINST ink, side by side. Repeating that
-   split here would make the page monotonous, so this section nests the two
-   materials instead of opposing them: four paper cards, each holding one small
-   ink screen, and on that screen a generic state CORRECTS ITSELF into the
-   Tunisian one. The argument is not "paper versus software", it is "software
-   from somewhere else versus software from here" — so the « avant » state is
-   never paper, it is the same screen with no place: grey, uncoloured, one
-   decimal short, sorted by nothing.
-
-   One grammar, four times: whatever is not from here is drawn in --on-ink-faint
-   with no hue; whatever is corrected takes the card's zone colour. A single
-   teal hairline is drawn across the top of each screen at the moment its
-   correction fires — four hairlines drawn 0.42 s apart, so the section reads as
-   one pass moving down the page rather than four animations going off at once.
-
-   ⚠️ Transitions, not keyframes, for every correction: the reader can leave and
-   come back, and a transition retargets from where it is while a keyframe
-   restarts from zero. The one keyframe here (s5-pulse) is an ambient loop on
-   the two overdue cheque edges, which is meant to restart.
-
-   ⚠️ Nothing animates layout. The third decimal and the « DT » hold their width
-   from the first frame at opacity 0, so the amount never reflows; the cheque
-   sort is translateY over a grid of uniform rows; the payment bar separates by
-   translateX over segments that are already in their final flex track.
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-.s5 {
-  padding-block: var(--sec-y);
-  background: var(--page);
-  color: var(--text);
-  font-family: var(--sans);
-}
-.s5 :where(*, *::before, *::after) { box-sizing: border-box; }
-/* ⚠️ <i> is italic, and several parts of these drawings are <i> because they
-   carry no meaning and must stay out of the accessibility tree. Every rule
-   here uses :where(), so nothing below it ever loses a specificity fight. */
-.s5 :where(i, em, s, b) { font-style: normal; text-decoration: none; }
-.s5 :where(p, h2, h3, dl, dd, dt, ol, ul, li) { margin: 0; }
-.s5 :where(ol, ul) { padding: 0; list-style: none; }
-
-/* ── The section head ─────────────────────────────────────────────────── */
-.s5-head {
-  display: grid;
-  gap: 1.125rem;
-  margin-bottom: clamp(2rem, 1.2rem + 2.6vw, 3.25rem);
-}
-.s5-eyebrow {
-  font-size: var(--t-eyebrow); font-weight: 400;
-  letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--text-muted);
-}
-.s5-h2 {
-  font-size: var(--t-h2); font-weight: 400;
-  line-height: 1.11; letter-spacing: -0.018em;
-  text-wrap: balance; max-width: 20ch;
-}
-.s5-lede {
-  font-size: var(--t-body); line-height: 1.6;
-  color: var(--text-muted); max-width: 46ch; text-wrap: pretty;
-}
-.s5-head > * {
-  opacity: 0; transform: translateY(1rem); filter: blur(5px);
-  transition: opacity var(--slow) var(--ease-out),
-              transform var(--slow) var(--ease-out),
-              filter var(--slow) var(--ease-out);
-  transition-delay: calc(var(--i, 0) * 70ms);
-}
-.s5.in .s5-head > * { opacity: 1; transform: none; filter: none; }
-
-/* ── The composition ──────────────────────────────────────────────────────
-   Twelve columns from 62rem so the row can run 5/7 then 7/5 — an editorial
-   rhythm, and it puts the two dense proofs (the cheques, the modes) in the
-   wide slots and the two short ones in the narrow slots. Two equal columns in
-   between, one column below 40rem.
-   ⚠️ Every track is minmax(0, 1fr): a `1fr` track is minmax(auto, 1fr), and the
-   cheque row's min-content would win and blow the column out. */
-.s5-grid {
-  display: grid;
-  gap: clamp(1rem, 0.6rem + 1.4vw, 1.5rem);
-  grid-template-columns: minmax(0, 1fr);
-}
-@media (min-width: 40rem) {
-  .s5-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (min-width: 62rem) {
-  .s5-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
-  .s5-card--a { grid-column: span 5; }
-  .s5-card--b { grid-column: span 7; }
-  .s5-card--c { grid-column: span 7; }
-  .s5-card--d { grid-column: span 5; }
-}
-
-/* ── One card ─────────────────────────────────────────────────────────────
-   The card is the container query root, not the screen inside it: an element
-   cannot read its OWN container, so `cqi` on the screen has to resolve against
-   an ancestor. --base is when this card's correction begins. */
-.s5-card {
-  --s5-step: 260ms;
-  --base: calc(560ms + var(--i, 0) * var(--s5-step));
-  container-type: inline-size;
-  display: flex; flex-direction: column; gap: 0.5rem;
-  min-width: 0;
-  padding: clamp(1.125rem, 0.85rem + 1.1vw, 1.625rem);
-  background: var(--paper);
-  border: 1px solid transparent;
-  border-radius: var(--r-card);
-  opacity: 0; transform: translateY(1.15rem); filter: blur(6px);
-  transition: opacity var(--slow) var(--ease-out),
-              transform var(--slow) var(--ease-out),
-              filter var(--slow) var(--ease-out);
-  transition-delay: calc(var(--i, 0) * 70ms);
-}
-/* Side by side, the four corrections are all on screen, so they are spaced
-   further apart. Stacked, the reader meets them one at a time. */
-@media (min-width: 62rem) { .s5-card { --s5-step: 420ms; } }
-:is(.s5.in .s5-card, .s5-card.in) { opacity: 1; transform: none; filter: none; }
-
-.s5-k {
-  display: flex; align-items: center; gap: 0.4375rem;
-  font-size: 0.6875rem; font-weight: 500;
-  letter-spacing: 0.09em; text-transform: uppercase;
-  color: var(--text-faint);
-}
-.s5-k i {
-  flex: none; width: 0.4375rem; height: 0.4375rem;
-  border-radius: 50%; background: var(--zc, var(--accent-ink));
-}
-.s5-h3 {
-  margin-top: 0.125rem;
-  font-size: clamp(1.1875rem, 1.06rem + 0.4vw, 1.375rem);
-  font-weight: 400; line-height: 1.2; letter-spacing: -0.018em;
-  text-wrap: balance;
-}
-.s5-p {
-  font-size: 0.9375rem; line-height: 1.55;
-  color: var(--text-muted); max-width: 48ch; text-wrap: pretty;
-}
-
-/* ── The screen ───────────────────────────────────────────────────────────
-   ⚠️ The screen ABSORBS the card's slack (`flex: 1`) instead of being pushed to
-   its floor by `margin-top: auto`. Bottom-alignment left 150 px of blank paper
-   in the middle of the short cards at 820 px, which reads as a mistake; letting
-   the ink panel grow instead gives the row two screens of equal height and puts
-   the spare room inside the drawing, where `space-between` turns it into air
-   around the figure. `position: relative` is load-bearing: it is what clips the
-   panel's own absolutely-positioned children. */
-.s5-fig {
-  position: relative; isolation: isolate; overflow: hidden;
-  flex: 1 1 auto; margin-top: 0.35rem;
-  display: grid; gap: 0.55em; align-content: space-between;
-  padding: clamp(0.75rem, 0.55rem + 0.7vw, 1.0625rem);
-  border: 1px solid var(--rule-ink);
-  border-radius: var(--r-med);
-  background:
-    radial-gradient(92% 130% at 90% -12%,
-      color-mix(in oklab, var(--zcl, var(--accent-lit)) 15%, transparent),
-      transparent 68%),
-    var(--ink-2);
-  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--on-ink) 7%, transparent);
-  color: var(--on-ink);
-  font-size: clamp(0.6875rem, 0.38rem + 1.9cqi, 0.875rem);
-  line-height: 1.4;
-  font-variant-numeric: tabular-nums;
-}
-
-/* La barre de relecture: the one mark the four screens share. */
-.s5-mark {
-  position: absolute; z-index: 2; top: 0; left: 0; right: 0; height: 1px;
-  background: linear-gradient(90deg,
-    color-mix(in oklab, var(--zcl, var(--accent-lit)) 80%, transparent),
-    color-mix(in oklab, var(--zcl, var(--accent-lit)) 8%, transparent));
-  transform: scaleX(0); transform-origin: 0 50%;
-  transition: transform 820ms var(--ease-in-out);
-  transition-delay: var(--base);
-}
-:is(.s5.in, .s5-card.in) .s5-mark { transform: scaleX(1); }
-
-.s5-cap {
-  font-size: 0.82em; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--on-ink-faint);
-}
-.s5-fhead {
-  display: flex; align-items: baseline; justify-content: space-between;
-  gap: 0.5em 0.75em; flex-wrap: wrap;
-}
-.s5-foot { font-size: 0.86em; line-height: 1.35; color: var(--on-ink-muted); }
-
-/* The composed still, for prefers-reduced-motion. Hidden the rest of the
-   time: the motion says it better than a caption can. */
-.s5-still {
-  display: none;
-  padding-top: 0.5em; border-top: 1px solid var(--rule-ink);
-  font-size: 0.86em; line-height: 1.35; color: var(--on-ink-muted);
-}
-
-/* ── The shared correction: one word replaced by another ──────────────────
-   Both words share a single grid cell, so the box is as wide as the wider of
-   the two and nothing reflows when they trade places. */
-.s5-sw { display: grid; }
-.s5-sw > * { grid-area: 1 / 1; }
-.s5-was, .s5-now {
-  transition: opacity 320ms var(--ease-out), transform 460ms var(--ease-out);
-  transition-delay: calc(var(--base) + 420ms + var(--k, 0) * 220ms);
-}
-.s5-was { opacity: 1; transform: none; color: var(--on-ink-faint); }
-.s5-now { opacity: 0; transform: translateY(0.45em); }
-:is(.s5.in, .s5-card.in) .s5-was { opacity: 0; transform: translateY(-0.45em); }
-:is(.s5.in, .s5-card.in) .s5-now { opacity: 1; transform: none; }
-
-/* ═══ A · La monnaie et le pays ═══════════════════════════════════════════
-   « 1 250,00 » gains its third decimal and its currency. The digit and the
-   « DT » hold their width from the first frame — only opacity and transform
-   move, so the number never shifts on the line. */
-.s5-amt {
-  font-size: 2.15em; line-height: 1.05; letter-spacing: -0.03em;
-  white-space: nowrap;
-  opacity: 0.5;
-  transition: opacity 520ms var(--ease-out);
-  transition-delay: calc(var(--base) + 260ms);
-}
-:is(.s5.in, .s5-card.in) .s5-amt { opacity: 1; }
-
-.s5-mil, .s5-cur { display: inline-block; opacity: 0; }
-.s5-mil {
-  transform: translateY(-0.32em) scale(0.72); transform-origin: 50% 100%;
-  transition: opacity 300ms var(--ease-out), transform 520ms var(--ease-out);
-  transition-delay: calc(var(--base) + 320ms);
-}
-.s5-cur {
-  color: var(--accent-lit);
-  transform: translateX(-0.35em);
-  transition: opacity 360ms var(--ease-out), transform 520ms var(--ease-out);
-  transition-delay: calc(var(--base) + 540ms);
-}
-:is(.s5.in, .s5-card.in) :is(.s5-mil, .s5-cur) { opacity: 1; transform: none; }
-
-.s5-fields {
-  display: grid; gap: 0.3em;
-  padding-top: 0.5em; border-top: 1px solid var(--rule-ink);
-}
-.s5-fields > div {
-  display: flex; align-items: baseline; justify-content: space-between;
-  gap: 0.75em; min-width: 0;
-}
-.s5-fields dt { flex: none; color: var(--on-ink-muted); }
-.s5-fields dd { min-width: 0; text-align: right; justify-items: end; }
-/* Uncovered rather than faded: the value arrives, it does not materialise. */
-.s5-fill {
-  display: inline-block;
-  clip-path: inset(0 100% 0 0);
-  transition: clip-path 620ms var(--ease-out);
-  transition-delay: calc(var(--base) + 660ms + var(--k, 0) * 170ms);
-}
-:is(.s5.in, .s5-card.in) .s5-fill { clip-path: inset(0 0 0 0); }
-
-/* ═══ B · Les chèques postdatés ═══════════════════════════════════════════
-   The stack is typed in one order and re-sorts itself into another. Every row
-   is one cell of a grid with a uniform row height, so a row's entry position
-   is exactly (entry index − sorted index) row-steps away from where it ends
-   up — pure translateY, and no row can ever leave the box, because the entry
-   order is a permutation of the same five slots. */
-.s5-chq {
-  --rh: 2.52em;                        /* 2.2em row + 0.32em gap */
-  display: grid; grid-auto-rows: 2.2em; row-gap: 0.32em;
-  overflow: hidden;
-}
-.s5-chq-r {
-  position: relative;
-  display: flex; align-items: center; gap: 0.5em;
-  min-width: 0;
-  padding: 0 0.55em 0 0.7em;
-  border-radius: 7px;
-  background: color-mix(in oklab, var(--on-ink) 5%, transparent);
-  border: 1px solid var(--rule-ink);
-  opacity: 0;
-  transform: translateY(calc((var(--e) - var(--k)) * var(--rh)));
-  /* The rows arrive in the order they were TYPED, then all move together. */
-  transition: opacity 380ms var(--ease-out) calc(var(--base) + var(--e) * 70ms),
-              transform 780ms var(--ease-in-out) calc(var(--base) + 470ms);
-}
-:is(.s5.in, .s5-card.in) .s5-chq-r { opacity: 1; transform: none; }
-
-/* The bucket edge grows only once the row is where it belongs: colour is the
-   answer, so it must not arrive before the question is settled. */
-.s5-edge {
-  position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
-  border-radius: 7px 0 0 7px;
-  background: var(--z, var(--on-ink-faint));
-  transform: scaleY(0);
-  transition: transform 420ms var(--ease-out);
-  transition-delay: calc(var(--base) + 1200ms + var(--k) * 60ms);
-}
-:is(.s5.in, .s5-card.in) .s5-edge { transform: scaleY(1); }
-/* An ambient loop, and it is meant to restart: these two are already due. */
-:is(.s5.in, .s5-card.in) .s5-edge--late {
-  animation: s5-pulse 3.6s var(--ease-in-out) calc(var(--base) + 2s) infinite;
-}
-@keyframes s5-pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.42 } }
-
-.s5-chq-d { flex: none; }
-.s5-chq-b, .s5-chq-n { flex: none; display: none; color: var(--on-ink-faint); }
-.s5-chq-p {
-  flex: 1 1 auto; min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--on-ink-muted);
-}
-.s5-chq-m { flex: none; margin-left: auto; }
-/* The register loses a column at a time rather than wrapping or truncating the
-   money. The container is the CARD, so this holds at every layout. */
-@container (min-width: 18rem) { .s5-chq-b { display: block; } }
-@container (min-width: 27rem) { .s5-chq-n { display: block; } }
-
-.s5-figs {
-  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6em;
-  padding-top: 0.6em; border-top: 1px solid var(--rule-ink);
-}
-@container (min-width: 22rem) {
-  .s5-figs { grid-template-columns: 1fr 1fr; column-gap: 1em; }
-  .s5-figs li:first-child { padding-right: 1em; border-right: 1px solid var(--rule-ink); }
-}
-.s5-figs b {
-  display: block;
-  font-size: 1.35em; font-weight: 500; letter-spacing: -0.02em;
-  color: var(--z, var(--accent-lit)); white-space: nowrap;
-  clip-path: inset(0 100% 0 0);
-  transition: clip-path 640ms var(--ease-out);
-  transition-delay: calc(var(--base) + 1480ms + var(--k) * 180ms);
-}
-:is(.s5.in, .s5-card.in) .s5-figs b { clip-path: inset(0 0 0 0); }
-.s5-figs span {
-  display: block; margin-top: 0.15em;
-  font-size: 0.86em; line-height: 1.35; color: var(--on-ink-muted);
-}
-
-/* ═══ C · Les modes de paiement ═══════════════════════════════════════════
-   One undifferentiated pile separates into four. The four segments are already
-   in their final flex tracks; at rest each is pulled left by exactly the gaps
-   before it, so they butt together, and one grey bar lies over them. The grey
-   goes, the segments slide into their gaps, and the four named totals unfold. */
-.s5-tot {
-  font-size: 1.6em; line-height: 1.1; letter-spacing: -0.025em;
-  white-space: nowrap;
-}
-.s5-tot-c { font-size: 0.66em; color: var(--on-ink-muted); }
-
-.s5-bar {
-  position: relative;
-  display: flex; gap: 3px; height: 0.72em;
-  margin: 0.15em 0 0.1em;
-}
-.s5-seg {
-  flex: 0 1 var(--w); min-width: 3px;
-  border-radius: 999px; background: var(--z);
-  transform: translateX(var(--sx, 0px));
-  transition: transform 660ms var(--ease-in-out);
-  transition-delay: calc(var(--base) + 320ms);
-}
-:is(.s5.in, .s5-card.in) .s5-seg { transform: none; }
-.s5-pile {
-  position: absolute; left: 0; top: 0; bottom: 0; right: 9px;  /* = the 3 gaps */
-  border-radius: 999px;
-  /* Opaque, not translucent: a pile you can see the four parts through is not
-     a pile. Mixed into --ink-2 so it stays a graphite of this ground. */
-  background: color-mix(in oklab, var(--on-ink) 34%, var(--ink-2));
-  transition: opacity 420ms var(--ease-out);
-  transition-delay: calc(var(--base) + 320ms);
-}
-:is(.s5.in, .s5-card.in) .s5-pile { opacity: 0; }
-
-.s5-modes {
-  display: grid; grid-auto-rows: 1.5em; row-gap: 0.3em;
-  padding-top: 0.5em; border-top: 1px solid var(--rule-ink);
-}
-.s5-modes li {
-  display: grid; grid-template-columns: 0.55em minmax(0, 1fr) auto;
-  align-items: center; gap: 0.55em;
-  opacity: 0;
-  /* They unfold downward out of the bar, each a little further than the last —
-     small enough that no row ever crosses the rule above it. */
-  transform: translateY(calc(-0.4em - var(--k) * 0.35em));
-  transition: opacity 380ms var(--ease-out)
-                calc(var(--base) + 640ms + var(--k) * 110ms),
-              transform 620ms var(--ease-out)
-                calc(var(--base) + 640ms + var(--k) * 110ms);
-}
-:is(.s5.in, .s5-card.in) .s5-modes li { opacity: 1; transform: none; }
-.s5-modes i {
-  width: 0.55em; height: 0.55em; border-radius: 2px; background: var(--z);
-}
-.s5-modes span {
-  color: var(--on-ink-muted);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.s5-modes b { font-weight: 400; white-space: nowrap; }
-
-/* B's own use of the shared swap: the column the register is sorted ON. */
-.s5-sort { margin-left: auto; justify-items: end; text-align: right; font-size: 0.82em; }
-.s5-sort .s5-now { color: var(--zcl, var(--accent-lit)); }
-
-/* ═══ D · La langue ═══════════════════════════════════════════════════════
-   Four stiff labels are replaced by the words a Tunisian practice actually
-   uses. The « avant » words are aria-hidden: assistive technology reads the
-   fiche as it really is, with no ghost vocabulary in it. */
-.s5-chip {
-  position: relative; margin-left: auto; justify-items: center;
-  padding: 0.25em 0.7em;
-  border-radius: 999px;
-  font-size: 0.86em;
-  border: 1px solid var(--rule-ink);
-  background: color-mix(in oklab, var(--on-ink) 7%, transparent);
-}
-/* The chip earns its colour at the same moment it earns its word: before the
-   correction nothing on these screens carries a hue. */
-.s5-chip::before {
-  content: ""; position: absolute; inset: -1px; border-radius: inherit;
-  border: 1px solid color-mix(in oklab, var(--zcl, var(--accent-lit)) 36%, transparent);
-  background: color-mix(in oklab, var(--zcl, var(--accent-lit)) 15%, transparent);
-  opacity: 0;
-  transition: opacity 380ms var(--ease-out);
-  transition-delay: calc(var(--base) + 460ms);
-}
-:is(.s5.in, .s5-card.in) .s5-chip::before { opacity: 1; }
-.s5-chip > span { position: relative; z-index: 1; }
-.s5-chip .s5-now { color: var(--zcl, var(--accent-lit)); }
-
-.s5-btn {
-  position: relative; justify-self: start; justify-items: center;
-  margin-top: 0.35em;
-  padding: 0.55em 1.05em;
-  border-radius: var(--r-btn);
-  background: color-mix(in oklab, var(--on-ink) 10%, transparent);
-  font-size: 0.95em;
-}
-/* The accent ground is a layer of its own, so the button changes material
-   without a colour transition. */
-.s5-btn::before {
-  content: ""; position: absolute; inset: 0; border-radius: inherit;
-  background: var(--accent); opacity: 0;
-  transition: opacity 380ms var(--ease-out);
-  transition-delay: calc(var(--base) + 1140ms);
-}
-:is(.s5.in, .s5-card.in) .s5-btn::before { opacity: 1; }
-.s5-btn > span { position: relative; z-index: 1; }
-.s5-btn .s5-now { color: var(--on-accent); font-weight: 500; }
-
-/* ── The narrowest phones: the screens lose a size, never a column ──────── */
-@media (max-width: 24rem) {
-  .s5-amt { font-size: 1.85em; }
-  .s5-tot { font-size: 1.4em; }
-  .s5-figs b { font-size: 1.2em; }
-}
-
-/* ── prefers-reduced-motion: the composed still ───────────────────────────
-   Not an empty box and not a half-drawn one: every correction resolves to its
-   finished state without needing `.in`, and the two that can only be SHOWN by
-   moving are stated instead. The replaced words stop trading places and stand
-   struck through above the real ones, which is arguably the clearer document. */
-@media (prefers-reduced-motion: reduce) {
-  .s5 :where(*, *::before, *::after) { transition: none !important; animation: none !important; }
-
-  .s5-head > *, .s5-card { opacity: 1; transform: none; filter: none; }
-  .s5-mark { transform: scaleX(1); }
-  .s5-amt { opacity: 1; }
-  .s5-mil, .s5-cur { opacity: 1; transform: none; }
-  .s5-fill, .s5-figs b { clip-path: none; }
-  .s5-chq-r { opacity: 1; transform: none; }
-  .s5-edge { transform: scaleY(1); }
-  .s5-seg { transform: none; }
-  .s5-pile { display: none; }
-  .s5-modes li { opacity: 1; transform: none; }
-  .s5-btn::before, .s5-chip::before { opacity: 1; }
-
-  /* The word swap becomes two lines instead of one cell.
-     ⚠️ These two selectors have to MATCH the specificity of the `.in` rules
-     they undo — `:is(.s5.in, .s5-card.in) .s5-was` is (0,3,0), so a bare
-     `.s5-was` at (0,1,0) loses and the struck word stays invisible. It did. */
-  .s5-sw { grid-auto-flow: row; }
-  .s5-sw > * { grid-area: auto; }
-  :is(.s5, .s5.in, .s5-card.in) :is(.s5-was, .s5-now) { opacity: 1; transform: none; }
-  :is(.s5, .s5.in, .s5-card.in) .s5-was { text-decoration: line-through; }
-  /* struck on the accent ground, where --on-ink-faint would be unreadable */
-  :is(.s5, .s5.in, .s5-card.in) .s5-btn .s5-was {
-    color: color-mix(in oklab, var(--on-accent) 55%, transparent);
-  }
-  .s5-fields > div { align-items: start; }
-
-  .s5-still { display: block; }
-}
-
 /* ── 6 · Les questions ─────────────────────────────────────── */
 /* ══════════════════════════════════════════════════════════════════════════
    SECTION 6 · LES QUESTIONS  ·  prefix s6-  ·  « Le pupitre »
@@ -5716,12 +5058,1010 @@
 }
 
 
-/* ⚠️ Two proofs, not four, so the 5/7 rhythm has nothing left to alternate.
-   The grid ran span-5 then span-7 and back, which put the two dense cards in
-   the wide slot each time. With the two narrow cards removed — the dinar and
-   the language, both cut as obvious or awkward — the survivors are two span-7
-   cards, and two sevenths of twelve cannot share a row: they stacked, each 685px
-   wide in a 1272px wrap, with five columns of nothing beside them. Equal halves. */
-@media (min-width: 62rem) {
-  .s5-card--b, .s5-card--c { grid-column: span 6; }
+/* ── 4 · Le dossier patient ───────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   SECTION 4 · LE DOSSIER PATIENT  ·  prefix s5-  ·  « Le dossier »
+
+   The section it replaces argued about cheques. This one argues about the core
+   of the product: a practice keeps a patient in five places — a drawer, a
+   diary, a notebook, an envelope of radios, a receipt book — and here it is one
+   record with one name on it, opened by seven tabs.
+
+   THE GROUND IS LIGHT, and that is structural, not taste: §3 (l'argent) and §5
+   (sur le téléphone) are both dark, and the page alternates the whole way down.
+   Three materials, no fourth: --page for the clinical chart (a chart is white
+   paper), --paper for the dossier that holds it, --ink-2 for the two screens
+   that show what is behind a tab.
+
+   THE ONE IDEA, TOLD OVER TIME. Nothing here is a screenshot: seven tabs deal
+   themselves out of seven scattered places into one row, the file takes a name,
+   a fiche de soins is entered underneath — and then the odontogramme turns
+   itself over to « Actes réalisés » and the two teeth the acte was done on take
+   their new condition WITHOUT ANYBODY SETTING THEM. That is a real product fact: a
+   procedure type carries a resultingCondition, so charting « composite sur la
+   26 » is what makes 26 read « Obturation ». It is the hero's thesis — une
+   seule saisie — told on the clinical side instead of the money side.
+
+   ⚠️ Transitions, not @keyframes, for every beat the reader can scrub back
+   into. The single keyframe (s5-halo) is an ambient loop on the two teeth that
+   changed, which is meant to restart.
+
+   ⚠️ Nothing animates layout. The teeth cross-fade two absolutely-positioned
+   fill layers over one silhouette; the view switch is a thumb on transform; the
+   totals uncover by clip-path at a width they already hold.
+
+   ⚠️ Every grid track is minmax(0, 1fr). Sixteen teeth in a nowrap row is
+   hundreds of pixels of min-content, and a bare `1fr` is minmax(auto, 1fr) —
+   which is exactly how a chart blows its own column out at 390px.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.s5 {
+  position: relative;            /* it is what an sr-only line resolves against */
+  padding-block: var(--sec-y);
+  background: var(--page);
+  color: var(--text);
+  font-family: var(--sans);
+
+  /* The score. One clock for the whole section, so a beat is moved in one
+     place and everything downstream still lands in order. */
+  --t-card:  140ms;
+  --t-name:  340ms;
+  --t-tabs:  520ms;   /* + i * 70ms, seven of them            */
+  --t-chart: 760ms;   /* + q * 130ms + i * 26ms, thirty-two   */
+  --t-pane:  980ms;
+  --t-acte: 1200ms;
+  --t-voc:  1380ms;   /* it must be on screen BEFORE the flip  */
+  --t-tot:  1560ms;
+  --t-flip: 1840ms;   /* the view turns over                  */
+  --t-teeth:2040ms;   /* the mouth follows it                 */
+  --t-file: 2320ms;
+}
+.s5 :where(*, *::before, *::after) { box-sizing: border-box; }
+/* ⚠️ <i>, <s>, <em> and <b> carry the drawing because they mean nothing and
+   stay out of the accessibility tree — and <i>/<em> are italic and <s> is
+   struck by default. Every rule below uses :where(), so nothing loses a
+   specificity fight to this reset. */
+.s5 :where(i, em, s, b, u) { font-style: normal; text-decoration: none; }
+.s5 :where(p, h2, h3, ul, ol, li, dl, dt, dd) { margin: 0; }
+.s5 :where(ul, ol) { padding: 0; list-style: none; }
+.s5 :where(dd) { margin-inline-start: 0; }
+
+.s5-sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* ── The section head ─────────────────────────────────────────────────────
+   Identical grammar to its neighbours: 36px at weight 400, muted eyebrow, and
+   one rise-and-unblur staggered by the inline --i. */
+.s5-head {
+  display: grid; gap: 1.125rem;
+  margin-bottom: clamp(2rem, 1.2rem + 2.6vw, 3.25rem);
+}
+.s5-eyebrow {
+  font-size: var(--t-eyebrow); font-weight: 400;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.s5-h2 {
+  font-size: var(--t-h2); font-weight: 400;
+  line-height: 1.11; letter-spacing: -0.018em;
+  text-wrap: balance; max-width: 20ch;
+}
+.s5-lede {
+  font-size: var(--t-body); line-height: 1.6;
+  color: var(--text-muted); max-width: 46ch; text-wrap: pretty;
+}
+.s5-head > * {
+  opacity: 0; transform: translateY(1rem); filter: blur(5px);
+  transition: opacity var(--slow) var(--ease-out),
+              transform var(--slow) var(--ease-out),
+              filter var(--slow) var(--ease-out);
+  transition-delay: calc(var(--i, 0) * 70ms);
+}
+.s5.in .s5-head > * { opacity: 1; transform: none; filter: none; }
+
+/* ── Le dossier ───────────────────────────────────────────────────────────
+   The container query root for everything inside it, so the drawing scales
+   with the panel and not with the viewport — the same figure has to work at
+   244px of inner width and at 1180px. */
+.s5-dossier {
+  container-type: inline-size;
+  display: grid;
+  gap: clamp(0.75rem, 0.5rem + 1vw, 1.25rem);
+  padding: clamp(0.875rem, 0.55rem + 1.5vw, 1.5rem);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  opacity: 0; transform: translateY(1.15rem); filter: blur(6px);
+  transition: opacity var(--slow) var(--ease-out),
+              transform var(--slow) var(--ease-out),
+              filter var(--slow) var(--ease-out);
+  transition-delay: var(--t-card);
+}
+.s5.in .s5-dossier { opacity: 1; transform: none; filter: none; }
+
+/* ── Le nom sur le dossier ────────────────────────────────────────────── */
+.s5-ident {
+  display: flex; align-items: center; gap: 0.75rem;
+  min-width: 0;
+  padding-bottom: clamp(0.625rem, 0.45rem + 0.7vw, 0.875rem);
+  border-bottom: 1px solid var(--rule);
+}
+.s5-av {
+  flex: none; display: grid; place-items: center;
+  width: 2.5rem; height: 2.5rem; border-radius: 50%;
+  background: var(--paper-2);
+  color: var(--azure);
+  font-size: 0.8125rem; font-weight: 500; letter-spacing: 0.03em;
+}
+.s5-who { display: grid; gap: 0.125rem; min-width: 0; }
+.s5-who b {
+  font-size: clamp(1.0625rem, 0.98rem + 0.35vw, 1.25rem);
+  font-weight: 500; letter-spacing: -0.012em;
+}
+.s5-who s { font-size: 0.875rem; color: var(--text-muted); }
+/* Written, not faded in: a name that is uncovered reads as a file being
+   labelled, one that materialises reads as a page load. */
+.s5-name {
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 620ms var(--ease-out);
+  transition-delay: var(--t-name);
+}
+.s5.in .s5-name { clip-path: inset(0 0 0 0); }
+
+/* ── Les sept onglets ─────────────────────────────────────────────────────
+   THE object of the section. They arrive from seven scattered places, each
+   with its own offset and tilt, and settle into one row — the argument made
+   without drawing a single drawer. 44px of height each: they read as a real
+   tab strip, and a strip of 30px chips would not.
+   ⚠️ transform only. A wrapping flex row must not have its layout animated. */
+.s5-tabs {
+  display: flex; flex-wrap: wrap;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.s5-tab {
+  display: flex; align-items: center;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.875rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-btn);
+  background: var(--page);
+  color: var(--text-muted);
+  font-size: clamp(0.8125rem, 0.76rem + 0.22vw, 0.9375rem);
+  line-height: 1.2;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translate(var(--tx, 0), var(--ty, 0)) rotate(var(--r, 0deg));
+  transition: opacity 420ms var(--ease-out), transform 620ms var(--ease-out);
+  transition-delay: calc(var(--t-tabs) + var(--i, 0) * 70ms);
+}
+.s5.in .s5-tab { opacity: 1; transform: none; }
+/* One tab is open, as it is in the app — « Dossiers médicaux » is the default.
+   Two lit tabs would picture a tab strip that cannot exist. */
+.s5-tab--on {
+  position: relative;
+  color: var(--text); font-weight: 500;
+  border-color: color-mix(in oklab, var(--accent-ink) 40%, var(--rule));
+}
+.s5-tab--on::after {
+  content: ""; position: absolute; left: 0.75rem; right: 0.75rem; bottom: -1px;
+  height: 2px; border-radius: 2px; background: var(--accent-ink);
+  transform: scaleX(0); transform-origin: 0 50%;
+  transition: transform 460ms var(--ease-out);
+  transition-delay: calc(var(--t-tabs) + 240ms);
+}
+.s5.in .s5-tab--on::after { transform: none; }
+
+/* ── The two halves ───────────────────────────────────────────────────────
+   ⚠️ The chart and the two screens were a 7/5 row and it was wrong at every
+   width above 62rem: the screens ran 340px taller than the chart, which left
+   that much blank paper under the arch, and sixteen teeth in seven twelfths
+   came out at 30px each. The arch takes the FULL width of the dossier and the
+   two screens sit side by side beneath it — the mouth gets the room it needs,
+   the row heights are within a hundred pixels of each other, and the section
+   is shorter than it was. Do not put them back in one row. */
+.s5-body {
+  display: grid;
+  gap: clamp(0.75rem, 0.5rem + 1vw, 1.25rem);
+  grid-template-columns: minmax(0, 1fr);
+}
+.s5-panes {
+  display: grid;
+  gap: clamp(0.625rem, 0.45rem + 0.7vw, 0.875rem);
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 48rem) {
+  .s5-panes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ═══ L'odontogramme ══════════════════════════════════════════════════════
+   White, because a dental chart is a white clinical document and the dossier
+   around it is warm grey. `position: relative` is load-bearing: it is what
+   clips the sweep. Its own container query root, so the teeth size against the
+   chart and not against the dossier. */
+.s5-chart {
+  position: relative; isolation: isolate; overflow: hidden;
+  container-type: inline-size;
+  display: grid; gap: clamp(0.625rem, 0.45rem + 0.7vw, 0.9375rem);
+  align-content: start;
+  padding: clamp(0.75rem, 0.55rem + 0.8vw, 1.125rem);
+  background: var(--page);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-med);
+  font-size: clamp(0.6875rem, 0.5rem + 0.9cqi, 0.9375rem);
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+/* La barre de relecture. It fires with the view switch, so the panel reads as
+   being re-read rather than as four things going off at once. */
+.s5-sweep {
+  position: absolute; z-index: 2; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg,
+    var(--accent-ink),
+    color-mix(in oklab, var(--accent-ink) 6%, transparent));
+  transform: scaleX(0); transform-origin: 0 50%;
+  transition: transform 820ms var(--ease-in-out);
+  transition-delay: var(--t-flip);
+}
+.s5.in .s5-sweep { transform: scaleX(1); }
+
+.s5-chead {
+  display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: space-between; gap: 0.5rem 0.75rem;
+  min-width: 0;
+}
+.s5-ct {
+  font-size: clamp(1rem, 0.94rem + 0.28vw, 1.125rem);
+  font-weight: 500; letter-spacing: -0.012em;
+}
+
+/* ── Deux lectures de la même bouche ──────────────────────────────────────
+   The single best fact in the section, so it gets a real control's shape: a
+   segmented switch whose thumb slides. Both cells are 1fr, so the thumb is
+   exactly half and translateX(100%) lands it on the second — no width is ever
+   measured, and nothing reflows.
+   ⚠️ The labels change EMPHASIS by opacity, never by colour: `color` is not one
+   of the four properties this site animates. */
+.s5-views {
+  position: relative; flex: none;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  padding: 3px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 0.82em;
+}
+.s5-thumb {
+  position: absolute; z-index: 0;
+  top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px);
+  border-radius: 999px;
+  background: var(--page);
+  box-shadow: var(--shadow-sm);
+  transform: translateX(0);
+  transition: transform 520ms var(--ease-in-out);
+  transition-delay: var(--t-flip);
+}
+.s5.in .s5-thumb { transform: translateX(100%); }
+.s5-view {
+  position: relative; z-index: 1;
+  padding: 0.4em 0.9em; text-align: center; white-space: nowrap;
+  color: var(--text); font-weight: 500;
+  transition: opacity 380ms var(--ease-out);
+  transition-delay: var(--t-flip);
+}
+.s5-view--d { opacity: 1; }
+.s5-view--a { opacity: 0.42; }
+.s5.in .s5-view--d { opacity: 0.42; }
+.s5.in .s5-view--a { opacity: 1; }
+
+/* ── La bouche ──────────────────────────────────────────────────────────── */
+.s5-mouth { display: grid; gap: clamp(0.5rem, 0.25rem + 1cqi, 1rem); }
+.s5-jaw {
+  text-align: center;
+  font-size: 0.76em; letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+/* Two quadrants and the midline, exactly as the arch is drawn in the app.
+   The rule between them is what makes 18…11 | 21…28 read as an arch rather
+   than as sixteen boxes. */
+.s5-arch {
+  /* Capped and centred: at 1180px of chart, sixteen 1fr cells would hand each
+     tooth 72px and the arch would read as a row of eggs. 52rem is where a
+     tooth lands at roughly the 40px the app itself draws. */
+  width: 100%; max-width: 52rem; margin-inline: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
+  gap: 0 clamp(4px, 1.1cqi, 12px);
+}
+/* The divider is a grid item with no content: without `align-self: stretch` it
+   resolves to zero height and the arch loses its midline. */
+.s5-mid { align-self: stretch; background: var(--rule); }
+.s5-quad {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: clamp(1px, 0.45cqi, 5px);
+  min-width: 0;
+}
+
+/* One tooth: a silhouette and its FDI number. */
+.s5-t {
+  display: grid; gap: 0.25em; justify-items: center; min-width: 0;
+  opacity: 0; transform: translateY(0.35em) scale(0.9);
+  transition: opacity 400ms var(--ease-out), transform 460ms var(--ease-out);
+  transition-delay: calc(var(--t-chart) + var(--q, 0) * 130ms + var(--i, 0) * 26ms);
+}
+.s5.in .s5-t { opacity: 1; transform: none; }
+/* The sweep across the arch, written once rather than on 32 inline styles. */
+.s5-quad .s5-t:nth-child(1) { --i: 0 }
+.s5-quad .s5-t:nth-child(2) { --i: 1 }
+.s5-quad .s5-t:nth-child(3) { --i: 2 }
+.s5-quad .s5-t:nth-child(4) { --i: 3 }
+.s5-quad .s5-t:nth-child(5) { --i: 4 }
+.s5-quad .s5-t:nth-child(6) { --i: 5 }
+.s5-quad .s5-t:nth-child(7) { --i: 6 }
+.s5-quad .s5-t:nth-child(8) { --i: 7 }
+
+.s5-t > b {
+  position: relative;
+  width: 100%; aspect-ratio: 0.82;
+  border: 1px solid var(--rule);
+  /* A crown that is broad and square and a root that tapers. The lower arch
+     mirrors it below, so the two rows face each other and the drawing reads as
+     a mouth rather than as two rows of eggs. */
+  border-radius: 38% 38% 30% 30% / 42% 42% 58% 58%;
+  background: var(--page);
+}
+.s5-arch--low .s5-t > b { border-radius: 30% 30% 38% 38% / 58% 58% 42% 42%; }
+.s5-t > s {
+  font-size: max(0.6em, 8px);
+  color: var(--text-faint);
+  line-height: 1;
+}
+.s5-t--k > s { color: var(--text-muted); font-weight: 500; }
+
+/* The two readings, stacked on one silhouette. --d belongs to Diagnostics and
+   leaves; --a belongs to Actes réalisés and arrives; --b is carried by both,
+   so it never moves. Opacity only — a background-color transition is not one
+   of the four properties allowed on this site. */
+.s5-tf {
+  position: absolute; inset: -1px;
+  border-radius: inherit;
+  background: var(--tc);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tc) 68%, var(--text));
+}
+.s5-tf--b { opacity: 1; }
+.s5-tf--d { opacity: 1; }
+.s5-tf--a { opacity: 0; }
+.s5-tf--d, .s5-tf--a {
+  transition: opacity 420ms var(--ease-out);
+  transition-delay: var(--t-teeth);
+}
+.s5.in .s5-tf--d { opacity: 0; }
+.s5.in .s5-tf--a { opacity: 1; }
+
+/* The one ambient loop in the section: a ring on the two teeth that changed
+   themselves. It is meant to restart every time the section is returned to,
+   which is what a keyframe does and a transition does not. */
+.s5-halo {
+  /* Teal, not the tooth's own blue: a blue ring around a blue tooth is
+     invisible, and teal is the mark this site already uses for « the app just
+     did this » — the same hue as the sweep across the top of the panel.
+     `em`, not px, so the ring keeps its distance from a 12px tooth at 320. */
+  position: absolute; inset: -0.24em;
+  border-radius: inherit;
+  border: 1.5px solid var(--accent-ink);
+  opacity: 0;
+  pointer-events: none;
+}
+.s5.in .s5-halo {
+  animation: s5-halo 2.6s var(--ease-in-out) calc(var(--t-teeth) + 380ms) infinite;
+}
+/* The two teeth answer one after the other, not in chorus. */
+.s5.in .s5-quad:last-child .s5-halo { animation-delay: calc(var(--t-teeth) + 760ms); }
+@keyframes s5-halo {
+  0%, 100% { opacity: 0;   transform: scale(0.9) }
+  16%      { opacity: 0.8; transform: scale(1) }
+  34%      { opacity: 0.6; transform: scale(1.08) }
+  68%      { opacity: 0;   transform: scale(1.3) }
+}
+
+/* The sentence the whole section is built on. */
+.s5-say {
+  padding-top: 0.7em;
+  border-top: 1px solid var(--rule-soft);
+  font-size: 0.94em; line-height: 1.45;
+  color: var(--text-muted); text-wrap: pretty;
+  opacity: 0; transform: translateY(0.5em);
+  transition: opacity 480ms var(--ease-out), transform 480ms var(--ease-out);
+  transition-delay: calc(var(--t-teeth) + 260ms);
+}
+.s5.in .s5-say { opacity: 1; transform: none; }
+
+/* ── Les neuf états ───────────────────────────────────────────────────────
+   A vocabulary, not a legend. The nine labels are exactly the nine a tooth can
+   carry; only the two this mouth is talking about take a colour, and they trade
+   it at the same instant the teeth do — « À traiter » goes out as « Obturation »
+   comes in. A nine-hue legend would have needed hexes that are not tokens, and
+   would have said less. */
+.s5-vocab { display: grid; gap: 0.5em; }
+.s5-vt {
+  font-size: 0.76em; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-faint);
+}
+.s5-vl { display: flex; flex-wrap: wrap; gap: 0.3em; min-width: 0; }
+.s5-vc {
+  position: relative;
+  padding: 0.32em 0.6em;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--page);
+  color: var(--text-muted);
+  font-size: 0.84em; line-height: 1.25;
+  white-space: nowrap;
+  opacity: 0; transform: translateY(0.35em);
+  transition: opacity 380ms var(--ease-out), transform 380ms var(--ease-out);
+  transition-delay: var(--t-voc);
+}
+.s5.in .s5-vc { opacity: 1; transform: none; }
+.s5-vc > span { position: relative; z-index: 1; }
+.s5-vg {
+  position: absolute; inset: -1px;
+  border-radius: inherit;
+  border: 1px solid color-mix(in oklab, var(--vc) 55%, transparent);
+  background: color-mix(in oklab, var(--vc) 14%, transparent);
+  transition: opacity 420ms var(--ease-out);
+  transition-delay: var(--t-teeth);
+}
+.s5-vc--a .s5-vg { opacity: 1; }
+.s5-vc--o .s5-vg { opacity: 0; }
+.s5.in .s5-vc--a .s5-vg { opacity: 0; }
+.s5.in .s5-vc--o .s5-vg { opacity: 1; }
+
+/* ═══ Ce qu'il y a derrière deux des onglets ══════════════════════════════ */
+.s5-side { display: grid; gap: clamp(0.625rem, 0.45rem + 0.7vw, 0.875rem); align-content: start; }
+.s5-sk {
+  font-size: var(--t-eyebrow); letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--text-faint);
+  opacity: 0; transform: translateY(0.5em);
+  transition: opacity 420ms var(--ease-out), transform 420ms var(--ease-out);
+  transition-delay: calc(var(--t-pane) - 120ms);
+}
+.s5.in .s5-sk { opacity: 1; transform: none; }
+
+/* An ink screen, the house recipe: the zone wash in the top-right corner, a
+   hairline of light at the top edge, tabular numerals. */
+.s5-pane {
+  position: relative; isolation: isolate; overflow: hidden;
+  container-type: inline-size;
+  /* Flex, not grid: side by side the two screens are stretched to a common
+     height, and only `margin-top: auto` on a flex child puts the closing line
+     on the floor of the taller one instead of leaving it mid-panel. */
+  display: flex; flex-direction: column; gap: 0.55em;
+  padding: clamp(0.75rem, 0.55rem + 0.7vw, 1.0625rem);
+  border: 1px solid var(--rule-ink);
+  border-radius: var(--r-med);
+  background:
+    radial-gradient(92% 130% at 90% -12%,
+      color-mix(in oklab, var(--zcl, var(--accent-lit)) 15%, transparent),
+      transparent 68%),
+    var(--ink-2);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--on-ink) 7%, transparent);
+  color: var(--on-ink);
+  font-size: clamp(0.6875rem, 0.52rem + 1.5cqi, 0.875rem);
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  opacity: 0; transform: translateY(0.9rem);
+  transition: opacity 520ms var(--ease-out), transform 620ms var(--ease-out);
+  transition-delay: var(--t-pane);
+}
+.s5-pane:last-of-type { transition-delay: calc(var(--t-pane) + 140ms); }
+.s5.in .s5-pane { opacity: 1; transform: none; }
+
+.s5-mark {
+  position: absolute; z-index: 2; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--zcl, var(--accent-lit)) 80%, transparent),
+    color-mix(in oklab, var(--zcl, var(--accent-lit)) 8%, transparent));
+  transform: scaleX(0); transform-origin: 0 50%;
+  transition: transform 820ms var(--ease-in-out);
+  transition-delay: calc(var(--t-pane) + 180ms);
+}
+.s5.in .s5-mark { transform: scaleX(1); }
+
+.s5-ph {
+  display: flex; align-items: center; gap: 0.45em;
+  min-width: 0;
+  padding-bottom: 0.5em;
+  border-bottom: 1px solid var(--rule-ink);
+}
+.s5-ph > i {
+  flex: none; width: 0.45em; height: 0.45em; border-radius: 50%;
+  background: var(--zcl, var(--accent-lit));
+}
+.s5-ph h3 {
+  font-size: 1em; font-weight: 500; letter-spacing: 0.01em;
+  min-width: 0; overflow-wrap: break-word;
+}
+.s5-ph s { margin-left: auto; font-size: 0.86em; color: var(--on-ink-faint); white-space: nowrap; }
+.s5-pc { font-size: 0.82em; letter-spacing: 0.09em; text-transform: uppercase; color: var(--on-ink-faint); }
+.s5-pf {
+  margin-top: auto;
+  padding-top: 0.5em; border-top: 1px solid var(--rule-ink);
+  font-size: 0.86em; line-height: 1.35; color: var(--on-ink-muted); text-wrap: pretty;
+}
+
+/* ── Une fiche de soins, et ses actes ─────────────────────────────────────
+   « Une séance est plusieurs actes, et les scalaires en découlent » — so the
+   two actes land first and the total is uncovered afterwards, never before. */
+.s5-acte {
+  position: relative;
+  display: grid; gap: 0.2em;
+  padding: 0.55em 0.65em 0.6em 0.8em;
+  border-radius: 9px;
+  border: 1px solid var(--rule-ink);
+  background: color-mix(in oklab, var(--on-ink) 5%, transparent);
+  min-width: 0;
+  opacity: 0; transform: translateY(0.55em);
+  transition: opacity 440ms var(--ease-out), transform 520ms var(--ease-out);
+  transition-delay: calc(var(--t-acte) + var(--i, 0) * 160ms);
+}
+.s5.in .s5-acte { opacity: 1; transform: none; }
+/* The edge is drawn, not faded: an act that is entered gets a stroke down its
+   side, the way the app marks the act being recorded. */
+.s5-edge {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  border-radius: 9px 0 0 9px;
+  background: var(--zcl, var(--accent-lit));
+  transform: scaleY(0); transform-origin: 50% 0;
+  transition: transform 460ms var(--ease-out);
+  transition-delay: calc(var(--t-acte) + var(--i, 0) * 160ms + 200ms);
+}
+.s5.in .s5-edge { transform: none; }
+
+.s5-ak { font-size: 0.76em; letter-spacing: 0.1em; text-transform: uppercase; color: var(--on-ink-faint); }
+.s5-an { display: flex; align-items: baseline; gap: 0.5em; min-width: 0; }
+.s5-an b { font-weight: 500; min-width: 0; overflow-wrap: break-word; }
+.s5-an em { margin-left: auto; white-space: nowrap; color: var(--on-ink); }
+.s5-am { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4em; font-size: 0.88em; }
+.s5-cond {
+  display: inline-flex; align-items: center; gap: 0.35em;
+  padding: 0.12em 0.5em;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--zcl, var(--accent-lit)) 40%, transparent);
+  background: color-mix(in oklab, var(--zcl, var(--accent-lit)) 16%, transparent);
+  color: var(--zcl, var(--accent-lit));
+}
+.s5-am s { color: var(--on-ink-faint); }
+.s5-ad { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35em; font-size: 0.88em; }
+.s5-ad s { color: var(--on-ink-faint); }
+.s5-ad u {
+  padding: 0.1em 0.45em;
+  border-radius: 5px;
+  border: 1px solid var(--rule-ink);
+  background: color-mix(in oklab, var(--on-ink) 8%, transparent);
+}
+
+.s5-tot {
+  display: grid; gap: 0.35em 0.75em;
+  grid-template-columns: repeat(auto-fit, minmax(5.25em, 1fr));
+  padding-top: 0.5em;
+  border-top: 1px solid var(--rule-ink);
+  min-width: 0;
+}
+.s5-tot > div { display: grid; gap: 0.1em; min-width: 0; }
+.s5-tot dt { font-size: 0.8em; color: var(--on-ink-faint); white-space: nowrap; }
+.s5-tot dd { font-weight: 500; white-space: nowrap; }
+/* Uncovered rather than faded: a figure that arrives has been calculated, one
+   that materialises has been typed. */
+.s5-fig {
+  color: var(--zcl, var(--accent-lit));
+  font-size: 1.15em; letter-spacing: -0.01em;
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 640ms var(--ease-out);
+  transition-delay: var(--t-tot);
+}
+.s5.in .s5-fig { clip-path: inset(0 0 0 0); }
+
+/* ── Les fichiers du patient ────────────────────────────────────────────── */
+.s5-files { display: grid; gap: 0.3em; min-width: 0; }
+.s5-fold, .s5-f {
+  min-width: 0;
+  opacity: 0; transform: translateY(0.5em);
+  transition: opacity 400ms var(--ease-out), transform 460ms var(--ease-out);
+  transition-delay: calc(var(--t-file) + var(--i, 0) * 90ms);
+}
+.s5.in .s5-fold, .s5.in .s5-f { opacity: 1; transform: none; }
+
+.s5-fold {
+  display: flex; align-items: center; gap: 0.45em;
+  padding: 0.25em 0.1em 0.2em;
+}
+.s5-fold > i {
+  position: relative; flex: none;
+  width: 1.05em; height: 0.8em;
+  border-radius: 0 3px 3px 3px;
+  background: color-mix(in oklab, var(--zcl, var(--accent-lit)) 42%, transparent);
+}
+.s5-fold > i::before {
+  content: ""; position: absolute; left: 0; top: -0.22em;
+  width: 0.5em; height: 0.24em;
+  border-radius: 2px 3px 0 0;
+  background: inherit;
+}
+.s5-fold b { font-weight: 500; min-width: 0; overflow-wrap: break-word; }
+.s5-fold em { margin-left: auto; font-size: 0.82em; color: var(--on-ink-faint); white-space: nowrap; }
+
+.s5-f {
+  display: grid; gap: 0.1em;
+  margin-left: 0.9em;
+  padding: 0.4em 0.6em;
+  border-radius: 8px;
+  border: 1px solid var(--rule-ink);
+  background: color-mix(in oklab, var(--on-ink) 4%, transparent);
+}
+.s5-f b { font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.s5-f s { font-size: 0.82em; color: var(--on-ink-faint); min-width: 0; overflow-wrap: anywhere; }
+
+/* ── La ligne de fermeture ──────────────────────────────────────────────── */
+.s5-close {
+  margin-top: clamp(1rem, 0.7rem + 1.1vw, 1.5rem);
+  padding-left: 0.9rem;
+  border-left: 2px solid var(--accent-ink);
+  font-size: var(--t-small); line-height: 1.5;
+  color: var(--text-muted); max-width: 52ch;
+  opacity: 0; transform: translateY(0.6rem);
+  transition: opacity 520ms var(--ease-out), transform 520ms var(--ease-out);
+  transition-delay: calc(var(--t-teeth) + 420ms);
+}
+.s5.in .s5-close { opacity: 1; transform: none; }
+
+/* The composed still. Hidden while the section can move: the motion says it
+   better than a caption can. */
+.s5-still {
+  display: none;
+  padding-top: 0.6em;
+  border-top: 1px solid var(--rule-soft);
+  font-size: 0.86em; line-height: 1.4; color: var(--text-muted);
+  text-wrap: pretty;
+}
+.s5-side > .s5-still { border-top-color: var(--rule); }
+
+/* ── The narrowest phones ─────────────────────────────────────────────────
+   The chart loses its numbers, never a tooth. Thirty-two FDI numbers at 244px
+   of chart width resolve to 6px, which is noise pretending to be data — and
+   the arch reads perfectly well unnumbered, which is how §2 draws it. The
+   sentence under it names the two teeth in words, so nothing is lost. */
+@media (max-width: 26rem) {
+  .s5-t > s { display: none; }
+  /* The numbers were the only thing holding the two arches apart, so the gap
+     has to buy back what they were spending. */
+  .s5-mouth { gap: 0.625rem; }
+  .s5-views { font-size: 0.78em; }
+  .s5-tab { padding-inline: 0.75rem; }
+}
+
+/* ── prefers-reduced-motion: the composed still ───────────────────────────
+   Not an empty box and not a half-drawn one. Every beat resolves to its
+   finished state without needing `.in`: the view stands on « Actes réalisés »,
+   the 16 and the 26 carry their Obturation, « À traiter » has gone out and
+   « Obturation » is lit, and the totals are printed. The two things that can
+   only be SHOWN by moving are stated in words instead.
+   ⚠️ Each override has to MATCH the specificity of the `.in` rule it undoes:
+   `.s5.in .s5-tf--a` is (0,3,0), so a bare `.s5-tf--a` at (0,1,0) loses and
+   the tooth stays uncoloured. Every one below is written with `:is(.s5, .s5.in)`
+   or better for exactly that reason. */
+@media (prefers-reduced-motion: reduce) {
+  .s5 :where(*, *::before, *::after) { transition: none !important; animation: none !important; }
+
+  .s5-head > *, .s5-dossier { opacity: 1; transform: none; filter: none; }
+  .s5-name, .s5-fig { clip-path: none; }
+  :is(.s5, .s5.in) .s5-tab { opacity: 1; transform: none; }
+  :is(.s5, .s5.in) .s5-tab--on::after { transform: none; }
+  :is(.s5, .s5.in) .s5-sweep, :is(.s5, .s5.in) .s5-mark { transform: scaleX(1); }
+  :is(.s5, .s5.in) .s5-thumb { transform: translateX(100%); }
+  :is(.s5, .s5.in) .s5-view--d { opacity: 0.42; }
+  :is(.s5, .s5.in) .s5-view--a { opacity: 1; }
+  :is(.s5, .s5.in) .s5-t { opacity: 1; transform: none; }
+  :is(.s5, .s5.in) .s5-tf--d { opacity: 0; }
+  :is(.s5, .s5.in) .s5-tf--a { opacity: 1; }
+  :is(.s5, .s5.in) .s5-halo { opacity: 0; }
+  :is(.s5, .s5.in) .s5-vc { opacity: 1; transform: none; }
+  :is(.s5, .s5.in) .s5-vc--a .s5-vg { opacity: 0; }
+  :is(.s5, .s5.in) .s5-vc--o .s5-vg { opacity: 1; }
+  :is(.s5, .s5.in) :is(.s5-say, .s5-sk, .s5-pane, .s5-acte, .s5-fold, .s5-f, .s5-close) {
+    opacity: 1; transform: none;
+  }
+  :is(.s5, .s5.in) .s5-edge { transform: none; }
+
+  .s5-still { display: block; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   « L'ACTE SE POSE »  —  la palette de l'application, et l'acte qui se pose
+   ══════════════════════════════════════════════════════════════════════════
+
+   ⚠️ THE COLOURS COME FROM THE PRODUCT, NOT FROM THE SITE. `--azure`,
+   `--amber`, `--violet` and `--green` are the site's 700-level tokens, picked
+   to be legible as TEXT ON WHITE. Painted onto a tooth they go muddy — and
+   `--amber` (#b45309) is brown, which is a poor thing for « À traiter » to be.
+   `web/components/odontogram-conditions.ts` already holds the chart's real
+   palette, kept deliberately clear of the app's accent so nine conditions stay
+   apart. Those are the hues below, and using them makes the marketing chart
+   agree with the screen a dentist actually looks at.
+
+   The `-ink` variants are the ONLY ones allowed on text: #3b82f6 on white is
+   about 3.6:1, which is fine for a 40px fill and not fine for a caption. */
+.s5 {
+  --c-sain:        #e5e7eb;
+  --c-carie:       #ef4444;
+  --c-obturation:  #3b82f6;  --c-obturation-ink: #1d4ed8;
+  --c-couronne:    #f59e0b;
+  --c-canal:       #a855f7;  --c-canal-ink:      #7e22ce;
+  --c-bridge:      #14b8a6;  --c-bridge-ink:     #0f766e;
+  --c-implant:     #475569;
+  --c-absent:      #9ca3af;
+  --c-atraiter:    #fb923c;  --c-atraiter-ink:   #c2410c;
+}
+
+/* Every fill in the section re-pointed at the clinical palette. The inline
+   `--tc` / `--vc` on the markup still say `var(--amber)`, so the cheapest and
+   least fragile fix is to re-point those four names INSIDE `.s5` only — the
+   rest of the site keeps its own tokens untouched. */
+.s5 {
+  --amber:  var(--c-atraiter);
+  --azure:  var(--c-obturation);
+  --violet: var(--c-canal);
+  --green:  var(--c-bridge);
+}
+/* …and text goes back to the readable variant, because the re-point above
+   would otherwise put a 3.6:1 blue on white. */
+.s5 .s5-fig,
+.s5 :is(.s5-an, .s5-am, .s5-ad) em { color: var(--c-obturation-ink); }
+.s5-t--k[data-t] > s { color: var(--c-obturation-ink); font-weight: 500; }
+
+/* The thirty untouched teeth were a white shape on a white card — invisible,
+   which made the arch read as empty rather than as healthy. « Sain » is a
+   colour in the app, so it is a colour here. */
+.s5-t > b {
+  border-color: color-mix(in oklab, var(--c-sain) 74%, var(--text-faint));
+  background: color-mix(in oklab, var(--c-sain) 34%, var(--page));
+}
+
+/* ── Le commutateur, qui est maintenant un vrai bouton ─────────────────── */
+.s5-views { position: relative; display: inline-flex; }
+.s5-view {
+  min-height: 44px; display: inline-flex; align-items: center;
+  border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-weight: 500;
+}
+.s5-view:active { transform: scale(0.97); }
+.s5-view:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 999px; }
+.s5-thumb { min-height: 44px; }
+
+/* ── La machine à états. Tout se lit sur `data-phase`. ─────────────────────
+   ⚠️ TRANSITIONS, DRIVEN BY AN ATTRIBUTE — not the entrance's `.in`. The
+   entrance is a one-shot with delays measured from the section's arrival, and
+   a loop built on it would replay those delays every cycle. The driver sets
+   one attribute; every rule below answers it, and a cycle can be interrupted
+   half-way without anything being left mid-air. Specificity is `.s5 .s5-chart
+   [data-phase]…` = (0,4,0) so it beats the entrance's (0,3,0) rules. */
+.s5-chart { position: relative; }
+
+.s5 .s5-chart[data-phase] :is(.s5-tf--d, .s5-tf--a) { transition-delay: 0ms; }
+
+/* Diagnostics : les deux dents attendent, en orange. */
+.s5 .s5-chart[data-phase] .s5-tf--d { opacity: 1; }
+.s5 .s5-chart[data-phase] .s5-tf--a {
+  opacity: 1;
+  /* The fill RISES: clipped away from the bottom, so the colour comes up into
+     the tooth from the root instead of appearing all at once. */
+  clip-path: inset(100% 0 0 0);
+  transition: clip-path 460ms var(--ease-out);
+}
+.s5 .s5-chart[data-phase="pose16"] .s5-t[data-t="16"] .s5-tf--a,
+.s5 .s5-chart[data-phase="pose26"] :is(.s5-t[data-t="16"], .s5-t[data-t="26"]) .s5-tf--a,
+.s5 .s5-chart[data-phase="actes"] .s5-tf--a { clip-path: inset(0 0 0 0); }
+
+/* The orange underneath only leaves once the blue has covered it. */
+.s5 .s5-chart[data-phase="pose16"] .s5-t[data-t="16"] .s5-tf--d,
+.s5 .s5-chart[data-phase="pose26"] :is(.s5-t[data-t="16"], .s5-t[data-t="26"]) .s5-tf--d,
+.s5 .s5-chart[data-phase="actes"] .s5-t[data-t] .s5-tf--d { opacity: 0; transition-delay: 260ms; }
+
+/* ── La dent grossit pour qu'on la voie ───────────────────────────────────
+   The whole reason the first two takes failed. A tooth is ~40px wide; whatever
+   happens inside it at that size is invisible. The one being treated lifts out
+   of the arch, is worked on at a size you can actually read, and settles back. */
+/* ⚠️ ORIGIN AT THE FOOT, not the middle. The FDI number sits directly under
+   the silhouette; a tooth that scales from its centre grows down over its own
+   label and the one moment you most want read — « which tooth » — is the one
+   moment it is hidden. From the foot it grows upward into the empty gutter. */
+.s5-t > b { transition: transform 420ms var(--ease-out); transform-origin: 50% 100%; }
+.s5-t > s { position: relative; z-index: 7; }
+.s5-t { position: relative; }
+.s5 .s5-chart .s5-t.is-hit { z-index: 6; }
+/* 1.4, not 1.85. At 1.85 the treated tooth stopped reading as a tooth being
+   worked on and started reading as a tooth that had left the arch — it cleared
+   its neighbours' crowns entirely and the arcade came apart around it. A lift
+   only has to be big enough to follow, and it has to stay part of the row. */
+.s5 .s5-chart .s5-t.is-hit > b { transform: scale(1.4); }
+.s5 .s5-chart .s5-t.is-set > b { transform: scale(1); }
+
+/* The ring that answers the landing. A keyframe, because it must restart on
+   every cycle, and a transition cannot be re-fired from its own end state. */
+/* The ring carries the ACT's colour, not the site accent: the card that flew
+   in is blue, so what it does on arrival is blue. A teal ring here would read
+   as a third thing happening. */
+.s5-halo { animation: none; border-color: var(--c-obturation); }
+.s5 .s5-chart .s5-t.is-hit .s5-halo {
+  animation: s5-strike 900ms var(--ease-out) forwards;
+}
+/* ⚠️ It holds its peak. The first cut opened and closed inside 720ms with the
+   bright frame lasting about 90 of them — shorter than the time it takes to
+   look at the thing that just moved, so the ring was there and nobody saw it. */
+@keyframes s5-strike {
+  0%   { opacity: 0;    transform: scale(0.70); border-width: 3px; }
+  14%  { opacity: 1;    transform: scale(1.02); border-width: 3px; }
+  38%  { opacity: 0.9;  transform: scale(1.12); border-width: 2.5px; }
+  100% { opacity: 0;    transform: scale(1.9);  border-width: 1px; }
+}
+
+/* ── L'acte qui vole ──────────────────────────────────────────────────────
+   It carries the fiche's own two lines and travels to the tooth. `--fx`/`--fy`
+   are written by the driver from a real measurement, because the tooth's
+   position depends on the width and cannot be a constant. */
+.s5-fly {
+  position: absolute; z-index: 8; left: 0; top: 0;
+  display: grid; gap: 0.1em; justify-items: start;
+  padding: 0.5em 0.8em;
+  border-radius: 0.6rem;
+  background: var(--page);
+  border: 1px solid color-mix(in oklab, var(--c-obturation) 40%, var(--rule));
+  box-shadow: 0 10px 26px -12px color-mix(in oklab, var(--c-obturation) 55%, transparent),
+              var(--shadow-sm);
+  opacity: 0;
+  transform: translate(var(--fx, 0px), var(--fy, 0px)) scale(0.94);
+  transition: opacity 260ms var(--ease-out), transform 620ms var(--ease-in-out);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.s5-fly > b { font-size: 0.82em; font-weight: 500; color: var(--text); }
+.s5-fly > b::before {
+  content: ""; display: inline-block; vertical-align: 0.05em;
+  width: 0.55em; height: 0.55em; margin-inline-end: 0.45em;
+  border-radius: 50%; background: var(--c-obturation);
+}
+.s5-fly > s { font-size: 0.72em; color: var(--text-muted); }
+.s5-chart[data-phase="lift"] .s5-fly,
+.s5-chart[data-phase="pose16"] .s5-fly,
+.s5-chart[data-phase="pose26"] .s5-fly { opacity: 1; }
+.s5-chart[data-phase="lift"] .s5-fly { transform: translate(var(--fx), var(--fy)) scale(1); }
+/* ⚠️ IT DIVES IN, it does not land on top. Shrinking to 0.36 while its
+   opacity goes means the card disappears INTO the arch rather than covering it
+   — and the teeth it is being recorded on are visible the whole way down,
+   which is the only frame that matters. */
+.s5-chart[data-phase="pose16"] .s5-fly,
+.s5-chart[data-phase="pose26"] .s5-fly {
+  opacity: 0;
+  transform: translate(var(--fx), var(--fy)) scale(0.36);
+  transition: opacity 420ms var(--ease-out), transform 520ms var(--ease-in-out);
+}
+
+/* ── Le commutateur suit, il ne précède pas ───────────────────────────────
+   Cause then effect. The thumb must not move until both teeth have answered,
+   or the chart looks like it changed because a control was flipped, which is
+   the opposite of the claim. */
+.s5 .s5-chart[data-phase] .s5-thumb { transition-delay: 0ms; transform: translateX(0); }
+.s5 .s5-chart[data-phase="actes"] .s5-thumb { transform: translateX(100%); }
+/* ⚠️ RESET THE DELAY ON THE LABELS TOO, not just on the thumb. The base gives
+   every `.s5-view` a `transition-delay: var(--t-flip)` — correct for a one-shot
+   entrance measured from the section's arrival, and about 1.8s of lag on every
+   cycle of a loop. The pill slid, the words stayed on the old reading, and the
+   control contradicted itself for most of the beat. */
+.s5 .s5-chart[data-phase] .s5-view { transition-delay: 0ms; }
+.s5 .s5-chart[data-phase] .s5-view--d { opacity: 1; }
+.s5 .s5-chart[data-phase] .s5-view--a { opacity: 0.42; }
+.s5 .s5-chart[data-phase="actes"] .s5-view--d { opacity: 0.42; }
+.s5 .s5-chart[data-phase="actes"] .s5-view--a { opacity: 1; }
+
+/* La barre de relecture, tirée au moment où la lecture change. */
+.s5 .s5-chart[data-phase] .s5-sweep { transition-delay: 0ms; transform: scaleX(0); }
+.s5 .s5-chart[data-phase="actes"] .s5-sweep { transform: scaleX(1); }
+
+/* Les deux pastilles du lexique échangent leur mise en avant. */
+.s5-vc--o, .s5-vc--a { transition: opacity 300ms var(--ease-out); }
+.s5-chart[data-phase="diag"] ~ * .s5-vc--o { opacity: 0.45; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LES DEUX VOLETS RÉPONDENT AU MÊME ACTE
+   ══════════════════════════════════════════════════════════════════════════
+
+   Not two more loops. « Dossiers médicaux » and « Fichiers » are the rest of
+   the same sentence, so they answer the beat the teeth answer, on the beat the
+   teeth answer it. Three clocks would mean nothing is the subject; one clock
+   and three answers is the section's own claim — une seule saisie — acted out.
+
+   ⚠️ AND THEY STAY QUIET. The chart has the lift, the ring and the fill. Down
+   here it is a 2px edge drawing, a chip rising two pixels, and a total being
+   uncovered. If a reader notices these individually, they are too loud.
+
+   ⚠️ ONLY transform / opacity / clip-path / filter, so a tint is an overlay's
+   opacity and never a `background-color` transition. The overlays sit at
+   `z-index: -1` inside an `isolate`, which keeps them behind their own text
+   without escaping into the pane's stacking context. */
+
+/* The entrance's delays are measured from the section's arrival and are poison
+   in a loop — the same trap the view labels fell into, 1.8s out of step. */
+.s5-body[data-phase] :is(.s5-edge, .s5-fig, .s5-ad u, .s5-f--k) { transition-delay: 0ms; }
+
+/* ── 1 · La fiche s'écrit ────────────────────────────────────────────────
+   The acte's own 2px edge draws downward as the act lands on the first tooth.
+   It is the design's existing idiom, re-fired instead of re-invented. */
+.s5-body[data-phase] .s5-acte:first-of-type .s5-edge { transform: scaleY(0); }
+.s5-body[data-phase="pose16"] .s5-acte:first-of-type .s5-edge,
+.s5-body[data-phase="pose26"] .s5-acte:first-of-type .s5-edge,
+.s5-body[data-phase="actes"] .s5-acte:first-of-type .s5-edge { transform: scaleY(1); }
+
+/* ── 2 · Les deux mêmes numéros ──────────────────────────────────────────
+   « Dents 16 26 » in the fiche are the two teeth on the chart. Each rises two
+   pixels as its own tooth is treated — 16 on the first beat, 26 on the second,
+   so the pane and the arch are visibly counting the same thing. */
+.s5-ad u { position: relative; isolation: isolate; transition: transform 260ms var(--ease-out); }
+.s5-ad u::before {
+  content: ""; position: absolute; inset: -0.15em -0.3em; z-index: -1;
+  border-radius: 0.3rem;
+  background: color-mix(in oklab, var(--c-obturation) 42%, transparent);
+  opacity: 0;
+  transition: opacity 260ms var(--ease-out);
+}
+.s5-body[data-phase="pose16"] .s5-ad u:nth-of-type(1),
+.s5-body[data-phase="pose26"] .s5-ad u:nth-of-type(-n+2),
+.s5-body[data-phase="actes"] .s5-ad u:nth-of-type(-n+2) { transform: translateY(-2px); }
+.s5-body[data-phase="pose16"] .s5-ad u:nth-of-type(1)::before,
+.s5-body[data-phase="pose26"] .s5-ad u:nth-of-type(-n+2)::before,
+.s5-body[data-phase="actes"] .s5-ad u:nth-of-type(-n+2)::before { opacity: 1; }
+
+/* ── 3 · Le total est déduit, donc il arrive après ───────────────────────
+   Uncovered left to right once BOTH teeth have answered. A total that appears
+   with the acte would be a number that was typed; one that arrives after them
+   is a number that was calculated, which is the whole point of the pane. */
+.s5-body[data-phase] .s5-fig { clip-path: inset(0 100% 0 0); }
+.s5-body[data-phase="actes"] .s5-fig { clip-path: inset(0 0 0 0); }
+
+/* ── 4 · La radio qui porte les deux dents dans son nom ──────────────────
+   « retro-16-26.jpg » is not a coincidence in the fixture: it is the retro-
+   alveolar of those two teeth. It lights when they do — the quietest way to
+   say that the file, the acte and the chart are one record. */
+.s5-f--k { position: relative; isolation: isolate; }
+.s5-f--k::before {
+  content: ""; position: absolute; inset: -0.3em -0.5em; z-index: -1;
+  border-radius: 0.45rem;
+  background: color-mix(in oklab, var(--c-obturation) 30%, transparent);
+  opacity: 0;
+  transition: opacity 340ms var(--ease-out);
+}
+.s5-body[data-phase="actes"] .s5-f--k::before { opacity: 1; }
+
+/* ── Sans script, et sans mouvement : le document fini ────────────────────
+   No `data-phase` is ever set, so every rule above is inert and the section
+   resolves to the entrance's own end state — the composed « Actes réalisés »
+   document the designer already built. Nothing to restate. */
+@media (prefers-reduced-motion: reduce) {
+  .s5-fly { display: none; }
+  .s5 .s5-chart .s5-t.is-hit > b { transform: none; }
+  .s5 .s5-chart .s5-t.is-hit .s5-halo { animation: none; }
+  .s5 .s5-chart[data-phase] .s5-tf--a { clip-path: none; }
+  .s5 .s5-chart[data-phase] .s5-tf--d { opacity: 0; }
+  .s5 .s5-chart[data-phase] .s5-thumb { transform: translateX(100%); }
+  .s5 .s5-chart[data-phase] .s5-view--d { opacity: 0.42; }
+  .s5 .s5-chart[data-phase] .s5-view--a { opacity: 1; }
+  .s5 .s5-chart[data-phase] .s5-sweep { transform: scaleX(1); }
+  /* the two panes resolve to the finished record, not to a blank one */
+  .s5-body[data-phase] .s5-acte:first-of-type .s5-edge { transform: scaleY(1); }
+  .s5-body[data-phase] .s5-ad u { transform: none; }
+  .s5-body[data-phase] .s5-ad u:nth-of-type(-n+2)::before { opacity: 1; }
+  .s5-body[data-phase] .s5-fig { clip-path: none; }
+  .s5-body[data-phase] .s5-f--k::before { opacity: 1; }
 }

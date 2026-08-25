@@ -528,124 +528,222 @@
   </div>
 </section>
 
-<!-- ══ 4 · CONÇU EN TUNISIE ═════════════════════════════════════════════════════ -->
-<section data-reveal class="s5" id="tunisie">
+<!-- ══ 4 · LE DOSSIER PATIENT ═══════════════════════════════════════════════════════ -->
+<!-- ══ 4 · LE DOSSIER PATIENT ═══════════════════════════════════════════════════
+     Replaces « Ici, on paie en chèque ». LIGHT ground: it sits between §3
+     (l'argent, dark) and §5 (sur le téléphone, dark). -->
+<section data-reveal class="s5" id="dossier" aria-labelledby="s5-titre">
   <div class="wrap">
 
     <header class="s5-head">
-      <p class="s5-eyebrow" style="--i: 0">Conçu en Tunisie</p>
-      <h2 class="s5-h2" style="--i: 1">Ici, on paie en chèque. Le logiciel le sait.</h2>
+      <p class="s5-eyebrow" style="--i: 0">Le dossier patient</p>
+      <h2 class="s5-h2" id="s5-titre" style="--i: 1">Un patient, un dossier, sept onglets</h2>
+      <p class="s5-lede" style="--i: 2">Le tiroir, l’agenda, le cahier, l’enveloppe de radios, le carnet de reçus&nbsp;: cinq endroits pour une seule personne. Ici, c’est un seul dossier, et il porte son nom.</p>
     </header>
 
-    <div class="s5-grid">
+    <!-- ── Le dossier : une seule pièce de papier, qui s'assemble ────────── -->
+    <div class="s5-dossier">
 
-      <!-- ── A · La monnaie et le pays ─────────────────────────────────── -->
-      <!-- ── B · Les chèques postdatés ─────────────────────────────────── -->
-      <article class="s5-card s5-card--b" style="--i: 1; --zc: var(--amber); --zcl: var(--amber-lit)">
-        <p class="s5-k"><i></i>Chèques postdatés</p>
-        <h3 class="s5-h3">Classés par échéance, pas par date de saisie</h3>
-        <p class="s5-p">En retard, bientôt, plus tard. Chaque chèque garde sa banque, son numéro et le patient à relancer, jusqu’au jour où vous le portez en banque.</p>
+      <header class="s5-ident">
+        <i class="s5-av" aria-hidden="true">KH</i>
+        <p class="s5-who">
+          <b class="s5-name">Karim Hamdi</b>
+          <s>42 ans · Homme · +216&nbsp;98&nbsp;445&nbsp;123</s>
+        </p>
+      </header>
 
-        <div class="s5-fig">
-          <i class="s5-mark"></i>
-          <div class="s5-fhead">
-            <p class="s5-cap">Chèques en portefeuille</p>
-            <p class="s5-sw s5-sort" style="--k: 0">
-              <span class="s5-was" aria-hidden="true">ordre de saisie</span>
-              <span class="s5-now">ordre d’échéance</span>
+      <!-- ── Les sept onglets : ils se distribuent, puis se rangent ──────── -->
+      <ul class="s5-tabs">
+        <li class="s5-tab s5-tab--on" style="--i: 0; --tx: -1.7em; --ty: -1.2em; --r: -5deg">Dossiers médicaux</li>
+        <li class="s5-tab" style="--i: 1; --tx: 1.5em; --ty: -1.5em; --r: 4deg">Rendez-vous</li>
+        <li class="s5-tab" style="--i: 2; --tx: -2.2em; --ty: 1.0em; --r: 6deg">Notes</li>
+        <li class="s5-tab" style="--i: 3; --tx: 2.0em; --ty: 1.3em; --r: -4deg">Documents</li>
+        <li class="s5-tab" style="--i: 4; --tx: -1.3em; --ty: 1.6em; --r: -7deg">Fichiers</li>
+        <li class="s5-tab" style="--i: 5; --tx: 2.3em; --ty: -0.9em; --r: 5deg">Factures</li>
+        <li class="s5-tab" style="--i: 6; --tx: -1.9em; --ty: 1.4em; --r: 3deg">Plan de traitement</li>
+      </ul>
+
+      <div class="s5-body">
+
+        <!-- ── L'odontogramme : deux lectures de la même bouche ──────────── -->
+        <div class="s5-chart">
+          <i class="s5-sweep" aria-hidden="true"></i>
+          <i class="s5-fly" aria-hidden="true"><b>Soin de carie / obturation</b><s>90,000&nbsp;DT · tarif par dent</s></i>
+
+          <div class="s5-chead">
+            <h3 class="s5-ct">Odontogramme</h3>
+            <p class="s5-views">
+              <i class="s5-thumb" aria-hidden="true"></i>
+              <button type="button" class="s5-view s5-view--d" aria-pressed="true">Diagnostics</button>
+              <button type="button" class="s5-view s5-view--a" aria-pressed="false">Actes réalisés</button>
             </p>
           </div>
 
-          <ol class="s5-chq">
-            <li class="s5-chq-r" style="--k: 0; --e: 2; --z: var(--amber-lit)">
-              <i class="s5-edge s5-edge--late"></i>
-              <span class="s5-chq-d">02/08</span>
-              <span class="s5-chq-b">BIAT</span>
-              <span class="s5-chq-n">n°&nbsp;4210337</span>
-              <span class="s5-chq-p">Mme Trabelsi</span>
-              <span class="s5-chq-m">385,000</span>
-            </li>
-            <li class="s5-chq-r" style="--k: 1; --e: 4; --z: var(--amber-lit)">
-              <i class="s5-edge s5-edge--late"></i>
-              <span class="s5-chq-d">09/08</span>
-              <span class="s5-chq-b">STB</span>
-              <span class="s5-chq-n">n°&nbsp;7118402</span>
-              <span class="s5-chq-p">M. Gharbi</span>
-              <span class="s5-chq-m">240,000</span>
-            </li>
-            <li class="s5-chq-r" style="--k: 2; --e: 0; --z: var(--azure-lit)">
-              <i class="s5-edge"></i>
-              <span class="s5-chq-d">27/08</span>
-              <span class="s5-chq-b">BNA</span>
-              <span class="s5-chq-n">n°&nbsp;2664015</span>
-              <span class="s5-chq-p">Mme Ben Salah</span>
-              <span class="s5-chq-m">520,000</span>
-            </li>
-            <li class="s5-chq-r" style="--k: 3; --e: 1; --z: var(--azure-lit)">
-              <i class="s5-edge"></i>
-              <span class="s5-chq-d">04/09</span>
-              <span class="s5-chq-b">Amen</span>
-              <span class="s5-chq-n">n°&nbsp;9043771</span>
-              <span class="s5-chq-p">M. Jelassi</span>
-              <span class="s5-chq-m">310,000</span>
-            </li>
-            <li class="s5-chq-r" style="--k: 4; --e: 3; --z: var(--on-ink-faint)">
-              <i class="s5-edge"></i>
-              <span class="s5-chq-d">18/10</span>
-              <span class="s5-chq-b">UIB</span>
-              <span class="s5-chq-n">n°&nbsp;5372806</span>
-              <span class="s5-chq-p">Mme Khelifi</span>
-              <span class="s5-chq-m">275,000</span>
-            </li>
-          </ol>
+          <div class="s5-mouth" aria-hidden="true">
+            <p class="s5-jaw">Maxillaire (haut)</p>
+            <div class="s5-arch">
+              <div class="s5-quad" style="--q: 0">
+                <i class="s5-t"><b></b><s>18</s></i>
+                <i class="s5-t"><b></b><s>17</s></i>
+                <i class="s5-t s5-t--k" data-t="16">
+                  <b>
+                    <i class="s5-tf s5-tf--d" style="--tc: var(--amber)"></i>
+                    <i class="s5-tf s5-tf--a" style="--tc: var(--azure)"></i>
+                    <i class="s5-halo"></i>
+                  </b><s>16</s>
+                </i>
+                <i class="s5-t"><b></b><s>15</s></i>
+                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--b" style="--tc: var(--violet)"></i></b><s>14</s></i>
+                <i class="s5-t"><b></b><s>13</s></i>
+                <i class="s5-t"><b></b><s>12</s></i>
+                <i class="s5-t"><b></b><s>11</s></i>
+              </div>
+              <i class="s5-mid"></i>
+              <div class="s5-quad" style="--q: 1">
+                <i class="s5-t"><b></b><s>21</s></i>
+                <i class="s5-t"><b></b><s>22</s></i>
+                <i class="s5-t"><b></b><s>23</s></i>
+                <i class="s5-t"><b></b><s>24</s></i>
+                <i class="s5-t"><b></b><s>25</s></i>
+                <i class="s5-t s5-t--k" data-t="26">
+                  <b>
+                    <i class="s5-tf s5-tf--d" style="--tc: var(--amber)"></i>
+                    <i class="s5-tf s5-tf--a" style="--tc: var(--azure)"></i>
+                    <i class="s5-halo"></i>
+                  </b><s>26</s>
+                </i>
+                <i class="s5-t"><b></b><s>27</s></i>
+                <i class="s5-t"><b></b><s>28</s></i>
+              </div>
+            </div>
 
-          <ul class="s5-figs">
-            <li style="--k: 0; --z: var(--amber-lit)">
-              <b>1&nbsp;515,000&nbsp;DT</b>
-              <span>7 chèques en retard, encaissables maintenant</span>
-            </li>
-            <li style="--k: 1; --z: var(--azure-lit)">
-              <b>1&nbsp;405,000&nbsp;DT</b>
-              <span>6 chèques à échéance sous 30 jours</span>
-            </li>
-          </ul>
-
-          <p class="s5-still">Saisis dans le désordre, rangés par échéance.</p>
-        </div>
-      </article>
-
-      <!-- ── C · Les modes de paiement ─────────────────────────────────── -->
-      <article class="s5-card s5-card--c" style="--i: 2; --zc: var(--green); --zcl: var(--green-lit)">
-        <p class="s5-k"><i></i>Modes de paiement</p>
-        <h3 class="s5-h3">Chaque mode a son propre total</h3>
-        <p class="s5-p">Votre caisse sait comment l’argent est entré, pas seulement combien. Espèces, chèque, carte, virement&nbsp;: quatre lignes, jamais une seule.</p>
-
-        <div class="s5-fig">
-          <i class="s5-mark"></i>
-          <p class="s5-cap">Encaissé du mois</p>
-          <p class="s5-tot"><span>19&nbsp;280,000</span><span class="s5-tot-c">&nbsp;DT</span></p>
-
-          <div class="s5-bar">
-            <i class="s5-seg" style="--w: 85.9%; --sx: 0px; --z: var(--green-lit)"></i>
-            <i class="s5-seg" style="--w: 7.8%; --sx: -3px; --z: var(--amber-lit)"></i>
-            <i class="s5-seg" style="--w: 3.8%; --sx: -6px; --z: var(--azure-lit)"></i>
-            <i class="s5-seg" style="--w: 2.5%; --sx: -9px; --z: var(--violet-lit)"></i>
-            <i class="s5-pile"></i>
+            <div class="s5-arch s5-arch--low">
+              <div class="s5-quad" style="--q: 2">
+                <i class="s5-t"><b></b><s>48</s></i>
+                <i class="s5-t"><b></b><s>47</s></i>
+                <i class="s5-t"><b></b><s>46</s></i>
+                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--d" style="--tc: var(--amber)"></i></b><s>45</s></i>
+                <i class="s5-t"><b></b><s>44</s></i>
+                <i class="s5-t"><b></b><s>43</s></i>
+                <i class="s5-t"><b></b><s>42</s></i>
+                <i class="s5-t"><b></b><s>41</s></i>
+              </div>
+              <i class="s5-mid"></i>
+              <div class="s5-quad" style="--q: 3">
+                <i class="s5-t"><b></b><s>31</s></i>
+                <i class="s5-t"><b></b><s>32</s></i>
+                <i class="s5-t"><b></b><s>33</s></i>
+                <i class="s5-t"><b></b><s>34</s></i>
+                <i class="s5-t"><b></b><s>35</s></i>
+                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--b" style="--tc: var(--green)"></i></b><s>36</s></i>
+                <i class="s5-t"><b></b><s>37</s></i>
+                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--b" style="--tc: var(--text-faint)"></i></b><s>38</s></i>
+              </div>
+            </div>
+            <p class="s5-jaw">Mandibule (bas)</p>
           </div>
 
-          <ul class="s5-modes">
-            <li style="--k: 0; --z: var(--green-lit)"><i></i><span>Espèces</span><b>16&nbsp;570,000</b></li>
-            <li style="--k: 1; --z: var(--amber-lit)"><i></i><span>Chèque</span><b>1&nbsp;510,000</b></li>
-            <li style="--k: 2; --z: var(--azure-lit)"><i></i><span>Virement</span><b>720,000</b></li>
-            <li style="--k: 3; --z: var(--violet-lit)"><i></i><span>Carte bancaire</span><b>480,000</b></li>
-          </ul>
+          <p class="s5-say">L’acte est enregistré sur la 16 et la 26&nbsp;; les deux dents passent en Obturation d’elles-mêmes.</p>
 
-          <p class="s5-still">Un encaissement du mois, quatre totaux séparés.</p>
+          <div class="s5-vocab">
+            <p class="s5-vt">Les neuf états qu’une dent peut porter</p>
+            <ul class="s5-vl">
+              <li class="s5-vc">Sain</li>
+              <li class="s5-vc">Carie</li>
+              <li class="s5-vc s5-vc--o" style="--vc: var(--azure)"><i class="s5-vg"></i><span>Obturation</span></li>
+              <li class="s5-vc">Couronne</li>
+              <li class="s5-vc">Traitement de canal</li>
+              <li class="s5-vc">Bridge</li>
+              <li class="s5-vc">Implant</li>
+              <li class="s5-vc">Extrait / Absent</li>
+              <li class="s5-vc s5-vc--a" style="--vc: var(--amber)"><i class="s5-vg"></i><span>À traiter</span></li>
+            </ul>
+          </div>
+
+          <p class="s5-still">Deux lectures de la même bouche, sur la même arcade&nbsp;: Diagnostics montre ce qui reste à traiter, Actes réalisés ce qui a été fait. Ici, la lecture Actes réalisés&nbsp;: la 16 et la 26 portent une Obturation, la 45 attend encore.</p>
         </div>
-      </article>
 
-      <!-- ── D · La langue ─────────────────────────────────────────────── -->
+        <!-- ── Ce qu'il y a derrière deux de ces onglets ─────────────────── -->
+        <div class="s5-side">
+          <p class="s5-sk">Derrière deux de ces onglets</p>
+
+          <div class="s5-panes">
+
+          <!-- Onglet 1 · Dossiers médicaux -->
+          <div class="s5-pane" style="--zc: var(--azure); --zcl: var(--azure-lit)">
+            <i class="s5-mark" aria-hidden="true"></i>
+            <header class="s5-ph">
+              <i aria-hidden="true"></i>
+              <h3>Dossiers médicaux</h3>
+              <s>21/08/2026</s>
+            </header>
+            <p class="s5-pc">Fiche de soins · 2 actes</p>
+
+            <div class="s5-acte" style="--i: 0">
+              <i class="s5-edge" aria-hidden="true"></i>
+              <p class="s5-ak">Acte réalisé</p>
+              <p class="s5-an"><b>Soin de carie / obturation</b><em>90,000&nbsp;DT</em></p>
+              <p class="s5-am"><span class="s5-cond">Obturation</span><s>tarif par dent</s></p>
+              <p class="s5-ad">
+                <s>Dents</s><u>16</u><u>26</u>
+                <s>Surfaces</s><u>M</u><u>O</u>
+              </p>
+            </div>
+
+            <div class="s5-acte" style="--i: 1">
+              <i class="s5-edge" aria-hidden="true"></i>
+              <p class="s5-ak">Acte réalisé</p>
+              <p class="s5-an"><b>Radiographie panoramique</b><em>45,000&nbsp;DT</em></p>
+            </div>
+
+            <dl class="s5-tot">
+              <div><dt>Total</dt><dd class="s5-fig">225,000&nbsp;DT</dd></div>
+              <div><dt>Payé</dt><dd>225,000&nbsp;DT</dd></div>
+              <div><dt>Reste à payer</dt><dd>0,000&nbsp;DT</dd></div>
+              <div><dt>Mode</dt><dd>Espèces</dd></div>
+            </dl>
+            <p class="s5-pf">Deux actes dans la séance, et le total qui en découle.</p>
+          </div>
+
+          <!-- Onglet 2 · Fichiers -->
+          <div class="s5-pane" style="--zc: var(--green); --zcl: var(--green-lit)">
+            <i class="s5-mark" aria-hidden="true"></i>
+            <header class="s5-ph">
+              <i aria-hidden="true"></i>
+              <h3>Fichiers</h3>
+              <s>3 fichiers</s>
+            </header>
+
+            <ul class="s5-files">
+              <li class="s5-fold" style="--i: 0"><i aria-hidden="true"></i><b>Radiographies</b><em>2</em></li>
+              <li class="s5-f" style="--i: 1">
+                <b>pano-2026-08-21.jpg</b>
+                <s>image/jpeg · 2,4&nbsp;Mo · 21/08/2026 · Dr Salma Ben Youssef</s>
+              </li>
+              <li class="s5-f s5-f--k" style="--i: 2">
+                <b>retro-16-26.jpg</b>
+                <s>image/jpeg · 1,1&nbsp;Mo · 21/08/2026 · Dr Salma Ben Youssef</s>
+              </li>
+              <li class="s5-fold" style="--i: 3"><i aria-hidden="true"></i><b>Consentements</b><em>1</em></li>
+              <li class="s5-f" style="--i: 4">
+                <b>consentement-implant.pdf</b>
+                <s>application/pdf · 186&nbsp;Ko · 04/07/2026 · Dr Salma Ben Youssef</s>
+              </li>
+            </ul>
+            <p class="s5-pf">Les radios et les photos sont attachées au patient, dans ses propres dossiers.</p>
+          </div>
+
+          </div>
+
+          <p class="s5-still">Rendez-vous, Notes, Documents, Factures et Plan de traitement sont dans le même dossier, sous le même nom.</p>
+        </div>
+
       </div>
+    </div>
+
+    <p class="s5-close">Une seule saisie&nbsp;: le total de la séance et l’odontogramme suivent, sans une deuxième écriture.</p>
+
+    <p class="s5-sr">Illustration&nbsp;: le dossier de Karim Hamdi. Sept onglets, à savoir Dossiers médicaux, Rendez-vous, Notes, Documents, Fichiers, Factures et Plan de traitement, plus un odontogramme qui se lit de deux façons, Diagnostics et Actes réalisés. La fiche de soins du 21/08/2026 porte deux actes, dont un soin de carie sur les dents 16 et 26&nbsp;; à l’enregistrement, ces deux dents passent d’elles-mêmes de l’état À traiter à l’état Obturation, et le total de la séance découle des actes.</p>
   </div>
 </section>
 

@@ -775,3 +775,138 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   show(open < 0 ? 0 : open);
 })();
 
+/* ── « L'acte se pose » ────────────────────────────────────────────────────
+   Five beats, on a loop, driven by one attribute. Cause is always on screen
+   before effect: the act lifts out of the fiche, travels, lands on a tooth,
+   and only when both teeth have answered does the reading change.
+
+   ⚠️ THE FLIGHT IS MEASURED, NEVER CONSTANT. A tooth's position depends on the
+   chart's width, so `--fx`/`--fy` are read off `getBoundingClientRect` each
+   time. Measuring once at load would put the act in the wrong place after any
+   resize, and at 320 it would land outside the panel entirely. */
+(function () {
+  const chart = document.querySelector('.s5-chart');
+  if (!chart) return;
+
+  const fly = chart.querySelector('.s5-fly');
+  const views = [...chart.querySelectorAll('.s5-view')];
+  const t16 = chart.querySelector('.s5-t[data-t="16"]');
+  const t26 = chart.querySelector('.s5-t[data-t="26"]');
+  if (!fly || views.length !== 2 || !t16 || !t26) return;
+
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  let timer = null, alive = false, taken = false, seen = false;
+
+  const head = chart.querySelector('.s5-chead');
+
+  /* ⚠️ THE ACT CANNOT HOVER OVER AN UPPER-ARCH TOOTH. Between the crown and
+     the panel's own heading there are about seventy pixels, the card is forty-
+     six tall, and the tooth grows UPWARD into what is left — so a card placed
+     above tooth 16 is either clamped into the heading or driven through the
+     crown. It parks in the one strip that is always free: the centre, under
+     the title on the left and the view switch on the right. Then it dives INTO
+     the arch, which is what recording an act actually does to a fiche.
+
+     One card, two teeth, and that is the truth of it: the fiche in the pane
+     below says « Dents 16 26 » on a single acte. */
+  const park = () => {
+    const c = chart.getBoundingClientRect();
+    const f = fly.getBoundingClientRect();
+    const floor = head ? head.getBoundingClientRect().bottom - c.top + 10 : 10;
+    return { x: Math.round(c.width / 2 - f.width / 2), y: Math.round(floor) };
+  };
+
+  /* the dive lands on the midpoint of the two teeth it is being recorded on */
+  const dive = () => {
+    const c = chart.getBoundingClientRect();
+    const f = fly.getBoundingClientRect();
+    const a = t16.getBoundingClientRect();
+    const b = t26.getBoundingClientRect();
+    return {
+      x: Math.round((a.left + a.width / 2 + b.left + b.width / 2) / 2 - c.left - f.width / 2),
+      y: Math.round(a.top + a.height / 2 - c.top - f.height / 2),
+    };
+  };
+
+  const place = (p) => {
+    fly.style.setProperty('--fx', p.x + 'px');
+    fly.style.setProperty('--fy', p.y + 'px');
+  };
+
+  /* ⚠️ THE TWO PANES ARE NOT INSIDE THE CHART. `.s5-body` holds `.s5-chart` and
+     `.s5-side` as siblings, so an attribute on the chart can never be read by a
+     rule targeting a pane. The beat is stamped on the shared ancestor as well —
+     the chart's own rules keep working off theirs, and the panes answer the same
+     word without either side reaching into the other. */
+  const body = chart.closest('.s5-body');
+  const phase = (name) => {
+    chart.dataset.phase = name;
+    if (body) body.dataset.phase = name;
+  };
+  const press = (i) => views.forEach((v, k) =>
+    v.setAttribute('aria-pressed', k === i ? 'true' : 'false'));
+
+  const strike = (tooth) => {
+    /* removed first so the keyframe restarts: an animation does not re-fire
+       while its class is already on the element */
+    tooth.classList.remove('is-hit');
+    void tooth.offsetWidth;
+    tooth.classList.add('is-hit');
+  };
+  const settle = (tooth) => { tooth.classList.remove('is-hit'); };
+
+  /* one whole cycle, as a list of [wait, do] */
+  const SCORE = [
+    [0,    () => { phase('diag'); press(0); settle(t16); settle(t26); place(park()); }],
+    [1300, () => { phase('lift'); place(park()); }],        /* the fiche is written  */
+    [1000, () => { phase('pose16'); place(dive()); strike(t16); }],  /* it dives in  */
+    [340,  () => { phase('pose26'); strike(t26); }],        /* the second tooth answers */
+    [820,  () => { settle(t16); settle(t26); phase('actes'); press(1); }],
+    [2600, () => { phase('diag'); press(0); place(park()); }],
+  ];
+
+  let step = 0;
+  const tick = () => {
+    if (!alive || taken) return;
+    const [wait, run] = SCORE[step];
+    timer = setTimeout(() => {
+      if (!alive || taken) return;
+      run();
+      step = (step + 1) % SCORE.length;
+      tick();
+    }, wait);
+  };
+
+  const start = () => {
+    if (alive || taken || reduced.matches) return;
+    alive = true; step = 0; tick();
+  };
+  const stop = () => { alive = false; clearTimeout(timer); };
+
+  /* Pressing a view takes the chart, and keeps it. A control that carries on
+     moving after you have used it is a control fighting you — the same rule
+     the phone carousel already follows. */
+  views.forEach((v, i) => v.addEventListener('click', () => {
+    taken = true; stop();
+    settle(t16); settle(t26);
+    phase(i === 1 ? 'actes' : 'diag');
+    press(i);
+  }));
+
+  if (reduced.matches) { phase('actes'); press(1); return; }
+
+  /* Off screen it does not run, and neither does it in a hidden tab. */
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver((es) => {
+      for (const e of es) {
+        seen = e.isIntersecting;
+        if (seen && !document.hidden) start(); else stop();
+      }
+    }, { threshold: 0.15 }).observe(chart);
+  } else { seen = true; start(); }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stop(); else if (seen) start();
+  });
+  addEventListener('resize', () => { if (alive) place(park()); });
+})();
