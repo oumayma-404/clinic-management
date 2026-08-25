@@ -1,5 +1,7 @@
 "use client"
 
+import { useCallback, useEffect, useRef } from "react"
+
 import { cn } from "@/lib/utils"
 
 interface FormErrorBannerProps {
@@ -23,12 +25,46 @@ interface FormErrorBannerProps {
  *
  * Deliberately not a toast and not a nested dialog. It lives inside the form so it scrolls and dismisses
  * with it, and the message stays visible while the user re-reads what they typed.
+ *
+ * Living inside the form is also what made it invisible: in a tall dialog the banner sits in the scrolling
+ * body while the submit button sits in a pinned footer, so an error raised from that footer rendered below
+ * the fold and « Créer le rendez-vous » read as doing nothing at all. Hence the scroll-into-view below —
+ * placed here rather than in the ~48 call sites, because a banner nobody scrolls to is not a banner.
  */
 export function FormErrorBanner({ message, action, className }: FormErrorBannerProps) {
-  if (!message?.trim()) return null
+  const ref = useRef<HTMLDivElement>(null)
+  const text = message?.trim()
+
+  const reveal = useCallback(() => {
+    // `nearest`: no movement when it is already on screen, minimum scroll when it is not.
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    ref.current?.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" })
+  }, [])
+
+  useEffect(() => {
+    if (text) reveal()
+  }, [text, reveal])
+
+  /*
+   * ⚠️ The effect above is NOT enough, and the reason is easy to re-break: a handler that does
+   * `setError(null)` and then `setError(sameMessage)` is auto-batched into no state change at all, so
+   * pressing « Créer » twice on the same refusal re-renders nothing and never re-reveals the banner.
+   * The form's own submit event is the only honest signal that the user asked again.
+   */
+  useEffect(() => {
+    if (!text) return
+    const form = ref.current?.closest("form")
+    if (!form) return
+    const onSubmit = () => requestAnimationFrame(reveal)
+    form.addEventListener("submit", onSubmit)
+    return () => form.removeEventListener("submit", onSubmit)
+  }, [text, reveal])
+
+  if (!text) return null
 
   return (
     <div
+      ref={ref}
       role="alert"
       aria-live="polite"
       /*

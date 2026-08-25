@@ -1280,8 +1280,8 @@ export function CreateAppointmentDialog({
             )}
           </div>
 
-            {/* Validation error shown next to the submit button — the dialog is tall and scrollable, so an
-                error at the top would be off-screen when the user submits from the bottom. */}
+            {/* At the end of the scrolling body, not the top — but « Créer le rendez-vous » is in a PINNED
+                footer outside this scroller, so `FormErrorBanner` scrolls itself into view to be seen. */}
             {/* The shared primitive, not a hand-rolled red box: this is the busiest form in the app and it was
                 reporting failures in a slightly different red from the eighteen dialogs that route through
                 `FormErrorBanner` — which now renders on `--destructive` tokens and needs no `dark:` twin. */}

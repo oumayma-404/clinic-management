@@ -944,13 +944,14 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
             </div>
 
             {/*
-              ⚠️ The refusal belongs HERE, next to the submit button — it used to sit at the top of this
-              scrolling body, five sections up.
+              ⚠️ The refusal belongs at the END of this scrolling body — it used to sit at the top, five
+              sections up, which is the whole of the reported « the modal does not close and I don't
+              understand the error »: every refusal here leaves the dialog open **by design** (that is what
+              lets you correct the time and retry), and the sentence explaining why was off-screen.
 
-              That is the whole of the reported « the modal does not close and I don't understand the error »:
-              every refusal this dialog can meet leaves it open **by design** (that is what lets you correct the
-              time and retry), and the sentence explaining why was off-screen for anyone who had scrolled down
-              to press Enregistrer. The create dialog next door already puts it here, with the same note.
+              Moving it down was necessary but not sufficient: « Enregistrer » is in a PINNED footer, outside
+              this scroller, so the banner is still below the fold unless you happen to be scrolled to the
+              bottom. `FormErrorBanner` therefore scrolls itself into view — do not re-solve it by hand here.
             */}
             <FormErrorBanner message={error} />
 
