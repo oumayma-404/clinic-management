@@ -5512,11 +5512,29 @@
 /* The divider is a grid item with no content: without `align-self: stretch` it
    resolves to zero height and the arch loses its midline. */
 .s5-mid { align-self: stretch; background: var(--rule); }
+/* ⚠️ SIXTEEN EQUAL COLUMNS IS THE THING THAT MADE THEM ALL LOOK THE SAME. A
+   molar is about half again as wide as a lateral incisor, and at 50px that
+   difference is the single loudest cue that this is a dentition and not a row
+   of counters. The two quadrants of an arch are mirror images, so the track
+   list is written twice and reversed — `.s5-mid` sits between them, which is
+   why `:first-child` / `:last-child` picks them out. */
 .s5-quad {
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: clamp(1px, 0.45cqi, 5px);
   min-width: 0;
+}
+/* 8 7 6 5 4 3 2 1 — outward to the midline */
+.s5-quad:first-child {
+  grid-template-columns:
+    minmax(0, 1.10fr) minmax(0, 1.16fr) minmax(0, 1.22fr) minmax(0, 0.92fr)
+    minmax(0, 0.90fr) minmax(0, 0.96fr) minmax(0, 0.78fr) minmax(0, 0.90fr);
+}
+/* 1 2 3 4 5 6 7 8 — the same eight, mirrored */
+.s5-quad:last-child {
+  grid-template-columns:
+    minmax(0, 0.90fr) minmax(0, 0.78fr) minmax(0, 0.96fr) minmax(0, 0.90fr)
+    minmax(0, 0.92fr) minmax(0, 1.22fr) minmax(0, 1.16fr) minmax(0, 1.10fr);
 }
 
 /* One tooth: a silhouette and its FDI number. */
@@ -5537,20 +5555,67 @@
 .s5-quad .s5-t:nth-child(7) { --i: 6 }
 .s5-quad .s5-t:nth-child(8) { --i: 7 }
 
+/* ── La forme d'une dent ──────────────────────────────────────────────────
+   An abstraction, not a drawing: four silhouettes, each one four numbers.
+   `--rr`/`--rrv` are the ROOT corners and `--rc`/`--rcv` the CROWN corners, so
+   a kind is declared once and the lower arch mirrors it by swapping the pairs
+   rather than by restating anything. The crown is the end facing the midline
+   gap; the two arches meet across it, which is what makes this read as a mouth
+   and not as two rows of shapes.
+
+     molaire     broad, blocky, a nearly flat occlusal edge
+     prémolaire  narrower, the crown rounds off
+     canine      the point, and the longest root of the arch
+     incisive    slim, a straight incisal edge, a root that tapers away */
 .s5-t > b {
   position: relative;
-  width: 100%; aspect-ratio: 0.76;
+  align-self: end;                       /* upper crowns sit on the occlusal line */
+  width: 100%;
+  aspect-ratio: var(--ar, 0.76);
   border: 1px solid var(--rule);
-  /* ⚠️ THE RADII ARE WHAT MAKE IT A TOOTH RATHER THAN AN EGG, and they only
-     start to matter once the arch is big. At 30px every value read as "round";
-     at 50px a uniformly-large radius is unmistakably an egg. A crown is nearly
-     square and a root tapers, so the top corners are tight (24%/18%) and the
-     bottom ones are not (46%/82%). The lower arch mirrors it, which is what
-     makes the two rows face each other and read as a mouth. */
-  border-radius: 24% 24% 46% 46% / 18% 18% 82% 82%;
+  border-radius:
+    var(--rr, 24%) var(--rr, 24%) var(--rc, 46%) var(--rc, 46%) /
+    var(--rrv, 18%) var(--rrv, 18%) var(--rcv, 82%) var(--rcv, 82%);
   background: var(--page);
 }
-.s5-arch--low .s5-t > b { border-radius: 46% 46% 24% 24% / 82% 82% 18% 18%; }
+.s5-arch--low .s5-t > b {
+  align-self: start;                     /* lower crowns come up to meet them */
+  border-radius:
+    var(--rc, 46%) var(--rc, 46%) var(--rr, 24%) var(--rr, 24%) /
+    var(--rcv, 82%) var(--rcv, 82%) var(--rrv, 18%) var(--rrv, 18%);
+}
+/* ⚠️ `1fr auto`, so the FDI numbers stay on one line. The roots are different
+   LENGTHS now — a canine is a third longer than a molar — and under implicit
+   `auto auto` each number would sit wherever its own tooth ended, leaving the
+   row of numbers ragged. A `1fr` row takes the height of the tallest tooth in
+   the quadrant and every crown aligns inside it. */
+.s5-t { grid-template-rows: minmax(0, 1fr) auto; }
+
+/* ⚠️ ONE CONSTANT ACROSS ALL FOUR: the CROWN end is the flatter one and the
+   ROOT end always tapers. Only the degree changes. Give a molar similar radii
+   at both ends and it stops being a tooth and becomes a rounded square, which
+   is exactly what the first attempt produced. */
+
+/* molaires — 8 7 6 · broad, a flat occlusal table, a short tapered root */
+.s5-quad:first-child .s5-t:nth-child(-n+3),
+.s5-quad:last-child  .s5-t:nth-child(n+6) {
+  --ar: 1.02; --rr: 34%; --rrv: 44%; --rc: 20%; --rcv: 14%;
+}
+/* prémolaires — 5 4 · narrower, the crown rounds off */
+.s5-quad:first-child .s5-t:nth-child(n+4):nth-child(-n+5),
+.s5-quad:last-child  .s5-t:nth-child(n+4):nth-child(-n+5) {
+  --ar: 0.76; --rr: 36%; --rrv: 52%; --rc: 34%; --rcv: 30%;
+}
+/* canine — 3 · the only pointed crown in the arch, and its longest root */
+.s5-quad:first-child .s5-t:nth-child(6),
+.s5-quad:last-child  .s5-t:nth-child(3) {
+  --ar: 0.60; --rr: 34%; --rrv: 48%; --rc: 48%; --rcv: 78%;
+}
+/* incisives — 2 1 · a blade: straight incisal edge, root tapering away */
+.s5-quad:first-child .s5-t:nth-child(n+7),
+.s5-quad:last-child  .s5-t:nth-child(-n+2) {
+  --ar: 0.70; --rr: 46%; --rrv: 86%; --rc: 12%; --rcv: 9%;
+}
 .s5-t > s {
   font-size: max(0.6em, 8px);
   color: var(--text-faint);
