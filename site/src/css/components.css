@@ -6127,3 +6127,172 @@
 .s5-arch { max-width: 32rem; }
 
 .s5 { padding-block: clamp(2rem, 1.2rem + 2.2vw, 2.375rem); }
+
+
+/* ══ La caisse encaisse une séance, en boucle ═════════════════════════
+   The month grid is untouched — the owner asked for it as it is. What is added
+   is the thing the grid cannot show: one séance arriving, being paid, and
+   landing in the takings without anyone typing it.
+
+   ⚠️ Same machine as section 4: one `data-phase` on an ancestor, transitions
+   answering it. NOT the entrance's `.in`, whose delays are measured from the
+   section's arrival and would replay on every cycle — and NOT a keyframe, which
+   cannot be interrupted half-way when the reader scrolls off. */
+
+/* ⚠️ `<s>` IS A STRIKETHROUGH BY DEFAULT, and this site uses it everywhere as
+   a plain sub-label. Section 3's own blocks each reset it; the elements added
+   here were not covered by any of them, so every patient name and every payment
+   mode rendered with a line through it — which on a takings sheet reads as
+   « annulé », the exact opposite of what the animation is saying. */
+:is(.s3-rdv, .s3-rec) :where(i, em, s, b) { font-style: normal; text-decoration: none; }
+
+.s3-sheet[data-phase] .s3-body { position: relative; }
+
+/* ── La carte du rendez-vous ──────────────────────────────────── */
+.s3-rdv {
+  position: absolute; z-index: 6; left: 0; top: 0;
+  width: min(19rem, 78%);
+  display: grid; gap: 0.3rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.7rem;
+  background: var(--page);
+  border: 1px solid color-mix(in oklab, var(--accent-ink) 34%, var(--rule));
+  box-shadow: 0 18px 40px -18px color-mix(in oklab, var(--ink) 70%, transparent),
+              var(--shadow-lift);
+  opacity: 0; pointer-events: none;
+  transform: translate(var(--fx, 0px), var(--fy, 0px)) scale(0.96);
+  transition: opacity 300ms var(--ease-out), transform 620ms var(--ease-in-out);
+}
+.s3-rdv-k {
+  margin: 0; display: flex; align-items: center; gap: 0.4rem;
+  font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.s3-rdv-k > i {
+  width: 0.5rem; height: 0.5rem; border-radius: 50%;
+  background: var(--accent-ink);
+}
+.s3-rdv-n { margin: 0; display: grid; gap: 0.1rem; }
+.s3-rdv-n > b { font-weight: 500; font-size: 0.9rem; color: var(--text); }
+.s3-rdv-n > s { font-size: 0.78rem; color: var(--text-muted); }
+
+/* The paid stamp is the second beat, so it arrives after the card, never with
+   it: a rendez-vous that is already paid the moment it appears has no story. */
+.s3-rdv-pay {
+  margin: 0.15rem 0 0; display: flex; align-items: center; gap: 0.4rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.8rem;
+  opacity: 0; transform: translateY(0.3em);
+  transition: opacity 280ms var(--ease-out), transform 280ms var(--ease-out);
+}
+.s3-rdv-pay > i {
+  width: 1rem; height: 1rem; border-radius: 50%;
+  background: var(--accent-ink);
+  position: relative; flex: none;
+}
+/* a tick, drawn rather than typed, so it needs no font that carries one */
+.s3-rdv-pay > i::after {
+  content: ""; position: absolute; inset: 0;
+  margin: auto; width: 0.28rem; height: 0.5rem;
+  border: solid var(--page); border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-1px) rotate(45deg);
+}
+.s3-rdv-pay > b { font-weight: 500; color: var(--text); }
+.s3-rdv-pay > s { color: var(--text-muted); }
+.s3-rdv-pay > em {
+  margin-left: auto; font-style: normal; font-weight: 500;
+  color: var(--accent-ink); font-variant-numeric: tabular-nums;
+}
+
+.s3-sheet[data-phase="rdv"] .s3-rdv,
+.s3-sheet[data-phase="paid"] .s3-rdv {
+  opacity: 1; transform: translate(var(--fx), var(--fy)) scale(1);
+}
+.s3-sheet[data-phase="paid"] .s3-rdv-pay { opacity: 1; transform: none; }
+/* ⚠️ IT DIVES INTO THE LIST, it does not land on top of it. Shrinking while
+   the opacity goes puts the card INSIDE the takings rather than over them, and
+   the row it becomes is visible underneath the whole way down. */
+.s3-sheet[data-phase="filed"] .s3-rdv {
+  opacity: 0;
+  transform: translate(var(--fx), var(--fy)) scale(0.42);
+  transition: opacity 380ms var(--ease-out), transform 520ms var(--ease-in-out);
+}
+.s3-sheet[data-phase="filed"] .s3-rdv-pay { opacity: 1; transform: none; }
+
+/* ── Les dernières recettes ─────────────────────────────────── */
+.s3-recs { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.3rem; }
+.s3-rec {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline; gap: 0 0.6rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.5rem;
+  background: color-mix(in oklab, var(--page) 6%, transparent);
+  font-size: clamp(0.68rem, 2.5cqi, 0.8rem);
+  opacity: 0; transform: translateY(0.4em);
+  transition: opacity 420ms var(--ease-out), transform 420ms var(--ease-out);
+  transition-delay: calc(2100ms + var(--i, 0) * 90ms);
+}
+.s3.in .s3-rec { opacity: 1; transform: none; }
+.s3-rec > b { font-weight: 400; color: var(--on-ink); min-width: 0; overflow-wrap: anywhere; }
+.s3-rec > s { grid-column: 1; font-size: 0.9em; color: var(--on-ink-faint); }
+.s3-rec > em {
+  grid-row: 1 / span 2; grid-column: 2; align-self: center;
+  font-style: normal; color: var(--accent-lit);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* The arriving row. It is in the markup from the start — collapsed to nothing,
+   not `display: none` — so the two rows below it are PUSHED DOWN as it opens
+   rather than jumping. A height transition is the one exception the house makes
+   for a list that grows, and `grid-template-rows: 0fr → 1fr` is how it is done
+   without measuring anything in script. */
+.s3-sheet[data-phase] .s3-rec--new {
+  display: grid; grid-template-rows: 0fr;
+  padding-block: 0; margin-bottom: -0.3rem;
+  opacity: 0; transform: none;
+  transition: grid-template-rows 460ms var(--ease-out),
+              opacity 300ms var(--ease-out),
+              padding-block 460ms var(--ease-out),
+              margin-bottom 460ms var(--ease-out);
+}
+.s3-sheet[data-phase] .s3-rec--new > * { min-height: 0; overflow: hidden; }
+.s3-sheet[data-phase="filed"] .s3-rec--new,
+.s3-sheet[data-phase="held"] .s3-rec--new {
+  grid-template-rows: 1fr;
+  padding-block: 0.4rem; margin-bottom: 0; opacity: 1;
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+}
+
+/* ── Le total qui monte ───────────────────────────────────────
+   ⚠️ TWO FIGURES THAT RELAY, not one figure counted up in script. A number
+   rewritten every frame is text thrash on the main thread and it cannot be
+   eased; two stacked spans sliding past each other is transform and opacity,
+   which is what this site allows, and it reads as an odometer. They share one
+   grid cell so the box never changes width and nothing beside it reflows. */
+.s3-fig { display: inline-grid; }
+.s3-fig > i {
+  grid-area: 1 / 1; font-style: normal;
+  transition: opacity 300ms var(--ease-out), transform 420ms var(--ease-in-out);
+}
+.s3-fig-b { opacity: 0; transform: translateY(0.5em); }
+.s3-sheet[data-phase="filed"] .s3-fig-a,
+.s3-sheet[data-phase="held"] .s3-fig-a { opacity: 0; transform: translateY(-0.5em); }
+.s3-sheet[data-phase="filed"] .s3-fig-b,
+.s3-sheet[data-phase="held"] .s3-fig-b { opacity: 1; transform: none; }
+
+/* Espèces is how this one came in, so that column answers with it. */
+.s3-sheet[data-phase="filed"] .s3-modes li:first-child i,
+.s3-sheet[data-phase="held"] .s3-modes li:first-child i {
+  transform: scaleX(1); opacity: 1;
+}
+
+/* ── Sans mouvement : la feuille déjà encaissée ───────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .s3-rdv { display: none; }
+  .s3-sheet[data-phase] .s3-rec--new {
+    grid-template-rows: 1fr; padding-block: 0.4rem; margin-bottom: 0; opacity: 1;
+  }
+  .s3-fig-a { display: none; }
+  .s3-sheet[data-phase] .s3-fig-b { opacity: 1; transform: none; }
+}

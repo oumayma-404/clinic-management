@@ -910,3 +910,81 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   });
   addEventListener('resize', () => { if (alive) place(park()); });
 })();
+
+/* ── « La caisse encaisse une séance » ───────────────────────────
+   Five beats on a loop: the rendez-vous arrives on the month, it is paid, it
+   dives into the takings, the row opens and the total steps up. Cause is on
+   screen before effect every time — the total never moves before the row that
+   explains it.
+
+   ⚠️ THE FLIGHT IS MEASURED. The card starts over the month grid and lands on
+   the takings list, and those two are in different columns whose positions
+   depend entirely on the width — at 62rem they are side by side and below it
+   they are stacked, so the same journey is sideways on a laptop and downwards
+   on a tablet. Constants would be wrong at every width but one. */
+(function () {
+  const sheet = document.querySelector('.s3-sheet');
+  if (!sheet) return;
+  const body = sheet.querySelector('.s3-body');
+  const card = sheet.querySelector('.s3-rdv');
+  const field = sheet.querySelector('.s3-field');
+  const list = sheet.querySelector('.s3-recs');
+  if (!body || !card || !field || !list) return;
+
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  let timer = null, alive = false, seen = false, step = 0;
+
+  const place = (target, dy) => {
+    const b = body.getBoundingClientRect();
+    const t = target.getBoundingClientRect();
+    const c = card.getBoundingClientRect();
+    const x = Math.round(t.left - b.left + (t.width - c.width) / 2);
+    const y = Math.round(t.top - b.top + (dy === undefined ? (t.height - c.height) / 2 : dy));
+    card.style.setProperty('--fx', Math.max(0, Math.min(x, b.width - c.width)) + 'px');
+    card.style.setProperty('--fy', Math.max(0, y) + 'px');
+  };
+
+  const phase = (n) => { sheet.dataset.phase = n; };
+
+  const SCORE = [
+    [0,    () => { phase('rest'); place(field, 40); }],
+    [1200, () => { phase('rdv'); place(field, 40); }],
+    [900,  () => { phase('paid'); }],
+    [1100, () => { phase('filed'); place(list, 0); }],
+    [700,  () => { phase('held'); }],
+    [2800, () => { phase('rest'); place(field, 40); }],
+  ];
+
+  const tick = () => {
+    if (!alive) return;
+    const [wait, run] = SCORE[step];
+    timer = setTimeout(() => {
+      if (!alive) return;
+      run();
+      step = (step + 1) % SCORE.length;
+      tick();
+    }, wait);
+  };
+  const start = () => { if (alive || reduced.matches) return; alive = true; step = 0; tick(); };
+  const stop = () => { alive = false; clearTimeout(timer); };
+
+  if (reduced.matches) { phase('held'); return; }
+
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver((es) => {
+      for (const e of es) {
+        seen = e.isIntersecting;
+        if (seen && !document.hidden) start(); else stop();
+      }
+    }, { threshold: 0.2 }).observe(sheet);
+  } else { seen = true; start(); }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stop(); else if (seen) start();
+  });
+  addEventListener('resize', () => {
+    /* the card must not be left at a position measured for another width */
+    const at = sheet.dataset.phase;
+    if (at === 'filed' || at === 'held') place(list, 0); else place(field, 40);
+  });
+})();
