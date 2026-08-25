@@ -4040,7 +4040,6 @@
   line-height: 1.1; letter-spacing: -0.018em;
   text-wrap: balance; max-width: 20ch;
 }
-.s6-lede { font-size: var(--t-body); line-height: 1.5; color: var(--text-muted); }
 
 .s6-rise {
   opacity: 0; transform: translateY(0.75rem);
@@ -4124,7 +4123,6 @@
 
 @media (hover: hover) and (pointer: fine) {
   .s6-row:hover .s6-num { color: color-mix(in oklab, var(--zc) 80%, var(--text)); }
-  .s6-row--ink:hover .s6-num { color: var(--accent-lit); }
 }
 
 /* ── 01 · the backup rail, kept from the version before ───────────────────
@@ -4319,41 +4317,6 @@
 }
 .s6-dev > span { font-size: 0.6875rem; color: var(--text-muted); }
 
-/* ── 05 · the ink answer ──────────────────────────────────────────────────
-   The one change of material in the section, spent on the one answer that
-   has nothing to show. It carries no drawing on purpose: a claim with no
-   evidence behind it must not be dressed as though it had some. */
-
-.s6-row--ink {
-  --zc: var(--accent);
-  grid-template-areas: "num" "txt" "ans";
-  margin-top: clamp(1.25rem, 0.8rem + 1.6vw, 2rem);
-  padding: clamp(1.5rem, 1.1rem + 1.7vw, 2.25rem) clamp(1.25rem, 0.9rem + 1.5vw, 2rem);
-  border-radius: var(--r-card);
-  color: var(--on-ink);
-  background:
-    radial-gradient(76% 130% at 97% -20%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 66%),
-    var(--ink-2);
-  box-shadow: var(--shadow-card);
-}
-.s6-row + .s6-row.s6-row--ink { border-top: 0; }
-.s6-row--ink .s6-num { color: var(--on-ink-faint); }
-.s6-row--ink .s6-q { grid-area: txt; color: var(--on-ink); max-width: 18ch; }
-.s6-row--ink .s6-a { grid-area: ans; color: var(--on-ink-muted); max-width: 42ch; }
-
-@media (min-width: 48rem) {
-  .s6-row--ink { grid-template-areas: "num txt" ".   ans"; row-gap: 0.75rem; }
-}
-@media (min-width: 62rem) {
-  .s6-row--ink {
-    grid-template-columns: 4rem minmax(0, 1fr) minmax(0, 24rem);
-    grid-template-areas: "num txt ans";
-    align-items: start;
-    row-gap: 0;
-  }
-  .s6-row--ink .s6-a { padding-top: 0.375rem; }
-}
-
 /* ── 320 ──────────────────────────────────────────────────────────────────
    The rail's nine cells are 28 px each at 320. The dots keep their size —
    the shape of the drawing is the explanation — so it is the type that gives
@@ -4415,6 +4378,96 @@
 /* 2 · The export mark is no longer a filename, so it is no longer set in a
    width that was sized for one. */
 .s6-file { letter-spacing: 0.01em; }
+
+/* 3 · THE SECTION WAS THE PAGE'S TALLEST BLOCK FOR ITS LEAST MATERIAL, and
+   it is now its shortest. The owner: « name it like faq, and it's taking too
+   much space. » Measured at 1440 before this pass: 1 249 px for five
+   questions, 1 592 px at 390. The spine's own geometry is what paid for it —
+   the question is capped at 24ch (350 px) and the answer at 46ch (488 px)
+   inside a 775 px column, so every row spent ~290 px of empty middle before
+   the mark's own 17rem column even began, and five rows spent it five times.
+
+   SO THE PUPITRE FOLDS. Above 62rem the rows become a 2 x 2 QUADRANT of the
+   four remaining questions, parted by the same hairlines — one of them
+   vertical now, which is the chassis's own signature, not a new device — and
+   each mark moves back under its own words, into the column those words
+   already have. Nothing is hidden, nothing is shrunk, no answer is cut: the
+   same reader gets the same four answers in 747 px instead of 1 249 (-40 %).
+
+   Between 48 and 62rem the row keeps its spine and the mark moves out BESIDE
+   the words instead of under them — 14rem is more than any of the four
+   drawings needs, and the answers never used the width it takes back
+   (1 092 -> 799 px at 820).
+
+   ⚠️ THE ROW'S OWN COLUMNS MUST BE REWRITTEN IN THE SAME BREAKPOINT that
+   turns the quadrant on. The 62rem rule above gives the row three tracks
+   (num / txt / mark); a cell that inherits three tracks inside a half-width
+   column drops its mark into a track that no longer has room, and the
+   quadrant silently comes out as two thin ruined columns.
+
+   05 IS GONE — « Depuis quand le logiciel existe-t-il ? », the section's one
+   ink row, cut by the owner. It was also the page's only sentence saying the
+   product is new. Section 7 still carries the thirty days and the « sans
+   carte », so the risk reversal survives the cut; the plain-transparency
+   line does not, and nothing else on the page makes it. Its CSS is deleted
+   rather than overridden — a rule for a class no page carries is dead — and
+   `.s6-lede` goes with it, its one line (« Cinq questions, cinq reponses
+   courtes ») having counted a row that is no longer there. */
+
+.s6 { padding-block: clamp(3rem, 2rem + 3.4vw, 4.5rem); }
+.s6-head { gap: 0.625rem; margin-bottom: clamp(1.5rem, 0.9rem + 1.9vw, 2.25rem); }
+.s6-h2 { max-width: 26ch; }
+.s6-row { padding-block: clamp(1.125rem, 0.9rem + 1vw, 1.5rem); row-gap: 0.375rem; }
+
+/* Three files across instead of down. Stacked, they were the tallest drawing
+   in the section — 110 px to say three words — and the row they sit in was
+   110 px tall because of it. */
+.s6-mark--out { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+
+/* ── 48rem and up · the spine, with the mark beside the words ──────────────
+   ⚠️ NO `and (max-width: 61.9375rem)` HERE, even though this band ends where
+   the quadrant begins. A viewport is fractional — 991.33 px on this machine
+   at a nominal 991 — so a max-width one sixteenth of a rem below the next
+   min-width leaves widths that match NEITHER band, and the row falls back to
+   the phone's stack in a window a pixel wide. The bands overlap instead, and
+   the quadrant below re-declares every property this one sets. */
+@media (min-width: 48rem) {
+  .s6-row {
+    grid-template-columns: 2.75rem minmax(0, 1fr) 14rem;
+    grid-template-areas: "num txt mark";
+    column-gap: 1.25rem;
+    align-items: center;
+  }
+  .s6-num { align-self: start; margin-top: 0.1875rem; }
+  .s6-mark { margin-top: 0; max-width: none; }
+}
+
+/* ── 62rem and up · the quadrant ──────────────────────────────────────── */
+@media (min-width: 62rem) {
+  .s6-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .s6-row {
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+    grid-template-areas: "num txt" ".   mark";
+    column-gap: 0.875rem;
+    align-items: start;
+    padding-block: clamp(1.375rem, 0.6rem + 1.4vw, 1.875rem);
+  }
+  /* The hairlines are the quadrant's own: one across, under the top pair,
+     one down, and it is the gutter — the cells pad away from it by half of
+     what they would have had as a column-gap, so the line sits centred
+     between two texts and not against one of them. */
+  .s6-row + .s6-row { border-top: 0; }
+  .s6-row:nth-child(n + 3) { border-top: 1px solid var(--rule); }
+  .s6-row:nth-child(odd) { padding-inline-end: clamp(1.5rem, 0.2rem + 2.4vw, 3rem); }
+  .s6-row:nth-child(even) {
+    padding-inline-start: clamp(1.5rem, 0.2rem + 2.4vw, 3rem);
+    border-inline-start: 1px solid var(--rule);
+  }
+
+  .s6-num { margin-top: 0.1875rem; }
+  .s6-mark { margin-top: 0.875rem; max-width: 19rem; }
+}
 
 /* ── 7 · L'essai et le prix ─────────────────────────────────────── */
 /* ══════════════════════════════════════════════════════════════════════════

@@ -724,3 +724,52 @@ looks like a design that came out wrong.
 « 23 · Conçu en Tunisie: the proof grid », 103 `.tn-*` rules from a version before the current
 one. Nothing in `index.html`, `nav.html` or `footer.html` uses a `tn-` class — the only matches
 are `btn-primary` and `btn-ghost` containing the substring. It goes with the same edit.
+
+## Pass 11 — la FAQ, pliée en quadrant (25 août)
+
+The owner: « name it like faq, and it's taking too much space, try to reduce its length … and
+remove this section: Depuis quand le logiciel existe-t-il ? »
+
+**Named.** Eyebrow « Questions » → **« FAQ »**, title « Ce qu'on se demande avant de commencer » →
+**« Les questions qu'on nous pose »**, and the section id `#questions` → **`#faq`** (nothing linked
+to the old one — checked `nav.html`, `footer.html` and every page before renaming it). The lede
+(« Cinq questions, cinq réponses courtes ») is gone: it counted a row that no longer exists, and
+the eyebrow now says what it said.
+
+**Shortened, and the numbers are the point.** Nothing was hidden, shrunk or cut short — the
+section's own geometry is what was spending the space. The question was capped at 24ch and the
+answer at 46ch inside a 775 px column, so each row paid ~290 px of empty middle before the mark's
+17rem column even started, five times over. Above 62rem the five rows now fold into a **2 × 2
+quadrant** parted by the same hairlines (one of them vertical — the chassis's own signature), each
+mark back under its own words; between 48 and 62rem the row keeps its spine and the mark moves out
+**beside** the words; the three CSV files lie across instead of down (they were 110 px of drawing
+for three words).
+
+| | before | after |
+|---|---|---|
+| 1440 | 1 249 px | **747 px** (−40 %) |
+| 991 | 1 125 px | **807 px** |
+| 820 | 1 092 px | **799 px** |
+| 390 | 1 592 px | **1 158 px** (−27 %) |
+| 320 | — | **1 247 px** |
+| whole page | 7 419 / 10 172 px | **6 918 / 9 738 px** |
+
+Verified in Chrome at 320 · 390 · 768 · 820 · 991 · 992 · 1180 · 1440: no horizontal overflow at
+any of them, the reveal still fires and every mark resolves (ticks in, fill at rest, chips in).
+
+⚠️ **A `max-width` one sixteenth of a rem below the next `min-width` leaves a gap.** The first
+version of the middle band was `(min-width: 48rem) and (max-width: 61.9375rem)`, which is the
+usual way to write it — and at a nominal 991 px this machine reports a viewport of **991.33**, so
+that width matched NEITHER band and the row fell back to the phone's stack. The bands overlap
+instead (`min-width: 48rem`, then `min-width: 62rem` re-declaring every property).
+
+⚠️ **05 was the page's only sentence saying the product is new.** « Il est récent, et nous le
+disons » went with the row. §7 still carries the thirty days and the « sans carte », so the risk
+reversal itself survives — but of the four things named at the top of this brief as carrying
+credibility in place of third-party proof, *plain transparency about being new* is no longer said
+anywhere on the page.
+
+⚠️ **Another session was committing in this repo while this pass was being written.** Commit
+`c67f2b7` (« la caisse encaisse une séance sous vos yeux ») swept up the finished `index.html`
+half of this work along with its own — the FAQ markup is in that commit, under that message, and
+only the CSS was left to commit as this pass.
