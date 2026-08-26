@@ -160,18 +160,27 @@ export function SuppliersTable({ createRequest = 0 }: SuppliersTableProps) {
 
   const toggleActive = async (supplier: SupplierDto) => {
     try {
+      /*
+       * Re-read before writing, and build the payload from the FRESH row — not from the list.
+       *
+       * This row was rendered when the list loaded and the payload re-sends five fields, so a colleague's edit
+       * since then would be silently reverted by a toggle, and their version would 409 a click that changed
+       * nothing but the flag. Both come from treating a list snapshot as current. The toggle is not a form:
+       * there is nothing typed to preserve, so the freshest copy is simply the right thing to save.
+       */
+      const current = (await suppliersApi.list()).find((s) => s.id === supplier.id) ?? supplier
       // Only the flag and the fields the server needs to re-validate the record — `isActive` is tri-state, so
       // every other save leaves it alone.
-      await suppliersApi.update(supplier.id, {
-        name: supplier.name,
-        category: supplier.category,
-        phoneNumber: supplier.phoneNumber,
-        address: supplier.address,
-        notes: supplier.notes,
-        isActive: !supplier.isActive,
-        version: supplier.version,
+      await suppliersApi.update(current.id, {
+        name: current.name,
+        category: current.category,
+        phoneNumber: current.phoneNumber,
+        address: current.address,
+        notes: current.notes,
+        isActive: !current.isActive,
+        version: current.version,
       })
-      toast.success(supplier.isActive ? "Fournisseur désactivé" : "Fournisseur réactivé")
+      toast.success(current.isActive ? "Fournisseur désactivé" : "Fournisseur réactivé")
       void load()
     } catch (err) {
       showErrorToast(err)

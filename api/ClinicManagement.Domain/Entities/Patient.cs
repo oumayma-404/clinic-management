@@ -306,6 +306,27 @@ public class Patient : AggregateRoot<Guid>
         }
     }
 
+    /// <summary>
+    /// Files an antecedent against this patient.
+    /// </summary>
+    /// <remarks>
+    /// <b>Deliberately does NOT stamp <c>UpdatedAt</c>, and neither do the three collection methods below
+    /// it.</b> A child row changed; the patient’s own fields did not.
+    /// <para>
+    /// On this entity that distinction is not academic. <c>Version</c> maps onto PostgreSQL’s <c>xmin</c>,
+    /// which advances on <i>any</i> UPDATE of the row — so writing <c>UpdatedAt</c> here moved the concurrency
+    /// token a patient form was holding. The front end saves a patient by PUTting the patient and then writing
+    /// each history entry in turn, and every entry bumped the token again, so the version returned by the PUT
+    /// was stale before the save sequence had finished and the next save was refused with « cet enregistrement
+    /// a été modifié par quelqu’un d’autre », naming a colleague who did not exist. A sequence that failed
+    /// partway was worse: the form kept a version no later click could match, until a full page reload.
+    /// </para>
+    /// <para>
+    /// Nothing reads <c>Patient.UpdatedAt</c> — it is persisted and never queried, sorted or projected — so the
+    /// stamp was buying nothing and costing that. <c>AddFlag</c> keeps its own stamp: its only callers are
+    /// <c>UpdatePatientCommand</c> and the create path, which write the patient row in the same SaveChanges.
+    /// </para>
+    /// </remarks>
     public void AddMedicalHistoryEntry(PatientMedicalHistory entry)
     {
         if (entry == null)
@@ -314,7 +335,6 @@ public class Patient : AggregateRoot<Guid>
         if (!_medicalHistoryEntries.Contains(entry))
         {
             _medicalHistoryEntries.Add(entry);
-            UpdatedAt = DateTime.UtcNow;
         }
     }
 
@@ -324,7 +344,6 @@ public class Patient : AggregateRoot<Guid>
         if (entry != null)
         {
             _medicalHistoryEntries.Remove(entry);
-            UpdatedAt = DateTime.UtcNow;
         }
     }
 
@@ -336,7 +355,6 @@ public class Patient : AggregateRoot<Guid>
         if (!_familyHistoryEntries.Contains(entry))
         {
             _familyHistoryEntries.Add(entry);
-            UpdatedAt = DateTime.UtcNow;
         }
     }
 
@@ -346,7 +364,6 @@ public class Patient : AggregateRoot<Guid>
         if (entry != null)
         {
             _familyHistoryEntries.Remove(entry);
-            UpdatedAt = DateTime.UtcNow;
         }
     }
 

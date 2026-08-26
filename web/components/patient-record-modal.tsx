@@ -19,6 +19,7 @@ import { odontogramApi } from "@/lib/api/odontogram"
 import { showErrorToast } from "@/lib/errors"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { toast } from "sonner"
 import type {
   ProcedureTypeDto,
@@ -189,6 +190,18 @@ export function PatientRecordModal({
   const guard = useDirtyGuard(open, onOpenChange)
   // A save conflict stays in the form; everything else keeps the existing toast.
   const conflict = useConflict()
+  /*
+   * The version this fiche saves with, kept equal to the row's current one — a fiche is re-saved more than
+   * anything else in the app (« re-saving tops the note up »), so a version that drifts is felt here first.
+   * ⚠️ The VERSION only: the read lands after hydration, so its field values would clobber what was typed.
+   * There is no GET-by-id for a fiche, so the patient's own list is the read.
+   */
+  const { source: freshRecord, resync } = useFreshVersion(
+    open,
+    patientId && record ? record.id : null,
+    record,
+    async () => (await dentalRecordsApi.list(patientId!)).find((r) => r.id === record!.id) ?? null,
+  )
 
   /**
    * The refusal that blocked the last « Confirmer », **anchored to the part of the form that caused it**.
@@ -552,7 +565,10 @@ export function PatientRecordModal({
       }
 
       const saved = record
-        ? await dentalRecordsApi.update(patientId, record.id, { ...recordData, version: record.version })
+        ? await dentalRecordsApi.update(patientId, record.id, {
+            ...recordData,
+            version: freshRecord?.version ?? record.version,
+          })
         : await dentalRecordsApi.create(patientId, recordData)
 
       // « Montant payé » now becomes real money — the note d'honoraires is issued and the payment recorded on
@@ -616,6 +632,9 @@ export function PatientRecordModal({
       // A conflict is not a transient blip — a colleague saved this fiche while it was open — so it stays
       // in the form rather than flashing past in a toast.
       if (!conflict.capture(err, "Erreur lors de l'enregistrement de la fiche.")) {
+        // The fiche may have saved and only the billing failed, which leaves the row a version ahead of this
+        // form. Not on the conflict branch: resyncing a real 409 would overwrite the colleague who caused it.
+        await resync()
         showErrorToast(err, "Erreur lors de l'enregistrement de la fiche.")
       }
     } finally {

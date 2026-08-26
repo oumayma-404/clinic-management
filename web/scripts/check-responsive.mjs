@@ -713,6 +713,41 @@ check(
   },
 );
 
+check(
+  "version-from-a-read",
+  "P9",
+  "A round-tripped `version` comes from a server read, not from a prop or a list row",
+  "Every update that echoes a `version` is checked against the row's `xmin`, and a mismatch is a 409 reading " +
+    "« cet enregistrement a été modifié par quelqu'un d'autre ». A prop is a snapshot taken when the row was " +
+    "clicked and a list row is as old as the last refetch — and the user's OWN save moves the version further " +
+    "than the screen is told (saving a patient writes the patient, then each history entry, each of which touches " +
+    "the patient row again). So the message fires on a record nobody else opened, and after a save that failed " +
+    "partway it fires on every click until a full page reload. The row must be re-read: `useFreshVersion` for a " +
+    "form, or a direct read before the write for a list-row action.",
+  () => {
+    // A version taken off an object — `version: x.version`, `version: a?.version ?? b.version`. A literal
+    // (`version: 0`, the documented "not supplied") is not a round-trip and is not in scope.
+    const SENDS = /version:\s*[A-Za-z_$][\w$]*\s*\??\./;
+    const READS = /(?:useFreshVersion|Api\.(?:get|list)\()/;
+    const hits = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      const lines = src.split(/\r?\n/);
+      const inComment = commentMask(lines);
+      const sender = lines.findIndex((line, i) => !inComment[i] && SENDS.test(line));
+      if (sender === -1) continue;
+      if (READS.test(src)) continue;
+      hits.push({
+        file: rel(file),
+        line: sender + 1,
+        text: "sends a version it never re-read",
+        full: lines[sender].trim(),
+      });
+    }
+    return hits;
+  },
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

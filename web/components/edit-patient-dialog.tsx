@@ -36,6 +36,7 @@ import {
 import { toast } from "sonner"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { User, Phone, Heart, CreditCard, Flag, Save, X, Plus, Trash2, StickyNote, AlertTriangle, Shield } from "lucide-react"
 import { RecordSection } from "@/components/record/record-section"
 import { cn } from "@/lib/utils"
@@ -239,6 +240,18 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   // The one editing surface in the app with no form-level error display: a failed save produced a toast
   // that disappeared while the dialog sat there looking fine.
   const conflict = useConflict()
+  /*
+   * The version this form saves with, kept equal to the row's current one.
+   *
+   * ⚠️ Only the VERSION is taken from here — never the field values. The fresh read lands after the form has
+   * hydrated, so feeding it back would overwrite whatever the user had already typed.
+   */
+  const { source: freshPatient, resync } = useFreshVersion(
+    open,
+    patient?.id,
+    patient,
+    () => patientsApi.get(patient!.id),
+  )
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   /**
@@ -696,9 +709,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           // "leave it alone" and clearing the box would silently do nothing.
           phoneNumber: phone.trim() || null,
           email: email.trim() || null,
-          // The version this form was hydrated from — so a peer's save in the meantime is a 409, not a
-          // silent overwrite of their work.
-          version: patient.version,
+          // The row's version as last read from the server — so a peer's save in the meantime is a 409, not a
+          // silent overwrite of their work, and our own previous save is not mistaken for one.
+          version: freshPatient?.version ?? patient.version,
           address: addressObj,
           emergencyContactName: emergencyName.trim(),
           emergencyContactPhone: emergencyPhone.trim(),
@@ -909,6 +922,12 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       // A conflict stays on screen with a reload; anything else keeps the familiar toast as well, since
       // those are usually transient and the user may already have looked away.
       if (!conflict.capture(err, fallback)) {
+        /*
+         * The patient PUT may well have landed before a later history write threw, which leaves the row a
+         * version ahead of this form. Re-reading here is what stops the next click being told a colleague
+         * edited it — the conflict branch deliberately does NOT resync, or a retry would overwrite a real one.
+         */
+        await resync()
         toast.error(patient ? "Erreur lors de la mise à jour" : "Erreur lors de la création", {
           description: conflict.error ?? fallback,
           duration: 4000,

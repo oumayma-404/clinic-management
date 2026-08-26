@@ -21,6 +21,7 @@ import { ApiError } from "@/lib/api/client"
 import { suppliersApi, SUPPLIER_DUPLICATE_CODE } from "@/lib/api/suppliers"
 import type { SupplierDto } from "@/lib/api/types"
 import { isDeliverablePhone } from "@/lib/phone"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 
 /**
  * Create / edit a fournisseur.
@@ -61,6 +62,14 @@ export function SupplierFormDialog({
   const [nameError, setNameError] = useState("")
   const [banner, setBanner] = useState("")
   const [saving, setSaving] = useState(false)
+  // The version this form saves with, kept equal to the row's current one. ⚠️ The VERSION only — the read
+  // lands after hydration, so its values would replace what the user typed. Suppliers have no GET-by-id.
+  const { source: freshSupplier, resync } = useFreshVersion(
+    open,
+    editing?.id,
+    editing,
+    async () => (await suppliersApi.list()).find((s) => s.id === editing!.id) ?? null,
+  )
 
   useEffect(() => {
     setName(editing?.name ?? "")
@@ -95,7 +104,10 @@ export function SupplierFormDialog({
     try {
       setSaving(true)
       const saved = editing
-        ? await suppliersApi.update(editing.id, { ...payload, version: editing.version })
+        ? await suppliersApi.update(editing.id, {
+            ...payload,
+            version: freshSupplier?.version ?? editing.version,
+          })
         : await suppliersApi.create(payload)
       toast.success(editing ? "Fournisseur mis à jour" : "Fournisseur ajouté")
       onOpenChange(false)
@@ -107,6 +119,9 @@ export function SupplierFormDialog({
       } else {
         setBanner(err instanceof ApiError ? err.message : "L'enregistrement du fournisseur a échoué.")
       }
+      // A non-conflict failure may still have moved the row; a real 409 is left alone, or the retry would
+      // silently overwrite the colleague who caused it.
+      if (!(err instanceof ApiError && err.status === 409)) await resync()
     } finally {
       setSaving(false)
     }

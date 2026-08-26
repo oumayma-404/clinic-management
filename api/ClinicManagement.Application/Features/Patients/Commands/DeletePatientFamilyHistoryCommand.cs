@@ -45,8 +45,8 @@ public class DeletePatientFamilyHistoryCommandHandler : IRequestHandler<DeletePa
             }
 
             patient.RemoveFamilyHistoryEntry(request.Id);
-            // Update only the patient's UpdatedAt property (entry removal is automatically tracked)
-            await _patientRepository.UpdateAsync(patient, cancellationToken);
+            // No write to the patient row. A history entry is a child, and on this entity `UpdatedAt` shares
+            // its row with the concurrency token — stamping it here refused the user’s own next save.
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Result.Success();

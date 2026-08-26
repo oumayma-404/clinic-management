@@ -28,6 +28,7 @@ import { dentalActsApi } from "@/lib/api/dental-acts"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import type { TreatmentPlanDto, PatientDto, DentalActDto, ProcedureTypeDto } from "@/lib/api/types"
 import { formatAmount, formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
 import { ToothMultiSelect } from "@/components/tooth-multiselect"
@@ -183,6 +184,14 @@ export function TreatmentPlanFormModal({
   const [error, setError] = useState<string | null>(null)
   const guard = useDirtyGuard(open, onOpenChange)
   const conflictStreak = useRef(0)
+  // The version this devis saves with, kept equal to the row's current one. ⚠️ The VERSION only — the read
+  // lands after hydration, so its items and échéances would replace what the user has edited.
+  const { source: freshPlan, resync } = useFreshVersion(
+    open,
+    editingPlan?.id,
+    editingPlan,
+    () => treatmentPlansApi.get(editingPlan!.id),
+  )
 
   const isEditing = !!editingPlan
   const isAmending = amendMode && !!editingPlan
@@ -552,14 +561,16 @@ export function TreatmentPlanFormModal({
           // Tri-state server-side and always sent: it compares against the stored value, so an unchanged note
           // is not counted as an amendment and does not bump the révision.
           notes: notes.trim() || null,
-          // The copy this form was hydrated from, so a peer's edit 409s instead of overwriting their fees.
-          version: editingPlan.version,
+          // The row's version as last read, so a peer's edit 409s instead of overwriting their fees — and
+          // our own earlier write is not mistaken for one.
+          version: freshPlan?.version ?? editingPlan.version,
         })
         toast.success("Devis modifié")
         onSuccess?.()
         onOpenChange(false)
       } catch (err) {
         setError(conflictMessage(err, "Échec de la modification du devis.", conflictStreak))
+        if (!(err instanceof ApiError && err.status === 409)) await resync()
       } finally {
         setLoading(false)
       }
@@ -575,7 +586,10 @@ export function TreatmentPlanFormModal({
           items: parsedLines,
           installments: parsedInstallments,
         }
-        await treatmentPlansApi.update(editingPlan.id, { ...payload, version: editingPlan.version })
+        await treatmentPlansApi.update(editingPlan.id, {
+          ...payload,
+          version: freshPlan?.version ?? editingPlan.version,
+        })
         toast.success("Plan de traitement mis à jour")
       } else {
         const payload: CreateTreatmentPlanRequest = {
@@ -596,6 +610,9 @@ export function TreatmentPlanFormModal({
       onOpenChange(false)
     } catch (err) {
       setError(conflictMessage(err, "Échec de l'enregistrement du plan.", conflictStreak))
+      // A non-conflict failure may still have moved the row; a real 409 is left alone, or the retry would
+      // silently overwrite the colleague who caused it.
+      if (!(err instanceof ApiError && err.status === 409)) await resync()
     } finally {
       setLoading(false)
     }

@@ -66,14 +66,13 @@ public class CreatePatientFamilyHistoryCommandHandler : IRequestHandler<CreatePa
                 request.Condition,
                 request.Notes);
 
-            // Update patient's UpdatedAt timestamp
             patient.AddFamilyHistoryEntry(entry);
             
             // Add the entry directly to the repository (adds to DbSet)
             await _patientRepository.AddFamilyHistoryEntryAsync(entry, cancellationToken);
             
-            // Update only the patient's UpdatedAt property
-            await _patientRepository.UpdateAsync(patient, cancellationToken);
+            // No write to the patient row. A history entry is a child, and on this entity `UpdatedAt` shares
+            // its row with the concurrency token — stamping it here refused the user’s own next save.
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var dto = new PatientFamilyHistoryDto

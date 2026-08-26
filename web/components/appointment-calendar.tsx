@@ -1279,9 +1279,19 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
        * defect `edit-appointment-dialog.tsx` names), and sending the duration would let a move quietly relengthen
        * a visit — AC-5 says a moved appointment keeps its own length.
        */
+      /*
+       * The version is re-read, not taken from the calendar's own list.
+       *
+       * A calendar can sit open for hours, and the version on this card is as old as the last refetch — so a
+       * move would 409 over the clinic's own earlier writes (the post-commit Google Calendar push stamps
+       * `GoogleCalendarEventId` after the response has gone out, which alone is enough to age every card).
+       * Nothing is lost by refreshing it: the payload below carries only the new instant, so a colleague's
+       * edit to any other field survives the move untouched.
+       */
+      const current = await appointmentsApi.get(appointment.id).catch(() => appointment)
       await appointmentsApi.update(appointment.id, {
         appointmentDateTime: start.toISOString(),
-        version: appointment.version,
+        version: current.version,
         allowOutsideWorkingHours: moveGrantsRef.current.hours || undefined,
         allowOverlap: moveGrantsRef.current.overlap || undefined,
       })

@@ -5,6 +5,7 @@ import type React from "react"
 import { useState, useEffect, useRef } from "react"
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Button } from "@/components/ui/button"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
@@ -129,6 +130,14 @@ export function InvoiceFormModal({
   const [error, setError] = useState<string | null>(null)
   const guard = useDirtyGuard(open, onOpenChange)
   const conflictStreak = useRef(0)
+  // The version this draft saves with, kept equal to the row's current one. ⚠️ The VERSION only — the read
+  // lands after hydration, so its lines would replace whatever the user has already edited.
+  const { source: freshInvoice, resync } = useFreshVersion(
+    open,
+    editingInvoice?.id,
+    editingInvoice,
+    () => invoicesApi.get(editingInvoice!.id),
+  )
 
   const isEditing = !!editingInvoice
   const selectedPatient = patients.find((p) => p.id === patientId)
@@ -319,7 +328,7 @@ export function InvoiceFormModal({
         await invoicesApi.update(editingInvoice.id, {
           patientId,
           lines: parsedLines,
-          version: editingInvoice.version,
+          version: freshInvoice?.version ?? editingInvoice.version,
         })
         toast.success("Brouillon mis à jour")
       } else {
@@ -334,6 +343,9 @@ export function InvoiceFormModal({
       onOpenChange(false)
     } catch (err) {
       setError(conflictMessage(err, "Échec de l'enregistrement de la facture.", conflictStreak))
+      // A non-conflict failure may still have moved the row, so the next click must not inherit a stale
+      // version. A real 409 is left alone — resyncing it would let the retry overwrite the other person.
+      if (!(err instanceof ApiError && err.status === 409)) await resync()
     } finally {
       setLoading(false)
     }
