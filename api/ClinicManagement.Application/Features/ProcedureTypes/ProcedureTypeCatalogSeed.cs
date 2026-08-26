@@ -19,7 +19,24 @@ public static class ProcedureTypeCatalogSeed
 {
     public sealed record SeedRow(string Name, int DurationMinutes, decimal DefaultCost, string Category);
 
-    // Category → palette colour (must be a value ColorHex accepts / the frontend palette mirrors).
+    /// <summary>
+    /// Category → palette colour (must be a value <see cref="ColorHex"/> accepts; the picker's palette is served
+    /// from there, so there is no second copy to keep in step).
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ <b>Every category must own a distinct hex, and two pairs did not.</b> « Esthétique » shipped on
+    /// « Orthodontie »'s <c>#FB7185</c> and « Pédodontie » on « Parodontologie »'s <c>#6BAA75</c>, so four
+    /// disciplines rendered as two colours: a facette and a séance orthodontique were the same pink in the agenda,
+    /// and a détartrage and a soin d'enfant the same green. The colour is the only thing distinguishing two
+    /// appointment blocks at a glance, so the collision cost exactly the capability it exists to provide — and it
+    /// was invisible in code review, because each line is correct on its own.
+    /// <para>
+    /// The replacements are the <i>Clair</i> nuance of the same hue family the collision was in, so the discipline
+    /// still reads as related to its neighbour rather than as an unrelated new colour:
+    /// « Esthétique » → rose Clair, « Pédodontie » → vert Clair. <c>CategoryColoursAreDistinctTests</c> is the
+    /// derived guard; a thirteenth category that reuses a hex fails there rather than in a cabinet's agenda.
+    /// </para>
+    /// </remarks>
     private static readonly Dictionary<string, string> CategoryColors = new()
     {
         ["Consultation"] = "#6C757D",
@@ -32,8 +49,8 @@ public static class ProcedureTypeCatalogSeed
         ["Prothèse amovible"] = "#5EEAD4",
         ["Implantologie"] = "#E9A23B",
         ["Orthodontie"] = "#FB7185",
-        ["Esthétique"] = "#FB7185",
-        ["Pédodontie"] = "#6BAA75",
+        ["Esthétique"] = "#F79AA6",
+        ["Pédodontie"] = "#93C79C",
     };
 
     private const string FallbackColor = "#6C757D";

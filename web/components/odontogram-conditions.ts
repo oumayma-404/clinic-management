@@ -24,7 +24,22 @@ export const CONDITIONS: Record<string, ConditionStyle> = {
   Bridge: { label: "Bridge", box: "bg-teal-500 text-white border-teal-600", swatch: "bg-teal-500", color: "#14b8a6" },
   Implant: { label: "Implant", box: "bg-slate-600 text-white border-slate-700", swatch: "bg-slate-600", color: "#475569" },
   ExtraitAbsent: { label: "Extrait / Absent", box: "bg-gray-300 text-gray-500 border-gray-400 line-through dark:bg-gray-700 dark:text-gray-400", swatch: "bg-gray-300 dark:bg-gray-700", color: "#9ca3af" },
-  ATraiter: { label: "À traiter", box: "bg-orange-400 text-white border-orange-500", swatch: "bg-orange-400", color: "#fb923c" },
+  /*
+   * ⚠️ Rose, and it must NOT go back to the orange family. « À traiter » was `orange-400` (#fb923c) against
+   * « Couronne »'s `amber-500` (#f59e0b) — **ΔE 18**, the closest pair in this legend by a wide margin and the
+   * only one under 25. At the 12 px swatch the legend draws, and at the size a charted tooth is read from a
+   * metre away, gold and light orange are the same colour: a crown already placed and a tooth still waiting for
+   * work looked alike on the one diagram whose whole job is to tell them apart.
+   *
+   * `pink-500` takes its nearest neighbour to ΔE 48, and the neighbour it lands next to is « Carie » — which is
+   * the right one, because those two are exactly `NEEDS_TREATMENT_CONDITIONS` below and reading as a warm pair
+   * is a true statement about them. Couronne keeps amber: gold for a crown is the charting convention this
+   * palette exists to honour, so the plan marker is what moves, not the clinical state.
+   *
+   * White text on it also measures 3.53:1 against orange-400's 2.26:1 — still under the 4.5 floor, so the box
+   * is not a place to print small type, but strictly better than what it replaces.
+   */
+  ATraiter: { label: "À traiter", box: "bg-pink-500 text-white border-pink-600", swatch: "bg-pink-500", color: "#ec4899" },
 }
 
 // Order for the condition <Select> and the legend.
