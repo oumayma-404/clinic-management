@@ -1169,13 +1169,37 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                             setDentition(value)
                             setDentitionTouched(true)
                           }}
+                          /*
+                            ⚠️ Two separate things make this read as a choice, and it needed both.
+
+                            The fill: `bg-card`, not `bg-background`. Page-ground fill under `text-muted-foreground`
+                            is how this app paints an *inert* surface, so on « Ajouter un patient » — where no
+                            birthdate has been typed yet and therefore neither option is pre-selected from the age —
+                            a required field rendered as two greyed-out boxes that read as disabled inputs.
+
+                            The marker: a real radio dot. `bg-card` alone was not enough, because the geometry here
+                            is an input's — full width, bordered, left-aligned text — so once it went white it read
+                            as a *text field* instead. The durée presets in `create-appointment-dialog` get away
+                            with `bg-card` and no marker only because they are short, centred, button-shaped chips;
+                            these labels are sentences and cannot be. With neither option chosen, the two hollow
+                            circles are also the only thing on screen saying an answer is still owed.
+                          */
                           className={cn(
-                            "flex-1 rounded-md border px-3 py-2 text-left text-sm transition-colors duration-150 ease-out motion-reduce:transition-none",
+                            "flex flex-1 items-center gap-2.5 rounded-md border px-3 py-2 text-left text-sm transition-colors duration-150 ease-out motion-reduce:transition-none",
                             selected
                               ? "border-primary bg-primary/10 font-medium text-foreground"
-                              : "bg-background text-muted-foreground hover:bg-muted/60",
+                              : "bg-card text-foreground hover:bg-muted/60",
                           )}
                         >
+                          <span
+                            aria-hidden="true"
+                            className={cn(
+                              "flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors duration-150 ease-out motion-reduce:transition-none",
+                              selected ? "border-primary" : "border-input",
+                            )}
+                          >
+                            {selected && <span className="size-2 rounded-full bg-primary" />}
+                          </span>
                           {DENTITION_LABELS_FR[value]}
                         </button>
                       )

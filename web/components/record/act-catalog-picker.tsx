@@ -196,7 +196,25 @@ export function ActCatalogPicker({
         </span>
       </div>
 
-      <div ref={listRef} role="listbox" aria-label="Actes du catalogue" className="max-h-[290px] overflow-y-auto py-1">
+      {/*
+        `scrollbar-thin` because this list scrolls *inside* a dialog body that is itself scrolling.
+
+        « Ajouter une fiche médicale » opens with no act picked, so the picker is what the slot renders (see
+        `act-slot.tsx`) and the modal lands in this state every single time. The body needs 965 px in 599 and the
+        list 1156 px in 290, so both drew a full-width gutter and the dialog showed **two parallel scrollbars
+        about 15 px apart** — nowhere else in the app does that, and it reads as a rendering fault rather than as
+        two scrollable regions.
+
+        The inner one is the one to quieten: it is subordinate, and the list genuinely needs its own scroller —
+        it is a `listbox` with ↑/↓ cursor navigation that scrolls the active row into view, which only works
+        against a box it owns. Same treatment as the rail's nav, the other nested scroller in this product.
+      */}
+      <div
+        ref={listRef}
+        role="listbox"
+        aria-label="Actes du catalogue"
+        className="scrollbar-thin max-h-[290px] overflow-y-auto py-1"
+      >
         {matches.length === 0 ? (
           <p className="px-3 py-4 text-sm text-muted-foreground">
             {procedureTypes.length === 0 ? "Catalogue vide." : "Aucun acte ne correspond."}
