@@ -16,9 +16,12 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { patientFilesApi } from "@/lib/api/patient-files"
+import { ApiError } from "@/lib/api/client"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { showErrorToast } from "@/lib/errors"
 import type { PatientFileDto, PatientFolderDto } from "@/lib/api/types"
 import { toast } from "sonner"
+import { quoteFr } from "@/lib/format"
 
 /** Radix `Select` refuses an empty value, so the root folder needs a token of its own. */
 const ROOT_VALUE = "__root__"
@@ -63,6 +66,19 @@ export function RenameFileDialog({
 
   const extension = file ? splitName(file.fileName).extension : ""
 
+  /*
+   * Band B — the version this dialog saves with, re-read on open rather than taken from the row that was clicked.
+   * ⚠️ The VERSION only: the read lands after the fields hydrate above, so its values would replace what was typed.
+   */
+  const { source: freshFile, resync } = useFreshVersion(
+    Boolean(file),
+    file?.id,
+    file,
+    async () =>
+      (await patientFilesApi.getFiles(patientId, file!.folderId ?? undefined))
+        .find((f) => f.id === file!.id) ?? null,
+  )
+
   const save = async () => {
     if (!file || saving) return
     const trimmed = base.trim()
@@ -74,13 +90,17 @@ export function RenameFileDialog({
         fileName: trimmed,
         description,
         folderId: folderId === ROOT_VALUE ? null : folderId,
+        version: freshFile?.version ?? file.version,
       })
-      toast.success("Fichier modifié", { description: `« ${trimmed}${extension} » a été enregistré.` })
+      toast.success("Fichier modifié", { description: `${quoteFr(trimmed + extension)} a été enregistré.` })
       onOpenChange(false)
       onSaved()
     } catch (error) {
       // The dialog stays open with the typed name intact — a refusal must be correctable, not retyped.
       showErrorToast(error, "Le fichier n'a pas pu être modifié.")
+      // A non-conflict failure may still have moved the row; a real 409 is left alone, or the retry would
+      // silently overwrite the colleague who caused it.
+      if (!(error instanceof ApiError && error.status === 409)) await resync()
     } finally {
       setSaving(false)
     }

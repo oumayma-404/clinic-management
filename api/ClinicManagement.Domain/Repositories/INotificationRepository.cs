@@ -27,7 +27,24 @@ namespace ClinicManagement.Domain.Repositories;
 /// <c>Contains("déjà facturée")</c> practice this repo deleted: rewording a message would silently change the
 /// number.</para>
 /// </param>
-public record ReminderLogCounts(int SentToday, int Pending, int FailedRecent, int Blocked, int HeldByAllowance);
+/// <param name="HeldBySender">
+/// « En attente du canal » — blocked because the SENDER cannot send: Meta has not approved the template, or it has
+/// stopped the number.
+///
+/// <para>⚠️ <b>Counted apart from <paramref name="HeldByAllowance"/> because the remedy is different, and
+/// conflating them made the page say the wrong thing.</b> These two reasons were included in the forfait figure,
+/// so a row blocked by a stopped number — which the log's own badge reads « numéro » — was reported as
+/// « en attente de forfait ». One of those is answered by asking the vendor for more messages and the other by the
+/// vendor fixing the connection; a practice told the first about the second waits for something that will never
+/// arrive.</para>
+/// </param>
+public record ReminderLogCounts(
+    int SentToday,
+    int Pending,
+    int FailedRecent,
+    int Blocked,
+    int HeldByAllowance,
+    int HeldBySender);
 
 /// <summary>
 /// How deep the reminder outbox is, for the operator read behind <c>GET /api/outbox</c> (multi-tenant-cloud US-6).

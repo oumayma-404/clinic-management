@@ -18,12 +18,19 @@ import { buildNavSections } from "@/lib/nav"
  * <p><b>Where a zone hue is allowed to appear</b>, exhaustively — this list is the restraint:</p>
  * <ol>
  *   <li>the nav icon of the active row, a 12 % wash behind it, <b>and the active row's own background</b>;</li>
- *   <li>the `PageHeader` eyebrow and its 6 px dot;</li>
- *   <li><b>a 10 % gradient band behind the `PageHeader`</b>, fading to nothing over 128 px;</li>
+ *   <li>the `PageHeader` eyebrow, its 6 px dot and its 44 px icon chip;</li>
  *   <li>the icon chip of a zone-scoped empty state;</li>
  *   <li><b>a worklist chip and row stripe naming the zone a task must be answered in</b> — « À clôturer »
  *       (`components/visits/visit-closure-list.tsx`) and nothing else so far.</li>
  * </ol>
+ *
+ * <p>⚠️ <b>A fifth entry has been removed and must not return: a 10 % gradient band behind the `PageHeader`,
+ * fading out over 128 px and bleeding to the page gutter.</b> It was admitted on the argument that a hue confined
+ * to small marks is <i>stated</i> without being <i>felt</i>. Felt it was — as a differently-coloured smear across
+ * the top of every screen, which reads as a stain on the paper rather than as a place. The lesson is the one this
+ * list already encodes and that entry broke: a zone hue is legible precisely because it is small and repeated,
+ * and the moment it covers area it stops being a mark and becomes the page's colour scheme. See
+ * `ui/page-header.tsx` for the full note.</p>
  *
  * <p>Entry 5 is the one place a hue leaves the page's own chrome and lands on a record, and it is admitted for
  * the reason the others are: it still answers « where ». Each row of that worklist asks exactly one of three
@@ -31,16 +38,13 @@ import { buildNavSections } from "@/lib/nav"
  * the row's action navigates there. It is <i>not</i> licence to tint a record by anything about its own state;
  * that is what `ui/status-tone.ts` is for, and the two palettes stay apart.</p>
  *
- * <p>Entries 1 and 3 grew in the identity pass, and both are the same correction rather than a relaxation. The
- * rail's active row used to fill with a fixed `--accent` while the 3 px bar beside it drew the zone, so on
- * « Caisse » the two disagreed; and the header band exists because a hue confined to an eyebrow, a dot and a chip
- * is <i>stated</i> without ever being <i>felt</i> — the whole point of a zone is that it arrives before the word
- * is read. Both are still orientation, and both are still keyed off the route.</p>
+ * <p>Entry 1 grew in the identity pass, and it was a correction rather than a relaxation: the rail's active row
+ * used to fill with a fixed `--accent` while the 3 px bar beside it drew the zone, so on « Caisse » the two
+ * disagreed. It is still orientation, and it is still keyed off the route.</p>
  *
  * <p>It is never a background for content, never a button fill, and never a status. Status has its own family
  * (`ui/status-tone.ts`) on purpose: a zone says <i>where</i>, a status says <i>how it is going</i>, and a screen
- * where those two share a palette can express neither. The band above obeys that too: it sits behind the page's
- * <i>title</i>, never behind its records.</p>
+ * where those two share a palette can express neither.</p>
  *
  * <p>« Configuration » is deliberately near-neutral. It is the one zone a clinic visits rarely, and giving it a
  * fifth competing hue would make the rail read as a paint chart rather than as four working areas plus settings.</p>
@@ -61,18 +65,6 @@ export interface Zone {
   text: string
   /** The 12 % wash, for an icon chip. Same literal-class rule as `text`. */
   wash: string
-  /**
-   * The gradient's top stop, for `PageHeader`'s band — `bg-gradient-to-b {washGradient} to-transparent`.
-   *
-   * <p>10 % rather than the chip's 12 %, and that is not a rounding difference: the chip is a 44 px square where
-   * the wash has to hold its own against the icon inside it, while this is a 128 px band running the full width
-   * of the page. The same value over that area stops reading as a tint and starts reading as a coloured header,
-   * which is a different — and much louder — design decision than the one being made here.</p>
-   *
-   * <p>⚠️ A fourth complete literal for the same reason as the three above: Tailwind scans source text, so a
-   * `from-zone-` prefix composed from the key at runtime is never generated, and renders as no colour at all.</p>
-   */
-  washGradient: string
   /** Border at 25 %, for a chip that needs an edge against a tinted ground. */
   border: string
   /** Full-strength fill. The rail's 3 px active-row indicator, and nothing wider — this is ink, not a surface. */
@@ -85,7 +77,6 @@ export const ZONES: Record<ZoneKey, Zone> = {
     label: "Quotidien",
     text: "text-zone-daily",
     wash: "bg-zone-daily/12",
-    washGradient: "from-zone-daily/10",
     border: "border-zone-daily/25",
     bg: "bg-zone-daily",
   },
@@ -94,7 +85,6 @@ export const ZONES: Record<ZoneKey, Zone> = {
     label: "Clinique",
     text: "text-zone-clinical",
     wash: "bg-zone-clinical/12",
-    washGradient: "from-zone-clinical/10",
     border: "border-zone-clinical/25",
     bg: "bg-zone-clinical",
   },
@@ -103,7 +93,6 @@ export const ZONES: Record<ZoneKey, Zone> = {
     label: "Finances",
     text: "text-zone-money",
     wash: "bg-zone-money/12",
-    washGradient: "from-zone-money/10",
     border: "border-zone-money/25",
     bg: "bg-zone-money",
   },
@@ -112,7 +101,6 @@ export const ZONES: Record<ZoneKey, Zone> = {
     label: "Gestion",
     text: "text-zone-ops",
     wash: "bg-zone-ops/12",
-    washGradient: "from-zone-ops/10",
     border: "border-zone-ops/25",
     bg: "bg-zone-ops",
   },
@@ -121,7 +109,6 @@ export const ZONES: Record<ZoneKey, Zone> = {
     label: "Configuration",
     text: "text-zone-config",
     wash: "bg-zone-config/12",
-    washGradient: "from-zone-config/10",
     border: "border-zone-config/25",
     bg: "bg-zone-config",
   },
@@ -152,6 +139,11 @@ const ROUTE_ZONES: Array<[string, ZoneKey]> = [
   ["/lab-orders", "clinical"],
   ["/factures", "money"],
   ["/caisse", "money"],
+  // ⚠️ Both of these were MISSING and fell through to the `daily` default, so « Chèques » — which the rail files
+  // under « Finances » — opened under a « Quotidien » eyebrow with an azure chip, and « Journal d'activité » under
+  // « Quotidien » while the rail has it in « Configuration ». That is precisely the drift `PageHeader` deprecated
+  // its own `zone` prop to end, arriving instead through a fall-back that cannot look wrong on its own.
+  ["/cheques", "money"],
   ["/creances", "money"],
   ["/stock", "ops"],
   ["/fournisseurs", "ops"],
@@ -162,6 +154,7 @@ const ROUTE_ZONES: Array<[string, ZoneKey]> = [
   ["/dental-acts", "config"],
   ["/users", "config"],
   ["/settings", "config"],
+  ["/journal", "config"],
   ["/mon-profil", "config"],
   // « Abonnement » is what the practice pays its *software vendor*, so it is deliberately `config` and not `money`:
   // the money zone is the clinic's own till, and FR-2 keeps the two apart everywhere else in the product too.

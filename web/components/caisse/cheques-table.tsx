@@ -9,7 +9,7 @@ import { invoicesApi } from "@/lib/api/invoices"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { ApiError } from "@/lib/api/client"
 import type { ChequeBucket, ChequeDto, ChequesDueDto } from "@/lib/api/types"
-import { formatDT, formatDateFr } from "@/lib/format"
+import { formatDT, formatDateFr, quoteFr } from "@/lib/format"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,7 +31,9 @@ import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ExportButton } from "@/components/ui/export-button"
 import { Input } from "@/components/ui/input"
-import { KpiGrid } from "@/components/dashboard/kpi-grid"
+import { Stat, StatStrip } from "@/components/ui/stat-strip"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
+import type { StatusTone } from "@/components/ui/status-tone"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { DEFAULT_PAGE_SIZE } from "@/lib/api/paging"
@@ -184,25 +186,32 @@ export function ChequesTable() {
 
   return (
     <>
-      {/* The four buckets, on ONE surface — the same treatment la caisse and the dashboard give a related set of
-          figures, so the two screens reporting cheque money do not look like two products. « En retard » leads:
-          it is the only one of the four that is a problem today. */}
-      <KpiGrid columns={4}>
-        <ChequeBucketFigure
-          label="En retard"
-          hint="encaissables maintenant"
-          bucket={groups?.overdue}
-          tone="text-destructive"
+      {/* The four buckets, on ONE surface — `StatStrip`, the same summary strip la caisse, « Factures » and
+          « Rappels » draw, so the screens reporting cheque money do not look like two products. « En retard »
+          leads: it is the only one of the four that is a problem today. */}
+      {/*
+        ⚠️ Band C — a failed read must not draw four buckets at zero. « aucun chèque » in all four hints, over
+        3 085 DT of real cheques the practice is holding, is the product telling a dentist they have no exposure.
+      */}
+      {error && !loading ? (
+        <LoadFailureNotice
+          message="Les chèques détenus n'ont pas pu être chargés."
+          detail="Aucune exposition n'est affichée : quatre compteurs à zéro se liraient comme « aucun chèque en attente »."
+          onRetry={() => setReloadKey((k) => k + 1)}
         />
-        <ChequeBucketFigure label="Bientôt" hint="sous 30 jours" bucket={groups?.dueSoon} tone="text-warning-ink" />
-        <ChequeBucketFigure label="Plus tard" hint="au-delà de 30 jours" bucket={groups?.later} tone="text-foreground" />
-        <ChequeBucketFigure
-          label="Sans date"
-          hint="aucune date d'encaissement saisie"
-          bucket={groups?.undated}
-          tone="text-warning-ink"
-        />
-      </KpiGrid>
+      ) : (
+        <StatStrip>
+          <ChequeBucketFigure label="En retard" hint="encaissables maintenant" bucket={groups?.overdue} tone="negative" />
+          <ChequeBucketFigure label="Bientôt" hint="sous 30 jours" bucket={groups?.dueSoon} tone="active" />
+          <ChequeBucketFigure label="Plus tard" hint="au-delà de 30 jours" bucket={groups?.later} />
+          <ChequeBucketFigure
+            label="Sans date"
+            hint="aucune date d'encaissement saisie"
+            bucket={groups?.undated}
+            tone="active"
+          />
+        </StatStrip>
+      )}
 
       <Card>
         <CardHeader>
@@ -215,9 +224,18 @@ export function ChequesTable() {
               {banked ? "Chèques encaissés" : "Chèques détenus"}
               {data && data.totalCount > 0 ? ` (${data.totalCount})` : ""}
             </span>
-            {groups && groups.total.amount > 0 && (
+            {/*
+              ⚠️ Only on the « À encaisser » tab. `groups` is computed over OUTSTANDING cheques whichever side was
+              asked for — deliberately, so the four figures above always answer « combien me reste-t-il à
+              encaisser ? » — but printed beside « Chèques encaissés (2) » that same number read as the total of
+              those two rows: « Total : 2 975,000 DT » over two cheques summing 280,000. The server publishes no
+              banked total, and a page-scoped sum would be a different, equally misleading figure, so the banked
+              tab states its count and no total.
+            */}
+            {!banked && groups && groups.total.amount > 0 && (
               <span className="text-sm font-normal text-muted-foreground">
-                Total&nbsp;: <span className="font-semibold text-foreground">{formatDT(groups.total.amount)}</span>
+                Total à encaisser&nbsp;:{" "}
+                <span className="font-semibold text-foreground">{formatDT(groups.total.amount)}</span>
               </span>
             )}
           </CardTitle>
@@ -228,7 +246,8 @@ export function ChequesTable() {
               <Loader2 className="me-2 size-5 animate-spin" /> Chargement…
             </div>
           ) : error ? (
-            <div className="py-12 text-center text-sm text-destructive">{error}</div>
+            // The strip above already carries the failure and the retry; here it would be the same message twice.
+            null
           ) : (
             <>
               {/* The filter it exports sits beside it, per L5's placement rule: this component owns the search
@@ -292,7 +311,7 @@ export function ChequesTable() {
                   <EmptyState
                     icon={SearchX}
                     chipClassName={MONEY_CHIP}
-                    title={`Aucun chèque ne correspond à « ${debouncedSearch} »`}
+                    title={`Aucun chèque ne correspond à ${quoteFr(debouncedSearch)}`}
                     description="Le numéro et la banque restent optionnels : un chèque enregistré sans eux ne peut pas être retrouvé par ce champ."
                     secondaryAction={
                       <Button size="sm" variant="outline" onClick={() => setSearch("")}>
@@ -520,9 +539,13 @@ function bankedSummary(row: ChequeDto): string | null {
 }
 
 /**
- * One bucket figure. Mirrors `app/caisse/page.tsx`'s `CaisseFigure` rather than using `KpiCard`: these are not
- * dashboard KPIs (no delta, no drill-through of their own — the list below *is* the drill-through), and `bg-card`
- * is load-bearing because `KpiGrid` is a `bg-border` container showing through `gap-px`.
+ * One bucket, as a {@link Stat} in the page's summary strip.
+ *
+ * <p>A thin wrapper rather than four `<Stat>`s at the call site, because two things here are computed from the
+ * bucket and would otherwise be repeated four times: the glyph, and the fact that <b>an empty bucket goes
+ * quiet</b>. A red « 0,000 DT » raises an alarm about nothing, which is the surest way to teach a practice to
+ * stop reading the row — so a bucket with no cheques in it falls back to `"neutral"`, whatever tone it carries
+ * when it does have money in it.</p>
  */
 function ChequeBucketFigure({
   label,
@@ -533,25 +556,20 @@ function ChequeBucketFigure({
   label: string
   hint: string
   bucket?: { count: number; amount: number }
-  tone: string
+  /** The tone this bucket takes **when it is not empty**. Omitted for « Plus tard », which is never news. */
+  tone?: StatusTone
 }) {
   const count = bucket?.count ?? 0
-  const Icon = BUCKET_ICONS[label] ?? CalendarRange
   return (
-    <div className="bg-card p-4">
-      <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        <Icon className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-        <span className="min-w-0 truncate">{label}</span>
-      </div>
-      <p className={cn("mt-1.5 text-xl font-semibold tabular-nums", count > 0 ? tone : "text-muted-foreground")}>
-        {formatDT(bucket?.amount ?? 0)}
-      </p>
-      {/* The count is not decoration: « 1 200,000 DT en retard » is a very different problem depending on whether
-          it is one cheque or eleven. */}
-      <p className="mt-0.5 text-xs text-muted-foreground">
-        {count === 0 ? "aucun chèque" : count === 1 ? "1 chèque" : `${count} chèques`} · {hint}
-      </p>
-    </div>
+    <Stat
+      label={label}
+      icon={BUCKET_ICONS[label] ?? CalendarRange}
+      tone={count > 0 ? tone : "neutral"}
+      value={formatDT(bucket?.amount ?? 0)}
+      // The count is not decoration: « 1 200,000 DT en retard » is a very different problem depending on
+      // whether it is one cheque or eleven.
+      hint={`${count === 0 ? "aucun chèque" : count === 1 ? "1 chèque" : `${count} chèques`} · ${hint}`}
+    />
   )
 }
 

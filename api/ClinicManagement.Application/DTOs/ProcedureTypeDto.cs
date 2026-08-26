@@ -23,6 +23,9 @@ public class ProcedureTypeDto
     /// </summary>
     public List<ProcedureTypeMaterialDto> Materials { get; set; } = new();
 
+    /// <summary>Round-tripped by the edit form so a concurrent change is a 409 rather than a silent overwrite.</summary>
+    public uint Version { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
@@ -106,6 +109,7 @@ public static class ProcedureTypeMappingExtensions
                     QuantityPerAct = m.QuantityPerAct,
                 })
                 .ToList(),
+            Version = procedureType.Version,
             CreatedAt = procedureType.CreatedAt,
             UpdatedAt = procedureType.UpdatedAt,
         };

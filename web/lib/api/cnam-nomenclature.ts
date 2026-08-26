@@ -41,8 +41,21 @@ export const cnamNomenclatureApi = {
     lettreCle: string;
     coefficient: number;
     category: string;
+    /** The version read from the server. Omitted (or 0) the server skips the check — see `PatientDto.version`. */
+    version?: number;
   }): Promise<CnamNomenclatureEntryDto> => {
     return apiPut<CnamNomenclatureEntryDto>(`/cnam-nomenclature/${id}`, data);
+  },
+
+  /**
+   * Reactivate an entry switched off by mistake.
+   *
+   * ⚠️ It had no client and no route: the entity's `Activate()` existed and nothing could reach it, so a acte
+   * deactivated by accident stayed deactivated for ever — a soft delete whose inverse is unreachable is a hard
+   * delete with extra steps.
+   */
+  reactivate: async (id: string): Promise<void> => {
+    return apiPost<void>(`/cnam-nomenclature/${id}/activate`, {});
   },
 
   deactivate: async (id: string): Promise<void> => {
@@ -54,8 +67,8 @@ export const cnamNomenclatureApi = {
     return apiPost<void>('/cnam-nomenclature/confirm', {});
   },
 
-  updateLetterValue: async (id: string, value: number): Promise<CnamLetterValueDto> => {
-    return apiPut<CnamLetterValueDto>(`/cnam-nomenclature/letter-values/${id}`, { value });
+  updateLetterValue: async (id: string, value: number, version?: number): Promise<CnamLetterValueDto> => {
+    return apiPut<CnamLetterValueDto>(`/cnam-nomenclature/letter-values/${id}`, { value, version });
   },
 };
 

@@ -105,7 +105,11 @@ interface CreateAppointmentDialogProps {
    * user just painted with the catalogue's 30 minutes. It is still an ordinary editable field.
    */
   defaultDurationMinutes?: number
-  onSuccess?: () => void
+  /**
+   * The appointment was created. Carries the booked **instant**, so the agenda can stay on the day the RDV was
+   * booked for — see the note at the call site in `app/appointments/page.tsx`.
+   */
+  onSuccess?: (appointmentDateTime: Date) => void
   /** Fires with the new appointment's id after a successful create (e.g. waiting-list promote-and-book). */
   onCreated?: (appointmentId: string) => void
   /** Preselect an existing patient when booking from a patient's page ("Planifier un rendez-vous"). */
@@ -697,7 +701,7 @@ export function CreateAppointmentDialog({
       })
 
       onCreated?.(created.id)
-      onSuccess?.()
+      onSuccess?.(appointmentDateTime)
       onOpenChange(false)
     } catch (err) {
       if (err instanceof ApiError) {

@@ -418,6 +418,58 @@ function LocalLoginForm() {
     )
   }
 
+  /*
+   * ── Enrolment, step ZERO ──────────────────────────────────────────────────────────────────────────────
+   *
+   * ⚠️ `?enrol=1` sets the mode without any material, and this branch is what makes that arrival work.
+   *
+   * Without it the enrolment screen rendered its own instructions — « en saisissant la clé ci-dessous » — above
+   * nothing at all: no QR, no key, and the only way forward a « Réessayer » inside the empty block. Two entry
+   * points reach that state and both are ordinary: « Sécurité »'s « Activer le second facteur », and a live
+   * session refused with `totp_enrolment_required`. It is also what made « aucun praticien ne peut activer un
+   * second facteur volontairement » true — the route existed and dead-ended.
+   *
+   * The credential form, and not an automatic request: the enrolment endpoint is deliberately ANONYMOUS (it has
+   * to serve an account that cannot sign in at all), so it takes an address and a password that a page which has
+   * just loaded does not hold. `mode === 'replace'` below already solved exactly this, the same way.
+   */
+  if (mode === 'enrol' && !material) {
+    return (
+      <LoginShell
+        title="Activer le second facteur"
+        description="Confirmez votre mot de passe pour obtenir le QR code à scanner."
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void requestEnrolmentMaterial()
+          }}
+        >
+          <FormErrorBanner message={error} />
+          <p className="text-sm text-muted-foreground">
+            Un code à usage unique protège votre compte au-delà du mot de passe. Vous obtiendrez un QR code à
+            scanner avec votre application d&apos;authentification, puis une série de codes de récupération.
+          </p>
+          <EmailField value={email} onChange={setEmail} disabled={isSubmitting} />
+          <PasswordField value={password} onChange={setPassword} disabled={isSubmitting} />
+          <Button type="submit" className="min-h-11 w-full" disabled={isSubmitting}>
+            {isSubmitting ? 'Préparation…' : 'Continuer'}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="min-h-11 w-full"
+            disabled={isSubmitting}
+            onClick={goHome}
+          >
+            Plus tard
+          </Button>
+        </form>
+      </LoginShell>
+    )
+  }
+
   // ── Enrolment ─────────────────────────────────────────────────────────────────────────────────────────
   if (mode === 'enrol') {
     return (

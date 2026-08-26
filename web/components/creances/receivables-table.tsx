@@ -9,7 +9,7 @@ import { Loader2, HandCoins, SearchX } from "lucide-react"
 import { billingApi } from "@/lib/api/billing"
 import { ApiError } from "@/lib/api/client"
 import type { ReceivableDto } from "@/lib/api/types"
-import { formatDT, formatDateFr } from "@/lib/format"
+import { formatDT, formatDateFr, quoteFr } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -168,7 +168,7 @@ export function ReceivablesTable() {
                 <EmptyState
                   icon={SearchX}
                   chipClassName={MONEY_CHIP}
-                  title={`Aucun patient ne correspond à « ${debouncedSearch} »`}
+                  title={`Aucun patient ne correspond à ${quoteFr(debouncedSearch)}`}
                   description="Le patient existe peut-être sans rien devoir : cette liste ne montre que les soldes dus."
                   secondaryAction={
                     <Button size="sm" variant="outline" onClick={() => setSearch("")}>

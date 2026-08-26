@@ -63,12 +63,26 @@ public class AuditPageDto
     /// </summary>
     public List<AuditEntityTypeOptionDto> EntityTypes { get; set; } = new();
 
+    /// <summary>
+    /// The actors this clinic has rows for, for the « Auteur » filter. Derived from the ledger like
+    /// <see cref="EntityTypes"/>, so a colleague who has left is still selectable — which is when the question is
+    /// asked most.
+    /// </summary>
+    public List<AuditActorOptionDto> Actors { get; set; } = new();
+
     public int Page { get; set; } = 1;
     public int PageSize { get; set; }
     public int TotalCount { get; set; }
     public int TotalPages { get; set; } = 1;
     public bool HasPreviousPage { get; set; }
     public bool HasNextPage { get; set; }
+}
+
+/// <summary>A filterable actor: the stored id plus the name to show for it (an email, or « Tâche automatique »).</summary>
+public class AuditActorOptionDto
+{
+    public string Value { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
 }
 
 /// <summary>A filterable entity type: the stable key plus its French name.</summary>

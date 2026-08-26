@@ -21,12 +21,15 @@ import { cn } from "@/lib/utils"
 import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
 import { lowStockOrderMessageFromAlert } from "@/lib/whatsapp"
 import { EmptyState } from "@/components/ui/empty-state"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import type { NotificationDto } from "@/lib/api/types"
 
 interface NotificationPanelProps {
   notifications: NotificationDto[]
   loading: boolean
   error: string | null
+  /** Re-reads the feed after a failure. Without it a failed read is a dead end in the app's own chrome. */
+  onRetry?: () => void
   hasUnread: boolean
   onMarkAllRead: () => void
   onRowClick: (notification: NotificationDto) => void
@@ -106,6 +109,7 @@ export function NotificationPanel({
   hasUnread,
   onMarkAllRead,
   onRowClick,
+  onRetry,
 }: NotificationPanelProps) {
   return (
     <div className="flex max-h-[28rem] w-80 flex-col sm:w-96">
@@ -131,7 +135,20 @@ export function NotificationPanel({
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : error ? (
-          <p className="px-4 py-8 text-center text-sm text-destructive">{error}</p>
+          /*
+            Band C/D — the app's one failed-read treatment, with a way out.
+
+            ⚠️ This used to print `error` verbatim and offer nothing: the server's own string, whatever language it
+            happened to be in, in the app's chrome on every screen, with no retry — so a transient failure left the
+            bell permanently showing a sentence the user could neither act on nor dismiss. The message is now the
+            panel's own French, because the reader does not need to know which call failed; they need it to work.
+          */
+          <div className="p-4">
+            <LoadFailureNotice
+              message="Les notifications n'ont pas pu être chargées."
+              onRetry={onRetry}
+            />
+          </div>
         ) : notifications.length === 0 ? (
           <EmptyState
             icon={BellOff}

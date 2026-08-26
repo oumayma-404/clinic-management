@@ -19,16 +19,30 @@ public class UpdateClinicCommand : IRequest<Result<ClinicDto>>
     public uint Version { get; set; }
 
     public string Name { get; set; } = string.Empty;
+
+    /*
+     * ⚠️ Band A — the five nullable strings here are TRI-STATE, and each carries a companion flag saying whether
+     * the request mentioned it at all. Without them « cleared » and « not sent » are the same null, and the
+     * handler read null as « leave unchanged » — so a matricule fiscal, a ville or a gouvernorat, once saved,
+     * could never be cleared: the blank save reported success and the old value came back on reload. The API
+     * layer sets the flags from form-key presence; see `UpdateClinicRequest`.
+     */
     public string? Address { get; set; }
+    public bool AddressSpecified { get; set; }
     public string? City { get; set; }
+    public bool CitySpecified { get; set; }
     public string? Phone { get; set; }
+    public bool PhoneSpecified { get; set; }
     public string? Email { get; set; }
+    public bool EmailSpecified { get; set; }
     public Stream? LogoFile { get; set; }
     public string? LogoFileName { get; set; }
     public long LogoLength { get; set; }
 
-    // Billing / note-d'honoraires settings. Null = leave the current value unchanged.
+    // Billing / note-d'honoraires settings. Null = leave the current value unchanged, except the matricule,
+    // which is tri-state for the reason recorded above.
     public string? MatriculeFiscal { get; set; }
+    public bool MatriculeFiscalSpecified { get; set; }
     public bool? VatApplicable { get; set; }
     public decimal? VatRate { get; set; }
     public bool? StampDutyEnabled { get; set; }
@@ -101,7 +115,7 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
             // their existing values. Comparing against the stored value means an unchanged field is not a
             // change, and only an actual edit is refused (spec EC-11).
             var legalBillingChanging =
-                IsChanging(request.MatriculeFiscal, clinic.MatriculeFiscal)
+                (request.MatriculeFiscalSpecified && !string.Equals(request.MatriculeFiscal, clinic.MatriculeFiscal, StringComparison.Ordinal))
                 || (request.VatApplicable.HasValue && request.VatApplicable.Value != clinic.VatApplicable)
                 || (request.VatRate.HasValue && request.VatRate.Value != clinic.VatRate)
                 || (request.StampDutyEnabled.HasValue && request.StampDutyEnabled.Value != clinic.StampDutyEnabled)
@@ -174,17 +188,19 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
             try
             {
                 // Update clinic information
+                // Band A — each field is applied when the request MENTIONED it (even as empty, which clears) and
+                // kept otherwise. `?? current` cannot express that: it makes a cleared field indistinguishable
+                // from an omitted one, which is the defect.
                 clinic.Update(
                     request.Name,
-                    request.Address,
-                    request.Phone,
-                    request.Email,
+                    request.AddressSpecified ? request.Address : clinic.Address,
+                    request.PhoneSpecified ? request.Phone : clinic.Phone,
+                    request.EmailSpecified ? request.Email : clinic.Email,
                     logoUrl,
-                    request.City ?? clinic.City);
+                    request.CitySpecified ? request.City : clinic.City);
 
-                // Billing settings: apply provided values, keeping the current value where a field is null.
                 clinic.SetBillingSettings(
-                    request.MatriculeFiscal ?? clinic.MatriculeFiscal,
+                    request.MatriculeFiscalSpecified ? request.MatriculeFiscal : clinic.MatriculeFiscal,
                     request.VatApplicable ?? clinic.VatApplicable,
                     request.VatRate ?? clinic.VatRate,
                     request.StampDutyEnabled ?? clinic.StampDutyEnabled,
@@ -243,12 +259,5 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
         }
     }
 
-    /// <summary>
-    /// True only when an <b>optional string</b> field is present in the request AND differs from what is
-    /// stored. An omitted field (null) means "leave it alone", so it is never treated as an edit — that is what
-    /// lets a non-admin submit the whole settings form without tripping the admin gate (spec EC-11).
-    /// </summary>
-    private static bool IsChanging(string? requested, string? current) =>
-        requested is not null && !string.Equals(requested, current, StringComparison.Ordinal);
 }
 

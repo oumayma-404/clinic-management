@@ -57,6 +57,17 @@ public static class SqlSearch
     /// <code>
     /// EF.Functions.ILike(SqlSearch.Unaccent(p.LastName)!, pattern, SqlSearch.EscapeString)
     /// </code>
+    ///
+    /// <para>⚠️ <b>A patient's full name is TWO predicates, not one.</b> Every card and every row in this product
+    /// renders « Nom Prénom », and the product's own CSV export header is <c>Nom;Prénom</c> — so a search matching
+    /// only <c>FirstName + " " + LastName</c> cannot find a patient typed in the order the app itself displays and
+    /// exports: « Hamdi Karim » found nothing while « Karim Hamdi » found the record. Seven repositories carried
+    /// that single predicate. Since EF cannot translate a call to a shared helper, the pair has to be written out —
+    /// so write BOTH:</para>
+    /// <code>
+    /// EF.Functions.ILike(SqlSearch.Unaccent(p.FirstName + " " + p.LastName)!, pattern, SqlSearch.EscapeString) ||
+    /// EF.Functions.ILike(SqlSearch.Unaccent(p.LastName + " " + p.FirstName)!, pattern, SqlSearch.EscapeString)
+    /// </code>
     /// </summary>
     public const string EscapeString = "\\";
 }

@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
+import { quoteFr } from "@/lib/format"
 
 /**
  * A confirmation that cannot be clicked through: the operator must **type** the given phrase before the
@@ -116,7 +117,7 @@ export function ConfirmByTypingDialog({
           >
             {matches
               ? "Confirmation saisie — l'action est déverrouillée."
-              : `Saisissez exactement « ${requiredPhrase} » pour déverrouiller l'action.`}
+              : `Saisissez exactement ${quoteFr(requiredPhrase)} pour déverrouiller l'action.`}
           </p>
         </div>
 

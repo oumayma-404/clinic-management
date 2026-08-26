@@ -25,6 +25,12 @@ public class SetUserActiveCommand : IRequest<Result<ClinicUserDto>>
 {
     public string TargetUserId { get; set; } = string.Empty;
     public bool IsActive { get; set; }
+
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user was
+    /// editing; <c>0</c> means « not supplied » and skips the check (see <c>IUnitOfWork.SetExpectedVersion</c>).
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class SetUserActiveCommandHandler : IRequestHandler<SetUserActiveCommand, Result<ClinicUserDto>>
@@ -108,21 +114,12 @@ public class SetUserActiveCommandHandler : IRequestHandler<SetUserActiveCommand,
                 target.Deactivate();
             }
 
+            // Band B — see ChangeUserRoleCommand: the same row, the same screen, the same race.
+            _unitOfWork.SetExpectedVersion(target, request.Version);
             _userRepository.Update(target);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return Result<ClinicUserDto>.Success(new ClinicUserDto
-            {
-                Id = target.Id,
-                ClinicId = target.ClinicId,
-                Role = target.Role,
-                Email = target.Email,
-                FullName = target.FullName,
-                IsActive = target.IsActive,
-                MustChangePassword = target.MustChangePassword,
-                LastLoginAt = target.LastLoginAt,
-                CreatedAt = target.CreatedAt
-            });
+            return Result<ClinicUserDto>.Success(target.ToClinicUserDto());
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

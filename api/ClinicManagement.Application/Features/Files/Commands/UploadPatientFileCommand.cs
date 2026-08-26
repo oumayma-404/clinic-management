@@ -133,19 +133,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
                 await _fileRepository.AddAsync(file, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-                var dto = new PatientFileDto
-                {
-                    Id = file.Id,
-                    PatientId = file.PatientId,
-                    FolderId = file.FolderId,
-                    FileName = file.FileName,
-                    ContentType = file.ContentType,
-                    FileSize = file.FileSize,
-                    FileType = file.FileType.ToString(),
-                    Description = file.Description,
-                    UploadedAt = file.UploadedAt,
-                    UploadedBy = file.UploadedBy
-                };
+                var dto = file.ToDto();
 
                 return Result<PatientFileDto>.Success(dto);
             }

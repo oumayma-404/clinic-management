@@ -423,8 +423,26 @@ public class ReminderAllowanceQueryTests
 
             // AC-1.1's `canConnect`. A default mock answers false, which is what a deployment with no Meta
             // credentials reports — the figures below are unaffected, and the offer to connect has its own cases.
+            /*
+             * The sender state now also asks whether the channel is actually SENDABLE — a token, a phone-number id,
+             * a template name — because « Prêt à envoyer » over a channel with none of those was the defect.
+             * Stubbed as fully configured so every scenario here keeps asserting what it asserted before; the
+             * unconfigured case is the one the fix introduces and belongs to a test written for it.
+             */
+            var settingsProvider = new Mock<IReminderSettingsProvider>();
+            settingsProvider
+                .Setup(p => p.ResolveAsync(It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new ResolvedReminderSettings
+                {
+                    EnabledChannels = new[] { NotificationType.WhatsApp },
+                    WhatsAppApiUrl = "https://graph.example/v1",
+                    WhatsAppPhoneNumberId = "phone-id",
+                    WhatsAppTemplateName = "rappel_rdv",
+                    WhatsAppAccessToken = "token",
+                });
+
             _current = new GetReminderAllowanceQueryHandler(
-                allowances.Object, settings.Object, resolver.Object, policy.Object,
+                allowances.Object, settings.Object, settingsProvider.Object, resolver.Object, policy.Object,
                 Mock.Of<IVendorMessagingAvailability>(),
                 NullLogger<GetReminderAllowanceQueryHandler>.Instance);
 

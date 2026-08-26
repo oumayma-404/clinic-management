@@ -75,6 +75,7 @@ public class MedicationsController : ApiControllerBase
             Form = request.Form,
             Strength = request.Strength,
             Dcis = request.Dcis ?? new List<string>(),
+            Version = request.Version,
         };
         var result = await _mediator.Send(command);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
@@ -86,6 +87,21 @@ public class MedicationsController : ApiControllerBase
     public async Task<IActionResult> DeactivateMedication(Guid id)
     {
         var result = await _mediator.Send(new DeactivateMedicationCommand { Id = id });
+        return result.IsFailure ? HandleFailure(result, StatusCodes.Status404NotFound) : NoContent();
+    }
+
+    /// <summary>
+    /// Reactivate an entry switched off by mistake. AdminOnly. A missing id is a genuine not-found (404).
+    ///
+    /// <para>⚠️ A separate route rather than a flag on the DELETE, so no existing caller changes and the inverse of
+    /// a soft delete is a thing a client can point at. Without it, ce médicament désactivé par erreur ne revenait jamais —
+    /// the entity's own <c>Activate()</c> was unreachable from the product.</para>
+    /// </summary>
+    [HttpPost("{id:guid}/activate")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> ReactivateMedication(Guid id)
+    {
+        var result = await _mediator.Send(new DeactivateMedicationCommand { Id = id, Deactivate = false });
         return result.IsFailure ? HandleFailure(result, StatusCodes.Status404NotFound) : NoContent();
     }
 

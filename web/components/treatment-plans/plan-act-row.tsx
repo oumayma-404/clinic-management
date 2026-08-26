@@ -10,7 +10,7 @@ import {
   CalendarPlus, CalendarCheck, FilePlus2, FileText, ChevronUp, ChevronDown, Unlink, Layers,
 } from "lucide-react"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
-import { formatDT, formatDateFr } from "@/lib/format"
+import { formatDT, formatDateFr, quoteFr } from "@/lib/format"
 import { itemWorkflowLabel, itemWorkflowBadgeClass } from "./treatment-plan-labels"
 import { planItemState } from "./plan-next-action"
 
@@ -66,7 +66,7 @@ export function PlanActSelectionBox({
 }) {
   return (
     <Checkbox
-      aria-label={`Sélectionner « ${item.designationFr} » pour planification`}
+      aria-label={`Sélectionner ${quoteFr(item.designationFr)} pour planification`}
       checked={selection.checked}
       disabled={!selection.selectable}
       onCheckedChange={selection.onToggle}
@@ -90,7 +90,7 @@ export function PlanActReorderControls({
         variant="ghost"
         size="icon"
         className="h-6 w-6"
-        aria-label={`Monter « ${item.designationFr} »`}
+        aria-label={`Monter ${quoteFr(item.designationFr)}`}
         disabled={reorder.disabled || !reorder.canMoveUp}
         onClick={reorder.onMoveUp}
       >
@@ -100,7 +100,7 @@ export function PlanActReorderControls({
         variant="ghost"
         size="icon"
         className="h-6 w-6"
-        aria-label={`Descendre « ${item.designationFr} »`}
+        aria-label={`Descendre ${quoteFr(item.designationFr)}`}
         disabled={reorder.disabled || !reorder.canMoveDown}
         onClick={reorder.onMoveDown}
       >

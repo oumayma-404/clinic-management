@@ -40,7 +40,12 @@ import { PushAvailabilityCard } from "@/components/push-availability-card"
 import Link from "next/link"
 import { DoctorDocumentIdentityDialog } from "@/components/doctor-document-identity-dialog"
 import { DoctorWorkingHoursCard } from "@/components/doctor-working-hours-card"
-import { DEFAULT_WORKING_HOURS } from "@/lib/working-hours"
+import {
+  DEFAULT_WORKING_HOURS,
+  WEEKDAY_LABELS_FR,
+  type WorkingDay,
+  validateWorkingHours,
+} from "@/lib/working-hours"
 import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
 import { formatAmount, parseAmountInput } from "@/lib/format"
 
@@ -108,24 +113,10 @@ interface Doctor {
   hasCachet?: boolean
 }
 
-interface WorkingHoursInput {
-  day: string
-  enabled: boolean
-  from: string
-  to: string
-}
+/** A fourth copy of the shape, now the shared one — see the note on `WorkingDay`. */
+type WorkingHoursInput = WorkingDay
 
 /** French labels for the (English) weekday storage keys — the `weekdayLabelsFr` convention. */
-const WEEKDAY_LABELS_FR: Record<string, string> = {
-  Monday: "Lundi",
-  Tuesday: "Mardi",
-  Wednesday: "Mercredi",
-  Thursday: "Jeudi",
-  Friday: "Vendredi",
-  Saturday: "Samedi",
-  Sunday: "Dimanche",
-}
-
 export default function ClinicSettings() {
   const { accessToken } = useAuthToken()
   const { mode, user } = useSession()
@@ -213,6 +204,7 @@ export default function ClinicSettings() {
       const status = await clinicsApi.getUserStatus()
       if (status.hasClinic && status.clinic) {
         const clinic = status.clinic
+        setClinicVersion(clinic.version)
         setClinicName(clinic.name)
         setClinicCode(clinic.code || "")
         setEmail(clinic.email || "")
@@ -303,8 +295,20 @@ export default function ClinicSettings() {
     setWorkingHours((prev) => prev.map((item) => (item.day === day ? { ...item, enabled: !item.enabled } : item)))
   }
 
-  const updateWorkingHours = (day: string, field: "from" | "to", value: string) => {
-    setWorkingHours((prev) => prev.map((item) => (item.day === day ? { ...item, [field]: value } : item)))
+  const updateWorkingHours = (
+    day: string,
+    field: "from" | "to" | "breakFrom" | "breakTo",
+    value: string,
+  ) => {
+    setWorkingHours((prev) =>
+      // An emptied break end is stored as null, not "": null is what the server reads as « pas de pause », and
+      // an empty string would fail the HH:mm check instead of clearing the closure.
+      prev.map((item) =>
+        item.day === day
+          ? { ...item, [field]: field.startsWith("break") ? value || null : value }
+          : item,
+      ),
+    )
   }
 
   // AC-P3.37 — the bespoke `fixed top-4 right-4` banner and this 4-second timer are gone; feedback goes
@@ -316,6 +320,16 @@ export default function ClinicSettings() {
   // user's typing. But silently dropping it meant they went on to save over the other person with no idea
   // anything had happened, and then hit a 409 they could not explain. Record it and offer the reload.
   const [peerChangePending, setPeerChangePending] = useState(false)
+  /*
+   * Band B — the clinic row's concurrency token, as the last read returned it. `UpdateClinicCommand.Version` and
+   * `SetExpectedVersion` were fully wired on the server and this screen simply never sent the token, so the
+   * protection was inert and two admins saving the same tab silently overwrote each other.
+   *
+   * It is re-read on every load AND replaced from each save's own response, so a save followed by another save
+   * works without a reload — which matters here, because the four cards write the same row.
+   */
+  const [clinicVersion, setClinicVersion] = useState<number | undefined>(undefined)
+  const [clinicNameError, setClinicNameError] = useState<string | null>(null)
 
   useClinicRealtime(RealtimeResource.Clinics, () => {
     if (!isEditingClinicInfo && !isEditingDoctors && !isEditingHours && !isEditingBilling) {
@@ -347,12 +361,25 @@ export default function ClinicSettings() {
   }
 
   const handleSaveClinicInfo = async () => {
+    /*
+     * ⚠️ On the field, and it names « Nom de la clinique ».
+     *
+     * Saving an emptied name met a 400 whose toast read « Le champ « name » n'est pas valide ou n'a pas été
+     * envoyé. » — the WIRE field name, in a toast, floated away from the input that caused it. `required` on the
+     * input does not help: this is not a `<form>` submit, so the browser never validates it.
+     */
+    if (!clinicName.trim()) {
+      setClinicNameError("Le nom de la clinique est obligatoire.")
+      return
+    }
+    setClinicNameError(null)
+
     setIsSaving(true)
     try {
-      // Combine address and governorate
-      const fullAddress = address && governorate 
-        ? `${address}, ${governorate}` 
-        : governorate || address || undefined
+      // ⚠️ Band A — always a STRING, never `undefined`. It used to fall back to `undefined` when both halves were
+      // empty, which omits the key, which the server reads as « leave unchanged » — so an address could be typed
+      // but never cleared. `""` is what clears; `undefined` would mean « this save is not about the address ».
+      const fullAddress = [address, governorate].filter((part) => part.trim()).join(", ")
 
       // Update clinic via API
       const updatedClinic = await clinicsApi.update({
@@ -363,9 +390,12 @@ export default function ClinicSettings() {
         phone: phone,
         email: email,
         logoFile: logoFile || undefined,
+        version: clinicVersion,
       })
 
-      // Update local state with response
+      // The row this screen's other three cards write is the same one — carry the new token forward, or the
+      // next save 409s on a change this user made themselves.
+      setClinicVersion(updatedClinic.version)
       setLogoUrl(updatedClinic.logoUrl || null)
       // Reload logo from backend if it was uploaded
       if (updatedClinic.logoUrl) {
@@ -478,22 +508,20 @@ export default function ClinicSettings() {
   const handleSaveBilling = async () => {
     setIsSaving(true)
     try {
-      const fullAddress = address && governorate
-        ? `${address}, ${governorate}`
-        : governorate || address || undefined
-
-      await clinicsApi.update({
+      // ⚠️ No address / phone / email here any more. They used to be re-sent because an omitted key CLEARED the
+      // field; with the tri-state fix an omitted key means « unchanged », so this card now writes only what it
+      // owns — and cannot overwrite an identity field a colleague changed while the billing tab was open.
+      const saved = await clinicsApi.update({
         name: clinicName,
-        address: fullAddress,
-        phone,
-        email,
         matriculeFiscal,
         vatApplicable,
         vatRate: parseAmountInput(vatRate) || 0,
         stampDutyEnabled,
         stampDutyAmount: parseAmountInput(stampDutyAmount) || 0,
+        version: clinicVersion,
       })
 
+      setClinicVersion(saved.version)
       toast.success("Paramètres de facturation enregistrés.")
       setIsEditingBilling(false)
     } catch (error: any) {
@@ -514,22 +542,24 @@ export default function ClinicSettings() {
   }
 
   const handleSaveHours = async () => {
+    // ⚠️ Before the round-trip, and it NAMES the day. The server refuses an inverted row with a bare
+    // « Horaires de travail invalides. » — on a screen with seven rows, that does not say which one.
+    const invalid = validateWorkingHours(workingHours)
+    if (invalid) {
+      toast.error(invalid)
+      return
+    }
+
     setIsSaving(true)
     try {
-      // Re-send the clinic identity fields (the update path overwrites them) alongside the working hours,
-      // mirroring the billing save — otherwise omitting them would clear name/address/phone/email.
-      const fullAddress = address && governorate
-        ? `${address}, ${governorate}`
-        : governorate || address || undefined
-
+      // Only the hours — see the note on the billing save for why the identity fields are no longer re-sent.
       const updated = await clinicsApi.update({
         name: clinicName,
-        address: fullAddress,
-        phone,
-        email,
         workingHoursJson: JSON.stringify(workingHours),
+        version: clinicVersion,
       })
 
+      setClinicVersion(updated.version)
       if (updated.workingHours && updated.workingHours.length > 0) {
         setWorkingHours(updated.workingHours.map((d) => ({ ...d })))
       }
@@ -559,6 +589,18 @@ export default function ClinicSettings() {
   // height, producing a scrollbar and a band of empty page below the last card on every visit.
   return (
     <div className="min-h-full bg-background">
+
+      {/*
+        § 0 — a capability removed by a role is STATED, not silently absent. Without this the four « Modifier »
+        buttons simply vanish for a doctor, which reads as a broken screen rather than as an access boundary.
+      */}
+      {!isClinicAdmin && (
+        <p role="note" className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          Ces réglages sont en lecture seule&nbsp;: l&apos;identité du cabinet, les praticiens, les horaires et la
+          facturation se modifient par un administrateur du cabinet. Vos propres informations — n° CNOMDT, cachet,
+          horaires personnels — se modifient dans «&nbsp;Mon profil&nbsp;».
+        </p>
+      )}
 
       {/* A colleague saved these settings while this form was open. */}
       {peerChangePending && (
@@ -645,7 +687,13 @@ export default function ClinicSettings() {
                   }`}
                 />
               </button>
-              {!isEditingClinicInfo && (
+              {/*
+                ⚠️ Admin only, on all four cards. `PUT /api/clinics` is `AdminOnly`, so a doctor was offered
+                « Modifier », allowed to type, and then met a 403 on « Enregistrer » — losing the typing. The
+                boundary held; the presentation did not. `frontend-web.md` § 0 is explicit that a capability is
+                never removed silently, which is why the read-only note below says whose job this is.
+              */}
+              {!isEditingClinicInfo && isClinicAdmin && (
                 <Button onClick={handleEditClinicInfo} variant="ghost" size="sm" className="h-7 text-xs">
                   <Edit className="w-3 h-3 mr-1" />
                   Modifier
@@ -665,8 +713,13 @@ export default function ClinicSettings() {
                     id="clinic-name"
                     placeholder="Saisir le nom de la clinique"
                     value={clinicName}
-                    onChange={(e) => setClinicName(e.target.value)}
+                    onChange={(e) => {
+                      setClinicName(e.target.value)
+                      if (clinicNameError) setClinicNameError(null)
+                    }}
                     disabled={!isEditingClinicInfo}
+                    aria-invalid={clinicNameError ? true : undefined}
+                    aria-describedby={clinicNameError ? "clinic-name-error" : undefined}
                     /*
                      * ⚠️ `md:text-sm`, never a bare `text-sm`, on every `Input`/`Textarea` in this file.
                      * `ui/input.tsx` ships `text-base md:text-sm` as the iOS focus-zoom guard — Safari zooms
@@ -675,8 +728,13 @@ export default function ClinicSettings() {
                      * to make the field compact is exactly the class that disarms the guard.
                      */
                     className={`h-8 md:text-sm ${!isEditingClinicInfo ? "bg-muted/40" : ""}`}
-                    required
+                    aria-required="true"
                   />
+                  {clinicNameError && (
+                    <p id="clinic-name-error" role="alert" className="text-xs text-destructive">
+                      {clinicNameError}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-1">
@@ -886,7 +944,13 @@ export default function ClinicSettings() {
                   }`}
                 />
               </button>
-              {!isEditingDoctors && (
+              {/*
+                ⚠️ Admin only, on all four cards. `PUT /api/clinics` is `AdminOnly`, so a doctor was offered
+                « Modifier », allowed to type, and then met a 403 on « Enregistrer » — losing the typing. The
+                boundary held; the presentation did not. `frontend-web.md` § 0 is explicit that a capability is
+                never removed silently, which is why the read-only note below says whose job this is.
+              */}
+              {!isEditingDoctors && isClinicAdmin && (
                 <Button onClick={handleEditDoctors} variant="ghost" size="sm" className="h-7 text-xs">
                   <Edit className="w-3 h-3 mr-1" />
                   Modifier
@@ -896,7 +960,11 @@ export default function ClinicSettings() {
           </CardHeader>
           {!isDoctorsCollapsed && (
             <CardContent className="space-y-3">
-              {doctors.map((doctor, index) => (
+              {doctors.map((doctor, index) => {
+                // Keyed on the row's own id, not the index: reordering or removing a row must not hand one
+                // practitioner's field ids to another.
+                const fieldId = `clinic-doctor-${doctor.id}`
+                return (
                 <Card key={doctor.id} className="bg-muted/40">
                   <CardContent className="p-3">
                     <div className="flex items-start gap-3">
@@ -910,8 +978,13 @@ export default function ClinicSettings() {
                           widening the grid. */}
                       <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-2">
                         <div className="space-y-1">
-                          <Label className="text-xs">Nom complet</Label>
+                          {/* htmlFor/id on all six — the hours rows in this same file already carry them
+                              (AC-P1.54), so these labels named nothing while their sibling card did. */}
+                          <Label htmlFor={`${fieldId}-name`} className="text-xs">
+                            Nom complet
+                          </Label>
                           <Input
+                            id={`${fieldId}-name`}
                             value={doctor.name}
                             onChange={(e) => updateDoctor(doctor.id, "name", e.target.value)}
                             disabled={!isEditingDoctors}
@@ -919,7 +992,9 @@ export default function ClinicSettings() {
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs">Spécialité</Label>
+                          <Label htmlFor={`${fieldId}-specialty`} className="text-xs">
+                            Spécialité
+                          </Label>
                           <Select
                             value={doctor.specialty}
                             onValueChange={(value) => updateDoctor(doctor.id, "specialty", value)}
@@ -928,7 +1003,7 @@ export default function ClinicSettings() {
                             {/* `w-full`: the base is `w-fit`, so « Médecin dentiste » made this trigger
                                 18 px wider than its grid cell at 320 px — see the note on the gouvernorat
                                 trigger above for the `md:` prefix. */}
-                            <SelectTrigger className="h-7 w-full md:text-sm">
+                            <SelectTrigger id={`${fieldId}-specialty`} className="h-7 w-full md:text-sm">
                               <SelectValue placeholder="Sélectionner une spécialité" />
                             </SelectTrigger>
                             <SelectContent>
@@ -952,8 +1027,11 @@ export default function ClinicSettings() {
                           </Select>
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs">Téléphone</Label>
+                          <Label htmlFor={`${fieldId}-phone`} className="text-xs">
+                            Téléphone
+                          </Label>
                           <Input
+                            id={`${fieldId}-phone`}
                             value={doctor.phone || ""}
                             onChange={(e) => updateDoctor(doctor.id, "phone", e.target.value)}
                             disabled={!isEditingDoctors}
@@ -961,8 +1039,11 @@ export default function ClinicSettings() {
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs">Email</Label>
+                          <Label htmlFor={`${fieldId}-email`} className="text-xs">
+                            Email
+                          </Label>
                           <Input
+                            id={`${fieldId}-email`}
                             type="email"
                             value={doctor.email || ""}
                             onChange={(e) => updateDoctor(doctor.id, "email", e.target.value)}
@@ -971,8 +1052,11 @@ export default function ClinicSettings() {
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs">Code prof. santé (CNAM)</Label>
+                          <Label htmlFor={`${fieldId}-cnam`} className="text-xs">
+                            Code prof. santé (CNAM)
+                          </Label>
                           <Input
+                            id={`${fieldId}-cnam`}
                             value={doctor.codeProfessionnelSante || ""}
                             onChange={(e) => updateDoctor(doctor.id, "codeProfessionnelSante", e.target.value)}
                             disabled={!isEditingDoctors}
@@ -983,8 +1067,14 @@ export default function ClinicSettings() {
                             could set from here. Read-only in the roster because they belong to
                             `PUT /api/doctors/{id}`, not to the roster rewrite; « Modifier » opens that. */}
                         <div className="space-y-1">
-                          <Label className="text-xs">Identité documentaire</Label>
-                          <div className="flex h-7 items-center gap-2 text-sm">
+                          <Label id={`${fieldId}-identity-label`} className="text-xs">
+                            Identité documentaire
+                          </Label>
+                          <div
+                            role="group"
+                            aria-labelledby={`${fieldId}-identity-label`}
+                            className="flex h-7 items-center gap-2 text-sm"
+                          >
                             <span className="text-muted-foreground">
                               {doctor.ordreNumberCnomdt
                                 ? `N° ordre ${doctor.ordreNumberCnomdt}`
@@ -998,6 +1088,14 @@ export default function ClinicSettings() {
                                 size="sm"
                                 className="h-6 px-2 text-xs"
                                 onClick={() => setDocumentIdentityTarget(doctor)}
+                                /* Four buttons on this screen read exactly « Modifier », so nothing said which
+                                   practitioner this one edits. The visible label stays short; the accessible
+                                   name says whose identity it opens. */
+                                aria-label={
+                                  doctor.name
+                                    ? `Modifier l’identité documentaire de ${doctor.name}`
+                                    : "Modifier l’identité documentaire de ce praticien"
+                                }
                               >
                                 Modifier
                               </Button>
@@ -1043,7 +1141,8 @@ export default function ClinicSettings() {
                     )}
                   </CardContent>
                 </Card>
-              ))}
+                )
+              })}
 
               {isEditingDoctors && (
                 <>
@@ -1102,7 +1201,13 @@ export default function ClinicSettings() {
                   }`}
                 />
               </button>
-              {!isEditingHours && (
+              {/*
+                ⚠️ Admin only, on all four cards. `PUT /api/clinics` is `AdminOnly`, so a doctor was offered
+                « Modifier », allowed to type, and then met a 403 on « Enregistrer » — losing the typing. The
+                boundary held; the presentation did not. `frontend-web.md` § 0 is explicit that a capability is
+                never removed silently, which is why the read-only note below says whose job this is.
+              */}
+              {!isEditingHours && isClinicAdmin && (
                 <Button onClick={handleEditHours} variant="ghost" size="sm" className="h-7 text-xs">
                   <Edit className="w-3 h-3 mr-1" />
                   Modifier
@@ -1171,6 +1276,34 @@ export default function ClinicSettings() {
                       className={`h-7 md:text-xs ${!isEditingHours || !item.enabled ? "bg-muted/40" : ""}`}
                     />
                   </div>
+                  {/* The mid-day closure. Optional and empty by default, so a cabinet that does not close at
+                      lunch sees no change; leaving both blank is « pas de pause ». */}
+                  <div className="flex w-full items-center gap-2 sm:basis-full">
+                    <span className="w-32 shrink-0 text-xs text-muted-foreground">Pause (optionnel)</span>
+                    <Label htmlFor={`clinic-hours-${item.day}-break-from`} className="sr-only">
+                      {`Début de la pause — ${WEEKDAY_LABELS_FR[item.day] ?? item.day}`}
+                    </Label>
+                    <Input
+                      id={`clinic-hours-${item.day}-break-from`}
+                      type="time"
+                      value={item.breakFrom ?? ""}
+                      onChange={(e) => updateWorkingHours(item.day, "breakFrom", e.target.value)}
+                      disabled={!isEditingHours || !item.enabled}
+                      className={`h-7 min-w-0 flex-1 basis-28 md:text-xs ${!isEditingHours || !item.enabled ? "bg-muted/40" : ""}`}
+                    />
+                    <span className="text-xs text-muted-foreground">à</span>
+                    <Label htmlFor={`clinic-hours-${item.day}-break-to`} className="sr-only">
+                      {`Fin de la pause — ${WEEKDAY_LABELS_FR[item.day] ?? item.day}`}
+                    </Label>
+                    <Input
+                      id={`clinic-hours-${item.day}-break-to`}
+                      type="time"
+                      value={item.breakTo ?? ""}
+                      onChange={(e) => updateWorkingHours(item.day, "breakTo", e.target.value)}
+                      disabled={!isEditingHours || !item.enabled}
+                      className={`h-7 min-w-0 flex-1 basis-28 md:text-xs ${!isEditingHours || !item.enabled ? "bg-muted/40" : ""}`}
+                    />
+                  </div>
                 </div>
               ))}
 
@@ -1220,7 +1353,13 @@ export default function ClinicSettings() {
                   }`}
                 />
               </button>
-              {!isEditingBilling && (
+              {/*
+                ⚠️ Admin only, on all four cards. `PUT /api/clinics` is `AdminOnly`, so a doctor was offered
+                « Modifier », allowed to type, and then met a 403 on « Enregistrer » — losing the typing. The
+                boundary held; the presentation did not. `frontend-web.md` § 0 is explicit that a capability is
+                never removed silently, which is why the read-only note below says whose job this is.
+              */}
+              {!isEditingBilling && isClinicAdmin && (
                 <Button onClick={handleEditBilling} variant="ghost" size="sm" className="h-7 text-xs">
                   <Edit className="w-3 h-3 mr-1" />
                   Modifier

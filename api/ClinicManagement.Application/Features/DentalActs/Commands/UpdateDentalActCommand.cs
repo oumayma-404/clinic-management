@@ -19,6 +19,12 @@ public class UpdateDentalActCommand : IRequest<Result<DentalActDto>>
     public string Category { get; set; } = string.Empty;
     public decimal? DefaultFee { get; set; }
     public bool RequiresAccordPrealable { get; set; }
+
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user was
+    /// editing; <c>0</c> means « not supplied » and skips the check (see <c>IUnitOfWork.SetExpectedVersion</c>).
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class UpdateDentalActCommandHandler : IRequestHandler<UpdateDentalActCommand, Result<DentalActDto>>
@@ -79,6 +85,9 @@ public class UpdateDentalActCommandHandler : IRequestHandler<UpdateDentalActComm
             {
                 return Result<DentalActDto>.Failure(ex.Message);
             }
+
+            // Band B — validated against the copy the USER was editing, not the row this handler just read.
+            _unitOfWork.SetExpectedVersion(act, request.Version);
 
             await _repository.UpdateAsync(act, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

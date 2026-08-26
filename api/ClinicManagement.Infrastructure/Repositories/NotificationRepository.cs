@@ -228,16 +228,23 @@ public class NotificationRepository : INotificationRepository
         // that figure, not a fifth status: the rows are `Blocked` like any other, and what distinguishes them is the
         // machine-readable reason. Counted here rather than derived from the page's rows, which would render « les
         // rappels en attente de forfait parmi ces 25 » — the trap the four counters above already document.
+        // ⚠️ The FORFAIT reasons only. `MessagingTemplateNotReady` and `MessagingNumberStopped` used to be in here
+        // too, so a row the log's own badge reads « numéro » was reported as « en attente de forfait » — two
+        // problems with two different remedies presented as one. They are counted separately below.
         var heldByAllowance = await scoped.CountAsync(
             n => n.Status == NotificationStatus.Blocked
                  && (n.BlockedReason == OutboxBlockReason.MessagingAllowanceExhausted
-                     || n.BlockedReason == OutboxBlockReason.MessagingAllowanceMissing
-                     || n.BlockedReason == OutboxBlockReason.MessagingTemplateNotReady
+                     || n.BlockedReason == OutboxBlockReason.MessagingAllowanceMissing),
+            cancellationToken);
+
+        var heldBySender = await scoped.CountAsync(
+            n => n.Status == NotificationStatus.Blocked
+                 && (n.BlockedReason == OutboxBlockReason.MessagingTemplateNotReady
                      || n.BlockedReason == OutboxBlockReason.MessagingNumberStopped),
             cancellationToken);
 
         return new ReminderLogCounts(
-            sentToday, shared.Pending, shared.FailedRecent, shared.Blocked, heldByAllowance);
+            sentToday, shared.Pending, shared.FailedRecent, shared.Blocked, heldByAllowance, heldBySender);
     }
 
     /// <summary>

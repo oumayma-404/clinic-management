@@ -216,6 +216,29 @@ public class NotificationJob
                     continue;
                 }
 
+                /*
+                 * ⚠️ And a row whose VISIT has already happened is retired here rather than waiting out the age
+                 * bound above.
+                 *
+                 * The dispatcher already refuses such a row the instant it is released — « Rendez-vous déjà passé »,
+                 * the same rule, at line ~377 — so it was parked for up to 30 days under a counter whose own hint
+                 * says « un réglage à changer », promising a remedy that releases nothing. All three blocked rows on
+                 * the QA clinic were for appointments five days gone: « BLOQUÉS 3 » could not be brought back to zero
+                 * by any action, and an alarm that cannot be cleared is one a practice learns to stop reading, which
+                 * is the exact failure the `blocked` status exists to prevent.
+                 *
+                 * Failed rather than silently dropped, for the same reason the age bound is: the outcome is recorded
+                 * and « Rappels » shows it like any other, so nothing disappears without a trace.
+                 */
+                if (notification.AppointmentId.HasValue
+                    && await _appointmentRepository.GetByIdAsync(notification.AppointmentId.Value) is { } parked
+                    && parked.AppointmentDateTime <= nowUtc)
+                {
+                    await FailAsync(notification, "Rendez-vous déjà passé — rappel obsolète, non envoyé");
+                    expired++;
+                    continue;
+                }
+
                 if (await entitlements.ReviewAsync(notification.ClinicId) is not null)
                 {
                     continue;

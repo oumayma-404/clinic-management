@@ -292,28 +292,7 @@ public class CreateMedicalDocumentCommandHandler : IRequestHandler<CreateMedical
                 await CompleteReviewedAppointmentAsync(request.AppointmentId.Value, cancellationToken);
             }
 
-            var dto = new MedicalDocumentDto
-            {
-                Id = document.Id,
-                PatientId = document.PatientId,
-                PatientName = document.PatientName,
-                PatientAge = document.PatientAge,
-                DocumentType = document.DocumentType,
-                DocumentDate = document.DocumentDate,
-                RecipientDoctorName = document.RecipientDoctorName,
-                RecipientDoctorSpecialty = document.RecipientDoctorSpecialty,
-                ContentJson = document.ContentJson,
-                ClinicName = document.ClinicName,
-                ClinicAddress = document.ClinicAddress,
-                ClinicPhone = document.ClinicPhone,
-                DoctorName = document.DoctorName,
-                DoctorSpecialty = document.DoctorSpecialty,
-                IsDraft = document.IsDraft,
-                FileId = document.FileId,
-                AppointmentId = document.AppointmentId,
-                CreatedAt = document.CreatedAt,
-                UpdatedAt = document.UpdatedAt
-            };
+            var dto = document.ToDto();
 
             return Result<MedicalDocumentDto>.Success(dto);
         }

@@ -159,10 +159,22 @@ public class PatientRepository : IPatientRepository
             return query;
         }
 
+        /*
+         * ⚠️ BOTH orders, and that is the fix rather than an indulgence.
+         *
+         * Only « Prénom Nom » was matched, while every card and every row in this product renders « Nom Prénom » —
+         * so a receptionist typing what is on the screen in front of them got « aucun résultat » for a patient who
+         * is there: « Hamdi Karim » → 0, « Karim Hamdi » → 1. The product's own CSV export header is
+         * <c>Nom;Prénom</c>, so the order the app itself exports in was the one order the app could not find.
+         *
+         * Both concatenations stay in SQL and keep `unaccent`, so this narrows the whole clinic before the page is
+         * cut — the same property every other search on this repository has.
+         */
         return query.Where(p =>
             EF.Functions.ILike(SqlSearch.Unaccent(p.FirstName)!, pattern, SqlSearch.EscapeString) ||
             EF.Functions.ILike(SqlSearch.Unaccent(p.LastName)!, pattern, SqlSearch.EscapeString) ||
             EF.Functions.ILike(SqlSearch.Unaccent(p.FirstName + " " + p.LastName)!, pattern, SqlSearch.EscapeString) ||
+            EF.Functions.ILike(SqlSearch.Unaccent(p.LastName + " " + p.FirstName)!, pattern, SqlSearch.EscapeString) ||
             EF.Functions.ILike(SqlSearch.Unaccent(p.PhoneNumber!.Value)!, pattern, SqlSearch.EscapeString));
     }
 

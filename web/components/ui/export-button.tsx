@@ -61,9 +61,17 @@ export function ExportButton({ path, params, label = "lignes", className, compac
       size="sm"
       onClick={handleExport}
       disabled={working}
-      // `touch-target`: an isolated `size="sm"` control, so overlaying a 44px hit area is the right fix here
+      /*
+       * ⚠️ `coarse:h-11` ON TOP of `touch-target`, because this control is NOT isolated in practice.
+       *
+       * At `size="sm"` the painted box is 32 px, so the 44 px overlay overhangs 6 px each side — and every screen
+       * that uses this button puts it in a `gap-2` (8 px) action row beside « Nouvelle … » or « Aujourd'hui ».
+       * Two overlays 8 px apart with a 6 px overhang each OVERLAP, and the later sibling paints last, so it eats
+       * its neighbour's taps (§ 2). Growing the box removes the overlap and makes the MEASURED size 44 as well.
+       * `touch-target` stays for the screens where it genuinely does sit alone.
+       */
       // (a grown box would change the toolbar's rhythm) — and it has no `overflow-hidden` ancestor to clip it.
-      className={cn("touch-target gap-1.5", className)}
+      className={cn("touch-target gap-1.5 coarse:h-11", className)}
       aria-label={compact ? "Exporter en CSV" : undefined}
     >
       {working ? (

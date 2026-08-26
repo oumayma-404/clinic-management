@@ -36,6 +36,9 @@ public class AuditLedgerReadTests
             .ReturnsAsync(Result<Guid>.Success(ClinicId));
         _audit.Setup(r => r.GetRecordedEntityTypesAsync(ClinicId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<string>());
+        // The « Auteur » filter's options travel with the page, like the entity types above it.
+        _audit.Setup(r => r.GetRecordedActorsAsync(ClinicId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<AuditActorRow>());
         Respond();
     }
 
@@ -53,7 +56,7 @@ public class AuditLedgerReadTests
     private void Respond(params AuditEntry[] rows) =>
         _audit.Setup(r => r.GetFilteredAsync(
                 It.IsAny<Guid>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(),
-                It.IsAny<DateTime?>(), It.IsAny<AuditAction?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<DateTime?>(), It.IsAny<AuditAction?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PagedResult<AuditEntry>(rows, page: 1, pageSize: rows.Length, totalCount: rows.Length));
 
@@ -69,7 +72,7 @@ public class AuditLedgerReadTests
 
         _audit.Verify(r => r.GetFilteredAsync(
             ClinicId, It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(),
-            It.IsAny<AuditAction?>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<AuditAction?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -101,10 +104,10 @@ public class AuditLedgerReadTests
         DateTime? from = null, to = null;
         _audit.Setup(r => r.GetFilteredAsync(
                 It.IsAny<Guid>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(),
-                It.IsAny<DateTime?>(), It.IsAny<AuditAction?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<DateTime?>(), It.IsAny<AuditAction?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
                 It.IsAny<CancellationToken>()))
-            .Callback<Guid, string?, string?, DateTime?, DateTime?, AuditAction?, PageRequest?, CancellationToken>(
-                (_, _, _, f, t, _, _, _) => { from = f; to = t; })
+            .Callback<Guid, string?, string?, DateTime?, DateTime?, AuditAction?, string?, PageRequest?, CancellationToken>(
+                (_, _, _, f, t, _, _, _, _) => { from = f; to = t; })
             .ReturnsAsync(PagedResult<AuditEntry>.Unpaged(Array.Empty<AuditEntry>()));
 
         await Handler().Handle(
@@ -125,10 +128,10 @@ public class AuditLedgerReadTests
         DateTime? from = new DateTime(1999, 1, 1), to = new DateTime(1999, 1, 1);
         _audit.Setup(r => r.GetFilteredAsync(
                 It.IsAny<Guid>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(),
-                It.IsAny<DateTime?>(), It.IsAny<AuditAction?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<DateTime?>(), It.IsAny<AuditAction?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
                 It.IsAny<CancellationToken>()))
-            .Callback<Guid, string?, string?, DateTime?, DateTime?, AuditAction?, PageRequest?, CancellationToken>(
-                (_, _, _, f, t, _, _, _) => { from = f; to = t; })
+            .Callback<Guid, string?, string?, DateTime?, DateTime?, AuditAction?, string?, PageRequest?, CancellationToken>(
+                (_, _, _, f, t, _, _, _, _) => { from = f; to = t; })
             .ReturnsAsync(PagedResult<AuditEntry>.Unpaged(Array.Empty<AuditEntry>()));
 
         await Handler().Handle(new GetAuditEntriesQuery(), CancellationToken.None);
@@ -174,10 +177,10 @@ public class AuditLedgerReadTests
     private void CaptureAction(Action<AuditAction?> capture) =>
         _audit.Setup(r => r.GetFilteredAsync(
                 It.IsAny<Guid>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(),
-                It.IsAny<DateTime?>(), It.IsAny<AuditAction?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<DateTime?>(), It.IsAny<AuditAction?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
                 It.IsAny<CancellationToken>()))
-            .Callback<Guid, string?, string?, DateTime?, DateTime?, AuditAction?, PageRequest?, CancellationToken>(
-                (_, _, _, _, _, a, _, _) => capture(a))
+            .Callback<Guid, string?, string?, DateTime?, DateTime?, AuditAction?, string?, PageRequest?, CancellationToken>(
+                (_, _, _, _, _, a, _, _, _) => capture(a))
             .ReturnsAsync(PagedResult<AuditEntry>.Unpaged(Array.Empty<AuditEntry>()));
 
     // ---------------------------------------------------------------- the projection
@@ -232,6 +235,9 @@ public class AuditLedgerReadTests
     {
         _audit.Setup(r => r.GetRecordedEntityTypesAsync(ClinicId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { nameof(Invoice), nameof(Expense), nameof(Patient) });
+        // The « Auteur » filter's options travel with the page, like the entity types above it.
+        _audit.Setup(r => r.GetRecordedActorsAsync(ClinicId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<AuditActorRow>());
 
         var result = await Handler().Handle(new GetAuditEntriesQuery(), CancellationToken.None);
 

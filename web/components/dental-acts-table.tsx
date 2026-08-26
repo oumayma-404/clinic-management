@@ -19,7 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { ClipboardList, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2, MoreHorizontal } from "lucide-react"
+import { ClipboardList, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2, MoreHorizontal, RotateCcw } from "lucide-react"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
@@ -32,7 +32,7 @@ import {
 import { dentalActsApi } from "@/lib/api/dental-acts"
 import type { DentalActDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
-import { formatDT } from "@/lib/format"
+import { formatDT, quoteFr } from "@/lib/format"
 import { toast } from "sonner"
 
 interface DentalActsTableProps {
@@ -74,7 +74,7 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
     try {
       setDeleting(true)
       await dentalActsApi.deactivate(actToDelete.id)
-      toast.success(`Acte « ${actToDelete.codeActe} » désactivé.`)
+      toast.success(`Acte ${quoteFr(actToDelete.codeActe)} désactivé.`)
       setActToDelete(null)
       onChanged()
     } catch (err) {
@@ -84,11 +84,43 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
     }
   }
 
+  /**
+   * Bring back a row switched off by mistake.
+   *
+   * ⚠️ Not behind a confirmation, deliberately, and the asymmetry is the point: deactivating removes the row from
+   * every picker in the product and is what the dialog below guards; reactivating restores a state that already
+   * existed and is the cheap, reversible direction. Guarding both equally is how a confirmation stops being read.
+   */
+  const handleReactivate = async (id: string, name: string) => {
+    try {
+      setDeleting(true)
+      await dentalActsApi.reactivate(id)
+      toast.success(`Acte ${quoteFr(name)} réactivé.`)
+      onChanged()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Échec de la réactivation.")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  /**
+   * ⚠️ « Confirmer les données » ASKS first, and it is the one action on this screen that most needed to.
+   *
+   * It is a bulk, irreversible write with no inverse endpoint — one click moved every provisional row in le catalogue des actes dentaires
+   * out of « à vérifier », and there is nothing that puts the flag back. Deactivating a SINGLE row already
+   * asked; the cheap, reversible action was guarded and the expensive, unrecoverable one was not.
+   *
+   * The dialog names the count, because « Êtes-vous sûr ? » cannot say whether this is 3 rows or 300.
+   */
+  const [confirmDataOpen, setConfirmDataOpen] = useState(false)
+
   const handleConfirmData = async () => {
     try {
       setConfirming(true)
       await dentalActsApi.confirmData()
       toast.success("Données du catalogue confirmées.")
+      setConfirmDataOpen(false)
       onChanged()
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Échec de la confirmation.")
@@ -150,7 +182,13 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
               utilisation clinique. Rien n'est bloqué en attendant.
             </span>
           </div>
-          <Button size="sm" variant="outline" onClick={handleConfirmData} disabled={confirming} className="gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setConfirmDataOpen(true)}
+            disabled={confirming}
+            className="gap-2"
+          >
             <CheckCircle2 className="h-4 w-4" />
             {confirming ? "Confirmation…" : "Confirmer les données"}
           </Button>
@@ -265,12 +303,20 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onSelect={() => onEdit(a)}>Modifier</DropdownMenuItem>
-                    {a.isActive && (
+                    {a.isActive ? (
                       <DropdownMenuItem
                         className="text-destructive focus:text-destructive"
                         onSelect={() => setActToDelete(a)}
                       >
                         Désactiver
+                      </DropdownMenuItem>
+                    ) : (
+                      /* The inverse of a soft delete, finally reachable — see `handleReactivate`. */
+                      <DropdownMenuItem
+                        disabled={deleting}
+                        onSelect={() => void handleReactivate(a.id, a.designationFr)}
+                      >
+                        Réactiver
                       </DropdownMenuItem>
                     )}
                   </DropdownMenuContent>
@@ -330,7 +376,7 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
                             <Pencil className="h-3 w-3" />
                             Modifier
                           </Button>
-                          {act.isActive && (
+                          {act.isActive ? (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -339,6 +385,18 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
                             >
                               <Trash2 className="h-3 w-3" />
                               Désactiver
+                            </Button>
+                          ) : (
+                            /* The inverse of a soft delete — see `handleReactivate`. */
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={deleting}
+                              onClick={() => void handleReactivate(act.id, act.designationFr)}
+                              className="h-8 gap-1"
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                              Réactiver
                             </Button>
                           )}
                         </div>
@@ -377,6 +435,36 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleting ? "Désactivation…" : "Désactiver"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/*
+        « Confirmer les données » — a bulk, irreversible write, guarded like one.
+
+        ⚠️ It used to fire on the click, with no dialog and no inverse endpoint: one press moved every provisional
+        row out of « à vérifier » and nothing could put the flag back. Deactivating a single row already asked, so
+        the cheap reversible action was guarded and the expensive unrecoverable one was not.
+
+        `AlertDialogAction` is NOT `variant="destructive"` here: nothing is destroyed, and a red button on an
+        approval reads as a warning about the wrong thing. Irreversible and destructive are different facts.
+      */}
+      <AlertDialog open={confirmDataOpen} onOpenChange={(open) => !open && setConfirmDataOpen(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer les données provisoires ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Toutes les entrées encore marquées «&nbsp;à vérifier&nbsp;» dans le catalogue des actes dentaires seront confirmées d'un
+              coup — pas seulement celles affichées ici. <span className="font-semibold">Cette action est
+              irréversible&nbsp;:</span> rien ne permet de remettre la mention «&nbsp;à vérifier&nbsp;». Ne la
+              confirmez qu'après avoir comparé les valeurs à la convention en vigueur.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={confirming}>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmData} disabled={confirming}>
+              {confirming ? "Confirmation…" : "Confirmer les données"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

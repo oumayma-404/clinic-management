@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
@@ -15,7 +16,26 @@ public class UpdateProcedureTypeCommand : IRequest<Result<ProcedureTypeDto>>
     public Guid Id { get; set; }
     public string? Name { get; set; }
     public int? DefaultDurationMinutes { get; set; }
-    public decimal? DefaultCost { get; set; }
+
+    /// <summary>
+    /// Band A — <b>tri-state, and it has to be, because a price has no empty string.</b> Omit the key to leave the
+    /// tarif alone; send an explicit <c>null</c> to un-price the act; send a figure to set it.
+    ///
+    /// <para>⚠️ It used to be a plain <c>decimal?</c> tested with <c>HasValue</c>, which conflated « not supplied »
+    /// with « clear it » — so <b>an act could never be un-priced anywhere in the product</b>: clearing the field
+    /// reported success and the old tarif came back on reload. The nullable text fields beside it get the same
+    /// distinction for free from <c>""</c>; a number needs <see cref="DefaultCostSpecified"/> to say it.</para>
+    /// </summary>
+    public decimal? DefaultCost
+    {
+        get => _defaultCost;
+        set { _defaultCost = value; DefaultCostSpecified = true; }
+    }
+    private decimal? _defaultCost;
+
+    /// <summary>True once the body carried a <c>defaultCost</c> key at all — including an explicit null.</summary>
+    [JsonIgnore]
+    public bool DefaultCostSpecified { get; private set; }
     public string? ColorHex { get; set; }
     public string? Description { get; set; }
     /// <summary>
@@ -25,6 +45,11 @@ public class UpdateProcedureTypeCommand : IRequest<Result<ProcedureTypeDto>>
     public string? Category { get; set; }
     /// <summary>When provided, sets the resulting odontogram state ("" clears it).</summary>
     public string? ResultingCondition { get; set; }
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user was
+    /// editing; <c>0</c> means « not supplied » and skips the check (see <c>IUnitOfWork.SetExpectedVersion</c>).
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedureTypeCommand, Result<ProcedureTypeDto>>
@@ -84,7 +109,7 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 var nameExists = await _procedureTypeRepository.ExistsByNameAsync(request.Name, request.Id, cancellationToken);
                 if (nameExists)
                 {
-                    return Result<ProcedureTypeDto>.Failure($"A procedure type with the name '{request.Name}' already exists");
+                    return Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.DuplicateName(request.Name));
                 }
 
                 oldName = procedureType.Name;
@@ -123,25 +148,21 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 }
             }
 
-            // Update default cost if provided in request
-            _logger.LogInformation("UpdateProcedureType - DefaultCost in request: HasValue={HasValue}, Value={Value}", 
-                request.DefaultCost.HasValue, request.DefaultCost.HasValue ? request.DefaultCost.Value : (decimal?)null);
-            
-            if (request.DefaultCost.HasValue)
+            // Band A — keyed on Specified, not on HasValue, so an explicit null un-prices the act instead of
+            // meaning « leave it alone ». See the property's own note.
+            if (request.DefaultCostSpecified)
             {
-                if (request.DefaultCost.Value < 0)
+                if (request.DefaultCost is < 0)
                 {
-                    return Result<ProcedureTypeDto>.Failure("Le tarif par défaut ne peut pas être négatif.");
+                    return Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.CostNegative);
                 }
-                
-                var oldCost = procedureType.DefaultCost;
+
+                if (request.DefaultCost > ProcedureTypeRefusals.MaxCost)
+                {
+                    return Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.CostTooLarge);
+                }
+
                 procedureType.UpdateDefaultCost(request.DefaultCost);
-                _logger.LogInformation("UpdateProcedureType - Updated DefaultCost from {OldCost} to {NewCost}", 
-                    oldCost, request.DefaultCost.Value);
-            }
-            else
-            {
-                _logger.LogInformation("UpdateProcedureType - DefaultCost not provided in request (HasValue=false)");
             }
 
             // Update description if provided
@@ -206,6 +227,9 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 }
             }
 
+            // Band B — validated against the copy the USER was editing, not the row this handler just read.
+            _unitOfWork.SetExpectedVersion(procedureType, request.Version);
+
             await _procedureTypeRepository.UpdateAsync(procedureType, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -216,7 +240,8 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error updating procedure type {ProcedureTypeId}", request.Id);
-            return Result<ProcedureTypeDto>.Failure($"Error updating procedure type: {ex.Message}");
+            // No `ex.Message`: an EF/Npgsql sentence is English machine text and this string is rendered verbatim.
+            return Result<ProcedureTypeDto>.Failure("Erreur lors de la mise à jour de l'acte.");
         }
     }
 }

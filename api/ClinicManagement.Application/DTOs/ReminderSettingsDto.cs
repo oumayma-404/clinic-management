@@ -65,6 +65,12 @@ public sealed record ReminderSettingsDto
     /// field the save is about to reject.</para>
     /// </summary>
     public bool WhatsAppVendorManaged { get; init; }
+
+    /// <summary>
+    /// Round-tripped by the settings sheet so two tabs cannot silently overwrite each other's channel configuration.
+    /// <c>0</c> means « not supplied » and skips the check — which is what it was doing for every save.
+    /// </summary>
+    public uint Version { get; init; }
 }
 
 /// <summary>
@@ -99,6 +105,12 @@ public sealed record UpdateReminderSettingsRequest
     public string? SmtpPassword { get; init; }
     public string? SmtpFromAddress { get; init; }
     public string? SmtpFromName { get; init; }
+
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the admin was
+    /// editing; <c>0</c> means « not supplied » and skips the check.
+    /// </summary>
+    public uint Version { get; init; }
 }
 
 /// <summary>

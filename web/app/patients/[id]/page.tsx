@@ -20,7 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { formatDT, formatDateFr, formatDate, formatDateTime, formatFileSize } from "@/lib/format"
+import { formatDT, formatDate, formatDateFr, formatDateTime, formatFileSize, quoteFr } from "@/lib/format"
 import {
   ArrowLeft,
   Flag,
@@ -493,6 +493,8 @@ export default function PatientDetailsPage() {
   // this tab loads every file at once, so there is no page to turn.
   const preview = useFilePreview(patientId, undefined, { files: filesNewestFirst })
   const [refreshKey, setRefreshKey] = useState(0)
+  /** Band C — the identity read answered 404 (the patient really is gone), as opposed to failing. */
+  const [identityMissing, setIdentityMissing] = useState(false)
   const [treatmentPlans, setTreatmentPlans] = useState<TreatmentPlanDto[]>([])
   // Controlled so PatientPlansStrip can send the user to the plans tab.
   const [activeTab, setActiveTab] = useState("medical-records")
@@ -581,6 +583,7 @@ export default function PatientDetailsPage() {
         if (cancelled) return
         setPatient(patientData)
         setError(null)
+        setIdentityMissing(false)
         loadedPatientIdRef.current = patientId
       } catch (err) {
         if (cancelled) return
@@ -589,6 +592,12 @@ export default function PatientDetailsPage() {
         if (loadedPatientIdRef.current === patientId) {
           showErrorToast(err, "Le dossier du patient n'a pas pu être rechargé.")
         } else {
+          /*
+           * Band C — a 404 and a 500 are DIFFERENT facts and this screen used to state the first for both. « Le
+           * patient recherché n'existe pas » on a transient failure sends a dentist to look for a record that is
+           * sitting right there, and « Retour aux patients » was the only way out of it.
+           */
+          setIdentityMissing(err instanceof ApiError && err.status === 404)
           setError(err instanceof ApiError ? err.message : "Échec du chargement des données du patient")
         }
         return
@@ -824,16 +833,34 @@ export default function PatientDetailsPage() {
   // `!patient`, not `error || !patient`: a background refresh that fails now toasts and keeps the page, so
   // this screen is reserved for the case where there is genuinely nothing to show.
   if (!patient) {
+    // Band C — « introuvable » is reserved for a 404. Anything else is a read that failed, and it gets a retry.
+    const genuinelyMissing = identityMissing
     return (
       <AppShell width="none" gutter={false} mainClassName="flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-semibold text-foreground">Patient introuvable</h2>
+        <div className="max-w-md text-center">
+          <h2 className="text-2xl font-semibold text-foreground">
+            {genuinelyMissing ? "Patient introuvable" : "Dossier non chargé"}
+          </h2>
           <p className="mt-2 text-muted-foreground">
-            {error || "Le patient recherché n'existe pas."}
+            {genuinelyMissing
+              ? "Le patient recherché n'existe pas — il a peut-être été supprimé."
+              : (error ??
+                "Le dossier n'a pas pu être lu. Cela ne veut pas dire qu'il n'existe pas.")}
           </p>
-          <Button onClick={() => router.push("/patients")} className="mt-4">
-            Retour aux patients
-          </Button>
+          <div className="mt-4 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
+            {!genuinelyMissing && (
+              <Button onClick={() => setRefreshKey((k) => k + 1)} className="w-full sm:w-auto">
+                Réessayer
+              </Button>
+            )}
+            <Button
+              variant={genuinelyMissing ? "default" : "outline"}
+              onClick={() => router.push("/patients")}
+              className="w-full sm:w-auto"
+            >
+              Retour aux patients
+            </Button>
+          </div>
         </div>
       </AppShell>
     )
@@ -894,7 +921,7 @@ export default function PatientDetailsPage() {
     } catch (error) {
       // AC-P3.29 — matches what the same action already does in `patient-files-manager.tsx`; a silent
       // console.error made a failed download indistinguishable from a browser that blocked the save.
-      showErrorToast(error, `Impossible de télécharger « ${file.fileName} ».`)
+      showErrorToast(error, `Impossible de télécharger ${quoteFr(file.fileName)}.`)
     }
   }
   
@@ -1517,6 +1544,14 @@ export default function PatientDetailsPage() {
                               )}
                             </TableCell>
                             <TableCell className="text-right">
+                              {/*
+                                ⚠️ The three actions below carry `coarse:size-11` rather than relying on the
+                                inherited `.touch-target`. On a tablet — this app's primary device, and 820 px is
+                                already past `md:` so this table is what a tablet gets — they measured 32 px, and
+                                three overlays 4 px apart overhang each other so the last one painted steals its
+                                neighbours' taps. Deleting a fiche de soins is not a control to reach by accident.
+                                The row grows to 44 px on a finger and is untouched on a mouse.
+                              */}
                               <div className="flex items-center justify-end gap-1">
                                 {/* Billed → the action is simply absent, not replaced by a « Facturé » badge in
                                     the Actions column. A status has no business there, and the struck-through
@@ -1525,7 +1560,7 @@ export default function PatientDetailsPage() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-8 w-8 p-0"
+                                    className="h-8 w-8 p-0 coarse:size-11"
                                     onClick={() => setBillingRecord(record)}
                                     title="Facturer cette intervention"
                                   >
@@ -1535,7 +1570,7 @@ export default function PatientDetailsPage() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 w-8 p-0"
+                                  className="h-8 w-8 p-0 coarse:size-11"
                                   onClick={() => {
                                     setEditingRecord(record)
                                     setRecordModalOpen(true)
@@ -1548,7 +1583,7 @@ export default function PatientDetailsPage() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                    className="h-8 w-8 p-0 coarse:size-11 text-destructive hover:text-destructive"
                                     onClick={() => setRecordToDelete(record)}
                                     title="Supprimer la fiche de soins"
                                   >

@@ -32,6 +32,8 @@ public class GetReminderAllowanceQueryHandler
 {
     private readonly IMessagingAllowanceRepository _allowances;
     private readonly IClinicReminderSettingsRepository _settings;
+    /// <summary>The resolved channel configuration — the only thing that knows whether an access token exists.</summary>
+    private readonly IReminderSettingsProvider _settingsProvider;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IMessagingAllowancePolicy _policy;
     private readonly IVendorMessagingAvailability _availability;
@@ -40,6 +42,7 @@ public class GetReminderAllowanceQueryHandler
     public GetReminderAllowanceQueryHandler(
         IMessagingAllowanceRepository allowances,
         IClinicReminderSettingsRepository settings,
+        IReminderSettingsProvider settingsProvider,
         ICurrentClinicResolver clinicResolver,
         IMessagingAllowancePolicy policy,
         IVendorMessagingAvailability availability,
@@ -47,6 +50,7 @@ public class GetReminderAllowanceQueryHandler
     {
         _allowances = allowances;
         _settings = settings;
+        _settingsProvider = settingsProvider;
         _clinicResolver = clinicResolver;
         _policy = policy;
         _availability = availability;
@@ -71,9 +75,13 @@ public class GetReminderAllowanceQueryHandler
             var month = await _allowances.GetMonthAsync(clinicId, monthKey, cancellationToken);
             var settings = await _settings.GetByClinicIdAsync(clinicId, cancellationToken);
 
+            // ⚠️ The third argument is what stops this pill saying « Prêt à envoyer » over a channel with no access
+            // token and every queued reminder Blocked — see `MessagingSender.From`.
+            var resolved = await _settingsProvider.ResolveAsync(clinicId, cancellationToken);
             var senderState = MessagingSender.From(
                 settings?.WhatsAppConnectionStatus ?? Domain.Enums.WhatsAppConnectionStatus.NotConnected,
-                settings?.WhatsAppTemplateStatus);
+                settings?.WhatsAppTemplateStatus,
+                sendable: resolved.WhatsAppConfigured);
 
             return Result<ReminderAllowanceDto>.Success(new ReminderAllowanceDto
             {

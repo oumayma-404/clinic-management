@@ -29,7 +29,7 @@ import type {
   ToothStateDto,
   AppointmentDto,
 } from "@/lib/api/types"
-import { formatAmount, formatDT, parseAmountInput, roundMillimes, todayLocalIso, toLocalIso } from "@/lib/format"
+import { formatAmount, formatDT, parseAmountInput, quoteFr, roundMillimes, toLocalIso, todayLocalIso } from "@/lib/format"
 import {
   CONDITION_ORDER, conditionStyle, needsTreatment, serializeSurfaces,
 } from "@/components/odontogram-conditions"
@@ -458,7 +458,20 @@ export function PatientRecordModal({
 
   // « Reste » clamps at 0, so an amount above the total was invisible here while the server refused it post-commit
   // and the fiche saved anyway. Stated inline and the save disabled, matching the avoir dialog's own pattern.
-  const overpaid = !isInvoiced && roundMillimes(paidAmount) > roundMillimes(grandTotal)
+  //
+  // ⚠️ It applies to a BILLED fiche too now. The « Payé » field used to be disabled once a note existed, so
+  // `BillDentalRecordCommand`'s whole top-up branch — `ToppedUp` — was unreachable from the product: a patient
+  // paying the rest of a balance in a second visit had to be taken to « Factures » and recorded there, on a screen
+  // reception does not necessarily have. The server has always accepted it, and its guard is authoritative.
+  const overpaid = roundMillimes(paidAmount) > roundMillimes(grandTotal)
+
+  /**
+   * The amount already on the note. Lowering it is refused server-side (`dental_record_payment_lowered`) — money
+   * recorded on a numbered document is corrected by an avoir, never by retyping a field — so the field says so
+   * before the round trip rather than after it.
+   */
+  const alreadyCollected = isInvoiced ? roundMillimes(record?.amountPaid ?? 0) : 0
+  const lowersBilledAmount = isInvoiced && roundMillimes(paidAmount) < alreadyCollected
 
   /**
    * Refuse the save: mark the region, scroll it into view, and *also* toast.
@@ -507,7 +520,7 @@ export function PatientRecordModal({
       setOpenSections((prev) => ({ ...prev, details: true }))
       refuseSave(
         "details",
-        `Montant invalide pour « ${badPrice.procedureName} »`,
+        `Montant invalide pour ${quoteFr(badPrice.procedureName)}`,
         "Corrigez le tarif de l'acte, puis confirmez.",
       )
       return
@@ -1257,7 +1270,7 @@ export function PatientRecordModal({
                   setAmountPaid(e.target.value)
                 }}
                 placeholder="0,000"
-                disabled={loading || isInvoiced}
+                disabled={loading}
               />
             </div>
             {/* Beside the amount, because « combien » and « comment » are one answer. `min-w` + `flex-1` so it
@@ -1269,7 +1282,7 @@ export function PatientRecordModal({
               <Select
                 value={paymentMethod}
                 onValueChange={setPaymentMethod}
-                disabled={loading || isInvoiced}
+                disabled={loading}
               >
                 <SelectTrigger id="paid-method" className="h-8 w-full">
                   <SelectValue />
@@ -1290,11 +1303,19 @@ export function PatientRecordModal({
             {/* Wraps to its own line below `sm:` — three figures do not fit 342px, and « Reste à payer » is the
                 one of the three that is a sentence rather than a number. */}
             <div className="w-full text-xs sm:w-auto">
-              {isInvoiced ? (
-                <p className="text-muted-foreground">Facturé — le paiement est géré par la facture.</p>
-              ) : overpaid ? (
+              {overpaid ? (
                 <p role="status" className="font-medium text-destructive">
                   Le montant payé dépasse le total de la séance ({formatDT(grandTotal)}).
+                </p>
+              ) : lowersBilledAmount ? (
+                <p role="status" className="font-medium text-destructive">
+                  {formatDT(alreadyCollected)} sont déjà encaissés sur la note. Un montant encaissé ne se diminue
+                  pas ici — établissez un avoir.
+                </p>
+              ) : isInvoiced ? (
+                <p className="text-muted-foreground">
+                  Facturé{reste > 0 ? ` — reste ${formatDT(reste)}` : ""}. Augmentez « Payé » pour encaisser un
+                  complément sur la même note.
                 </p>
               ) : (
                 <p className="text-muted-foreground">
@@ -1345,7 +1366,13 @@ export function PatientRecordModal({
                 will book. `formatDT`, never a hand-rolled `toFixed`: the millime and the decimal comma are the
                 product's, not this dialog's.
               */}
-              <Button onClick={handleSave} disabled={loading || overpaid} className="w-full sm:w-auto sm:min-w-[150px]">
+              {/* `lowersBilledAmount` too: the server refuses it (`dental_record_payment_lowered`) and the refusal
+                  arrives post-commit, so letting the save through would stick the edit and show a refusal. */}
+              <Button
+                onClick={handleSave}
+                disabled={loading || overpaid || lowersBilledAmount}
+                className="w-full sm:w-auto sm:min-w-[150px]"
+              >
                 {loading
                   ? "Enregistrement…"
                   : `${

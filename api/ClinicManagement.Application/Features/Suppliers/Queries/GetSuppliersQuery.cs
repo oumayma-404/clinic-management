@@ -63,14 +63,18 @@ public class GetSuppliersQueryHandler : IRequestHandler<GetSuppliersQuery, Resul
             var usage = await _suppliers.GetUsageAsync(
                 clinic.Value, page.Items.Select(s => s.Id).ToList(), cancellationToken);
 
-            var inUse = await _suppliers.GetCategoriesAsync(clinic.Value, cancellationToken);
+            // Every label ever filed — the FORM's suggestion list.
+            var known = await _suppliers.GetCategoriesAsync(clinic.Value, cancellationToken: cancellationToken);
+            // Only what can still narrow the list the user is looking at — the FILTER's chips. See the repository.
+            var inUse = await _suppliers.GetCategoriesAsync(
+                clinic.Value, activeOnly: !request.IncludeInactive, cancellationToken: cancellationToken);
 
             // The canonical suggestions first, in the order a cabinet reaches for one; the clinic's own follow
             // alphabetically. Appending keeps the familiar list where it was rather than reshuffling it the day
             // somebody files a « Menuisier ». Same shape as GetProcedureTypeCategoriesQuery, and the union is the
             // point: without offering a clinic's own labels back, the second person to want one retypes it.
             var categories = new List<string>(SupplierCategories.Canonical);
-            categories.AddRange(inUse
+            categories.AddRange(known
                 .Where(c => !SupplierCategories.IsCanonical(c))
                 .OrderBy(c => c, StringComparer.CurrentCultureIgnoreCase));
 

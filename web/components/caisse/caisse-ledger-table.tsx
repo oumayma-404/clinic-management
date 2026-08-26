@@ -80,6 +80,14 @@ const MONEY_CHIP = zoneChipClass(ZONES.money)
 
 interface CaisseLedgerTableProps {
   movements: CaisseMovementDto[]
+  /**
+   * The PERIOD's closing balance, from the server.
+   *
+   * ⚠️ Not derivable from `movements`: the phone footer used `movements[0].runningBalance`, i.e. the newest row of
+   * the current PAGE, under a label reading « de la période » — so it changed on every page of the same window
+   * (18 287,500 DT on page 1, 7 507,500 DT on page 2). Only the server sees the whole window.
+   */
+  closingBalance?: number
   loading?: boolean
   /** True when a search term is narrowing the statement — the empty state then has a different way out. */
   isFiltered?: boolean
@@ -88,6 +96,7 @@ interface CaisseLedgerTableProps {
 
 export function CaisseLedgerTable({
   movements,
+  closingBalance,
   loading = false,
   isFiltered = false,
   onClearSearch,
@@ -202,10 +211,10 @@ export function CaisseLedgerTable({
           { label: "Chèque", value: chequeSummary(m) },
         ]}
       />
-      {movements.length > 0 && (
+      {movements.length > 0 && closingBalance !== undefined && (
         <p className="border-t px-3 py-2 text-2xs text-muted-foreground md:hidden">
-          {/* `[0]`, not the last row: the statement reads newest first, so the closing balance is at the TOP. */}
-          Solde de la période : <span className="tabular-nums">{formatDT(movements[0].runningBalance)}</span>
+          {/* The server's window-wide figure — see `closingBalance`. */}
+          Solde de la période : <span className="tabular-nums">{formatDT(closingBalance)}</span>
         </p>
       )}
       <Table containerClassName={TABLE_ONLY_LG}>

@@ -166,7 +166,12 @@ public class UsersController : ApiControllerBase
     [AllowsWithoutSubscription("FR-3 — offboarding must not wait on an invoice; a colleague who left keeps access otherwise.")]
     public async Task<ActionResult<ClinicUserDto>> SetStatus(string id, [FromBody] SetUserStatusRequest request)
     {
-        var command = new SetUserActiveCommand { TargetUserId = id, IsActive = request.IsActive };
+        var command = new SetUserActiveCommand
+        {
+            TargetUserId = id,
+            IsActive = request.IsActive,
+            Version = request.Version,
+        };
         var result = await _mediator.Send(command);
 
         if (result.IsFailure)
@@ -185,7 +190,12 @@ public class UsersController : ApiControllerBase
     [HttpPut("{id}/role")]
     public async Task<ActionResult<ClinicUserDto>> SetRole(string id, [FromBody] SetUserRoleRequest request)
     {
-        var command = new ChangeUserRoleCommand { TargetUserId = id, Role = request.Role };
+        var command = new ChangeUserRoleCommand
+        {
+            TargetUserId = id,
+            Role = request.Role,
+            Version = request.Version,
+        };
         var result = await _mediator.Send(command);
 
         if (result.IsFailure)

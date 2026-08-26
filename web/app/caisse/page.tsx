@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { format, parseISO, startOfMonth } from "date-fns"
@@ -15,7 +15,7 @@ import { useSession } from "@/lib/auth/session"
 import { hidesClinicWideMoney } from "@/lib/nav"
 import { PageHeader } from "@/components/ui/page-header"
 import { ExportButton } from "@/components/ui/export-button"
-import { KpiGrid } from "@/components/dashboard/kpi-grid"
+import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -46,6 +46,7 @@ import Link from "next/link"
 import { ArrowLeftRight, Loader2, Pencil, Plus, Search, SearchX, Trash2, Wallet, MoreHorizontal, X } from "lucide-react"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import {
   DropdownMenu,
@@ -59,9 +60,11 @@ import { CashInByMethod } from "@/components/caisse/cash-in-by-method"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
 import { ApiError } from "@/lib/api/client"
-import { formatAmount, formatDT, parseAmountInput, toLocalIso, todayLocalIso } from "@/lib/format"
+import { formatAmount, formatDT, parseAmountInput, quoteFr, toLocalIso, todayLocalIso } from "@/lib/format"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import type { CaisseLedgerDto, CaisseSummaryDto, ExpenseDto } from "@/lib/api/types"
 
 // --- Domain constants -----------------------------------------------------------------------------
@@ -156,6 +159,17 @@ export default function CaissePage() {
 }
 
 function CaisseContent() {
+  /**
+   * `DELETE /api/expenses/{id}` is **AdminOnly** while reading la caisse and updating a dépense are
+   * AdminOrDoctor — so « Supprimer » was offered to the praticien and answered 403.
+   *
+   * ⚠️ `hidesClinicWideMoney` was the only gate on this screen, and it answers a different question (the
+   * secretary's). One missing role in the presentation layer, not a boundary in the wrong place: the doctor
+   * genuinely may read the till and edit a dépense. Deleting one silently raises the reported Net, which is why
+   * the server keeps it to an admin.
+   */
+  const { user: caisseUser } = useSession()
+  const canDeleteExpense = caisseUser?.role === "admin"
   // The window opens on the month TO DATE, not on today: every figure here is read to answer « how is the month
   // going », and a one-day default made that question start with widening the range by hand.
   const [selectedDay, setSelectedDay] = useState<string>(() => toLocalIso(startOfMonth(new Date())))
@@ -200,7 +214,14 @@ function CaisseContent() {
     return today < fromDay ? fromDay : today > toDay ? toDay : today
   }, [fromDay, toDay])
 
+  // ⚠️ Every read is stamped with a generation and a late one is DISCARDED. `?from=&to=` (the dashboard's own
+  // drill-through) arrives in an effect, so the default month's read is already in flight when the URL period's
+  // read starts — and without this the slower of the two won, painting one period's figures under the other
+  // period's header.
+  const requestGeneration = useRef(0)
+
   const loadData = useCallback(async () => {
+    const generation = ++requestGeneration.current
     try {
       setLoading(true)
       setError(null)
@@ -227,15 +248,19 @@ function CaisseContent() {
           search: search.trim() || undefined,
         }),
       ])
+      if (generation !== requestGeneration.current) return
       setSummary(summaryData)
       setLedger(ledgerData)
       setExpensePage(expensesData)
     } catch (err) {
+      if (generation !== requestGeneration.current) return
       const message = err instanceof ApiError ? err.message : "Échec du chargement de la caisse"
       setError(message)
       toast.error(message)
     } finally {
-      setLoading(false)
+      // A superseded read must not clear the live read's spinner either, or the page reads as settled while the
+      // period it is about to show is still in flight.
+      if (generation === requestGeneration.current) setLoading(false)
     }
   }, [fromDay, toDay, ledgerPageNumber, expensePageNumber, pageSize, search, methodFilter])
 
@@ -278,11 +303,25 @@ function CaisseContent() {
     loadData,
   )
 
+  /**
+   * The header's own sentence.
+   *
+   * ⚠️ **Guarded, because clearing « Du » destroyed the whole screen.** `new Date("T00:00:00")` is an Invalid Date,
+   * `format` throws `RangeError: Invalid time value`, and the error boundary replaced la caisse with « Une erreur
+   * inattendue est survenue » — leaving only « Réessayer » and « Retour au tableau de bord ». Ctrl+A + Suppr in a
+   * date field is an ordinary way to retype a date, and clearing « Au » was already handled; only the start was
+   * unguarded. A blank field now reads as « période incomplète » and the page stays up.
+   */
   const dayLabel = useMemo(() => {
-    const start = format(new Date(`${selectedDay}T00:00:00`), "EEEE d MMMM yyyy", { locale: fr })
+    const day = (value: string) => {
+      const parsed = new Date(`${value}T00:00:00`)
+      return Number.isNaN(parsed.getTime()) ? null : format(parsed, "EEEE d MMMM yyyy", { locale: fr })
+    }
+    const start = day(selectedDay)
+    if (!start) return "période incomplète — choisissez une date de début"
     if (!isRange) return start
-    const end = format(new Date(`${endDay}T00:00:00`), "EEEE d MMMM yyyy", { locale: fr })
-    return `du ${start} au ${end}`
+    const end = day(endDay)
+    return end ? `du ${start} au ${end}` : start
   }, [selectedDay, endDay, isRange])
 
   const cashIn = summary?.cashIn ?? 0
@@ -325,7 +364,7 @@ function CaisseContent() {
       size="compact"
       icon={SearchX}
       chipClassName={MONEY_CHIP}
-      title={`Aucune dépense ne correspond à « ${searchTerm} »`}
+      title={`Aucune dépense ne correspond à ${quoteFr(searchTerm)}`}
       description="La recherche porte sur la catégorie et la description, sur toute la période affichée."
       secondaryAction={
         <Button size="sm" variant="outline" onClick={() => setSearch("")}>
@@ -406,8 +445,11 @@ function CaisseContent() {
                 />
               </div>
               {isRange && (
+                /* `coarse:h-11` — three action buttons in one `gap-2` row, so they grow their own boxes rather
+                   than overlaying hit areas that would overlap (§ 2). Measured 107x36 before. */
                 <Button
                   variant="outline"
+                  className="coarse:h-11"
                   onClick={() => {
                     setSelectedDay(todayLocalIso())
                     setEndDay("")
@@ -426,7 +468,8 @@ function CaisseContent() {
                 label="mouvements"
                 params={{ fromDay, toDay }}
               />
-              <Button onClick={handleAddNew} className="gap-2">
+              {/* The screen's primary action, measured 165x36. Same reasoning as « Aujourd'hui » beside it. */}
+              <Button onClick={handleAddNew} className="gap-2 coarse:h-11">
                 <Plus className="h-4 w-4" />
                 Nouvelle dépense
               </Button>
@@ -439,25 +482,42 @@ function CaisseContent() {
             statement below listed a refund as money leaving — the lines would not have summed to the total
             printed above them. Net = Encaissements − Avoirs − Dépenses. */}
         {/*
-          The four figures share ONE surface (`KpiGrid`), the same treatment the dashboard uses for the same
-          numbers — four separate `Card`s meant four borders, four shadows and four figures of equal weight,
-          and the two screens reporting identical money looked like two different products.
+          The four figures share ONE surface (`StatStrip`) — the app's one summary strip, the same object
+          « Factures », « Chèques » and « Rappels » now draw. Four separate `Card`s meant four borders, four
+          shadows and four figures of equal weight; four *differently styled* strips meant the same money read
+          two ways two clicks apart.
 
           « Net » takes the accent: it is the *result* of the three beside it, which four identical cards had
-          no way of saying. The other three keep their semantic colour (encaissé positive, avoirs warning,
-          dépenses destructive) through the theme tokens rather than raw `emerald-600` / `amber-600`.
+          no way of saying. The other three keep their semantic tone (encaissé positive, avoirs active,
+          dépenses negative) through `ui/status-tone.ts` rather than a raw `emerald-600` / `amber-600` — and
+          the tone now colours the figure alone, never the cell.
         */}
-        <KpiGrid columns={4}>
-          <CaisseFigure label="Encaissements" hint="brut, hors avoirs" value={formatDT(cashIn)} tone="text-success" />
-          <CaisseFigure label="Avoirs remboursés" hint="rendus aux patients" value={formatDT(refunds)} tone="text-warning-ink" />
-          <CaisseFigure label="Dépenses" hint="sorties de caisse" value={formatDT(cashOut)} tone="text-destructive" />
-          <CaisseFigure
-            label="Net"
-            hint="encaissé − avoirs − dépenses"
-            value={formatDT(net)}
-            tone={net < 0 ? "text-destructive" : "text-primary"}
+        {/*
+          ⚠️ Band C, and this was the worst instance in the QA pass: on a failed read all four figures asserted
+          « 0,000 DT ». On la caisse that is not a missing number, it is a statement that the practice took nothing
+          and spent nothing — the one screen where a wrong zero is indistinguishable from a real day, and the one a
+          dentist reads to decide whether the day balanced. A failed read renders the failure instead, with a retry.
+        */}
+        {error && !loading ? (
+          <LoadFailureNotice
+            message="Les totaux de la caisse n'ont pas pu être chargés."
+            detail="Aucun montant n'est affiché : un « 0,000 DT » ici se lirait comme une journée sans mouvement."
+            onRetry={loadData}
           />
-        </KpiGrid>
+        ) : (
+          <StatStrip>
+            <Stat label="Encaissements" hint="brut, hors avoirs" value={formatDT(cashIn)} tone="positive" loading={loading} />
+            <Stat label="Avoirs remboursés" hint="rendus aux patients" value={formatDT(refunds)} tone="active" loading={loading} />
+            <Stat label="Dépenses" hint="sorties de caisse" value={formatDT(cashOut)} tone="negative" loading={loading} />
+            <Stat
+              label="Net"
+              hint="encaissé − avoirs − dépenses"
+              value={formatDT(net)}
+              tone={net < 0 ? "negative" : "accepted"}
+              loading={loading}
+            />
+          </StatStrip>
+        )}
 
         {/* « dont espèces / chèque / carte / virement » (L8 slice B). It sits under the grid rather than inside it
             because it is a decomposition of ONE of the four figures, not a fifth figure — and because each chip
@@ -496,7 +556,10 @@ function CaisseContent() {
               <Badge variant="secondary">{ledger?.totalCount ?? 0}</Badge>
             </CardTitle>
             <CardDescription>
-              Tous les mouvements de la période, du plus ancien au plus récent — paiements de factures,
+              {/* « du plus récent au plus ancien » — the statement is newest-first on purpose (the closing balance
+                  is the top row, `GetCaisseLedgerQuery` reverses after computing it) and the sentence said the
+                  opposite, so a reader reconciling it against a bank statement started from the wrong end. */}
+              Tous les mouvements de la période, du plus récent au plus ancien — paiements de factures,
               échéances de devis, avoirs remboursés et dépenses. Un mouvement annulé reste visible, barré,
               et ne compte pas dans le solde.
             </CardDescription>
@@ -539,11 +602,16 @@ function CaisseContent() {
               )}
             </div>
             {error && !loading ? (
-              <p className="py-8 text-center text-sm text-destructive">{error}</p>
+              // Band C — the extrait gets the same treatment as the figures above it, and a way back.
+              <LoadFailureNotice
+                message="L'extrait de caisse n'a pas pu être chargé."
+                onRetry={loadData}
+              />
             ) : (
               <>
                 <CaisseLedgerTable
                   movements={ledger?.movements ?? []}
+                  closingBalance={ledger?.closingBalance}
                   loading={loading}
                   // The method filter counts as « filtered » too, or a period with no cheques would render the
                   // first-run « aucun mouvement » invite about a till that in fact took money all day.
@@ -601,7 +669,10 @@ function CaisseContent() {
                 <Loader2 className="h-5 w-5 animate-spin" />
               </div>
             ) : error ? (
-              <p className="py-12 text-center text-sm text-destructive">{error}</p>
+              <LoadFailureNotice
+                message="La liste des dépenses n'a pas pu être chargée."
+                onRetry={loadData}
+              />
             ) : (
               <div className="overflow-x-auto">
                 {/* Title is the catégorie, not the description: the description is nullable and truncated, so
@@ -628,12 +699,16 @@ function CaisseContent() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onSelect={() => handleEdit(e)}>Modifier</DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onSelect={() => handleDelete(e)}
-                        >
-                          Supprimer
-                        </DropdownMenuItem>
+                        {/* Admin only — the server's DELETE is AdminOnly while this screen and the PUT are not.
+                            See `canDeleteExpense`. */}
+                        {canDeleteExpense && (
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onSelect={() => handleDelete(e)}
+                          >
+                            Supprimer
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
@@ -684,16 +759,18 @@ function CaisseContent() {
                               >
                                 <Pencil className="h-4 w-4" />
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDelete(expense)}
-                                className="h-8 w-8 p-0 text-destructive hover:text-destructive coarse:size-11"
-                                title="Supprimer la dépense"
-                                aria-label={`Supprimer la dépense ${expense.category}`}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                              {canDeleteExpense && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDelete(expense)}
+                                  className="h-8 w-8 p-0 text-destructive hover:text-destructive coarse:size-11"
+                                  title="Supprimer la dépense"
+                                  aria-label={`Supprimer la dépense ${expense.category}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -774,6 +851,24 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
   const [method, setMethod] = useState<PaymentMethod>("Cash")
   const [description, setDescription] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [banner, setBanner] = useState<string | null>(null)
+  const [isConflict, setIsConflict] = useState(false)
+  /*
+   * Band B — the version this form saves with, re-read on open rather than taken from the row that was clicked.
+   * ⚠️ The VERSION only: the read lands after the fields hydrate below, so its values would replace what was typed.
+   */
+  const { source: freshExpense, resync } = useFreshVersion(
+    open,
+    editingExpense?.id,
+    editingExpense,
+    async () => {
+      // Read over the dépense's OWN day, not the window on screen: the row being edited is somewhere inside a
+      // period that can be a whole month, and there is no get-by-id on this resource.
+      const day = format(parseISO(editingExpense!.expenseDate), "yyyy-MM-dd")
+      const page = await expensesApi.listPaged({ fromDay: day, toDay: day })
+      return page.items.find((e) => e.id === editingExpense!.id) ?? null
+    },
+  )
   const [saving, setSaving] = useState(false)
 
   // A typed dépense is not discarded by a stray tap (J9). Below `md:` this is a bottom sheet, so the strip above
@@ -797,6 +892,8 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
       setDescription("")
     }
     setErrors({})
+    setBanner(null)
+    setIsConflict(false)
   }, [editingExpense, defaultDay, open])
 
   const validate = (): boolean => {
@@ -815,7 +912,13 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
     if (!validate()) return
 
     const payload: ExpensePayload = {
-      expenseDate: new Date(`${expenseDate}T00:00:00`).toISOString(),
+      /*
+       * ⚠️ The bare `yyyy-MM-dd` the user picked, NOT an instant. `new Date("…T00:00:00").toISOString()` was
+       * midnight in the WORKSTATION's zone: Africa/Tunis sent 23:00Z and filed on the right day, Asia/Dubai sent
+       * 20:00Z and filed on the day before. The read side of la caisse takes bare day keys for exactly this
+       * reason — « no conversion, which is the whole point » — and the write side did not.
+       */
+      expenseDate,
       category,
       amount: parseAmountInput(amount),
       method,
@@ -824,8 +927,13 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
 
     try {
       setSaving(true)
+      setBanner(null)
+      setIsConflict(false)
       if (editingExpense) {
-        await expensesApi.update(editingExpense.id, payload)
+        await expensesApi.update(editingExpense.id, {
+          ...payload,
+          version: freshExpense?.version ?? editingExpense.version,
+        })
         toast.success("Dépense mise à jour")
       } else {
         await expensesApi.create(payload)
@@ -834,7 +942,11 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
       onOpenChange(false)
       await onSaved()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'enregistrement de la dépense")
+      // In the form, not a toast: a 409 on money is not transient, and the typed amount has to stay on screen.
+      const conflict = err instanceof ApiError && err.status === 409
+      setIsConflict(conflict)
+      setBanner(err instanceof ApiError ? err.message : "Échec de l'enregistrement de la dépense")
+      if (!conflict) await resync()
     } finally {
       setSaving(false)
     }
@@ -866,6 +978,12 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
               onChange={(e) => setExpenseDate(e.target.value)}
             />
             {errors.expenseDate && <p className="text-xs text-destructive">{errors.expenseDate}</p>}
+          </div>
+          <div>
+            <FormErrorBanner
+              message={banner}
+              action={isConflict ? { label: "Recharger", onClick: () => void onSaved(), disabled: saving } : undefined}
+            />
           </div>
 
           <div className="space-y-2">
@@ -953,33 +1071,3 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
   )
 }
 
-/**
- * One figure inside la caisse's shared surface.
- *
- * <p>`bg-card` is load-bearing — `KpiGrid` is a `bg-border` container showing through `gap-px`, so a cell that does
- * not paint its own background renders as a solid border block. Deliberately **not** a `KpiCard`: these figures are
- * not links (there is nothing to drill into from la caisse — the statement below already *is* the detail) and they
- * carry no period comparison, so reusing that component would mean passing an `href` of `#` and lying about it.</p>
- */
-function CaisseFigure({
-  label,
-  hint,
-  value,
-  tone,
-}: {
-  label: string
-  hint: string
-  value: string
-  tone: string
-}) {
-  return (
-    <div className="bg-card p-4">
-      <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary/70" />
-        {label}
-      </p>
-      <p className={`mt-1 text-2xl font-semibold tabular-nums tracking-tight ${tone}`}>{value}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
-    </div>
-  )
-}

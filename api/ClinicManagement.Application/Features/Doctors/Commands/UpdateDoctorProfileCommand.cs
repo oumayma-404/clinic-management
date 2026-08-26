@@ -27,6 +27,11 @@ public class UpdateDoctorProfileCommand : IRequest<Result<DoctorProfileDto>>
     public string? CachetFileName { get; set; }
     public long CachetLength { get; set; }
     public bool RemoveCachet { get; set; }
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user was
+    /// editing; <c>0</c> means « not supplied » and skips the check (see <c>IUnitOfWork.SetExpectedVersion</c>).
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorProfileCommand, Result<DoctorProfileDto>>
@@ -153,6 +158,9 @@ public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorPro
                 }
             }
 
+            // Band B — validated against the copy the USER was editing, not the row this handler just read.
+            _unitOfWork.SetExpectedVersion(doctor, request.Version);
+
             _doctorRepository.Update(doctor);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -172,7 +180,8 @@ public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorPro
                 Specialty = doctor.Specialty,
                 OrdreNumberCnomdt = doctor.OrdreNumberCnomdt,
                 HasCachet = doctor.CachetStorageKey != null,
-                CachetContentType = doctor.CachetContentType
+                CachetContentType = doctor.CachetContentType,
+                Version = doctor.Version
             });
         }
         catch (Exception ex) when (ex is not ConflictException)

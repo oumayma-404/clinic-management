@@ -18,5 +18,6 @@ internal static class MedicationMapper
             .ToList(),
         IsActive = m.IsActive,
         IsProvisional = m.IsProvisional,
+        Version = m.Version,
     };
 }

@@ -57,8 +57,10 @@ public class GetDashboardPreferencesQueryHandler
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
 
+            // `stored is not null`, not `hidden.Length > 0`: a saved layout that hides nothing is a choice, and the
+            // client must not answer it with the defaults for a fresh account.
             return Result<DashboardPreferencesDto>.Success(
-                new DashboardPreferencesDto(hidden, DashboardKpiKeys.All));
+                new DashboardPreferencesDto(hidden, DashboardKpiKeys.All, IsCustomised: stored is not null));
         }
         catch (Exception ex) when (ex is not Common.Exceptions.ConflictException)
         {

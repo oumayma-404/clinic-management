@@ -22,11 +22,18 @@ public class ChangeUserRoleCommandHandlerTests
     private static readonly Guid OtherClinicId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
     private readonly Mock<IUserRepository> _users = new();
+    /// <summary>
+    /// Promoting to « Médecin » now links a practitioner record, exactly as the create path does. Permissive by
+    /// default — `GetByUserIdAsync` answers null, so the promotion takes the « none yet, create one » branch —
+    /// which is what every existing scenario here needs in order to keep asserting what it asserted before.
+    /// </summary>
+    private readonly Mock<IDoctorRepository> _doctors = new();
     private readonly Mock<IClinicContext> _context = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
     private ChangeUserRoleCommandHandler Handler() =>
-        new(_users.Object, _context.Object, _uow.Object, NullLogger<ChangeUserRoleCommandHandler>.Instance);
+        new(_users.Object, _doctors.Object, _context.Object, _uow.Object,
+            NullLogger<ChangeUserRoleCommandHandler>.Instance);
 
     private static User Local(string role, Guid clinicId) =>
         User.CreateLocalUser(clinicId, role, $"{role}@clinic.com", "HASH", $"{role} name");

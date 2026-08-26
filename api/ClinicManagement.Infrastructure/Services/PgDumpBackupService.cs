@@ -217,13 +217,6 @@ public sealed class PgDumpBackupService : IBackupService
         }
     }
 
-    /// <summary>
-    /// The install-relative default destination (L4b). A sibling of <c>Files/</c> and <c>logs/</c>, resolved
-    /// through <see cref="LocalInstallPaths"/> because a Windows service's CWD is <c>System32</c> — a relative
-    /// "Backups" would otherwise write patient data into a system folder.
-    /// </summary>
-    private const string DefaultDestinationFolderName = "Backups";
-
     /// <summary>The prefix the pruner matches on. Shared with the folder writer so the two cannot drift.</summary>
     private const string BackupFolderPrefix = "clinic-backup-";
 
@@ -248,7 +241,8 @@ public sealed class PgDumpBackupService : IBackupService
         // Fall back rather than throw. The installer writes `Backup:DefaultDestination` as an empty string, so
         // the *documented* default path failed on every fresh install with « Aucun dossier de destination » —
         // a message about a setting the operator was told not to fill in.
-        return LocalInstallPaths.Resolve(DefaultDestinationFolderName);
+        // ⚠️ NOT install-relative — see LocalInstallPaths.DefaultBackupRoot for the PDF outage that rule prevents.
+        return LocalInstallPaths.DefaultBackupRoot;
     }
 
     /// <inheritdoc />

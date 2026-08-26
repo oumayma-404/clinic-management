@@ -42,6 +42,7 @@ import { DentitionViewSwitch } from "@/components/dentition-view-switch"
 import { ToothArchLayout, type ToothArch } from "@/components/tooth-arch-layout"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { quoteFr } from "@/lib/format"
 
 // Max dots drawn under a tooth before collapsing the overflow into a "+N".
 const MAX_DOTS = 4
@@ -203,6 +204,22 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
   const teeth = TEETH_BY_VIEW[dentitionView]
 
   /**
+   * How many charted teeth this view does not show.
+   *
+   * ⚠️ **A chart that silently omits a recorded state is the one failure a clinical chart may not have.** The
+   * default view widens to Mixte on its own when the charted teeth need it, so this is only ever reached by an
+   * explicit switch — pressing « Adulte » on a patient with a charted deciduous 55 dropped it from the chart with
+   * no notice at all, and the chart then read as « nothing recorded there ». It is a `role="status"` line rather
+   * than a toast: the omission is true for as long as the view is, and a message that expires after four seconds
+   * would leave the wrong chart on screen saying nothing.
+   */
+  const chartedOutOfView = useMemo(() => {
+    // `teeth` is quadrant-shaped (`ToothQuadrants`), not a flat list — the chart draws four arches.
+    const shown = new Set([...teeth.upperRight, ...teeth.upperLeft, ...teeth.lowerRight, ...teeth.lowerLeft])
+    return Array.from(byTooth.keys()).filter((tooth) => !shown.has(tooth)).length
+  }, [teeth, byTooth])
+
+  /**
    * Nothing tells us which arch to open on: no date of birth, nothing charted, and no choice made this session.
    * The chart asks rather than opening on the adult set (AC-18) — a six-year-old's deciduous teeth are simply
    * absent from that arch, so the wrong default is not a cosmetic default.
@@ -329,6 +346,18 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
                 <TabsTrigger value="acts">Actes réalisés</TabsTrigger>
               </TabsList>
               <DentitionViewSwitch value={dentitionView} onChange={setChosenView} />
+              {chartedOutOfView > 0 && (
+                <button
+                  type="button"
+                  role="status"
+                  onClick={() => setChosenView("mixed")}
+                  className="rounded-md border border-warning/40 bg-warning-wash px-2 py-1 text-2xs font-medium text-warning-ink underline-offset-2 hover-hover:hover:underline coarse:py-2"
+                >
+                  {chartedOutOfView === 1
+                    ? "1 état hors de cette vue — tout afficher"
+                    : `${chartedOutOfView} états hors de cette vue — tout afficher`}
+                </button>
+              )}
             </div>
             {onCreatePlan && (
               /* ⚠️ The label shortens below `sm:`, and the `aria-label` carries the full phrase at every width.
@@ -724,7 +753,7 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
             <AlertDialogDescription>
               {pendingRemoval && (
                 <>
-                  « {conditionStyle(pendingRemoval.condition).label} » sera retiré de la{" "}
+                  {quoteFr(conditionStyle(pendingRemoval.condition).label)} sera retiré de la{" "}
                   <span className="font-medium text-foreground">dent {toothNum}</span>. Cette entrée disparaîtra de
                   l&apos;odontogramme. Les actes réalisés ne sont pas affectés.
                 </>

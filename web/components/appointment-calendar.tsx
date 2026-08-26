@@ -58,6 +58,7 @@ import { useSession } from "@/lib/auth/session"
 import type { AppointmentDto } from "@/lib/api/types"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
 import { clinicsApi, type DoctorDto } from "@/lib/api/clinics"
+import { doctorsApi } from "@/lib/api/doctors"
 import { WEEKDAYS, type WorkingDay } from "@/lib/working-hours"
 import {
   APPOINTMENT_STATUSES,
@@ -92,7 +93,9 @@ const DEFAULT_GRID_TO_HOUR = 19
  * The open window for one calendar day, from the clinic's saved hours. Returns null when nothing is configured
  * or the day is closed — the caller shades accordingly.
  */
-function openWindowFor(day: Date, hours: WorkingDay[] | null): { fromHour: number; toHour: number } | null {
+type OpenWindow = { fromHour: number; toHour: number; breakFromHour: number | null; breakToHour: number | null }
+
+function openWindowFor(day: Date, hours: WorkingDay[] | null): OpenWindow | null {
   if (!hours || hours.length === 0) return null
   const name = WEEKDAYS[(day.getDay() + 6) % 7] // WEEKDAYS starts Monday; Date.getDay() starts Sunday
   const match = hours.find((h) => h.day?.trim().toLowerCase() === name.toLowerCase())
@@ -100,7 +103,32 @@ function openWindowFor(day: Date, hours: WorkingDay[] | null): { fromHour: numbe
   const from = Number.parseInt(match.from?.slice(0, 2) ?? "", 10)
   const to = Number.parseInt(match.to?.slice(0, 2) ?? "", 10)
   if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) return null
-  return { fromHour: from, toHour: to }
+
+  // A break is drawn only on the hour rows it covers ENTIRELY. 12:00-14:00 hatches 12 and 13; 12:30-13:30
+  // hatches nothing, because half of each of those rows is genuinely open and shading them would say the
+  // cabinet is shut when it is not. The booking guard is exact; the grid is an hour tall.
+  const breakFrom = Number.parseInt(match.breakFrom?.slice(0, 2) ?? "", 10)
+  const breakTo = Number.parseInt(match.breakTo?.slice(0, 2) ?? "", 10)
+  const wholeHourBreak =
+    Number.isFinite(breakFrom) &&
+    Number.isFinite(breakTo) &&
+    match.breakFrom?.slice(3) === "00" &&
+    match.breakTo?.slice(3) === "00" &&
+    breakFrom < breakTo
+  return {
+    fromHour: from,
+    toHour: to,
+    breakFromHour: wholeHourBreak ? breakFrom : null,
+    breakToHour: wholeHourBreak ? breakTo : null,
+  }
+}
+
+/** Is one hour row inside the open window and outside the mid-day closure? One test, used at all three sites. */
+function isHourOpen(hour: number, window: OpenWindow | null): boolean {
+  if (window === null) return true
+  if (hour < window.fromHour || hour >= window.toHour) return false
+  if (window.breakFromHour === null || window.breakToHour === null) return true
+  return hour < window.breakFromHour || hour >= window.breakToHour
 }
 
 /**
@@ -359,7 +387,14 @@ function appointmentAppearance(appointment: AppointmentDto): { className: string
      * surface over.
      */
     classes.push("bg-warning-wash font-semibold text-warning-ink")
-    style.borderLeftColor = "var(--warning)"
+    /*
+     * ⚠️ `--warning-ink`, not `--warning`, because this 4 px edge is drawn **on the wash it belongs to** — the
+     * one situation `ui/status-tone.ts` keeps a separate ink step for. Since the amber was warmed and
+     * brightened, `--warning` reads 2.8:1 against its own wash (under the 3:1 non-text floor) while the ink
+     * reads 4.6:1; and the edge now matches the `text-warning-ink` words inside the block instead of being a
+     * second, paler amber beside them.
+     */
+    style.borderLeftColor = "var(--warning-ink)"
     return { className: cn(...classes), style }
   }
 
@@ -643,6 +678,42 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       cancelled = true
     }
   }, [])
+  /**
+   * The practitioner's own hours when the agenda is filtered on one, else the clinic's (AC-P1.30's order).
+   *
+   * ⚠️ The grid read `clinicHours` alone, so a per-practitioner override was **enforced but never drawn**: give a
+   * dentist Tuesday-only hours and her Monday column still looked open, with the refusal arriving at save time
+   * after the slot had been chosen and the patient told. Enforcement the screen does not show is a trap, not a
+   * rule.
+   */
+  const [doctorHours, setDoctorHours] = useState<WorkingDay[] | null>(null)
+  useEffect(() => {
+    const filtered = doctorId
+    if (!filtered) {
+      setDoctorHours(null)
+      return
+    }
+    let cancelled = false
+    doctorsApi
+      .getWorkingHours(filtered)
+      // An empty list means « pas d'horaires spécifiques » — the clinic's hours apply, so null, not [].
+      .then((days) => {
+        if (!cancelled) setDoctorHours(days.length > 0 ? days : null)
+      })
+      // Best-effort, exactly like the clinic read: a failure falls back to the clinic hours, never to a blank grid.
+      .catch(() => {
+        if (!cancelled) setDoctorHours(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [doctorId])
+  const effectiveHours = doctorHours ?? clinicHours
+  const isDayOpenOnAgenda = useCallback(
+    (day: Date) => effectiveHours === null || openWindowFor(day, effectiveHours) !== null,
+    [effectiveHours],
+  )
+
   // The "Push to Google" endpoint is AdminOnly — only admins get the action (finding #9); everyone still
   // sees the "non synchronisé" status badge.
   const { user } = useSession()
@@ -899,7 +970,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     let from = 24
     let to = 0
     for (const day of gridDays) {
-      const open = openWindowFor(day, clinicHours)
+      const open = openWindowFor(day, effectiveHours)
       if (!open) continue
       from = Math.min(from, open.fromHour)
       to = Math.max(to, open.toHour)
@@ -949,7 +1020,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
      * A once-a-minute `scrollTo` would drag the agenda back to the opening hour under the reader's eye. An hour
      * number changes twenty-four times a day, which is the real rate at which this answer changes.
      */
-  }, [showFullDay, gridDays, clinicHours, appointmentsByDay, todayIsInGrid, nowHour])
+  }, [showFullDay, gridDays, effectiveHours, appointmentsByDay, todayIsInGrid, nowHour])
 
   /** The rendered hour rows, as their `HH:00` labels. */
   const visibleHours = useMemo(
@@ -1078,7 +1149,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   const initialScrollHour = useMemo(() => {
     let hour = DEFAULT_GRID_FROM_HOUR
     const openHours = gridDays
-      .map((day) => openWindowFor(day, clinicHours)?.fromHour)
+      .map((day) => openWindowFor(day, effectiveHours)?.fromHour)
       .filter((h): h is number => h !== undefined)
     if (openHours.length > 0) hour = Math.min(...openHours)
 
@@ -1091,7 +1162,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     // « afficher les 24 heures » the window is 0..24 while the interesting hour is still the opening one — and a
     // scroll target that is not a rendered row would fall through to the arithmetic fallback below.
     return Math.max(gridWindow.fromHour, Math.min(gridWindow.toHour - 1, hour))
-  }, [gridDays, clinicHours, appointmentsByDay, gridWindow])
+  }, [gridDays, effectiveHours, appointmentsByDay, gridWindow])
 
   // Initial scroll position (AC-1): when today falls in the visible range, center the current-time
   // line in the viewport (Google-Calendar-like); otherwise open on `initialScrollHour`.
@@ -2382,7 +2453,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           )}
         </div>
 
-        {clinicHours && clinicHours.length > 0 && (
+        {effectiveHours && effectiveHours.length > 0 && (
           <div className="flex flex-col gap-1.5 border-t pt-3">
             <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Grille</p>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
@@ -2392,7 +2463,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   style={{ backgroundImage: CLOSED_HATCH }}
                   aria-hidden="true"
                 />
-                <span className="text-muted-foreground">Hors horaires d&apos;ouverture</span>
+                {/* Names the pause too: the same hatch now covers the mid-day closure, and a key that lists
+                    only one of the two things a mark means is what makes the other read as a fault. */}
+                <span className="text-muted-foreground">Hors horaires d&apos;ouverture (pause incluse)</span>
               </span>
               <span className="flex items-center gap-1.5">
                 <span
@@ -2403,6 +2476,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 <span className="text-muted-foreground">Aujourd&apos;hui</span>
               </span>
             </div>
+            {doctorHours !== null && (
+              <p className="text-xs text-muted-foreground">
+                Horaires du praticien sélectionné, et non ceux du cabinet.
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -2490,6 +2568,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           showCompleted={showCompleted}
           onShowCancelledChange={onShowCancelledChange}
           onShowCompletedChange={onShowCompletedChange}
+          /* The same resolution the grid shades with, so the phone strip and the desktop grid cannot disagree
+             about which days the cabinet is open. */
+          isDayOpen={isDayOpenOnAgenda}
         />
       )}
 
@@ -3006,7 +3087,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                  * two identically at a glance.
                  */
                 const dayCount = getAppointmentsForDay(day).length
-                const dayIsOpen = clinicHours === null || openWindowFor(day, clinicHours) !== null
+                const dayIsOpen = isDayOpenOnAgenda(day)
                 return (
                   <button
                     key={day.toISOString()}
@@ -3152,9 +3233,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   const hour = Number.parseInt(time.split(":")[0])
                   // The label column has no single day in week view, so it reflects the focused date; each day
                   // cell below shades against its OWN window (Sunday no longer shades like Monday).
-                  const labelWindow = openWindowFor(selectedDate, clinicHours)
-                  const isWorkingHours =
-                    labelWindow === null || (hour >= labelWindow.fromHour && hour < labelWindow.toHour)
+                  const labelWindow = openWindowFor(selectedDate, effectiveHours)
+                  const isWorkingHours = isHourOpen(hour, labelWindow)
 
                   return (
                     <div key={time} className="contents">
@@ -3214,9 +3294,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                       {view === "week"
                         ? weekDays.map((day) => {
                             // Each day shades against its OWN window — Sunday no longer shades like Monday.
-                            const dayWindow = openWindowFor(day, clinicHours)
-                            const dayOpen =
-                              dayWindow === null || (hour >= dayWindow.fromHour && hour < dayWindow.toHour)
+                            const dayWindow = openWindowFor(day, effectiveHours)
+                            const dayOpen = isHourOpen(hour, dayWindow)
                             return (
                               <div
                                 key={`${day.toISOString()}-${time}`}

@@ -29,7 +29,9 @@ namespace ClinicManagement.API.BackgroundJobs;
 /// the cabinet is now meeting a refused save, and those four rows are what explain it. Only an extension past the
 /// window withdraws them, which is what re-arms the thresholds.</para>
 /// </summary>
-public class SubscriptionWarningJob
+public class 
+    
+    SubscriptionWarningJob
 {
     private readonly IClinicRepository _clinicRepository;
     private readonly IClinicSubscriptionRepository _subscriptions;

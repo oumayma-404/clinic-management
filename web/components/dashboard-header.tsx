@@ -47,7 +47,8 @@ export function DashboardHeader() {
   // no longer touches sidebar state at all.
 
   const [notifOpen, setNotifOpen] = useState(false)
-  const { notifications, unreadCount, loading, error, markRead, markAllRead } = useNotifications(notifOpen)
+  const { notifications, unreadCount, loading, error, refetchList, markRead, markAllRead } =
+    useNotifications(notifOpen)
 
   // Global patient search (AC-6): type → debounced patient lookup → navigate to the selected patient.
   const [searchQuery, setSearchQuery] = useState("")
@@ -408,7 +409,15 @@ export function DashboardHeader() {
 
         <Popover open={notifOpen} onOpenChange={setNotifOpen}>
           <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
+            {/*
+              ⚠️ `coarse:size-11` — the box GROWS; the inherited `.touch-target` overlay is not enough here, and
+              that is the rule in `frontend-web.md` § 2 rather than a preference. The bell and the avatar are
+              siblings 4 px apart at the base width, so two 44 px pseudo-elements over two 36 px buttons overhang
+              each other and the later sibling paints last — it would steal the bell's taps. A control in a ROW
+              grows its own box; `.touch-target` is for an isolated one. This also makes the measured size 44,
+              which the overlay never did.
+            */}
+            <Button variant="ghost" size="icon" className="relative coarse:size-11" aria-label="Notifications">
               <Bell className="h-5 w-5" />
               {unreadCount > 0 && (
                 <Badge
@@ -425,6 +434,7 @@ export function DashboardHeader() {
               notifications={notifications}
               loading={loading}
               error={error}
+              onRetry={refetchList}
               hasUnread={unreadCount > 0}
               onMarkAllRead={markAllRead}
               onRowClick={handleNotificationClick}
@@ -446,7 +456,8 @@ export function DashboardHeader() {
                 ⚠️ It is NOT lost on a phone, where the rail is a drawer with no foot: the `DropdownMenuLabel`
                 below is the identity on that width, and it was always the authoritative copy.
               */}
-              <Button variant="ghost" size="icon" className="rounded-full" aria-label="Mon compte">
+              {/* `coarse:size-11` for the same reason as the bell beside it — see the note there. */}
+              <Button variant="ghost" size="icon" className="rounded-full coarse:size-11" aria-label="Mon compte">
                 <Avatar className="h-8 w-8">
                   {userPicture && <AvatarImage src={userPicture} alt={userName} />}
                   <AvatarFallback className="bg-primary text-primary-foreground text-sm">

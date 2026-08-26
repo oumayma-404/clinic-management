@@ -53,6 +53,11 @@ interface SupplierPickerProps {
   reloadKey?: number
   id?: string
   disabled?: boolean
+  /**
+   * What « no supplier picked » is called. Defaults to « Aucun » — right for a form field, wrong for a filter,
+   * where the same state means « tous les laboratoires ».
+   */
+  emptyLabel?: string
 }
 
 export function SupplierPicker({
@@ -63,6 +68,7 @@ export function SupplierPicker({
   reloadKey = 0,
   id,
   disabled,
+  emptyLabel,
 }: SupplierPickerProps) {
   const [open, setOpen] = useState(false)
   const [suppliers, setSuppliers] = useState<SupplierDto[]>([])
@@ -124,7 +130,7 @@ export function SupplierPicker({
           className="w-full justify-between font-normal"
         >
           <span className={cn("truncate", !selected && "text-muted-foreground")}>
-            {selected ? selected.name : "Aucun fournisseur"}
+            {selected ? selected.name : (emptyLabel ?? "Aucun fournisseur")}
           </span>
           <ChevronsUpDown aria-hidden="true" className="ms-2 size-4 shrink-0 opacity-50" />
         </Button>
@@ -154,7 +160,7 @@ export function SupplierPicker({
                   aria-hidden="true"
                   className={cn("me-2 size-4", value === null ? "opacity-100" : "opacity-0")}
                 />
-                <span className="text-muted-foreground">Aucun</span>
+                <span className="text-muted-foreground">{emptyLabel ?? "Aucun"}</span>
               </CommandItem>
 
               {options.map((supplier) => (

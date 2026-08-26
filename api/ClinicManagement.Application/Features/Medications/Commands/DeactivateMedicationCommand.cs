@@ -12,6 +12,18 @@ namespace ClinicManagement.Application.Features.Medications.Commands;
 public class DeactivateMedicationCommand : IRequest<Result>
 {
     public Guid Id { get; set; }
+
+    /// <summary>
+    /// <c>false</c> reactivates instead of deactivating.
+    ///
+    /// ⚠️ <b>All three catalogue entities had an <c>Activate()</c> method nothing called.</b> A deactivated row
+    /// stayed listed with only « Modifier », and an edit-save left <c>IsActive = false</c> — so a row switched off
+    /// by mistake was switched off for ever, and the only route back was the database. A soft delete whose inverse
+    /// is unreachable is a hard delete with extra steps.
+    ///
+    /// Defaults to <c>true</c> so the existing <c>DELETE</c> route keeps behaving exactly as it did.
+    /// </summary>
+    public bool Deactivate { get; set; } = true;
 }
 
 public class DeactivateMedicationCommandHandler : IRequestHandler<DeactivateMedicationCommand, Result>
@@ -52,17 +64,27 @@ public class DeactivateMedicationCommandHandler : IRequestHandler<DeactivateMedi
                 return Result.Failure("Médicament introuvable.");
             }
 
-            medication.Deactivate();
+            if (request.Deactivate)
+            {
+                medication.Deactivate();
+            }
+            else
+            {
+                medication.Activate();
+            }
             await _repository.UpdateAsync(medication, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            _logger.LogInformation("Deactivated medication catalog entry {Id}", medication.Id);
+            _logger.LogInformation(
+                "{Action} medication catalog entry {Id}", request.Deactivate ? "Deactivated" : "Reactivated", medication.Id);
             return Result.Success();
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error deactivating medication catalog entry {Id}", request.Id);
-            return Result.Failure("Erreur lors de la désactivation du médicament.");
+            return Result.Failure(request.Deactivate
+                ? "Erreur lors de la désactivation du médicament."
+                : "Erreur lors de la réactivation du médicament.");
         }
     }
 }

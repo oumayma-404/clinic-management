@@ -32,6 +32,21 @@ public static class ReminderMessage
     private static readonly Regex CarriesAnHour = new(@"\b\d{1,2}:\d{2}\b", RegexOptions.Compiled);
 
     /// <summary>
+    /// A day and month with <b>no year</b> — « 30/08 ».
+    ///
+    /// <para>⚠️ This was the hole. <see cref="CarriesADay"/> matches only the full <c>dd/MM/yyyy</c> the current
+    /// writer emits, so a body stating a bare day/month satisfied neither branch and the check answered « not
+    /// stale » — a reminder announcing 30/08 for an appointment that had moved passed unflagged, which is exactly
+    /// the failure this class exists to prevent. Bodies in that shape are real: 19 of 22 <c>Sent</c> rows in the
+    /// QA pass carried one, whether from an older build, an import, or a clinic's own wording.</para>
+    ///
+    /// <para>The lookarounds keep it from firing on the two halves of a full date (<c>30/08</c> inside
+    /// <c>30/08/2026</c>) — so the full-date branch stays the one that handles those.</para>
+    /// </summary>
+    private static readonly Regex CarriesADayAndMonth =
+        new(@"(?<!\d)(?<!/)(\d{1,2})/(\d{1,2})(?!/)(?!\d)", RegexOptions.Compiled);
+
+    /// <summary>
     /// How every reminder body states the appointment's moment: clinic-local (Tunisia is UTC+1), French order.
     /// </summary>
     public static string FormatAppointmentMoment(DateTime appointmentUtc) =>
@@ -53,11 +68,35 @@ public static class ReminderMessage
             return false;
         }
 
-        if (!CarriesADay.IsMatch(message) || !CarriesAnHour.IsMatch(message))
+        if (!CarriesAnHour.IsMatch(message))
         {
             return false;
         }
 
-        return !message.Contains(FormatAppointmentMoment(appointmentUtc), StringComparison.Ordinal);
+        // The writer's own format, so an exact match is the right test — and the strictest available.
+        if (CarriesADay.IsMatch(message))
+        {
+            return !message.Contains(FormatAppointmentMoment(appointmentUtc), StringComparison.Ordinal);
+        }
+
+        /*
+         * A bare day/month. Compared NUMERICALLY rather than by formatting a second string: this shape is not
+         * something this codebase writes, so its spacing and zero-padding are unknown — « 30/08 », « 30/8 » and
+         * « le 30/08 à 14:30 » all mean the same thing, and a `Contains` against one rendering of it would flag
+         * the other two as stale. A day and a month with no year is unambiguous over the ~72-hour horizon a
+         * reminder is queued for.
+         */
+        var shortDay = CarriesADayAndMonth.Match(message);
+        if (!shortDay.Success)
+        {
+            return false;
+        }
+
+        var local = ClinicClock.ToClinicLocal(appointmentUtc);
+
+        return !int.TryParse(shortDay.Groups[1].Value, out var day)
+            || !int.TryParse(shortDay.Groups[2].Value, out var month)
+            || day != local.Day
+            || month != local.Month;
     }
 }

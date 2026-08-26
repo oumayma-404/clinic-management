@@ -1,10 +1,11 @@
-using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Suppliers;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Repositories;
+using MediatR;
 
 namespace ClinicManagement.Application.Features.LabOrders.Commands;
 
@@ -34,6 +35,11 @@ public class UpdateLabWorkOrderCommand : IRequest<Result<LabWorkOrderDto>>
     /// both post partial bodies — which is exactly the difference that makes one a tri-state and the other not.
     /// </summary>
     public Guid? SupplierId { get; set; }
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user was
+    /// editing; <c>0</c> means « not supplied » and skips the check (see <c>IUnitOfWork.SetExpectedVersion</c>).
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class UpdateLabWorkOrderCommandHandler : IRequestHandler<UpdateLabWorkOrderCommand, Result<LabWorkOrderDto>>
@@ -71,6 +77,10 @@ public class UpdateLabWorkOrderCommandHandler : IRequestHandler<UpdateLabWorkOrd
                 return Result<LabWorkOrderDto>.Failure("La description du travail est requise.");
             if (request.Cost.HasValue && request.Cost.Value < 0)
                 return Result<LabWorkOrderDto>.Failure("Le coût ne peut pas être négatif.");
+            if (LabOrderDates.Refuse(request.SentDate, request.ExpectedDate) is { } dateRefusal)
+                return Result<LabWorkOrderDto>.Failure(dateRefusal);
+            if (FdiTooth.Refuse(request.ToothNumber) is { } toothRefusal)
+                return Result<LabWorkOrderDto>.Failure(toothRefusal);
 
             var clinic = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinic.IsFailure)
@@ -108,10 +118,13 @@ public class UpdateLabWorkOrderCommandHandler : IRequestHandler<UpdateLabWorkOrd
             // Wired only to the status transition, that bon would owe a dépense with nothing left to post it.
             await LabOrderCaisseExpense.PostIfDueAsync(_expenseRepository, order, clinic.Value, cancellationToken);
 
+            // Band B — validated against the copy the USER was editing, not the row this handler just read.
+            _unitOfWork.SetExpectedVersion(order, request.Version);
+
             await _labWorkOrderRepository.UpdateAsync(order, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return Result<LabWorkOrderDto>.Success(order.ToDto(supplier: supplier.Value));
+            return Result<LabWorkOrderDto>.Success(order.ToDto(supplier: supplier.Value, isOverdue: LabOrderOverdue.Evaluator(LabOrderOverdue.CutoffUtc())(order)));
         }
         catch (ArgumentException ex)
         {

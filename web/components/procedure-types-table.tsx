@@ -39,7 +39,7 @@ import { ProcedureTypeMaterialsDialog } from "@/components/procedure-type-materi
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import type { ProcedureTypeDto } from "@/lib/api/types"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
-import { formatDT } from "@/lib/format"
+import { formatDT, quoteFr } from "@/lib/format"
 import { useSession } from "@/lib/auth/session"
 import { toast } from "sonner"
 
@@ -141,7 +141,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
         <p className="text-sm text-muted-foreground">
           {isSearching
             ? "Aucun type d'acte ne correspond à votre recherche"
-            : `Aucun type d'acte dans « ${category} »`}
+            : `Aucun type d'acte dans ${quoteFr(category)}`}
         </p>
         <Button
           variant="outline"
@@ -211,9 +211,24 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
 
     try {
       setDeleting(true)
-      await procedureTypesApi.delete(procedureToDelete.id)
+      const { archived } = await procedureTypesApi.delete(procedureToDelete.id)
       await loadProcedures() // Reload list
       setDeleteDialogOpen(false)
+      /*
+       * ⚠️ The outcome is STATED. Neither branch said anything before, so the only text that changed on screen was
+       * the pager's « 1–20 sur 20 » — an archive and a permanent delete looked identical, which is what made the
+       * dialog's (now corrected) wrong promise dangerous rather than merely sloppy.
+       */
+      if (archived) {
+        toast.success("Acte archivé", {
+          description: `${quoteFr(procedureToDelete.name)} est utilisé par un rendez-vous à venir : il a été désactivé plutôt que supprimé, et ce rendez-vous n'est pas modifié.`,
+          duration: 8000,
+        })
+      } else {
+        toast.success("Acte supprimé", {
+          description: `${quoteFr(procedureToDelete.name)} a été supprimé définitivement. Les fiches de soins déjà enregistrées ne changent pas.`,
+        })
+      }
       setProcedureToDelete(null)
     } catch (err) {
       showErrorToast(err, "Échec de la suppression du type d'acte.")
@@ -341,7 +356,10 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                 { label: "Durée", value: `${p.defaultDurationMinutes} min` },
                 {
                   label: "Coût",
-                  value: p.defaultCost != null && p.defaultCost > 0 ? formatDT(p.defaultCost) : null,
+                  // ⚠️ `!= null` only. `> 0` hid a real 0,000 DT behind the same « — » an UNPRICED act shows, so a
+                  // free follow-up and an act nobody has priced were indistinguishable — and combined with the
+                  // clear-the-cost defect that is exactly how an admin concluded a price had been cleared.
+                  value: p.defaultCost != null ? formatDT(p.defaultCost) : null,
                 },
                 {
                   label: "Consommables",
@@ -386,13 +404,17 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                   <TableHead>Coût par défaut</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Consommables</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  {/* Dropped for a read-only role: the cells below are behind `isAdmin`, so a secretary got a
+                      column headed « Actions » with 76 px of empty cell on every row. The card tree already
+                      rendered no menu at all — the two trees simply disagreed. */}
+                  {isAdmin && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {procedures.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8}>{renderEmpty("default")}</TableCell>
+                    {/* Follows the header count, which is one shorter for a read-only role. */}
+                    <TableCell colSpan={isAdmin ? 8 : 7}>{renderEmpty("default")}</TableCell>
                   </TableRow>
                 ) : (
                   procedures.map((procedure) => (
@@ -439,7 +461,8 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                         </div>
                       </TableCell>
                       <TableCell>
-                        {procedure.defaultCost != null && procedure.defaultCost > 0 ? (
+                        {/* `!= null` only — see the card field above. */}
+                        {procedure.defaultCost != null ? (
                           <div className="flex items-center gap-2 text-muted-foreground">
                             <Coins className="h-4 w-4" />
                             <span>{formatDT(procedure.defaultCost)}</span>
@@ -463,8 +486,9 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                           <span className="text-muted-foreground">-</span>
                         )}
                       </TableCell>
+                      {isAdmin && (
                       <TableCell className="text-right">
-                        {isAdmin && (
+                        {(
                           <div className="flex justify-end gap-2">
                             <Button variant="ghost" size="sm" onClick={() => onEdit(procedure)} className="h-8 gap-1">
                               <Pencil className="h-3 w-3" />
@@ -491,6 +515,7 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                           </div>
                         )}
                       </TableCell>
+                      )}
                     </TableRow>
                   ))
                 )}
@@ -522,29 +547,33 @@ export function ProcedureTypesTable({ onEdit, onAdd }: ProcedureTypesTableProps)
                 this app uses to delete a patient. */}
             <AlertDialogTitle>Supprimer ce type d&apos;acte ?</AlertDialogTitle>
             <AlertDialogDescription>
-              Cela va {procedureToDelete?.isActive ? "désactiver" : "supprimer définitivement"} le type d'acte{" "}
-              <span className="font-semibold">{procedureToDelete?.name}</span>.
-              {procedureToDelete?.isActive && " S'il est utilisé par de futurs rendez-vous, il sera archivé au lieu d'être supprimé."}
+              {/*
+                ⚠️ The outcome depends on USAGE, and the client cannot know it — so the dialog states both
+                branches instead of predicting one.
+
+                It used to branch on `isActive`, which in this list is always true, so it always promised
+                « désactiver … archivé au lieu d'être supprimé » with a « Désactiver » button — while the server
+                branches on `IsUsedByFutureAppointments` and hard-DELETEs an act nothing uses. Every unused act was
+                therefore permanently deleted by a dialog that had just said it would only be deactivated. Naming
+                both outcomes is the only description that is true whichever one happens.
+              */}
+              Le type d'acte <span className="font-semibold">{procedureToDelete?.name}</span> sera{" "}
+              <span className="font-semibold">supprimé définitivement</span> s'il n'est utilisé par aucun
+              rendez-vous à venir. S'il l'est, il sera <span className="font-semibold">archivé</span> à la place et
+              ces rendez-vous ne sont pas modifiés. Les fiches de soins déjà enregistrées ne changent pas dans les
+              deux cas.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
-            {/* The button says what the branch above already computed. The body explained that an act in use is
-                « archivé au lieu d'être supprimé » and the button then read « Supprimer » regardless — so the
-                two halves of the same dialog described different outcomes, and the one the user actually presses
-                was the one that was wrong. */}
+            {/* One label, because there is one action. The old pair of ternaries promised the *outcome* the
+                client had guessed at, and the guess was wrong for every unused act. */}
             <AlertDialogAction
               onClick={confirmDelete}
               disabled={deleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleting
-                ? procedureToDelete?.isActive
-                  ? "Désactivation…"
-                  : "Suppression…"
-                : procedureToDelete?.isActive
-                  ? "Désactiver"
-                  : "Supprimer définitivement"}
+              {deleting ? "Suppression…" : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

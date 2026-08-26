@@ -15,12 +15,23 @@ public interface ILabWorkOrderRepository
     /// <c>GetByPatientIdAsync</c> the handler used to branch to: that branch re-applied the status filter in
     /// memory, and only the unfiltered branch could have been paged.
     /// </param>
-    /// <param name="searchTerm">Matched in SQL over prothésiste, description, notes and the patient's name.</param>
+    /// <param name="searchTerm">
+    /// Matched in SQL over prothésiste, description, notes, the patient's name and the <b>linked fiche
+    /// fournisseur's</b> nom — the last was absent, so a bon filed under a laboratory was findable only through
+    /// the free-text name retyped onto it.
+    /// </param>
+    /// <param name="supplierId">When supplied, only bons sent to that fiche fournisseur.</param>
+    /// <param name="orderByExpectedDate">
+    /// Order by « Prévu » ascending, dateless bons last, instead of newest-created first. What lets someone
+    /// arriving from « Prothèses en retard : N » see the late ones together rather than reading dates by eye.
+    /// </param>
     Task<PagedResult<LabWorkOrder>> GetByClinicIdAsync(
         Guid clinicId,
         LabOrderStatus? status = null,
         Guid? patientId = null,
         string? searchTerm = null,
+        Guid? supplierId = null,
+        bool orderByExpectedDate = false,
         PageRequest? paging = null,
         CancellationToken cancellationToken = default);
 

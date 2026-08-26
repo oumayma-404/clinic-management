@@ -69,6 +69,22 @@ export function roundMillimes(value: number): number {
 }
 
 /**
+ * Wrap a value in French guillemets, bound to it by a narrow no-break space (`U+202F`) on each side.
+ *
+ * <p>⚠️ **Never write `« ${value} »` with ordinary spaces.** An ordinary space is a break opportunity, so the
+ * closing guillemet is free to wrap onto a line of its own — which is exactly what `/fichiers` did at 320 px:
+ * « Aucun résultat pour « zzzznope » rendered with a final line containing nothing but `»`. The quoted value's
+ * width is unknown at authoring time (it is a search term, a file name, a patient's name), so unlike static
+ * prose this cannot be eye-checked once and left alone.</p>
+ *
+ * <p>`U+202F` rather than `U+00A0`: both are unbreakable, and the narrow one is the typographically correct
+ * space inside guillemets in French.</p>
+ */
+export function quoteFr(value: string): string {
+  return `«\u202F${value}\u202F»`;
+}
+
+/**
  * Format a byte count with French units — « o / Ko / Mo », not « B / KB / MB » (AC-P3.51). Decimal separator
  * is a comma, matching every other number the app prints.
  *

@@ -47,6 +47,17 @@ interface PageHeaderProps {
  * chip and the eyebrow say <i>where you are</i>, which is a job, while a coloured heading would only say
  * <i>this is a heading</i>, which the reader could already see. For a user who is not fluent with software, the
  * glyph is also the faster half — a shape is recognised before a French phrase is finished.</p>
+ *
+ * <p>⚠️ <b>There is no zone-tinted band behind this header any more, and it should not come back.</b> A 128 px
+ * gradient at 10 % of the zone hue, bleeding past the header on three sides to meet the page gutter, was added
+ * on the argument that a zone confined to an eyebrow, a dot and a chip is <i>stated</i> without ever being
+ * <i>felt</i>. What it actually produced was a different-coloured smear at the top of every screen — amber on
+ * la caisse, green on « Rappels », violet on a patient record — reading as a stain on the paper rather than as
+ * an orientation cue, and putting the loudest thing on the page above content that carries none. Orientation is
+ * already answered three times over on this surface (the chip, the eyebrow, the dot) and a fourth time by the
+ * rail, and none of those spends the whole width of the page to do it. The page ground's own texture
+ * (`.page-canvas` in `globals.css`) is what gives the surface life now, and it is deliberately achromatic —
+ * it is the same on every screen, so it can never disagree with the zone.</p>
  */
 export function PageHeader({ zone, title, subtitle, actions, hideIcon = false, className }: PageHeaderProps) {
   const pathname = usePathname()
@@ -55,44 +66,8 @@ export function PageHeader({ zone, title, subtitle, actions, hideIcon = false, c
   const eyebrow = zone ?? resolved.label
 
   return (
-    <div className={cn("relative flex flex-wrap items-end justify-between gap-4", className)}>
-      {/*
-        The zone's own hue, as a wash that fades out before it reaches the content.
-
-        <p>Until now a zone appeared on this surface as an 11 px eyebrow, a 6 px dot and a 44 px chip — roughly
-        two thousand square pixels on a 1440 px screen. The grouping was *stated* and never *felt*, so « Caisse »
-        and « Documents » opened looking like the same page with different words at the top. This is the cheapest
-        way to make the difference arrive before the heading is read, and it is the same fact the rail is already
-        showing: a reader who clicked an amber row lands on an amber page.</p>
-
-        <p><b>Why it is safe.</b> It is 10 % at the top and gone by 80 % of its own height, and nothing is ever
-        written on it but the title — which is `--foreground` — so no contrast relationship changes. It is
-        `aria-hidden` and `pointer-events-none`, so it is invisible to assistive tech and cannot swallow a click
-        on the actions row beside it.</p>
-
-        <p>⚠️ It bleeds past its own box on three sides via negative insets so it meets the page gutter rather
-        than starting at the title's left edge — a wash that stops mid-air reads as a rendering artefact.</p>
-
-        <p>⚠️ **The two content blocks below carry `relative`, and that is what keeps the wash behind them** — not
-        a `z-index`. An absolutely-positioned element paints in the positioned layer, i.e. *above* in-flow
-        siblings, so without this the gradient would cover its own eyebrow. Giving the siblings `position` puts
-        all three in that same layer, where DOM order decides and the wash is first. A negative `z-index` here
-        would have been the fragile version: `<main>` runs `animate-page-in`, and an opacity below 1 forms a
-        stacking context, so the wash would vanish behind the page ground for the length of every navigation.</p>
-
-        <p>⚠️ Printing is already handled: `globals.css`'s `@media print` block repaints the surface tokens white,
-        and this gradient resolves through `--color-zone-*`, so a printed patient record does not carry a violet
-        band across the top of the page.</p>
-      */}
-      <span
-        aria-hidden="true"
-        className={cn(
-          "pointer-events-none absolute -inset-x-4 -top-4 h-32 md:-inset-x-6 md:-top-6",
-          "bg-gradient-to-b to-transparent",
-          resolved.washGradient,
-        )}
-      />
-      <div className="relative flex min-w-0 items-start gap-3">
+    <div className={cn("flex flex-wrap items-end justify-between gap-4", className)}>
+      <div className="flex min-w-0 items-start gap-3">
         {Icon && (
           /*
            * The chip is `hidden sm:flex`. On a 390 px phone the title block already competes with the actions
@@ -128,7 +103,7 @@ export function PageHeader({ zone, title, subtitle, actions, hideIcon = false, c
           {subtitle && <p className="mt-1 max-w-[56ch] text-sm text-muted-foreground">{subtitle}</p>}
         </div>
       </div>
-      {actions && <div className="relative flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   )
 }

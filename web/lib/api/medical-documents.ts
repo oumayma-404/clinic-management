@@ -34,6 +34,11 @@ export interface UpdateMedicalDocumentRequest {
   pdfFile?: File;
   /** See `CreateMedicalDocumentRequest.issuingDoctorId`. Omitted, the stored snapshot is preserved. */
   issuingDoctorId?: string;
+  /**
+   * The version read from the server. Omitted (or 0) the server skips the check — see `PatientDto.version`.
+   * ⚠️ The background `PdfGenerationJob` legitimately omits it: it is not a person editing a form.
+   */
+  version?: number;
 }
 
 export const medicalDocumentsApi = {
@@ -83,6 +88,8 @@ export const medicalDocumentsApi = {
       formData.append('contentJson', data.contentJson);
       if (data.fileId) formData.append('fileId', data.fileId);
       if (data.issuingDoctorId) formData.append('issuingDoctorId', data.issuingDoctorId);
+      // Multipart carries no numbers: an omitted version must arrive as 0 (« not supplied »), never as "undefined".
+      formData.append('version', String(data.version ?? 0));
       formData.append('pdfFile', data.pdfFile);
       return apiPutFormData<MedicalDocumentDto>(`/medical-documents/${id}`, formData);
     }

@@ -14,7 +14,7 @@ import { Coins } from "lucide-react"
 import { cnamNomenclatureApi } from "@/lib/api/cnam-nomenclature"
 import type { CnamLetterValueDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
-import { formatDT, parseAmountInput } from "@/lib/format"
+import { formatDT, parseAmountInput, quoteFr } from "@/lib/format"
 import { toast } from "sonner"
 
 /**
@@ -106,6 +106,20 @@ export function CnamLetterValuesCard({ onChanged, reloadToken }: CnamLetterValue
     }
   }, [reloadToken, retryToken])
 
+  /**
+   * The row's version as the server holds it *now*. Falls back to the rendered row's own if the re-read fails —
+   * a stale token still means a 409 the user can act on, whereas refusing to save on a transient network blip
+   * would be a worse answer than the problem.
+   */
+  const currentVersion = async (v: CnamLetterValueDto): Promise<number> => {
+    try {
+      const rows = await cnamNomenclatureApi.listLetterValues()
+      return rows.find((r) => r.id === v.id)?.version ?? v.version
+    } catch {
+      return v.version
+    }
+  }
+
   const save = async (v: CnamLetterValueDto) => {
     const parsed = parseAmountInput(drafts[v.id] ?? "")
     if (!Number.isFinite(parsed) || parsed < 0) {
@@ -114,8 +128,10 @@ export function CnamLetterValuesCard({ onChanged, reloadToken }: CnamLetterValue
     }
     try {
       setSavingId(v.id)
-      await cnamNomenclatureApi.updateLetterValue(v.id, parsed)
-      toast.success(`Valeur de « ${v.lettreCle} » mise à jour.`)
+      // Band B — a per-row action re-reads the row's version immediately before writing. The rendered row is as
+      // old as the last refetch, and this value prices every reimbursement estimate in the product.
+      await cnamNomenclatureApi.updateLetterValue(v.id, parsed, await currentVersion(v))
+      toast.success(`Valeur de ${quoteFr(v.lettreCle)} mise à jour.`)
       onChanged() // parent bumps reloadToken → in-place refetch, no remount / no lost sibling draft
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Échec de la mise à jour.")
@@ -133,8 +149,8 @@ export function CnamLetterValuesCard({ onChanged, reloadToken }: CnamLetterValue
     }
     try {
       setSavingId(v.id)
-      await cnamNomenclatureApi.updateLetterValue(v.id, v.conventionValue)
-      toast.success(`Valeur conventionnelle appliquée à « ${v.lettreCle} ».`)
+      await cnamNomenclatureApi.updateLetterValue(v.id, v.conventionValue, await currentVersion(v))
+      toast.success(`Valeur conventionnelle appliquée à ${quoteFr(v.lettreCle)}.`)
       onChanged()
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Échec de la mise à jour.")

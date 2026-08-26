@@ -174,11 +174,15 @@ internal sealed class FakeAuditEntryRepository : IAuditEntryRepository
 
     public Task<PagedResult<AuditEntry>> GetFilteredAsync(
         Guid clinicId, string? entityType = null, string? entityId = null, DateTime? from = null,
-        DateTime? to = null, AuditAction? action = null, PageRequest? paging = null,
+        DateTime? to = null, AuditAction? action = null, string? userId = null, PageRequest? paging = null,
         CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("A restore never reads the ledger back.");
 
     public Task<IReadOnlyList<string>> GetRecordedEntityTypesAsync(
+        Guid clinicId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("A restore never reads the ledger back.");
+
+    public Task<IReadOnlyList<AuditActorRow>> GetRecordedActorsAsync(
         Guid clinicId, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("A restore never reads the ledger back.");
 

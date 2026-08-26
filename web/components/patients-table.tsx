@@ -14,6 +14,7 @@ import { Users, Flag, FileText, Folder, Trash2, Pencil, MoreHorizontal, Plus, Se
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
 import { EmptyState } from "@/components/ui/empty-state"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { InitialsAvatar } from "@/components/ui/initials-avatar"
 import { patientFlagLabel } from "@/components/patient/patient-flag-labels"
 import { ZONES, zoneChipClass } from "@/lib/zones"
@@ -34,6 +35,7 @@ import { useSession } from "@/lib/auth/session"
 import { formatDate } from "@/lib/format"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { usePagedList } from "@/lib/hooks/use-paged-list"
+import { quoteFr } from "@/lib/format"
 
 interface PatientsTableProps {
   searchQuery: string
@@ -54,6 +56,16 @@ interface PatientsTableProps {
   onCreatePatient?: () => void
   /** Clears search + flag + date window, for the « nothing matching » empty state. Same reason it is a prop. */
   onClearFilters?: () => void
+  /**
+   * Bumped by the page when a colleague's change arrives over realtime — a **refetch**, never a remount.
+   *
+   * ⚠️ The page used to pass this as `key`, which is the whole defect: a peer editing <i>any other patient</i>
+   * re-keyed this component, so the « Modifier » dialog it owns UNMOUNTED rather than closing — `useDirtyGuard`
+   * never fired, and whatever was half-typed was gone with no prompt and nothing to say it had happened. This
+   * table already re-fetches its own page on demand; the signal only ever needed to reach that, not React's
+   * reconciler.
+   */
+  reloadKey?: number
 }
 
 /**
@@ -69,6 +81,7 @@ export function PatientsTable({
   createdTo,
   onCreatePatient,
   onClearFilters,
+  reloadKey,
 }: PatientsTableProps) {
   const router = useRouter()
   // Bumped to refetch the current page after a mutation (edit / archive / delete). The list is server-paged, so
@@ -116,7 +129,7 @@ export function PatientsTable({
       setDeleting(true)
       await patientsApi.delete(patientToDelete.id)
       refreshList()
-      toast.success(`Patient « ${patientToDelete.firstName} ${patientToDelete.lastName} » supprimé`)
+      toast.success(`Patient ${quoteFr(`${patientToDelete.firstName} ${patientToDelete.lastName}`)} supprimé`)
       setPatientToDelete(null)
     } catch (err) {
       showErrorToast(err, "Échec de la suppression du patient")
@@ -132,7 +145,7 @@ export function PatientsTable({
       await patientsApi.archive(patientToDelete.id)
       // Archived patients leave the list — the list read excludes them.
       refreshList()
-      toast.success(`Patient « ${patientToDelete.firstName} ${patientToDelete.lastName} » archivé`)
+      toast.success(`Patient ${quoteFr(`${patientToDelete.firstName} ${patientToDelete.lastName}`)} archivé`)
       setPatientToDelete(null)
     } catch (err) {
       showErrorToast(err, "Échec de l'archivage du patient")
@@ -172,7 +185,8 @@ export function PatientsTable({
     search: searchQuery,
     // Ticking « signalés » or arriving on a date-bounded drill-through returns to page 1 (AC-22).
     filters: [showFlaggedOnly, createdFrom, createdTo],
-    refreshKey,
+    // Both signals in one key: this table's own mutations and the page's realtime nudge. A refetch either way.
+    refreshKey: `${reloadKey ?? 0}:${refreshKey}`,
   })
 
   const refreshList = () => setRefreshKey((key) => key + 1)
@@ -256,7 +270,7 @@ export function PatientsTable({
    */
   const isFiltered = isSearching || showFlaggedOnly || Boolean(createdFrom || createdTo)
 
-  const emptyState = (
+  const emptyState = error ? null : (
     <EmptyState
       size="compact"
       // The patient file is the « Quotidien » zone (`lib/zones.ts` maps `/patients` there), so even the
@@ -265,7 +279,7 @@ export function PatientsTable({
       icon={isFiltered ? SearchX : Users}
       title={
         isSearching
-          ? `Aucun résultat pour « ${searchQuery.trim()} »`
+          ? `Aucun résultat pour ${quoteFr(searchQuery.trim())}`
           : showFlaggedOnly
             ? "Aucun patient signalé"
             : isFiltered
@@ -310,7 +324,7 @@ export function PatientsTable({
               to assert « 0 patients » beside the loading skeleton for as long as the fetch took — a real number,
               confidently wrong, on the screen that answers « do we have a file for this person? ». The skeleton
               already says « loading »; a figure that is not known yet is better absent than invented. */}
-          {!loading && (
+          {!loading && !error && (
             <Badge variant="secondary" className="ml-auto">
               {pageInfo.totalCount} {pageInfo.totalCount === 1 ? "patient" : "patients"}
             </Badge>
@@ -318,10 +332,19 @@ export function PatientsTable({
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {/*
+          Band C — the app's one failed-read treatment, with a retry, replacing a hand-rolled `bg-red-50 …
+          dark:bg-red-950` block that carried no way out. It is not enough on its own: the count badge and the
+          empty state below are gated on `error` too, or the screen still asserts « 0 patients » and « Aucun
+          patient enregistré » over a server that simply did not answer.
+        */}
         {error && (
-          <div className="mb-4 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 dark:bg-red-950 dark:border-red-800 dark:text-red-200">
-            {error}
-          </div>
+          <LoadFailureNotice
+            className="mb-4"
+            message="La liste des patients n'a pas pu être chargée."
+            detail="Ni le nombre de dossiers ni leur absence ne peuvent être affirmés tant qu'elle n'est pas lue."
+            onRetry={refreshList}
+          />
         )}
         {/* `refreshing` dims the rows already on screen instead of blanking them, so a debounced search does not
             strobe the table between keystrokes. */}
@@ -601,13 +624,15 @@ export function PatientsTable({
               )}
             </TableBody>
           </Table>
-          <DataTablePagination
-            page={pageInfo}
-            onPageChange={setPage}
-            onPageSizeChange={setPageSize}
-            loading={refreshing}
-            label={["patient", "patients"]}
-          />
+          {!error && (
+            <DataTablePagination
+              page={pageInfo}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              loading={refreshing}
+              label={["patient", "patients"]}
+            />
+          )}
             </>
           )}
         </div>

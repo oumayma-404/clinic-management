@@ -97,6 +97,8 @@ public class LabWorkOrder : AggregateRoot<Guid>
             throw new ArgumentException("La description du travail est requise.", nameof(workDescription));
         if (cost.HasValue && cost.Value < 0)
             throw new ArgumentException("Le coût ne peut pas être négatif.", nameof(cost));
+        if (FdiTooth.Refuse(toothNumber) is { } toothRefusal)
+            throw new ArgumentException(toothRefusal, nameof(toothNumber));
 
         Id = id;
         ClinicId = clinicId;
@@ -131,6 +133,8 @@ public class LabWorkOrder : AggregateRoot<Guid>
             throw new ArgumentException("La description du travail est requise.", nameof(workDescription));
         if (cost.HasValue && cost.Value < 0)
             throw new ArgumentException("Le coût ne peut pas être négatif.", nameof(cost));
+        if (FdiTooth.Refuse(toothNumber) is { } toothRefusal)
+            throw new ArgumentException(toothRefusal, nameof(toothNumber));
 
         Prosthetist = prosthetist;
         WorkDescription = workDescription;

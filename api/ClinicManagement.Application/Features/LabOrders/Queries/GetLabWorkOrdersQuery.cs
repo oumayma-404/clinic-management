@@ -27,6 +27,15 @@ public class GetLabWorkOrdersQuery : IRequest<Result<PagedResult<LabWorkOrderDto
 
     /// <summary>Free-text filter, matched in SQL across the whole clinic — never only the requested page.</summary>
     public string? SearchTerm { get; set; }
+
+    /// <summary>Optional fiche-fournisseur filter — « quels bons sont chez ce labo ? ».</summary>
+    public Guid? SupplierId { get; set; }
+
+    /// <summary>
+    /// <c>expected</c> orders by « Prévu » ascending (dateless last); anything else keeps newest-created first.
+    /// An unrecognised value is ignored rather than refused, like <see cref="Status"/>.
+    /// </summary>
+    public string? SortBy { get; set; }
 }
 
 public class GetLabWorkOrdersQueryHandler : IRequestHandler<GetLabWorkOrdersQuery, Result<PagedResult<LabWorkOrderDto>>>
@@ -77,6 +86,8 @@ public class GetLabWorkOrdersQueryHandler : IRequestHandler<GetLabWorkOrdersQuer
                 status,
                 request.PatientId,
                 request.SearchTerm,
+                request.SupplierId,
+                string.Equals(request.SortBy, "expected", StringComparison.OrdinalIgnoreCase),
                 PageRequest.From(request.Page, request.PageSize),
                 cancellationToken);
 
@@ -88,8 +99,12 @@ public class GetLabWorkOrdersQueryHandler : IRequestHandler<GetLabWorkOrdersQuer
                 .ToList();
             var suppliers = await _supplierRepository.GetByIdsAsync(clinic.Value, supplierIds, cancellationToken);
 
+            // Compiled once for the page, not once per row.
+            var isOverdue = LabOrderOverdue.Evaluator(LabOrderOverdue.CutoffUtc());
+
             return Result<PagedResult<LabWorkOrderDto>>.Success(page.Map(o => o.ToDto(
-                supplier: o.SupplierId.HasValue && suppliers.TryGetValue(o.SupplierId.Value, out var s) ? s : null)));
+                supplier: o.SupplierId.HasValue && suppliers.TryGetValue(o.SupplierId.Value, out var s) ? s : null,
+                isOverdue: isOverdue(o))));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

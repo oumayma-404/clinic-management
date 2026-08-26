@@ -56,9 +56,22 @@ public class ClinicTotpAuthTests
             });
     }
 
-    private LoginCommandHandler LoginHandler() => new(
-        _users.Object, _auth.Object, _uow.Object, _attempts.Object,
-        _totp.Object, _secrets.Object, _policy.Object, _sessionFamilies.Object);
+    /// <summary>
+    /// Permissive by default — every scenario here is about the factor itself, not about re-presenting a code, so
+    /// a first presentation must behave exactly as it did before the guard existed.
+    /// </summary>
+    private readonly Mock<ITotpReplayGuard> _replay = new();
+
+    private readonly Mock<IAuditActorProvider> _auditActor = new();
+
+    private LoginCommandHandler LoginHandler()
+    {
+        _replay.Setup(g => g.TryConsume(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
+        return new(
+            _users.Object, _auth.Object, _uow.Object, _attempts.Object,
+            _totp.Object, _replay.Object, _secrets.Object, _policy.Object,
+            _sessionFamilies.Object, _auditActor.Object);
+    }
 
     private EnrolTotpCommandHandler EnrolHandler() => new(
         _users.Object, _clinics.Object, _auth.Object, _totp.Object, _secrets.Object, _qr.Object, _uow.Object);

@@ -94,6 +94,18 @@ export function isAdultTooth(toothNumber: number): boolean {
   return ADULT_FDI.includes(toothNumber)
 }
 
+/**
+ * True for any FDI tooth, permanent or deciduous — mirrors the backend `FdiTooth.IsValid`.
+ *
+ * <p>Derived from `MIXED_FDI`, which is the union of the two quadrant maps above, so it cannot drift from the
+ * teeth the charts actually draw. `NaN` and every other non-tooth answer false, which is what lets one predicate
+ * refuse both « 99 » (parseable, not a tooth) and « ab » (not parseable) — the lab-order form used to store the
+ * first and silently drop the second.</p>
+ */
+export function isFdiTooth(toothNumber: number): boolean {
+  return MIXED_FDI.includes(toothNumber)
+}
+
 interface ToothMultiSelectProps {
   value: number[]
   onChange: (teeth: number[]) => void

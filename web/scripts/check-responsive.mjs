@@ -632,12 +632,14 @@ check(
   "page-header-not-a-flex-item",
   "N9",
   "`<PageHeader>` is not wrapped in a hand-rolled flex row — its controls go through `actions`",
-  "`PageHeader` paints the zone's hue as a wash that deliberately bleeds past its own box on three sides so it " +
-    "meets the page gutter. That only works while the header spans the page. Wrapped in a `flex … sm:flex-row` " +
-    "row beside a sibling cluster of controls, the header becomes a flex item and shrinks to its title's " +
-    "width — so the wash stops mid-page with a hard vertical edge, which reads as a rendering fault rather " +
-    "than as a design. Five pages had it (`/caisse`, `/stock`, `/lab-orders`, `/waiting-list`, " +
-    "`/recurring-series`), each having reinvented the row that `PageHeader`'s own `actions` slot already is — " +
+  "`PageHeader` is `flex flex-wrap items-end justify-between`: it spans the page and pushes its `actions` to " +
+    "the far edge. Wrapped in a `flex … sm:flex-row` row beside a sibling cluster of controls, the header " +
+    "becomes a flex item and shrinks to its title's width — so the controls bunch up against the heading with " +
+    "the rest of the line left empty, and the page's one primary action stops being where it is on every " +
+    "other screen. (It used to also cut the zone-tinted wash off mid-page with a hard vertical edge; that " +
+    "wash is gone, and the layout half of the defect is not.) Five pages had it (`/caisse`, `/stock`, " +
+    "`/lab-orders`, `/waiting-list`, `/recurring-series`), each having reinvented the row that " +
+    "`PageHeader`'s own `actions` slot already is — " +
     "`actions` is `flex flex-wrap`, so it wraps below `sm:` exactly as the wrapper did. Pass the controls as " +
     "`actions={…}` and delete the wrapper. Nothing here is visible to `tsc` or to the eye at the width the " +
     "header happens to fit.",
@@ -728,7 +730,11 @@ check(
     // A version taken off an object — `version: x.version`, `version: a?.version ?? b.version`. A literal
     // (`version: 0`, the documented "not supplied") is not a round-trip and is not in scope.
     const SENDS = /version:\s*[A-Za-z_$][\w$]*\s*\??\./;
-    const READS = /(?:useFreshVersion|Api\.(?:get|list)\()/;
+    // ⚠️ `Api.get*` / `Api.list*`, not only the bare two. A per-row action legitimately re-reads through a
+    // named read (`cnamNomenclatureApi.listLetterValues()`, `usersApi.listPaged()`) and that is exactly the
+    // shape this check asks for — a stricter pattern rejected the honest fix, and the answer to that would
+    // have been a per-file exemption, which is how a check stops working.
+    const READS = /(?:useFreshVersion|Api\.(?:get|list)[A-Za-z]*\()/;
     const hits = [];
     for (const file of tsx()) {
       const src = read(file);
@@ -747,6 +753,28 @@ check(
     return hits;
   },
 );
+/** The one place a value gets wrapped in French guillemets. */
+const QUOTE_HELPER = "lib/format.ts";
+
+check(
+  "french-quote-binding",
+  "N1",
+  "A value quoted into guillemets goes through `quoteFr()`, never `« ${x} »` with ordinary spaces",
+  "An ordinary space is a BREAK OPPORTUNITY, so the closing guillemet is free to wrap onto a line of its own. " +
+    "At 320 px `/fichiers` rendered « Aucun résultat pour « zzzznope » » with a final line containing nothing but " +
+    "the closing guillemet, measured a full line below the text it closes. Unlike static prose the quoted value " +
+    "is a search term, a file name or a patient's name — its width is unknown when the line is written, so it " +
+    "cannot be eye-checked once and left alone. 52 sites across 26 files carried it. `quoteFr()` binds both " +
+    "guillemets with a narrow no-break space (`U+202F`).",
+  () =>
+    scanLines(
+      // DERIVED from the mechanism: an interpolation sitting between guillemets with a breakable space on either
+      // side. Static prose is deliberately NOT matched — its width is known and reviewable at authoring time.
+      ALL_FILES.filter((f) => rel(f) !== QUOTE_HELPER),
+      /« \$?\{|\} »/,
+    ),
+);
+
 
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 

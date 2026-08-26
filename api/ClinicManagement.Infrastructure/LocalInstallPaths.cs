@@ -39,4 +39,42 @@ public static class LocalInstallPaths
 
     /// <summary>A file inside the per-install <c>.local/</c> directory.</summary>
     public static string LocalFile(string fileName) => Path.Combine(LocalDir, fileName);
+
+    /// <summary>
+    /// The default backup root, and the one path here that is deliberately <b>not</b> install-relative:
+    /// <c>%ProgramData%/ClinicManagement/Backups</c> on Windows, the platform's common-application-data folder
+    /// elsewhere.
+    ///
+    /// <para>⚠️ <b>An install-relative <c>Backups/</c> killed every PDF in the process.</b> The folder is
+    /// ACL-hardened because it holds patient data, so the app's own account cannot enumerate it — and QuestPDF's
+    /// <c>FontManager</c> static constructor walks <see cref="BaseDirectory"/> looking for fonts. Its first walk
+    /// threw <c>UnauthorizedAccessException</c>; the CLR caches the resulting <c>TypeInitializationException</c> for
+    /// the life of the process, so from then on every document PDF, every background PDF and every emailed
+    /// attachment failed with no way back but a restart. <b>Nothing the product writes with restricted permissions
+    /// may live under the directory it is loaded from.</b></para>
+    ///
+    /// <para>It is also where this belongs on its own merits: the install directory is often under
+    /// <c>Program Files</c>, which an upgrade replaces. Falls back to install-relative only if the platform reports
+    /// no common-data folder at all — a resolvable-but-unwise path still beats an empty one.</para>
+    ///
+    /// <para>Stated <b>here</b> because two callers resolve it: the backup service and the <c>restore-backup</c>
+    /// console verb, whose safety dump has to land in the same place a scheduled backup does.</para>
+    /// </summary>
+    public static string DefaultBackupRoot
+    {
+        get
+        {
+            var commonData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+
+            return string.IsNullOrWhiteSpace(commonData)
+                ? Resolve(BackupFolderName)
+                : Path.Combine(commonData, DataFolderName, BackupFolderName);
+        }
+    }
+
+    /// <summary>The per-machine data folder <see cref="DefaultBackupRoot"/> hangs under.</summary>
+    private const string DataFolderName = "ClinicManagement";
+
+    /// <summary>The leaf folder name, shared so the two resolvers cannot name it differently.</summary>
+    private const string BackupFolderName = "Backups";
 }

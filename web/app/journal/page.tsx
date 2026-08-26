@@ -19,6 +19,7 @@ import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { EmptyState } from "@/components/ui/empty-state"
 import { useSession } from "@/lib/auth/session"
 import { auditApi, type AuditEntryDto, type AuditPageDto } from "@/lib/api/audit"
+import { useUrlFilterSeed, useUrlFilters } from "@/lib/hooks/use-url-filters"
 import { formatDateTime } from "@/lib/format"
 import { getErrorMessage } from "@/lib/errors"
 
@@ -56,11 +57,22 @@ export default function JournalPage() {
   const { user, isLoading: sessionLoading } = useSession()
   const isAdmin = user?.role === "admin"
 
-  const [entityType, setEntityType] = useState(ALL)
-  const [action, setAction] = useState(ALL)
-  const [entityId, setEntityId] = useState("")
-  const [from, setFrom] = useState("")
-  const [to, setTo] = useState("")
+  /*
+   * ⚠️ Seeded FROM the query string, so a reload and a shared link both work.
+   *
+   * The six filters lived in component state alone and the URL said nothing, so « le journal de Salma sur la
+   * semaine du 20 » was a view nobody could come back to or send to anyone — over 79 pages of ledger, on the one
+   * screen whose whole purpose is answering a question about the past. A missing or unreadable param falls back to
+   * the default rather than refusing: a stale bookmark shows the full journal, never an error about a query string.
+   */
+  const initial = useUrlFilterSeed()
+  const [entityType, setEntityType] = useState(initial.get("entityType") ?? ALL)
+  const [action, setAction] = useState(initial.get("action") ?? ALL)
+  /** « Auteur » — the filter this screen had no way to express, over 79 pages of ledger. */
+  const [actor, setActor] = useState(initial.get("userId") ?? ALL)
+  const [entityId, setEntityId] = useState(initial.get("entityId") ?? "")
+  const [from, setFrom] = useState(initial.get("from") ?? "")
+  const [to, setTo] = useState(initial.get("to") ?? "")
 
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
@@ -70,7 +82,7 @@ export default function JournalPage() {
 
   // AC-22 applies here too: changing any filter returns to page 1. Keyed on the serialised values, never on an
   // object identity — see `use-paged-list.ts` for why an identity-keyed effect would undo the user's page click.
-  const filterSignature = JSON.stringify([entityType, action, entityId, from, to])
+  const filterSignature = JSON.stringify([entityType, action, actor, entityId, from, to])
   const firstRunRef = useRef(true)
   useEffect(() => {
     if (firstRunRef.current) {
@@ -86,6 +98,7 @@ export default function JournalPage() {
       const result = await auditApi.list({
         entityType: entityType === ALL ? undefined : entityType,
         action: action === ALL ? undefined : action,
+        userId: actor === ALL ? undefined : actor,
         entityId: entityId.trim() || undefined,
         from: from || undefined,
         to: to || undefined,
@@ -100,20 +113,33 @@ export default function JournalPage() {
     } finally {
       setLoading(false)
     }
-  }, [entityType, action, entityId, from, to, page, pageSize])
+  }, [entityType, action, actor, entityId, from, to, page, pageSize])
 
   useEffect(() => {
     if (isAdmin) void load()
   }, [isAdmin, load])
 
-  const hasFilters = entityType !== ALL || action !== ALL || entityId.trim() !== "" || from !== "" || to !== ""
+  const hasFilters =
+    entityType !== ALL || action !== ALL || actor !== ALL || entityId.trim() !== "" || from !== "" || to !== ""
   const clearFilters = () => {
     setEntityType(ALL)
     setAction(ALL)
+    setActor(ALL)
     setEntityId("")
     setFrom("")
     setTo("")
   }
+
+  // Mirrors the six filters back into the query string — the write half of the seed above.
+  useUrlFilters({
+    entityType: entityType === ALL ? undefined : entityType,
+    action: action === ALL ? undefined : action,
+    userId: actor === ALL ? undefined : actor,
+    entityId: entityId.trim() || undefined,
+    from: from || undefined,
+    to: to || undefined,
+    page: page > 1 ? page : undefined,
+  })
 
   const entries = data?.items ?? []
 
@@ -139,7 +165,9 @@ export default function JournalPage() {
             />
 
             <Card>
-              <CardContent className="grid gap-4 pt-6 sm:grid-cols-2 lg:grid-cols-5">
+              {/* Six controls now, not five. `lg:grid-cols-3` rather than a sixth column: at 1024 px six
+                  columns give each filter ~150 px, which is narrower than « Tous les auteurs ». */}
+              <CardContent className="grid gap-4 pt-6 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="journal-type">Type</Label>
                   <Select value={entityType} onValueChange={setEntityType}>
@@ -169,6 +197,24 @@ export default function JournalPage() {
                       {ACTIONS.map((a) => (
                         <SelectItem key={a.value} value={a.value}>
                           {a.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="journal-actor">Auteur</Label>
+                  <Select value={actor} onValueChange={setActor}>
+                    <SelectTrigger id="journal-actor">
+                      <SelectValue placeholder="Tous les auteurs" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL}>Tous les auteurs</SelectItem>
+                      {/* Served with the page — the actors this clinic actually has rows for, people first. */}
+                      {(data?.actors ?? []).map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
                         </SelectItem>
                       ))}
                     </SelectContent>

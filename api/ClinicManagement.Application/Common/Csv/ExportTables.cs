@@ -140,7 +140,10 @@ public static class ExportTables
                 CsvCell.Text(m.Label),
                 CsvCell.Text(m.Reference),
                 CsvCell.Text(m.PatientName),
-                CsvCell.Text(m.Method),
+                // French, like the column on screen. Both exports wrote the raw enum name — « Cash », « Card »,
+                // « Cheque », « Transfer » — into a file a practice hands to its accountant, in the one column
+                // whose values the screen itself spells « Espèces » / « Carte » / « Chèque » / « Virement ».
+                CsvCell.Text(PaymentMethodLabels.ToFrench(m.Method)),
                 counted && isIn ? CsvCell.Money(m.Amount) : string.Empty,
                 counted && !isIn ? CsvCell.Money(m.Amount) : string.Empty,
                 CsvCell.Money(m.RunningBalance),
@@ -214,7 +217,7 @@ public static class ExportTables
                 CsvCell.Text(e.Category),
                 CsvCell.Text(e.Description),
                 CsvCell.Money(e.Amount),
-                CsvCell.Text(e.Method));
+                CsvCell.Text(PaymentMethodLabels.ToFrench(e.Method)));
         }
 
         return table;

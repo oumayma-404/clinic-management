@@ -12,6 +12,18 @@ namespace ClinicManagement.Application.Features.CnamNomenclature.Commands;
 public class DeactivateCnamEntryCommand : IRequest<Result>
 {
     public Guid Id { get; set; }
+
+    /// <summary>
+    /// <c>false</c> reactivates instead of deactivating.
+    ///
+    /// ⚠️ <b>All three catalogue entities had an <c>Activate()</c> method nothing called.</b> A deactivated row
+    /// stayed listed with only « Modifier », and an edit-save left <c>IsActive = false</c> — so a row switched off
+    /// by mistake was switched off for ever, and the only route back was the database. A soft delete whose inverse
+    /// is unreachable is a hard delete with extra steps.
+    ///
+    /// Defaults to <c>true</c> so the existing <c>DELETE</c> route keeps behaving exactly as it did.
+    /// </summary>
+    public bool Deactivate { get; set; } = true;
 }
 
 public class DeactivateCnamEntryCommandHandler : IRequestHandler<DeactivateCnamEntryCommand, Result>
@@ -52,17 +64,27 @@ public class DeactivateCnamEntryCommandHandler : IRequestHandler<DeactivateCnamE
                 return Result.Failure("Acte introuvable.");
             }
 
-            entry.Deactivate();
+            if (request.Deactivate)
+            {
+                entry.Deactivate();
+            }
+            else
+            {
+                entry.Activate();
+            }
             await _repository.UpdateAsync(entry, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            _logger.LogInformation("Deactivated CNAM catalog entry {Id}", entry.Id);
+            _logger.LogInformation(
+                "{Action} CNAM catalog entry {Id}", request.Deactivate ? "Deactivated" : "Reactivated", entry.Id);
             return Result.Success();
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error deactivating CNAM catalog entry {Id}", request.Id);
-            return Result.Failure("Erreur lors de la désactivation de l'acte.");
+            return Result.Failure(request.Deactivate
+                ? "Erreur lors de la désactivation de l'acte."
+                : "Erreur lors de la réactivation de l'acte.");
         }
     }
 }

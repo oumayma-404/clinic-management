@@ -38,6 +38,7 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { showErrorToast } from "@/lib/errors"
 import { ZONES, zoneChipClass } from "@/lib/zones"
+import { quoteFr } from "@/lib/format"
 
 const DEFAULT_PAGE_SIZE = 25
 
@@ -470,7 +471,7 @@ export function SuppliersTable({ createRequest = 0 }: SuppliersTableProps) {
       <AlertDialog open={pendingDelete !== null} onOpenChange={(o) => !o && setPendingDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer « {pendingDelete?.name} » ?</AlertDialogTitle>
+            <AlertDialogTitle>Supprimer {quoteFr(pendingDelete?.name ?? "")} ?</AlertDialogTitle>
             <AlertDialogDescription>
               Cette action est définitive. Si des articles de stock ou des bons de prothèse référencent ce
               fournisseur, la suppression sera refusée : désactivez-le à la place, il disparaîtra des listes de

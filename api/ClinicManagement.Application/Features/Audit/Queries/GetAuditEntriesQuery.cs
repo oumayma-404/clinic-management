@@ -45,6 +45,14 @@ public class GetAuditEntriesQuery : IRequest<Result<AuditPageDto>>
     /// ledger rather than a French error about a query parameter.</summary>
     public string? Action { get; set; }
 
+    /// <summary>
+    /// One actor's entries — « qu'a fait cette personne ? ». ⚠️ <b>This filter did not exist</b>, and the question
+    /// it answers cannot be asked any other way: over 79 pages of ledger, « what did this colleague do last
+    /// Tuesday » is unanswerable by scrolling. The parameter was already being <i>sent</i> by nothing and
+    /// silently ignored by the server, which is the worst of the three possible states.
+    /// </summary>
+    public string? UserId { get; set; }
+
     public int? Page { get; set; }
     public int? PageSize { get; set; }
 }
@@ -90,10 +98,20 @@ public class GetAuditEntriesQueryHandler : IRequestHandler<GetAuditEntriesQuery,
                 from,
                 to,
                 ParseAction(request.Action),
-                PageRequest.From(request.Page, request.PageSize),
+                string.IsNullOrWhiteSpace(request.UserId) ? null : request.UserId.Trim(),
+                /*
+                 * ⚠️ Bounded even when the caller supplies NOTHING. `PageRequest.From(null, null)` answers null,
+                 * which every other list read means as « the unpaged case » — legitimate for a picker, and on this
+                 * table it returned the clinic's entire history in one response (1 950 rows in the QA pass), while
+                 * `?pageSize=100000` was correctly clamped to 200. The class docstring above already promised the
+                 * opposite, so this is the code catching up with its own contract.
+                 */
+                PageRequest.From(request.Page, request.PageSize)
+                    ?? PageRequest.Of(1, PageRequest.MaxPageSize),
                 cancellationToken);
 
             var types = await _auditRepository.GetRecordedEntityTypesAsync(clinicId, cancellationToken);
+            var actors = await _auditRepository.GetRecordedActorsAsync(clinicId, cancellationToken);
 
             return Result<AuditPageDto>.Success(new AuditPageDto
             {
@@ -119,6 +137,18 @@ public class GetAuditEntriesQueryHandler : IRequestHandler<GetAuditEntriesQuery,
                     // Ordered by the *French* label, because that is what the reader sees. The repository orders by
                     // the CLR name, which puts « Note d'honoraires » under I and « Dépense » under E.
                     .OrderBy(t => t.Label, StringComparer.CurrentCultureIgnoreCase)
+                    .ToList(),
+                Actors = actors
+                    .Select(a => new AuditActorOptionDto
+                    {
+                        Value = a.UserId,
+                        Label = AuditLabels.Actor(a.UserId, a.UserEmail),
+                    })
+                    // People first, then the processes and the console: an admin filtering the journal is looking
+                    // for a colleague, and « Tâche automatique » at the top of the list is in the way of that.
+                    .OrderBy(a => a.Value.StartsWith(AuditActor.ProcessPrefix, StringComparison.Ordinal)
+                        || a.Value.StartsWith(AuditActor.ConsolePrefix, StringComparison.Ordinal))
+                    .ThenBy(a => a.Label, StringComparer.CurrentCultureIgnoreCase)
                     .ToList(),
                 Page = page.Page,
                 PageSize = page.PageSize,

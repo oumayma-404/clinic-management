@@ -67,7 +67,16 @@ public interface ISupplierRepository
     /// reason <c>ProcedureTypeRepository.GetCategoriesAsync</c> does: a category the practice files suppliers
     /// under does not stop being one because a dépôt closed.
     /// </summary>
-    Task<IReadOnlyList<string>> GetCategoriesAsync(Guid clinicId, CancellationToken cancellationToken = default);
+    /// <param name="activeOnly">
+    /// Restrict to categories carried by an ACTIVE supplier — what the filter's chips need.
+    ///
+    /// <para>⚠️ The two consumers ask different questions and one answer served both wrongly. The form's
+    /// suggestion list wants every label ever filed (the default, <c>false</c>); the filter's chips want only what
+    /// can still narrow the list on screen, whose default read excludes deactivated rows — so retiring the only
+    /// laboratory of a kind left a chip whose every click answered « Aucun fournisseur pour ces filtres ».</para>
+    /// </param>
+    Task<IReadOnlyList<string>> GetCategoriesAsync(
+        Guid clinicId, bool activeOnly = false, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// What each of <paramref name="supplierIds"/> is referenced by — one <c>GROUP BY</c> per table over the

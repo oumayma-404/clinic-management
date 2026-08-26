@@ -57,6 +57,11 @@ public class UpdatePatientFileCommand : IRequest<Result<PatientFileDto>>
 
     [JsonIgnore]
     public bool FolderIdSpecified { get; private set; }
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user was
+    /// editing; <c>0</c> means « not supplied » and skips the check (see <c>IUnitOfWork.SetExpectedVersion</c>).
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class UpdatePatientFileCommandHandler : IRequestHandler<UpdatePatientFileCommand, Result<PatientFileDto>>
@@ -140,22 +145,13 @@ public class UpdatePatientFileCommandHandler : IRequestHandler<UpdatePatientFile
                 file.MoveToFolder(request.FolderId);
             }
 
+            // Band B — validated against the copy the USER was editing, not the row this handler just read.
+            _unitOfWork.SetExpectedVersion(file, request.Version);
+
             await _fileRepository.UpdateAsync(file, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var dto = new PatientFileDto
-            {
-                Id = file.Id,
-                PatientId = file.PatientId,
-                FolderId = file.FolderId,
-                FileName = file.FileName,
-                ContentType = file.ContentType,
-                FileSize = file.FileSize,
-                FileType = file.FileType.ToString(),
-                Description = file.Description,
-                UploadedAt = file.UploadedAt,
-                UploadedBy = file.UploadedBy
-            };
+            var dto = file.ToDto();
 
             return Result<PatientFileDto>.Success(dto);
         }

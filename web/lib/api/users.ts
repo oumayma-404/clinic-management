@@ -31,6 +31,8 @@ export interface ClinicUserDto {
   isPendingActivation: boolean;
   mustChangePassword: boolean;
   lastLoginAt?: string;
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the role / activation actions. */
+  version: number;
   createdAt: string;
 }
 
@@ -106,8 +108,8 @@ export const usersApi = {
   },
 
   // AC-5.3: deactivate / reactivate a user (historical records retained).
-  setStatus: async (id: string, isActive: boolean): Promise<ClinicUserDto> => {
-    return apiPut<ClinicUserDto>(`/users/${id}/status`, { isActive });
+  setStatus: async (id: string, isActive: boolean, version?: number): Promise<ClinicUserDto> => {
+    return apiPut<ClinicUserDto>(`/users/${id}/status`, { isActive, version });
   },
 
   /**
@@ -115,7 +117,7 @@ export const usersApi = {
    * closed set, keeps email + full name, refuses a self-demotion that would leave the clinic with no active
    * admin, and bumps the target's token version so the new role applies on their next request.
    */
-  setRole: async (id: string, role: UserRole): Promise<ClinicUserDto> => {
-    return apiPut<ClinicUserDto>(`/users/${id}/role`, { role });
+  setRole: async (id: string, role: UserRole, version?: number): Promise<ClinicUserDto> => {
+    return apiPut<ClinicUserDto>(`/users/${id}/role`, { role, version });
   },
 };

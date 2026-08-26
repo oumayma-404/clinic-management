@@ -3,6 +3,7 @@ import { appointmentsApi } from '@/lib/api/appointments';
 import type { AppointmentDto } from '@/lib/api/types';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import { parseDurationToMinutes } from '@/lib/utils';
+import { quoteFr } from "@/lib/format";
 
 interface OverlapOptions {
   /** Only fetch/compute while the dialog is open (avoids fetching for a closed, always-mounted dialog). */
@@ -101,7 +102,7 @@ export function useAppointmentOverlap({
     // « réservé pour ce praticien : « <nom> » », which named a patient right after the word "praticien" and so
     // said the opposite of what it meant. A busy slot with no patient ("Occupé") has no name to show at all,
     // so it gets its own wording rather than « patient : « Occupé » ».
-    const withWhom = conflict.patientName ? `patient : « ${conflict.patientName} »` : 'créneau occupé';
+    const withWhom = conflict.patientName ? `patient : ${quoteFr(conflict.patientName)}` : 'créneau occupé';
 
     if (sameDoctor) {
       return {

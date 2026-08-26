@@ -431,7 +431,13 @@ export function InvoicesTable({
       </div>
 
       {/* The shared banner, on `--destructive-wash` — not a fifth hand-maintained `red-50 / dark:red-950` pair. */}
-      <FormErrorBanner message={error} />
+      {/* ⚠️ With a « Réessayer », like the revenue banner ~30 px above it on the same screen. Without one, recovery
+          from a failed list read meant changing a filter or reloading the page by hand — on the screen whose own
+          neighbour already had the button. */}
+      <FormErrorBanner
+        message={error}
+        action={error ? { label: "Réessayer", onClick: load, disabled: refreshing } : undefined}
+      />
 
       <div>
         <Label htmlFor="invoices-search" className="sr-only">

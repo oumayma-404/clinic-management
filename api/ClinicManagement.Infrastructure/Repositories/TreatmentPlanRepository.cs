@@ -98,9 +98,12 @@ public class TreatmentPlanRepository : ITreatmentPlanRepository
                 EF.Functions.ILike(SqlSearch.Unaccent(p.Number)!, pattern, SqlSearch.EscapeString)
                 || EF.Functions.ILike(SqlSearch.Unaccent(p.Title)!, pattern, SqlSearch.EscapeString)
                 || EF.Functions.ILike(SqlSearch.Unaccent(p.Notes)!, pattern, SqlSearch.EscapeString)
+                // BOTH name orders: the app renders « Nom Prénom » — see `PatientRepository.ApplySearch`.
                 || _context.Patients.Any(pa => pa.Id == p.PatientId
-                    && EF.Functions.ILike(
-                        SqlSearch.Unaccent(pa.FirstName + " " + pa.LastName)!, pattern, SqlSearch.EscapeString)));
+                    && (EF.Functions.ILike(
+                            SqlSearch.Unaccent(pa.FirstName + " " + pa.LastName)!, pattern, SqlSearch.EscapeString)
+                        || EF.Functions.ILike(
+                            SqlSearch.Unaccent(pa.LastName + " " + pa.FirstName)!, pattern, SqlSearch.EscapeString))));
         }
 
         return await query

@@ -30,7 +30,7 @@ import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
 import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import type { TreatmentPlanDto, PatientDto, DentalActDto, ProcedureTypeDto } from "@/lib/api/types"
-import { formatAmount, formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
+import { formatAmount, formatDT, parseAmountInput, quoteFr, todayLocalIso } from "@/lib/format"
 import { ToothMultiSelect } from "@/components/tooth-multiselect"
 import { conditionStyle } from "@/components/odontogram-conditions"
 import { cn } from "@/lib/utils"
@@ -439,7 +439,7 @@ export function TreatmentPlanFormModal({
     }
     for (const l of parsedLines) {
       if (!Number.isFinite(l.plannedCost) || l.plannedCost < 0) {
-        setError(`Coût invalide pour « ${l.designationFr} ».`)
+        setError(`Coût invalide pour ${quoteFr(l.designationFr)}.`)
         return
       }
     }

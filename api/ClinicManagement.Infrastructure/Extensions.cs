@@ -187,6 +187,8 @@ public static class Extensions
         services.AddScoped<IPlatformAccountRepository, PlatformAccountRepository>();
         services.AddScoped<IPlatformAuthService, PlatformAuthService>();
         services.AddSingleton<ITotpService, TotpService>();
+        // Singleton, like the service it guards: the spent-code set has to outlive the request that spent one.
+        services.AddSingleton<ITotpReplayGuard, TotpReplayGuard>();
         // Singleton like IReminderSecretProtector, and for the same reason: an IDataProtector is thread-safe and
         // deriving one per request would re-run the key derivation on every sign-in.
         services.AddSingleton<IPlatformSecretProtector, PlatformSecretProtector>();

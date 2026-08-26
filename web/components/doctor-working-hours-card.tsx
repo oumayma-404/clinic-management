@@ -12,19 +12,14 @@ import { Clock, Save, Trash2 } from "lucide-react"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { doctorsApi, type WorkingDay } from "@/lib/api/doctors"
 import { ApiError } from "@/lib/api/client"
-import { DEFAULT_WORKING_HOURS, WEEKDAYS } from "@/lib/working-hours"
+import {
+  DEFAULT_WORKING_HOURS,
+  WEEKDAYS,
+  WEEKDAY_LABELS_FR,
+  validateWorkingHours,
+} from "@/lib/working-hours"
 
 /** French labels for the (English) weekday storage keys — the `weekdayLabelsFr` convention. */
-const DAY_LABELS_FR: Record<string, string> = {
-  Monday: "Lundi",
-  Tuesday: "Mardi",
-  Wednesday: "Mercredi",
-  Thursday: "Jeudi",
-  Friday: "Vendredi",
-  Saturday: "Samedi",
-  Sunday: "Dimanche",
-}
-
 interface DoctorWorkingHoursCardProps {
   doctorId: string
   doctorName?: string
@@ -91,22 +86,6 @@ export function DoctorWorkingHoursCard({
   const updateDay = (day: string, patch: Partial<WorkingDay>) =>
     setDays((prev) => prev.map((d) => (d.day === day ? { ...d, ...patch } : d)))
 
-  /**
-   * Mirror the server's validation so an invalid row is refused before the round-trip. The server is still the
-   * authority (`WorkingHoursSerializer.Validate`) — this only means the user is told which day is wrong.
-   */
-  const validate = (): string | null => {
-    for (const d of days) {
-      if (!d.enabled) continue
-      if (!/^\d{2}:\d{2}$/.test(d.from) || !/^\d{2}:\d{2}$/.test(d.to)) {
-        return `${DAY_LABELS_FR[d.day] ?? d.day} : heures invalides (format attendu HH:mm).`
-      }
-      if (d.from >= d.to) {
-        return `${DAY_LABELS_FR[d.day] ?? d.day} : l'heure de fermeture doit être postérieure à l'ouverture.`
-      }
-    }
-    return null
-  }
 
   const save = async (payload: WorkingDay[] | null) => {
     setSaving(true)
@@ -130,7 +109,7 @@ export function DoctorWorkingHoursCard({
   }
 
   const handleSave = () => {
-    const invalid = validate()
+    const invalid = validateWorkingHours(days)
     if (invalid) {
       setError(invalid)
       return
@@ -168,6 +147,8 @@ export function DoctorWorkingHoursCard({
               const enabledId = `wh-${doctorId}-${weekday}-enabled`
               const fromId = `wh-${doctorId}-${weekday}-from`
               const toId = `wh-${doctorId}-${weekday}-to`
+              const breakFromId = `wh-${doctorId}-${weekday}-break-from`
+              const breakToId = `wh-${doctorId}-${weekday}-break-to`
               return (
                 <div key={weekday} className="flex flex-wrap items-center gap-2 rounded-md border px-2 py-1.5">
                   <div className="flex w-32 items-center gap-2">
@@ -179,7 +160,7 @@ export function DoctorWorkingHoursCard({
                     />
                     {/* htmlFor/id throughout — the clinic-wide editor this mirrors has none (AC-P1.54). */}
                     <Label htmlFor={enabledId} className="text-xs font-medium">
-                      {DAY_LABELS_FR[weekday] ?? weekday}
+                      {WEEKDAY_LABELS_FR[weekday] ?? weekday}
                     </Label>
                   </div>
                   {/* ⚠️ Three classes, three separate reasons, and it takes all three.
@@ -196,7 +177,7 @@ export function DoctorWorkingHoursCard({
                       (Same family of trap as `subscription-banner.tsx` and `ui/list-toolbar.tsx`.) */}
                   <div className="flex min-w-0 flex-1 basis-52 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap sm:basis-0">
                     <Label htmlFor={fromId} className="sr-only">
-                      {`Heure d'ouverture — ${DAY_LABELS_FR[weekday] ?? weekday}`}
+                      {`Heure d'ouverture — ${WEEKDAY_LABELS_FR[weekday] ?? weekday}`}
                     </Label>
                     <Input
                       id={fromId}
@@ -212,7 +193,7 @@ export function DoctorWorkingHoursCard({
                     />
                     <span className="text-xs text-muted-foreground">à</span>
                     <Label htmlFor={toId} className="sr-only">
-                      {`Heure de fermeture — ${DAY_LABELS_FR[weekday] ?? weekday}`}
+                      {`Heure de fermeture — ${WEEKDAY_LABELS_FR[weekday] ?? weekday}`}
                     </Label>
                     <Input
                       id={toId}
@@ -224,6 +205,33 @@ export function DoctorWorkingHoursCard({
                       // (~105 px) on its own, so even on its own wrapped line the pair measured 234 px against
                       // the 182 px this card gives it at 320 px. Sharing the row explicitly is what makes both
                       // fields fit; they are wide enough for « 09:00 » and the picker glyph at that size.
+                      className="h-7 min-w-0 flex-1 basis-28 md:text-xs"
+                    />
+                  </div>
+                  {/* The mid-day closure, mirroring the clinic-wide editor. Empty means « pas de pause ». */}
+                  <div className="flex min-w-0 basis-full flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="w-32 shrink-0 text-xs text-muted-foreground">Pause (optionnel)</span>
+                    <Label htmlFor={breakFromId} className="sr-only">
+                      {`Début de la pause — ${WEEKDAY_LABELS_FR[weekday] ?? weekday}`}
+                    </Label>
+                    <Input
+                      id={breakFromId}
+                      type="time"
+                      value={day.breakFrom ?? ""}
+                      onChange={(e) => updateDay(weekday, { breakFrom: e.target.value || null })}
+                      disabled={saving || !day.enabled}
+                      className="h-7 min-w-0 flex-1 basis-28 md:text-xs"
+                    />
+                    <span className="text-xs text-muted-foreground">à</span>
+                    <Label htmlFor={breakToId} className="sr-only">
+                      {`Fin de la pause — ${WEEKDAY_LABELS_FR[weekday] ?? weekday}`}
+                    </Label>
+                    <Input
+                      id={breakToId}
+                      type="time"
+                      value={day.breakTo ?? ""}
+                      onChange={(e) => updateDay(weekday, { breakTo: e.target.value || null })}
+                      disabled={saving || !day.enabled}
                       className="h-7 min-w-0 flex-1 basis-28 md:text-xs"
                     />
                   </div>

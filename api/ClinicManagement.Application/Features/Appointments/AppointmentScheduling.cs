@@ -196,7 +196,8 @@ public static class AppointmentScheduling
         var clinic = await clinics.GetByIdAsync(clinicId, cancellationToken);
 
         string? doctorHoursJson = null;
-        var practitioner = "Le praticien";
+        // Null until a real practitioner is resolved — see the refusal below for why there is no placeholder name.
+        string? practitioner = null;
         if (doctorId.HasValue)
         {
             var doctor = await doctors.GetByIdAsync(doctorId.Value, cancellationToken);
@@ -213,8 +214,18 @@ public static class AppointmentScheduling
             return Result<bool>.Success(true);
         }
 
-        // The message names the practitioner and the closed period, per AC-P1.28. The code is what makes the
-        // refusal actionable rather than terminal — see OutsideWorkingHoursCode.
-        return Result<bool>.Failure($"{practitioner} : {reason}", OutsideWorkingHoursCode);
+        /*
+         * The message names the practitioner and the closed period, per AC-P1.28. The code is what makes the
+         * refusal actionable rather than terminal — see OutsideWorkingHoursCode.
+         *
+         * ⚠️ The name is a PREFIX only when there is one. It used to fall back to the literal « Le praticien »,
+         * so an unassigned booking was refused with « <b>Le praticien :</b> Le mercredi, le cabinet est ouvert
+         * de 09:00 à 17:00… » — a dangling field-name colon in front of a sentence that is already about the
+         * cabinet's hours, not about anybody. With no practitioner the reason stands on its own, which reads
+         * correctly and says exactly as much as is known.
+         */
+        return Result<bool>.Failure(
+            practitioner is null ? reason! : $"{practitioner} : {reason}",
+            OutsideWorkingHoursCode);
     }
 }

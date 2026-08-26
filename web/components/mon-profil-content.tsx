@@ -58,8 +58,7 @@ export function MonProfilContent() {
     let cancelled = false
     let objectUrl: string | null = null
     setLoading(true)
-    doctorsApi
-      .getMyProfile()
+    doctorsApi.getMyProfile()
       .then(async (p) => {
         if (cancelled) return
         setProfile(p)
@@ -125,13 +124,28 @@ export function MonProfilContent() {
         ordreNumberCnomdt: ordreNumber,
         cachet: cachetFile,
         removeCachet: removeCachet,
+        /*
+         * Band B — the version the loaded profile carries. ⚠️ `profile` here is what the GET returned and is
+         * REPLACED by every successful save's own response below, so it stays current without a re-read: this
+         * screen owns one row, has no list to be stale against, and nothing else on it writes.
+         */
+        version: profile?.version,
       })
       setProfile(updated)
       setCachetFile(null)
       setRemoveCachet(false)
       toast.success("Profil enregistré")
     } catch (e) {
-      toast.error("Erreur", { description: e instanceof ApiError ? e.message : "Enregistrement impossible" })
+      // A 409 here means another session (or the vendor console) changed this profile: say so and reload it,
+      // rather than leaving a « Enregistrer » that will fail identically for ever.
+      if (e instanceof ApiError && e.status === 409) {
+        toast.error("Profil modifié ailleurs", {
+          description: "Votre profil a été modifié depuis un autre appareil. Il vient d'être rechargé — réappliquez votre modification.",
+        })
+        setReloadKey((k) => k + 1)
+      } else {
+        toast.error("Erreur", { description: e instanceof ApiError ? e.message : "Enregistrement impossible" })
+      }
     } finally {
       setSaving(false)
     }

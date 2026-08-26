@@ -48,6 +48,9 @@ public class CreateWaitingListEntryCommandHandler : IRequestHandler<CreateWaitin
             if (!Enum.TryParse<WaitingListPriority>(priorityInput, ignoreCase: true, out var priority))
                 return Result<WaitingListEntryDto>.Failure("Priorité invalide.");
 
+            if (WaitingListLimits.Refuse(request.DesiredTimeframe, request.Note) is { } tooLong)
+                return Result<WaitingListEntryDto>.Failure(tooLong);
+
             var clinic = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinic.IsFailure)
                 return Result<WaitingListEntryDto>.Failure(clinic.Error ?? "Cabinet introuvable.");
@@ -76,7 +79,8 @@ public class CreateWaitingListEntryCommandHandler : IRequestHandler<CreateWaitin
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<WaitingListEntryDto>.Failure($"Erreur lors de l'ajout à la liste d'attente : {ex.Message}");
+            // No `ex.Message`: an EF/Npgsql sentence is English machine text and this string is rendered verbatim.
+            return Result<WaitingListEntryDto>.Failure("Erreur lors de l'ajout à la liste d'attente.");
         }
     }
 }

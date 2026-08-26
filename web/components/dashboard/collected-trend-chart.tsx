@@ -70,7 +70,8 @@ export function CollectedTrendChart({ points, loading = false }: CollectedTrendC
         <div className="space-y-1">
           <CardTitle className="text-base font-semibold">Encaissé — 6 derniers mois</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Paiements de notes d’honoraires, par mois. Total sur la période : {formatDT(total)}.
+            Paiements de notes d’honoraires et échéances de devis, par mois. Total sur la période&nbsp;:{" "}
+            {formatDT(total)}.
           </p>
         </div>
         <Button
@@ -100,7 +101,7 @@ export function CollectedTrendChart({ points, loading = false }: CollectedTrendC
             size="compact"
             className="h-52"
             title="Pas encore d'encaissements"
-            description="La courbe apparaîtra dès le premier paiement enregistré sur une note d'honoraires."
+            description="La courbe apparaîtra dès le premier paiement enregistré, sur une note d'honoraires ou sur une échéance de devis."
             chipClassName={zoneChipClass(ZONES.money)}
           />
         ) : (

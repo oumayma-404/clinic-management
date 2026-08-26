@@ -2,9 +2,15 @@
 
 import type React from "react"
 import { Auth0Provider, useUser } from "@auth0/nextjs-auth0/client"
+import { toast } from "sonner"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { clinicsApi } from "@/lib/api/clinics"
-import { clearCachedAccessToken, onMustChangePassword, onSecondFactorRequired } from "@/lib/api/client"
+import {
+  clearCachedAccessToken,
+  onMustChangePassword,
+  onSecondFactorRequired,
+  onSessionExpired,
+} from "@/lib/api/client"
 import { canConfirmIdentityInShell, SessionLockGate } from "@/components/session-lock-gate"
 
 export type AuthMode = "cloud" | "local"
@@ -179,6 +185,33 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
       window.location.href = "/change-password"
     })
   }, [])
+
+  /*
+   * « Session expirée » — the token exchange refused the session outright (401/403).
+   *
+   * ⚠️ **The state this replaces is the worst one the app can be in.** Once renewal is refused, every request
+   * 401s and every screen shows its own generic error: an application that looks completely usable and does
+   * nothing, indefinitely, with no route back to sign-in. It reads as « the software is broken » rather than
+   * « you have been signed out », which is precisely why it was never reported as the latter.
+   *
+   * `returnTo` is passed, unlike a deliberate sign-out: the user did not choose this, and coming back to the
+   * fiche that was open is the difference between an interruption and lost work — the same reasoning the
+   * inactivity timeout already applies.
+   *
+   * ⚠️ Guarded on `/login` like the two above: that screen makes calls of its own, and a redirect to the page you
+   * are already on is a reload loop. And `onSessionExpired` deliberately never fires for a 429 or a transport
+   * blip — see its own note — so one rate-limited minute cannot eject a whole practice.
+   */
+  useEffect(() => {
+    return onSessionExpired(() => {
+      if (window.location.pathname.startsWith("/login")) return
+      toast.error("Session expirée", {
+        description: "Votre session a expiré. Reconnectez-vous pour continuer.",
+        duration: 6000,
+      })
+      logout({ returnTo: window.location.pathname + window.location.search })
+    })
+  }, [logout])
 
   /*
    * The same shape one requirement along (`hosted-security-hardening` FR-1.2): an administrator this

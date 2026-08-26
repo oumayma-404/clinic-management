@@ -95,6 +95,12 @@ public static class RateLimiting
     /// </summary>
     public const string SubmittedAccountItemKey = "RateLimiting:SubmittedAccount";
 
+    /// <summary>
+    /// Where <see cref="AuthAttemptAccount"/> leaves the <b>hashed</b> refresh token, for the one auth route that
+    /// carries no email — <c>POST auth/refresh</c>. See <see cref="AuthAttemptPartitionKey"/>.
+    /// </summary>
+    public const string SubmittedSessionItemKey = "RateLimiting:SubmittedSession";
+
     private static readonly string[] ExemptPathPrefixes =
     {
         "/api/connectivity",                 // polled every 15 s per tab; a 429 reads as "offline"
@@ -310,7 +316,19 @@ public static class RateLimiting
     /// none — so those requests are bounded exactly as every request was before this change. A shared
     /// « no-account » bucket would have been the alternative, and one attacker could empty it for everybody.</para>
     ///
-    /// <para>The two forms are prefixed so an email can never collide with an address partition.</para>
+    /// <para><b>And then the session, for <c>POST auth/refresh</c>.</b> That route carries no email, so it fell to
+    /// the address — one bucket of 30 per 300 s for a whole practice's <i>silent token renewal</i> behind a single
+    /// NAT address, on the one auth route where a refusal is invisible to the user and shows up as a loop of 401s
+    /// instead. Keying on the session gives each signed-in browser its own budget. It is <b>not</b> a bypass: a
+    /// caller with no readable session still falls to the address below, and the separate per-address ceiling in
+    /// <see cref="AddConfiguredRateLimiter"/> bounds this route as it bounds every other on the auth surface. The
+    /// value is a HASH of the token, never the token — see <c>AuthAttemptAccount.ReadSessionKey</c>.</para>
+    ///
+    /// <para>⚠️ The session key deliberately does NOT include the address. A refresh is issued to a browser, and a
+    /// laptop that moves between the cabinet's Wi-Fi and a mobile hotspot would otherwise get a fresh budget on
+    /// each move — which is the hole, not the feature. One session, one budget, wherever it is.</para>
+    ///
+    /// <para>The three forms are prefixed so an email, a session and an address can never collide.</para>
     /// </summary>
     public static string AuthAttemptPartitionKey(HttpContext httpContext, TrustedProxies trustedProxies)
     {
@@ -320,9 +338,19 @@ public static class RateLimiting
 
         var address = ClientIp.Resolve(httpContext, trustedProxies);
 
-        return string.IsNullOrEmpty(account)
+        if (!string.IsNullOrEmpty(account))
+        {
+            return $"account:{account}|{address}";
+        }
+
+        // Then the session, for `POST auth/refresh` — the one auth route with no email and no anonymous caller.
+        var session = httpContext.Items.TryGetValue(SubmittedSessionItemKey, out var capturedSession)
+            ? capturedSession as string
+            : null;
+
+        return string.IsNullOrEmpty(session)
             ? $"ip:{address}"
-            : $"account:{account}|{address}";
+            : $"session:{session}";
     }
 
     /// <summary>

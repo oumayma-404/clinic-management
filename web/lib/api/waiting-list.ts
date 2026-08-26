@@ -8,6 +8,11 @@ export interface WaitingListPayload {
   preferredDoctorId?: string | null;
   desiredTimeframe?: string | null;
   note?: string | null;
+  /**
+   * The version read from the server, on an update. Absent on create; omitted (or 0) the server skips the
+   * concurrency check — see `PatientDto.version`.
+   */
+  version?: number;
 }
 
 export const waitingListApi = {

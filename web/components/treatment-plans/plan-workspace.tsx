@@ -38,7 +38,7 @@ import type {
   TreatmentPlanDto,
   TreatmentPlanItemDto,
 } from "@/lib/api/types"
-import { formatDT, formatDateFr, isBeforeToday } from "@/lib/format"
+import { formatDT, formatDateFr, isBeforeToday, quoteFr } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
 import { planStatusLabel, planStatusBadgeClass } from "./treatment-plan-labels"
 import { isPlanBilled } from "./plan-next-action"
@@ -121,7 +121,7 @@ function InstallmentPaymentLines({
             <span className="block">
               Annulé{payment.voidedAt ? ` le ${formatDateFr(payment.voidedAt)}` : ""}
               {payment.voidedByName ? ` par ${payment.voidedByName}` : ""}
-              {payment.voidReason ? ` — « ${payment.voidReason} »` : ""}
+              {payment.voidReason ? ` — ${quoteFr(payment.voidReason)}` : ""}
             </span>
           )}
         </li>
@@ -1393,7 +1393,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
           <DialogHeader>
             <DialogTitle>Détacher la fiche de cet acte ?</DialogTitle>
             <DialogDescription>
-              « {undoTarget?.designationFr} » repassera à « Prévu » et sa fiche de soins sera détachée. La fiche
+              {quoteFr(undoTarget?.designationFr ?? "")} repassera à « Prévu » et sa fiche de soins sera détachée. La fiche
               elle-même n&apos;est pas supprimée. Si ce devis s&apos;était clos sur cet acte, il sera réouvert.
             </DialogDescription>
           </DialogHeader>

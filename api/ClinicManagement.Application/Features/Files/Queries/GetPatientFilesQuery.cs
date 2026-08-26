@@ -73,19 +73,7 @@ public class GetPatientFilesQueryHandler : IRequestHandler<GetPatientFilesQuery,
                 PageRequest.From(request.Page, request.PageSize),
                 cancellationToken);
 
-            var dtos = files.Map(f => new PatientFileDto
-            {
-                Id = f.Id,
-                PatientId = f.PatientId,
-                FolderId = f.FolderId,
-                FileName = f.FileName,
-                ContentType = f.ContentType,
-                FileSize = f.FileSize,
-                FileType = f.FileType.ToString(),
-                Description = f.Description,
-                UploadedAt = f.UploadedAt,
-                UploadedBy = f.UploadedBy
-            });
+            var dtos = files.Map(f => f.ToDto());
 
             return Result<PagedResult<PatientFileDto>>.Success(dtos);
         }

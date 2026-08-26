@@ -22,7 +22,7 @@ import { patientsApi } from "@/lib/api/patients"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
 import type { InvoiceDto, PatientDto, ProcedureTypeDto } from "@/lib/api/types"
-import { formatAmount, formatDT, parseAmountInput } from "@/lib/format"
+import { formatAmount, formatDT, parseAmountInput, quoteFr } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 interface LineRow {
@@ -313,11 +313,11 @@ export function InvoiceFormModal({
 
     for (const l of parsedLines) {
       if (!Number.isFinite(l.quantity) || l.quantity <= 0) {
-        setError(`Quantité invalide pour « ${l.designation} ».`)
+        setError(`Quantité invalide pour ${quoteFr(l.designation)}.`)
         return
       }
       if (!Number.isFinite(l.unitPriceHt) || l.unitPriceHt < 0) {
-        setError(`Prix unitaire invalide pour « ${l.designation} ».`)
+        setError(`Prix unitaire invalide pour ${quoteFr(l.designation)}.`)
         return
       }
     }

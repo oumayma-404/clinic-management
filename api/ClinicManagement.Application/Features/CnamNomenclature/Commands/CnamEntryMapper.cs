@@ -17,6 +17,7 @@ internal static class CnamEntryMapper
         Category = e.Category,
         IsActive = e.IsActive,
         IsProvisional = e.IsProvisional,
+        Version = e.Version,
     };
 
     // The convention fields are projected here rather than at each call site so the letter-values read and the
@@ -31,6 +32,7 @@ internal static class CnamEntryMapper
             LettreCle = v.LettreCle,
             Value = v.Value,
             IsProvisional = v.IsProvisional,
+            Version = v.Version,
             // Null together, always: a source with no value to attribute it to would read as provenance for the
             // clinic's own figure (Vd/Rd — the convention settles nothing for them).
             ConventionValue = conventionValue,

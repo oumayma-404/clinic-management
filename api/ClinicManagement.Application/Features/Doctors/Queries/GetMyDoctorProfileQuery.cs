@@ -43,7 +43,8 @@ public class GetMyDoctorProfileQueryHandler : IRequestHandler<GetMyDoctorProfile
             Specialty = doctor.Specialty,
             OrdreNumberCnomdt = doctor.OrdreNumberCnomdt,
             HasCachet = doctor.CachetStorageKey != null,
-            CachetContentType = doctor.CachetContentType
+            CachetContentType = doctor.CachetContentType,
+            Version = doctor.Version
         });
     }
 }

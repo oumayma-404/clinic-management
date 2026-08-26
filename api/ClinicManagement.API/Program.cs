@@ -270,6 +270,13 @@ try
 {
     Log.Information("Starting Clinic Management API");
 
+    // Before anything can touch QuestPDF: a `Backups/` folder left under the install directory by an older
+    // build kills every PDF for the life of the process (see `LegacyBackupRelocation`).
+    if (LegacyBackupRelocation.Relocate() is { } backupRelocation)
+    {
+        Log.Warning("{Message}", backupRelocation);
+    }
+
     var builder = WebApplication.CreateBuilder(args);
 
     // L4e — the host reads the same layers the early config and the console verbs do. `CreateBuilder` already

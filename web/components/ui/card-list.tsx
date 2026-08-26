@@ -233,9 +233,22 @@ export function CardList<T>({
                   {rowStatus}
                 </div>
                 {/* Two lines, not one: a subtitle is a description (« Détartrage + 2 obturations ») rather
-                    than an identity, so clamping is fair — but one line lost most of them. */}
+                    than an identity, so clamping is fair — but one line lost most of them.
+
+                    ⚠️ `[overflow-wrap:anywhere]`, like the heading directly above it. `line-clamp-2` is
+                    `overflow: hidden` with `text-overflow: clip`, so a value with no break opportunity simply ran
+                    out of the box and was cut mid-character with nothing to indicate it — at 320 px
+                    « qa.doctor@ibnkhaldoun.test » rendered as « qa.doctor@ibnkhaldou » (scrollWidth 180 vs
+                    clientWidth 144). On `/users` the subtitle IS the email, which this component's own note calls
+                    what identifies the account. It wrapped correctly at 390 px only because those addresses happen
+                    to contain a hyphen. */}
                 {rowSubtitle && (
-                  <p className={cn("mt-0.5 line-clamp-2 text-sm text-muted-foreground", interactive && "pe-2")}>
+                  <p
+                    className={cn(
+                      "mt-0.5 line-clamp-2 text-sm text-muted-foreground [overflow-wrap:anywhere]",
+                      interactive && "pe-2",
+                    )}
+                  >
                     {rowSubtitle}
                   </p>
                 )}
@@ -251,7 +264,13 @@ export function CardList<T>({
                     <dt className="shrink-0 font-mono text-2xs uppercase tracking-[0.07em] text-muted-foreground">
                       {f.label}
                     </dt>
-                    <dd className="min-w-0 text-end text-sm text-foreground [overflow-wrap:anywhere]">
+                    {/* ⚠️ `break-words`, not `[overflow-wrap:anywhere]`. `anywhere` let a `fr-FR` timestamp break
+                        at any character, so « Dernière connexion » rendered as four lines — `26/08` `/2026`
+                        `09:22:` `32` — and a date split as « 26/08 · /2026 » reads as two dates at a glance.
+                        `break-words` still rescues a long unbreakable token (an email, a reference) from
+                        overflowing, which is what this needed to do, without slicing values that have their own
+                        internal punctuation. */}
+                    <dd className="min-w-0 break-words text-end text-sm text-foreground">
                       {f.value}
                     </dd>
                   </div>

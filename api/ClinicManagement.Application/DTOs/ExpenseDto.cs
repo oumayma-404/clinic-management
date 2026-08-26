@@ -11,6 +11,10 @@ public class ExpenseDto
     public decimal Amount { get; set; }
     public string Method { get; set; } = string.Empty;
     public string? Description { get; set; }
+
+    /// <summary>Round-tripped by the edit form so a concurrent change is a 409 rather than a silent overwrite.</summary>
+    public uint Version { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
@@ -26,6 +30,7 @@ public static class ExpenseMappingExtensions
         Amount = expense.Amount,
         Method = expense.Method.ToString(),
         Description = expense.Description,
+        Version = expense.Version,
         CreatedAt = expense.CreatedAt,
         UpdatedAt = expense.UpdatedAt
     };

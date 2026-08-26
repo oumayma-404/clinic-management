@@ -115,8 +115,9 @@ public class UpdateDashboardPreferencesCommandHandler
             // Echo the persisted state rather than the request: the entity canonicalises (sorts, de-dupes, caps),
             // so what came back from it is what a later GET will return. Echoing the request instead would let the
             // client hold a shape the server does not actually have.
+            // Customised by definition: this code path has just written the row.
             return Result<DashboardPreferencesDto>.Success(
-                new DashboardPreferencesDto(preference.HiddenKpis(), DashboardKpiKeys.All));
+                new DashboardPreferencesDto(preference.HiddenKpis(), DashboardKpiKeys.All, IsCustomised: true));
         }
         catch (Exception ex) when (ex is not Common.Exceptions.ConflictException)
         {

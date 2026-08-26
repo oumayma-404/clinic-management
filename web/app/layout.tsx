@@ -16,7 +16,22 @@ const _geist = Geist({ subsets: ["latin"] })
 const _geistMono = Geist_Mono({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: `${PRODUCT_NAME} — Tableau de bord`,
+  /*
+   * ⚠️ A `template`, and a default that names NO screen.
+   *
+   * This used to be the flat string `« Gestion Clinique — Tableau de bord »`, and not one of the 39 routes
+   * exported a `metadata` of its own — a client component cannot — so every tab, every bookmark and every
+   * browser-history entry in the product said « Tableau de bord », including la caisse and a patient's record.
+   * Each route now carries a one-line server `layout.tsx` whose title feeds `%s` here; the dashboard's is the
+   * only one that says « Tableau de bord », because it is the only one that is.
+   *
+   * The default is the bare product name rather than a screen: it is what shows for a route that has not been
+   * given a title yet, and « Tableau de bord » was exactly the wrong thing for that case to claim.
+   */
+  title: {
+    default: PRODUCT_NAME,
+    template: `%s · ${PRODUCT_NAME}`,
+  },
   description: "Système de gestion de clinique pour les professionnels de santé",
   icons: {
     icon: [

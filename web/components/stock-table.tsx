@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { stockApi, type StockMovementDto } from "@/lib/api/stock"
-import { formatDate, formatDateTime } from "@/lib/format"
+import { formatDate, formatDateTime, quoteFr } from "@/lib/format"
 import { ApiError } from "@/lib/api/client"
 import type { StockItemDto } from "@/lib/api/types"
 
@@ -231,7 +231,7 @@ export function StockTable({
     try {
       setDeleting(true)
       await stockApi.delete(itemToDelete.id)
-      toast.success(`« ${itemToDelete.name} » supprimé`)
+      toast.success(`${quoteFr(itemToDelete.name)} supprimé`)
       setDeleteDialogOpen(false)
       setItemToDelete(null)
       await loadItems()

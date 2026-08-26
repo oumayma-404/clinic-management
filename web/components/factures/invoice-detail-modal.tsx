@@ -18,7 +18,7 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { billingApi } from "@/lib/api/billing"
 import { ApiError } from "@/lib/api/client"
 import type { AppointmentDto, CreditNoteDto, InvoiceDto, PaymentDto } from "@/lib/api/types"
-import { formatDT, formatDateFr, formatDateTime } from "@/lib/format"
+import { formatDT, formatDateFr, formatDateTime, quoteFr } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { downloadBlob } from "@/lib/download"
 import { useSession } from "@/lib/auth/session"
@@ -352,7 +352,7 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                         <p className="text-xs text-muted-foreground">
                           Annulé{payment.voidedAt ? ` le ${formatDateFr(payment.voidedAt)}` : ""}
                           {payment.voidedByName ? ` par ${payment.voidedByName}` : ""}
-                          {payment.voidReason ? ` — « ${payment.voidReason} »` : ""}
+                          {payment.voidReason ? ` — ${quoteFr(payment.voidReason)}` : ""}
                         </p>
                       )}
 

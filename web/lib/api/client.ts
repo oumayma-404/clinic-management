@@ -158,6 +158,32 @@ export function onMustChangePassword(listener: MustChangePasswordListener): () =
   };
 }
 
+type SessionExpiredListener = () => void;
+const sessionExpiredListeners = new Set<SessionExpiredListener>();
+
+/**
+ * Subscribe to « the session is gone and cannot be renewed » — the token exchange answered 401/403.
+ *
+ * ⚠️ **Without a destination this is the app's worst failure mode, and it was the shipped one.** When
+ * `/bff/auth/token` stops issuing tokens, every request that follows 401s and every screen renders its own
+ * « une erreur est survenue » — an application that looks perfectly usable and does nothing, for ever, with no
+ * way to sign back in short of the user guessing at the URL. It reads as « the software is broken », not as
+ * « you have been signed out », which is why nobody reports it as the latter.
+ *
+ * Deliberately NOT fired for a 429 or a transport failure. Those mean « not right now » — the backoff and the
+ * still-valid cached token handle them — and turning a rate limit or a dropped Wi-Fi frame into a sign-out is how
+ * a whole practice gets ejected by one bad minute. Only an explicit refusal of the credential counts.
+ *
+ * Same shape as {@link onMustChangePassword} and for the same reason: the data layer reports the refusal, the one
+ * component that owns the session decides where the user goes.
+ */
+export function onSessionExpired(listener: SessionExpiredListener): () => void {
+  sessionExpiredListeners.add(listener);
+  return () => {
+    sessionExpiredListeners.delete(listener);
+  };
+}
+
 type SecondFactorRequiredListener = () => void;
 const secondFactorRequiredListeners = new Set<SecondFactorRequiredListener>();
 
@@ -403,7 +429,9 @@ async function throwIfNotOk(response: Response): Promise<void> {
       // Some endpoints return the failure reason as a bare JSON string (e.g. BadRequest(result.Error)).
       // Surface it instead of falling back to the generic "HTTP 400: ..." message.
       if (typeof errorData === 'string') {
-        if (errorData.trim()) {
+        // Filtered like every other reason below: a bare-string body is as likely to be an EF exception sentence
+        // as a French refusal.
+        if (errorData.trim() && !looksTechnical(errorData)) {
           errorMessage = errorData;
         }
       } else if (errorData) {
@@ -414,8 +442,12 @@ async function throwIfNotOk(response: Response): Promise<void> {
         // `typeof … === 'string'`: a body whose `error` is an object (a nested Result, a serialised exception)
         // used to be assigned straight through and reached the toast as « [object Object] ». Ignoring it lets
         // the unconditional French status fallback below answer instead.
+        // ⚠️ `looksTechnical` guards the CANONICAL field too, not only the ProblemDetails bag. It used to guard
+        // the bag alone, so a handler that put a raw EF sentence into `{ error }` — « An error occurred while
+        // saving the entity changes. » — reached a French toast verbatim, and one such call site existed on five
+        // screens. The server-side call sites are fixed; this is the seam that makes a sixth impossible.
         const reason = [errorData.error, errorData.title, errorData.message].find(
-          (candidate) => typeof candidate === 'string' && candidate.trim(),
+          (candidate) => typeof candidate === 'string' && candidate.trim() && !looksTechnical(candidate),
         );
         if (reason) {
           errorMessage = reason;
@@ -713,6 +745,15 @@ async function fetchAccessToken(): Promise<string | null> {
 
     // A refusal invalidates the cache: never serve a token the server has stopped standing behind.
     cachedToken = null;
+
+    /*
+     * 401/403 is the session itself being refused — not « ask later » (429, handled above) and not a transport
+     * failure (the catch below). It is the one case where retrying can never work, so it has to reach a surface
+     * that says « session expirée » and offers the way back. Every other status keeps its previous behaviour.
+     */
+    if (response.status === 401 || response.status === 403) {
+      sessionExpiredListeners.forEach((listener) => listener());
+    }
   } catch {
     // Network failure — keep any cached token. A blip must not look like a lost session.
     lastTokenFailureStatus = 0;

@@ -14,6 +14,24 @@ namespace ClinicManagement.Application.Features.Patients;
 /// </summary>
 public static class PatientMappingExtensions
 {
+    /// <summary>
+    /// The single PatientFlag → <see cref="PatientFlagDto"/> mapping.
+    ///
+    /// Both initialisers this replaces omitted <c>PatientId</c> and <c>CreatedAt</c>, so every flag the API has
+    /// ever returned carried an empty owner id and a creation date of <c>0001-01-01</c> — a default that reads as
+    /// data, not as an omission, and that any client sorting or grouping flags would have believed.
+    /// </summary>
+    public static PatientFlagDto ToDto(this PatientFlag flag) => new()
+    {
+        Id = flag.Id,
+        PatientId = flag.PatientId,
+        FlagType = flag.FlagType.ToString(),
+        Description = flag.Description,
+        Notes = flag.Notes,
+        IsActive = flag.IsActive,
+        CreatedAt = flag.CreatedAt
+    };
+
     /// <param name="includeFlags">
     /// The list read eagerly loads only active flags; the detail read loads all of them. Callers that did not
     /// load the collection at all pass false so EF is never asked to lazy-load one.
@@ -44,16 +62,7 @@ public static class PatientMappingExtensions
             ArchiveReason = patient.ArchiveReason,
             CreatedAt = patient.CreatedAt,
             Version = patient.Version,
-            Flags = includeFlags
-                ? patient.Flags.Select(f => new PatientFlagDto
-                {
-                    Id = f.Id,
-                    FlagType = f.FlagType.ToString(),
-                    Description = f.Description,
-                    Notes = f.Notes,
-                    IsActive = f.IsActive
-                }).ToList()
-                : new List<PatientFlagDto>()
+            Flags = includeFlags ? patient.Flags.Select(f => f.ToDto()).ToList() : new List<PatientFlagDto>()
         };
 
         if (patient.Address != null)

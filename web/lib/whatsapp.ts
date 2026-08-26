@@ -1,4 +1,5 @@
 import { toE164Tunisian } from "@/lib/phone"
+import { quoteFr } from "@/lib/format"
 
 /**
  * The one place a `wa.me` URL is built (AC-3, and the spec's « one authority for the link »).
@@ -48,7 +49,7 @@ export function whatsAppUrl(phone: string | null | undefined, text?: string | nu
 export function lowStockOrderMessage(itemName: string, currentStock: number, unit?: string | null): string {
   const quantity = unit ? `${currentStock} ${unit}` : `${currentStock}`
   return (
-    `Bonjour, nous souhaitons commander « ${itemName} ». ` +
+    `Bonjour, nous souhaitons commander ${quoteFr(itemName)}. ` +
     `Notre stock actuel est de ${quantity}. Pouvez-vous nous indiquer votre disponibilité et vos délais ? Merci.`
   )
 }
@@ -82,7 +83,7 @@ export function labOrderFollowUpMessage(
   const forPatient = patientName ? ` pour ${patientName}` : ""
   const due = expectedDate ? ` (prévu le ${expectedDate})` : ""
   return (
-    `Bonjour, nous vous contactons au sujet du travail « ${workDescription} »${forPatient}${due}. ` +
+    `Bonjour, nous vous contactons au sujet du travail ${quoteFr(workDescription)}${forPatient}${due}. ` +
     `Pouvez-vous nous indiquer où il en est ? Merci.`
   )
 }

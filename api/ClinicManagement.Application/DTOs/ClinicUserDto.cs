@@ -22,5 +22,9 @@ public class ClinicUserDto
 
     public bool MustChangePassword { get; set; }
     public DateTime? LastLoginAt { get; set; }
+
+    /// <summary>Round-tripped by the role / activation actions so a concurrent change is a 409, not an overwrite.</summary>
+    public uint Version { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }

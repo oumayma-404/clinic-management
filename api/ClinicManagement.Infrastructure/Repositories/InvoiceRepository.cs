@@ -81,9 +81,12 @@ public class InvoiceRepository : IInvoiceRepository
         {
             query = query.Where(i =>
                 EF.Functions.ILike(SqlSearch.Unaccent(i.Number)!, pattern, SqlSearch.EscapeString)
+                // BOTH name orders: the app renders « Nom Prénom » — see `PatientRepository.ApplySearch`.
                 || _context.Patients.Any(p => p.Id == i.PatientId
-                    && EF.Functions.ILike(
-                        SqlSearch.Unaccent(p.FirstName + " " + p.LastName)!, pattern, SqlSearch.EscapeString)));
+                    && (EF.Functions.ILike(
+                            SqlSearch.Unaccent(p.FirstName + " " + p.LastName)!, pattern, SqlSearch.EscapeString)
+                        || EF.Functions.ILike(
+                            SqlSearch.Unaccent(p.LastName + " " + p.FirstName)!, pattern, SqlSearch.EscapeString))));
         }
 
         return await query

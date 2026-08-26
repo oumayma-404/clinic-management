@@ -14,6 +14,12 @@ public static class ErrorMessages
     public const string Generic = "Une erreur est survenue lors du traitement de votre demande.";
 
     /// <summary>
+    /// A role refusal decided <em>inside</em> an action rather than by a policy attribute — the same sentence the
+    /// client already renders for a bare 403, so a body-carrying refusal and an attribute refusal read alike.
+    /// </summary>
+    public const string Forbidden = "Vous n'avez pas les droits nécessaires pour cette action.";
+
+    /// <summary>
     /// Shown when someone else changed the same record while this user was editing it. Deliberately says what
     /// happened and what to do — the previous behaviour was a silent last-write-wins, so the loser never knew
     /// their change had been discarded.

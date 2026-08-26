@@ -97,10 +97,27 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
       }, DEBOUNCE_MS)
     }
 
+    /*
+     * ⚠️ A 404 on this route is a DEPLOYMENT FACT, remembered rather than re-discovered.
+     *
+     * `ConnectivityController` gates on `ExposesTrustEndpoints`, so on `HostedMultiTenant` the endpoint is simply
+     * absent — and this probe polls, so every hosted session accumulated a run of 404s (8–22 in a short session)
+     * that read as errors while the state they produced was correct all along. The request itself has to keep
+     * happening: it is also the only thing that answers « is the clinic's server reachable at all ». What is
+     * remembered is that there will never be an egress reading here, so the absence stops being news.
+     */
+    let egressEndpointAbsent = false
+
     const poll = async () => {
       try {
         const res = await fetch(`${API_BASE_URL}/connectivity`, { credentials: "include" })
-        if (res.ok) {
+        if (res.status === 404) {
+          // The server answered, so it is reachable; it just does not carry this capability. AC-63's third row.
+          egressEndpointAbsent = true
+          applyDebounced({ serverReachable: true, internetReachable: true, egressSignalAvailable: false })
+          return
+        }
+        if (res.ok && !egressEndpointAbsent) {
           const data = await res.json().catch(() => null)
           // A 200 whose body we cannot read tells us nothing about egress — treat it as absent, not as false.
           if (data && typeof data.internetReachable === "boolean") {

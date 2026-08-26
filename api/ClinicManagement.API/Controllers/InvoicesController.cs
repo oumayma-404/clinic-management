@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Features.Invoices.Commands;
 using ClinicManagement.Application.Features.Invoices.Queries;
@@ -21,10 +22,12 @@ namespace ClinicManagement.API.Controllers;
 public class InvoicesController : ApiControllerBase
 {
     private readonly IMediator _mediator;
+    private readonly IAuthorizationService _authorization;
 
-    public InvoicesController(IMediator mediator)
+    public InvoicesController(IMediator mediator, IAuthorizationService authorization)
     {
         _mediator = mediator;
+        _authorization = authorization;
     }
 
     /// <summary>List invoices (Recettes), filtered by period / patient / status.</summary>
@@ -74,6 +77,11 @@ public class InvoicesController : ApiControllerBase
         return Csv(ExportTables.Invoices(result.Value!.Items), "factures");
     }
 
+    /// <remarks>
+    /// <b>The unfiltered list is the clinic's whole ledger</b>, so it is <c>AdminOrDoctor</c> like <c>revenue</c>
+    /// and <c>export</c> — evaluated in the action rather than as an attribute because the <em>same</em> route with
+    /// <c>?patientId=</c> is reception's per-patient read and stays <c>AnyClinicRole</c>.
+    /// </remarks>
     [HttpGet]
     public async Task<ActionResult<PagedResult<InvoiceDto>>> GetInvoices(
         [FromQuery] DateTime? from,
@@ -88,6 +96,11 @@ public class InvoicesController : ApiControllerBase
         [FromQuery] Guid? doctorId = null,
         CancellationToken cancellationToken = default)
     {
+        if (patientId is null && !(await _authorization.AuthorizeAsync(User, AuthorizationPolicies.AdminOrDoctor)).Succeeded)
+        {
+            return Failure(ErrorMessages.Forbidden, StatusCodes.Status403Forbidden);
+        }
+
         var query = new GetInvoicesQuery
         {
             From = from,

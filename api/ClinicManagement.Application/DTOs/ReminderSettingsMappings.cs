@@ -38,6 +38,9 @@ public static class ReminderSettingsMappings
             WhatsAppLastError = settings?.WhatsAppLastError,
             WhatsAppConnectedAt = settings?.WhatsAppConnectedAt,
             WhatsAppVendorManaged = vendorManagedWhatsApp,
+            // `settings?.` like every other line here: a clinic with no row yet is this method's documented case,
+            // and 0 is the right token for it — « not supplied », which skips the concurrency check.
+            Version = settings?.Version ?? 0,
             SmtpHost = settings?.SmtpHost,
             SmtpPort = settings?.SmtpPort,
             SmtpUseTls = settings?.SmtpUseTls,

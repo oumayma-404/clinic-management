@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { dentalActsApi, type DentalActInput } from "@/lib/api/dental-acts"
@@ -47,6 +48,19 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
   const [requiresAccordPrealable, setRequiresAccordPrealable] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isConflict, setIsConflict] = useState(false)
+  /*
+   * Band B — the version this form saves with, re-read on open rather than taken from the clicked row. ⚠️ The
+   * VERSION only: the read lands after the fields hydrate below, so its values would replace what was typed.
+   */
+  const { source: freshAct, resync } = useFreshVersion(
+    open,
+    editingAct?.id,
+    editingAct,
+    async () =>
+      (await dentalActsApi.list(editingAct!.codeActe, undefined, true))
+        .find((a) => a.id === editingAct!.id) ?? null,
+  )
 
   useEffect(() => {
     if (editingAct) {
@@ -101,15 +115,23 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
 
     try {
       setLoading(true)
+      setIsConflict(false)
       if (editingAct) {
-        await dentalActsApi.update(editingAct.id, payload)
+        await dentalActsApi.update(editingAct.id, {
+          ...payload,
+          version: freshAct?.version ?? editingAct.version,
+        })
       } else {
         await dentalActsApi.create(payload)
       }
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
+      const conflict = err instanceof ApiError && err.status === 409
+      setIsConflict(conflict)
       setError(err instanceof ApiError ? err.message : "Échec de l'enregistrement de l'acte.")
+      // A real 409 is left alone: resyncing would let the retry overwrite the colleague who caused it.
+      if (!conflict) await resync()
     } finally {
       setLoading(false)
     }
@@ -131,7 +153,10 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* The shared refusal banner, on `--destructive-wash` / `--destructive`. It replaces a hand-written
               `border-red-200 bg-red-50 … dark:` copy — one of ~18 that each maintained dark mode themselves. */}
-          <FormErrorBanner message={error} />
+          <FormErrorBanner
+            message={error}
+            action={isConflict ? { label: "Recharger", onClick: () => onSuccess?.(), disabled: loading } : undefined}
+          />
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">

@@ -21,13 +21,14 @@ import { MoreHorizontal, Plus, Loader2, ChevronRight, ClipboardList } from "luci
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import type { TreatmentPlanDto } from "@/lib/api/types"
-import { formatDT, formatDateFr } from "@/lib/format"
+import { formatDT, formatDateFr, quoteFr } from "@/lib/format"
 import { downloadBlob } from "@/lib/download"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
@@ -229,12 +230,25 @@ export function TreatmentPlansTable({
    * quoting it unguarded would flash « Aucun devis pour «  » ».
    */
   const searchTerm = search.trim()
-  const emptyState = isSearching ? (
+  const emptyState = error ? (
+    /*
+     * Band C — a FAILED read, which is none of the three emptinesses below. « Aucun plan de traitement » with a
+     * « Nouveau plan » button on top of a 500 invites a practice with three hundred devis to type a duplicate;
+     * « 0 devis » beside it is a figure invented out of a network error.
+     */
+    <div className="p-4">
+      <LoadFailureNotice
+        message="Les devis n'ont pas pu être chargés."
+        detail="Aucun total et aucune absence ne peuvent être affirmés tant que la liste n'est pas lue."
+        onRetry={load}
+      />
+    </div>
+  ) : isSearching ? (
     <EmptyState
       icon={ClipboardList}
       size="compact"
       chipClassName={zoneChipClass(ZONES.money)}
-      title={searchTerm ? `Aucun devis pour « ${searchTerm} »` : "Aucun devis ne correspond à votre recherche"}
+      title={searchTerm ? `Aucun devis pour ${quoteFr(searchTerm)}` : "Aucun devis ne correspond à votre recherche"}
       description="Vérifiez l'orthographe, ou effacez la recherche pour revoir tous les devis."
       action={
         <Button variant="outline" size="sm" onClick={() => setSearch("")}>
@@ -298,10 +312,9 @@ export function TreatmentPlansTable({
         </Button>
       </div>
 
-      {/* The shared primitive, not another hand-rolled `bg-red-50 … dark:bg-red-950` block. That block was one
-          of ~18 copies of a banner that already exists, each maintaining dark mode by hand and none of them on
-          `--destructive`, so the app's one red was the only colour not following the palette. */}
-      <FormErrorBanner message={error} />
+      {/* Band C — the banner used to be the ONLY signal, above a table still rendering « Aucun devis ». The
+          failed-read state now replaces the table's empty state (see `emptyState`), so this row is no longer
+          needed and would restate it. */}
 
       <div className={`rounded-md border overflow-x-auto${refreshing ? " opacity-60 transition-opacity" : ""}`}>
         {/* This table already used a DropdownMenu for its row actions, so the card's menu is the same content —
@@ -478,13 +491,17 @@ export function TreatmentPlansTable({
             )}
           </TableBody>
         </Table>
-        <DataTablePagination
-          page={pageInfo}
-          onPageChange={setPage}
-          onPageSizeChange={setPageSize}
-          loading={refreshing}
-          label={["devis", "devis"]}
-        />
+        {/* Band C — no counter over a failed read: `pageInfo` is the empty page the hook falls back to, so this
+            would print « 0 devis » as a fact about the practice. */}
+        {!error && (
+          <DataTablePagination
+            page={pageInfo}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            loading={refreshing}
+            label={["devis", "devis"]}
+          />
+        )}
       </div>
 
       <TreatmentPlanFormModal

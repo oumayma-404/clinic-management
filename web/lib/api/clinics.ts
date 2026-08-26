@@ -229,11 +229,16 @@ export const clinicsApi = {
     // The concurrency token. Blank on the very first save from a screen that never read one — the server
     // treats 0/absent as "no check", which keeps every non-form writer working.
     if (data.version !== undefined) formData.append('version', String(data.version));
-    if (data.address) formData.append('address', data.address);
-    // Send city even when blank so an admin can clear it (backend: null=keep, ""=clear).
+    /*
+     * ⚠️ Band A — `!== undefined`, never truthiness. `if (data.address)` omitted the key for an EMPTY address, and
+     * an omitted key means « leave unchanged » on the server, so clearing the address, the phone or the email
+     * reported success and the old value came back on reload. An empty STRING is what clears; only `undefined`
+     * means « this save is not about that field ».
+     */
+    if (data.address !== undefined) formData.append('address', data.address);
     if (data.city !== undefined) formData.append('city', data.city);
-    if (data.phone) formData.append('phone', data.phone);
-    if (data.email) formData.append('email', data.email);
+    if (data.phone !== undefined) formData.append('phone', data.phone);
+    if (data.email !== undefined) formData.append('email', data.email);
     if (data.logoFile) formData.append('logo', data.logoFile);
     // Billing settings (optional). Send the matricule even when blank so it can be cleared.
     if (data.matriculeFiscal !== undefined) formData.append('matriculeFiscal', data.matriculeFiscal);

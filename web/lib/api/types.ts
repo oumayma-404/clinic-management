@@ -297,6 +297,15 @@ export interface ProcedureMixPointDto {
 export interface DashboardPreferencesDto {
   hiddenKpis: string[];
   availableKpis: string[];
+  /**
+   * Whether this user has ever saved a layout.
+   *
+   * ⚠️ **This is what makes « Tout afficher » stick.** An empty `hiddenKpis` used to mean both « never customised »
+   * and « customised to hide nothing », and the client applies a default hidden set to a fresh account — so
+   * pressing « Tout afficher » wrote the empty set successfully and the next load put the defaults straight back
+   * over it. Only the server can tell the two apart: it is the side that can see whether the row exists.
+   */
+  isCustomised: boolean;
 }
 
 /** One month of « Rendez-vous — 6 derniers mois ». Carries both measures so the card's toggle costs no round trip. */
@@ -643,6 +652,8 @@ export interface CnamNomenclatureEntryDto {
   category: string;
   isActive: boolean;
   isProvisional: boolean;
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
+  version: number;
 }
 
 // A valeur de la lettre clé (VLC) — the dinar value per lettre clé used in the reimbursement estimate.
@@ -664,6 +675,8 @@ export interface CnamLetterValueDto {
   conventionSource: string | null;
   /** How often the convention revises the lettres clés (SMIG/CPI) — so the next staleness is expected. */
   conventionRevisionIntervalYears: number | null;
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
+  version: number;
 }
 
 // A medication catalog entry (DB-backed, global reference data from GET /api/medications). Used by the
@@ -677,6 +690,8 @@ export interface MedicationDto {
   dcis: string[];
   isActive: boolean;
   isProvisional: boolean;
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
+  version: number;
 }
 
 export interface PatientDto {
@@ -838,6 +853,8 @@ export interface ProcedureTypeDto {
    * and consumes nothing (AC-P4.11), which is the default.
    */
   materials: ProcedureTypeMaterialDto[];
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
+  version: number;
   createdAt: string;
   updatedAt?: string;
 }
@@ -970,6 +987,8 @@ export interface DoctorProfileDto {
   ordreNumberCnomdt?: string | null;
   hasCachet: boolean;
   cachetContentType?: string | null;
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
+  version: number;
 }
 
 export interface PatientFileDto {
@@ -983,6 +1002,8 @@ export interface PatientFileDto {
   description?: string;
   uploadedAt: string;
   uploadedBy?: string;
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
+  version: number;
 }
 
 export interface PatientFolderDto {
@@ -1032,6 +1053,8 @@ export interface MedicalDocumentDto {
   isDraft: boolean;
   fileId?: string;
   appointmentId?: string | null;
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
+  version: number;
   createdAt: string;
   updatedAt?: string;
 }
@@ -1050,6 +1073,8 @@ export interface DentalActDto {
   requiresAccordPrealable: boolean;
   isActive: boolean;
   isProvisional: boolean;
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
+  version: number;
 }
 
 // A recorded tooth-condition entry on a patient's odontogram (GET /patients/{id}/odontogram). A tooth can
@@ -1145,6 +1170,8 @@ export interface ExpenseDto {
   description?: string | null;
   createdAt: string;
   updatedAt?: string | null;
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
+  version: number;
 }
 
 /**
@@ -1264,6 +1291,15 @@ export interface CaisseLedgerDto {
   pageSize: number;
   totalCount: number;
   totalPages: number;
+
+  /**
+   * The **period's** closing balance — the newest movement's running balance over the whole window.
+   *
+   * ⚠️ Read this, never `movements[0].runningBalance`. The phone layout has no balance column and states the figure
+   * once in a footer; it used to take the first row *of the current page*, so under a label reading « de la
+   * période » it said 18 287,500 DT on page 1 and 7 507,500 DT on page 2 of the same period.
+   */
+  closingBalance: number;
 }
 
 /** Which ledger a held cheque came from. Same two names as `CaisseMovementKind`'s money-in kinds, on purpose. */
@@ -1363,6 +1399,8 @@ export interface WaitingListEntryDto {
   note?: string | null;
   status: string;
   resultingAppointmentId?: string | null;
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
+  version: number;
   createdAt: string;
   updatedAt?: string | null;
 }
@@ -1409,6 +1447,14 @@ export interface LabWorkOrderDto {
    */
   allowedNextStatuses?: string[];
   notes?: string | null;
+  /**
+   * Still at the laboratory past the day it was expected back. Served, not re-derived here: the dashboard's
+   * « Prothèses en retard : N » card and the rows wearing the badge read the same server rule
+   * (`LabOrderOverdue`), so the N someone clicks is the N they then see.
+   */
+  isOverdue: boolean;
+  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
+  version: number;
   createdAt: string;
   updatedAt?: string | null;
 }

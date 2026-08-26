@@ -17,6 +17,12 @@ public class UpdateMedicationCommand : IRequest<Result<MedicationDto>>
     public string Form { get; set; } = string.Empty;
     public string Strength { get; set; } = string.Empty;
     public List<string> Dcis { get; set; } = new();
+
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user was
+    /// editing; <c>0</c> means « not supplied » and skips the check (see <c>IUnitOfWork.SetExpectedVersion</c>).
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class UpdateMedicationCommandHandler : IRequestHandler<UpdateMedicationCommand, Result<MedicationDto>>
@@ -85,6 +91,9 @@ public class UpdateMedicationCommandHandler : IRequestHandler<UpdateMedicationCo
             {
                 return Result<MedicationDto>.Failure(ex.Message);
             }
+
+            // Band B — validated against the copy the USER was editing, not the row this handler just read.
+            _unitOfWork.SetExpectedVersion(medication, request.Version);
 
             await _repository.UpdateAsync(medication, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

@@ -72,7 +72,13 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 import { cn } from "@/lib/utils"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { waitingListApi, type WaitingListPayload } from "@/lib/api/waiting-list"
+
+// Mirrors `WaitingListLimits` on the server, which mirrors the columns. Three places, one pair of numbers.
+const DESIRED_TIMEFRAME_MAX = 200
+const NOTE_MAX = 1000
 import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
 import { showErrorToast } from "@/lib/errors"
@@ -145,6 +151,19 @@ export default function WaitingListPage() {
   const [desiredTimeframe, setDesiredTimeframe] = useState("")
   const [note, setNote] = useState("")
   const [formError, setFormError] = useState<string | null>(null)
+  const [isConflict, setIsConflict] = useState(false)
+  /*
+   * Band B — the version this form saves with, re-read on open rather than taken from the clicked row. ⚠️ The
+   * VERSION only: the read lands after the fields hydrate below, so its values would replace what was typed.
+   */
+  const { source: freshEntry, resync } = useFreshVersion(
+    modalOpen,
+    editingEntry?.id,
+    editingEntry,
+    async () =>
+      (await waitingListApi.listPaged({ pageSize: 1, search: editingEntry!.patientName ?? undefined }))
+        .items.find((e) => e.id === editingEntry!.id) ?? null,
+  )
   const [saving, setSaving] = useState(false)
   // The patient picker is a searchable Popover+Command, not a `<select>` — see the note at its call site.
   const [patientPickerOpen, setPatientPickerOpen] = useState(false)
@@ -238,6 +257,7 @@ export default function WaitingListPage() {
       setNote("")
     }
     setFormError(null)
+    setIsConflict(false)
   }, [modalOpen, editingEntry])
 
   const handleAddNew = () => {
@@ -266,9 +286,17 @@ export default function WaitingListPage() {
         // Update leaves the patient unchanged (payload without patientId).
         await waitingListApi.update(editingEntry.id, {
           priority,
-          preferredDoctorId: null,
+          /*
+           * ⚠️ Echoed back, NOT hardcoded null. `UpdateDetails` assigns it unconditionally, so every edit from
+           * this screen silently cleared the entry's « médecin préféré » — a field this form does not show, which
+           * is exactly the tri-state rule the repo states: a field the form never renders must survive an edit.
+           * No visible loss today (nothing in `web/` sets or displays it), so this is a latent trap being closed
+           * rather than a live bug.
+           */
+          preferredDoctorId: editingEntry.preferredDoctorId ?? null,
           desiredTimeframe: timeframe,
           note: trimmedNote,
+          version: freshEntry?.version ?? editingEntry.version,
         })
         toast.success("Entrée mise à jour")
       } else {
@@ -285,7 +313,11 @@ export default function WaitingListPage() {
       setModalOpen(false)
       await loadEntries()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'enregistrement")
+      // In the form, not a toast: a 409 is not transient and the typed values have to stay on screen.
+      const conflict = err instanceof ApiError && err.status === 409
+      setIsConflict(conflict)
+      setFormError(err instanceof ApiError ? err.message : "Échec de l'enregistrement")
+      if (!conflict) await resync()
     } finally {
       setSaving(false)
     }
@@ -410,9 +442,14 @@ export default function WaitingListPage() {
             <CardTitle className="flex items-center gap-2">
               <ClipboardList className="h-5 w-5" />
               Patients en attente
-              <Badge variant="secondary" className="ml-2">
-                {entryPage.totalCount}
-              </Badge>
+              {/* ⚠️ Not over a failed read: `entryPage` is the `emptyPage()` fallback while `error` is set, so the
+                  header asserted « 0 » directly above « Vous n'avez pas les droits nécessaires… ». The count is
+                  unknown, not zero. */}
+              {!error && (
+                <Badge variant="secondary" className="ml-2">
+                  {entryPage.totalCount}
+                </Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -699,7 +736,10 @@ export default function WaitingListPage() {
                   </Command>
                 </PopoverContent>
               </Popover>
-              {formError && <p className="text-xs text-destructive">{formError}</p>}
+              <FormErrorBanner
+                message={formError}
+                action={isConflict ? { label: "Recharger", onClick: () => loadEntries(), disabled: saving } : undefined}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="priority">Priorité</Label>
@@ -720,22 +760,40 @@ export default function WaitingListPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="desiredTimeframe">Créneau souhaité</Label>
+              {/*
+                ⚠️ `maxLength` mirrors the column and the command. Only PostgreSQL used to know the number, so a
+                201-character créneau came back as « An error occurred while saving the entity changes. » in a
+                French toast. The counter appears only near the limit — a permanent « 0/200 » on a two-word field
+                is noise.
+              */}
               <Input
                 id="desiredTimeframe"
                 placeholder="ex : matin, cette semaine"
+                maxLength={DESIRED_TIMEFRAME_MAX}
                 value={desiredTimeframe}
                 onChange={(e) => setDesiredTimeframe(e.target.value)}
               />
+              {desiredTimeframe.length > DESIRED_TIMEFRAME_MAX - 40 && (
+                <p className="text-xs text-muted-foreground" role="status">
+                  {desiredTimeframe.length}/{DESIRED_TIMEFRAME_MAX} caractères
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="note">Note</Label>
               <Textarea
                 id="note"
                 placeholder="Optionnel"
+                maxLength={NOTE_MAX}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={2}
               />
+              {note.length > NOTE_MAX - 100 && (
+                <p className="text-xs text-muted-foreground" role="status">
+                  {note.length}/{NOTE_MAX} caractères
+                </p>
+              )}
             </div>
             <DialogFooter className="gap-2">
               <Button type="button" variant="outline" onClick={() => setModalOpen(false)} disabled={saving}>
@@ -761,12 +819,19 @@ export default function WaitingListPage() {
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            {/* The title names the object. « Êtes-vous sûr ? » was the same sentence used to delete a patient. */}
-            <AlertDialogTitle>Retirer ce patient de la liste d&apos;attente ?</AlertDialogTitle>
+            {/*
+              ⚠️ The DESTRUCTIVE verb, because the row beside it has a reversible action of the same name.
+              « Retirer » on the row records a cancellation and keeps the entry; the bin destroys it. This dialog
+              said « Retirer … Cette action est irréversible » with a « Retirer » button — the same word as the
+              reversible action two controls away — so reception clicking the bin read the safe verb and confirmed
+              a permanent delete. The page deliberately separates the two outcomes; the wording did not.
+            */}
+            <AlertDialogTitle>Supprimer définitivement cette entrée ?</AlertDialogTitle>
             <AlertDialogDescription>
-              Cette action retirera{" "}
-              <span className="font-semibold">{entryToDelete?.patientName ?? "ce patient"}</span> de la liste
-              d&apos;attente. Cette action est irréversible.
+              L&apos;entrée de{" "}
+              <span className="font-semibold">{entryToDelete?.patientName ?? "ce patient"}</span> sera supprimée
+              définitivement de la liste d&apos;attente, sans trace. Pour la retirer en gardant l&apos;historique,
+              utilisez «&nbsp;Retirer&nbsp;» sur la ligne.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -779,7 +844,7 @@ export default function WaitingListPage() {
               disabled={deleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleting ? "Retrait..." : "Retirer"}
+              {deleting ? "Suppression..." : "Supprimer définitivement"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

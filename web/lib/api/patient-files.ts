@@ -105,7 +105,13 @@ export const patientFilesApi = {
   updateFile: async (
     patientId: string,
     fileId: string,
-    changes: { fileName?: string; description?: string | null; folderId?: string | null }
+    changes: {
+      fileName?: string
+      description?: string | null
+      folderId?: string | null
+      /** The version read from the server. Omitted (or 0) the server skips the check — see `PatientDto.version`. */
+      version?: number
+    }
   ): Promise<PatientFileDto> => {
     return apiPut<PatientFileDto>(`/patients/${patientId}/files/${fileId}`, changes);
   },

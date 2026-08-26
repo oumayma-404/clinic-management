@@ -60,7 +60,7 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinicResult.IsFailure)
             {
-                return Result<ProcedureTypeDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+                return Result<ProcedureTypeDto>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             }
             var clinicId = clinicResult.Value;
 
@@ -69,7 +69,7 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
             var nameExists = await _procedureTypeRepository.ExistsByNameAsync(request.Name, null, cancellationToken);
             if (nameExists)
             {
-                return Result<ProcedureTypeDto>.Failure($"A procedure type with the name '{request.Name}' already exists");
+                return Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.DuplicateName(request.Name));
             }
 
             // Validate duration
@@ -86,7 +86,7 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
             // Validate default cost if provided
             if (request.DefaultCost.HasValue && request.DefaultCost.Value < 0)
             {
-                return Result<ProcedureTypeDto>.Failure("Le tarif par défaut ne peut pas être négatif.");
+                return Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.CostNegative);
             }
 
             // Validate and create color
@@ -136,7 +136,8 @@ public class CreateProcedureTypeCommandHandler : IRequestHandler<CreateProcedure
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error creating procedure type");
-            return Result<ProcedureTypeDto>.Failure($"Error creating procedure type: {ex.Message}");
+            // No `ex.Message`: an EF/Npgsql sentence is English machine text and this string is rendered verbatim.
+            return Result<ProcedureTypeDto>.Failure("Erreur lors de la création de l'acte.");
         }
     }
 }

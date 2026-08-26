@@ -75,6 +75,13 @@ public static class AuditLabels
         nameof(StockBatch) => "Lot de stock",
         nameof(ProcedureTypeMaterial) => "Consommable d'un acte",
         nameof(MedicationActiveIngredient) => "Principe actif",
+        // The four the cabinet actually has rows for today, so the fall-through below was never theoretical:
+        // « BackupRun » and « SubscriptionPeriod » were rendered as CLR names in the « Type » filter AND in the
+        // « Dossier » column of the one screen an owner reads to answer « qui a fait quoi ? ».
+        nameof(BackupRun) => "Sauvegarde",
+        nameof(ClinicRecoveryPoint) => "Point de restauration",
+        nameof(ClinicSubscription) => "Abonnement",
+        nameof(SubscriptionPeriod) => "Période d'abonnement",
         _ => entityType
     };
 

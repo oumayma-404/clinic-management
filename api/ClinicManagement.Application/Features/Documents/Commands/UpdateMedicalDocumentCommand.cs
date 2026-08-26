@@ -29,6 +29,11 @@ public class UpdateMedicalDocumentCommand : IRequest<Result<MedicalDocumentDto>>
     /// silently re-attributes a document to whoever opened it.
     /// </summary>
     public Guid? IssuingDoctorId { get; set; }
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user was
+    /// editing; <c>0</c> means « not supplied » and skips the check (see <c>IUnitOfWork.SetExpectedVersion</c>).
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedicalDocumentCommand, Result<MedicalDocumentDto>>
@@ -276,6 +281,9 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                 isDraft: null, // Don't update draft status
                 fileId);
 
+            // Band B — validated against the copy the USER was editing, not the row this handler just read.
+            _unitOfWork.SetExpectedVersion(document, request.Version);
+
             await _documentRepository.UpdateAsync(document, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -287,28 +295,7 @@ public class UpdateMedicalDocumentCommandHandler : IRequestHandler<UpdateMedical
                 catch { /* best-effort cleanup of the replaced file's blob */ }
             }
 
-            var dto = new MedicalDocumentDto
-            {
-                Id = document.Id,
-                PatientId = document.PatientId,
-                PatientName = document.PatientName,
-                PatientAge = document.PatientAge,
-                DocumentType = document.DocumentType,
-                DocumentDate = document.DocumentDate,
-                RecipientDoctorName = document.RecipientDoctorName,
-                RecipientDoctorSpecialty = document.RecipientDoctorSpecialty,
-                ContentJson = document.ContentJson,
-                ClinicName = document.ClinicName,
-                ClinicAddress = document.ClinicAddress,
-                ClinicPhone = document.ClinicPhone,
-                DoctorName = document.DoctorName,
-                DoctorSpecialty = document.DoctorSpecialty,
-                IsDraft = document.IsDraft,
-                FileId = document.FileId,
-                AppointmentId = document.AppointmentId,
-                CreatedAt = document.CreatedAt,
-                UpdatedAt = document.UpdatedAt
-            };
+            var dto = document.ToDto();
 
             return Result<MedicalDocumentDto>.Success(dto);
         }

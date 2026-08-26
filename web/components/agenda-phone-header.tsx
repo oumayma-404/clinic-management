@@ -39,6 +39,15 @@ interface AgendaPhoneHeaderProps {
    * costs no vertical space at all.
    */
   onNewAppointment?: () => void
+  /**
+   * Predicate: is the cabinet open that day, per the hours in force? Supplied by the calendar, which already
+   * resolves practitioner-then-clinic hours for the grid's shading.
+   *
+   * ⚠️ The strip counted appointments only, so a closed Saturday read « samedi 29 août » with nothing else —
+   * the same rendering as an open day with no bookings, while the desktop grid one breakpoint up said
+   * « cabinet fermé ». The phone is the surface where the desk actually stands.
+   */
+  isDayOpen?: (day: Date) => boolean
 }
 
 const VIEWS: { value: CalendarView; label: string }[] = [
@@ -84,6 +93,7 @@ export function AgendaPhoneHeader({
   onShowCancelledChange,
   onShowCompletedChange,
   onNewAppointment,
+  isDayOpen,
 }: AgendaPhoneHeaderProps) {
   const [monthOpen, setMonthOpen] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -389,13 +399,16 @@ export function AgendaPhoneHeader({
           {weekDays.map((day) => {
             const selected = isSameDay(day, selectedDate)
             const count = countFor(day)
+            const open = isDayOpen ? isDayOpen(day) : true
             return (
               <button
                 key={day.toISOString()}
                 type="button"
                 onClick={() => onDateChange(day)}
                 aria-current={selected ? "date" : undefined}
-                aria-label={`${format(day, "EEEE d MMMM", { locale: fr })}${count > 0 ? ` — ${count} rendez-vous` : ""}`}
+                aria-label={`${format(day, "EEEE d MMMM", { locale: fr })}${
+                  open ? (count > 0 ? ` — ${count} rendez-vous` : "") : " — cabinet fermé"
+                }`}
                 /* 58 px, not the 64 it painted: this row is the second-tallest thing in the header and
                    every pixel of it belongs to the day grid. The tap target stays 14 px past the § 2 floor. */
                 className="flex min-h-[52px] flex-col items-center rounded-lg pb-1 pt-0.5"
@@ -411,9 +424,16 @@ export function AgendaPhoneHeader({
                 >
                   {format(day, "d")}
                 </span>
+                {/* Visible, not only in the `aria-label`: « fermé » under the date is what the desk reads at a
+                    glance, and it replaces the density dots because a closed day has nothing to count. */}
+                {!open && (
+                  <span className="mt-0.5 text-[0.5625rem] uppercase leading-none tracking-wide text-muted-foreground">
+                    fermé
+                  </span>
+                )}
                 {/* `mt-0.5` here rather than a `gap` on the column: the density dots need clearing from the date
                     circle (flush, they read as part of it), while the weekday label above does not. */}
-                <span className="mt-0.5 flex h-1 gap-0.5" aria-hidden="true">
+                <span className={cn("mt-0.5 flex h-1 gap-0.5", !open && "hidden")} aria-hidden="true">
                   {Array.from({ length: Math.min(count, MAX_DOTS) }).map((_, i) => (
                     <span key={i} className="h-1 w-1 rounded-full bg-primary opacity-75" />
                   ))}

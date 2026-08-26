@@ -1,6 +1,7 @@
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Features.Dashboard;
 using ClinicManagement.Application.Features.Dashboard.Readers;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using Moq;
 using Xunit;
@@ -23,17 +24,28 @@ public class DashboardTrendReaderTests
     private static readonly DateTime FixedNow = new(2026, 6, 15, 10, 0, 0, DateTimeKind.Utc);
 
     private readonly Mock<IInvoiceRepository> _invoices = new();
+    private readonly Mock<ITreatmentPlanRepository> _plans = new();
 
     private static readonly DashboardPeriod Period =
         DashboardPeriod.Resolve(DashboardPeriodKey.Month, FixedNow);
 
-    private DashboardTrendReader Reader() => new(_invoices.Object);
+    private DashboardTrendReader Reader() => new(_invoices.Object, _plans.Object);
 
-    /// <summary>Every window returns 0 unless a test says otherwise.</summary>
+    /// <summary>
+    /// Every window returns 0 unless a test says otherwise — on <b>both</b> money tracks. The series now composes
+    /// invoice payments with treatment-plan installments, exactly as the « Encaissé » card does, so an unstubbed
+    /// plan repository would leave every bucketing assertion below reading a track that was never wired.
+    /// </summary>
     private void WireEmpty()
     {
         _invoices.Setup(r => r.GetCollectedBetweenAsync(
                 It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0m);
+        _invoices.Setup(r => r.GetTreatmentPlanLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<(Guid, Guid, string?, InvoiceStatus)>());
+        _plans.Setup(r => r.GetInstallmentCollectedBetweenAsync(
+                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0m);
     }
 

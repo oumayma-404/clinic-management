@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { statusToneClass } from "@/components/ui/status-tone"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { DEFAULT_PAGE_SIZE, emptyPage } from "@/lib/api/paging"
@@ -192,6 +193,24 @@ export function UserManagement() {
   // (reset password / activate / deactivate) or registers.
   useClinicRealtime(RealtimeResource.Users, loadData)
 
+  /**
+   * Band B — the row's version as the server holds it *now*, for a per-row action. The rendered row is as old as
+   * the last refetch, and two admins on this screen changing the same colleague's rôle would otherwise silently
+   * overwrite each other. Falls back to the rendered row's own token when the re-read fails: a stale token still
+   * produces a 409 the admin can act on, whereas refusing the action on a network blip would be worse.
+   */
+  const currentVersion = async (user: ClinicUserDto): Promise<number> => {
+    // Searched by email / name, which is what the server matches — an id is not a search term here.
+    const term = user.email?.trim() || user.fullName?.trim()
+    if (!term) return user.version
+    try {
+      const page = await usersApi.listPaged({ search: term })
+      return page.items.find((u) => u.id === user.id)?.version ?? user.version
+    } catch {
+      return user.version
+    }
+  }
+
   const confirmAction = async () => {
     if (!pending) return
     setWorking(true)
@@ -204,7 +223,7 @@ export function UserManagement() {
       } else if (pending.type === "status") {
         const nextActive = !pending.user.isActive
         const wasPending = pending.user.isPendingActivation
-        await usersApi.setStatus(pending.user.id, nextActive)
+        await usersApi.setStatus(pending.user.id, nextActive, await currentVersion(pending.user))
         toast.success(
           nextActive
             ? wasPending
@@ -218,7 +237,7 @@ export function UserManagement() {
         setClinicCode(clinic.code || "")
         toast.success("Code de la clinique régénéré. L'ancien code ne fonctionne plus.")
       } else if (pending.type === "role") {
-        await usersApi.setRole(pending.user.id, pending.role)
+        await usersApi.setRole(pending.user.id, pending.role, await currentVersion(pending.user))
         toast.success(
           `Rôle modifié : ${USER_ROLE_LABELS_FR[pending.role]}. Il s'applique à la prochaine requête de l'utilisateur.`,
         )
@@ -353,6 +372,10 @@ export function UserManagement() {
                     >
                       {clinicCode}
                     </Badge>
+                  ) : error ? (
+                    // Band C — the code is read by the SAME failed call. « Aucun code défini » would be a claim
+                    // about the cabinet made out of a network failure, and an admin would go and regenerate one.
+                    <span className="text-sm text-muted-foreground">Code non chargé</span>
                   ) : (
                     <span className="text-sm text-muted-foreground">Aucun code défini</span>
                   )}
@@ -393,12 +416,19 @@ export function UserManagement() {
             {/* `CardAction`, not `ms-auto` inside the title (which re-solved what `CardHeader`'s
                 `has-data-[slot=card-action]:grid-cols-[1fr_auto]` already provides). Inside the wrapping title row the
                 ~149 px button dropped to a second line where `ms-auto` right-aligned it alone and pushed the pending
-                badge to a third — a three-line header with the action floating in the middle of it. */}
+                badge to a third — a three-line header with the action floating in the middle of it.
+
+                ⚠️ `w-full sm:w-auto` on the button, and `sm:justify-self-end` on the action cell. At 320 px the
+                153 px button and the icon chip shared the FIRST line while « Utilisateurs » wrapped to the second
+                and the count badge sat alone on a third — 116 px of header in which the action appeared *above*
+                the heading it belongs to, which is the exact shape the paragraph above says `CardAction` was
+                introduced to avoid. Below `sm:` it now takes its own full-width row under the title; from `sm:` up
+                nothing changes. */}
             {canCreateAccounts && (
-              <CardAction>
+              <CardAction className="col-span-full w-full sm:col-span-1 sm:w-auto sm:justify-self-end">
                 <Button
                   size="sm"
-                  className="gap-2"
+                  className="w-full gap-2 sm:w-auto"
                   onClick={() => {
                     setCreateError(null)
                     setCreateOpen(true)
@@ -411,7 +441,20 @@ export function UserManagement() {
             )}
           </CardHeader>
           <CardContent>
-            <FormErrorBanner message={error} className="mb-4" />
+            {/*
+              Band C — a failed read is a FAILURE, not an empty clinic. This used to be a `FormErrorBanner` with no
+              retry sitting ABOVE a table that went on rendering « Utilisateurs 0 » and its empty state, so a 500
+              on this screen read as « ce cabinet n'a aucun utilisateur » — on the screen whose whole job is to say
+              who can get in.
+            */}
+            {error && !loading && (
+              <LoadFailureNotice
+                className="mb-4"
+                message="La liste des utilisateurs n'a pas pu être chargée."
+                detail="Rien n'indique ici combien de comptes existent tant qu'elle n'est pas lue."
+                onRetry={loadData}
+              />
+            )}
             {/*
               I5 — the one thing this screen has to say out loud.
 
@@ -452,7 +495,7 @@ export function UserManagement() {
             </div>
             {loading ? (
               <p className="py-8 text-center text-muted-foreground">Chargement des utilisateurs…</p>
-            ) : (
+            ) : error ? null : (
               <div className="overflow-x-auto">
                 {/*
                   Two things this surface does differently.
@@ -743,8 +786,15 @@ export function UserManagement() {
                 "Le code actuel cessera de fonctionner pour les nouvelles inscriptions. Les comptes existants ne sont pas affectés."}
               {pending?.type === "role" && (
                 <>
-                  <span className="font-semibold">{pending.user.email || pending.user.fullName}</span> passera de{" "}
-                  <span className="font-semibold">{roleLabel(pending.user.role)}</span> à{" "}
+                  {/*
+                    ⚠️ It states the DESTINATION rôle only. « passera de X à Y » quoted the role as this tab last
+                    read it, and from a stale tab that is a role the account no longer holds: with another admin
+                    having just made them a doctor, the dialog said « passera de Secrétaire à Administrateur » and
+                    the admin confirmed a sentence that was false. On this screen the sentence confirmed IS the
+                    record of what the admin thinks they are doing, so it must only assert what is knowable here.
+                    The stale save itself is now refused with a 409 (the version round-trip).
+                  */}
+                  <span className="font-semibold">{pending.user.email || pending.user.fullName}</span> aura le rôle{" "}
                   <span className="font-semibold">{USER_ROLE_LABELS_FR[pending.role]}</span>. Sa session actuelle
                   est révoquée : le nouveau rôle s&apos;applique dès sa prochaine requête, et il devra peut-être
                   se reconnecter.

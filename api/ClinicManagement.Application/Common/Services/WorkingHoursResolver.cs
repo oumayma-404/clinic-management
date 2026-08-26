@@ -150,6 +150,19 @@ public static class WorkingHoursResolver
             return false;
         }
 
+        // The mid-day closure. Overlap, not containment: an 11:30–12:30 visit straddling a 12:00 closure is just
+        // as much outside the open hours as one wholly inside it, and only the overlap test catches both.
+        if (WorkingHoursSerializer.TryParseTime(day.BreakFrom, out var breakFrom)
+            && WorkingHoursSerializer.TryParseTime(day.BreakTo, out var breakTo)
+            && startTime < breakTo
+            && endTime > breakFrom)
+        {
+            reason = $"Le {WorkingHoursSerializer.FrenchDay(dayName)}, le cabinet est fermé de "
+                + $"{day.BreakFrom} à {day.BreakTo}. Le rendez-vous demandé "
+                + $"({localStart:HH\\:mm}–{localEnd:HH\\:mm}) tombe pendant cette pause.";
+            return false;
+        }
+
         return true;
     }
 }

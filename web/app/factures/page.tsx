@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { KpiGrid } from "@/components/dashboard/kpi-grid"
+import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { InvoicesTable } from "@/components/factures/invoices-table"
 import { invoicesApi } from "@/lib/api/invoices"
@@ -28,45 +28,6 @@ import { useDoctors } from "@/lib/hooks/use-doctors"
 const ALL_STATUSES = "all"
 /** Radix cannot hold an empty Select value, so « tous » is an explicit sentinel — same as ALL_STATUSES. */
 const ALL_DOCTORS = "all-doctors"
-
-/**
- * One money figure inside the shared {@link KpiGrid} surface.
- *
- * <p>`bg-card` is load-bearing: `KpiGrid` is a `bg-border` container showing through `gap-px`, so a cell that does
- * not paint its own background renders as a solid border block.</p>
- *
- * <p>Deliberately a local component rather than `KpiCard` — these figures are not links and carry no period
- * comparison, so reusing that would mean passing an `href` of `#` and lying about it. What it does share is the
- * one value treatment: `text-2xl font-semibold tabular-nums tracking-tight`. « Total encaissé » used to be
- * `font-bold` in a `Card` of its own here and `font-semibold` on a hairline grid two clicks away on la caisse —
- * the same number drawn two ways.</p>
- */
-function RevenueFigure({
-  label,
-  tone,
-  loading,
-  failed,
-  value,
-}: {
-  label: string
-  /** The semantic ink for this figure. Omitted for a neutral one — never a `green-*` / `amber-*` literal. */
-  tone?: string
-  loading: boolean
-  failed: boolean
-  value?: number
-}) {
-  return (
-    <div className="bg-card p-4">
-      <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary/70" />
-        {label}
-      </p>
-      <p className={cn("mt-1 text-2xl font-semibold tabular-nums tracking-tight", tone)}>
-        <RevenueValue loading={loading} failed={failed} value={value} />
-      </p>
-    </div>
-  )
-}
 
 /**
  * One KPI figure, with the three states kept apart (AC-P3.28): still loading, failed to load, or a real
@@ -217,40 +178,43 @@ function FacturesContent() {
           action={{ label: "Réessayer", onClick: () => void loadRevenue(), disabled: revenueLoading }}
         />
         {/*
-          The three figures share ONE surface (`KpiGrid`) — the same object la caisse and the dashboard draw
-          their money on. Three separate `Card`s meant three borders and three shadows for a row of figures
-          that is conceptually one thing, and « Encaissé » was `text-green-700` here, `text-emerald-600` in
-          the caisse statement and `text-success` on the dashboard: three greens for one concept, on the
-          screens where a colour that does not mean the same thing twice costs trust.
+          The three figures share ONE surface (`StatStrip`) — the app's one summary strip, the same object la
+          caisse, « Chèques » and « Rappels » draw. Three separate `Card`s meant three borders and three
+          shadows for a row that is conceptually one thing, and « Encaissé » was `text-green-700` here,
+          `text-emerald-600` in the caisse statement and `text-success` on the dashboard: three greens for one
+          concept, on the screens where a colour that does not mean the same thing twice costs trust.
 
-          `sm:grid-cols-3` overrides the grid's default 2-up from `sm` on: three money figures belong on one
-          line as soon as there is room, and the base stays 2-up because one figure per row is the scroll the
-          grid's own note argues against.
+          ⚠️ `loading` is NOT passed to `Stat`: the three states here are loading / failed / a real amount
+          (AC-P3.28), and `Stat`'s skeleton knows only the first two of those apart. `RevenueValue` keeps
+          « Indisponible » distinct from « — », which is the whole point of that component.
         */}
-        <KpiGrid columns={3} className="sm:grid-cols-3">
-          <RevenueFigure
+        <StatStrip>
+          <Stat
             label="Total facturé"
-            loading={revenueLoading}
-            failed={!!revenueError}
-            value={revenue?.totalInvoiced}
+            value={<RevenueValue loading={revenueLoading} failed={!!revenueError} value={revenue?.totalInvoiced} />}
           />
-          <RevenueFigure
+          <Stat
             label="Total encaissé"
-            tone="text-success"
-            loading={revenueLoading}
-            failed={!!revenueError}
-            value={revenue?.totalCollected}
+            tone="positive"
+            /*
+             * ⚠️ The hint is load-bearing arithmetic, not decoration.
+             *
+             * This figure deliberately counts BOTH money tracks — invoice payments and devis instalments, net of
+             * avoirs — exactly as la caisse and the dashboard KPI do, while the table below lists the invoice
+             * ledger only. So a practice adding up the « Encaissé » column comes out short by the instalment
+             * total (measured: 30 655,000 DT here vs 29 665,000 DT down the column — the 950,000 DT of
+             * `InstallmentPayments`). Nothing on the screen said so, which made a correct figure read as a wrong
+             * one. « Total facturé » and « Reste à recouvrer » DO match the rows to the millime.
+             */
+            hint="paiements de notes et échéances de devis"
+            value={<RevenueValue loading={revenueLoading} failed={!!revenueError} value={revenue?.totalCollected} />}
           />
-          {/* `text-warning-ink`, not `text-warning`: the darkened amber step is the one that stays legible
-              wherever the theme's amber is used as ink. */}
-          <RevenueFigure
+          <Stat
             label="Reste à recouvrer"
-            tone="text-warning-ink"
-            loading={revenueLoading}
-            failed={!!revenueError}
-            value={revenue?.outstanding}
+            tone="active"
+            value={<RevenueValue loading={revenueLoading} failed={!!revenueError} value={revenue?.outstanding} />}
           />
-        </KpiGrid>
+        </StatStrip>
 
         {/* Filters */}
         <Card>

@@ -161,4 +161,18 @@ public class CaisseLedgerDto
     public int PageSize { get; set; }
     public int TotalCount { get; set; }
     public int TotalPages { get; set; } = 1;
+
+    /// <summary>
+    /// The window's <b>closing</b> balance — the running balance of its newest movement, computed over the whole
+    /// period before the filter and the page.
+    ///
+    /// <para>⚠️ <b>This is not a second copy of a total</b> (the note above still holds for the four figures, which
+    /// live on <c>CaisseSummaryDto</c>). It exists because the phone layout has no balance COLUMN and states the
+    /// figure once in a footer — and it was reading <c>Movements[0]</c>, the newest row <i>of the current page</i>.
+    /// Under a label saying « de la période » that gave 18 287,500 DT on page 1 and 7 507,500 DT on page 2 of the
+    /// same period. A page cannot answer a question about the window, so the window answers it.</para>
+    ///
+    /// <para>Zero for an empty window, which is the true closing balance of a period in which nothing moved.</para>
+    /// </summary>
+    public decimal ClosingBalance { get; set; }
 }

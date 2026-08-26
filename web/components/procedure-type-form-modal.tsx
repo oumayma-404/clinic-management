@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { formatAmount, parseAmountInput } from "@/lib/format"
@@ -68,6 +69,17 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
   const [resultingCondition, setResultingCondition] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isConflict, setIsConflict] = useState(false)
+  /*
+   * Band B — the version this form saves with, re-read on open rather than taken from the clicked row. ⚠️ The
+   * VERSION only: the read lands after the fields hydrate, so its values would replace what the user typed.
+   */
+  const { source: freshProcedure, resync } = useFreshVersion(
+    open,
+    editingProcedure?.id,
+    editingProcedure,
+    async () => (await procedureTypesApi.list(true)).find((p) => p.id === editingProcedure!.id) ?? null,
+  )
   /**
    * The valid palette, from the server — hue families, each with its nuances. Starts empty and fills on open; the
    * swatch row renders nothing until it arrives rather than falling back to a local copy, which is exactly the
@@ -238,13 +250,21 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
         await procedureTypesApi.update(editingProcedure.id, {
           name: name.trim(),
           defaultDurationMinutes: durationMinutes,
+          /*
+           * Band A — sent even when it is null, which is what CLEARS the tarif. The command reads the key's
+           * presence (`DefaultCostSpecified`), not `HasValue`, precisely so this can happen: while it read
+           * HasValue, an emptied field was indistinguishable from an omitted one and an act could never be
+           * un-priced anywhere in the product.
+           */
           defaultCost: defaultCostValue,
           colorHex: selectedColor,
-          description: description.trim() || undefined,
-          // Sent even when empty, unlike `description` above: the update command reads null as "unchanged" and
-          // `""` as "clear it", so `|| undefined` here would make unfiling an act silently do nothing.
+          // Band A — `""`, never `undefined`: the command reads null as « unchanged » and `""` as « clear it », so
+          // `|| undefined` dropped the key and made clearing the description a silent no-op.
+          description: description.trim(),
+          // Same tri-state, same reason — this one was already right.
           category: category.trim(),
           resultingCondition,
+          version: freshProcedure?.version ?? editingProcedure.version,
         })
       } else {
         // Create new procedure
@@ -262,12 +282,13 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message)
-      } else {
-        setError("Échec de l'enregistrement du type d'acte. Veuillez réessayer.")
-      }
-      console.error("Error saving procedure type:", err)
+      const conflict = err instanceof ApiError && err.status === 409
+      setIsConflict(conflict)
+      setError(
+        err instanceof ApiError ? err.message : "Échec de l'enregistrement du type d'acte. Veuillez réessayer.",
+      )
+      // A real 409 is left alone: resyncing would let the retry overwrite the colleague who caused it.
+      if (!conflict) await resync()
     } finally {
       setLoading(false)
     }
@@ -290,7 +311,10 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* The shared refusal banner, on `--destructive-wash` / `--destructive`, replacing a hand-written
               `border-red-200 bg-red-50 … dark:` copy that maintained dark mode itself. */}
-          <FormErrorBanner message={error} />
+          <FormErrorBanner
+            message={error}
+            action={isConflict ? { label: "Recharger", onClick: () => onSuccess?.(), disabled: loading } : undefined}
+          />
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -302,7 +326,14 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
                 placeholder="ex. : consultation"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                required
+                /*
+                 * ⚠️ No HTML `required`. It blocks submit in the browser, so `handleSubmit` never ran and this
+                 * form's own « Le nom de l'acte est requis » was unreachable — the user got the browser's native
+                 * tooltip instead, in the BROWSER's UI language, which vanishes on the first click and is not what
+                 * any other form in this app does. `aria-required` keeps the promise to a screen reader; the
+                 * handler is what refuses, and it refuses in French inside the dialog.
+                 */
+                aria-required
                 disabled={loading}
               />
             </div>
@@ -320,7 +351,8 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
                 placeholder="30"
                 value={duration}
                 onChange={(e) => setDuration(e.target.value)}
-                required
+                // Same reason as « Nom de l'acte » above — the handler refuses, in French, in the dialog.
+                aria-required
                 disabled={loading}
               />
             </div>
@@ -360,7 +392,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
           */}
           <div className="space-y-1.5">
             <Label htmlFor="category" className="text-sm">
-              Catégorie (facultatif)
+              Catégorie (optionnel)
             </Label>
             <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
               <PopoverTrigger asChild>
@@ -476,7 +508,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
 
           <div className="space-y-1.5">
             <Label htmlFor="resultingCondition" className="text-sm">
-              État résultant sur l'odontogramme (facultatif)
+              État résultant sur l'odontogramme (optionnel)
             </Label>
             <Select
               value={resultingCondition ?? NO_CONDITION}

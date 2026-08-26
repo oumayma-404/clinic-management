@@ -4,6 +4,7 @@ import * as React from "react"
 import { XIcon } from "lucide-react"
 import * as SheetPrimitive from "@radix-ui/react-dialog"
 
+import { DIALOG_CLOSE_BUTTON, useReturnFocusToTrigger } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
@@ -109,6 +110,8 @@ function SheetContent({
 }) {
   // Runs only while the content is mounted, which for a Radix sheet means only while it is open.
   useMarkSheetOpen()
+  // Same primitive, same defect: a sheet opened from a row's dropdown loses the trigger Radix meant to return to.
+  const { captureTrigger, restoreTrigger } = useReturnFocusToTrigger()
 
   return (
     <SheetPortal>
@@ -131,12 +134,28 @@ function SheetContent({
             "inset-x-0 bottom-0 h-auto border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
           className
         )}
+        // Spread before the handlers — see the note in `DialogContent`; after it, the chaining below is dead code.
         {...props}
+        onOpenAutoFocus={(event) => {
+          captureTrigger()
+          props.onOpenAutoFocus?.(event)
+        }}
+        onCloseAutoFocus={(event) => {
+          props.onCloseAutoFocus?.(event)
+          if (event.defaultPrevented) return
+          restoreTrigger(event)
+        }}
       >
         {children}
-        {/* 16px icon, no padding — `touch-target` gives it a 44px tappable area on a coarse pointer (AC-10). */}
+        {/* The one close-button geometry, shared with `DialogContent` — see `DIALOG_CLOSE_BUTTON`. This was the
+            16 px-tall ✕ the QA pass measured on the mobile nav drawer. */}
         {showCloseButton && (
-          <SheetPrimitive.Close className="touch-target absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-secondary">
+          <SheetPrimitive.Close
+            className={cn(
+              DIALOG_CLOSE_BUTTON,
+              "opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-secondary",
+            )}
+          >
             <XIcon className="size-4" />
             <span className="sr-only">Fermer</span>
           </SheetPrimitive.Close>

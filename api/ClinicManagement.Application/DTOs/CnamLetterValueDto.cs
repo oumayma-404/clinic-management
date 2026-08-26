@@ -33,4 +33,7 @@ public class CnamLetterValueDto
     /// suggested one ever would.
     /// </summary>
     public int? ConventionRevisionIntervalYears { get; set; }
+
+    /// <summary>Round-tripped by the edit form so a concurrent change is a 409 rather than a silent overwrite.</summary>
+    public uint Version { get; set; }
 }

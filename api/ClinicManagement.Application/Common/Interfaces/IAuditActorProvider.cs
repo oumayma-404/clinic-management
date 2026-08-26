@@ -28,6 +28,21 @@ public interface IAuditActorProvider
     void RunAs(string processName);
 
     /// <summary>
+    /// Name the <b>person</b> whose credentials this scope has just verified, for a request that has no token yet.
+    ///
+    /// <para>⚠️ <b>Sign-in is the case, and it is not a corner one.</b> <c>POST /api/auth/login</c> is anonymous by
+    /// construction — the token is its <i>output</i> — so <see cref="IClinicContext"/> answers null, and the save
+    /// that stamps <c>LastLoginAt</c> was therefore attributed to <c>job|unknown</c> and rendered
+    /// « Tâche automatique ». 329 of 1 868 journal rows, ~18 %, asserted that a process did what a person did, on
+    /// the ledger an owner would reach for after anything else went wrong.</para>
+    ///
+    /// <para>Deliberately NOT <see cref="RunAs"/>: that one names a process and is ignored while a real user is in
+    /// scope. This names a real user and is ignored once anything else has been resolved — same first-read-wins
+    /// rule, so it can never overwrite a token-bearing caller.</para>
+    /// </summary>
+    void AuthenticatedAs(string userId, string? email);
+
+    /// <summary>
     /// Mark this scope's rows as written by an <b>archive restore</b> rather than by hand
     /// (<c>clinic-data-archive-and-restore</c> AC-9).
     ///

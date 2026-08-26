@@ -11,6 +11,7 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { showErrorToast } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 import type { AppointmentDto } from "@/lib/api/types"
+import { quoteFr } from "@/lib/format"
 
 /**
  * « Arrivé », « En cours », « Terminé », « Absent » — advancing a visit's statut **without opening the edit
@@ -57,7 +58,7 @@ export function AppointmentQuickStatus({
       // praticien and the notes alone — sending a fuller payload from here is how a quick action silently
       // rewrites a séance.
       await appointmentsApi.update(appointment.id, { status })
-      toast.success(`Rendez-vous marqué « ${appointmentStatusLabel(status)} »`)
+      toast.success(`Rendez-vous marqué ${quoteFr(appointmentStatusLabel(status))}`)
       setOpen(false)
       onChanged?.()
     } catch (err) {

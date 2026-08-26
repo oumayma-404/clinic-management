@@ -11,7 +11,11 @@ namespace ClinicManagement.Application.Features.Expenses.Commands;
 
 public class CreateExpenseCommand : IRequest<Result<ExpenseDto>>
 {
-    public DateTime ExpenseDate { get; set; }
+    /// <summary>
+    /// The day in the CABINET's calendar. Nullable and required — see <see cref="ExpenseDay"/> for why both halves
+    /// of that sentence were defects.
+    /// </summary>
+    public DateTime? ExpenseDate { get; set; }
     public string Category { get; set; } = string.Empty;
     public decimal Amount { get; set; }
     public string Method { get; set; } = string.Empty;
@@ -38,6 +42,12 @@ public class CreateExpenseCommandHandler : IRequestHandler<CreateExpenseCommand,
     {
         try
         {
+            if (ExpenseDay.Resolve(request.ExpenseDate) is not { } expenseDay)
+                return Result<ExpenseDto>.Failure(ExpenseDay.Required, ExpenseDay.RequiredCode);
+            if (ExpenseDay.RefuseDay(expenseDay) is { } tooFar)
+                return Result<ExpenseDto>.Failure(tooFar);
+            if (ExpenseDay.RefuseFields(request.Category, request.Description, request.Amount) is { } badField)
+                return Result<ExpenseDto>.Failure(badField);
             if (string.IsNullOrWhiteSpace(request.Category))
                 return Result<ExpenseDto>.Failure("La catégorie est requise.");
             if (request.Amount <= 0)
@@ -52,7 +62,7 @@ public class CreateExpenseCommandHandler : IRequestHandler<CreateExpenseCommand,
             var expense = new Expense(
                 Guid.NewGuid(),
                 clinic.Value,
-                request.ExpenseDate,
+                expenseDay,
                 request.Category.Trim(),
                 request.Amount,
                 method,
@@ -69,7 +79,8 @@ public class CreateExpenseCommandHandler : IRequestHandler<CreateExpenseCommand,
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<ExpenseDto>.Failure($"Erreur lors de la création de la dépense : {ex.Message}");
+            // No `ex.Message`: an EF/Npgsql sentence is English machine text and this string is rendered verbatim.
+            return Result<ExpenseDto>.Failure("Erreur lors de la création de la dépense.");
         }
     }
 }

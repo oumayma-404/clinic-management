@@ -14,6 +14,10 @@ public class WaitingListEntryDto
     public string? Note { get; set; }
     public string Status { get; set; } = string.Empty;
     public Guid? ResultingAppointmentId { get; set; }
+
+    /// <summary>Round-tripped by the edit form so a concurrent change is a 409 rather than a silent overwrite.</summary>
+    public uint Version { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
@@ -32,6 +36,7 @@ public static class WaitingListEntryMappingExtensions
         Note = entry.Note,
         Status = entry.Status.ToString(),
         ResultingAppointmentId = entry.ResultingAppointmentId,
+        Version = entry.Version,
         CreatedAt = entry.CreatedAt,
         UpdatedAt = entry.UpdatedAt
     };

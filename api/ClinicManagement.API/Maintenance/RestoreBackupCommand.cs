@@ -261,7 +261,7 @@ public static class RestoreBackupCommand
     {
         var configured = configuration["Backup:DefaultDestination"];
         return string.IsNullOrWhiteSpace(configured)
-            ? LocalInstallPaths.Resolve("Backups")
+            ? LocalInstallPaths.DefaultBackupRoot
             : configured.Trim();
     }
 

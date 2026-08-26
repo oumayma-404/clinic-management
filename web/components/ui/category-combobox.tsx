@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
+import { quoteFr } from "@/lib/format"
 
 /**
  * A field over an **open set with suggestions** — pick one of the offered labels, or type your own.
@@ -138,7 +139,7 @@ export function CategoryCombobox({
                   onSelect={() => choose(typed)}
                 >
                   <Plus aria-hidden="true" className="me-2 size-4" />
-                  <span className="truncate">Utiliser « {typed} »</span>
+                  <span className="truncate">Utiliser {quoteFr(typed)}</span>
                 </CommandItem>
               </CommandGroup>
             ) : null}

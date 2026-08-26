@@ -22,22 +22,31 @@ public class ChangeUserRoleCommand : IRequest<Result<ClinicUserDto>>
     public string TargetUserId { get; set; } = string.Empty;
     /// <summary>One of <see cref="User.AssignableRoles"/>, case-insensitive.</summary>
     public string Role { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user was
+    /// editing; <c>0</c> means « not supplied » and skips the check (see <c>IUnitOfWork.SetExpectedVersion</c>).
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class ChangeUserRoleCommandHandler : IRequestHandler<ChangeUserRoleCommand, Result<ClinicUserDto>>
 {
     private readonly IUserRepository _userRepository;
+    private readonly IDoctorRepository _doctorRepository;
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ChangeUserRoleCommandHandler> _logger;
 
     public ChangeUserRoleCommandHandler(
         IUserRepository userRepository,
+        IDoctorRepository doctorRepository,
         IClinicContext clinicContext,
         IUnitOfWork unitOfWork,
         ILogger<ChangeUserRoleCommandHandler> logger)
     {
         _userRepository = userRepository;
+        _doctorRepository = doctorRepository;
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -115,22 +124,45 @@ public class ChangeUserRoleCommandHandler : IRequestHandler<ChangeUserRoleComman
             // user out) for a re-selection that changes nothing.
             if (target.ChangeRole(role))
             {
+                /*
+                 * ⚠️ Promoting to « Médecin » must LINK a practitioner record, exactly as the create path does.
+                 *
+                 * It did not, and nothing on any screen said so: a promoted dentist had no `Doctors` row, so their
+                 * ordonnances printed no cachet and no n° CNOMDT, they could not be picked as the praticien of a
+                 * séance, and the money and clinical work they did were attributed to nobody — `L9`'s whole
+                 * per-practitioner half silently excluded them. `CreateClinicUserCommand` calls this obligation
+                 * « not optional » in its own docstring; the second door onto the same state skipped it.
+                 *
+                 * The name is split from the account's own `FullName` rather than asked for: this command has no
+                 * form behind it (it is a rôle Select on a row), and an unnamed practitioner record is still
+                 * strictly better than none — « Mon profil » is where the dentist completes it. Specialty is left
+                 * to the same screen.
+                 */
+                if (role == User.RoleDoctor
+                    && await _doctorRepository.GetByUserIdAsync(target.Id, cancellationToken) is null)
+                {
+                    var (firstName, lastName) = SplitName(target.FullName, target.Email);
+                    var doctor = new Doctor(
+                        Guid.NewGuid(),
+                        target.ClinicId,
+                        firstName,
+                        lastName,
+                        DefaultSpecialty,
+                        phone: null,
+                        email: target.Email);
+                    doctor.LinkToUser(target.Id);
+                    await _doctorRepository.AddAsync(doctor, cancellationToken);
+                }
+
+                // Band B — two admins on the users screen at once must not silently overwrite each other's choice.
+                _unitOfWork.SetExpectedVersion(target, request.Version);
                 _userRepository.Update(target);
+                // One save for both rows, like the create path: an account promoted with no practitioner record
+                // committed is the half-created state this exists to remove.
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
 
-            return Result<ClinicUserDto>.Success(new ClinicUserDto
-            {
-                Id = target.Id,
-                ClinicId = target.ClinicId,
-                Role = target.Role,
-                Email = target.Email,
-                FullName = target.FullName,
-                IsActive = target.IsActive,
-                MustChangePassword = target.MustChangePassword,
-                LastLoginAt = target.LastLoginAt,
-                CreatedAt = target.CreatedAt
-            });
+            return Result<ClinicUserDto>.Success(target.ToClinicUserDto());
         }
         catch (ArgumentException ex)
         {
@@ -144,4 +176,31 @@ public class ChangeUserRoleCommandHandler : IRequestHandler<ChangeUserRoleComman
             return Result<ClinicUserDto>.Failure("Erreur lors de la modification du rôle. Veuillez réessayer.");
         }
     }
+
+    /// <summary>
+    /// What a promoted practitioner's record is named, from the account's own <c>FullName</c>.
+    ///
+    /// <para>The last word is the surname and everything before it the given name(s) — the order this product
+    /// stores a full name in. A single word becomes the surname with an empty given name rather than the reverse:
+    /// a `Doctor` is addressed as « Dr {LastName} » throughout, so that is the half that must not be blank. With no
+    /// name at all the address stands in, because an empty practitioner is unpickable in the séance form.</para>
+    /// </summary>
+    private static (string FirstName, string LastName) SplitName(string? fullName, string? email)
+    {
+        var parts = (fullName ?? string.Empty)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        return parts.Length switch
+        {
+            0 => (string.Empty, email?.Trim() is { Length: > 0 } address ? address : "Praticien"),
+            1 => (string.Empty, parts[0]),
+            _ => (string.Join(' ', parts[..^1]), parts[^1]),
+        };
+    }
+
+    /// <summary>
+    /// The specialty a promotion assigns. Deliberately the generic one and not a guess: this command has no form
+    /// behind it, and « Mon profil » is where the dentist states their own.
+    /// </summary>
+    private const string DefaultSpecialty = "Dentiste";
 }

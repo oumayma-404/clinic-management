@@ -52,7 +52,8 @@ export function CashInByMethod({
             // `.touch-target` — an overlaid 44px hit area on a wrapped row of chips overhangs its neighbours,
             // and the later sibling paints last, so it would steal their taps (§ 2).
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors coarse:py-2.5",
+              // `py-3`, not `py-2.5`: measured 42 px on a coarse pointer, two short of the floor.
+              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors coarse:py-3",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active
                 ? "border-primary bg-primary/10 text-primary"

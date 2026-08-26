@@ -30,6 +30,7 @@ public class AuditActorProvider : IAuditActorProvider
     private readonly IClinicContext _clinicContext;
     private readonly IPlatformSessionContext _platformSession;
     private string? _processName;
+    private AuditActor? _authenticated;
     private bool _restoring;
     private AuditActor? _resolved;
 
@@ -51,6 +52,18 @@ public class AuditActorProvider : IAuditActorProvider
         }
 
         _processName = processName;
+    }
+
+    public void AuthenticatedAs(string userId, string? email)
+    {
+        // Same first-read-wins rule as RunAs, and for the same reason: rows already written must not disagree with
+        // rows written later in the same operation.
+        if (_resolved is not null || string.IsNullOrWhiteSpace(userId))
+        {
+            return;
+        }
+
+        _authenticated = new AuditActor(userId, email);
     }
 
     public void RestoringAnArchive()
@@ -84,6 +97,13 @@ public class AuditActorProvider : IAuditActorProvider
         if (!string.IsNullOrWhiteSpace(userId))
         {
             return new AuditActor(userId, _clinicContext.GetUserEmail());
+        }
+
+        // Then a person this scope authenticated itself — sign-in, which has no token to read. Above the process
+        // name so a login running inside a declared scope is still attributed to the human.
+        if (_authenticated is { } authenticated)
+        {
+            return authenticated;
         }
 
         return string.IsNullOrWhiteSpace(_processName)

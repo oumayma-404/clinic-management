@@ -4,7 +4,12 @@ import * as React from "react"
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
 
 import { cn } from "@/lib/utils"
-import { DIALOG_BASE, DIALOG_DESKTOP, DIALOG_MOBILE_BOTTOM } from "@/components/ui/dialog"
+import {
+  DIALOG_BASE,
+  DIALOG_DESKTOP,
+  DIALOG_MOBILE_BOTTOM,
+  useReturnFocusToTrigger,
+} from "@/components/ui/dialog"
 import { buttonVariants } from "@/components/ui/button"
 
 function AlertDialog({
@@ -49,6 +54,10 @@ function AlertDialogContent({
   className,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content>) {
+  // A « Supprimer » item in a row's dropdown is the commonest opener of a confirmation, and it is the exact case
+  // Radix's own focus restore cannot serve — see `useReturnFocusToTrigger`.
+  const { captureTrigger, restoreTrigger } = useReturnFocusToTrigger()
+
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
@@ -64,7 +73,17 @@ function AlertDialogContent({
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
         className={cn(DIALOG_BASE, DIALOG_MOBILE_BOTTOM, DIALOG_DESKTOP, className)}
+        // Spread before the handlers — see the note in `DialogContent`; after it, the chaining below is dead code.
         {...props}
+        onOpenAutoFocus={(event) => {
+          captureTrigger()
+          props.onOpenAutoFocus?.(event)
+        }}
+        onCloseAutoFocus={(event) => {
+          props.onCloseAutoFocus?.(event)
+          if (event.defaultPrevented) return
+          restoreTrigger(event)
+        }}
       />
     </AlertDialogPortal>
   )

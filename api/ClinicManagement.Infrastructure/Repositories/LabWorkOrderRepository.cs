@@ -5,6 +5,7 @@ using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
 
 using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Features.LabOrders;
 using ClinicManagement.Domain.Common;
 namespace ClinicManagement.Infrastructure.Repositories;
 
@@ -28,6 +29,8 @@ public class LabWorkOrderRepository : ILabWorkOrderRepository
         LabOrderStatus? status = null,
         Guid? patientId = null,
         string? searchTerm = null,
+        Guid? supplierId = null,
+        bool orderByExpectedDate = false,
         PageRequest? paging = null,
         CancellationToken cancellationToken = default)
     {
@@ -48,6 +51,14 @@ public class LabWorkOrderRepository : ILabWorkOrderRepository
             query = query.Where(o => o.PatientId == patientId.Value);
         }
 
+        // « Quels bons sont chez ce labo ? » had no answer: the page offered a stage filter and nothing else, so
+        // the fiche fournisseur — the record that exists to stop the practice relying on a retyped name — could
+        // not be used to narrow the list it appears on.
+        if (supplierId.HasValue)
+        {
+            query = query.Where(o => o.SupplierId == supplierId.Value);
+        }
+
         var pattern = SearchTerm.ToLikePattern(searchTerm);
         if (pattern is not null)
         {
@@ -55,26 +66,36 @@ public class LabWorkOrderRepository : ILabWorkOrderRepository
                 EF.Functions.ILike(SqlSearch.Unaccent(o.Prosthetist)!, pattern, SqlSearch.EscapeString) ||
                 EF.Functions.ILike(SqlSearch.Unaccent(o.WorkDescription)!, pattern, SqlSearch.EscapeString) ||
                 EF.Functions.ILike(SqlSearch.Unaccent(o.Notes)!, pattern, SqlSearch.EscapeString) ||
-                EF.Functions.ILike(SqlSearch.Unaccent(o.Patient!.FirstName + " " + o.Patient.LastName)!, pattern, SqlSearch.EscapeString));
+                // The LINKED fiche's nom, not only the free-text `Prosthetist` typed onto the bon. Three bons
+                // filed under « Laboratoire Ben Aissa » returned « aucun bon » for that name: they were findable
+                // only through the retyped prothésiste string, which is the field the fiche exists to replace.
+                // A subquery, not a navigation: `LabWorkOrder` deliberately holds only `SupplierId` — the bon
+                // prints the name it was raised with, and the DTO resolves the fiche through a batched read.
+                _context.Suppliers.Any(sp =>
+                    sp.Id == o.SupplierId &&
+                    EF.Functions.ILike(SqlSearch.Unaccent(sp.Name)!, pattern, SqlSearch.EscapeString)) ||
+                // BOTH name orders: the app renders « Nom Prénom » — see `PatientRepository.ApplySearch`.
+                EF.Functions.ILike(SqlSearch.Unaccent(o.Patient!.FirstName + " " + o.Patient.LastName)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(o.Patient!.LastName + " " + o.Patient.FirstName)!, pattern, SqlSearch.EscapeString));
         }
 
-        return await query
-            .OrderByDescending(o => o.CreatedAt)
-            .ThenBy(o => o.Id)
-            .ToPagedResultAsync(paging, cancellationToken);
+        // Nulls last in both orders: a bon with no date agreed is not "due first", and `ThenBy(Id)` is the unique
+        // tie-break every paged read in this solution carries — `OFFSET` over a non-unique sort shows one row
+        // twice and skips another, which reads as « un bon a disparu ».
+        query = orderByExpectedDate
+            ? query.OrderBy(o => o.ExpectedDate == null).ThenBy(o => o.ExpectedDate).ThenBy(o => o.Id)
+            : query.OrderByDescending(o => o.CreatedAt).ThenBy(o => o.Id);
+
+        return await query.ToPagedResultAsync(paging, cancellationToken);
     }
 
     public async Task<int> CountOverdueAsync(Guid clinicId, DateTime asOfUtc, CancellationToken cancellationToken = default)
     {
-        // « En retard » = still at the lab past the date it was expected back. An order with no ExpectedDate has
-        // nothing to be late against and is deliberately not counted — guessing a default would invent a deadline
-        // the clinic never agreed with the prothésiste. Received/Fitted are already back, so only Sent qualifies;
-        // InProgress is excluded on the same reading (the lab has acknowledged it and is working).
+        // The rule itself lives in `LabOrderOverdue` — the badge on /lab-orders reads the same expression, which
+        // is what stops the card's N and the rows wearing a badge from being two different N.
         return await _context.LabWorkOrders
-            .Where(o => o.ClinicId == clinicId
-                        && o.Status == LabOrderStatus.Sent
-                        && o.ExpectedDate != null
-                        && o.ExpectedDate < asOfUtc)
+            .Where(o => o.ClinicId == clinicId)
+            .Where(LabOrderOverdue.Predicate(LabOrderOverdue.CutoffUtc(asOfUtc)))
             .CountAsync(cancellationToken);
     }
 

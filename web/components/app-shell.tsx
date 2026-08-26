@@ -125,7 +125,11 @@ export function AppShell({
           className={cn(
             // ⚠️ `relative` is load-bearing, not decoration: `overflow-y-auto` does NOT clip an `absolute`
             // descendant whose containing block is outside it, and Tailwind's `sr-only` IS `absolute`.
-            "animate-page-in relative flex-1",
+            // `page-canvas` is the page ground's grain — a fine achromatic dot lattice, see its note in
+            // `globals.css`. It lives on `<main>` rather than on `<body>` so the rail keeps its own `--sidebar`
+            // surface and the header stays flat: the grain marks the CONTENT canvas, which is the thing the
+            // cards need to lift off.
+            "animate-page-in page-canvas relative flex-1",
             mainClassName ?? "overflow-y-auto",
             /*
              * ⚠️ **No `pb-20` runway any more, because nothing floats over `<main>` at any width.** It was

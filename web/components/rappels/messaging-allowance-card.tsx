@@ -130,7 +130,10 @@ export function MessagingAllowanceCard({
             <h2 className="text-sm font-semibold">Forfait WhatsApp</h2>
             <p className="mt-0.5 font-mono text-2xs text-muted-foreground">
               {data ? data.monthLabel : "Ce mois-ci"}
-              {data && ` · renouvelé le ${formatCalendarDay(data.resetsOn)}`}
+              {/* Present tense: `resetsOn` is a date in the FUTURE, so « renouvelé le » claimed the renewal had
+                  already happened — and the « épuisé » paragraph three lines below already said « se renouvelle
+                  le », so the same fact was on screen twice in two tenses. */}
+              {data && ` · se renouvelle le ${formatCalendarDay(data.resetsOn)}`}
             </p>
           </div>
 
@@ -169,7 +172,9 @@ export function MessagingAllowanceCard({
                   >
                     {remaining.toLocaleString("fr-TN")}
                   </span>{" "}
-                  restant{remaining === 1 ? "" : "s"} sur {allowance.toLocaleString("fr-TN")}
+                  {/* `<= 1`: in French ZERO takes the singular, so « 0 restants » was wrong — and `consumedLabel`
+                      twenty lines below already applies that rule and documents it. */}
+                  restant{remaining <= 1 ? "" : "s"} sur {allowance.toLocaleString("fr-TN")}
                 </p>
                 <p className="font-mono text-2xs tabular-nums text-muted-foreground">
                   {consumedLabel(consumed)}

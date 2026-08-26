@@ -29,10 +29,17 @@ namespace ClinicManagement.Application.DTOs;
 /// configure a channel or ask us for more messages, which are the two entirely different actions behind that one
 /// number.</para>
 /// </param>
+/// <param name="HeldBySender">
+/// How many of <paramref name="Blocked"/> are waiting on the WhatsApp <b>sender</b> — an unapproved template or a
+/// number Meta has stopped. See <c>ReminderLogCounts.HeldBySender</c> for why this is not folded into
+/// <paramref name="HeldByAllowance"/>: the two have different remedies, and the practice can act on neither if it
+/// is told the wrong one.
+/// </param>
 public record ReminderLogDto(
     PagedResult<ReminderStatusDto> Page,
     int SentToday,
     int Pending,
     int FailedRecent,
     int Blocked,
-    int HeldByAllowance);
+    int HeldByAllowance,
+    int HeldBySender);

@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useState } from "react"
+import { useUrlFilterSeed, useUrlFilters } from "@/lib/hooks/use-url-filters"
 import Link from "next/link"
 
 import { PageHeader } from "@/components/ui/page-header"
@@ -23,7 +24,7 @@ import type { PatientFileSummaryDto } from "@/lib/api/types"
 import { usePagedList } from "@/lib/hooks/use-paged-list"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
-import { formatDateFr, formatFileSize } from "@/lib/format"
+import { formatDateFr, formatFileSize, quoteFr } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { cn } from "@/lib/utils"
 
@@ -101,11 +102,29 @@ const fullNameOf = (summary: PatientFileSummaryDto) =>
   `${summary.lastName} ${summary.firstName}`.trim() || "Patient sans nom"
 
 export function PatientFilesDirectory() {
-  const [searchQuery, setSearchQuery] = useState("")
-  const [withFilesOnly, setWithFilesOnly] = useState(false)
-  const [sort, setSort] = useState<PatientFileDirectorySort>("name")
+  /*
+   * ⚠️ Seeded from the query string and mirrored back into it, so F5 keeps the view and a link can be shared.
+   *
+   * All three narrowings lived in component state alone and the URL said nothing about them, so « les patients
+   * avec fichiers, par ajout le plus récent » was a view nobody could return to or send to a colleague — on a
+   * screen whose whole purpose is « chez qui est le scanner ? ». An unreadable `sort` falls back to « name »
+   * rather than refusing: a stale bookmark shows the default order, never an error about a query parameter.
+   */
+  const initial = useUrlFilterSeed()
+  const [searchQuery, setSearchQuery] = useState(initial.get("search") ?? "")
+  const [withFilesOnly, setWithFilesOnly] = useState(initial.get("withFiles") === "1")
+  const [sort, setSort] = useState<PatientFileDirectorySort>(() => {
+    const stored = initial.get("sort")
+    return stored === "files" || stored === "recent" ? stored : "name"
+  })
   // Bumped to refetch the current page — by « Réessayer », and by a peer's upload arriving over realtime.
   const [refreshKey, setRefreshKey] = useState(0)
+
+  useUrlFilters({
+    search: searchQuery.trim() || undefined,
+    withFiles: withFilesOnly ? "1" : undefined,
+    sort: sort === "name" ? undefined : sort,
+  })
 
   const fetchPage = useCallback(
     ({ page, pageSize, search }: { page: number; pageSize: number; search?: string }) =>
@@ -231,7 +250,7 @@ export function PatientFilesDirectory() {
             icon={isFiltered ? SearchX : FolderOpen}
             title={
               isSearching
-                ? `Aucun résultat pour « ${searchQuery.trim()} »`
+                ? `Aucun résultat pour ${quoteFr(searchQuery.trim())}`
                 : withFilesOnly
                   ? "Aucun patient n'a encore de fichier"
                   : "Aucun patient enregistré"

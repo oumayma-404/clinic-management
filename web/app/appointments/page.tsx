@@ -17,7 +17,9 @@ import { CreateAppointmentDialog } from "@/components/create-appointment-dialog"
 import { EditAppointmentDialog } from "@/components/edit-appointment-dialog"
 import { ClinicGuard } from "@/components/clinic-guard"
 import type { AppointmentDto } from "@/lib/api/types"
-import { isToday, setHours, setMinutes } from "date-fns"
+import { isSameDay, isToday, setHours, setMinutes } from "date-fns"
+import { toLocalIso } from "@/lib/format"
+import { useUrlFilters } from "@/lib/hooks/use-url-filters"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { googleCalendarApi } from "@/lib/api/google-calendar"
 import { ApiError } from "@/lib/api/client"
@@ -44,11 +46,38 @@ function nextFiveMinuteBoundary(from: Date): Date {
   return next
 }
 
+/**
+ * The agenda's own URL state, read ONCE at mount.
+ *
+ * ⚠️ {@link useUrlFilters} writes `?date=` / `?view=` so the day on screen is addressable and survives F5 — and
+ * nothing read them back, so `/appointments?date=2026-08-31&view=week` still opened on today in Jour and the
+ * shared link, the reload and the « regarde le lundi 24 » message were all silently wrong. A write with no read
+ * is not persistence.
+ *
+ * Composed as `T00:00:00` and parsed as LOCAL midnight, never bare: a bare `AAAA-MM-JJ` parses as UTC, so for a
+ * UTC+1 clinic it lands on the previous day. An unparseable value simply yields null and the defaults stand,
+ * matching the graceful-deep-link rule the rest of this page follows.
+ */
+function seededDay(): Date | null {
+  if (typeof window === "undefined") return null
+  const raw = new URLSearchParams(window.location.search).get("date")
+  if (!raw) return null
+  const day = new Date(`${raw}T00:00:00`)
+  return Number.isNaN(day.getTime()) ? null : day
+}
+
+/** @see seededDay — null when the URL names no view, so the caller keeps its own default. */
+function seededView(): "day" | "week" | "month" | null {
+  if (typeof window === "undefined") return null
+  const raw = new URLSearchParams(window.location.search).get("view")
+  return raw === "day" || raw === "week" || raw === "month" ? raw : null
+}
+
 export default function AppointmentsPage() {
   // Week is the default: it is the span staff actually plan against, and a single day of a specialist practice's
   // calendar is mostly empty. Month view stays one click away, and clicking a day cell there still drops into Day
   // view (handleSelectDay). ⚠️ Below `md:` the *initial* view becomes Jour instead — see `viewDecidedRef`.
-  const [view, setView] = useState<"day" | "week" | "month">("week")
+  const [view, setView] = useState<"day" | "week" | "month">(() => seededView() ?? "week")
   /**
    * Has the view already been settled by something that outranks the narrow-screen default? (AC-28/AC-29)
    *
@@ -61,7 +90,10 @@ export default function AppointmentsPage() {
    * instead of the month the card counted. `features/LEARNINGS.md`: a size heuristic must not be the sole
    * gate on an affordance.
    */
-  const viewDecidedRef = useRef(false)
+  const viewDecidedRef = useRef(seededView() !== null)
+
+  /** The deep-link params are consumed once — see the effect that reads them. */
+  const deepLinkHandledRef = useRef(false)
   // `md:` is 768px — the same boundary the nav rail, the card lists and the dialogs switch at.
   const isNarrow = useMediaQuery("(max-width: 767px)")
   const selectView = useCallback((next: "day" | "week" | "month") => {
@@ -96,7 +128,7 @@ export default function AppointmentsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentDto | null>(null)
-  const [selectedDate, setSelectedDate] = useState(new Date())
+  const [selectedDate, setSelectedDate] = useState(() => seededDay() ?? new Date())
   const [refreshKey, setRefreshKey] = useState(0)
   // Patient preselected when arriving from a patient's "Planifier un rendez-vous" (?patientId=…).
   const [bookingPatientId, setBookingPatientId] = useState<string | undefined>(undefined)
@@ -115,7 +147,10 @@ export default function AppointmentsPage() {
   const isAdmin = user?.role === "admin"
   // Per-practitioner filter (AC-3.2): "all" = no filter. Passed down to the calendar's fetch.
   const { doctors } = useDoctors()
-  const [selectedDoctorId, setSelectedDoctorId] = useState<string>("all")
+  // Seeded from the URL for the same reason as the day and the statuses above it — see `useUrlFilters` below.
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>(
+    () => (typeof window === "undefined" ? "all" : new URLSearchParams(window.location.search).get("doctorId") ?? "all"),
+  )
   const doctorFilterId = selectedDoctorId === "all" ? undefined : selectedDoctorId
   /** Is there anything for the chip row to say? See the row itself for why it must not render otherwise. */
   const hasActiveFilterChips = showCancelled || showCompleted || Boolean(doctorFilterId)
@@ -160,7 +195,20 @@ export default function AppointmentsPage() {
     selectView("day")
   }, [selectView])
 
-  const handleAppointmentCreated = useCallback(() => {
+  /**
+   * A booking landed. Refetch — and **stay on the day it was booked for**.
+   *
+   * ⚠️ The agenda used to leave the user's day and jump back to the current week: `selectedDate` is refreshed to
+   * « now » by `openCreateDialog` whenever today happens to be on screen, and the day picked inside the dialog
+   * never came back out. So a receptionist booking next Tuesday created the RDV and then watched the screen
+   * return to this week with it nowhere in sight — the appointment existed and was invisible to the person who
+   * had just made it, which reads as « it did not save ». Reproduced 3× from fresh loads.
+   *
+   * Only moves when the booked day differs from the one on screen, so booking into the visible day does not
+   * disturb a grid the user is already reading.
+   */
+  const handleAppointmentCreated = useCallback((appointmentDateTime: Date) => {
+    setSelectedDate((current) => (isSameDay(current, appointmentDateTime) ? current : appointmentDateTime))
     setRefreshKey(prev => prev + 1)
   }, [])
 
@@ -189,6 +237,20 @@ export default function AppointmentsPage() {
         console.warn("Google Calendar token is invalid. Please re-authorize.")
       }
     } catch (error) {
+      /*
+       * ⚠️ A 403 here is the server being RIGHT, not a fault to log.
+       *
+       * `/googlecalendar/status` is admin/doctor-only, and this page loads for a secretary on every shift — so
+       * reception's console filled with an unhandled `ApiError` on every visit to the agenda, for a refusal that
+       * is the access model working. The presentation half simply had no branch for it. Treated as « not mine to
+       * see »: the control stays hidden, which is what the absent authorisation means, and nothing is logged.
+       *
+       * Every other failure is still reported — a real outage on this probe is worth knowing about.
+       */
+      if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+        setIsGoogleCalendarAuthorized(false)
+        return
+      }
       console.error("Failed to check Google Calendar status:", error)
     }
   }, [])
@@ -265,6 +327,16 @@ export default function AppointmentsPage() {
    * specific request than a window, so <c>?date=</c> wins outright when both are present.</p>
    */
   useEffect(() => {
+    /*
+     * ⚠️ ONE SHOT, by a ref — the `replaceState` at the end of this effect used to be the guard, and it stopped
+     * being one the moment `useUrlFilters` below started writing `?date=` back. A second run then read the
+     * durable state as a fresh deep link: `?view=` is omitted when it is the default, so a reloaded Semaine
+     * became `?date=…` with no view, which is exactly the shape that forces Jour. Re-consuming your own output
+     * is not the same thing as consuming a link.
+     */
+    if (deepLinkHandledRef.current) return
+    deepLinkHandledRef.current = true
+
     const params = new URLSearchParams(window.location.search)
     const from = params.get("from")
     const date = params.get("date")
@@ -288,8 +360,13 @@ export default function AppointmentsPage() {
     const requestedDay = date ? new Date(`${date}T00:00:00`) : null
     if (requestedDay && !Number.isNaN(requestedDay.getTime())) {
       setSelectedDate(requestedDay)
-      // `selectView`, not `setView`, for the reason spelled out in the month branch below.
-      selectView("day")
+      // ⚠️ Jour only when the URL named no view. `?date=` is BOTH the dashboard's « Demain » link and half of
+      // this screen's own durable state, and forcing Jour unconditionally meant a reloaded Semaine came back as
+      // Jour — the write half of the addressable-agenda fix undone by the read half beside it.
+      if (!params.get("view")) {
+        // `selectView`, not `setView`, for the reason spelled out in the month branch below.
+        selectView("day")
+      }
     } else if (from && !Number.isNaN(Date.parse(from))) {
       setSelectedDate(new Date(`${from}T00:00:00`))
       // `selectView`, not `setView`: this marks the view DECIDED, so the narrow-screen Jour default below
@@ -302,6 +379,26 @@ export default function AppointmentsPage() {
 
     window.history.replaceState({}, "", "/appointments")
   }, [selectView])
+
+  /*
+   * ⚠️ The agenda's own state goes back INTO the URL — and the wipe above is still right.
+   *
+   * The two are not in conflict: the effect above consumes the **one-shot** deep-link params (`?appointmentId=`,
+   * `?patientId=`, which must not reopen a dialog on F5) and clears them; this writes the **durable** view state
+   * that survives a reload. Before it, nothing about the agenda was addressable at all — `?date=2026-08-24` plus
+   * « Rendez-vous terminés » became the current week with no filter and 26 blocks, so a colleague could not be
+   * sent « regarde le lundi 24 » and the desk could not refresh without losing its place.
+   *
+   * `toLocalIso`, never `toISOString().slice(0,10)`: the latter converts to UTC first and writes yesterday for the
+   * first hour of every Tunisian day.
+   */
+  useUrlFilters({
+    date: toLocalIso(selectedDate),
+    // Only when it is not the default, so an ordinary visit keeps a clean URL.
+    view: view === "week" ? undefined : view,
+    status: [showCompleted ? "completed" : null, showCancelled ? "cancelled" : null].filter(Boolean).join(",") || undefined,
+    doctorId: doctorFilterId,
+  })
 
   /**
    * Below `md:`, open on Jour (AC-28).

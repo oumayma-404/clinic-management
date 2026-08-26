@@ -27,8 +27,17 @@ public class LoginCommandHandlerTests
     private readonly Mock<ISecondFactorPolicy> _secondFactor = new();
     private readonly Mock<ISessionFamilyRepository> _sessionFamilies = new();
 
+    /// <summary>
+    /// The TOTP replay guard, permissive by default: every scenario here predates it and asserts something else,
+    /// so a first presentation must behave exactly as it did. A test about the replay overrides this.
+    /// </summary>
+    private readonly Mock<ITotpReplayGuard> _replay = new();
+
+    private readonly Mock<IAuditActorProvider> _auditActor = new();
+
     public LoginCommandHandlerTests()
     {
+        _replay.Setup(g => g.TryConsume(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
         // Every successful login now also issues the durable refresh token stored in the BFF cookie
         // (security-hardening US-5). Set up once here so the per-test arrangements stay focused on what they
         // are actually asserting; individual tests override it where the refresh token itself is the subject.
@@ -38,7 +47,8 @@ public class LoginCommandHandlerTests
 
     private LoginCommandHandler Handler() => new(
         _users.Object, _auth.Object, _uow.Object, _attempts.Object,
-        _totp.Object, _secrets.Object, _secondFactor.Object, _sessionFamilies.Object);
+        _totp.Object, _replay.Object, _secrets.Object, _secondFactor.Object,
+        _sessionFamilies.Object, _auditActor.Object);
 
     private static User LocalUser(bool mustChangePassword = false) =>
         User.CreateLocalUser(ClinicId, "doctor", "Doc@Clinic.com", "STORED-HASH", "Dr House", mustChangePassword);
@@ -140,7 +150,8 @@ public class LoginCommandHandlerTests
         var attempts2 = new Mock<ILoginAttemptTracker>(); // not locked for this source
         var perAccount = await new LoginCommandHandler(
                 users2.Object, _auth.Object, _uow.Object, attempts2.Object,
-                _totp.Object, _secrets.Object, _secondFactor.Object, _sessionFamilies.Object)
+                _totp.Object, _replay.Object, _secrets.Object, _secondFactor.Object,
+                _sessionFamilies.Object, _auditActor.Object)
             .Handle(Command(), CancellationToken.None);
 
         Assert.Equal(perSource.Error, perAccount.Error);

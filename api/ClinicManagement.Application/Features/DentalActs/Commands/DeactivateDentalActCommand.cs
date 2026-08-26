@@ -11,6 +11,18 @@ namespace ClinicManagement.Application.Features.DentalActs.Commands;
 public class DeactivateDentalActCommand : IRequest<Result>
 {
     public Guid Id { get; set; }
+
+    /// <summary>
+    /// <c>false</c> reactivates instead of deactivating.
+    ///
+    /// ⚠️ <b>All three catalogue entities had an <c>Activate()</c> method nothing called.</b> A deactivated row
+    /// stayed listed with only « Modifier », and an edit-save left <c>IsActive = false</c> — so a row switched off
+    /// by mistake was switched off for ever, and the only route back was the database. A soft delete whose inverse
+    /// is unreachable is a hard delete with extra steps.
+    ///
+    /// Defaults to <c>true</c> so the existing <c>DELETE</c> route keeps behaving exactly as it did.
+    /// </summary>
+    public bool Deactivate { get; set; } = true;
 }
 
 public class DeactivateDentalActCommandHandler : IRequestHandler<DeactivateDentalActCommand, Result>
@@ -51,7 +63,14 @@ public class DeactivateDentalActCommandHandler : IRequestHandler<DeactivateDenta
                 return Result.Failure("Acte introuvable.");
             }
 
-            act.Deactivate();
+            if (request.Deactivate)
+            {
+                act.Deactivate();
+            }
+            else
+            {
+                act.Activate();
+            }
             await _repository.UpdateAsync(act, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -60,7 +79,9 @@ public class DeactivateDentalActCommandHandler : IRequestHandler<DeactivateDenta
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error deactivating dental act {Id}", request.Id);
-            return Result.Failure("Erreur lors de la désactivation de l'acte.");
+            return Result.Failure(request.Deactivate
+                ? "Erreur lors de la désactivation de l'acte."
+                : "Erreur lors de la réactivation de l'acte.");
         }
     }
 }

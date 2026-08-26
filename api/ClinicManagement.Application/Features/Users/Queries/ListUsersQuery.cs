@@ -67,19 +67,7 @@ public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, Result<Clin
                 cancellationToken);
 
             var dtos = page
-                .Map(u => new ClinicUserDto
-                {
-                    Id = u.Id,
-                    ClinicId = u.ClinicId,
-                    Role = u.Role,
-                    Email = u.Email,
-                    FullName = u.FullName,
-                    IsActive = u.IsActive,
-                    IsPendingActivation = u.IsPendingActivation,
-                    MustChangePassword = u.MustChangePassword,
-                    LastLoginAt = u.LastLoginAt,
-                    CreatedAt = u.CreatedAt
-                });
+                .Map(u => u.ToClinicUserDto());
 
             // Counted over the whole clinic and outside the search term (I5). The figure exists to tell an admin
             // that someone cannot get in yet, so scoping it to the rows they happen to be looking at would hide
@@ -102,7 +90,11 @@ public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, Result<Clin
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<ClinicUsersPageDto>.Failure($"Error retrieving users: {ex.Message}");
+            // ⚠️ No `ex.Message`, and no English. This was the ONLY one of five sibling handlers that printed the
+            // server's raw exception — the other four return a generic French sentence and log — so a 500 on the
+            // users screen surfaced « Error retrieving users: 42P01: relation … does not exist » to a
+            // French-speaking dentist. The details are in the log above, where they belong.
+            return Result<ClinicUsersPageDto>.Failure("Erreur lors du chargement des utilisateurs.");
         }
     }
 }

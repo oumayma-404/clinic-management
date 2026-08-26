@@ -13,4 +13,7 @@ public class DentalActDto
     public bool RequiresAccordPrealable { get; set; }
     public bool IsActive { get; set; }
     public bool IsProvisional { get; set; }
+
+    /// <summary>Round-tripped by the edit form so a concurrent change is a 409 rather than a silent overwrite.</summary>
+    public uint Version { get; set; }
 }

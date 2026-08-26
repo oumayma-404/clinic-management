@@ -34,6 +34,7 @@ public class AuditController : ApiControllerBase
     /// <param name="from">Inclusive first day, in the <b>clinic's</b> calendar (Tunisia, UTC+1).</param>
     /// <param name="to">Inclusive last day, same zone.</param>
     /// <param name="action">`Insert` | `Update` | `Delete`. An unrecognised value is ignored, not refused.</param>
+    /// <param name="userId">One actor's entries — « qu'a fait cette personne ? ». An unknown id yields no rows.</param>
     /// <param name="page">1-based. Omitting it gets the first page — this read is never unbounded.</param>
     /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
     [HttpGet]
@@ -43,6 +44,7 @@ public class AuditController : ApiControllerBase
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
         [FromQuery] string? action = null,
+        [FromQuery] string? userId = null,
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null,
         CancellationToken cancellationToken = default)
@@ -55,6 +57,7 @@ public class AuditController : ApiControllerBase
                 From = from,
                 To = to,
                 Action = action,
+                UserId = userId,
                 Page = page,
                 PageSize = pageSize,
             },

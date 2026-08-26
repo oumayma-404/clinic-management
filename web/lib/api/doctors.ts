@@ -1,18 +1,19 @@
 import { apiGet, apiGetBlob, apiPut, apiPutFormData } from './client';
 import type { DoctorProfileDto } from './types';
+import type { WorkingDay } from '@/lib/working-hours';
 
-/** One day of a practitioner's working hours (same shape as the clinic-wide hours). */
-export interface WorkingDay {
-  day: string;
-  enabled: boolean;
-  from: string;
-  to: string;
-}
+/**
+ * One day of a practitioner's working hours. Re-exported, not redeclared: this was a third copy of the shape,
+ * and the mid-day closure added to the shared model would have reached the clinic editor and not this one.
+ */
+export type { WorkingDay } from '@/lib/working-hours';
 
 export interface UpdateMyDoctorProfileInput {
   ordreNumberCnomdt?: string;
   cachet?: File | null;
   removeCachet?: boolean;
+  /** The version read from the server. Omitted (or 0) the server skips the check — see `PatientDto.version`. */
+  version?: number;
 }
 
 /** Build the shared multipart body for both `/doctors/me` and `/doctors/{id}` — one payload shape, one mapper. */
@@ -20,6 +21,8 @@ function doctorProfileForm(input: UpdateMyDoctorProfileInput): FormData {
   const form = new FormData();
   // Always sent (empty clears it); the cachet is optional and RemoveCachet wins when set.
   form.append('OrdreNumberCnomdt', input.ordreNumberCnomdt ?? '');
+  // Multipart carries no numbers: an omitted version must arrive as 0 (« not supplied »), never as "undefined".
+  form.append('Version', String(input.version ?? 0));
   if (input.removeCachet) {
     form.append('RemoveCachet', 'true');
   } else if (input.cachet) {

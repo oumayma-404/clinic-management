@@ -156,7 +156,11 @@ public class ProcedureTypesController : ApiControllerBase
             return HandleFailure(result);
         }
 
-        return NoContent();
+        // ⚠️ A BODY, not `NoContent()`. The two outcomes — archived because a future rendez-vous still refers to
+        // the act, or deleted permanently — are decided server-side from usage, and the screen has no way to know
+        // which happened: the row simply vanished either way, so a permanent delete was indistinguishable from a
+        // deactivation on the one action that cannot be undone.
+        return Ok(new { archived = result.Value });
     }
 
     /// <summary>

@@ -66,6 +66,17 @@ public class OdontogramController : ApiControllerBase
             PatientId = patientId,
             ToothStateId = toothStateId
         });
-        return result.IsFailure ? HandleFailure(result, StatusCodes.Status404NotFound) : NoContent();
+        if (result.IsSuccess)
+        {
+            return NoContent();
+        }
+
+        // A rule refusal is a 400: the row was found, so 404 would deny the existence of something we just read.
+        // Branching on the CODE, never on the sentence — a reworded message must not change a status code.
+        return HandleFailure(
+            result,
+            result.Code == RemoveToothConditionCommand.NotADiagnosisCode
+                ? StatusCodes.Status400BadRequest
+                : StatusCodes.Status404NotFound);
     }
 }

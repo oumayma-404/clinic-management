@@ -620,6 +620,22 @@ bounded timeout that kills the process tree. **Fails loud** (no `pg_dump` on the
 insufficient free space — pre-check factors the live DB size via `pg_database_size` — or a non-zero exit →
 `InvalidOperationException` with a French operator message); a partial folder is deleted before rethrow.
 
+- **`LegacyBackupRelocation`** (root namespace, called from `Program.cs` right after the startup banner) — moves a
+  pre-existing `Backups/` folder **out** of the install directory. ⚠️ **`LocalInstallPaths.DefaultBackupRoot` only
+  fixed where NEW backups go; an install that already had one kept a dead PDF renderer.** QuestPDF's `FontManager`
+  static constructor walks `AppContext.BaseDirectory` **recursively** for fonts, the backup folders are ACL-hardened
+  by `DirectoryAclHardener` so the app's own account cannot enumerate them, and the resulting
+  `TypeInitializationException` is **CLR-cached for the life of the process** — so every ordonnance, every
+  background PDF and every emailed attachment fails until a restart that changes nothing. Measured: three such
+  folders on a dev machine → `generate-pdf-download` **400** on every call; folder moved out → **200, 49 627 bytes,
+  `%PDF-`**. Any clinic that ran a backup before upgrading is in the first state.
+  ⚠️ **Renaming is not enough** — the scan is of the whole tree, not of a folder called `Backups`: a rename to
+  `Backups.disabled` left the failure identical, the exception simply naming the new spelling.
+  ⚠️ **The folder is moved whole and never enumerated** — its *children* are the unreadable part, so
+  `Directory.GetDirectories` on it throws the very exception this exists to avoid; a directory move needs write
+  access on the **parent**, which the app has. Destination `<DefaultBackupRoot>/legacy-install-dir` (`-2`, `-3`… so a
+  second upgrade cannot overwrite the first), logged as a French warning, and it **never throws**: a clinic that
+  cannot move the folder must still start — it then loses PDFs, which is what it already had, not its server.
 - **`Services/PostgresToolLocator`** is the **single** answer to « where are `pg_dump`/`pg_restore`? », shared with
   the API's `restore-backup` verb: explicit config → beside the app (the installer's bundled `postgres\bin`) →
   **`PATH`** → the well-known per-version install roots, **newest first**. ⚠️ **Nothing needs configuring any

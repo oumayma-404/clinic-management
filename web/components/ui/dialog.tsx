@@ -112,12 +112,73 @@ export const DIALOG_DESKTOP =
   "md:data-[state=closed]:slide-out-to-bottom-0 md:data-[state=open]:slide-in-from-bottom-0 " +
   "md:data-[state=closed]:zoom-out-95 md:data-[state=open]:zoom-in-95 md:max-w-lg"
 
+/**
+ * The ✕ in a dialog or sheet corner: a 16 px glyph, and a box that **measures** 44 px on a finger.
+ *
+ * ⚠️ `.touch-target` alone was not enough, and the difference is why this constant exists. That utility overlays
+ * a 44 px pseudo-element without changing the element's own box, which is exactly right for the 32 px row actions
+ * in 22 tables — but this control had no box at all beyond its glyph, so it measured **16 px tall**: the smallest
+ * target in the app, on the one control a user reaches for to escape. An overlay makes it tappable; it does not
+ * make it findable, and it is not what an audit measures.
+ *
+ * `coarse:` only, and the offset is compensated so the glyph does not move: the painted icon's centre stays 24 px
+ * from each edge, because a 44 px box at `top-4` would push it to 38 px and the ✕ would visibly drift inward on a
+ * tablet. `0.5` = 2 px = 24 − 44/2.
+ */
+export const DIALOG_CLOSE_BUTTON =
+  "absolute top-4 end-4 z-10 inline-flex items-center justify-center rounded-xs " +
+  "coarse:top-0.5 coarse:end-0.5 coarse:size-11"
+
 /** The presentation-agnostic half: colours, layout, the enter/exit fade and the panel curve. */
 export const DIALOG_BASE =
   "bg-background fixed z-50 flex w-full flex-col gap-4 border p-6 shadow-lg outline-none ease-panel " +
   "data-[state=open]:animate-in data-[state=closed]:animate-out " +
   "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 " +
   "data-[state=closed]:duration-200 data-[state=open]:duration-300"
+
+/**
+ * **Focus goes back to the control that opened the dialog** — `Escape`, the ✕, an outside tap, all of them.
+ *
+ * Radix already restores focus to whatever was focused before the layer mounted, so this looks redundant. It is
+ * not, and the reason is the one shape this app opens dialogs from most: a `DropdownMenu` item. The menu closes
+ * with the dialog opening, so by the time the dialog is dismissed Radix's remembered element is **detached from
+ * the document** — `focus()` on a detached node silently does nothing and the focus ring lands on `<body>`.
+ * Keyboard users then tab from the top of the page every time, which the QA pass found on nine screens.
+ *
+ * So the capture walks up: a focused element inside an open Radix menu is resolved to that menu's *trigger*
+ * (`aria-controls` names the menu's id, and the trigger outlives the menu), and anything else is remembered as
+ * itself. On close, the remembered element is focused only if it is still connected; otherwise Radix's own
+ * behaviour is left alone rather than replaced by a worse guess.
+ *
+ * Shared with `AlertDialogContent`, which has the identical problem — a « Supprimer » item in a row menu opening
+ * a confirmation is exactly this case.
+ */
+export function useReturnFocusToTrigger() {
+  const triggerRef = React.useRef<HTMLElement | null>(null)
+
+  const captureTrigger = React.useCallback(() => {
+    const active = document.activeElement as HTMLElement | null
+    if (!active || active === document.body) {
+      triggerRef.current = null
+      return
+    }
+    const menu = active.closest<HTMLElement>('[role="menu"]')
+    const menuTrigger = menu?.id
+      ? document.querySelector<HTMLElement>(`[aria-controls="${CSS.escape(menu.id)}"]`)
+      : null
+    triggerRef.current = menuTrigger ?? active
+  }, [])
+
+  const restoreTrigger = React.useCallback((event: Event) => {
+    const trigger = triggerRef.current
+    triggerRef.current = null
+    if (!trigger?.isConnected) return
+    event.preventDefault()
+    trigger.focus({ preventScroll: true })
+  }, [])
+
+  return { captureTrigger, restoreTrigger }
+}
 
 function DialogContent({
   className,
@@ -130,6 +191,8 @@ function DialogContent({
   /** How this dialog presents below `md:`. `sheet` is full-screen, for the heavy forms. */
   mobile?: keyof typeof DIALOG_MOBILE_VARIANTS
 }) {
+  const { captureTrigger, restoreTrigger } = useReturnFocusToTrigger()
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -137,7 +200,19 @@ function DialogContent({
         data-slot="dialog-content"
         data-mobile={mobile}
         className={cn(DIALOG_BASE, DIALOG_MOBILE_VARIANTS[mobile], DIALOG_DESKTOP, className)}
+        // ⚠️ Spread BEFORE the two focus handlers, not after. Both of them chain the caller's own handler
+        // (`props.onXAutoFocus?.(event)`), which a later spread would silently defeat — leaving the caller's
+        // handler as the only one that runs and the title focus and trigger restore simply gone.
+        {...props}
+        onCloseAutoFocus={(event) => {
+          props.onCloseAutoFocus?.(event)
+          if (event.defaultPrevented) return
+          restoreTrigger(event)
+        }}
         onOpenAutoFocus={(event) => {
+          // Before anything else: `document.activeElement` is still the opener at this point in Radix's
+          // mount-autofocus dispatch, and after the title focus below it is not.
+          captureTrigger()
           props.onOpenAutoFocus?.(event)
           if (event.defaultPrevented) return
           /*
@@ -158,15 +233,15 @@ function DialogContent({
           title.tabIndex = -1
           title.focus({ preventScroll: true })
         }}
-        {...props}
       >
         {children}
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            // A 16px icon with no padding was a 16px target — the smallest control in the app, and the one a
-            // user reaches for to escape (AC-10/AC-22).
-            className="touch-target ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 z-10 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className={cn(
+              DIALOG_CLOSE_BUTTON,
+              "ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+            )}
           >
             <XIcon />
             <span className="sr-only">Fermer</span>

@@ -71,6 +71,21 @@ public class DentalActsController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, StatusCodes.Status404NotFound) : NoContent();
     }
 
+    /// <summary>
+    /// Reactivate an entry switched off by mistake. AdminOnly. A missing id is a genuine not-found (404).
+    ///
+    /// <para>⚠️ A separate route rather than a flag on the DELETE, so no existing caller changes and the inverse of
+    /// a soft delete is a thing a client can point at. Without it, cet acte désactivé par erreur ne revenait jamais —
+    /// the entity's own <c>Activate()</c> was unreachable from the product.</para>
+    /// </summary>
+    [HttpPost("{id:guid}/activate")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> ReactivateAct(Guid id)
+    {
+        var result = await _mediator.Send(new DeactivateDentalActCommand { Id = id, Deactivate = false });
+        return result.IsFailure ? HandleFailure(result, StatusCodes.Status404NotFound) : NoContent();
+    }
+
     /// <summary>Confirm the provisional dataset (clears "à vérifier" on all acts). AdminOnly.</summary>
     [HttpPost("confirm")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]

@@ -41,9 +41,11 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILoginAttemptTracker _attemptTracker;
     private readonly ITotpService _totpService;
+    private readonly ITotpReplayGuard _totpReplayGuard;
     private readonly IUserSecretProtector _secretProtector;
     private readonly ISecondFactorPolicy _secondFactorPolicy;
     private readonly ISessionFamilyRepository _sessionFamilies;
+    private readonly IAuditActorProvider _auditActor;
 
     public LoginCommandHandler(
         IUserRepository userRepository,
@@ -51,18 +53,22 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         IUnitOfWork unitOfWork,
         ILoginAttemptTracker attemptTracker,
         ITotpService totpService,
+        ITotpReplayGuard totpReplayGuard,
         IUserSecretProtector secretProtector,
         ISecondFactorPolicy secondFactorPolicy,
-        ISessionFamilyRepository sessionFamilies)
+        ISessionFamilyRepository sessionFamilies,
+        IAuditActorProvider auditActor)
     {
         _userRepository = userRepository;
         _localAuthService = localAuthService;
         _unitOfWork = unitOfWork;
         _attemptTracker = attemptTracker;
         _totpService = totpService;
+        _totpReplayGuard = totpReplayGuard;
         _secretProtector = secretProtector;
         _secondFactorPolicy = secondFactorPolicy;
         _sessionFamilies = sessionFamilies;
+        _auditActor = auditActor;
     }
 
     /// <summary>
@@ -167,8 +173,22 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 // required ». The key ring is the only thing that can cause it, the recovery is
                 // `reset-user-totp`, and the alternative degradation would silently disarm the whole feature
                 // for every administrator at once.
+                /*
+                 * ⚠️ Verified FIRST, then claimed — and the order is the whole of the replay fix.
+                 *
+                 * RFC 6238 § 5.2 forbids accepting the second presentation of a code, and this product makes the
+                 * factor mandatory for administrators, so a code observed once was replayable for the rest of its
+                 * ~90-second accepted window. Claiming BEFORE verifying would be worse than not guarding at all:
+                 * a wrong guess would burn the real code's one use and lock the account's own owner out of their
+                 * own window.
+                 *
+                 * A replay lands in the SAME branch as a wrong code — same counter, same `invalid_credentials` —
+                 * so it cannot be used to learn that the code was otherwise valid, which is what would turn the
+                 * guard into an oracle.
+                 */
                 if (!_secretProtector.TryUnprotect(user.ProtectedTotpSecret!, out var secret)
-                    || !_totpService.VerifyCode(secret, request.TotpCode!))
+                    || !_totpService.VerifyCode(secret, request.TotpCode!)
+                    || !_totpReplayGuard.TryConsume(user.Id, request.TotpCode!))
                 {
                     // A present-but-wrong code is deliberately indistinguishable from a wrong password: it
                     // spends an attempt and answers `invalid_credentials`, so the ladder cannot be used to
@@ -189,6 +209,13 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
 
             // A user who simply mistyped should not carry a penalty into their next session.
             _attemptTracker.ClearForCurrentSource(user.Id);
+            /*
+             * ⚠️ Declared BEFORE the save that stamps `LastLoginAt`, or the row it writes is attributed to
+             * `job|unknown` and the journal renders « Tâche automatique » for a person signing in — 329 of 1 868
+             * rows, ~18 %, on the one ledger an owner reaches for when something else has gone wrong. This
+             * endpoint is anonymous by construction (the token is its output), so nothing else can know who this is.
+             */
+            _auditActor.AuthenticatedAs(user.Id, user.Email);
             user.RecordSuccessfulLogin();
             var token = _localAuthService.GenerateToken(user);
 

@@ -58,6 +58,11 @@ export default function PatientFilesPage() {
 
   const patientName = getPatientName(patient)
 
+  // ⚠️ The API's own not-found sentence IS this card's heading, so printing both made the whole card
+  // « Patient introuvable » twice. Dropped when it matches; the recovery line below is unconditional.
+  const detail =
+    error && error.replace(/[\s.!]+$/u, "").toLocaleLowerCase("fr") !== "patient introuvable" ? error : null
+
   const backButton = (
     <Button variant="ghost" onClick={() => router.push(`/patients/${patientId}`)} className="gap-2">
       <ArrowLeft className="h-4 w-4" />
@@ -74,7 +79,10 @@ export default function PatientFilesPage() {
         {error ? (
           <div role="status" className="rounded-lg border border-destructive/40 bg-destructive/5 p-6">
             <p className="font-medium text-foreground">Patient introuvable</p>
-            <p className="mt-1 text-sm text-muted-foreground">{error}</p>
+            {detail ? <p className="mt-1 text-sm text-muted-foreground">{detail}</p> : null}
+            <p className="mt-1 text-sm text-muted-foreground">
+              Ce dossier a peut-être été supprimé, ou le lien n&apos;est plus valable.
+            </p>
             <Button variant="outline" className="mt-4" onClick={() => void loadPatient()}>
               Réessayer
             </Button>

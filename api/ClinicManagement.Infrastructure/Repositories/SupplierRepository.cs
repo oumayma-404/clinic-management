@@ -49,6 +49,14 @@ public class SupplierRepository : ISupplierRepository
                 EF.Functions.ILike(SqlSearch.Unaccent(s.Name)!, pattern, SqlSearch.EscapeString) ||
                 EF.Functions.ILike(SqlSearch.Unaccent(s.Category)!, pattern, SqlSearch.EscapeString) ||
                 EF.Functions.ILike(SqlSearch.Unaccent(s.PhoneNumber)!, pattern, SqlSearch.EscapeString) ||
+                // ⚠️ And the same number with its grouping spaces removed. « 98 456 321 » is how a delivery note
+                // spaces it and « 98456321 » is what is read off a phone screen — the second found nothing,
+                // because the pattern spanned a stored space. The search label sells « par … téléphone », so the
+                // realistic input has to work; `replace` translates to SQL, so this stays a database question.
+                EF.Functions.ILike(
+                    s.PhoneNumber!.Replace(" ", "").Replace("-", "").Replace(".", ""),
+                    pattern,
+                    SqlSearch.EscapeString) ||
                 EF.Functions.ILike(SqlSearch.Unaccent(s.Address)!, pattern, SqlSearch.EscapeString));
         }
 
@@ -104,13 +112,25 @@ public class SupplierRepository : ISupplierRepository
     }
 
     public async Task<IReadOnlyList<string>> GetCategoriesAsync(
-        Guid clinicId, CancellationToken cancellationToken = default)
+        Guid clinicId, bool activeOnly = false, CancellationToken cancellationToken = default)
     {
-        // Sorted in SQL so the picker's order does not depend on which page happened to load. Deactivated
-        // suppliers count: a category the practice files contacts under does not stop being one because a dépôt
-        // closed (ProcedureTypeRepository.GetCategoriesAsync' precedent).
-        return await _context.Suppliers
-            .Where(s => s.ClinicId == clinicId && s.Category != null && s.Category != "")
+        // Sorted in SQL so the picker's order does not depend on which page happened to load.
+        //
+        // ⚠️ `activeOnly` exists because the two consumers ask DIFFERENT questions. The FORM's suggestion list
+        // wants every label the practice has ever filed a contact under — a category does not stop being one
+        // because a dépôt closed (ProcedureTypeRepository.GetCategoriesAsync' precedent). The FILTER's chips want
+        // only what can still narrow the default list, which excludes deactivated rows: retiring the only
+        // laboratory of a kind left a chip on the toolbar whose every click answered « Aucun fournisseur pour ces
+        // filtres ». `suppliers-table.tsx` makes « a filter offers what narrowing is possible » its own rule.
+        var scoped = _context.Suppliers
+            .Where(s => s.ClinicId == clinicId && s.Category != null && s.Category != "");
+
+        if (activeOnly)
+        {
+            scoped = scoped.Where(s => s.IsActive);
+        }
+
+        return await scoped
             .Select(s => s.Category!)
             .Distinct()
             .OrderBy(c => c)

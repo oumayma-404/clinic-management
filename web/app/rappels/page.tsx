@@ -35,7 +35,7 @@ import { useSession } from "@/lib/auth/session"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { showErrorToast } from "@/lib/errors"
-import { todayLocalIso } from "@/lib/format"
+import { quoteFr, todayLocalIso } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /** How far back the log looks by default. Wide enough that last week's failure is on the first screen. */
@@ -97,6 +97,8 @@ export default function RappelsPage() {
   // table on every keystroke or chip tap is what makes a filtered list feel like it is reloading the page.
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  /** Band C — the log read failed. Distinct from « no rows », which is a fact about the practice. */
+  const [logFailed, setLogFailed] = useState(false)
 
   const isFiltered = status !== "all" || channel !== "all"
 
@@ -114,7 +116,11 @@ export default function RappelsPage() {
         pageSize,
       })
       setData(result)
+      setLogFailed(false)
     } catch (error) {
+      // Band C — recorded as a FAILURE, not only toasted. A toast expires and leaves « Aucun message pour le
+      // moment » on screen, which is a claim about the practice's reminders made out of a network error.
+      setLogFailed(true)
       showErrorToast(error, "Le journal des rappels n'a pas pu être chargé.")
     } finally {
       setLoading(false)
@@ -231,6 +237,14 @@ export default function RappelsPage() {
    * breakdown of the number above it. Absent entirely at zero, which is the normal reading.
    */
   const heldByAllowance = data?.heldByAllowance ?? 0
+  /**
+   * Blocked by the SENDER, not by the forfait — an unapproved template or a number Meta has stopped.
+   *
+   * ⚠️ Its own sentence, because its own remedy. These rows were inside `heldByAllowance`, so a reminder the log's
+   * own badge reads « numéro » told the practice it was « en attente de forfait » — and « ils partiront dès que
+   * nous augmentons votre forfait » is then a promise about the wrong thing entirely.
+   */
+  const heldBySender = data?.heldBySender ?? 0
 
   return (
     <ClinicGuard>
@@ -269,6 +283,23 @@ export default function RappelsPage() {
               ? "1 rappel est en attente de forfait"
               : `${heldByAllowance.toLocaleString("fr-TN")} rappels sont en attente de forfait`}{" "}
             — ils partiront dès que nous augmentons votre forfait WhatsApp.{" "}
+            <button
+              type="button"
+              onClick={() => setFilter(setStatus)("blocked")}
+              className="touch-target underline"
+            >
+              Voir lesquels
+            </button>
+          </p>
+        )}
+
+        {heldBySender > 0 && (
+          <p role="status" className="-mt-2 text-sm text-warning-ink">
+            {heldBySender === 1
+              ? "1 rappel WhatsApp est bloqué par la connexion"
+              : `${heldBySender.toLocaleString("fr-TN")} rappels WhatsApp sont bloqués par la connexion`}{" "}
+            — le modèle de message n'est pas encore validé, ou le numéro a été suspendu. Ce n'est pas une question
+            de forfait&nbsp;: nous nous en occupons.{" "}
             <button
               type="button"
               onClick={() => setFilter(setStatus)("blocked")}
@@ -353,7 +384,7 @@ export default function RappelsPage() {
           {status !== "all" && (
             <button
               type="button"
-              aria-label={`Retirer le filtre « ${DELIVERY_LABEL_PLURAL[status]} »`}
+              aria-label={`Retirer le filtre ${quoteFr(DELIVERY_LABEL_PLURAL[status])}`}
               onClick={() => setFilter(setStatus)("all")}
               className={cn(
                 "touch-target inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-medium",
@@ -374,6 +405,8 @@ export default function RappelsPage() {
           onResetFilters={resetFilters}
           noChannelConfigured={looksUnconfigured}
           onConfigure={isAdmin ? () => setConfigOpen(true) : undefined}
+          loadFailed={logFailed}
+          onRetry={load}
         />
 
         {data && data.page.totalCount > 0 && (

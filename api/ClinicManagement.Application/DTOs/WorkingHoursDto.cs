@@ -15,6 +15,20 @@ public sealed class WorkingDayDto
     public bool Enabled { get; set; }
     public string From { get; set; } = string.Empty;
     public string To { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional mid-day closure (the Tunisian lunch break), <c>HH:mm</c> inside <c>[From, To]</c>. Both ends or
+    /// neither; null/blank on both means the day is one contiguous window.
+    /// </summary>
+    /// <remarks>
+    /// One window per day was the only shape this model could express, so a cabinet closing 12:00–14:00 had to
+    /// store 09:00–17:00 — and then <see cref="WorkingHoursResolver.IsWithin"/> accepted a 12:30 booking, the
+    /// agenda drew the closure as open, and the reminder told the patient to come.
+    /// </remarks>
+    public string? BreakFrom { get; set; }
+
+    /// <inheritdoc cref="BreakFrom"/>
+    public string? BreakTo { get; set; }
 }
 
 /// <summary>How a stored working-hours value read back (AC-P1.24).</summary>
@@ -169,9 +183,56 @@ public static class WorkingHoursSerializer
                 return Result<List<WorkingDayDto>>.Failure(
                     $"« {FrenchDay(name)} » : l'heure de fermeture doit être postérieure à l'heure d'ouverture.");
             }
+
+            var breakResult = ValidateBreak(day, name, from, to);
+            if (breakResult.IsFailure)
+            {
+                return Result<List<WorkingDayDto>>.Failure(breakResult.Error!);
+            }
         }
 
         return Result<List<WorkingDayDto>>.Success(days);
+    }
+
+    /// <summary>
+    /// The optional mid-day closure's rules: both ends or neither, well-formed, ordered, and inside the day's
+    /// open window. Half a break is refused rather than dropped — storing one end would leave a closure the
+    /// booking guard cannot enforce and the summary cannot render.
+    /// </summary>
+    private static Result<bool> ValidateBreak(WorkingDayDto day, string name, TimeSpan from, TimeSpan to)
+    {
+        var hasFrom = !string.IsNullOrWhiteSpace(day.BreakFrom);
+        var hasTo = !string.IsNullOrWhiteSpace(day.BreakTo);
+        if (!hasFrom && !hasTo)
+        {
+            return Result<bool>.Success(true);
+        }
+
+        if (hasFrom != hasTo)
+        {
+            return Result<bool>.Failure(
+                $"« {FrenchDay(name)} » : indiquez le début ET la fin de la pause, ou laissez les deux vides.");
+        }
+
+        if (!TryParseTime(day.BreakFrom, out var breakFrom) || !TryParseTime(day.BreakTo, out var breakTo))
+        {
+            return Result<bool>.Failure(
+                $"« {FrenchDay(name)} » : pause invalide (format attendu HH:mm).");
+        }
+
+        if (breakFrom >= breakTo)
+        {
+            return Result<bool>.Failure(
+                $"« {FrenchDay(name)} » : la fin de la pause doit être postérieure à son début.");
+        }
+
+        if (breakFrom < from || breakTo > to)
+        {
+            return Result<bool>.Failure(
+                $"« {FrenchDay(name)} » : la pause doit être comprise entre {day.From} et {day.To}.");
+        }
+
+        return Result<bool>.Success(true);
     }
 
     /// <summary>Validate and canonicalize an incoming payload to stored JSON, or a French failure.</summary>

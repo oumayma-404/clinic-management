@@ -7,6 +7,7 @@ import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { BellOff, SearchX, Send } from "lucide-react"
 import { STATUS_TONE_CLASS, STATUS_TONE_INK, STATUS_TONE_RAIL } from "@/components/ui/status-tone"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { cn } from "@/lib/utils"
 import { formatDateTime } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
@@ -44,6 +45,13 @@ interface ReminderLogTableProps {
   /** No channel is sendable — a different emptiness from "nothing sent yet", with a different way out. */
   noChannelConfigured?: boolean
   onConfigure?: () => void
+  /**
+   * Band C — the read FAILED. A fourth state, and the one that is not an emptiness at all: « Aucun message pour
+   * le moment » on a 500 tells a practice its reminders are quiet when in fact nobody knows. Takes precedence
+   * over all three empty states below.
+   */
+  loadFailed?: boolean
+  onRetry?: () => void
 }
 
 export function ReminderLogTable({
@@ -54,7 +62,22 @@ export function ReminderLogTable({
   onResetFilters,
   noChannelConfigured = false,
   onConfigure,
+  loadFailed = false,
+  onRetry,
 }: ReminderLogTableProps) {
+  // Before the empty states AND before the skeleton: a failed read is neither loading nor empty.
+  if (loadFailed) {
+    return (
+      <div className="rounded-xl border p-4">
+        <LoadFailureNotice
+          message="Le journal des rappels n'a pas pu être chargé."
+          detail="Aucune conclusion ne peut être tirée sur les envois tant qu'il n'est pas lu."
+          onRetry={onRetry}
+        />
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="rounded-xl border" role="status" aria-label="Chargement du journal">

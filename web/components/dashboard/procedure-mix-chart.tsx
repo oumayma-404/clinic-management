@@ -12,6 +12,16 @@ import type { ProcedureMixPointDto } from "@/lib/api/types"
 /** Kept in step with `DashboardProcedureMixReader.MaxPoints` — stated to the reader, never a silent cut. */
 const SERVER_CAP = 8
 
+/**
+ * The folded-tail point's name, exactly as `DashboardProcedureMixReader.OthersName` writes it.
+ *
+ * ⚠️ It is matched to change the CAPTION, never to hide the row: the tail used to be dropped, so the chart's
+ * figures did not sum to the période's own act count and a reader adding the bars up got a wrong total. The
+ * server now folds it, and the caption has to stop claiming this is a top-8 list — it is the whole period, with a
+ * tail collapsed.
+ */
+const OTHERS_NAME = "Autres actes"
+
 type Measure = "minutes" | "count"
 
 /**
@@ -140,12 +150,18 @@ export function ProcedureMixChart({
               })}
             </ul>
 
-            {/* No silent caps: a clinic with a wider catalogue is told it is looking at the busiest acts. */}
-            {points.length >= SERVER_CAP && (
+            {/* No silent caps — and, now that the tail is folded rather than dropped, no silent arithmetic
+                either: say which of the two the reader is looking at. */}
+            {points.some((point) => point.name === OTHERS_NAME) ? (
+              <p className="mt-4 text-xs text-muted-foreground">
+                Les {SERVER_CAP} actes les plus fréquents, plus «&nbsp;{OTHERS_NAME}&nbsp;» qui regroupe le reste —
+                le total couvre donc toute la période.
+              </p>
+            ) : points.length >= SERVER_CAP ? (
               <p className="mt-4 text-xs text-muted-foreground">
                 Les {SERVER_CAP} actes les plus fréquents de la période.
               </p>
-            )}
+            ) : null}
           </>
         )}
       </CardContent>

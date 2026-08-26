@@ -12,6 +12,12 @@ export type ReminderEffectiveStatus = 'configured' | 'not_configured';
  * per-install default. Secret values are never returned — only a per-secret configured flag.
  */
 export interface ReminderSettingsDto {
+  /**
+   * Optimistic-concurrency token. ⚠️ Round-trip it on `update` — without it two tabs on « Configurer les canaux »
+   * both reported success while one set of channel settings silently replaced the other.
+   */
+  version: number;
+
   smsEnabled: boolean | null;
   whatsAppEnabled: boolean | null;
   smsSenderId: string | null;
@@ -131,6 +137,14 @@ export interface ReminderLogDto {
    * to configure a channel or ask us for more messages — two entirely different actions behind one number.
    */
   heldByAllowance: number;
+  /**
+   * Blocked because the WhatsApp **sender** cannot send — an unapproved template, or a number Meta has stopped.
+   *
+   * ⚠️ Counted apart from `heldByAllowance` because the remedy differs: one is answered by more messages, the
+   * other by the connection being fixed. They used to be one figure, so a row the log itself badges « numéro »
+   * was reported as « en attente de forfait » and the practice waited for something that was never coming.
+   */
+  heldBySender: number;
 }
 
 /** Payload posted after a successful Meta Embedded-Signup run (Cloud onboarding). */
@@ -145,6 +159,9 @@ export interface ConnectWhatsAppRequest {
  * are write-only: omit/blank ⇒ the stored secret is left unchanged; a value ⇒ re-encrypted & replaced.
  */
 export interface UpdateReminderSettingsRequest {
+  /** The version read from the server. Omitted (or 0) the server skips the check. */
+  version?: number;
+
   smsEnabled?: boolean | null;
   whatsAppEnabled?: boolean | null;
   smsSenderId?: string | null;

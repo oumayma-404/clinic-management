@@ -16,6 +16,11 @@ public interface IAuditEntryRepository
     /// <para><paramref name="from"/>/<paramref name="to"/> are inclusive UTC bounds; the caller derives them from
     /// <c>ClinicClock</c> so « le 3 août » means the clinic's day, not UTC's.</para>
     /// </summary>
+    /// <param name="userId">
+    /// One actor's entries — « qu'a fait cette personne ? ». Matched exactly on the stored id, which is a
+    /// <c>User.Id</c> for a person and a prefixed value for a process or the vendor's console (see
+    /// <c>AuditActor</c>), so the same parameter also isolates « ce qu'a fait la tâche automatique ».
+    /// </param>
     Task<PagedResult<AuditEntry>> GetFilteredAsync(
         Guid clinicId,
         string? entityType = null,
@@ -23,6 +28,7 @@ public interface IAuditEntryRepository
         DateTime? from = null,
         DateTime? to = null,
         AuditAction? action = null,
+        string? userId = null,
         PageRequest? paging = null,
         CancellationToken cancellationToken = default);
 
@@ -32,6 +38,21 @@ public interface IAuditEntryRepository
     /// interceptor exists at all: a list somebody has to remember to extend is a list that stops being true.
     /// </summary>
     Task<IReadOnlyList<string>> GetRecordedEntityTypesAsync(
+        Guid clinicId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The actors this clinic actually has rows for — id plus the email recorded with it — so the screen's
+    /// « Auteur » filter can offer real people rather than asking an admin to paste a user id.
+    ///
+    /// <para>Derived from the ledger and not from the <c>Users</c> table, deliberately: a colleague who has since
+    /// left still appears in the history, and « qu'a fait cette personne ? » is asked about them most of all. It
+    /// also covers the background jobs and the vendor's console, which are not clinic users at all.</para>
+    ///
+    /// <para>An id can carry more than one email over time (an address change); the newest is kept, because it is
+    /// the one an admin will recognise.</para>
+    /// </summary>
+    Task<IReadOnlyList<AuditActorRow>> GetRecordedActorsAsync(
         Guid clinicId,
         CancellationToken cancellationToken = default);
 
@@ -61,6 +82,9 @@ public interface IAuditEntryRepository
         DateTime toUtc,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>One distinct actor in a clinic's ledger: the stored id and the most recent email seen with it.</summary>
+public record AuditActorRow(string UserId, string? UserEmail);
 
 /// <summary>One audit row, reduced to what an activity count depends on.</summary>
 public record ClinicActivityAuditRow(string UserId, string EntityType, AuditAction Action, DateTime OccurredAt);

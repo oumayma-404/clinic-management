@@ -13,6 +13,9 @@ public class DoctorProfileDto
     public string? OrdreNumberCnomdt { get; set; }
     public bool HasCachet { get; set; }
     public string? CachetContentType { get; set; }
+
+    /// <summary>Round-tripped by « Mon profil » so a concurrent change is a 409 rather than a silent overwrite.</summary>
+    public uint Version { get; set; }
 }
 
 /// <summary>Streamed cachet image + its persisted content type (mirrors the patient-file download shape).</summary>

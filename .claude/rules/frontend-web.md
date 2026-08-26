@@ -330,6 +330,14 @@ multi-tenant backend, where the probe 404s — reading that 404 as "offline" is 
 controls off permanently. **Only a 200 that says so means "no egress".** (Google Calendar is now the *only*
 egress-dependent feature; the AI assistant that used to be the other one is deleted.)
 
+**One way to quote a value in French guillemets:** `quoteFr(value)` in `lib/format.ts`. Never write it inline with
+ordinary spaces — a space is a break opportunity, so the closing guillemet is free to wrap onto a line of its own.
+At 320 px `/fichiers` rendered « Aucun résultat pour … » with a final line holding nothing but `»`, measured a full
+line below the text it closed. The quoted value is a search term, a file name, a patient's name: its width is
+unknown when the line is written, so unlike static prose it cannot be eye-checked once and left alone. `quoteFr`
+binds both guillemets with a narrow no-break space (`U+202F`). 59 sites across 30 files carried the defect; the
+`french-quote-binding` check fails the gate on a 60th, in either the template-literal or the JSX shape.
+
 **No user-facing string may name the « réseau local ».** The same server is reached over a LAN, over Wi-Fi and over a
 mobile network, so that wording is false everywhere but the offline-LAN install and points a dentist at something
 that is not there. Say « Vérifiez votre connexion ». The `local-network-wording` check fails the gate on it.
@@ -387,7 +395,9 @@ enforced while being inert — so a new check is either written to pass or the d
 | Custom variants (`coarse:`, `hover-hover:`, `dark:`), tokens, `--bottom-inset`, `.touch-target` | `web/app/globals.css` (each with its reasoning inline) |
 | Shell, gutter, content width, bottom bar | `components/app-shell.tsx`, `components/bottom-nav.tsx` |
 | Table → cards | `components/ui/card-list.tsx` |
-| Page title, zone colour, filter chips | `ui/page-header.tsx` (**its controls go in `actions`, never a flex row around it** — the zone wash is sized to the header's own box), `lib/zones.ts`, `ui/list-toolbar.tsx` |
+| Page title, zone colour, filter chips | `ui/page-header.tsx` (**its controls go in `actions`, never a flex row around it** — as a flex item the header shrinks to its title and the controls stop reaching the page edge), `lib/zones.ts`, `ui/list-toolbar.tsx` |
+| A row of figures over a list (« Caisse », « Factures », « Chèques », « Rappels ») | `ui/stat-strip.tsx` — **the one summary strip.** A `tone` colours the figure and its glyph, never the cell |
+| The page ground's grain | `.page-canvas` in `globals.css`, carried by `AppShell`'s `<main>`. Achromatic and uniform on purpose — a zone-tinted band behind each header was tried and read as a stain |
 | An empty state inside a wide table | `ui/table.tsx`'s `TableEmptyRow` — a `colSpan` cell is as wide as the table, not the screen |
 | Empty / filtered / failed | `ui/empty-state.tsx` |
 | Status colour vs. zone colour | `ui/status-tone.ts` (status) vs `lib/zones.ts` (place) — never interchange |

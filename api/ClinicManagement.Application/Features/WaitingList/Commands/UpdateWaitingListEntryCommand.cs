@@ -15,6 +15,11 @@ public class UpdateWaitingListEntryCommand : IRequest<Result<WaitingListEntryDto
     public string Priority { get; set; } = string.Empty;
     public string? DesiredTimeframe { get; set; }
     public string? Note { get; set; }
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user was
+    /// editing; <c>0</c> means « not supplied » and skips the check (see <c>IUnitOfWork.SetExpectedVersion</c>).
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class UpdateWaitingListEntryCommandHandler : IRequestHandler<UpdateWaitingListEntryCommand, Result<WaitingListEntryDto>>
@@ -40,6 +45,9 @@ public class UpdateWaitingListEntryCommandHandler : IRequestHandler<UpdateWaitin
             if (!Enum.TryParse<WaitingListPriority>(request.Priority, ignoreCase: true, out var priority))
                 return Result<WaitingListEntryDto>.Failure("Priorité invalide.");
 
+            if (WaitingListLimits.Refuse(request.DesiredTimeframe, request.Note) is { } tooLong)
+                return Result<WaitingListEntryDto>.Failure(tooLong);
+
             var clinic = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinic.IsFailure)
                 return Result<WaitingListEntryDto>.Failure(clinic.Error ?? "Cabinet introuvable.");
@@ -53,6 +61,9 @@ public class UpdateWaitingListEntryCommandHandler : IRequestHandler<UpdateWaitin
                 request.PreferredDoctorId,
                 string.IsNullOrWhiteSpace(request.DesiredTimeframe) ? null : request.DesiredTimeframe.Trim(),
                 string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim());
+
+            // Band B — validated against the copy the USER was editing, not the row this handler just read.
+            _unitOfWork.SetExpectedVersion(entry, request.Version);
 
             await _waitingListRepository.UpdateAsync(entry, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

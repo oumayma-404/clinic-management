@@ -72,11 +72,17 @@ export function useDashboardPreferences() {
       .getPreferences()
       .then((prefs) => {
         if (cancelled) return
-        // The server sends `hiddenKpis: []` both for "no row" and for "row with nothing hidden". It cannot tell us
-        // which, so we infer: a fresh account gets the defaults, and the moment the user saves anything — including
-        // saving an empty set — `hasStoredPreferences` flips and the defaults stop applying.
+        /*
+         * ⚠️ `isCustomised`, NOT `hiddenKpis.length`.
+         *
+         * The inference this replaces — « empty means fresh » — was wrong for exactly one input and it was the one
+         * the customiser's own « Tout afficher » button produces: the write landed (`HiddenKpisCsv = ''`), the next
+         * load read an empty set, concluded « never customised » and re-applied the defaults over it. So the one
+         * layout choice a user could make with a single click was the one that could not be saved. The server now
+         * says whether a row exists, which is the only side that can.
+         */
         const stored = prefs.hiddenKpis.filter(isBlockKey)
-        if (stored.length > 0) {
+        if (prefs.isCustomised) {
           hasStoredPreferences.current = true
           applyHidden(new Set(stored))
         } else {

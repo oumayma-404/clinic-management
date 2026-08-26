@@ -72,17 +72,24 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { useUrlFilterSeed, useUrlFilters } from "@/lib/hooks/use-url-filters"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { labOrdersApi, type LabWorkOrderPayload } from "@/lib/api/lab-orders"
 import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
 import type { LabWorkOrderDto, PatientDto } from "@/lib/api/types"
-import { formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
+import { isFdiTooth } from "@/components/tooth-multiselect"
+import { formatAmount, formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
 
 // The four lifecycle stages a lab work order moves through (mirrors the backend enum).
 type LabOrderStatus = "Sent" | "InProgress" | "Received" | "Fitted"
 
 
 const ALL_STATUSES = "all"
+
+/** How the list is ordered. `created` is the default the screen has always had. */
+type LabOrderSort = "created" | "expected"
 
 const STATUS_LABELS: Record<LabOrderStatus, string> = {
   Sent: "Envoyé",
@@ -213,6 +220,19 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
   const [supplierId, setSupplierId] = useState<string | null>(null)
   const [supplierCreateOpen, setSupplierCreateOpen] = useState(false)
   const [supplierReloadKey, setSupplierReloadKey] = useState(0)
+  const [banner, setBanner] = useState<string | null>(null)
+  const [isConflict, setIsConflict] = useState(false)
+  /*
+   * Band B — and on this screen it was the worst instance in the whole QA pass: two saves in a row silently
+   * reverted dent 47 → vide and coût 77,500 → 14,000 DT under a « Bon mis à jour » toast. ⚠️ The VERSION only:
+   * the read lands after the fields hydrate below, so its values would replace what the user typed.
+   */
+  const { source: freshOrder, resync } = useFreshVersion(
+    open,
+    editingOrder?.id,
+    editingOrder,
+    async () => (await labOrdersApi.list()).find((o) => o.id === editingOrder!.id) ?? null,
+  )
 
   const selectedPatient = patients.find((p) => p.id === patientId)
   const selectedPatientName = selectedPatient ? `${selectedPatient.firstName} ${selectedPatient.lastName}`.trim() : ""
@@ -225,7 +245,9 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
       setToothNumber(editingOrder.toothNumber != null ? String(editingOrder.toothNumber) : "")
       setSentDate(toDateInput(editingOrder.sentDate))
       setExpectedDate(toDateInput(editingOrder.expectedDate))
-      setCost(editingOrder.cost != null ? String(editingOrder.cost) : "")
+      // `formatAmount`, not `String(cost)`: the raw number prints « 133.25 » on the single field where this app
+      // spends effort teaching « 133,250 ». It round-trips either way — `parseAmountOrNull` accepts both.
+      setCost(editingOrder.cost != null ? formatAmount(editingOrder.cost) : "")
       setNotes(editingOrder.notes ?? "")
       setSupplierId(editingOrder.supplierId ?? null)
     } else {
@@ -240,6 +262,8 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
       setSupplierId(null)
     }
     setErrors({})
+    setBanner(null)
+    setIsConflict(false)
   }, [editingOrder, open])
 
   /**
@@ -257,6 +281,16 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
     if (!editingOrder && !patientId) next.patientId = "Le patient est requis"
     if (!prosthetist.trim()) next.prosthetist = "Le prothésiste est requis"
     if (!workDescription.trim()) next.workDescription = "La description du travail est requise"
+    // A piece cannot be expected back before it was sent. Refused server-side too (`LabOrderDates`); this is the
+    // field-level half, so the user is told beside the field they got wrong rather than by a toast.
+    if (sentDate && expectedDate && expectedDate < sentDate) {
+      next.expectedDate = "La date prévue ne peut pas être antérieure à la date d'envoi"
+    }
+    // One predicate for both halves: « 99 » parsed and was stored, « ab » parsed to null and was dropped without
+    // a word. Refused server-side too (`FdiTooth.Refuse`) — this is the field-level half.
+    if (toothNumber.trim() !== "" && !isFdiTooth(Number(toothNumber.trim()))) {
+      next.toothNumber = "Numéro FDI invalide : 11–48 (adulte) ou 51–85 (enfant)"
+    }
     setErrors(next)
     return Object.keys(next).length === 0
   }
@@ -277,12 +311,24 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
       // Replace-semantics like every other field of this payload — sending null detaches the laboratory, which
       // is the « ce n'était pas ce labo » correction. Deliberately NOT the tri-state the stock item uses.
       supplierId,
+      /*
+       * ⚠️ Echoed back, not omitted. `AppointmentId` is replace-semantics on this command, so leaving it out of
+       * the payload set it to null — every edit from this screen silently detached the séance and « Voir le RDV »
+       * disappeared from the row. The form offers no control for it, so the only correct value is the one the bon
+       * already holds.
+       */
+      appointmentId: editingOrder?.appointmentId ?? null,
     }
 
     try {
       setSaving(true)
+      setBanner(null)
+      setIsConflict(false)
       if (editingOrder) {
-        const updated = await labOrdersApi.update(editingOrder.id, common)
+        const updated = await labOrdersApi.update(editingOrder.id, {
+          ...common,
+          version: freshOrder?.version ?? editingOrder.version,
+        })
         toast.success("Bon de laboratoire mis à jour")
         // A bon routinely arrives before the labo's facture does — received with no coût, then edited to enter
         // it. That edit is what posts the dépense, so it is what has to say so.
@@ -296,7 +342,12 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
       onOpenChange(false)
       onSaved()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'enregistrement du bon")
+      // In the form, not a toast: a 409 is not a transient blip and the user's input has to stay on screen for
+      // them to re-apply it.
+      const conflict = err instanceof ApiError && err.status === 409
+      setIsConflict(conflict)
+      setBanner(err instanceof ApiError ? err.message : "Échec de l'enregistrement du bon")
+      if (!conflict) await resync()
     } finally {
       setSaving(false)
     }
@@ -377,6 +428,10 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
               </Popover>
             )}
             {errors.patientId && <p className="text-xs text-destructive">{errors.patientId}</p>}
+            <FormErrorBanner
+              message={banner}
+              action={isConflict ? { label: "Recharger", onClick: onSaved, disabled: saving } : undefined}
+            />
           </div>
 
           {/* Deliberately ABOVE the prothésiste name it prefills. `adoptSupplierName` only writes into an empty
@@ -444,8 +499,15 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
                 maxLength={2}
                 placeholder="Optionnel"
                 value={toothNumber}
+                aria-invalid={Boolean(errors.toothNumber)}
+                aria-describedby={errors.toothNumber ? "toothNumber-error" : undefined}
                 onChange={(e) => setToothNumber(e.target.value)}
               />
+              {errors.toothNumber && (
+                <p id="toothNumber-error" className="text-xs text-destructive">
+                  {errors.toothNumber}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -476,8 +538,17 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
                 id="expectedDate"
                 type="date"
                 value={expectedDate}
+                // `min`, so the picker itself refuses the impossible pair rather than only the submit.
+                min={sentDate || undefined}
+                aria-invalid={Boolean(errors.expectedDate)}
+                aria-describedby={errors.expectedDate ? "expectedDate-error" : undefined}
                 onChange={(e) => setExpectedDate(e.target.value)}
               />
+              {errors.expectedDate && (
+                <p id="expectedDate-error" className="text-xs text-destructive">
+                  {errors.expectedDate}
+                </p>
+              )}
             </div>
           </div>
 
@@ -521,10 +592,19 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
 }
 
 export default function LabOrdersPage() {
+  const initialFilters = useUrlFilterSeed()
   const [orderPage, setOrderPage] = useState<PagedResponse<LabWorkOrderDto>>(() => emptyPage<LabWorkOrderDto>())
   const orders = orderPage.items
-  const [search, setSearch] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
+  /*
+   * ⚠️ `search` is SEEDED here, not only written below.
+   *
+   * `useUrlFilters` has always written it, so the screen produced `?search=…` links it then threw away on the
+   * next load — and « Ben Aissa », the laboratory search this pass added, is exactly the link someone would send
+   * a colleague. `debouncedSearch` is seeded with the same value so the first read is already filtered: seeding
+   * only `search` would fetch the whole list, then refetch 300 ms later.
+   */
+  const [search, setSearch] = useState(() => initialFilters.get("search") ?? "")
+  const [debouncedSearch, setDebouncedSearch] = useState(() => initialFilters.get("search") ?? "")
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
 
@@ -539,7 +619,26 @@ export default function LabOrdersPage() {
   const [deleting, setDeleting] = useState(false)
   // The list had no filter of any kind, which left the dashboard's « Prothèses en retard » card with nowhere truthful
   // to land. ALL_STATUSES keeps the default behaviour (the full list) unchanged.
-  const [statusFilter, setStatusFilter] = useState<string>(ALL_STATUSES)
+  /*
+   * ⚠️ Seeded from the query string in the INITIALISER, not in an effect below.
+   *
+   * The URL was read on entry and then never written, so a stage chosen on screen was lost on F5 — and the
+   * dashboard's own « Prothèses en retard » link could not be reproduced by the user who followed it. Seeding here
+   * rather than in the effect also removes a wasted round trip: an effect leaves one commit on ALL_STATUSES, which
+   * fetches the whole list before the filtered one.
+   */
+  const [statusFilter, setStatusFilter] = useState<string>(() => {
+    const stored = initialFilters.get("status")
+    return stored && stored in STATUS_LABELS ? stored : ALL_STATUSES
+  })
+  // Both seeded and written like the stage: a laboratory chosen on screen, or an order by « Prévu », is
+  // shareable and survives F5. `supplierName` is remembered alongside so the trigger can name a laboratory the
+  // active-only picker list would not contain (a deactivated fiche), exactly as the form's picker does.
+  const [supplierFilter, setSupplierFilter] = useState<string | null>(() => initialFilters.get("supplierId") ?? null)
+  const [supplierFilterName, setSupplierFilterName] = useState<string | null>(null)
+  const [sortBy, setSortBy] = useState<LabOrderSort>(() =>
+    initialFilters.get("sortBy") === "expected" ? "expected" : "created",
+  )
 
   const loadOrders = useCallback(async () => {
     try {
@@ -550,6 +649,8 @@ export default function LabOrdersPage() {
         pageSize,
         search: debouncedSearch || undefined,
         status: statusFilter === ALL_STATUSES ? undefined : statusFilter,
+        supplierId: supplierFilter ?? undefined,
+        sortBy: sortBy === "expected" ? "expected" : undefined,
       })
       setOrderPage(data)
     } catch (err) {
@@ -559,7 +660,7 @@ export default function LabOrdersPage() {
     } finally {
       setLoading(false)
     }
-  }, [statusFilter, page, pageSize, debouncedSearch])
+  }, [statusFilter, supplierFilter, sortBy, page, pageSize, debouncedSearch])
 
   // Debounced so a search does not fire a request per keystroke.
   useEffect(() => {
@@ -570,7 +671,7 @@ export default function LabOrdersPage() {
   // A new term (or filter) must not leave the table on a page the narrowed result set no longer has.
   useEffect(() => {
     setPage(1)
-  }, [debouncedSearch, statusFilter])
+  }, [debouncedSearch, statusFilter, supplierFilter, sortBy])
 
   // Patients back the "Nouveau bon" picker; a failure there shouldn't blank the page, just warn.
   const loadPatients = useCallback(async () => {
@@ -587,13 +688,15 @@ export default function LabOrdersPage() {
     loadPatients()
   }, [loadOrders, loadPatients])
 
-  // Dashboard drill-through (« Prothèses en retard »): ?status=Sent narrows to the work still at the laboratory.
-  // window.location in an effect rather than useSearchParams — the repo's idiom. An unknown value is ignored, so a
-  // stale link lands on the full list.
-  useEffect(() => {
-    const urlStatus = new URLSearchParams(window.location.search).get("status")
-    if (urlStatus && urlStatus in STATUS_LABELS) setStatusFilter(urlStatus)
-  }, [])
+  // The write half of the seed above: the stage and the search now survive F5 and can be sent to a colleague.
+  // (The dashboard drill-through's `?status=Sent` is consumed by the initialiser, so the effect that used to read
+  // it here is gone — it was a second reader of the same param, one commit later.)
+  useUrlFilters({
+    status: statusFilter === ALL_STATUSES ? undefined : statusFilter,
+    search: debouncedSearch || undefined,
+    supplierId: supplierFilter ?? undefined,
+    sortBy: sortBy === "expected" ? "expected" : undefined,
+  })
 
   // AC-P4.21/4.26 — a bon de prothèse has a status lifecycle two people drive: the assistant sends it, the
   // dentist marks it received. `laborders` was emitted by the backend from the start with nothing listening,
@@ -647,7 +750,7 @@ export default function LabOrdersPage() {
    * The filtered branch deliberately offers no « Nouveau bon »: the bon probably exists, and a create button
    * there is an invitation to raise a duplicate order with the laboratory.
    */
-  const hasActiveFilter = debouncedSearch !== "" || statusFilter !== ALL_STATUSES
+  const hasActiveFilter = debouncedSearch !== "" || statusFilter !== ALL_STATUSES || supplierFilter !== null
 
   const clearFilters = () => {
     setSearch("")
@@ -669,7 +772,7 @@ export default function LabOrdersPage() {
         title="Aucun bon de prothèse"
         description="Suivez ici les travaux confiés au laboratoire — de « Envoyé » à « Posé » — avec la dent, le prothésiste, la date prévue et le coût."
         action={
-          <Button onClick={handleAddNew} className="gap-2">
+          <Button onClick={handleAddNew} className="gap-2 coarse:h-11">
             <Plus className="h-4 w-4" />
             Nouveau bon
           </Button>
@@ -729,6 +832,41 @@ export default function LabOrdersPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="lab-supplier-filter" className="text-sm text-muted-foreground">
+                  Laboratoire
+                </Label>
+                <div className="w-56">
+                  <SupplierPicker
+                    id="lab-supplier-filter"
+                    value={supplierFilter}
+                    emptyLabel="Tous les laboratoires"
+                    selectedFallback={
+                      supplierFilter && supplierFilterName
+                        ? { id: supplierFilter, name: supplierFilterName }
+                        : null
+                    }
+                    onChange={(id, supplier) => {
+                      setSupplierFilter(id)
+                      setSupplierFilterName(supplier?.name ?? null)
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="lab-sort" className="text-sm text-muted-foreground">
+                  Trier par
+                </Label>
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as LabOrderSort)}>
+                  <SelectTrigger id="lab-sort" className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="created">Plus récents</SelectItem>
+                    <SelectItem value="expected">Date prévue</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               {/*
                 L5 — « Exporter » beside the primary action, never inside it: exporting is not creating. Unlike
                 `/stock` and `/creances`, this page owns its own filters, so the button lives here and reads them
@@ -742,9 +880,11 @@ export default function LabOrdersPage() {
                 params={{
                   search: debouncedSearch || undefined,
                   status: statusFilter === ALL_STATUSES ? undefined : statusFilter,
+                  supplierId: supplierFilter ?? undefined,
+                  sortBy: sortBy === "expected" ? "expected" : undefined,
                 }}
               />
-              <Button onClick={handleAddNew} className="gap-2">
+              <Button onClick={handleAddNew} className="gap-2 coarse:h-11">
                 <Plus className="h-4 w-4" />
                 Nouveau bon
               </Button>
@@ -838,7 +978,15 @@ export default function LabOrdersPage() {
                     { label: "Dent", value: o.toothNumber },
                     { label: "Coût", value: formatCost(o.cost) },
                     { label: "Envoyé", value: formatDateFr(o.sentDate) },
-                    { label: "Prévu", value: formatDateFr(o.expectedDate) },
+                    {
+                      label: "Prévu",
+                      value: (
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                          {formatDateFr(o.expectedDate)}
+                          {o.isOverdue && <Badge variant="destructive">En retard</Badge>}
+                        </span>
+                      ),
+                    },
                     { label: "Reçu", value: formatDateFr(o.receivedDate) },
                   ]}
                   actions={(o) => (
@@ -861,7 +1009,12 @@ export default function LabOrdersPage() {
                       ) : null}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" aria-label={`Actions pour le bon de ${o.patientName ?? "ce patient"}`}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="coarse:size-11"
+                            aria-label={`Actions pour le bon de ${o.patientName ?? "ce patient"}`}
+                          >
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -949,8 +1102,19 @@ export default function LabOrdersPage() {
                           <TableCell className="whitespace-nowrap text-muted-foreground">
                             {formatDateFrCompact(order.sentDate)}
                           </TableCell>
-                          <TableCell className="whitespace-nowrap text-muted-foreground">
-                            {formatDateFrCompact(order.expectedDate)}
+                          {/* The badge sits on « Prévu » rather than beside the stage: the date is what the bon
+                              is late against, and the « Statut » column is the stage CONTROL. `isOverdue` is
+                              served — see `LabOrderOverdue`. */}
+                          {/* The badge sits UNDER the date, not beside it: inline it pushed this already
+                              laptop-tight table 45 px past its container and clipped « Actions ». Stacked, the
+                              column is only as wide as the badge. */}
+                          <TableCell className="text-muted-foreground">
+                            <div className="whitespace-nowrap">{formatDateFrCompact(order.expectedDate)}</div>
+                            {order.isOverdue && (
+                              <Badge variant="destructive" className="mt-1">
+                                En retard
+                              </Badge>
+                            )}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-muted-foreground">
                             {formatDateFrCompact(order.receivedDate)}
@@ -1005,6 +1169,7 @@ export default function LabOrdersPage() {
                                   <Button
                                     variant="ghost"
                                     size="icon"
+                                    className="coarse:size-11"
                                     aria-label={`Actions pour le bon de ${order.patientName ?? "ce patient"}`}
                                   >
                                     <MoreHorizontal className="h-4 w-4" />
@@ -1059,6 +1224,19 @@ export default function LabOrdersPage() {
               Le bon de{" "}
               <span className="font-semibold">{orderToDelete?.workDescription}</span> sera définitivement
               supprimé. Cette action est irréversible.
+              {/* A received bon has posted a dépense in la caisse, and that dépense goes with it. Saying so is the
+                  difference between a confirmation and a surprise on the month's Net. */}
+              {orderToDelete?.expenseId && (
+                <>
+                  {" "}
+                  <span className="font-semibold">
+                    La dépense de caisse enregistrée pour ce bon
+                    {orderToDelete.cost != null ? ` (${formatDT(orderToDelete.cost)})` : ""} sera supprimée elle
+                    aussi
+                  </span>
+                  , ce qui augmentera le Net de la période concernée.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

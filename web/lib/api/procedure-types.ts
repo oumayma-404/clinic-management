@@ -71,6 +71,8 @@ export const procedureTypesApi = {
     /** Tri-state, like every field here: omit = unchanged, `""` = unfile the act, a label = file it. */
     category?: string;
     resultingCondition?: string | null;
+    /** The version read from the server. Omitted (or 0) the server skips the check — see `PatientDto.version`. */
+    version?: number;
   }): Promise<ProcedureTypeDto> => {
     return apiPut<ProcedureTypeDto>(`/procedure-types/${id}`, data);
   },
@@ -112,8 +114,15 @@ export const procedureTypesApi = {
     return apiGet<string[]>('/procedure-types/categories');
   },
 
-  delete: async (id: string): Promise<void> => {
-    return apiDelete<void>(`/procedure-types/${id}`);
+  /**
+   * Deletes an act — or **archives** it when a future rendez-vous still refers to it. The server decides from
+   * usage, so `archived` is the only way the caller can know which happened.
+   *
+   * ⚠️ It used to return `void`, so the screen could say nothing and the row simply vanished either way — a
+   * permanent delete was indistinguishable from a deactivation on the one action that cannot be undone.
+   */
+  delete: async (id: string): Promise<{ archived: boolean }> => {
+    return apiDelete<{ archived: boolean }>(`/procedure-types/${id}`);
   },
 
   // Idempotently seeds the clinic's ProcedureType menu with ~42 common Tunisian dental procedures,

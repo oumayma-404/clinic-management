@@ -53,7 +53,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { cn } from "@/lib/utils"
 import { patientFilesApi } from "@/lib/api/patient-files"
-import { formatDate, formatFileSize } from "@/lib/format"
+import { formatDate, formatFileSize, quoteFr } from "@/lib/format"
 import { showErrorToast } from "@/lib/errors"
 import { downloadBlob } from "@/lib/download"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
@@ -80,6 +80,16 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
   const policy = useUploadPolicy()
 
   const [folders, setFolders] = useState<PatientFolderDto[]>([])
+  /**
+   * Every folder this patient has, independently of where we are standing.
+   *
+   * ⚠️ `folders` holds the **children** of the current folder, so inside a folder it is empty — and three separate
+   * symptoms came out of reading it as though it were the folder list: the breadcrumb showed no folder name, a
+   * file's « Dossier » field was blank, and the move dialog offered only « Aucun dossier », so a file in a folder
+   * could be moved back to the root and never to a sibling. All three want *this* set, not the children of the
+   * place they are asked from.
+   */
+  const [allFolders, setAllFolders] = useState<PatientFolderDto[]>([])
   const [filePage, setFilePage] = useState<PagedResponse<PatientFileDto>>(emptyPage<PatientFileDto>())
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -101,7 +111,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
   const [deletePending, setDeletePending] = useState(false)
 
   const fileInput = useRef<HTMLInputElement | null>(null)
-  const currentFolder = folders.find((f) => f.id === currentFolderId)
+  const currentFolder = allFolders.find((f) => f.id === currentFolderId)
   const files = filePage.items
 
   // Read after mount, never during render: the server has no `localStorage`, and seeding state from it would
@@ -138,11 +148,16 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
   const loadData = useCallback(async () => {
     try {
       setLoading(true)
-      const [foldersData, filesData] = await Promise.all([
+      const [foldersData, filesData, rootFolders] = await Promise.all([
         patientFilesApi.getFolders(patientId, currentFolderId || undefined),
         patientFilesApi.getFilesPaged(patientId, currentFolderId || undefined, { page, pageSize }),
+        // The patient's folder list, for the breadcrumb, the « Dossier » field and the move destinations. Skipped
+        // at the root, where the first call already IS that list — one round trip, not two, on the common path.
+        currentFolderId ? patientFilesApi.getFolders(patientId) : Promise.resolve(null),
       ])
       setFolders(foldersData)
+      // The current folder is a sibling of the roots, so the two sets together always contain it.
+      setAllFolders(rootFolders ? [...rootFolders, ...foldersData] : foldersData)
       setFilePage(filesData)
       setLoadFailed(false)
     } catch (error) {
@@ -242,10 +257,10 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
       setSavingFolder(true)
       if (folderDialog.mode === "create") {
         await patientFilesApi.createFolder(patientId, name, currentFolderId || undefined)
-        toast.success("Dossier créé", { description: `Le dossier « ${name} » a été créé.` })
+        toast.success("Dossier créé", { description: `Le dossier ${quoteFr(name)} a été créé.` })
       } else {
         await patientFilesApi.renameFolder(patientId, folderDialog.folder.id, name)
-        toast.success("Dossier renommé", { description: `Le dossier s'appelle maintenant « ${name} ».` })
+        toast.success("Dossier renommé", { description: `Le dossier s'appelle maintenant ${quoteFr(name)}.` })
       }
       setFolderName("")
       setFolderDialog(null)
@@ -262,10 +277,10 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
     setDeletingFileId(file.id)
     try {
       await patientFilesApi.deleteFile(patientId, file.id)
-      toast.success("Fichier supprimé", { description: `« ${file.fileName} » a été supprimé.` })
+      toast.success("Fichier supprimé", { description: `${quoteFr(file.fileName)} a été supprimé.` })
       await loadData()
     } catch (error) {
-      showErrorToast(error, `« ${file.fileName} » n'a pas pu être supprimé.`)
+      showErrorToast(error, `${quoteFr(file.fileName)} n'a pas pu être supprimé.`)
     } finally {
       setDeletingFileId(null)
     }
@@ -274,11 +289,11 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
   const performDeleteFolder = async (folder: PatientFolderDto) => {
     try {
       await patientFilesApi.deleteFolder(patientId, folder.id)
-      toast.success("Dossier supprimé", { description: `« ${folder.name} » a été supprimé.` })
+      toast.success("Dossier supprimé", { description: `${quoteFr(folder.name)} a été supprimé.` })
       if (currentFolderId === folder.id) setCurrentFolderId(null)
       await loadData()
     } catch (error) {
-      showErrorToast(error, `« ${folder.name} » n'a pas pu être supprimé.`)
+      showErrorToast(error, `${quoteFr(folder.name)} n'a pas pu être supprimé.`)
     }
   }
 
@@ -304,7 +319,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
       // a `blob:` URL, so on an iPhone the button silently delivered nothing at all.
       await downloadBlob(blob, file.fileName)
     } catch (error) {
-      showErrorToast(error, `« ${file.fileName} » n'a pas pu être téléchargé.`)
+      showErrorToast(error, `${quoteFr(file.fileName)} n'a pas pu être téléchargé.`)
     }
   }
 
@@ -610,7 +625,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
           <Upload className="h-10 w-10 text-primary" />
           <p className="text-sm font-semibold text-primary">Déposez les fichiers ici</p>
           <p className="text-xs text-muted-foreground">
-            {currentFolder ? `Ils iront dans « ${currentFolder.name} »` : "Ils iront à la racine"}
+            {currentFolder ? `Ils iront dans ${quoteFr(currentFolder.name)}` : "Ils iront à la racine"}
             {policy ? ` · jusqu'à ${formatFileSize(policy.maxBytes)} par fichier` : ""}
           </p>
         </div>
@@ -655,7 +670,8 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
       <RenameFileDialog
         patientId={patientId}
         file={fileToEdit}
-        folders={folders}
+        // Every folder, not the children of where we are standing — see `allFolders`.
+        folders={allFolders}
         onOpenChange={(open) => { if (!open) setFileToEdit(null) }}
         onSaved={() => void loadData()}
       />
@@ -677,10 +693,10 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
             <AlertDialogDescription>
               {pendingDelete?.kind === "folder"
                 ? pendingDelete.folder.fileCount > 0
-                  ? `Le dossier « ${pendingDelete.folder.name} » contient ${pendingDelete.folder.fileCount} fichier(s). Tous seront supprimés. Cette action est irréversible.`
-                  : `Voulez-vous vraiment supprimer « ${pendingDelete.folder.name} » ? Cette action est irréversible.`
+                  ? `Le dossier ${quoteFr(pendingDelete.folder.name)} contient ${pendingDelete.folder.fileCount} fichier(s). Tous seront supprimés. Cette action est irréversible.`
+                  : `Voulez-vous vraiment supprimer ${quoteFr(pendingDelete.folder.name)} ? Cette action est irréversible.`
                 : pendingDelete
-                  ? `« ${pendingDelete.file.fileName} » sera définitivement supprimé. Cette action est irréversible.`
+                  ? `${quoteFr(pendingDelete.file.fileName)} sera définitivement supprimé. Cette action est irréversible.`
                   : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -737,7 +753,10 @@ function ViewButton({
       aria-pressed={active}
       onClick={() => onSelect(value)}
       className={cn(
-        "h-9 rounded-none px-3 first:rounded-s-md last:rounded-e-md coarse:h-11",
+        // ⚠️ `coarse:min-w-11` as well as the height. Below `sm:` the label is `sr-only`, so the button is a
+        // 16 px icon in `px-3` — 36 px WIDE — and the height fix alone left it under the floor on the axis that
+        // was actually short. `min-w`, not `w`, so the labelled form above `sm:` keeps its natural width.
+        "h-9 rounded-none px-3 first:rounded-s-md last:rounded-e-md coarse:h-11 coarse:min-w-11",
         active && "bg-accent text-accent-foreground",
       )}
     >

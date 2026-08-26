@@ -345,12 +345,7 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
             return identifying.Count == 0 ? null : string.Join("; ", identifying);
         }
 
-        var changed = entry.Properties
-            .Where(p => p.IsModified && !p.Metadata.IsPrimaryKey())
-            // `Version` is EF's own concurrency token (PostgreSQL `xmin`) and `UpdatedAt` moves on every single
-            // save. Listing either would put two words of noise at the front of every summary in the table.
-            .Where(p => p.Metadata.Name is not (nameof(Entity<Guid>.Version) or "UpdatedAt"))
-            .ToList();
+        var changed = ChangedProperties(entry).ToList();
 
         if (changed.Count == 0)
         {
@@ -359,9 +354,9 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
 
         var parts = changed
             .Take(MaxListedProperties)
-            .Select(p => ValuedProperties.Contains(p.Metadata.Name)
-                ? $"{p.Metadata.Name}: {Render(p.OriginalValue)} → {Render(p.CurrentValue)}"
-                : p.Metadata.Name)
+            .Select(c => ValuedProperties.Contains(c.Name)
+                ? $"{c.Name}: {Render(c.Property.OriginalValue)} → {Render(c.Property.CurrentValue)}"
+                : c.Name)
             .ToList();
 
         if (changed.Count > MaxListedProperties)
@@ -371,6 +366,63 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
 
         return string.Join("; ", parts);
     }
+
+    /// <summary>
+    /// Every modified scalar of an aggregate root, <b>including the ones inside its owned value objects</b>.
+    ///
+    /// <para>⚠️ This is the fix for a silent, load-bearing gap. <c>entry.Properties</c> covers only the root's own
+    /// columns, and an <c>OwnsOne</c> is a separate <c>EntityEntry</c> — so on <c>Patient</c>, whose PhoneNumber,
+    /// Email, Address, Insurance and Cnam are all owned, changing <i>only</i> the phone produced
+    /// « Modification · — »: an audit row that records that something happened and refuses to say what. Worse, a
+    /// mixed edit printed « LastName; Notes » and dropped the phone change from the same save, so the journal was
+    /// not merely incomplete, it was misleading about which fields moved.</para>
+    ///
+    /// <para>Named by the owned navigation when the value object is a single scalar (<c>PhoneNumber</c>,
+    /// <c>Email</c>) and qualified otherwise (<c>CnamInfo.IdentifiantUnique</c>): « PhoneNumber.Value » names
+    /// nothing a reader is looking for, while a multi-field VO needs to say which of its fields moved.</para>
+    ///
+    /// <para>Owned <i>collections</i> are deliberately not walked: EF surfaces each element as its own entry, and
+    /// a per-element diff on a fat aggregate is the column dump <see cref="MaxListedProperties"/> exists to
+    /// prevent.</para>
+    /// </summary>
+    private static IEnumerable<(string Name, PropertyEntry Property)> ChangedProperties(EntityEntry entry)
+    {
+        foreach (var property in Modified(entry))
+        {
+            yield return (property.Metadata.Name, property);
+        }
+
+        foreach (var reference in entry.References)
+        {
+            var target = reference.TargetEntry;
+            if (target is null || !target.Metadata.IsOwned())
+            {
+                continue;
+            }
+
+            var scalars = target.Properties.Where(p => !p.Metadata.IsPrimaryKey()).ToList();
+            var singleValued = scalars.Count == 1;
+
+            foreach (var property in Modified(target))
+            {
+                yield return (
+                    singleValued
+                        ? reference.Metadata.Name
+                        : $"{reference.Metadata.Name}.{property.Metadata.Name}",
+                    property);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The modified, non-key scalars of one entry. `Version` is EF's own concurrency token (PostgreSQL `xmin`) and
+    /// `UpdatedAt` moves on every single save — listing either would put two words of noise at the front of every
+    /// summary in the table.
+    /// </summary>
+    private static IEnumerable<PropertyEntry> Modified(EntityEntry entry) =>
+        entry.Properties
+            .Where(p => p.IsModified && !p.Metadata.IsPrimaryKey())
+            .Where(p => p.Metadata.Name is not (nameof(Entity<Guid>.Version) or "UpdatedAt"));
 
     /// <summary>
     /// What names a deleted row. Matched on the property name so it works across every aggregate without a

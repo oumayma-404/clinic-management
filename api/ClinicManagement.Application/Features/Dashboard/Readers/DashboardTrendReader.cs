@@ -30,19 +30,25 @@ namespace ClinicManagement.Application.Features.Dashboard.Readers;
 /// informative zero — dropping it would silently shorten the series and slide every later point left, so a quiet
 /// August would render as though it never happened.</para>
 ///
-/// <para><b>Invoice payments only.</b> The series deliberately excludes treatment-plan installments, unlike the
-/// « Encaissé » card. Installment collections are attributed by a cumulative <c>AmountPaid</c> and a last-payment date
-/// rather than a per-payment date at this aggregate level, so bucketing them by month would attribute a schedule
-/// topped up across two months entirely to the later one. A trend line that is wrong about which month money arrived
-/// in is worse than a narrower one that is right, so the card is labelled for what it actually plots.</para>
+/// <para><b>Both money tracks, like the card above it.</b> The series used to plot invoice payments ONLY, on the
+/// stated grounds that installment collections carried no per-payment date and could only be attributed to a
+/// schedule's last-payment month. That reason is <b>stale</b>: <c>InstallmentPayments</c> is an event-sourced ledger
+/// with its own <c>PaidOn</c>, which is what la caisse already buckets by. While it stood, the chart's August column
+/// read 18 960 under an « Encaissé » card reading 19 910 — the same money, two figures, one screen — and la caisse,
+/// « Factures » and « Devis » all agreed with the card. So the series now composes the two tracks exactly as
+/// <c>DashboardMoneyReader.CollectedAsync</c> does, through the same repository methods and the same
+/// <c>PlanBillingRules</c> billed-plan exclusion: a devis bridged into an issued invoice has its collections carried
+/// onto that invoice, and counting them here as well would double them.</para>
 /// </summary>
 public class DashboardTrendReader : IDashboardTrendReader
 {
     private readonly IInvoiceRepository _invoiceRepository;
+    private readonly ITreatmentPlanRepository _planRepository;
 
-    public DashboardTrendReader(IInvoiceRepository invoiceRepository)
+    public DashboardTrendReader(IInvoiceRepository invoiceRepository, ITreatmentPlanRepository planRepository)
     {
         _invoiceRepository = invoiceRepository;
+        _planRepository = planRepository;
     }
 
     public async Task<List<MonthlyCollectedPointDto>> ReadAsync(
@@ -53,6 +59,11 @@ public class DashboardTrendReader : IDashboardTrendReader
         var firstMonth = ClinicClock.ToClinicLocal(windowStart);
         var firstOfFirstMonth = new DateTime(firstMonth.Year, firstMonth.Month, 1);
         var clinicToday = ClinicClock.ClinicToday(nowUtc);
+
+        // One read for the whole series, as DashboardMoneyReader does for its two windows — the de-duplication
+        // authority is the same set for every month.
+        var billedPlanIds = PlanBillingRules.BilledPlanIds(
+            await _invoiceRepository.GetTreatmentPlanLinksAsync(clinicId, cancellationToken));
 
         var points = new List<MonthlyCollectedPointDto>(DashboardPeriod.TrendMonths);
 
@@ -67,13 +78,15 @@ public class DashboardTrendReader : IDashboardTrendReader
             var monthStartUtc = ClinicClock.StartOfLocalDayUtc(month);
             var monthEndUtc = ClinicClock.EndOfLocalDayUtc(lastDayOfMonth).AddTicks(-1);
 
-            var collected = await _invoiceRepository.GetCollectedBetweenAsync(
+            var invoiceCollected = await _invoiceRepository.GetCollectedBetweenAsync(
                 clinicId, monthStartUtc, monthEndUtc, cancellationToken: cancellationToken);
+            var installmentCollected = await _planRepository.GetInstallmentCollectedBetweenAsync(
+                clinicId, monthStartUtc, monthEndUtc, billedPlanIds, cancellationToken);
 
             points.Add(new MonthlyCollectedPointDto
             {
                 Month = $"{month.Year:D4}-{month.Month:D2}",
-                Collected = InvoiceCalculator.RoundMoney(collected),
+                Collected = InvoiceCalculator.RoundMoney(invoiceCollected + installmentCollected),
                 /*
                  * A month is partial when the clinic's today has not reached its last day. Computed per month
                  * rather than assumed of the final point: read on the 1st, the last point holds a single day, and

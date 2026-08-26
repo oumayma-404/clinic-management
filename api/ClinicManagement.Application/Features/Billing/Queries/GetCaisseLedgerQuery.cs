@@ -235,6 +235,10 @@ public class GetCaisseLedgerQueryHandler : IRequestHandler<GetCaisseLedgerQuery,
                 FromDate = from,
                 ToDate = to,
                 Movements = page.Items.ToList(),
+                // Read off `ordered` — the whole window, newest first — and NOT off the page: see the DTO's note.
+                // Taken before the method/search filter too, because the balance is the period's, not the
+                // selection's; a filtered subtotal would not reconcile with « Net » above it either.
+                ClosingBalance = ordered.Count == 0 ? 0m : ordered[0].RunningBalance,
                 Page = page.Page,
                 PageSize = page.PageSize,
                 TotalCount = page.TotalCount,

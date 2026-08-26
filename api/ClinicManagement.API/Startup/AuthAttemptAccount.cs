@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace ClinicManagement.API.Startup;
@@ -28,6 +30,16 @@ public static class AuthAttemptAccount
     public const int MaxCapturedBodyBytes = 8 * 1024;
 
     private const string EmailProperty = "email";
+
+    /// <summary>
+    /// The property naming the SESSION on <c>POST auth/refresh</c>, which carries no email at all.
+    ///
+    /// <para>⚠️ Without it that endpoint fell back to the address, so a whole practice behind one NAT address
+    /// shared <b>one</b> bucket of 30 per 300 s for silent token renewal — and when it tripped the client received
+    /// a 429 it did not surface, then looped on the 401s that followed. It is the one auth route where every
+    /// legitimate caller is already authenticated, so keying on the session is both available and correct.</para>
+    /// </summary>
+    private const string RefreshTokenProperty = "refreshToken";
 
     /// <summary>
     /// Registers the capture. Must sit immediately before <c>UseRateLimiter()</c>: after it, the partition has
@@ -70,10 +82,19 @@ public static class AuthAttemptAccount
             // for a reason that has nothing to do with the request.
             Rewind(context);
 
-            var email = ReadEmail(buffer.ToArray());
+            var body = buffer.ToArray();
+
+            var email = ReadEmail(body);
             if (email is not null)
             {
                 context.Items[RateLimiting.SubmittedAccountItemKey] = email;
+            }
+
+            // Only when there is no account: a body carrying both would be a shape no endpoint has, and the
+            // account is the tighter, more meaningful partition of the two.
+            if (email is null && ReadSessionKey(body) is { } session)
+            {
+                context.Items[RateLimiting.SubmittedSessionItemKey] = session;
             }
         }
         catch (Exception ex)
@@ -127,6 +148,52 @@ public static class AuthAttemptAccount
 
                 var value = property.Value.GetString()?.Trim();
                 return string.IsNullOrEmpty(value) ? null : value.ToLowerInvariant();
+            }
+
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// A stable, non-secret key for the session a refresh request names, or null.
+    ///
+    /// <para>⚠️ <b>Hashed, never the token itself.</b> A rate-limiter partition key is held in memory for the
+    /// window's duration and is exactly the kind of value that ends up in a diagnostic dump — putting a live
+    /// refresh credential there would trade a lockout for a credential leak. SHA-256 truncated to 128 bits is
+    /// far past collision-resistance for a per-window bucket, and the same token always yields the same key,
+    /// which is all the partition needs.</para>
+    /// </summary>
+    public static string? ReadSessionKey(byte[] body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, RefreshTokenProperty, StringComparison.OrdinalIgnoreCase)
+                    || property.Value.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var token = property.Value.GetString()?.Trim();
+                if (string.IsNullOrEmpty(token))
+                {
+                    return null;
+                }
+
+                var digest = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+                return Convert.ToHexString(digest, 0, 16);
             }
 
             return null;

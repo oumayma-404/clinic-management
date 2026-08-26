@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -23,6 +30,7 @@ import { getErrorMessage } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 import { stockUnitLabel } from "@/components/stock-item-form-modal"
 import type { ProcedureTypeDto, StockItemDto } from "@/lib/api/types"
+import { quoteFr } from "@/lib/format"
 
 interface ProcedureTypeMaterialsDialogProps {
   /** The act being edited; null closes the dialog. */
@@ -130,8 +138,8 @@ export function ProcedureTypeMaterialsDialog({
       )
       toast.success(
         rows.length === 0
-          ? `« ${procedureType.name} » ne consomme plus de stock`
-          : `Consommables enregistrés pour « ${procedureType.name} »`,
+          ? `${quoteFr(procedureType.name)} ne consomme plus de stock`
+          : `Consommables enregistrés pour ${quoteFr(procedureType.name)}`,
       )
       onSaved()
       onOpenChange(false)
@@ -153,12 +161,16 @@ export function ProcedureTypeMaterialsDialog({
           <DialogTitle>
             Consommables{procedureType ? ` — ${procedureType.name}` : ""}
           </DialogTitle>
+          {/* ⚠️ A real `DialogDescription`, not the plain `<p>` this used to be one line lower.
+              Radix always sets `aria-describedby` on the content; with no `DialogDescription` to point at, the id
+              dangled (`document.getElementById(...)` → null), a screen reader announced no description at all, and
+              React logged « Missing `Description` or `aria-describedby={undefined}` » on every open. The paragraph
+              was right there — it simply was not the element Radix was referring to. */}
+          <DialogDescription>
+            Le stock indiqué ici est déduit automatiquement à chaque fois que cet acte est enregistré dans une
+            fiche de soins. Une liste vide signifie que l&apos;acte ne consomme rien.
+          </DialogDescription>
         </DialogHeader>
-
-        <p className="text-sm text-muted-foreground">
-          Le stock indiqué ici est déduit automatiquement à chaque fois que cet acte est enregistré dans une
-          fiche de soins. Une liste vide signifie que l&apos;acte ne consomme rien.
-        </p>
 
         {error && <FormErrorBanner message={error} />}
 

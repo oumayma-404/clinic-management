@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { medicationsApi } from "@/lib/api/medications"
 import type { MedicationDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
@@ -40,6 +41,19 @@ export function MedicationFormModal({ open, onOpenChange, editingMedication, onS
   const [dcisInput, setDcisInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isConflict, setIsConflict] = useState(false)
+  /*
+   * Band B — the version this form saves with, re-read on open rather than taken from the clicked row. ⚠️ The
+   * VERSION only: the read lands after the fields hydrate below, so its values would replace what was typed.
+   */
+  const { source: freshMedication, resync } = useFreshVersion(
+    open,
+    editingMedication?.id,
+    editingMedication,
+    async () =>
+      (await medicationsApi.list(editingMedication!.brandName, true))
+        .find((m) => m.id === editingMedication!.id) ?? null,
+  )
 
   useEffect(() => {
     if (editingMedication) {
@@ -73,15 +87,23 @@ export function MedicationFormModal({ open, onOpenChange, editingMedication, onS
 
     try {
       setLoading(true)
+      setIsConflict(false)
       if (editingMedication) {
-        await medicationsApi.update(editingMedication.id, payload)
+        await medicationsApi.update(editingMedication.id, {
+          ...payload,
+          version: freshMedication?.version ?? editingMedication.version,
+        })
       } else {
         await medicationsApi.create(payload)
       }
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
+      const conflict = err instanceof ApiError && err.status === 409
+      setIsConflict(conflict)
       setError(err instanceof ApiError ? err.message : "Échec de l'enregistrement du médicament.")
+      // A real 409 is left alone: resyncing would let the retry overwrite the colleague who caused it.
+      if (!conflict) await resync()
     } finally {
       setLoading(false)
     }
@@ -103,7 +125,10 @@ export function MedicationFormModal({ open, onOpenChange, editingMedication, onS
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* The shared refusal banner, on `--destructive-wash` / `--destructive`. It replaces a hand-written
               `border-red-200 bg-red-50 … dark:` copy — one of ~18 that each maintained dark mode themselves. */}
-          <FormErrorBanner message={error} />
+          <FormErrorBanner
+            message={error}
+            action={isConflict ? { label: "Recharger", onClick: () => onSuccess?.(), disabled: loading } : undefined}
+          />
 
           <div className="space-y-1.5">
             <Label htmlFor="brandName" className="text-sm">

@@ -17,7 +17,21 @@ export interface LabWorkOrderPayload {
    * ⚠️ **Replace-semantics like every other field here**: sending null detaches the fiche. Deliberately NOT the
    * tri-state `stockApi`'s `supplierId` uses — that payload is a patch in practice, this one replaces the bon.
    */
+  /**
+   * The séance this prothèse belongs to, or null.
+   *
+   * ⚠️ **Replace-semantics like the rest of this payload, so it must be echoed back on every update.** Omitting it
+   * detached the bon's séance on every edit from the lab-orders screen — the form has no control for it, so the
+   * only correct value is the one the bon already holds.
+   */
+  appointmentId?: string | null;
   supplierId?: string | null;
+  /**
+   * The version read from the server, on an update. Absent on create; omitted (or 0) the server skips the
+   * concurrency check — see `PatientDto.version`. Its absence is what let one save silently revert another's
+   * coût, dent and notes under a « Bon mis à jour » toast.
+   */
+  version?: number;
 }
 
 export const labOrdersApi = {
@@ -26,9 +40,13 @@ export const labOrdersApi = {
   list: async (patientId?: string, status?: string): Promise<LabWorkOrderDto[]> =>
     unwrapPaged(await apiGet<PagedResponse<LabWorkOrderDto>>('/lab-orders', { patientId, status })),
 
-  /** One page of bons. `search` matches prothésiste / description / notes / patient server-side. */
+  /**
+   * One page of bons. `search` matches prothésiste / description / notes / patient / the linked fiche's nom
+   * server-side; `supplierId` narrows to one laboratory; `sortBy: 'expected'` orders by « Prévu » ascending
+   * (dateless last) instead of newest-created first.
+   */
   listPaged: async (
-    params: PageParams & { patientId?: string; status?: string },
+    params: PageParams & { patientId?: string; status?: string; supplierId?: string; sortBy?: string },
   ): Promise<PagedResponse<LabWorkOrderDto>> =>
     apiGet<PagedResponse<LabWorkOrderDto>>('/lab-orders', params),
 

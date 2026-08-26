@@ -229,9 +229,30 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                 }
             }
 
-            // Save all changes including history entries
-            await _patientRepository.UpdateAsync(patient, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            /*
+             * ⚠️ The history rows are saved on their own, and the patient row is NOT re-marked.
+             *
+             * This used to be an unconditional `UpdateAsync(patient)` + `SaveChangesAsync()`, which meant every
+             * single patient creation wrote TWO audit entries: the genuine « Création » from the save above, and a
+             * « Modification » nobody made — 19 of the 22 « Patient/Modification » rows in the journal were these
+             * ghosts. `AuditSaveChangesInterceptor` stamps a mutated aggregate root, and re-marking the row it had
+             * just inserted is a mutation as far as it can tell.
+             *
+             * The entries are already tracked as Added by `Add*HistoryEntryAsync`; adding one to the patient's own
+             * collection changes no column on the patient row, so nothing else needs marking. Saving only when
+             * there is something to save is what removes the phantom without touching the « Création » beside it.
+             */
+            // The same conditions the two loops above apply, so the flag cannot say « saved » for a payload whose
+            // every entry was skipped as blank.
+            var wroteHistory =
+                request.MedicalHistoryEntries?.Any(e => !string.IsNullOrWhiteSpace(e.Description)) == true
+                || request.FamilyHistoryEntries?.Any(e =>
+                    !string.IsNullOrWhiteSpace(e.Relationship) && !string.IsNullOrWhiteSpace(e.Condition)) == true;
+
+            if (wroteHistory)
+            {
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
 
             var dto = new PatientDto
             {
@@ -283,14 +304,7 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
 
             dto.CnamInfo = patient.CnamInfo.ToDto();
 
-            dto.Flags = patient.Flags.Select(f => new PatientFlagDto
-            {
-                Id = f.Id,
-                FlagType = f.FlagType.ToString(),
-                Description = f.Description,
-                Notes = f.Notes,
-                IsActive = f.IsActive
-            }).ToList();
+            dto.Flags = patient.Flags.Select(f => f.ToDto()).ToList();
 
             return Result<PatientDto>.Success(dto);
         }

@@ -54,7 +54,49 @@ public class DashboardProcedureMixReader : IDashboardProcedureMixReader
             clinicId, includeInactive: true, cancellationToken: cancellationToken);
         var live = catalogue.Items.ToDictionary(p => p.Id);
 
-        return Merge(rows, live).Take(MaxPoints).ToList();
+        return Cap(Merge(rows, live));
+    }
+
+    /// <summary>The « autres » point's name. One string, read by the client's own aggregate check too.</summary>
+    public const string OthersName = "Autres actes";
+
+    /// <summary>
+    /// The busiest <see cref="MaxPoints"/> acts, plus everything else folded into one « Autres actes » point.
+    ///
+    /// <para>⚠️ <b>The tail used to be dropped, not folded.</b> A `Take(8)` over a catalogue of dozens meant the
+    /// chart's figures did not add up to the clinic's work — « Répartition des actes » summed to less than the
+    /// période's own act count, with nothing on screen accounting for the difference. The caption said the list was
+    /// capped, which is honest about the <i>list</i> and says nothing about the arithmetic; a reader adding the bars
+    /// up gets a wrong total either way.</para>
+    ///
+    /// <para>Folded rather than uncapped, because the cap is a real readability limit — a bar chart of forty acts is
+    /// unreadable and the tail is individually tiny by construction, the list being ordered by count. One extra
+    /// point makes the figures reconcile while keeping the chart legible, and it carries no colour: it is not an
+    /// act, so a swatch would invite a click through to a catalogue entry that does not exist.</para>
+    ///
+    /// <para>Only ever added when something is actually folded — a clinic with eight act types or fewer sees
+    /// exactly what it saw before.</para>
+    /// </summary>
+    public static List<ProcedureMixPointDto> Cap(List<ProcedureMixPointDto> ordered)
+    {
+        if (ordered.Count <= MaxPoints)
+        {
+            return ordered;
+        }
+
+        var shown = ordered.Take(MaxPoints).ToList();
+        var tail = ordered.Skip(MaxPoints).ToList();
+
+        shown.Add(new ProcedureMixPointDto
+        {
+            ProcedureTypeId = null,
+            Name = OthersName,
+            ColorHex = null,
+            ActCount = tail.Sum(p => p.ActCount),
+            Minutes = tail.Sum(p => p.Minutes),
+        });
+
+        return shown;
     }
 
     /// <summary>

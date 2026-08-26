@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { ApiError } from "@/lib/api/client"
-import { parseAmountInput } from "@/lib/format"
+import { parseAmountInput, quoteFr } from "@/lib/format"
 import type { ProcedureTypeDto } from "@/lib/api/types"
 
 /**
@@ -157,7 +157,7 @@ export function AppointmentActsPicker({
     const existing = procedureTypes.find((pt) => pt.name.trim().toLowerCase() === name.toLowerCase())
     if (existing) {
       setCustomError(
-        `Un acte nommé « ${existing.name} » existe déjà. Choisissez-le dans la liste ou utilisez un autre nom.`,
+        `Un acte nommé ${quoteFr(existing.name)} existe déjà. Choisissez-le dans la liste ou utilisez un autre nom.`,
       )
       return
     }
@@ -189,7 +189,7 @@ export function AppointmentActsPicker({
     } catch (err) {
       const message = err instanceof ApiError ? err.message : ""
       if (/already exists|existe déjà/i.test(message)) {
-        setCustomError(`Un acte nommé « ${name} » existe déjà. Choisissez-le dans la liste ou utilisez un autre nom.`)
+        setCustomError(`Un acte nommé ${quoteFr(name)} existe déjà. Choisissez-le dans la liste ou utilisez un autre nom.`)
       } else {
         setCustomError(message || "Échec de la création de l'acte")
       }
@@ -255,7 +255,7 @@ export function AppointmentActsPicker({
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 shrink-0"
-                aria-label={`Retirer « ${row.name} » du rendez-vous`}
+                aria-label={`Retirer ${quoteFr(row.name)} du rendez-vous`}
                 disabled={disabled}
                 onClick={() => removeAt(index)}
               >

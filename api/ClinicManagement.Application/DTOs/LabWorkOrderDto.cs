@@ -54,6 +54,17 @@ public class LabWorkOrderDto
     /// </summary>
     public List<string> AllowedNextStatuses { get; set; } = new();
     public string? Notes { get; set; }
+
+    /// <summary>
+    /// True when the piece is still at the laboratory past the day it was expected back — the same rule, from the
+    /// same file, as the dashboard's « Prothèses en retard » count (<c>LabOrderOverdue</c>). Served rather than
+    /// re-derived in the browser so the card's N and the rows wearing a badge are always the same N.
+    /// </summary>
+    public bool IsOverdue { get; set; }
+
+    /// <summary>Round-tripped by the edit form so a concurrent change is a 409 rather than a silent overwrite.</summary>
+    public uint Version { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
@@ -65,7 +76,7 @@ public static class LabWorkOrderMappingExtensions
     /// companion-read defect `list-pagination` documents, and this list carries a laboratory on every row.
     /// </summary>
     public static LabWorkOrderDto ToDto(
-        this LabWorkOrder order, string? patientName = null, Supplier? supplier = null) => new()
+        this LabWorkOrder order, string? patientName = null, Supplier? supplier = null, bool isOverdue = false) => new()
     {
         Id = order.Id,
         ClinicId = order.ClinicId,
@@ -86,6 +97,8 @@ public static class LabWorkOrderMappingExtensions
         Status = order.Status.ToString(),
         AllowedNextStatuses = LabWorkOrder.NextStatusesFrom(order.Status).Select(s => s.ToString()).ToList(),
         Notes = order.Notes,
+        IsOverdue = isOverdue,
+        Version = order.Version,
         CreatedAt = order.CreatedAt,
         UpdatedAt = order.UpdatedAt
     };

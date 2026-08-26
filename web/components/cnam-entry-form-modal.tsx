@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cnamNomenclatureApi } from "@/lib/api/cnam-nomenclature"
 import type { CnamNomenclatureEntryDto } from "@/lib/api/types"
@@ -43,6 +44,20 @@ export function CnamEntryFormModal({ open, onOpenChange, editingEntry, onSuccess
   const [category, setCategory] = useState(CATEGORIES[0])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isConflict, setIsConflict] = useState(false)
+  /*
+   * Band B — the version this form saves with, re-read from the server on open rather than taken from the row
+   * that was clicked. ⚠️ The VERSION only: the read lands after the fields are hydrated below, so applying its
+   * values would replace what the user has already typed. `q=codeActe` narrows the read; there is no GET-by-id.
+   */
+  const { source: freshEntry, resync } = useFreshVersion(
+    open,
+    editingEntry?.id,
+    editingEntry,
+    async () =>
+      (await cnamNomenclatureApi.list(editingEntry!.codeActe, undefined, true))
+        .find((e) => e.id === editingEntry!.id) ?? null,
+  )
 
   useEffect(() => {
     if (editingEntry) {
@@ -81,15 +96,24 @@ export function CnamEntryFormModal({ open, onOpenChange, editingEntry, onSuccess
 
     try {
       setLoading(true)
+      setIsConflict(false)
       if (editingEntry) {
-        await cnamNomenclatureApi.update(editingEntry.id, payload)
+        await cnamNomenclatureApi.update(editingEntry.id, {
+          ...payload,
+          version: freshEntry?.version ?? editingEntry.version,
+        })
       } else {
         await cnamNomenclatureApi.create(payload)
       }
       onSuccess?.()
       onOpenChange(false)
     } catch (err) {
+      const conflict = err instanceof ApiError && err.status === 409
+      setIsConflict(conflict)
       setError(err instanceof ApiError ? err.message : "Échec de l'enregistrement de l'acte.")
+      // A non-conflict failure may still have moved the row. A real 409 is left alone — resyncing would let the
+      // retry silently overwrite the colleague whose edit caused it.
+      if (!conflict) await resync()
     } finally {
       setLoading(false)
     }
@@ -111,7 +135,10 @@ export function CnamEntryFormModal({ open, onOpenChange, editingEntry, onSuccess
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* The shared refusal banner, on `--destructive-wash` / `--destructive`. It replaces a hand-written
               `border-red-200 bg-red-50 … dark:` copy — one of ~18 that each maintained dark mode themselves. */}
-          <FormErrorBanner message={error} />
+          <FormErrorBanner
+            message={error}
+            action={isConflict ? { label: "Recharger", onClick: () => onSuccess?.(), disabled: loading } : undefined}
+          />
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">

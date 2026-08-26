@@ -23,6 +23,7 @@ public class AuditEntryRepository : IAuditEntryRepository
         DateTime? from = null,
         DateTime? to = null,
         AuditAction? action = null,
+        string? userId = null,
         PageRequest? paging = null,
         CancellationToken cancellationToken = default)
     {
@@ -62,6 +63,15 @@ public class AuditEntryRepository : IAuditEntryRepository
             query = query.Where(a => a.Action == action.Value);
         }
 
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            // Exact, not a LIKE: the value is an id chosen from the actors the ledger itself reports, and a
+            // prefix match would make `job|` also select `job|reminders` — « la tâche automatique » answering for
+            // a different task.
+            var normalizedActor = userId.Trim();
+            query = query.Where(a => a.UserId == normalizedActor);
+        }
+
         // `Id` last, and not decoratively: one save writes several rows with the identical `OccurredAt`, so
         // `OFFSET` over `OccurredAt` alone could show a row on two pages and skip another entirely.
         return await query
@@ -81,6 +91,27 @@ public class AuditEntryRepository : IAuditEntryRepository
             .Distinct()
             .OrderBy(t => t)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<AuditActorRow>> GetRecordedActorsAsync(
+        Guid clinicId,
+        CancellationToken cancellationToken = default)
+    {
+        // Grouped in SQL, and the email taken from the group's newest row: one id can carry more than one address
+        // over time, and the current one is the one an admin recognises. Ordering is left to the caller, which
+        // sorts on the FRENCH label — the same reason the entity-type list is re-ordered there.
+        var rows = await _context.AuditEntries
+            .AsNoTracking()
+            .Where(a => a.ClinicId == clinicId)
+            .GroupBy(a => a.UserId)
+            .Select(g => new
+            {
+                UserId = g.Key,
+                Email = g.OrderByDescending(a => a.OccurredAt).Select(a => a.UserEmail).FirstOrDefault(),
+            })
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(r => new AuditActorRow(r.UserId, r.Email)).ToList();
     }
 
     public async Task AddRangeAsync(

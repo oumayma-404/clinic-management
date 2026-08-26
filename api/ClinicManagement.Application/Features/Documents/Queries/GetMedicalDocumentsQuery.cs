@@ -57,28 +57,7 @@ public class GetMedicalDocumentsQueryHandler : IRequestHandler<GetMedicalDocumen
                 documents = await _documentRepository.GetByClinicIdAsync(clinicId, cancellationToken);
             }
 
-            var dtos = documents.Select(d => new MedicalDocumentDto
-            {
-                Id = d.Id,
-                PatientId = d.PatientId,
-                PatientName = d.PatientName,
-                PatientAge = d.PatientAge,
-                DocumentType = d.DocumentType,
-                DocumentDate = d.DocumentDate,
-                RecipientDoctorName = d.RecipientDoctorName,
-                RecipientDoctorSpecialty = d.RecipientDoctorSpecialty,
-                ContentJson = d.ContentJson,
-                ClinicName = d.ClinicName,
-                ClinicAddress = d.ClinicAddress,
-                ClinicPhone = d.ClinicPhone,
-                DoctorName = d.DoctorName,
-                DoctorSpecialty = d.DoctorSpecialty,
-                IsDraft = d.IsDraft,
-                FileId = d.FileId,
-                AppointmentId = d.AppointmentId,
-                CreatedAt = d.CreatedAt,
-                UpdatedAt = d.UpdatedAt
-            });
+            var dtos = documents.Select(d => d.ToDto());
 
             return Result<IEnumerable<MedicalDocumentDto>>.Success(dtos);
         }

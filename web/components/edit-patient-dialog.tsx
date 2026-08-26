@@ -46,7 +46,7 @@ import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
 import type { PatientDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto } from "@/lib/api/types"
 import { ApiError, ApiErrorCode } from "@/lib/api/client"
 import { isDeliverablePhone, PHONE_ERROR_FR } from "@/lib/phone"
-import { formatAmount, formatDT, parseAmountInput, roundMillimes } from "@/lib/format"
+import { formatAmount, formatDT, parseAmountInput, quoteFr, roundMillimes } from "@/lib/format"
 import { CNAM_DENTAL_ALLOWANCE, CNAM_PLAFOND_SUPPLEMENTS, cnamBaseCeiling, cnamDefaultCeiling } from "@/lib/cnam"
 import { SELECTABLE_GENDERS, genderLabel } from "@/components/appointment-labels"
 import {
@@ -986,7 +986,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
               message={
                 Object.keys(errors).length > 0
                   ? Object.keys(errors).length === 1
-                    ? `Corrigez « ${FIELD_LABELS_FR[Object.keys(errors)[0]] ?? Object.keys(errors)[0]} » ci-dessous.`
+                    ? `Corrigez ${quoteFr(FIELD_LABELS_FR[Object.keys(errors)[0]] ?? Object.keys(errors)[0])} ci-dessous.`
                     : `Corrigez ces champs ci-dessous : ${Object.keys(errors)
                         .map((field) => FIELD_LABELS_FR[field] ?? field)
                         .join(", ")}.`

@@ -10,6 +10,11 @@ export interface DentalActInput {
   category: string;
   defaultFee?: number | null;
   requiresAccordPrealable: boolean;
+  /**
+   * The version read from the server, on an update. Omitted (or 0) the server skips the concurrency check —
+   * see `PatientDto.version`. Absent on create, where there is nothing to conflict with.
+   */
+  version?: number;
 }
 
 export const dentalActsApi = {
@@ -36,6 +41,17 @@ export const dentalActsApi = {
 
   update: async (id: string, data: DentalActInput): Promise<DentalActDto> => {
     return apiPut<DentalActDto>(`/dental-acts/${id}`, data);
+  },
+
+  /**
+   * Reactivate an entry switched off by mistake.
+   *
+   * ⚠️ It had no client and no route: the entity's `Activate()` existed and nothing could reach it, so a acte
+   * deactivated by accident stayed deactivated for ever — a soft delete whose inverse is unreachable is a hard
+   * delete with extra steps.
+   */
+  reactivate: async (id: string): Promise<void> => {
+    return apiPost<void>(`/dental-acts/${id}/activate`, {});
   },
 
   deactivate: async (id: string): Promise<void> => {

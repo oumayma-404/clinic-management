@@ -39,6 +39,17 @@ export interface AuditEntityTypeOptionDto {
 }
 
 /**
+ * An « Auteur » filter option: the stored actor id + the name to show for it.
+ *
+ * ⚠️ Derived server-side from the ledger, not from the `Users` table — a colleague who has left still appears in
+ * the history, and « qu'a fait cette personne ? » is asked about them most of all.
+ */
+export interface AuditActorOptionDto {
+  value: string
+  label: string
+}
+
+/**
  * One page of the ledger.
  *
  * ⚠️ `entityTypes` is **derived from the rows this clinic actually has** and travels with the page rather than
@@ -48,6 +59,7 @@ export interface AuditEntityTypeOptionDto {
 export interface AuditPageDto {
   items: AuditEntryDto[]
   entityTypes: AuditEntityTypeOptionDto[]
+  actors: AuditActorOptionDto[]
   page: number
   pageSize: number
   totalCount: number
@@ -64,6 +76,8 @@ export interface AuditQuery {
   to?: string
   /** `Insert` | `Update` | `Delete`. An unrecognised value is ignored server-side, never refused. */
   action?: string
+  /** One actor's entries — the id from `AuditPageDto.actors`, never a typed name. */
+  userId?: string
   page?: number
   pageSize?: number
 }
@@ -80,6 +94,7 @@ export const auditApi = {
     if (query.from) params.set("from", query.from)
     if (query.to) params.set("to", query.to)
     if (query.action) params.set("action", query.action)
+    if (query.userId) params.set("userId", query.userId)
     if (query.page != null) params.set("page", String(query.page))
     if (query.pageSize != null) params.set("pageSize", String(query.pageSize))
 

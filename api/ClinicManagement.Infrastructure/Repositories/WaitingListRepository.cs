@@ -43,7 +43,9 @@ public class WaitingListRepository : IWaitingListRepository
         if (pattern is not null)
         {
             query = query.Where(w =>
+                // BOTH name orders: the app renders « Nom Prénom » — see `PatientRepository.ApplySearch`.
                 EF.Functions.ILike(SqlSearch.Unaccent(w.Patient!.FirstName + " " + w.Patient.LastName)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(w.Patient!.LastName + " " + w.Patient.FirstName)!, pattern, SqlSearch.EscapeString) ||
                 EF.Functions.ILike(SqlSearch.Unaccent(w.Note)!, pattern, SqlSearch.EscapeString) ||
                 EF.Functions.ILike(SqlSearch.Unaccent(w.DesiredTimeframe)!, pattern, SqlSearch.EscapeString));
         }

@@ -71,7 +71,7 @@ public class UpdateLabWorkOrderStatusCommandHandler : IRequestHandler<UpdateLabW
                 ? await _supplierRepository.GetByIdAsync(supplierId, cancellationToken)
                 : null;
 
-            return Result<LabWorkOrderDto>.Success(order.ToDto(supplier: supplier));
+            return Result<LabWorkOrderDto>.Success(order.ToDto(supplier: supplier, isOverdue: LabOrderOverdue.Evaluator(LabOrderOverdue.CutoffUtc())(order)));
         }
         catch (ArgumentException ex)
         {

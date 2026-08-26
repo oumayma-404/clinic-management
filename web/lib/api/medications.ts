@@ -35,8 +35,21 @@ export const medicationsApi = {
     form: string;
     strength: string;
     dcis: string[];
+    /** The version read from the server. Omitted (or 0) the server skips the check — see `PatientDto.version`. */
+    version?: number;
   }): Promise<MedicationDto> => {
     return apiPut<MedicationDto>(`/medications/${id}`, data);
+  },
+
+  /**
+   * Reactivate an entry switched off by mistake.
+   *
+   * ⚠️ It had no client and no route: the entity's `Activate()` existed and nothing could reach it, so a médicament
+   * deactivated by accident stayed deactivated for ever — a soft delete whose inverse is unreachable is a hard
+   * delete with extra steps.
+   */
+  reactivate: async (id: string): Promise<void> => {
+    return apiPost<void>(`/medications/${id}/activate`, {});
   },
 
   deactivate: async (id: string): Promise<void> => {

@@ -43,13 +43,17 @@ public class LabOrdersController : ApiControllerBase
     public async Task<ActionResult> ExportLabWorkOrders(
         [FromQuery] Guid? patientId = null,
         [FromQuery] string? status = null,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        [FromQuery] Guid? supplierId = null,
+        [FromQuery] string? sortBy = null)
     {
         var result = await _mediator.Send(new GetLabWorkOrdersQuery
         {
             PatientId = patientId,
             Status = status,
             SearchTerm = search,
+            SupplierId = supplierId,
+            SortBy = sortBy,
         });
 
         if (result.IsFailure)
@@ -71,7 +75,9 @@ public class LabOrdersController : ApiControllerBase
         [FromQuery] string? status = null,
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        [FromQuery] Guid? supplierId = null,
+        [FromQuery] string? sortBy = null)
     {
         var result = await _mediator.Send(new GetLabWorkOrdersQuery
         {
@@ -79,7 +85,9 @@ public class LabOrdersController : ApiControllerBase
             Status = status,
             Page = page,
             PageSize = pageSize,
-            SearchTerm = search
+            SearchTerm = search,
+            SupplierId = supplierId,
+            SortBy = sortBy
         });
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }

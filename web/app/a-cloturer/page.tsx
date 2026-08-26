@@ -99,7 +99,9 @@ export default function VisitsToClosePage() {
           title="À clôturer"
           subtitle={
             data
-              ? `${data.totalCount.toLocaleString("fr-TN")} séance${data.totalCount === 1 ? "" : "s"} en attente d’une présence, d’une fiche ou d’un encaissement`
+              // ⚠️ `<= 1`, not `=== 1`: in French ZERO takes the singular, so « 0 séances » was wrong — and the
+              // day heading beside it on the same page already got this right (`group.visits.length > 1`).
+              ? `${data.totalCount.toLocaleString("fr-TN")} séance${data.totalCount <= 1 ? "" : "s"} en attente d’une présence, d’une fiche ou d’un encaissement`
               : undefined
           }
           actions={
@@ -139,8 +141,11 @@ export default function VisitsToClosePage() {
             onChanged={load}
             // Inside the list's own surface: the pager carries a `border-t` and no border, so as a page-level
             // sibling it rendered as a filet flottant on the page ground.
+            // ⚠️ `totalCount > 0` too: the pager rendered under « Rien à clôturer », so an empty state carried
+            // « 0 séance » and « Par page 25 » for a list that does not exist — a third of the card at 390 px.
+            // `ui/data-table-pagination.tsx`'s own doc says an empty table should not carry a pager.
             footer={
-              data && !loading ? (
+              data && !loading && data.totalCount > 0 ? (
                 <DataTablePagination
                   page={data}
                   onPageChange={setPage}

@@ -43,8 +43,34 @@ public static class MessagingSender
     /// <param name="template">
     /// The stored template state, or <b>null</b> where this deployment does not track one yet (see the ⚠️ above).
     /// </param>
-    public static MessagingSenderState From(WhatsAppConnectionStatus connection, WhatsAppTemplateStatus? template)
+    /// <param name="sendable">
+    /// Whether the channel actually has everything it needs to put a message on the wire — the Graph URL, the
+    /// phone-number id, the template name and an <b>access token</b>
+    /// (<c>ResolvedReminderSettings.WhatsAppConfigured</c>).
+    ///
+    /// <para>⚠️ <b>This was missing, and its absence made the one thing this class exists to prevent happen
+    /// anyway.</b> The state was derived from the connection and the template alone — neither of which knows
+    /// whether a token exists — so a cabinet with <c>whatsAppEffectiveStatus: "not_configured"</c> and every
+    /// queued WhatsApp reminder sitting at <c>Blocked</c> was told « Prêt à envoyer », on the screen a practice
+    /// checks to find out whether its reminders are going out. « Connecté » was never allowed to be presented as
+    /// « prêt » and « configuré » had exactly the same problem one field over.</para>
+    ///
+    /// <para>Defaulted to <c>true</c> so the two console/report callers, which read a stored connection and have
+    /// no per-cabinet channel configuration in scope, keep their existing answer rather than reporting every
+    /// cabinet as unconfigured. A caller that CAN answer the question is expected to.</para>
+    /// </param>
+    public static MessagingSenderState From(
+        WhatsAppConnectionStatus connection,
+        WhatsAppTemplateStatus? template,
+        bool sendable = true)
     {
+        // Asked before the connection: a channel with no token cannot send whatever Meta says about it, and
+        // « connecté » would point the practice at Meta for a setting that is ours.
+        if (!sendable)
+        {
+            return MessagingSenderState.NotConnected;
+        }
+
         // The connection is asked first, and Error outranks everything: a number Meta has stopped cannot send
         // whatever its template says, and « modèle refusé » would point the practice at the wrong thing.
         switch (connection)

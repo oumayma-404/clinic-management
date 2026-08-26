@@ -214,14 +214,22 @@ public class ClinicsController : ApiControllerBase
         var command = new UpdateClinicCommand
         {
             Name = request.Name,
+            // Band A — the `*Specified` flags travel with the values: a form key that was SENT and empty clears the
+            // field, and one that was absent leaves it. See `UpdateClinicRequest` for why the two cannot be told
+            // apart from the value alone.
             Address = request.Address,
+            AddressSpecified = request.AddressSpecified,
             City = request.City,
+            CitySpecified = request.CitySpecified,
             Phone = request.Phone,
+            PhoneSpecified = request.PhoneSpecified,
             Email = request.Email,
+            EmailSpecified = request.EmailSpecified,
             LogoFile = request.Logo?.OpenReadStream(),
             LogoFileName = request.Logo?.FileName,
             LogoLength = request.Logo?.Length ?? 0,
             MatriculeFiscal = request.MatriculeFiscal,
+            MatriculeFiscalSpecified = request.MatriculeFiscalSpecified,
             VatApplicable = request.VatApplicable,
             VatRate = request.VatRate,
             StampDutyEnabled = request.StampDutyEnabled,

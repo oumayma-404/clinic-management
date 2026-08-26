@@ -106,15 +106,52 @@
   --input: oklch(0.91 0.013 230);
   --ring: oklch(0.485 0.101 234);
 
+  /*
+   * The page ground's own texture — see `.page-canvas` in the utilities layer for what it draws and why the app
+   * has it at all. It is deliberately **achromatic**: the same on every screen, which is the one property the
+   * zone-tinted band it replaced could not have.
+   */
+  --canvas-dot: color-mix(in oklab, var(--foreground) 11%, transparent);
+
   /* Semantic state + the tinted-pill backgrounds. Constant hues; never the accent. */
   --success: oklch(0.52 0.12 155);
   --success-wash: oklch(0.955 0.035 155);
-  --warning: oklch(0.62 0.13 72);
-  --warning-wash: oklch(0.965 0.045 80);
-  /* The darkened amber that is legible ON --warning-wash. --warning itself sits at L 0.62, which lands near
-     3.5:1 against its own wash — under the floor for badge text, so a status pill needs this step instead. */
-  --warning-ink: oklch(0.45 0.11 62);
-  --destructive-wash: oklch(0.962 0.03 25);
+  /*
+   * The amber, warmed and brightened — hue 72 → 64 and chroma 0.130 → 0.151.
+   *
+   * ⚠️ **The old value was at 98 % of the sRGB chroma ceiling for its own lightness** (0.130 against a 0.1327
+   * ceiling at L 0.62), which is why it read as olive mustard rather than as amber: at that darkness sRGB
+   * simply has no more colour to give. The only way up is lightness, and amber's gamut widens steeply — at
+   * L 0.669 the ceiling is 0.151. It costs contrast against white (3.73:1 → 3.12:1) and that is affordable
+   * here, because `--warning` is **never a text ground**: it is a 4 px card edge, an agenda block's
+   * border-left, a 2 px `ring-warning` and a meter fill, all of which answer to the 3:1 non-text floor and
+   * all of which are reinforced by a `--warning-ink` word beside them.
+   */
+  --warning: oklch(0.669 0.151 64);
+  /*
+   * ⚠️ Was `oklch(0.965 0.045 80)` — **outside sRGB**. The ceiling at that lightness is 0.0318, so the browser
+   * gamut-mapped it silently and the declared value was fiction: the source said one colour and the screen
+   * showed another. Now in gamut, and pulled to hue 70 so the pill's fill belongs to the same amber as the ink
+   * on it.
+   */
+  --warning-wash: oklch(0.963 0.026 70);
+  /*
+   * The step that is legible ON --warning-wash. `--warning` itself lands near 3.4:1 against its own wash, under
+   * the floor for badge text, so a status pill needs this one instead — and this is the amber a reader actually
+   * meets, since « Bloqué », « Avoirs remboursés » and every amber figure are drawn in it.
+   *
+   * ⚠️ Also previously out of gamut (0.11 declared against a 0.1035 ceiling). Re-solved rather than merely
+   * clamped: 5.14:1 on the card and 4.60:1 on the wash, at L 0.545 / C 0.125 instead of L 0.45 / C 0.1035 —
+   * a rich amber-brown where it used to be near-chocolate.
+   */
+  --warning-ink: oklch(0.545 0.125 62);
+  /*
+   * ⚠️ Was `oklch(0.962 0.03 25)` — **outside sRGB**, and by a long way: the chroma ceiling at that lightness
+   * is 0.0187, so two thirds of the declared colour did not exist and the browser gamut-mapped it in silence.
+   * At the ceiling the « Annulée » / « Échec » pill also reads slightly better (4.67:1 → 4.76:1), because the
+   * fill it lands on is now the one the source actually asks for.
+   */
+  --destructive-wash: oklch(0.962 0.018 25);
 
   /* The hero surface: a filled accent panel — the one bold surface on the dashboard. */
   --hero-from: oklch(0.455 0.095 234);
@@ -270,8 +307,15 @@
  * neutrals. Raising chroma back toward 0.011 is a one-line change if the greys read as too flat.
  *
  * ⚠️ **`--muted-foreground` deliberately does NOT follow Rider.** Its own secondary grey is `#6F737A` (≈ L 0.55),
- * which measures ~2.6:1 on this card — an IDE is not held to WCAG and this is a medical record. It sits at
- * **0.685**, the lowest value that clears 4.5:1 against `--card`.
+ * which measures ~2.6:1 on this card — an IDE is not held to WCAG and this is a medical record.
+ *
+ * ⚠️ It sits at **0.72, solved against `--muted` and not against `--card`** — and that correction is the whole
+ * point of the note. It used to be 0.685, described here as "the lowest value that clears 4.5:1 against
+ * `--card`", which was true and was the wrong question: `--muted` (L 0.345) is *lighter* than `--card`
+ * (L 0.305), and `STATUS_TONE_CLASS.neutral` is `bg-muted text-muted-foreground` — so the token was tuned
+ * against the easier of the two grounds it actually sits on, and the neutral pill (« Annulé », « Brouillon »,
+ * every archived row) shipped at **4.08:1**. Solve a token against the tightest ground it lands on, never the
+ * most obvious one.
  *
  * ── What lifting the card forces, and why these are corrections rather than taste ──
  *
@@ -310,20 +354,38 @@
   --secondary: oklch(0.345 0.007 265);
   --secondary-foreground: oklch(0.895 0.004 260);
   --muted: oklch(0.345 0.007 265);
-  --muted-foreground: oklch(0.685 0.008 265);
+  --muted-foreground: oklch(0.72 0.008 265);
   --accent: oklch(0.368 0.030 245);
   --accent-foreground: oklch(0.820 0.100 234);
-  --destructive: oklch(0.70 0.155 25);
+  /*
+   * ⚠️ L 0.70 → 0.72, because the `negative` pill (`bg-destructive-wash text-destructive`) measured **4.36:1**,
+   * under the 4.5 floor. Lightening the INK rather than darkening the wash: the wash sits 2.5 points above the
+   * card and that lift is what makes a pill read as a raised surface, so pulling it down to 0.315 to win the
+   * ratio would have flattened it into the card. Lightening moves three numbers the right way and none the
+   * wrong way — pill 4.36 → 4.70, ink on card 4.68 → 5.05, and the filled destructive button 6.13 → 6.61.
+   */
+  --destructive: oklch(0.72 0.155 25);
   --destructive-foreground: oklch(0.22 0.045 25);
   --border: oklch(0.372 0.008 268);
   --input: oklch(0.372 0.008 268);
   --ring: oklch(0.68 0.130 234);
 
+  /*
+   * Dark's dots are a step quieter: on a near-black ground the value that reads as paper grain in light mode
+   * reads as dirt on the screen. The mix is against `--foreground` in both modes, so the dot is dark on light
+   * and light on dark without a second formula.
+   */
+  --canvas-dot: color-mix(in oklab, var(--foreground) 8%, transparent);
+
   --success: oklch(0.72 0.13 155);
   --success-wash: oklch(0.340 0.042 155);
-  --warning: oklch(0.78 0.13 78);
-  --warning-wash: oklch(0.355 0.048 78);
-  --warning-ink: oklch(0.87 0.11 80);
+  /* The same warming as light, at dark's own lightnesses: hue 78 → 68 and chroma 0.13 → 0.168, which is the
+     ceiling at L 0.78. 6.47:1 against the card. */
+  --warning: oklch(0.78 0.168 68);
+  --warning-wash: oklch(0.355 0.048 70);
+  /* 7.05:1 on the card, 5.88:1 on the wash. Deeper and more chromatic than the old `oklch(0.87 0.11 80)`, so
+     dark's amber reads as the same colour as light's rather than as a pale sand. */
+  --warning-ink: oklch(0.8 0.12 72);
   --destructive-wash: oklch(0.330 0.048 25);
 
   --hero-from: oklch(0.455 0.088 234);
@@ -384,7 +446,10 @@
   --appt-cancelled: oklch(0.505 0.020 250);
   --appt-cancelled-edge: oklch(0.62 0.028 250);
   --appt-absent: oklch(0.665 0.105 25);
-  --appt-absent-edge: oklch(0.80 0.14 25);
+  /* ⚠️ Clamped from `0.14` to the sRGB ceiling at this lightness. The declared value did not exist, so the
+     browser was already painting roughly this — the source simply stopped saying so. Found by sweeping all
+     114 oklch declarations in this file, not by looking: an out-of-gamut token has no symptom. */
+  --appt-absent-edge: oklch(0.80 0.114 25);
 
   /* The rail sits one step BELOW the card, mirroring light's rail → ground → card stack. See the note in
      `:root`: these eight tokens were previously identical to the card's and read by nothing at all. */
@@ -698,6 +763,36 @@
       min-height: 44px;
     }
   }
+
+  /*
+   * `page-canvas` — the texture on the page's own ground, carried by `AppShell`'s `<main>`.
+   *
+   * Every screen in this app is white cards on one flat fill, and a flat fill is the reason the product read as
+   * a spreadsheet: with nothing behind them the cards have nothing to lift off, so the eye gets no depth cue and
+   * the whole page arrives at one distance. The previous answer was a zone-tinted gradient behind each page
+   * header — amber on la caisse, green on « Rappels », violet on a patient record — which solved the flatness by
+   * painting a different colour on every screen and read as a stain rather than as a surface. This is the same
+   * job answered without a hue: a fine dot lattice, so the ground is a *material* the cards sit on.
+   *
+   * ⚠️ **Achromatic and uniform, and both halves are the point.** A soft achromatic lift at the top of the
+   * canvas was built alongside this and cut: it is structurally the same gesture as the tinted band — something
+   * that happens at the top of every page and nowhere else — and the objection to that band was never only that
+   * it was coloured. Grain that is identical everywhere cannot be read as a stain, and cannot disagree with the
+   * zone the header is already naming three times.
+   *
+   * ⚠️ **No `background-attachment: fixed`.** `<main>` is the page's scroll container, and the default `scroll`
+   * already anchors a background to the element's own box rather than to its contents — so the lattice stays put
+   * while the page moves under it, which is what makes it read as the surface the content sits ON. `fixed` would
+   * anchor it to the viewport instead and force a full repaint of the background on every scroll frame.
+   *
+   * The values are load-bearing and were set by eye at 1440 px: a 22 px lattice is fine enough to read as
+   * texture rather than as polka dots, and `--canvas-dot` at ~11 % of the ink is the step where it is *felt* on
+   * a laptop screen and still quiet enough not to compete with an 11 px eyebrow sitting on it.
+   */
+  .page-canvas {
+    background-image: radial-gradient(circle at 1px 1px, var(--canvas-dot) 1px, transparent 0);
+    background-size: 22px 22px;
+  }
 }
 
 @layer base {
@@ -855,6 +950,12 @@
   html,
   body {
     background: #ffffff;
+  }
+
+  /* 4. The canvas grain is a screen affordance — it gives the cards something to lift off. On paper it is ten
+        thousand grey dots behind a patient record, and printers render it. */
+  .page-canvas {
+    background-image: none;
   }
 
   @page {

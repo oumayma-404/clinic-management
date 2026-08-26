@@ -44,6 +44,19 @@ public class ProcessAuditActorProvider : IAuditActorProvider
         _actor = AuditActor.Process(processName);
     }
 
+    /// <inheritdoc />
+    /// <remarks>Unreachable in a console/job host — nothing signs in there — but implemented rather than thrown:
+    /// the interface is one contract and a partial implementation is a landmine for the next caller.</remarks>
+    public void AuthenticatedAs(string userId, string? email)
+    {
+        if (_read || string.IsNullOrWhiteSpace(userId))
+        {
+            return;
+        }
+
+        _actor = new AuditActor(userId, email);
+    }
+
     /// <summary>
     /// Decorates rather than replaces, so — unlike <see cref="RunAs"/> — it is honoured after the first read too.
     ///

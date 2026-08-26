@@ -20,6 +20,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CategoryCombobox } from "@/components/ui/category-combobox"
 import { SupplierPicker } from "@/components/suppliers/supplier-picker"
 import { SupplierFormDialog } from "@/components/suppliers/supplier-form-dialog"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { stockApi } from "@/lib/api/stock"
 import { ApiError } from "@/lib/api/client"
 import { formatAmount, parseAmountInput } from "@/lib/format"
@@ -85,6 +87,19 @@ export function StockItemFormModal({
   const [supplierCreateOpen, setSupplierCreateOpen] = useState(false)
   const [supplierReloadKey, setSupplierReloadKey] = useState(0)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [banner, setBanner] = useState<string | null>(null)
+  const [isConflict, setIsConflict] = useState(false)
+  /*
+   * Band B — `UpdateStockItemCommand.Version` and `SetExpectedVersion` were fully wired on the server and this
+   * form simply did not send the token, so the protection was inert. ⚠️ The VERSION only: the read lands after
+   * the fields hydrate below, so its values would replace what the user typed.
+   */
+  const { source: freshItem, resync } = useFreshVersion(
+    open,
+    editingItem?.id,
+    editingItem,
+    async () => (await stockApi.list()).find((i) => i.id === editingItem!.id) ?? null,
+  )
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -148,8 +163,13 @@ export function StockItemFormModal({
 
     try {
       setSaving(true)
+      setBanner(null)
+      setIsConflict(false)
       if (editingItem) {
-        await stockApi.update(editingItem.id, payload)
+        await stockApi.update(editingItem.id, {
+          ...payload,
+          version: freshItem?.version ?? editingItem.version,
+        })
         toast.success("Article mis à jour")
       } else {
         await stockApi.create(payload)
@@ -158,7 +178,11 @@ export function StockItemFormModal({
       onOpenChange(false)
       onSaved()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'enregistrement de l'article")
+      // In the form, not a toast: a 409 is not transient and the typed values have to stay on screen.
+      const conflict = err instanceof ApiError && err.status === 409
+      setIsConflict(conflict)
+      setBanner(err instanceof ApiError ? err.message : "Échec de l'enregistrement de l'article")
+      if (!conflict) await resync()
     } finally {
       setSaving(false)
     }
@@ -181,6 +205,12 @@ export function StockItemFormModal({
             </Label>
             <Input id="name" placeholder="ex. : gants chirurgicaux" value={name} onChange={(e) => setName(e.target.value)} />
             {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
+          </div>
+          <div>
+            <FormErrorBanner
+              message={banner}
+              action={isConflict ? { label: "Recharger", onClick: onSaved, disabled: saving } : undefined}
+            />
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

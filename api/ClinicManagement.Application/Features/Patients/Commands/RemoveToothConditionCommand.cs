@@ -12,6 +12,16 @@ namespace ClinicManagement.Application.Features.Patients.Commands;
 /// </summary>
 public class RemoveToothConditionCommand : IRequest<Result>
 {
+    /// <summary>
+    /// The refusal that is a <b>rule</b> and not a missing row: the state exists, and it came from a treatment.
+    ///
+    /// <para>⚠️ The controller passed <c>404</c> as the fallback for every failure code, so this answered « Not
+    /// Found » about a row it had just read — a client branching on the status would conclude the state was gone
+    /// and drop it from the chart. No user impact today only because the UI never issues it for such a row and
+    /// renders the body rather than the status; both of those are true by accident.</para>
+    /// </summary>
+    public const string NotADiagnosisCode = "tooth_state_not_a_diagnosis";
+
     public Guid PatientId { get; set; }
     public Guid ToothStateId { get; set; }
 }
@@ -56,7 +66,11 @@ public class RemoveToothConditionCommandHandler : IRequestHandler<RemoveToothCon
         }
         if (state.Source != ToothStateSource.Diagnosis)
         {
-            return Result.Failure("Seul un diagnostic peut être retiré ici ; un acte réalisé se modifie via sa fiche.");
+            // Carries a code so the controller can answer 400 for a RULE refusal — the row exists and was found,
+            // which is the one thing a 404 asserts is false.
+            return Result.Failure(
+                "Seul un diagnostic peut être retiré ici ; un acte réalisé se modifie via sa fiche.",
+                RemoveToothConditionCommand.NotADiagnosisCode);
         }
 
         await _toothStateRepository.DeleteAsync(state.Id, cancellationToken);

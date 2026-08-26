@@ -34,7 +34,11 @@ export default function PatientsPage() {
   const [createdFrom, setCreatedFrom] = useState<string | undefined>()
   const [createdTo, setCreatedTo] = useState<string | undefined>()
 
-  // Real-time: refetch the table when any client of this clinic adds/edits a patient (remounts via key).
+  // Real-time: REFETCH the table when any client of this clinic adds/edits a patient.
+  //
+  // ⚠️ It used to remount it, via `key={refreshKey}`. The table owns the « Modifier » dialog, so a colleague
+  // editing any other patient unmounted that dialog mid-edit — `useDirtyGuard` never fired and the typing was
+  // gone with nothing said. The signal now goes in as a prop the table folds into its own refetch key.
   useClinicRealtime(RealtimeResource.Patients, () => setRefreshKey((prev) => prev + 1))
 
   // Dashboard drill-throughs: ?flagged=1 pre-applies the flagged filter, and ?createdFrom/?createdTo narrow the list
@@ -152,7 +156,7 @@ export default function PatientsPage() {
             `onClearFilters` clears ALL three — search, the « Signalés » chip and the date window — because the
             user reading « aucun résultat » wants their list back, not a guessing game about which filter did it. */}
         <PatientsTable
-          key={refreshKey}
+          reloadKey={refreshKey}
           searchQuery={searchQuery}
           showFlaggedOnly={showFlaggedOnly}
           createdFrom={createdFrom}

@@ -43,7 +43,9 @@ public class RecurringAppointmentRepository : IRecurringAppointmentRepository
         if (pattern is not null)
         {
             query = query.Where(r =>
+                // BOTH name orders: the app renders « Nom Prénom » — see `PatientRepository.ApplySearch`.
                 EF.Functions.ILike(SqlSearch.Unaccent(r.Patient!.FirstName + " " + r.Patient.LastName)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(r.Patient!.LastName + " " + r.Patient.FirstName)!, pattern, SqlSearch.EscapeString) ||
                 EF.Functions.ILike(SqlSearch.Unaccent(r.DoctorName)!, pattern, SqlSearch.EscapeString) ||
                 EF.Functions.ILike(SqlSearch.Unaccent(r.Notes)!, pattern, SqlSearch.EscapeString));
         }

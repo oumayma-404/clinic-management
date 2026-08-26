@@ -156,6 +156,9 @@ public class UpdateClinicReminderSettingsCommandHandler
             }
             else
             {
+                // Two tabs on « Configurer les canaux » both answered « Paramètres de rappel enregistrés » while one
+                // set of channel settings silently replaced the other. A new row has nothing to conflict with.
+                _unitOfWork.SetExpectedVersion(settings, input.Version);
                 await _settingsRepository.UpdateAsync(settings, cancellationToken);
             }
 

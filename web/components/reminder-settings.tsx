@@ -118,7 +118,14 @@ export function ReminderSettings() {
   }, [])
 
   // Populates every field from a settings DTO (used on load and after connect/disconnect).
+  /**
+   * The concurrency token, kept from whichever read produced the form's current values — and replaced from every
+   * successful save's own response, so a second save in the same session does not 409 on the admin's own change.
+   */
+  const [version, setVersion] = useState<number | undefined>(undefined)
+
   const hydrate = (settings: ReminderSettingsDto) => {
+    setVersion(settings.version)
     setSmsEnabled(toToggle(settings.smsEnabled))
     setWhatsAppEnabled(toToggle(settings.whatsAppEnabled))
     setSmsSenderId(settings.smsSenderId ?? "")
@@ -262,6 +269,7 @@ export function ReminderSettings() {
     setSaving(true)
     try {
       const payload: UpdateReminderSettingsRequest = {
+        version,
         smsEnabled: fromToggle(smsEnabled),
         whatsAppEnabled: fromToggle(whatsAppEnabled),
         smsSenderId: smsSenderId.trim() || null,
@@ -405,9 +413,15 @@ export function ReminderSettings() {
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs font-medium">Canal</Label>
+                {/* ⚠️ `htmlFor` + `id`, and the accessible name says WHICH channel. Two labels reading « Canal »
+                    with no association left both comboboxes anonymous — a screen reader announced « Par défaut,
+                    liste » twice with nothing to tell them apart, on the control that turns a channel off. Every
+                    text field beside them was already labelled properly. */}
+                <Label htmlFor="sms-channel-toggle" className="text-xs font-medium">
+                  Canal
+                </Label>
                 <Select value={smsEnabled} onValueChange={(v) => setSmsEnabled(v as Toggle)} disabled={saving}>
-                  <SelectTrigger className="h-8 text-sm">
+                  <SelectTrigger id="sms-channel-toggle" aria-label="Canal SMS" className="h-8 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -554,13 +568,16 @@ export function ReminderSettings() {
               )}
 
               <div className="space-y-1">
-                <Label className="text-xs font-medium">Canal</Label>
+                {/* Same fix as the SMS channel above. */}
+                <Label htmlFor="whatsapp-channel-toggle" className="text-xs font-medium">
+                  Canal
+                </Label>
                 <Select
                   value={whatsAppEnabled}
                   onValueChange={(v) => setWhatsAppEnabled(v as Toggle)}
                   disabled={saving}
                 >
-                  <SelectTrigger className="h-8 text-sm">
+                  <SelectTrigger id="whatsapp-channel-toggle" aria-label="Canal WhatsApp" className="h-8 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -771,9 +788,12 @@ export function ReminderSettings() {
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs font-medium">Chiffrement TLS</Label>
+                {/* Associated, like the two channel toggles above — same unnamed-combobox defect. */}
+                <Label htmlFor="smtp-tls-toggle" className="text-xs font-medium">
+                  Chiffrement TLS
+                </Label>
                 <Select value={smtpUseTls} onValueChange={(v) => setSmtpUseTls(v as Toggle)} disabled={saving}>
-                  <SelectTrigger className="h-8 text-sm">
+                  <SelectTrigger id="smtp-tls-toggle" aria-label="Chiffrement TLS" className="h-8 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

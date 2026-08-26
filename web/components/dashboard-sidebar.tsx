@@ -345,7 +345,10 @@ export function DashboardSidebar() {
                 variant="ghost"
                 size="icon"
                 onClick={toggleSidebar}
-                className="size-8 shrink-0"
+                // `coarse:size-11`, not `.touch-target`: it sits in a row beside the profile link, so an
+                // overlay would overhang its neighbour and steal taps (frontend-web.md § 2). The rail is on
+                // screen from 820 px, which is a tablet — a coarse pointer.
+                className="size-8 shrink-0 coarse:size-11"
                 aria-label="Réduire la barre latérale"
               >
                 <ChevronLeft className="h-4 w-4" />

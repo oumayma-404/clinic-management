@@ -29,7 +29,7 @@ import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { DOCUMENT_EMAIL_KINDS } from "@/lib/api/document-emails"
-import { formatDT, formatDateFr, toLocalIso, todayLocalIso } from "@/lib/format"
+import { formatDT, formatDateFr, quoteFr, toLocalIso, todayLocalIso } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
@@ -356,8 +356,17 @@ export function DocumentEditorContent() {
   /** The patient list read failed — never rendered as « Aucun patient disponible ». */
   const [patientsFailed, setPatientsFailed] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [documentId, setDocumentId] = useState<string | null>(urlDocumentId)
-  const [loadingDocument, setLoadingDocument] = useState(false)
+  // ⚠️ Seeded null, NEVER from the URL. Seeding it made the edit-load effect's `urlDocumentId !== documentId`
+  // guard false on the very first render, so reopening a stored document never issued its GET and « Mettre à
+  // jour » PUT an empty body over the stored prescription.
+  const [documentId, setDocumentId] = useState<string | null>(null)
+  // True from the first render when the URL names a document, so the save path cannot be taken as "create"
+  // while the stored content is still in flight.
+  const [loadingDocument, setLoadingDocument] = useState(Boolean(urlDocumentId))
+  /** The edit-load GET failed — the form holds no stored content, so a save must not create a second document. */
+  const [documentLoadFailed, setDocumentLoadFailed] = useState(false)
+  const [documentReload, setDocumentReload] = useState(0)
+  const [documentVersion, setDocumentVersion] = useState<number | undefined>(undefined)
   // Set once "Renouveler" (P2-B) forks a loaded document into a new draft, so the edit-load effect below
   // does not immediately reload the original when we clear documentId.
   const renewedRef = useRef(false)
@@ -755,8 +764,12 @@ export function DocumentEditorContent() {
       const loadDocument = async () => {
         try {
           setLoadingDocument(true)
+          setDocumentLoadFailed(false)
           const doc = await medicalDocumentsApi.get(urlDocumentId)
           setDocumentId(doc.id)
+          // Band B — the token the save round-trips. Read HERE rather than taken from a list row: this editor is
+          // reached from three places and the only copy that can be trusted is the one the GET just returned.
+          setDocumentVersion(doc.version)
           setSelectedPatient(doc.patientId)
 
           // Parse and set form fields from contentJson
@@ -851,6 +864,7 @@ export function DocumentEditorContent() {
           }
         } catch (error) {
           console.error("Failed to load document for editing:", error)
+          setDocumentLoadFailed(true)
           toast.error("Échec du chargement du document", {
             description: "Impossible de charger le document pour modification. Veuillez réessayer.",
             duration: 4000,
@@ -861,7 +875,7 @@ export function DocumentEditorContent() {
       }
       loadDocument()
     }
-  }, [urlDocumentId, documentId, doctors])
+  }, [urlDocumentId, documentId, doctors, documentReload])
 
   // Load the selected patient's dental records — the source for pre-filling the CNAM bulletin acts table.
   // A failure is recorded, not swallowed: « Pré-remplir depuis les soins (0) » on a patient who has soins reads
@@ -1227,7 +1241,7 @@ export function DocumentEditorContent() {
     } else if (!isKnownCnamRegime(bulletinRegime)) {
       bulletinProblems.push({
         key: "regime",
-        message: `Le régime « ${bulletinRegime} » n'est pas reconnu.`,
+        message: `Le régime ${quoteFr(bulletinRegime)} n'est pas reconnu.`,
         onPatient: true,
       })
     }
@@ -1237,13 +1251,13 @@ export function DocumentEditorContent() {
     } else if (!isKnownCnamLien(bulletinLien)) {
       bulletinProblems.push({
         key: "lien",
-        message: `Le lien de parenté « ${bulletinLien} » n'est pas reconnu.`,
+        message: `Le lien de parenté ${quoteFr(bulletinLien)} n'est pas reconnu.`,
         onPatient: true,
       })
     } else if (cnamLienRequiresRang(bulletinLien) && !bulletinRang) {
       bulletinProblems.push({
         key: "rang",
-        message: `Le rang est obligatoire pour le lien « ${bulletinLien} ».`,
+        message: `Le rang est obligatoire pour le lien ${quoteFr(bulletinLien)}.`,
         onPatient: true,
       })
     }
@@ -1283,7 +1297,7 @@ export function DocumentEditorContent() {
     } else if (!Number.isFinite(parsedDays) || parsedDays <= 0) {
       arretProblems.push({
         key: "days",
-        message: `La durée « ${days} » n'est pas un nombre de jours valide.`,
+        message: `La durée ${quoteFr(days)} n'est pas un nombre de jours valide.`,
         onPatient: false,
       })
     } else if (parsedDays > ARRET_MAX_DAYS) {
@@ -2083,6 +2097,16 @@ export function DocumentEditorContent() {
   };
 
   const handleSave = async () => {
+    // The stored content is still in flight (or its read failed): saving now would take the "create" path and
+    // put a second, empty document beside the one the user opened.
+    if (loadingDocument || documentLoadFailed) {
+      toast.error("Document non chargé", {
+        description: "Le document n'a pas encore été chargé. Rechargez la page avant d'enregistrer.",
+        duration: 4000,
+      })
+      return
+    }
+
     if (!selectedPatient || !patientData) {
       toast.error("Patient requis", {
         description: "Veuillez sélectionner un patient avant de sauvegarder le document",
@@ -2167,8 +2191,9 @@ export function DocumentEditorContent() {
       let savedDocumentId = documentId;
       
       if (documentId) {
-        // Update existing document
-        await medicalDocumentsApi.update(documentId, {
+        // Update existing document. Its response carries the row's new token, which the next save needs — a
+        // second « Mettre à jour » without it would 409 on a change this same user made.
+        const saved = await medicalDocumentsApi.update(documentId, {
           documentDate: formFields.date,
           recipientDoctorName: recipientDoctorName || undefined,
           recipientDoctorSpecialty: recipientDoctorSpecialty || undefined,
@@ -2178,7 +2203,9 @@ export function DocumentEditorContent() {
           // fall back to the stored snapshot — right for the background PDF job, wrong here, where the user may
           // have just changed who the document is issued by.
           issuingDoctorId: selectedDoctor?.id || undefined,
+          version: documentVersion,
         })
+        setDocumentVersion(saved.version)
         toast.success("Document mis à jour avec succès", {
           description: "Les modifications ont été enregistrées",
           duration: 3000,
@@ -2203,6 +2230,7 @@ export function DocumentEditorContent() {
         })
         savedDocumentId = result.id;
         setDocumentId(result.id)
+        setDocumentVersion(result.version)
         toast.success("Document sauvegardé avec succès", {
           description: "Le document a été créé et enregistré",
           duration: 3000,
@@ -3405,13 +3433,26 @@ export function DocumentEditorContent() {
                   )}
                 </div>
               )}
+              {documentLoadFailed && (
+                <LoadFailureNotice
+                  message="Le document enregistré n'a pas pu être chargé."
+                  detail="Il n'est pas modifiable tant qu'il n'est pas lu — enregistrer maintenant créerait un second document vide."
+                  onRetry={() => setDocumentReload((n) => n + 1)}
+                />
+              )}
               <Button
                 className="w-full h-11 bg-primary hover:bg-primary/90 text-base font-medium"
                 onClick={() => handleSave()}
-                disabled={saving || !selectedPatient || officialFormBlocked}
+                disabled={saving || loadingDocument || documentLoadFailed || !selectedPatient || officialFormBlocked}
               >
                 <Save className="w-4 h-4 mr-2" />
-                {saving ? "Sauvegarde..." : documentId ? "Mettre à jour" : "Sauvegarder le document"}
+                {loadingDocument
+                  ? "Chargement du document..."
+                  : saving
+                    ? "Sauvegarde..."
+                    : documentId
+                      ? "Mettre à jour"
+                      : "Sauvegarder le document"}
               </Button>
               {documentId && documentType === "prescription" && (
                 <Button

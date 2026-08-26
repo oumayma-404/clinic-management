@@ -3,11 +3,27 @@ import type { ExpenseDto, CaisseSummaryDto, CaisseLedgerDto } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export interface ExpensePayload {
+  /**
+   * The day in the CABINET's calendar, as a bare `yyyy-MM-dd`.
+   *
+   * ⚠️ **Never an instant.** An ISO timestamp is midnight in whatever zone the browser is in, so the same form
+   * filed a dépense on two different days depending on the workstation. The server resolves a bare day against
+   * Tunisia (`ExpenseDay`), which is the only zone a caisse period is ever expressed in. Required — an absent
+   * value is a 400 carrying `expense_date_required`, not a row dated `-infinity`.
+   */
   expenseDate: string;
   category: string;
   amount: number;
   method: string; // Cash | Cheque | Card | Transfer
   description?: string | null;
+  /**
+   * The version read from the server, on an update. Absent on create; omitted (or 0) the server skips the
+   * concurrency check — see `PatientDto.version`.
+   *
+   * ⚠️ Its absence meant two tabs editing the same dépense both answered 200 with « Dépense mise à jour » while
+   * one amount silently replaced the other. This is money.
+   */
+  version?: number;
 }
 
 export const expensesApi = {

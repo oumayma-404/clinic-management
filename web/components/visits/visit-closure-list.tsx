@@ -229,6 +229,21 @@ export function VisitClosureList({
                           {visit.nothingToBillReason && (
                             <div className="text-xs">Rien à facturer : {visit.nothingToBillReason}</div>
                           )}
+                          {/* ⚠️ The note that settled the money, NAMED. `invoiceId`/`invoiceNumber` were the only
+                              two fields of the DTO nothing read: the « Encaissement » tick said the money was done
+                              and not by what, on the screen whose whole job is « what is still owed ». A motif is
+                              already explained here; a settled encaissement was not. */}
+                          {visit.invoiceNumber && (
+                            <div className="text-xs">
+                              Facturé sur{" "}
+                              <Link
+                                href={`/factures?search=${encodeURIComponent(visit.invoiceNumber)}`}
+                                className="font-medium text-primary underline-offset-4 hover:underline"
+                              >
+                                n° {visit.invoiceNumber}
+                              </Link>
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-muted-foreground">{visit.doctorName ?? "—"}</TableCell>
                         <TableCell>
@@ -276,6 +291,8 @@ export function VisitClosureList({
                       v.nothingToBillReason
                         ? { label: "Rien à facturer", value: v.nothingToBillReason }
                         : null,
+                      // Same fact in the card tree — see the note in the table above.
+                      v.invoiceNumber ? { label: "Facturé sur", value: `n° ${v.invoiceNumber}` } : null,
                     ]}
                     primaryAction={(v) => (
                       <div className="flex flex-wrap gap-2">

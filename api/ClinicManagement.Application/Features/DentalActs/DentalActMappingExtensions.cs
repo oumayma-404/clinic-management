@@ -17,6 +17,7 @@ public static class DentalActMappingExtensions
         DefaultFee = act.DefaultFee,
         RequiresAccordPrealable = act.RequiresAccordPrealable,
         IsActive = act.IsActive,
-        IsProvisional = act.IsProvisional
+        IsProvisional = act.IsProvisional,
+        Version = act.Version
     };
 }

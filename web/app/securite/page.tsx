@@ -173,11 +173,15 @@ function SecurityContent() {
                 <EmptyState
                   icon={ShieldCheck}
                   title="Activer le second facteur"
-                  description="L'activation se fait depuis l'écran de connexion, où elle fonctionne aussi pour un compte qui ne peut pas encore se connecter."
+                  description="L'activation se fait depuis l'écran de connexion, où elle fonctionne aussi pour un compte qui ne peut pas encore se connecter. Vous confirmerez votre mot de passe, puis scannerez un QR code."
                   size="compact"
                   action={
+                    /* ⚠️ `?enrol=1`, never a bare `/login`. That page redirects a signed-in user straight back to
+                       the app — the exemption for exactly this exists and was applied to the « Remplacer » link
+                       beside it and not to this one, so « Activer le second facteur » navigated away and returned
+                       home having done nothing. It is why no praticien could enrol voluntarily by any route. */
                     <Button asChild className="min-h-11">
-                      <a href="/login">Aller à l&apos;écran de connexion</a>
+                      <a href="/login?enrol=1">Activer maintenant</a>
                     </Button>
                   }
                 />
@@ -261,12 +265,14 @@ function SecurityContent() {
                   )}
                 </div>
 
-                {state.isRequired && (
-                  <p className="text-sm text-muted-foreground">
-                    Le second facteur est obligatoire pour les administrateurs de cette installation : il ne peut
-                    pas être désactivé. Pour le remplacer, demandez à un autre administrateur de le réinitialiser.
-                  </p>
-                )}
+                {/* ⚠️ Both branches say it in words. Only the refusing half had a sentence, so on a deployment
+                    that permits it the sole statement that the second facteur *can* be switched off was the
+                    presence of a button — and a control's presence is not an answer to « peut-on ? ». */}
+                <p className="text-sm text-muted-foreground">
+                  {state.isRequired
+                    ? "Le second facteur est obligatoire pour les administrateurs de cette installation : il ne peut pas être désactivé. Pour le remplacer, demandez à un autre administrateur de le réinitialiser."
+                    : "Cette installation n'impose pas le second facteur : vous pouvez le désactiver en saisissant un code ci-dessus. Votre compte ne sera alors protégé que par son mot de passe."}
+                </p>
               </CardContent>
             </Card>
           )}

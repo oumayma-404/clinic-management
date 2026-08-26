@@ -7,6 +7,14 @@ using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Application.Features.ProcedureTypes.Commands;
 
+/// <summary>
+/// Deletes an act — or ARCHIVES it when a future appointment still refers to it.
+///
+/// <para>⚠️ The <c>bool</c> is the outcome: <b>true = archived, false = deleted permanently.</b> It used to be
+/// <c>true</c> either way, so nothing downstream could tell the two apart and the screen showed no feedback at
+/// all — the row simply vanished in both cases, which is what made the dialog's wrong promise dangerous rather
+/// than merely sloppy.</para>
+/// </summary>
 public class DeleteProcedureTypeCommand : IRequest<Result<bool>>
 {
     public Guid Id { get; set; }
@@ -65,6 +73,9 @@ public class DeleteProcedureTypeCommandHandler : IRequestHandler<DeleteProcedure
                 procedureType.Deactivate();
                 await _procedureTypeRepository.UpdateAsync(procedureType, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
+                // ⚠️ `true` = ARCHIVED. The two outcomes used to be indistinguishable to the caller — both
+                // `Success(true)` — so the screen could not say which had happened and a permanent delete looked
+                // exactly like a deactivation. See the controller for the shape it becomes on the wire.
                 return Result<bool>.Success(true);
             }
 
@@ -73,7 +84,8 @@ public class DeleteProcedureTypeCommandHandler : IRequestHandler<DeleteProcedure
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation("Deleted procedure type {ProcedureTypeId}", request.Id);
-            return Result<bool>.Success(true);
+            // `false` = permanently deleted.
+            return Result<bool>.Success(false);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
