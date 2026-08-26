@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Users.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -17,9 +17,12 @@ public class ResetUserPasswordCommandHandlerTests
     private readonly Mock<IClinicContext> _context = new();
     private readonly Mock<ILocalAuthService> _auth = new();
     private readonly Mock<IUnitOfWork> _uow = new();
+    private readonly Mock<INotificationGenerator> _notifications = new();
+    private readonly Mock<ITransactionalEmailSender> _email = new();
 
     private ResetUserPasswordCommandHandler Handler() =>
         new(_users.Object, _context.Object, _auth.Object, _uow.Object,
+            _notifications.Object, _email.Object,
             NullLogger<ResetUserPasswordCommandHandler>.Instance);
 
     private static User Local(string role, Guid clinicId) =>

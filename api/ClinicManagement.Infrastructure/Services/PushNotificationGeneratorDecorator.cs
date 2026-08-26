@@ -207,6 +207,16 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         CancellationToken cancellationToken = default) =>
         _inner.SecondFactorResetAsync(clinicId, targetUserId, by, cancellationToken);
 
+    // Pass-through, exactly as its second-factor sibling above: `ReachesALockedPhone` answers false for this
+    // category too. The temporary password is relayed by voice and the replacement is chosen at a keyboard, so
+    // there is nothing here a lock-screen banner would make actionable.
+    public Task PasswordResetAsync(
+        Guid clinicId,
+        string targetUserId,
+        PasswordResetBy by,
+        CancellationToken cancellationToken = default) =>
+        _inner.PasswordResetAsync(clinicId, targetUserId, by, cancellationToken);
+
     // Pass-through for the same reason as the one above: not a locked-phone category.
     public Task SessionEndedForReplayAsync(
         Guid clinicId, string targetUserId, string? deviceLabel, CancellationToken cancellationToken = default) =>

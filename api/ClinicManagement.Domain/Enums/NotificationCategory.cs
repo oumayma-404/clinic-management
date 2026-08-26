@@ -1,4 +1,4 @@
-namespace ClinicManagement.Domain.Enums;
+﻿namespace ClinicManagement.Domain.Enums;
 
 /// <summary>
 /// Kind of in-app staff notification. Drives the row icon and the deep-link target.
@@ -114,5 +114,24 @@ public enum NotificationCategory
     /// <para>In-app only. It waits for whoever next sits at a keyboard — a lock-screen banner about downloading a
     /// multi-gigabyte file is a banner nobody can act on where they are standing.</para>
     /// </summary>
-    ArchiveStale = 14
+    ArchiveStale = 14,
+
+    /// <summary>
+    /// Somebody else reset this account's <b>password</b> — an administrator of the clinic, or the vendor from the
+    /// platform console.
+    ///
+    /// <para>⚠️ <b>Targeted at the affected user, and it exists to make a quiet action loud</b> — exactly
+    /// <see cref="SecondFactorReset"/>'s reason, for the credential beside the one that category covers. Without
+    /// it, taking over a colleague's account (from a stolen admin session, or by ringing support and telling a
+    /// convincing story) leaves no trace the account's owner would ever see: their sessions simply end, which reads
+    /// as an ordinary timeout.</para>
+    ///
+    /// <para>⚠️ <b>Not written when a person resets their own password</b> from the login screen. That is the owner
+    /// acting, they are signed out of every session that could display this, and the confirmation they need goes to
+    /// their mailbox instead — see <c>CompletePasswordResetCommand</c>.</para>
+    ///
+    /// <para>In-app (and by e-mail): what it asks for happens at the machine, at the next sign-in, so a lock-screen
+    /// banner would add urgency to something nobody can act on from a phone.</para>
+    /// </summary>
+    PasswordReset = 15
 }

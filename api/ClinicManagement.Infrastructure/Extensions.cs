@@ -147,6 +147,7 @@ public static class Extensions
         // clinic-self-signup — pending signups. Registered unconditionally like every other repository; the
         // capability gate lives on the endpoints, not on whether the table can be read.
         services.AddScoped<IClinicSignupRepository, ClinicSignupRepository>();
+        services.AddScoped<IPasswordResetRequestRepository, PasswordResetRequestRepository>();
         // clinic-subscription — the entitlement and its ledger. ⚠️ Registered by **AddInfrastructure** and not
         // AddApplication, and that is load-bearing rather than conventional: `provision-clinic` builds its
         // container from this method alone, and it creates a cabinet — which must not come into existence without

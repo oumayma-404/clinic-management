@@ -1,4 +1,4 @@
-import { consoleFetch } from "./client";
+﻿import { consoleFetch } from "./client";
 
 /**
  * The portfolio reads (`platform-console` US-2), server-side only like everything in this folder.
@@ -522,6 +522,29 @@ export interface PlatformSecondFactorReset {
 export const CLINIC_ACCOUNT_NOT_FOUND_CODE = "clinic_account_not_found";
 
 export const SECOND_FACTOR_NOT_ENROLLED_CODE = "second_factor_not_enrolled";
+
+export const ACCOUNT_HAS_NO_PASSWORD_CODE = "account_has_no_password";
+
+/**
+ * What resetting one clinic account's **password** answers with.
+ *
+ * ⚠️ The target is echoed back for {@link PlatformSecondFactorReset}'s reason, and it matters more here: this write
+ * does not merely remove a protection, it hands out a working credential. A mis-keyed character that happens to
+ * match a colleague at the same cabinet is the failure it catches.
+ *
+ * ⚠️ **`oneTimePassword` is shown exactly once and is read out by voice.** It reaches this screen and nowhere else:
+ * the API deliberately keeps it out of the e-mail the affected person receives, because mailing a live credential to
+ * a mailbox that is either unreachable (the reason the vendor was called) or in somebody else's hands (the reason
+ * the notice exists) would make that notice the delivery mechanism for the takeover it exists to reveal.
+ */
+export interface PlatformPasswordReset {
+  clinicId: string;
+  targetEmail: string | null;
+  targetName: string | null;
+  targetRole: string;
+  oneTimePassword: string;
+  resetAt: string;
+}
 
 export async function fetchClinicDetail(token: string, clinicId: string): Promise<PlatformClinicDetail> {
   return consoleFetch<PlatformClinicDetail>(`/platform/clinics/${clinicId}`, { token });

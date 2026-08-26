@@ -307,7 +307,9 @@ public class SignUpClinicCommandHandler
         if (string.IsNullOrWhiteSpace(request.FullName)) return "Le nom complet est requis.";
         if (string.IsNullOrWhiteSpace(request.Email)) return "L'email est requis.";
 
-        var emailRefusal = ReadEmailAddress(request.Email, out canonicalEmail);
+        // ⚠️ `EmailAddressInput` — shared with `RequestPasswordResetCommand`, the second anonymous door taking an
+        // address from the internet. Its remarks carry the display-name attack this check exists for.
+        var emailRefusal = EmailAddressInput.Read(request.Email, out canonicalEmail);
         if (emailRefusal != null) return emailRefusal;
 
         if (string.IsNullOrWhiteSpace(request.Password)) return "Le mot de passe est requis.";
@@ -346,35 +348,6 @@ public class SignUpClinicCommandHandler
         value != null && value.Trim().Length > maxLength
             ? $"{fieldLabel} ne peut pas dépasser {maxLength} caractères."
             : null;
-
-    /// <summary>
-    /// Validates the address <b>and returns the canonical form</b>, which is what must be stored.
-    ///
-    /// <para>⚠️ Parsing and keeping the raw string are not the same thing, and the gap was exploitable:
-    /// <c>MailAddress</c> accepts the display-name form, so <c>Attaquant &lt;dr@cabinet.tn&gt;</c> parsed happily
-    /// and was stored verbatim — matching no <c>User</c> row (so both the already-an-account and the now-taken
-    /// guards missed), unique per variant (so « one row per address » collapsed and unlimited mails could be aimed
-    /// at one mailbox), and, if verified, producing an account whose email no login form can reproduce. Requiring
-    /// the parsed address to round-trip the input is what closes all three.</para>
-    /// </summary>
-    private static string? ReadEmailAddress(string value, out string canonical)
-    {
-        canonical = string.Empty;
-
-        var trimmed = value.Trim();
-        if (!System.Net.Mail.MailAddress.TryCreate(trimmed, out var parsed) || parsed == null)
-        {
-            return "L'adresse e-mail n'est pas valide.";
-        }
-
-        if (!string.Equals(parsed.Address, trimmed, StringComparison.OrdinalIgnoreCase))
-        {
-            return "Saisissez uniquement l'adresse e-mail, sans nom ni chevrons.";
-        }
-
-        canonical = parsed.Address;
-        return null;
-    }
 
     /// <summary>PostgreSQL 23505 — matched on the type name, following <c>UnitOfWork.IsExclusionViolation</c>.</summary>
     private static bool IsUniqueViolation(DbUpdateException ex)

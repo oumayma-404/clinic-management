@@ -9,9 +9,14 @@ using Microsoft.AspNetCore.Mvc;
 namespace ClinicManagement.API.Controllers.Platform;
 
 /// <summary>
-/// Support actions the vendor performs on a cabinet's <b>accounts</b> rather than on its contract — today the one
-/// action: clearing a second factor whose owner has lost the authenticator behind it
-/// (<c>hosted-security-hardening</c> FR-1.4).
+/// Support actions the vendor performs on a cabinet's <b>accounts</b> rather than on its contract — the two ways
+/// back into an account whose owner cannot get in: clearing a second factor whose authenticator is lost
+/// (<c>hosted-security-hardening</c> FR-1.4), and replacing a forgotten password.
+///
+/// <para>⚠️ <b>They are deliberately two calls, each with its own journal row.</b> Somebody who talks support into
+/// one still cannot sign in — a password without the six-digit code is useless, and a cleared factor without the
+/// password equally so. Offering « réinitialiser les deux » would collapse two independent proofs into a single
+/// phone call, which is precisely the attack the split defends against.</para>
 ///
 /// <para>⚠️ <b>Its own controller, and not a route on <c>PlatformSubscriptionsController</c>.</b> That file's
 /// heading is « the vendor records a payment … stops a cabinet for abuse », and Part 6's own note records what
@@ -89,6 +94,61 @@ public class PlatformClinicSecurityController : ApiControllerBase
             ResetClinicUserSecondFactorFromConsoleCommandHandler.UnknownAccountCode
                 => NotFound(new { error = result.Error, code = result.Code }),
             ResetClinicUserSecondFactorFromConsoleCommandHandler.NotEnrolledCode
+                => Conflict(new { error = result.Error, code = result.Code }),
+            _ => BadRequest(new { error = result.Error }),
+        };
+    }
+
+    /// <summary>
+    /// Replaces one clinic account's password with a fresh temporary one, returned once for the vendor to read back
+    /// over the telephone.
+    ///
+    /// <para>⚠️ <b>Filed here rather than on <c>PlatformSubscriptionsController</c></b> for this file's own stated
+    /// reason: this is somebody ringing to say they cannot get in, not money and not discipline, and a password
+    /// reset sitting under « Abonnement et paiements » would invite the billing mental model on the second of the
+    /// two actions whose misuse hands an account to whoever asked for it.</para>
+    ///
+    /// <para>⚠️ <b>A POST on a sub-resource, never a <c>PUT</c> on the password.</b> What happens is not only a
+    /// replacement: a journal row is written, the account's sessions end, the person is notified, and a credential
+    /// the vendor must relay comes back exactly once. <c>PUT</c> would advertise something idempotent, and a
+    /// retried <c>PUT</c> here silently invalidates the password the vendor just read out.</para>
+    ///
+    /// <para>⚠️ The refusals a client acts on differently carry <b>codes</b>: an unknown cabinet or account is a
+    /// 404, and « ce compte n'a pas de mot de passe local » is a state of the world (409) rather than a rejected
+    /// request. None is recovered by matching the French sentence.</para>
+    /// </summary>
+    [HttpPost("clinics/{clinicId:guid}/password/reset")]
+    [AllowsWithoutSubscription(
+        "The account that cannot sign in is frequently the sole administrator of a cabinet whose cover lapsed "
+        + "because nobody could sign in to pay for it. Gating this on the entitlement would make that lockout "
+        + "permanent by construction — the same reasoning as the second-factor reset above, and it applies at "
+        + "least as strongly to the credential somebody is more likely to forget.")]
+    public async Task<ActionResult<PlatformPasswordResetDto>> ResetPassword(
+        Guid clinicId,
+        [FromBody] ResetClinicUserPasswordRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new ResetClinicUserPasswordFromConsoleCommand
+            {
+                ClinicId = clinicId,
+                Email = request.Email,
+                Reason = request.Reason,
+            },
+            cancellationToken);
+
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        return result.Code switch
+        {
+            ResetClinicUserPasswordFromConsoleCommandHandler.UnknownClinicCode
+                => NotFound(new { error = result.Error, code = result.Code }),
+            ResetClinicUserPasswordFromConsoleCommandHandler.UnknownAccountCode
+                => NotFound(new { error = result.Error, code = result.Code }),
+            ResetClinicUserPasswordFromConsoleCommandHandler.NotLocalAccountCode
                 => Conflict(new { error = result.Error, code = result.Code }),
             _ => BadRequest(new { error = result.Error }),
         };

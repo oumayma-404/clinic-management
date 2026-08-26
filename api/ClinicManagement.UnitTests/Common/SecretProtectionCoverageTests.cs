@@ -1,4 +1,4 @@
-using ClinicManagement.Domain.Entities;
+﻿using ClinicManagement.Domain.Entities;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -106,6 +106,13 @@ public class SecretProtectionCoverageTests
                 + "Encrypting a hash would buy nothing — the row is already the non-reversible half — while "
                 + "putting the public signup path behind the key ring, so a ring problem would stop new "
                 + "cabinets from being created at all.",
+
+            [$"{nameof(PasswordResetRequest)}.{nameof(PasswordResetRequest.TokenHash)}"] =
+                "The row above's twin, and the same reasoning: a SHA-256 of the single-use reset token, which "
+                + "exists in plaintext only in the e-mail that carried it. Encrypting a hash would buy nothing — "
+                + "the row is already the non-reversible half — while putting the one recovery path a locked-out "
+                + "person can take alone behind the key ring, so a ring problem would turn a forgotten password "
+                + "into a support call.",
         };
 
     /// <summary>Every persisted, non-shadow property whose name looks like a secret.</summary>

@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using ClinicManagement.Application.Common.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
@@ -51,6 +51,13 @@ public class SubscriptionExemptionCoverageTests
         // is still entitled to read.
         "Auth.EnrolTotp",
         "Auth.RedeemRecoveryCode",
+        // The self-service password reset's own two anonymous doors, in the group above for its exact reason:
+        // neither records clinical work, and an expired cabinet keeps every read, export and PDF (AC-4.1/4.2) —
+        // which it reaches through nobody who cannot sign in. It bites hardest on precisely the cabinet this gate
+        // is about: the one whose cover lapsed *because* the person who pays forgot their password. Gating the way
+        // back on the entitlement would make that lockout self-sustaining.
+        "Auth.RequestPasswordReset",
+        "Auth.CompletePasswordReset",
         // FR-1.10, and the same reason as the group above: an expired cabinet keeps every read, export and PDF
         // by right (AC-4.1/4.2), and it reaches none of them if its people cannot get in. « Sécurité » is where
         // a lost authenticator is re-secured and where a step-up is proved; refusing those on the entitlement
@@ -118,6 +125,13 @@ public class SubscriptionExemptionCoverageTests
         // no payment, therefore no cover, therefore no reset, therefore no sign-in. It also touches no ledger entry
         // and consumes no paid day — it is a support action on a person, not a transaction with a practice.
         "PlatformClinicSecurity.ResetSecondFactor",
+
+        // --- And replacing a clinic account's forgotten password from the console. The row above's argument,
+        // verbatim, applied to the credential somebody is far more likely to lose: the account that cannot sign in
+        // is frequently the sole administrator of a cabinet whose cover lapsed *because* nobody could sign in to
+        // pay for it, so gating this would make the lockout permanent by construction. It touches no ledger entry
+        // and consumes no paid day either.
+        "PlatformClinicSecurity.ResetPassword",
 
         // --- Putting a cabinet back that no longer exists (`clinic-data-archive-and-restore` AC-8). There is no
         // entitlement to read for a cabinet that is gone, and this is the action that gives it one — so a gate

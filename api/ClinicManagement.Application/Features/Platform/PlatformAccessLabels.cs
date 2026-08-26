@@ -37,6 +37,7 @@ public static class PlatformAccessLabels
         // factor is not switched off, it is cleared so its owner can enrol a new one, and the second wording would
         // read on the journal as the vendor having lowered a cabinet's protection.
         PlatformAccessAction.SecondFactorReset => "Second facteur d'un compte réinitialisé",
+        PlatformAccessAction.PasswordReset => "Mot de passe d'un compte réinitialisé",
         _ => action.ToString()
     };
 

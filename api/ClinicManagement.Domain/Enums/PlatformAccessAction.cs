@@ -1,4 +1,4 @@
-namespace ClinicManagement.Domain.Enums;
+﻿namespace ClinicManagement.Domain.Enums;
 
 /// <summary>
 /// What a console account did to a cabinet, as recorded in the console's own access ledger
@@ -102,5 +102,26 @@ public enum PlatformAccessAction
     /// account is told, in-app and by e-mail, which is what makes a social-engineered request visible to the one
     /// person able to recognise it.</para>
     /// </summary>
-    SecondFactorReset = 8
+    SecondFactorReset = 8,
+
+    /// <summary>
+    /// A console account reset one clinic account's <b>password</b> to a fresh temporary one, at that person's
+    /// request, with a written motif.
+    ///
+    /// <para>⚠️ <b>The sibling of <see cref="SecondFactorReset"/>, and it existed as a hole for exactly as long as
+    /// that one existed as a feature.</b> A lost authenticator had a console route; a forgotten password had only
+    /// <c>reset-admin-password</c> over SSH — so the same support call was answered by whoever happened to hold
+    /// shell access, recorded in a bash history and nowhere in this ledger.</para>
+    ///
+    /// <para>⚠️ <b>Its motif lives here for <see cref="SecondFactorReset"/>'s reason</b>: <c>User.SetPassword</c>
+    /// writes no trace of who called it or why, so without this row « qui a réinitialisé le mot de passe de qui, et
+    /// pourquoi ? » is unanswerable. The affected account is told in-app and by e-mail, which is what makes a
+    /// social-engineered request visible to the only person placed to recognise it.</para>
+    ///
+    /// <para>⚠️ <b>Not the ordinary way back.</b> A cabinet with two administrators uses its own « Réinitialiser le
+    /// mot de passe », and on a hosted deployment the person can reset it themselves from the login screen. This is
+    /// for the sole administrator whose e-mail is also unreachable — the last resort, and the reason it is the
+    /// heaviest-audited of the three.</para>
+    /// </summary>
+    PasswordReset = 9
 }

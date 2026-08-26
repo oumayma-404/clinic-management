@@ -59,6 +59,7 @@ public sealed class DeploymentProfile
         bool exposesMetaOnboarding,
         bool allowsSelfRegistration,
         bool allowsPublicClinicSignup,
+        bool allowsPasswordResetByEmail,
         bool servesPlatformConsole,
         bool requiresSubscription,
         bool backsUpItsOwnData,
@@ -80,6 +81,7 @@ public sealed class DeploymentProfile
         ExposesMetaOnboarding = exposesMetaOnboarding;
         AllowsSelfRegistration = allowsSelfRegistration;
         AllowsPublicClinicSignup = allowsPublicClinicSignup;
+        AllowsPasswordResetByEmail = allowsPasswordResetByEmail;
         ServesPlatformConsole = servesPlatformConsole;
         RequiresSubscription = requiresSubscription;
         BacksUpItsOwnData = backsUpItsOwnData;
@@ -158,6 +160,33 @@ public sealed class DeploymentProfile
     /// full of patient records.</para>
     /// </summary>
     public bool AllowsPublicClinicSignup { get; }
+
+    /// <summary>
+    /// A person who has forgotten their password may replace it themselves, behind a single-use token mailed to
+    /// the address their account is registered under (<c>POST /api/auth/password-reset</c> + <c>/complete</c>).
+    ///
+    /// <para><b>True only for <see cref="DeploymentKind.HostedMultiTenant"/></b>, and each ✗ is its own reason.
+    /// <see cref="DeploymentKind.CloudBrowser"/> does not own its identities at all — Auth0's own reset flow is
+    /// the answer there, and a local token would replace a <c>PasswordHash</c> that profile's login path never
+    /// reads. <see cref="DeploymentKind.SelfHostedLan"/> is the interesting ✗: it owns its accounts, but it is a
+    /// PC in a surgery with no SMTP credentials and frequently no internet at all, so the capability would be
+    /// present-and-broken — a « Mot de passe oublié ? » link that always answers « impossible d'envoyer
+    /// l'e-mail ». There the ways back are an administrator's reset and <c>reset-admin-password</c> on the machine
+    /// in the room, and the login screen says so instead of offering a door that cannot open.</para>
+    ///
+    /// <para>⚠️ <b>This decides whether the door <i>may</i> exist; <c>ITransactionalEmailSender.IsConfigured</c>
+    /// decides whether it can be walked through today.</b> Off means <b>absent</b> — 404 before the mediator, so
+    /// the handler and its repository are never resolved — while a missing SMTP host on a profile that does have
+    /// the capability is a French refusal the person can act on. Conflating the two would either 404 a
+    /// misconfigured install (« the feature does not exist here », which is false) or advertise a link on a LAN
+    /// install that can never send.</para>
+    ///
+    /// <para>⚠️ <b>It is served to the browser on <c>GET /api/auth/mode</c></b>, so the login screen picks its
+    /// branch from the server rather than from <c>AUTH_MODE</c> — which reads <c>local</c> in both
+    /// account-owning profiles and therefore cannot tell a LAN install from a hosted one. The same reason
+    /// <see cref="AllowsPublicClinicSignup"/> is served there.</para>
+    /// </summary>
+    public bool AllowsPasswordResetByEmail { get; }
 
     /// <summary>
     /// The vendor's private back-office exists on this deployment — a second identity population, a second Kestrel
@@ -364,6 +393,10 @@ public sealed class DeploymentProfile
             // One clinic per install too, so there is no clinic #2 for a public door to create; first-run
             // `setup` (loopback-gated, once) is how the one clinic comes into being.
             allowsPublicClinicSignup: false,
+            // A PC in a surgery, with no SMTP credentials and often no internet: the capability would be
+            // present-and-broken. The ways back here are an administrator's reset and `reset-admin-password` on
+            // that same machine, and the login screen names them rather than offering a door that cannot open.
+            allowsPasswordResetByEmail: false,
             // No portfolio to run — one cabinet per install — and the vendor is not on that surgery's network.
             servesPlatformConsole: false,
             // The data is on the practice's own PC. Refusing writes there would hold their patient records
@@ -400,6 +433,10 @@ public sealed class DeploymentProfile
             // The one profile this door exists for: many clinics, our own accounts, and no operator standing by
             // to run `provision-clinic` for each arrival.
             allowsPublicClinicSignup: true,
+            // Our own accounts, reached over the internet, with SMTP already configured for the signup
+            // verification this profile alone sends — and the one topology where a locked-out sole administrator
+            // has nobody in the building to ask.
+            allowsPasswordResetByEmail: true,
             // The one topology with a portfolio to administer: many cabinets, one backend, one vendor behind it.
             servesPlatformConsole: true,
             // The only topology we host and bill: 30 free days, then read-only until a payment is recorded.
@@ -432,6 +469,10 @@ public sealed class DeploymentProfile
             // Multi-clinic, but Auth0 issues its identities: a signup here would mint a password-backed local
             // account that this profile's login path cannot authenticate.
             allowsPublicClinicSignup: false,
+            // Auth0 issues these identities and owns their reset flow. A local token here would replace a
+            // `PasswordHash` this profile's login path never reads — a reset that appears to succeed and changes
+            // nothing anybody can sign in with.
+            allowsPasswordResetByEmail: false,
             // Multi-clinic, but Auth0 owns the identities and these clinics are not on the arrangement the
             // console administers.
             servesPlatformConsole: false,

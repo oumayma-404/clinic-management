@@ -68,6 +68,12 @@ install directory, R-6):
 # Packaged install (self-contained exe):
 "C:\Program Files\Clinic Management\ClinicManagement.API.exe" reset-admin-password [admin-email]
 
+> ⚠️ **This stays the offline answer, and it is the only one on a `SelfHostedLan` install.** The self-service
+> « mot de passe oublié » added by `password-recovery-gaps` is a **hosted-only** capability
+> (`DeploymentProfile.AllowsPasswordResetByEmail`): a surgery PC has no SMTP credentials, so the login screen there
+> names the administrator instead of offering a link that cannot work. The ways back on this deployment are an
+> administrator's « Réinitialiser le mot de passe » in « Utilisateurs », and this verb.
+
 # Development (from the api/ solution folder):
 dotnet run --project ClinicManagement.API -- reset-admin-password [admin-email]
 ```

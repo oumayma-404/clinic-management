@@ -237,6 +237,29 @@ public interface INotificationGenerator
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Tells one user that somebody else replaced their <b>password</b> — an administrator of their clinic, or the
+    /// vendor from the platform console.
+    ///
+    /// <para>⚠️ <b>Targeted at that user alone</b>, and its whole purpose is the one
+    /// <see cref="SecondFactorResetAsync"/> serves for the credential beside it: without it, taking over a
+    /// colleague's account leaves no trace its owner would ever see — their sessions simply end, which reads as an
+    /// ordinary timeout.</para>
+    ///
+    /// <para>⚠️ <b>Never called for a self-service reset.</b> The person who chose the new password is the owner,
+    /// they are signed out of every session that could display this, and alarming them about their own action is
+    /// the fastest way to make a real alarm ignorable.</para>
+    ///
+    /// <para>⚠️ <paramref name="by"/> is <b>required rather than defaulted</b>, for
+    /// <see cref="SecondFactorResetAsync"/>'s reason: the sentence names the actor and tells the reader where to
+    /// complain, and « prévenez votre administrateur » is useless advice when the vendor's support did it.</para>
+    /// </summary>
+    Task PasswordResetAsync(
+        Guid clinicId,
+        string targetUserId,
+        PasswordResetBy by,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Tells one user that a device's session was ended because a superseded credential was presented
     /// (<c>hosted-security-hardening</c> FR-1.6).
     ///

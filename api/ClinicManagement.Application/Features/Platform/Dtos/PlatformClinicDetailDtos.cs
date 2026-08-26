@@ -213,3 +213,29 @@ public record PlatformSecondFactorResetDto(
     string? TargetName,
     string TargetRole,
     DateTime ResetAt);
+
+/// <summary>
+/// What resetting one clinic account's <b>password</b> answers with — who was reset, and the temporary credential
+/// to read back to them.
+///
+/// <para>⚠️ <b>The target is echoed back for <see cref="PlatformSecondFactorResetDto"/>'s reason</b>, and it matters
+/// more here: the vendor typed an address off a phone call, and this write does not merely remove a protection but
+/// hands out a working credential. Naming the person and their role is what makes « j'ai bien réinitialisé le compte
+/// que j'avais au téléphone » checkable on the screen that did it, rather than assumed because nothing refused.</para>
+///
+/// <para>⚠️ <b><see cref="OneTimePassword"/> is shown exactly once</b> — the shape <c>platform-account create</c>,
+/// <c>provision-clinic</c> and <see cref="PlatformClinicRestoredDto"/> already use. It is stored nowhere in
+/// readable form, the account must change it at first use, and it is relayed <b>by voice</b>: it is deliberately
+/// absent from the e-mail the affected person receives, because mailing a live credential to a mailbox an attacker
+/// may already hold would make that notice the delivery mechanism for the takeover it exists to reveal.</para>
+///
+/// <para>The field is named <c>OneTimePassword</c> rather than <c>TemporaryPassword</c> so this surface's closed
+/// <c>PlatformReadShape</c> set does not grow a synonym for a name it already allows.</para>
+/// </summary>
+public record PlatformPasswordResetDto(
+    Guid ClinicId,
+    string? TargetEmail,
+    string? TargetName,
+    string TargetRole,
+    string OneTimePassword,
+    DateTime ResetAt);

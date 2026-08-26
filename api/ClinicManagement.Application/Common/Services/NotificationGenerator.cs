@@ -648,6 +648,35 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task PasswordResetAsync(
+        Guid clinicId,
+        string targetUserId,
+        PasswordResetBy by,
+        CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.PasswordReset,
+                PasswordResetNotice.Title,
+                // ⚠️ From the shared notice, not written here — the e-mail the command sends says the same three
+                // things, and a second copy of a security sentence is a copy that drifts on the one message whose
+                // wording decides where the reader reports a break-in.
+                PasswordResetNotice.InApp(by),
+                DateTime.UtcNow,
+                NotificationTargetKind.Security,
+                // ⚠️ A TARGET and no actor exclusion, exactly as the second-factor row does it: the one person who
+                // must see this is the affected user, and broadcasting « le mot de passe de X a été réinitialisé »
+                // to the whole practice would publish a security event about one colleague to everybody.
+                actorUserId: null,
+                targetUserId: targetUserId);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
     public async Task SessionEndedForReplayAsync(
         Guid clinicId, string targetUserId, string? deviceLabel, CancellationToken cancellationToken = default)
     {

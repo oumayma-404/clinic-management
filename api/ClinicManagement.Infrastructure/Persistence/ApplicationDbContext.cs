@@ -139,6 +139,12 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     // clinic-owned set from that column never sees it.
     public DbSet<ClinicSignup> ClinicSignups { get; set; }
 
+    // Live and recently-spent password-reset requests. Carries **no ClinicId**, for the same mechanical reason as
+    // ClinicSignups above and a sharper one of its own: both endpoints reading it are anonymous, so no tenant
+    // scope is ever established and a filtered read would return zero rows with no error — indistinguishable from
+    // « no such request », on the one path whose job is to tell those two apart.
+    public DbSet<PasswordResetRequest> PasswordResetRequests { get; set; }
+
     // The vendor's console identity population (platform-console FR-1). Like ClinicSignup above and for the same
     // structural reason, these carry **no ClinicId**: a console account belongs to no cabinet, which is the whole
     // point of it, so they sit outside the tenant filter by construction and need no named exemption in

@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using ClinicManagement.Application.Common.Authorization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -65,6 +65,19 @@ public class ControllerAuthorizationCoverageTests
                                      // user can take alone. Anonymous for the reason Login is; the password is
                                      // verified FIRST so a wrong one burns no code, and both lockout tiers and
                                      // the per-account rate limit apply exactly as they do to Login.
+        "Auth.RequestPasswordReset", // asks for a reset link (« mot de passe oublié »). Anonymous by necessity —
+                                     // whoever calls it cannot sign in, that being the point. It creates no
+                                     // session and changes NOTHING about any account: one pending row and an
+                                     // emailed single-use token. It answers one neutral sentence for every
+                                     // outcome, so it is not an enumeration oracle either, and the whole endpoint
+                                     // 404s where DeploymentProfile.AllowsPasswordResetByEmail is false.
+                                     // Rate-limited per submitted account like its neighbours.
+        "Auth.CompletePasswordReset", // the other half: spends that token and sets the password. Anonymous for
+                                     // the same reason and gated by the same capability; the 32-byte single-use
+                                     // token IS the credential. ⚠️ It issues NO session in exchange — holding the
+                                     // e-mail is not holding the second factor, so the person still signs in with
+                                     // their six-digit code afterwards, which is what makes it safe for a mailbox
+                                     // to be able to replace a password at all.
         "CspReport.Receive",         // the CSP violation sink (hosted-security-hardening FR-4.5). Anonymous by
                                      // necessity: a violation fires most usefully on the LOGIN page, before any
                                      // session exists — the report that matters most is the one from the screen

@@ -88,6 +88,12 @@ public class AuthController : ApiControllerBase
             // code? » (✗ here) and this is « may a visitor create their OWN clinic behind an emailed token? »
             // (✓ here). The `/signup` page reads it so it never offers a form the endpoint would 404.
             publicSignupEnabled = deployment.AllowsPublicClinicSignup,
+            // Whether « Mot de passe oublié ? » is a link or a sentence naming who to ask. It cannot be derived
+            // from `mode` for the same reason `selfRegistrationEnabled` cannot: the browser learns the mode from
+            // the Next server's own AUTH_MODE, which reads `local` in BOTH account-owning profiles — so the login
+            // screen has no way to tell a LAN install (no SMTP, no self-service) from a hosted one. Served here so
+            // the screen cannot offer a door the endpoint below would 404.
+            passwordResetEnabled = deployment.AllowsPasswordResetByEmail,
             // clinic-subscription Part C. The client mounts the « Abonnement » entry and (Part D) the banner from
             // this flag, never from probing the endpoint: a network failure and a genuine 404 are indistinguishable
             // to a probe, and EC-13 requires a failed read to be retryable rather than read as « aucun abonnement ».
@@ -178,6 +184,80 @@ public class AuthController : ApiControllerBase
         var result = await _mediator.Send(new VerifyClinicSignUpCommand { Token = request.Token });
 
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// « J'ai oublié mon mot de passe »: mails a single-use reset link. Changes nothing about the account.
+    ///
+    /// <para><b>Always 202, never 200 or 404-on-unknown-address.</b> The handler cannot say whether anything was
+    /// sent without saying whether the address is an account, so the status code must not either — and « accepted »
+    /// is the honest one: a link may be on its way, and the person still has to open their mail.</para>
+    ///
+    /// <para>⚠️ <b>Gated on <c>AllowsPasswordResetByEmail</c>, checked before the mediator</b> so that on a profile
+    /// without the capability the handler, its repository and its mail sender are never resolved. The
+    /// <c>SelfHostedLan</c> ✗ is the load-bearing one: a surgery PC has no SMTP credentials, and a « Mot de passe
+    /// oublié ? » link that always fails is worse than an honest sentence naming the administrator.</para>
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [HttpPost("password-reset")]
+    public async Task<IActionResult> RequestPasswordReset([FromBody] PasswordResetEmailRequest request)
+    {
+        if (!Deployment.AllowsPasswordResetByEmail)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new RequestPasswordResetCommand { Email = request.Email });
+
+        if (!result.IsSuccess)
+        {
+            // 503, not 400, when the deployment itself cannot send: a 400 tells every client and proxy the call is
+            // malformed and not worth retrying, the opposite of what the message says.
+            return result.Code == RequestPasswordResetCommandHandler.UnavailableCode
+                ? HandleFailure(result, StatusCodes.Status503ServiceUnavailable)
+                : HandleFailure(result);
+        }
+
+        return Accepted(result.Value);
+    }
+
+    /// <summary>
+    /// Spends a reset link and sets the new password.
+    ///
+    /// <para><b>Returns no session</b> — no access token, no cookie. Receiving the e-mail is not the same as
+    /// holding the second factor, and handing out a session here would let anybody who reaches a mailbox past the
+    /// TOTP gate. The person signs in at <c>/login</c> with the password they just chose and their six-digit code,
+    /// which is the whole reason a mailbox is allowed to reset a password at all.</para>
+    ///
+    /// <para>⚠️ A spent, expired or unknown link is <b>410 Gone</b>, not 400: nothing about the request was
+    /// malformed, and the client branches on <c>code</c> to offer « demander un nouveau lien » rather than
+    /// re-submitting the same one.</para>
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [HttpPost("password-reset/complete")]
+    public async Task<IActionResult> CompletePasswordReset([FromBody] PasswordResetCompletionRequest request)
+    {
+        if (!Deployment.AllowsPasswordResetByEmail)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new CompletePasswordResetCommand
+        {
+            Token = request.Token,
+            NewPassword = request.NewPassword,
+        });
+
+        if (result.IsSuccess)
+        {
+            return Ok(new { });
+        }
+
+        return result.Code == CompletePasswordResetCommandHandler.InvalidTokenCode
+            ? HandleFailure(result, StatusCodes.Status410Gone)
+            : HandleFailure(result);
     }
 
     /// <summary>

@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Deployment;
@@ -62,6 +62,11 @@ public class DeploymentProfileTests
             // platform-console. The SECOND capability true of HostedMultiTenant alone, so it joins the
             // `hostedOnlyCapabilities` set below for the same reason AllowsPublicClinicSignup did.
             [nameof(DeploymentProfile.ServesPlatformConsole)] = (false, true, false),
+            // Self-service password reset. Hosted-only, and each ✗ is its own reason rather than a default:
+            // CloudBrowser does not own its identities at all (Auth0's reset flow is the answer there), while
+            // SelfHostedLan owns them but is a surgery PC with no SMTP credentials — so the capability would be
+            // present-and-broken. It joins `hostedOnlyCapabilities` below for AllowsPublicClinicSignup's reason.
+            [nameof(DeploymentProfile.AllowsPasswordResetByEmail)] = (false, true, false),
             // clinic-subscription AC-7.1–7.3. The THIRD hosted-only capability: the two other kinds are ✗ for
             // their own reasons (the clinic's own disk; a topology that predates the arrangement), not by default.
             [nameof(DeploymentProfile.RequiresSubscription)] = (false, true, false),
@@ -125,6 +130,7 @@ public class DeploymentProfileTests
         var hostedOnlyCapabilities = new[]
         {
             nameof(DeploymentProfile.AllowsPublicClinicSignup),
+            nameof(DeploymentProfile.AllowsPasswordResetByEmail),
             nameof(DeploymentProfile.ServesPlatformConsole),
             nameof(DeploymentProfile.RequiresSubscription),
             nameof(DeploymentProfile.SellsVendorMessaging),

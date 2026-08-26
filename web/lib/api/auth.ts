@@ -90,6 +90,21 @@ export interface AuthModeDto {
    * can say what is coming before the first refusal rather than after it.
    */
   requiresSecondFactor?: boolean;
+  /**
+   * Whether a person who has forgotten their password may replace it themselves, behind a single-use link mailed
+   * to the address their account is registered under (`POST /api/auth/password-reset`).
+   *
+   * ⚠️ **Not derivable from `mode`, which is exactly why the server answers it** — `selfRegistrationEnabled`'s
+   * reason, verbatim. The browser learns the mode from Next's own `AUTH_MODE`, which reads `local` on a clinic's
+   * own PC *and* on the hosted backend; only the second has SMTP credentials and an internet connection. A surgery
+   * PC gets no « Mot de passe oublié ? » link because there is nothing behind it, and the login screen names the
+   * administrator instead.
+   *
+   * ⚠️ **Optional, and read as `=== true`**, following `publicSignupEnabled`'s rolling-deploy convention. The safe
+   * direction is « no self-service »: an older API answering `undefined` shows the « contactez votre
+   * administrateur » sentence, which is true on every deployment, rather than a link that would 404.
+   */
+  passwordResetEnabled?: boolean;
 }
 
 /** What `POST /api/auth/signup` requests. Mirrors the backend `ClinicSignUpRequest`. */
@@ -134,6 +149,15 @@ export interface ClinicSignUpVerificationDto {
   clinicName: string;
 }
 
+/**
+ * The 202 body of a reset request. One neutral sentence and nothing else — deliberately identical whether the
+ * address is a live account, a disabled one, or has never existed, so the page cannot become an enumeration oracle
+ * by rendering a difference the server took care not to send.
+ */
+export interface PasswordResetRequestedDto {
+  message: string;
+}
+
 export const authApi = {
   /**
    * Reads the deployment's auth capabilities. `null` skips the bearer token: this is the one call made before a
@@ -147,4 +171,24 @@ export const authApi = {
 
   verifySignUp: async (token: string): Promise<ClinicSignUpVerificationDto> =>
     apiPost<ClinicSignUpVerificationDto>('/auth/signup/verify', { token }, null),
+
+  /**
+   * Asks for a reset link. Anonymous by definition — whoever calls this cannot sign in.
+   *
+   * ⚠️ **Goes straight to the API, not through a `/bff/auth/*` route**, following `signUp`/`verifySignUp` beside
+   * it. The BFF routes exist for the calls that write the session cookies; this pair writes none, because a reset
+   * is not a sign-in. Adding a passthrough route would only add a hop that could drop the `Retry-After` header the
+   * rate limiter sends.
+   */
+  requestPasswordReset: async (email: string): Promise<PasswordResetRequestedDto> =>
+    apiPost<PasswordResetRequestedDto>('/auth/password-reset', { email }, null),
+
+  /**
+   * Spends the link and sets the new password. Returns no session and sets no cookie: holding the e-mail is not
+   * holding the second factor, so the person signs in afterwards with the password they just chose **and** their
+   * six-digit code.
+   */
+  completePasswordReset: async (token: string, newPassword: string): Promise<void> => {
+    await apiPost<Record<string, never>>('/auth/password-reset/complete', { token, newPassword }, null);
+  },
 };

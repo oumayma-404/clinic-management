@@ -1,10 +1,11 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ActivityTrend } from "@/components/activity-trend";
 import { CancelPeriodDialog } from "@/components/cancel-period-dialog";
 import { MessagingSection } from "@/components/messaging-section";
 import { RecordPaymentSheet } from "@/components/record-payment-sheet";
+import { ResetClinicPasswordDialog } from "@/components/reset-clinic-password-dialog";
 import { ResetSecondFactorDialog } from "@/components/reset-second-factor-dialog";
 import { SuspendDialog } from "@/components/suspend-dialog";
 import { ConsoleApiError } from "@/lib/api/client";
@@ -289,7 +290,7 @@ function Suspension({ detail }: { detail: PlatformClinicDetail }) {
 /**
  * AC-3.3 — who to call. Staff, never a patient, and the screen says which.
  *
- * ⚠️ **« Réinitialiser un second facteur » lives here, and the placement is the decision.** It is a support action
+ * ⚠️ **The two credential resets live here, and the placement is the decision.** Each is a support action
  * on a *person*, and this is the only section of the fiche that is about people — the same argument Part 6 makes for
  * keeping suspension out of « Abonnement et paiements ». Beside the payment history it would read as a billing
  * lever; here it sits next to the address the vendor is about to ring back, which is exactly the context the
@@ -305,11 +306,24 @@ function Administrator({ detail }: { detail: PlatformClinicDetail }) {
         <h2 id="admin-heading" className="text-base font-semibold">
           Administrateur du cabinet
         </h2>
-        <ResetSecondFactorDialog
-          clinicId={detail.clinic.clinicId}
-          clinicName={detail.clinic.name}
-          adminEmail={detail.adminEmail}
-        />
+        {/* ⚠️ Two buttons, never one « Réinitialiser l'accès ». A caller who has lost both their password and their
+            authenticator is rare; a caller who has lost one is the ordinary case, and a combined control would reset
+            the credential they still hold — which ends the session they were about to use. Keeping them apart is
+            also what makes one telephone call unable to defeat both proofs, and it puts two rows in the journal
+            instead of one ambiguous one. `flex-wrap` because the two French labels do not share a line at 390 px and
+            `Button` is `whitespace-nowrap shrink-0`. */}
+        <div className="flex flex-wrap gap-2">
+          <ResetClinicPasswordDialog
+            clinicId={detail.clinic.clinicId}
+            clinicName={detail.clinic.name}
+            adminEmail={detail.adminEmail}
+          />
+          <ResetSecondFactorDialog
+            clinicId={detail.clinic.clinicId}
+            clinicName={detail.clinic.name}
+            adminEmail={detail.adminEmail}
+          />
+        </div>
       </div>
 
       {hasContact ? (

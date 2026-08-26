@@ -11,6 +11,7 @@ import { FormErrorBanner } from '@/components/ui/form-error-banner'
 import { TotpCodeField } from '@/components/security/totp-code-field'
 import { TotpEnrolmentStep } from '@/components/security/totp-enrolment-step'
 import { RecoveryCodesPanel } from '@/components/security/recovery-codes-panel'
+import { usePasswordResetEnabled } from '@/lib/hooks/use-password-policy'
 import { PRODUCT_NAME } from '@/lib/brand'
 
 export default function LoginPage() {
@@ -589,6 +590,8 @@ function LocalLoginForm() {
           {isSubmitting ? 'Connexion…' : 'Se connecter'}
         </Button>
 
+        <ForgotPasswordLine />
+
         {/* /signup states « Inscription non disponible ici » itself where the capability is off, so this
             link needs no probe of its own — unlike the retired /join one, whose code path is closed. */}
         <p className="text-center text-sm text-muted-foreground">
@@ -599,6 +602,43 @@ function LocalLoginForm() {
         </p>
       </form>
     </LoginShell>
+  )
+}
+
+/**
+ * « Mot de passe oublié ? » — the standing way back, or the name of the person who is it.
+ *
+ * ⚠️ **Present before the first refusal, not after it.** The refusal itself is « Identifiants invalides. » and
+ * stays deliberately vague — saying more would tell a stranger whether an address is an account — so the guidance
+ * cannot live in the error. Somebody who cannot remember their password needs to see the way out while they are
+ * still guessing, not once the lockout has already started.
+ *
+ * ⚠️ **The two branches say opposite things about who can help**, so nothing renders until the server has
+ * answered. Where the capability exists this is a link; where it does not — a surgery PC with no SMTP — it names
+ * the administrator, because a « Mot de passe oublié ? » link that always fails is worse than an honest sentence.
+ * A failed probe stays silent for the same reason: no line beats the wrong line.
+ */
+function ForgotPasswordLine() {
+  const resetEnabled = usePasswordResetEnabled()
+
+  if (resetEnabled === null) {
+    return null
+  }
+
+  if (resetEnabled) {
+    return (
+      <p className="text-center text-sm">
+        <a href="/mot-de-passe-oublie" className="text-primary hover:underline">
+          Mot de passe oublié ?
+        </a>
+      </p>
+    )
+  }
+
+  return (
+    <p className="text-center text-sm text-muted-foreground">
+      Mot de passe oublié ? Demandez à un administrateur de votre cabinet de le réinitialiser.
+    </p>
   )
 }
 

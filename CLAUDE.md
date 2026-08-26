@@ -126,6 +126,10 @@ how it was built, `notes.md` is what shipped.
 - [`dashboard-insights`](features/dashboard-insights/notes.md) — The dashboard is a composed read, not a KPI bag
 - [`stock-fournisseurs`](features/stock-fournisseurs/notes.md) — A fournisseur is a record with a number, not a name on a row
 
+**Getting back in**
+
+- [`password-recovery-gaps`](features/password-recovery-gaps/notes.md) — A forgotten password has a way back its owner can take alone, and it never touches the second factor · The vendor's console can re-credential an account, and says so in the journal · `platform-account --reset-password`
+
 **Who may do what, and whose data it is**
 
 - [`adoption-qa-i-access-control-and-audit`](features/adoption-qa-i-access-control-and-audit/notes.md) — Who may do what, and who did it · The patient AI summary is gone, and the claim that used to be here was false on both halves (I4)

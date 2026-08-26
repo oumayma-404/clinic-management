@@ -48,6 +48,9 @@ public static class StaffNotificationRules
         // In-app only: what it asks for is done at a keyboard, at the next sign-in — a lock-screen banner
         // would add urgency to something nobody can act on from the lock screen.
         NotificationCategory.SecondFactorReset => false,
+        // The same call, for the credential beside the factor: a temporary password is relayed by voice and the
+        // new one is chosen at a keyboard, so nothing here can be acted on from a lock screen.
+        NotificationCategory.PasswordReset => false,
         // The export has already happened by the time this is written, so a banner would announce something
         // nobody can intervene in — and it is read by whoever next opens the app, which is when it is actionable.
         NotificationCategory.ClinicArchiveExported => false,
