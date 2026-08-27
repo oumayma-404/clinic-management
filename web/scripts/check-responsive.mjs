@@ -695,7 +695,13 @@ check(
     const srcComment = commentMask(srcLines);
     const hitLine = srcLines.findIndex((line, n) => !srcComment[n] && /<main\b/.test(line));
     if (hitLine === -1) return [{ file: rel(file), line: 0, text: "no <main>", full: "AppShell no longer renders <main> — repoint this check" }];
-    const lineStart = srcLines.slice(0, hitLine).reduce((n, l) => n + l.length + 1, 0);
+    // ⚠️ Walk the REAL newline positions instead of summing line lengths + 1. `srcLines` came from a
+    // CR-LF-tolerant split, so a CRLF file's terminator is TWO characters and `+ 1` under-counts by one byte
+    // per line: the slice below then starts mid-line, the brace-walk reads the wrong region, and a `<main>`
+    // that IS `relative` gets reported as missing it. Dormant while this file happened to be LF, and exposed
+    // the moment git handed it back as CRLF on a branch switch — so it fired on Windows and never in CI.
+    let lineStart = 0;
+    for (let n = 0; n < hitLine; n++) lineStart = src.indexOf("\n", lineStart) + 1;
     // Walk to the end of the opening tag, brace-aware, so the whole `className={cn(…)}` call is included.
     let i = lineStart + srcLines[hitLine].indexOf("<main") + "<main".length;
     let depth = 0;
