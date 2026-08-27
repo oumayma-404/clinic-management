@@ -558,7 +558,7 @@ export function CreateAppointmentDialog({
     if (!isBusySlot) {
       if (isNewPatient) {
         if (!newPatientFirstName.trim() || !newPatientLastName.trim()) {
-          setError("Veuillez saisir le prénom et le nom du nouveau patient")
+          setError("Saisissez le prénom et le nom du nouveau patient.")
           return false
         }
         // Optional, reconciled with the patient form: the column is nullable and this door is where a walk-in is
@@ -568,13 +568,13 @@ export function CreateAppointmentDialog({
           return false
         }
       } else if (!selectedPatientId) {
-        setError("Veuillez sélectionner un patient")
+        setError("Sélectionnez un patient.")
         return false
       }
     }
 
     if (!date) {
-      setError("Veuillez sélectionner une date")
+      setError("Sélectionnez une date.")
       return false
     }
 
@@ -662,7 +662,7 @@ export function CreateAppointmentDialog({
 
       const appointmentDateTime = buildAppointmentDateTime()
       if (!appointmentDateTime) {
-        setError("Veuillez sélectionner une date")
+        setError("Sélectionnez une date.")
         setLoading(false)
         return
       }
@@ -986,7 +986,7 @@ export function CreateAppointmentDialog({
                               (loadingPatients
                                 ? "Chargement des patients…"
                                 : patients.length === 0
-                                  ? "Aucun patient trouvé"
+                                  ? "Aucun patient ne correspond"
                                   : "Choisir un patient…")}
                           </span>
                           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -994,9 +994,9 @@ export function CreateAppointmentDialog({
                       </PopoverTrigger>
                       <PopoverContent className="p-0" align="start" style={{ width: "var(--radix-popover-trigger-width)" }}>
                         <Command>
-                          <CommandInput placeholder="Rechercher un patient..." />
+                          <CommandInput placeholder="Rechercher un patient…" />
                           <CommandList>
-                            <CommandEmpty>Aucun patient trouvé.</CommandEmpty>
+                            <CommandEmpty>Aucun patient ne correspond.</CommandEmpty>
                             <CommandGroup>
                               {patients.map((patient) => {
                                 const fullName = `${patient.firstName} ${patient.lastName}`
@@ -1237,7 +1237,7 @@ export function CreateAppointmentDialog({
                   disabled={loadingDoctors || loading}
                 >
                   <SelectTrigger className="h-10 w-full" id="doctor">
-                    <SelectValue placeholder={loadingDoctors ? "Chargement des médecins…" : doctors.length === 0 ? "Aucun médecin trouvé" : "Choisir un médecin…"} />
+                    <SelectValue placeholder={loadingDoctors ? "Chargement des médecins…" : doctors.length === 0 ? "Aucun médecin enregistré" : "Choisir un médecin…"} />
                   </SelectTrigger>
                   <SelectContent className="max-h-[200px]">
                     {doctors.length === 0 && !loadingDoctors ? (

@@ -94,7 +94,7 @@ export default function JoinClinicPage() {
     try {
       // Validate code format (basic check)
       if (clinicCode.trim().length < 4) {
-        setError("Veuillez saisir un code de clinique valide")
+        setError("Saisissez un code de clinique valide.")
         setIsLoading(false)
         return
       }
@@ -150,7 +150,7 @@ export default function JoinClinicPage() {
             <div>
               <CardTitle className="text-2xl text-accent-foreground">Rejoindre une clinique</CardTitle>
               <CardDescription className="mt-2">
-                Saisissez le code de la clinique fourni par votre administrateur pour rejoindre une clinique existante
+                Saisissez le code que votre administrateur vous a remis pour rejoindre sa clinique
               </CardDescription>
             </div>
           </CardHeader>

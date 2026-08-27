@@ -433,7 +433,7 @@ function CaisseContent() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="caisse-day-end" className="text-sm text-muted-foreground">
-                  Au (optionnel)
+                  Au (facultatif)
                 </Label>
                 <Input
                   id="caisse-day-end"
@@ -823,7 +823,7 @@ function CaisseContent() {
               disabled={deleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleting ? "Suppression..." : "Supprimer"}
+              {deleting ? "Suppression…" : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1048,7 +1048,7 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
             <Label htmlFor="description">Description</Label>
             <Textarea
               id="description"
-              placeholder="Optionnel"
+              placeholder="Facultatif"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
@@ -1060,7 +1060,7 @@ function ExpenseFormModal({ open, onOpenChange, editingExpense, defaultDay, onSa
               Annuler
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Enregistrement..." : editingExpense ? "Mettre à jour" : "Ajouter"}
+              {saving ? "Enregistrement…" : editingExpense ? "Mettre à jour" : "Ajouter"}
             </Button>
           </DialogFooter>
         </form>

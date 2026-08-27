@@ -255,7 +255,7 @@ export function ReviseInstallmentsModal({ open, onOpenChange, plan, onSuccess }:
               Annuler
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? "Enregistrement..." : "Enregistrer la révision"}
+              {loading ? "Enregistrement…" : "Enregistrer la révision"}
             </Button>
           </DialogFooter>
         </form>

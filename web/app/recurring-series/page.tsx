@@ -477,7 +477,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
             <Label htmlFor="procedureType">Type d'acte</Label>
             <Select value={procedureTypeId} onValueChange={setProcedureTypeId}>
               <SelectTrigger id="procedureType" className="w-full">
-                <SelectValue placeholder="Optionnel" />
+                <SelectValue placeholder="Facultatif" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={NO_PROCEDURE}>Aucun</SelectItem>
@@ -494,7 +494,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
             <Label htmlFor="notes">Notes</Label>
             <Textarea
               id="notes"
-              placeholder="Optionnel"
+              placeholder="Facultatif"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
@@ -506,7 +506,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
               Annuler
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Création..." : "Créer la série"}
+              {saving ? "Création…" : "Créer la série"}
             </Button>
           </DialogFooter>
         </form>
@@ -869,7 +869,7 @@ function RecurringSeriesScreen() {
               disabled={cancelling}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {cancelling ? "Annulation..." : "Annuler la série"}
+              {cancelling ? "Annulation…" : "Annuler la série"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

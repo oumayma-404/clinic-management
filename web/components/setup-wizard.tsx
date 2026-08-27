@@ -379,7 +379,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
     collectsAdminAccount
       ? { number: 2, title: "Administrateur", description: "Votre compte et vos identifiants" }
       : { number: 2, title: "Votre rôle", description: "Rôle et infos personnelles" },
-    { number: 3, title: "Horaires", description: "Définir les horaires (optionnel)" },
+    { number: 3, title: "Horaires", description: "Définir les horaires (facultatif)" },
   ]
 
   return (
@@ -583,7 +583,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                   {!isLocalMode && (
                     <div className="space-y-2">
                       <Label htmlFor="email" className="text-sm font-medium">
-                        Email professionnel <span className="text-destructive">*</span>
+                        E-mail professionnel <span className="text-destructive">*</span>
                       </Label>
                       <Input
                         id="email"
@@ -606,7 +606,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                 */}
                 {!isSignup && (
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Logo de la clinique (optionnel)</Label>
+                  <Label className="text-sm font-medium">Logo de la clinique (facultatif)</Label>
                   <div className="flex items-center gap-4">
                     {logoPreview ? (
                       <div className="relative w-24 h-24 rounded-lg border-2 border-primary/25 overflow-hidden">
@@ -672,7 +672,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="admin-email" className="text-sm font-medium">
-                        Email <span className="text-destructive">*</span>
+                        E-mail <span className="text-destructive">*</span>
                       </Label>
                       <Input
                         id="admin-email"
@@ -840,7 +840,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
 
                       <div className="space-y-2">
                         <Label htmlFor="personal-phone" className="text-sm font-medium">
-                          Numéro de téléphone (optionnel)
+                          Numéro de téléphone (facultatif)
                         </Label>
                         <Input
                           id="personal-phone"
@@ -871,7 +871,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
               <div className="space-y-6">
                 <div>
                   <h2 className="text-2xl font-semibold text-accent-foreground mb-2">Définir les horaires</h2>
-                  <p className="text-muted-foreground">Configurez les horaires d&apos;ouverture de votre clinique (optionnel)</p>
+                  <p className="text-muted-foreground">Configurez les horaires d&apos;ouverture de votre clinique (facultatif)</p>
                 </div>
 
                 <div className="space-y-3">

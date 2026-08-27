@@ -264,7 +264,7 @@ export function MonProfilContent() {
 
         <div className="flex justify-end gap-2 pt-2 border-t border-border">
           <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Enregistrement..." : "Enregistrer"}
+            {saving ? "Enregistrement…" : "Enregistrer"}
           </Button>
         </div>
       </Card>

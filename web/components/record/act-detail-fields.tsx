@@ -186,7 +186,7 @@ export function ActDetailFields({ draft, toothCount, dispatch, disabled }: ActDe
         <Input
           value={draft.note}
           onChange={(e) => dispatch({ type: "patchDraft", patch: { note: e.target.value } })}
-          placeholder="Note sur l'acte (optionnel)"
+          placeholder="Note sur l'acte (facultative)"
           className="h-8 min-w-[8rem] flex-1 text-xs"
           disabled={disabled}
         />

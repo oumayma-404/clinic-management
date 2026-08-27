@@ -29,7 +29,7 @@ import {
 import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
 import { DOCUMENT_EMAIL_KINDS, type DocumentEmailKind } from "@/lib/api/document-emails"
 
-/** What « Envoyer par email » was clicked for. One dialog serves the reçus and the avoirs of this modal. */
+/** What « Envoyer par e-mail » was clicked for. One dialog serves the reçus and the avoirs of this modal. */
 interface EmailTarget {
   kind: DocumentEmailKind
   documentId: string
@@ -321,8 +321,8 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                               paymentId: payment.id,
                               label: `Reçu de paiement ${formatDT(payment.amount)}`,
                             })}
-                            title="Envoyer le reçu par email"
-                            aria-label={`Envoyer par email le reçu du paiement de ${formatDT(payment.amount)} du ${formatDateFr(payment.paidOn)}`}
+                            title="Envoyer le reçu par e-mail"
+                            aria-label={`Envoyer par e-mail le reçu du paiement de ${formatDT(payment.amount)} du ${formatDateFr(payment.paidOn)}`}
                           >
                             <Mail className="h-4 w-4" />
                           </Button>
@@ -442,8 +442,8 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
                               documentId: creditNote.id,
                               label: `Avoir ${creditNote.number}`,
                             })}
-                            title="Envoyer l'avoir par email"
-                            aria-label={`Envoyer par email l'avoir ${creditNote.number} de ${formatDT(creditNote.amount)}`}
+                            title="Envoyer l'avoir par e-mail"
+                            aria-label={`Envoyer par e-mail l'avoir ${creditNote.number} de ${formatDT(creditNote.amount)}`}
                           >
                             <Mail className="h-4 w-4" />
                           </Button>

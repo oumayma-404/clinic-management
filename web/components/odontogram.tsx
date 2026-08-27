@@ -726,7 +726,7 @@ function ToothCell({ toothNum, entries, patientId, onChanged }: ToothCellProps) 
           <Textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="Note (optionnelle)"
+            placeholder="Note (facultative)"
             className="min-h-[52px] text-xs"
           />
           {/* The popover's primary action, at 32px. `coarse:h-11` paints the floor rather than overlaying it —

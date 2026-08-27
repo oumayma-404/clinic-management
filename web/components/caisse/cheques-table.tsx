@@ -312,7 +312,7 @@ export function ChequesTable() {
                     icon={SearchX}
                     chipClassName={MONEY_CHIP}
                     title={`Aucun chèque ne correspond à ${quoteFr(debouncedSearch)}`}
-                    description="Le numéro et la banque restent optionnels : un chèque enregistré sans eux ne peut pas être retrouvé par ce champ."
+                    description="Le numéro et la banque restent facultatifs : un chèque enregistré sans eux ne peut pas être retrouvé par ce champ."
                     secondaryAction={
                       <Button size="sm" variant="outline" onClick={() => setSearch("")}>
                         Effacer les filtres

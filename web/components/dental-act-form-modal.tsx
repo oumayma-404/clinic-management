@@ -211,7 +211,7 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
                 id="coefficient"
                 type="text"
                 inputMode="decimal"
-                placeholder="Optionnel"
+                placeholder="Facultatif"
                 value={coefficient}
                 onChange={(e) => setCoefficient(e.target.value)}
                 disabled={loading}
@@ -247,7 +247,7 @@ export function DentalActFormModal({ open, onOpenChange, editingAct, onSuccess }
               id="defaultFee"
               type="text"
               inputMode="decimal"
-              placeholder="Optionnel"
+              placeholder="Facultatif"
               value={defaultFee}
               onChange={(e) => setDefaultFee(e.target.value)}
               disabled={loading}

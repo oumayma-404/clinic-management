@@ -702,7 +702,7 @@ export function TreatmentPlanFormModal({
               id="notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Notes (optionnel)"
+              placeholder="Notes (facultatives)"
               rows={2}
               disabled={loading}
             />
@@ -877,7 +877,7 @@ export function TreatmentPlanFormModal({
             <Label>Échéancier</Label>
             <div className="space-y-2">
               {installments.length === 0 && (
-                <p className="text-sm text-muted-foreground">Aucune échéance. Ajoutez un échéancier de paiement (optionnel).</p>
+                <p className="text-sm text-muted-foreground">Aucune échéance. Ajoutez un échéancier de paiement (facultatif).</p>
               )}
               {installments.map((row, index) => {
                 // AC-P2.6: an échéance that has collected cash is locked against deletion and against being
@@ -956,7 +956,7 @@ export function TreatmentPlanFormModal({
             </Button>
             <Button type="submit" disabled={loading}>
               {loading
-                ? "Enregistrement..."
+                ? "Enregistrement…"
                 : isAmending
                   ? "Enregistrer la révision"
                   : isEditing

@@ -159,7 +159,7 @@ export default function ForgotPasswordPage() {
                   <FormErrorBanner message={error} />
 
                   <div className="space-y-2">
-                    <Label htmlFor="reset-email">Email</Label>
+                    <Label htmlFor="reset-email">E-mail</Label>
                     <Input
                       id="reset-email"
                       type="email"

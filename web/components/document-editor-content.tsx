@@ -164,7 +164,7 @@ function MedicationItem({
   onUpdate: (med: MedicationLine) => void
   onRemove: () => void
   catalog: MedicationDto[]
-  /** The catalogue read failed — the picker must say so instead of rendering « Aucun médicament trouvé. ». */
+  /** The catalogue read failed — the picker must say so instead of rendering « Aucun médicament ne correspond. ». */
   catalogFailed: boolean
   onRetryCatalog: () => void
 }) {
@@ -181,7 +181,7 @@ function MedicationItem({
             <div className="flex gap-2">
               <Input
                 type="text"
-                placeholder="Ex: Amoxicilline"
+                placeholder="Ex : Amoxicilline"
                 value={medication.name || ""}
                 onChange={(e) => {
                   // Manual edit → free-text entry: drop any catalog link + molecule snapshot.
@@ -198,13 +198,13 @@ function MedicationItem({
                 </PopoverTrigger>
                 <PopoverContent className="p-0 w-80" align="end">
                   <Command>
-                    <CommandInput placeholder="Rechercher un médicament..." />
+                    <CommandInput placeholder="Rechercher un médicament…" />
                     <CommandList>
                       {catalogFailed ? (
                         <CatalogLoadFailed label="Le catalogue des médicaments" onRetry={onRetryCatalog} />
                       ) : (
                         <>
-                          <CommandEmpty>Aucun médicament trouvé.</CommandEmpty>
+                          <CommandEmpty>Aucun médicament ne correspond.</CommandEmpty>
                           <CommandGroup>
                             {catalog.map((m) => (
                               <CommandItem
@@ -247,7 +247,7 @@ function MedicationItem({
             <Label className="text-xs text-muted-foreground min-h-4">Dosage</Label>
             <Input
               type="text"
-              placeholder="Ex: 500mg"
+              placeholder="Ex : 500mg"
               value={medication.dosage || ""}
               onChange={(e) => {
                 onUpdate({ ...medication, dosage: e.target.value })
@@ -268,7 +268,7 @@ function MedicationItem({
               <Input
                 type="number"
                 min="1"
-                placeholder="Ex: 3"
+                placeholder="Ex : 3"
                 value={medication.timesPerDay || ""}
                 onChange={(e) => {
                   onUpdate({ ...medication, timesPerDay: e.target.value })
@@ -281,7 +281,7 @@ function MedicationItem({
               <Input
                 type="number"
                 min="1"
-                placeholder="Ex: 7"
+                placeholder="Ex : 7"
                 value={medication.duration || ""}
                 onChange={(e) => {
                   onUpdate({ ...medication, duration: e.target.value })
@@ -297,7 +297,7 @@ function MedicationItem({
               <Label className="text-xs text-muted-foreground min-h-4">Voie d&apos;administration</Label>
               <Input
                 type="text"
-                placeholder="Ex: par voie orale"
+                placeholder="Ex : par voie orale"
                 value={medication.route || ""}
                 onChange={(e) => {
                   onUpdate({ ...medication, route: e.target.value })
@@ -309,7 +309,7 @@ function MedicationItem({
               <Label className="text-xs text-muted-foreground min-h-4">Quantité</Label>
               <Input
                 type="text"
-                placeholder="Ex: 1 boîte"
+                placeholder="Ex : 1 boîte"
                 value={medication.quantity || ""}
                 onChange={(e) => {
                   onUpdate({ ...medication, quantity: e.target.value })
@@ -479,7 +479,7 @@ export function DocumentEditorContent() {
   // what the doctor meets first; opened automatically when a loaded letter already fills one of them, since
   // collapsing a section that holds text would hide content rather than merely fold it away.
   const [liaisonExtrasOpen, setLiaisonExtrasOpen] = useState(false)
-  // « Envoyer par email » — only reachable once the document has been saved and therefore has an id.
+  // « Envoyer par e-mail » — only reachable once the document has been saved and therefore has an id.
   const [emailOpen, setEmailOpen] = useState(false)
 
   const documentRef = useRef<HTMLDivElement>(null)
@@ -1618,7 +1618,7 @@ export function DocumentEditorContent() {
 
     if (!patientData) {
       toast.error("Patient requis", {
-        description: "Veuillez sélectionner un patient avant de générer le document Word",
+        description: "Sélectionnez un patient avant de générer le document Word.",
         duration: 3000,
       });
       return;
@@ -1809,14 +1809,14 @@ export function DocumentEditorContent() {
       // AC-4. `file-saver`'s `saveAs` was a THIRD delivery mechanism in this app, and it is an `<a download>`
       // underneath — so like the other two it delivered nothing on iOS Safari.
       await downloadBlob(blob, fileName);
-      toast.success("Document Word téléchargé avec succès", {
-        description: `Le fichier "${fileName}" est en cours de téléchargement`,
+      toast.success("Document Word téléchargé", {
+        description: `Le fichier ${quoteFr(fileName)} est en cours de téléchargement.`,
         duration: 3000,
       });
     } catch (error) {
       console.error('Error generating Word document:', error);
-      toast.error("Erreur lors de la génération du document Word", {
-        description: "Une erreur s'est produite lors de la création du document. Veuillez réessayer.",
+      toast.error("La génération du document Word a échoué", {
+        description: "Le document n'a pas pu être créé. Veuillez réessayer.",
         duration: 4000,
       });
     }
@@ -1836,14 +1836,14 @@ export function DocumentEditorContent() {
 
     if (!patientData) {
       toast.error("Patient requis", {
-        description: "Veuillez sélectionner un patient avant de générer le PDF",
+        description: "Sélectionnez un patient avant de générer le PDF.",
         duration: 3000,
       });
       return;
     }
 
-    const loadingToast = toast.loading("Génération du PDF en cours...", {
-      description: "Veuillez patienter pendant la création du document",
+    const loadingToast = toast.loading("Génération du PDF…", {
+      description: "Un instant, le document se prépare.",
     });
     
     try {
@@ -1851,7 +1851,7 @@ export function DocumentEditorContent() {
       if (!documentData) {
         toast.dismiss(loadingToast);
         toast.error("Données manquantes", {
-          description: "Impossible de générer le PDF. Veuillez vérifier que tous les champs requis sont remplis.",
+          description: "Impossible de générer le PDF. Vérifiez que tous les champs obligatoires sont remplis.",
           duration: 4000,
         });
         return;
@@ -1865,14 +1865,14 @@ export function DocumentEditorContent() {
       await downloadBlob(pdfBlob, fileName);
 
       toast.dismiss(loadingToast);
-      toast.success("PDF téléchargé avec succès", {
-        description: `Le fichier "${fileName}" est en cours de téléchargement`,
+      toast.success("PDF téléchargé", {
+        description: `Le fichier ${quoteFr(fileName)} est en cours de téléchargement.`,
         duration: 3000,
       });
     } catch (error) {
       console.error('Error in handleDownloadPdf:', error);
       toast.dismiss(loadingToast);
-      const errorMessage = error instanceof ApiError ? error.message : "Une erreur s'est produite";
+      const errorMessage = error instanceof ApiError ? error.message : "Une erreur est survenue";
       toast.error("Erreur lors du téléchargement du PDF", {
         description: errorMessage,
         duration: 4000,
@@ -1882,8 +1882,8 @@ export function DocumentEditorContent() {
 
   const handleSavePdfToFiles = async () => {
     if (!documentId || !patientData) {
-      toast.error("Document non sauvegardé", {
-        description: "Veuillez sauvegarder le document d'abord avant de générer le PDF",
+      toast.error("Document pas encore enregistré", {
+        description: "Enregistrez le document avant de générer le PDF.",
         duration: 3000,
       });
       return;
@@ -1893,7 +1893,7 @@ export function DocumentEditorContent() {
       return;
     }
 
-    const loadingToast = toast.loading("Génération et sauvegarde du PDF en cours...", {
+    const loadingToast = toast.loading("Génération et enregistrement du PDF…", {
       description: "Le PDF sera ajouté aux fichiers du patient une fois terminé",
     });
     
@@ -1909,8 +1909,8 @@ export function DocumentEditorContent() {
     } catch (error) {
       console.error('Error saving PDF to files:', error);
       toast.dismiss(loadingToast);
-      const errorMessage = error instanceof ApiError ? error.message : "Une erreur s'est produite";
-      toast.error("Erreur lors de la sauvegarde du PDF", {
+      const errorMessage = error instanceof ApiError ? error.message : "Une erreur est survenue";
+      toast.error("L'enregistrement du PDF a échoué", {
         description: errorMessage,
         duration: 4000,
       });
@@ -2003,8 +2003,8 @@ export function DocumentEditorContent() {
     } catch {
       const printWindow = window.open(bs1PreviewUrl, "_blank");
       if (!printWindow) {
-        toast.error("Popup bloquée", {
-          description: "Veuillez autoriser les fenêtres popup dans votre navigateur pour imprimer",
+        toast.error("Fenêtre bloquée", {
+          description: "Autorisez les fenêtres pop-up de votre navigateur pour lancer l'impression.",
           duration: 4000,
         });
         return;
@@ -2040,8 +2040,8 @@ export function DocumentEditorContent() {
     // Create a new window for printing
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      toast.error("Popup bloquée", {
-        description: "Veuillez autoriser les fenêtres popup dans votre navigateur pour imprimer",
+      toast.error("Fenêtre bloquée", {
+        description: "Autorisez les fenêtres pop-up de votre navigateur pour lancer l'impression.",
         duration: 4000,
       });
       return;
@@ -2109,7 +2109,7 @@ export function DocumentEditorContent() {
 
     if (!selectedPatient || !patientData) {
       toast.error("Patient requis", {
-        description: "Veuillez sélectionner un patient avant de sauvegarder le document",
+        description: "Sélectionnez un patient avant d'enregistrer le document.",
         duration: 3000,
       })
       return
@@ -2206,7 +2206,7 @@ export function DocumentEditorContent() {
           version: documentVersion,
         })
         setDocumentVersion(saved.version)
-        toast.success("Document mis à jour avec succès", {
+        toast.success("Document mis à jour", {
           description: "Les modifications ont été enregistrées",
           duration: 3000,
         })
@@ -2231,7 +2231,7 @@ export function DocumentEditorContent() {
         savedDocumentId = result.id;
         setDocumentId(result.id)
         setDocumentVersion(result.version)
-        toast.success("Document sauvegardé avec succès", {
+        toast.success("Document enregistré", {
           description: "Le document a été créé et enregistré",
           duration: 3000,
         })
@@ -2261,8 +2261,8 @@ export function DocumentEditorContent() {
 
     } catch (error) {
       console.error("Failed to save document:", error)
-      const errorMessage = error instanceof ApiError ? error.message : "Une erreur s'est produite"
-      toast.error("Erreur lors de la sauvegarde", {
+      const errorMessage = error instanceof ApiError ? error.message : "Une erreur est survenue"
+      toast.error("L'enregistrement a échoué", {
         description: errorMessage,
         duration: 4000,
       })
@@ -2443,7 +2443,7 @@ export function DocumentEditorContent() {
                       <span className="font-medium">{getPatientName(patientData)}</span>
                     ) : (
                       <span className="text-muted-foreground">
-                        {loadingPatients ? "Chargement..." : "Sélectionner un patient..."}
+                        {loadingPatients ? "Chargement…" : "Sélectionner un patient…"}
                       </span>
                     )}
                     {loadingPatients ? (
@@ -2458,7 +2458,7 @@ export function DocumentEditorContent() {
                     <div className="relative">
                       <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                       <Input
-                        placeholder="Rechercher un patient..."
+                        placeholder="Rechercher un patient…"
                         value={patientSearchQuery}
                         onChange={(e) => setPatientSearchQuery(e.target.value)}
                         className="pl-8 h-9"
@@ -2481,7 +2481,7 @@ export function DocumentEditorContent() {
                       />
                     ) : filteredPatients.length === 0 ? (
                       <div className="p-8 text-center text-sm text-muted-foreground">
-                        {patientSearchQuery ? "Aucun patient trouvé." : "Aucun patient disponible."}
+                        {patientSearchQuery ? "Aucun patient ne correspond." : "Aucun patient enregistré."}
                       </div>
                     ) : (
                       <div className="p-1">
@@ -2538,7 +2538,7 @@ export function DocumentEditorContent() {
                   <Input
                     id="recipientName"
                     type="text"
-                    placeholder="Ex: Dr Ahmed Ben Salah"
+                    placeholder="Ex : Dr Ahmed Ben Salah"
                     value={formFields.recipientName}
                     onChange={(e) => setFormFields({ ...formFields, recipientName: e.target.value })}
                     className="h-11"
@@ -2549,7 +2549,7 @@ export function DocumentEditorContent() {
                   <Input
                     id="recipientSpecialty"
                     type="text"
-                    placeholder="Ex: Chirurgien maxillo-facial"
+                    placeholder="Ex : Chirurgien maxillo-facial"
                     value={formFields.recipientSpecialty}
                     onChange={(e) => setFormFields({ ...formFields, recipientSpecialty: e.target.value })}
                     className="h-11"
@@ -2559,7 +2559,7 @@ export function DocumentEditorContent() {
                   <Label htmlFor="recipientAddress" className="text-xs text-muted-foreground">Adresse</Label>
                   <Textarea
                     id="recipientAddress"
-                    placeholder="Ex: 12 rue de la Santé, Tunis"
+                    placeholder="Ex : 12 rue de la Santé, Tunis"
                     value={formFields.recipientAddress}
                     onChange={(e) => setFormFields({ ...formFields, recipientAddress: e.target.value })}
                     className="min-h-[60px]"
@@ -2568,12 +2568,12 @@ export function DocumentEditorContent() {
                 {/* Not printed on the letter — it prefills the recipient when the letter is sent by email. */}
                 <div className="space-y-2">
                   <Label htmlFor="recipientEmail" className="text-xs text-muted-foreground">
-                    Email (pour l'envoi de la lettre)
+                    E-mail (pour l'envoi de la lettre)
                   </Label>
                   <Input
                     id="recipientEmail"
                     type="email"
-                    placeholder="Ex: confrere@cabinet.tn"
+                    placeholder="Ex : confrere@cabinet.tn"
                     value={formFields.recipientEmail}
                     onChange={(e) => setFormFields({ ...formFields, recipientEmail: e.target.value })}
                     className="h-11"
@@ -2659,7 +2659,7 @@ export function DocumentEditorContent() {
                   <Input
                     id="renewals"
                     type="text"
-                    placeholder="Ex: 2 — ou « non » pour non renouvelable"
+                    placeholder="Ex : 2 — ou « non » pour non renouvelable"
                     value={formFields.renewals}
                     onChange={(e) => setFormFields({ ...formFields, renewals: e.target.value })}
                     className="h-11"
@@ -2680,7 +2680,7 @@ export function DocumentEditorContent() {
                   <Input
                     id="patientSex"
                     type="text"
-                    placeholder="Ex: Femme"
+                    placeholder="Ex : Femme"
                     value={formFields.patientSex}
                     onChange={(e) => setFormFields({ ...formFields, patientSex: e.target.value })}
                     className="h-11"
@@ -2693,7 +2693,7 @@ export function DocumentEditorContent() {
                   <Input
                     id="patientWeightKg"
                     type="text"
-                    placeholder="Ex: 32"
+                    placeholder="Ex : 32"
                     value={formFields.patientWeightKg}
                     onChange={(e) => setFormFields({ ...formFields, patientWeightKg: e.target.value })}
                     className="h-11"
@@ -2743,7 +2743,7 @@ export function DocumentEditorContent() {
                   onToggle={(e) => setLiaisonExtrasOpen(e.currentTarget.open)}
                 >
                   <summary className="cursor-pointer text-sm font-semibold text-foreground">
-                    Sections complémentaires (optionnel)
+                    Sections complémentaires (facultatives)
                   </summary>
                   <div className="mt-4 space-y-4">
                     <div className="space-y-2">
@@ -2859,7 +2859,7 @@ export function DocumentEditorContent() {
                   </Label>
                   <Textarea
                     id="objetMotif"
-                    placeholder="Ex: certifie la présence de l'intéressé(e) ce jour ; soins dentaires en cours ; aptitude à la pratique sportive…"
+                    placeholder="Ex : certifie la présence de l'intéressé(e) ce jour ; soins dentaires en cours ; aptitude à la pratique sportive…"
                     value={formFields.objetMotif}
                     onChange={(e) => setFormFields({ ...formFields, objetMotif: e.target.value })}
                     className="min-h-[120px]"
@@ -2894,7 +2894,7 @@ export function DocumentEditorContent() {
                   onToggle={(e) => setReposOpen(e.currentTarget.open)}
                 >
                   <summary className="cursor-pointer text-sm font-semibold text-foreground">
-                    Repos médical (optionnel)
+                    Repos médical (facultatif)
                   </summary>
                   <div className="space-y-4 pt-4">
                     <div className="space-y-2">
@@ -2905,7 +2905,7 @@ export function DocumentEditorContent() {
                         id="duration"
                         type="number"
                         min="1"
-                        placeholder="Ex: 3"
+                        placeholder="Ex : 3"
                         value={formFields.duration}
                         onChange={(e) => setFormFields({ ...formFields, duration: e.target.value })}
                         className="h-11"
@@ -2982,7 +2982,7 @@ export function DocumentEditorContent() {
                       type="number"
                       min="1"
                       max={ARRET_MAX_DAYS}
-                      placeholder="Ex: 5"
+                      placeholder="Ex : 5"
                       value={arretFields.days}
                       onChange={(e) => setArretFields({ ...arretFields, days: e.target.value })}
                       className="h-11 md:text-sm"
@@ -3006,7 +3006,7 @@ export function DocumentEditorContent() {
                     server refuses half of it; this is the visual half of that rule. */}
                 <details className="rounded-lg border px-4 py-3">
                   <summary className="cursor-pointer text-sm font-semibold text-foreground">
-                    Sorties autorisées (optionnel)
+                    Sorties autorisées (facultatives)
                   </summary>
                   <div className="grid grid-cols-1 gap-4 pt-4 sm:grid-cols-2">
                     <div className="space-y-2">
@@ -3018,7 +3018,7 @@ export function DocumentEditorContent() {
                         type="number"
                         min="0"
                         max="23"
-                        placeholder="Ex: 10"
+                        placeholder="Ex : 10"
                         value={arretFields.outingsFrom}
                         onChange={(e) => setArretFields({ ...arretFields, outingsFrom: e.target.value })}
                         className="h-11 md:text-sm"
@@ -3033,7 +3033,7 @@ export function DocumentEditorContent() {
                         type="number"
                         min="0"
                         max="23"
-                        placeholder="Ex: 16"
+                        placeholder="Ex : 16"
                         value={arretFields.outingsTo}
                         onChange={(e) => setArretFields({ ...arretFields, outingsTo: e.target.value })}
                         className="h-11 md:text-sm"
@@ -3098,7 +3098,7 @@ export function DocumentEditorContent() {
                   <Textarea
                     id="arretMotif"
                     rows={2}
-                    placeholder="Ex: avulsion de 38, œdème post-opératoire"
+                    placeholder="Ex : avulsion de 38, œdème post-opératoire"
                     value={arretFields.motif}
                     onChange={(e) => setArretFields({ ...arretFields, motif: e.target.value })}
                     className="md:text-sm"
@@ -3187,7 +3187,7 @@ export function DocumentEditorContent() {
                 {bulletinFields.careType === "APCI" && (
                   <div className="space-y-2">
                     <Label htmlFor="apciCode" className="text-sm font-semibold text-foreground">Code APCI</Label>
-                    <Input id="apciCode" value={bulletinFields.apciCode} onChange={(e) => setBulletinFields((p) => ({ ...p, apciCode: e.target.value }))} className="h-11" placeholder="Ex: 12" />
+                    <Input id="apciCode" value={bulletinFields.apciCode} onChange={(e) => setBulletinFields((p) => ({ ...p, apciCode: e.target.value }))} className="h-11" placeholder="Ex : 12" />
                   </div>
                 )}
 
@@ -3290,7 +3290,7 @@ export function DocumentEditorContent() {
                                         />
                                       ) : (
                                         <>
-                                          <CommandEmpty>Aucun acte trouvé.</CommandEmpty>
+                                          <CommandEmpty>Aucun acte ne correspond.</CommandEmpty>
                                           <CommandGroup>
                                             {dentalActCatalog.map((entry) => (
                                               <CommandItem key={entry.codeActe} value={`${entry.codeActe} ${entry.designationFr} ${entry.lettreCle} ${entry.category}`} onSelect={() => selectDentalAct(index, entry)}>
@@ -3447,12 +3447,12 @@ export function DocumentEditorContent() {
               >
                 <Save className="w-4 h-4 mr-2" />
                 {loadingDocument
-                  ? "Chargement du document..."
+                  ? "Chargement du document…"
                   : saving
-                    ? "Sauvegarde..."
+                    ? "Enregistrement…"
                     : documentId
                       ? "Mettre à jour"
-                      : "Sauvegarder le document"}
+                      : "Enregistrer le document"}
               </Button>
               {documentId && documentType === "prescription" && (
                 <Button
@@ -3475,7 +3475,7 @@ export function DocumentEditorContent() {
                   disabled={saving}
                 >
                   <Mail className="w-4 h-4 mr-2" />
-                  Envoyer par email
+                  Envoyer par e-mail
                 </Button>
               )}
               <div className="grid grid-cols-2 gap-3">

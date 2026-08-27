@@ -292,7 +292,7 @@ export function InvoiceFormModal({
     setError(null)
 
     if (!patientId) {
-      setError("Veuillez sélectionner un patient.")
+      setError("Sélectionnez un patient.")
       return
     }
 
@@ -622,7 +622,7 @@ export function InvoiceFormModal({
               Annuler
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? "Enregistrement..." : isEditing ? "Enregistrer" : "Créer le brouillon"}
+              {loading ? "Enregistrement…" : isEditing ? "Enregistrer" : "Créer le brouillon"}
             </Button>
           </DialogFooter>
         </form>

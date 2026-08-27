@@ -462,7 +462,7 @@ export default function ClinicSettings() {
         })
 
       if (validDoctors.length === 0) {
-        toast.error("Veuillez ajouter au moins un médecin avec un nom et une spécialité")
+        toast.error("Ajoutez au moins un médecin, avec un nom et une spécialité.")
         setIsSaving(false)
         return
       }
@@ -803,7 +803,7 @@ export default function ClinicSettings() {
 
                 <div className="space-y-1">
                   <Label htmlFor="email" className="text-xs font-medium flex items-center gap-1">
-                    Email professionnel
+                    E-mail professionnel
                     <span className="text-destructive">*</span>
                   </Label>
                   <Input
@@ -1279,7 +1279,7 @@ export default function ClinicSettings() {
                   {/* The mid-day closure. Optional and empty by default, so a cabinet that does not close at
                       lunch sees no change; leaving both blank is « pas de pause ». */}
                   <div className="flex w-full items-center gap-2 sm:basis-full">
-                    <span className="w-32 shrink-0 text-xs text-muted-foreground">Pause (optionnel)</span>
+                    <span className="w-32 shrink-0 text-xs text-muted-foreground">Pause (facultative)</span>
                     <Label htmlFor={`clinic-hours-${item.day}-break-from`} className="sr-only">
                       {`Début de la pause — ${WEEKDAY_LABELS_FR[item.day] ?? item.day}`}
                     </Label>

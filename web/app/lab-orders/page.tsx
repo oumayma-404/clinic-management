@@ -401,7 +401,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
                   <Command>
                     <CommandInput placeholder="Rechercher un patient…" />
                     <CommandList>
-                      <CommandEmpty>Aucun patient trouvé.</CommandEmpty>
+                      <CommandEmpty>Aucun patient ne correspond.</CommandEmpty>
                       <CommandGroup>
                         {patients.map((p) => {
                           const fullName = `${p.firstName} ${p.lastName}`.trim()
@@ -497,7 +497,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
                 type="text"
                 inputMode="numeric"
                 maxLength={2}
-                placeholder="Optionnel"
+                placeholder="Facultatif"
                 value={toothNumber}
                 aria-invalid={Boolean(errors.toothNumber)}
                 aria-describedby={errors.toothNumber ? "toothNumber-error" : undefined}
@@ -519,7 +519,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
                 id="cost"
                 type="text"
                 inputMode="decimal"
-                placeholder="Optionnel"
+                placeholder="Facultatif"
                 value={cost}
                 onChange={(e) => setCost(e.target.value)}
               />
@@ -556,7 +556,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
             <Label htmlFor="notes">Notes</Label>
             <Textarea
               id="notes"
-              placeholder="Optionnel"
+              placeholder="Facultatif"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
@@ -568,7 +568,7 @@ function LabOrderFormModal({ open, onOpenChange, editingOrder, patients, onSaved
               Annuler
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Enregistrement..." : editingOrder ? "Mettre à jour" : "Créer le bon"}
+              {saving ? "Enregistrement…" : editingOrder ? "Mettre à jour" : "Créer le bon"}
             </Button>
           </DialogFooter>
         </form>
@@ -1249,7 +1249,7 @@ export default function LabOrdersPage() {
               disabled={deleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleting ? "Suppression..." : "Supprimer"}
+              {deleting ? "Suppression…" : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -77,7 +77,7 @@ export function SessionActsList({
       <div className="rounded-lg border border-dashed p-6 text-center">
         <p className="text-sm font-medium text-foreground">Aucun acte pour cette séance</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Cliquez une ou plusieurs dents sur le schéma, indiquez ce que vous avez fait, puis Entrée.
+          Cliquez sur une ou plusieurs dents du schéma, indiquez ce que vous avez fait, puis Entrée.
         </p>
       </div>
     )

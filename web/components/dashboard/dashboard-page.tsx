@@ -374,7 +374,7 @@ function DashboardContent() {
             label: data.alerts.visitsToClose === 1 ? "séance à clôturer" : "séances à clôturer",
             tone: "hot" as const,
           },
-          { key: "waitingList", count: data.alerts.waitingList, label: "en salle d'attente", tone: "live" as const },
+          { key: "waitingList", count: data.alerts.waitingList, label: "en salle d’attente", tone: "live" as const },
           { key: "draftPlans", count: data.alerts.draftPlans, label: "devis en attente", tone: "calm" as const },
           {
             key: "overdueLabOrders",
@@ -382,7 +382,12 @@ function DashboardContent() {
             label: data.alerts.overdueLabOrders === 1 ? "prothèse en retard" : "prothèses en retard",
             tone: "hot" as const,
           },
-          { key: "lowStock", count: data.alerts.lowStock, label: "en stock bas", tone: "warm" as const },
+          {
+            key: "lowStock",
+            count: data.alerts.lowStock,
+            label: data.alerts.lowStock === 1 ? "article en stock bas" : "articles en stock bas",
+            tone: "warm" as const,
+          },
           // Hidden entirely when the clinic switched the expiry alert off: « 0 » would claim nothing is
           // expiring, when in truth nothing was checked.
           ...(data.alerts.expiryAlertEnabled !== false
@@ -390,7 +395,7 @@ function DashboardContent() {
                 {
                   key: "expiringStock",
                   count: data.alerts.expiringStock,
-                  label: "périment bientôt",
+                  label: data.alerts.expiringStock === 1 ? "lot bientôt périmé" : "lots bientôt périmés",
                   tone: "warm" as const,
                 },
               ]

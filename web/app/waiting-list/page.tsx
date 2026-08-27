@@ -273,7 +273,7 @@ export default function WaitingListPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingEntry && !patientId) {
-      setFormError("Veuillez sélectionner un patient")
+      setFormError("Sélectionnez un patient.")
       return
     }
 
@@ -711,7 +711,7 @@ export default function WaitingListPage() {
                   <Command>
                     <CommandInput placeholder="Rechercher un patient…" />
                     <CommandList>
-                      <CommandEmpty>Aucun patient trouvé.</CommandEmpty>
+                      <CommandEmpty>Aucun patient ne correspond.</CommandEmpty>
                       <CommandGroup>
                         {patients.map((p) => {
                           const fullName = `${p.firstName} ${p.lastName}`.trim()
@@ -783,7 +783,7 @@ export default function WaitingListPage() {
               <Label htmlFor="note">Note</Label>
               <Textarea
                 id="note"
-                placeholder="Optionnel"
+                placeholder="Facultatif"
                 maxLength={NOTE_MAX}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
@@ -800,7 +800,7 @@ export default function WaitingListPage() {
                 Annuler
               </Button>
               <Button type="submit" disabled={saving}>
-                {saving ? "Enregistrement..." : editingEntry ? "Mettre à jour" : "Ajouter"}
+                {saving ? "Enregistrement…" : editingEntry ? "Mettre à jour" : "Ajouter"}
               </Button>
             </DialogFooter>
           </form>
@@ -844,7 +844,7 @@ export default function WaitingListPage() {
               disabled={deleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleting ? "Suppression..." : "Supprimer définitivement"}
+              {deleting ? "Suppression…" : "Supprimer définitivement"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -164,7 +164,7 @@ export function SupplierFormDialog({
                 value={category}
                 onChange={setCategory}
                 options={categories}
-                placeholder="Optionnel"
+                placeholder="Facultatif"
               />
             </div>
 
@@ -191,7 +191,7 @@ export function SupplierFormDialog({
             <Label htmlFor="supplier-address">Adresse</Label>
             <Input
               id="supplier-address"
-              placeholder="Optionnel"
+              placeholder="Facultatif"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
             />
@@ -201,7 +201,7 @@ export function SupplierFormDialog({
             <Label htmlFor="supplier-notes">Notes</Label>
             <Textarea
               id="supplier-notes"
-              placeholder="Optionnel"
+              placeholder="Facultatif"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}

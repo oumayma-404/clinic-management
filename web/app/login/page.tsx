@@ -65,7 +65,7 @@ export default function LoginPage() {
   return (
     <LoginShell
       title={`Bienvenue sur ${PRODUCT_NAME}`}
-      description="Connectez-vous pour accéder au système de gestion de la clinique"
+      description="Connectez-vous pour accéder à la gestion de votre clinique"
     >
       <Button asChild className="min-h-11 w-full" size="lg">
         <a href="/auth/login">Se connecter</a>
@@ -611,7 +611,7 @@ function LocalLoginForm() {
 
   // ── Sign in ───────────────────────────────────────────────────────────────────────────────────────────
   return (
-    <LoginShell title="Connexion" description="Saisissez les identifiants de votre compte clinique">
+    <LoginShell title="Connexion" description="Saisissez les identifiants de votre compte">
       <form onSubmit={handleLogin} className="space-y-4">
         {passwordChanged && !error && (
           <div
@@ -705,7 +705,7 @@ function EmailField({
 }) {
   return (
     <div className="space-y-2">
-      <Label htmlFor="email">Email</Label>
+      <Label htmlFor="email">E-mail</Label>
       <Input
         id="email"
         type="email"

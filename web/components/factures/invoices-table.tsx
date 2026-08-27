@@ -102,7 +102,7 @@ export function InvoicesTable({
   const [detailInvoiceId, setDetailInvoiceId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<InvoiceDto | null>(null)
   const [cancelTarget, setCancelTarget] = useState<InvoiceDto | null>(null)
-  // Which note d'honoraires « Envoyer par email » was clicked for (a draft has no PDF, so it is never offered).
+  // Which note d'honoraires « Envoyer par e-mail » was clicked for (a draft has no PDF, so it is never offered).
   const [emailTarget, setEmailTarget] = useState<InvoiceDto | null>(null)
   const [cancelReason, setCancelReason] = useState("")
   /*
@@ -353,7 +353,7 @@ export function InvoicesTable({
             <DropdownMenuItem onSelect={() => handleDownloadPdf(inv)}>Télécharger le PDF</DropdownMenuItem>
           )}
           {!isDraft && (
-            <DropdownMenuItem onSelect={() => setEmailTarget(inv)}>Envoyer par email</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setEmailTarget(inv)}>Envoyer par e-mail</DropdownMenuItem>
           )}
           {(isDraft || inv.canCancel) && <DropdownMenuSeparator />}
           {isDraft && (

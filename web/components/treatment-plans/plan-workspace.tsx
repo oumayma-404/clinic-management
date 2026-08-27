@@ -56,7 +56,7 @@ import { CreateAppointmentDialog, type PresetPlanAct } from "@/components/create
 import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
 import { DOCUMENT_EMAIL_KINDS, type DocumentEmailKind } from "@/lib/api/document-emails"
 
-/** What « Envoyer par email » was clicked for — the devis itself, or one échéance's receipt. */
+/** What « Envoyer par e-mail » was clicked for — the devis itself, or one échéance's receipt. */
 interface PlanEmailTarget {
   kind: DocumentEmailKind
   documentId: string
@@ -550,7 +550,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             <div className="flex flex-wrap items-center gap-2">
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
               {/* All three plan-level state changes go through a confirmation (see PlanConfirm). They used to
-                  fire on the first click, in a row that also holds « Devis PDF » and « Envoyer par email ». */}
+                  fire on the first click, in a row that also holds « Devis PDF » and « Envoyer par e-mail ». */}
               {isDraft && (
                 <Button size="sm" className="gap-2" disabled={busy} onClick={confirmAccept}>
                   <ClipboardCheck className="h-4 w-4" />
@@ -612,7 +612,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 })}
               >
                 <Mail className="h-4 w-4" />
-                Envoyer par email
+                Envoyer par e-mail
               </Button>
               {/* Cancelling a numbered devis lives here rather than in the list: it is the one destructive
                   action on the plan and needs the context of what is being voided. Server-side it is
@@ -1070,7 +1070,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                               label: `Reçu d'échéance ${formatDT(payment.amount)}`,
                             })}
                           >
-                            Envoyer par email — {formatDT(payment.amount)}
+                            Envoyer par e-mail — {formatDT(payment.amount)}
                           </DropdownMenuItem>
                         ))}
                         {/* AC-5 — the correction the échéancier never had. Offered per live payment, like the
@@ -1170,7 +1170,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                                   size="sm"
                                   className="h-8 gap-1"
                                   disabled={busy}
-                                  title={`Envoyer par email le reçu du paiement de ${formatDT(payment.amount)}`}
+                                  title={`Envoyer par e-mail le reçu du paiement de ${formatDT(payment.amount)}`}
                                   onClick={() => setEmailTarget({
                                     kind: DOCUMENT_EMAIL_KINDS.InstallmentPaymentReceipt,
                                     documentId: plan.id,

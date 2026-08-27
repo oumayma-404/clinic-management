@@ -129,7 +129,7 @@ const FIELD_LABELS_FR: Record<string, string> = {
   birthdate: "Date de naissance",
   dentition: "Denture",
   phone: "Numéro de téléphone",
-  email: "Email",
+  email: "E-mail",
 }
 
 /** The six foldable sections of the patient form, in the order they appear. */
@@ -646,7 +646,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
     }
 
     if (email && !validateEmail(email)) {
-      newErrors.email = "Format d'email invalide"
+      newErrors.email = "Adresse e-mail invalide"
     }
 
     setErrors(newErrors)
@@ -667,7 +667,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const savePatient = async () => {
     if (!validateForm()) {
       toast.error("Erreurs dans le formulaire", {
-        description: "Veuillez vérifier que tous les champs requis sont correctement remplis",
+        description: "Vérifiez que tous les champs obligatoires sont correctement remplis.",
         duration: 4000,
       })
       return
@@ -819,7 +819,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         }
 
         toast.success("Informations patient mises à jour", {
-          description: "Les modifications ont été enregistrées avec succès",
+          description: "Les modifications ont été enregistrées.",
           duration: 3000,
         })
       } else {
@@ -888,8 +888,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           allowDuplicate: allowDuplicateRef.current || undefined,
         })
 
-        toast.success("Patient créé avec succès", {
-          description: "Le nouveau patient a été ajouté avec succès",
+        toast.success("Patient créé", {
+          description: "Le dossier a été ajouté à la liste des patients.",
           duration: 3000,
         })
       }
@@ -928,7 +928,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
          * edited it — the conflict branch deliberately does NOT resync, or a retry would overwrite a real one.
          */
         await resync()
-        toast.error(patient ? "Erreur lors de la mise à jour" : "Erreur lors de la création", {
+        toast.error(patient ? "La mise à jour a échoué" : "La création a échoué", {
           description: conflict.error ?? fallback,
           duration: 4000,
         })
@@ -1079,7 +1079,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 {/* Email */}
                 <div className="space-y-2">
                   <Label htmlFor="email">
-                    Email <span className="text-muted-foreground text-xs">(optionnel)</span>
+                    E-mail <span className="text-muted-foreground text-xs">(facultatif)</span>
                   </Label>
                   <Input
                     id="email"
@@ -1219,7 +1219,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     and nothing should stand between opening this form and typing who the patient is. */}
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="referredBy">
-                    Adressé par <span className="text-muted-foreground text-xs">(optionnel)</span>
+                    Adressé par <span className="text-muted-foreground text-xs">(facultatif)</span>
                   </Label>
                   <Input
                     id="referredBy"
@@ -1255,7 +1255,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300"
                   >
                     <AlertTriangle className="h-4 w-4" />
-                    Notes importantes <span className="text-muted-foreground text-xs">(optionnel)</span>
+                    Notes importantes <span className="text-muted-foreground text-xs">(facultatives)</span>
                   </Label>
                   <Textarea
                     id="patientImportantNotes"
@@ -1271,7 +1271,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
                 <div className="space-y-2">
                   <Label htmlFor="patientNotes">
-                    Notes <span className="text-muted-foreground text-xs">(optionnel)</span>
+                    Notes <span className="text-muted-foreground text-xs">(facultatives)</span>
                   </Label>
                   <Textarea
                     id="patientNotes"
@@ -1339,7 +1339,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 {/* Postal Code */}
                 <div className="space-y-2">
                   <Label htmlFor="addressPostalCode">
-                    Code postal <span className="text-muted-foreground text-xs">(optionnel)</span>
+                    Code postal <span className="text-muted-foreground text-xs">(facultatif)</span>
                   </Label>
                   {/* ⚠️ `inputMode="numeric"`, NOT `type="number"`. A postal code is an IDENTIFIER, not a
                       quantity: `type="number"` adds spinners, lets the scroll wheel silently change it, and
@@ -1357,7 +1357,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 {/* Emergency contact (finding #11) */}
                 <div className="space-y-2">
                   <Label htmlFor="emergencyName">
-                    Contact d'urgence <span className="text-muted-foreground text-xs">(optionnel)</span>
+                    Contact d'urgence <span className="text-muted-foreground text-xs">(facultatif)</span>
                   </Label>
                   <Input
                     id="emergencyName"
@@ -1369,7 +1369,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
                 <div className="space-y-2">
                   <Label htmlFor="emergencyPhone">
-                    Téléphone d'urgence <span className="text-muted-foreground text-xs">(optionnel)</span>
+                    Téléphone d'urgence <span className="text-muted-foreground text-xs">(facultatif)</span>
                   </Label>
                   {/* `type="tel"` — the patient's own number has always had it; this one did not, so the
                       emergency contact was the single field in the form that opened the alphabet keyboard for a
@@ -1379,7 +1379,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                     type="tel"
                     value={emergencyPhone}
                     onChange={(e) => setEmergencyPhone(e.target.value)}
-                    placeholder="+216 ..."
+                    placeholder="+216 …"
                   />
                 </div>
               </div>
@@ -1445,7 +1445,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   )}
 
                   {!medicalHistoryFailed && medicalHistoryEntries.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Aucun antécédent médical. Cliquez sur « Ajouter une entrée » pour en ajouter un.</p>
+                    <p className="text-sm text-muted-foreground">Aucun antécédent médical enregistré. Utilisez « Ajouter une entrée » pour en saisir un.</p>
                   ) : medicalHistoryEntries.length === 0 ? null : (
                     <div className="space-y-3">
                       {medicalHistoryEntries.map((entry, index) => (
@@ -1461,12 +1461,12 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                 <Input
                                   type="date"
-                                  placeholder="Date (optionnel)"
+                                  placeholder="Date (facultative)"
                                   value={entry.date || ""}
                                   onChange={(e) => updateMedicalHistoryEntry(index, 'date', e.target.value)}
                                 />
                                 <Input
-                                  placeholder="Notes (optionnel)"
+                                  placeholder="Notes (facultatives)"
                                   value={entry.notes || ""}
                                   onChange={(e) => updateMedicalHistoryEntry(index, 'notes', e.target.value)}
                                 />
@@ -1515,7 +1515,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   )}
 
                   {!familyHistoryFailed && familyHistoryEntries.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Aucun antécédent familial. Cliquez sur « Ajouter une entrée » pour en ajouter un.</p>
+                    <p className="text-sm text-muted-foreground">Aucun antécédent familial enregistré. Utilisez « Ajouter une entrée » pour en saisir un.</p>
                   ) : familyHistoryEntries.length === 0 ? null : (
                     <div className="space-y-3">
                       {familyHistoryEntries.map((entry, index) => (
@@ -1535,7 +1535,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                                 />
                               </div>
                               <Input
-                                placeholder="Notes (optionnel)"
+                                placeholder="Notes (facultatives)"
                                 value={entry.notes || ""}
                                 onChange={(e) => updateFamilyHistoryEntry(index, 'notes', e.target.value)}
                               />
@@ -1576,7 +1576,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   <Label htmlFor="cnamIdentifiant">Identifiant Unique</Label>
                   {/* Digit keypad, but still a text field — see the postal-code note above: an identifiant is
                       an identifier, and `type="number"` would let a scroll gesture change a CNAM number. */}
-                  <Input id="cnamIdentifiant" inputMode="numeric" value={cnam.identifiantUnique} onChange={(e) => setCnam({ ...cnam, identifiantUnique: e.target.value })} placeholder="Ex: 12345678" />
+                  <Input id="cnamIdentifiant" inputMode="numeric" value={cnam.identifiantUnique} onChange={(e) => setCnam({ ...cnam, identifiantUnique: e.target.value })} placeholder="Ex : 12345678" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="cnamRegime">Régime</Label>
@@ -1609,7 +1609,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="cnamRang">Rang enfant / Père-Mère (ascendant)</Label>
-                  <Input id="cnamRang" value={cnam.maladeLienRang} onChange={(e) => setCnam({ ...cnam, maladeLienRang: e.target.value })} placeholder="Ex: 1 — ou père/mère" />
+                  <Input id="cnamRang" value={cnam.maladeLienRang} onChange={(e) => setCnam({ ...cnam, maladeLienRang: e.target.value })} placeholder="Ex : 1 — ou père/mère" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="cnamAssureFirst">Prénom de l'assuré</Label>
@@ -1647,7 +1647,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                         inputMode="numeric"
                         value={cnam.dependantCount}
                         onChange={(e) => setCnam({ ...cnam, dependantCount: e.target.value })}
-                        placeholder="Ex: 2 — laisser vide si assuré seul"
+                        placeholder="Ex : 2 — laisser vide si assuré seul"
                       />
                       <p className="text-xs text-muted-foreground">
                         Barème : {formatDT(cnamBaseCeiling(parseOptionalCount(cnam.dependantCount) ?? 0))} pour le

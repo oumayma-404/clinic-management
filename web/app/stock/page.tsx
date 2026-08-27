@@ -20,7 +20,7 @@ export default function StockPage() {
   const [editingItem, setEditingItem] = useState<StockItemDto | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [highlightItemId, setHighlightItemId] = useState<string | null>(null)
-  // Dashboard drill-through (« Stock bas » / « Périment bientôt »): ?filter=low|expiring pre-applies the matching
+  // Dashboard drill-through (« Stock bas » / « Péremption proche »): ?filter=low|expiring pre-applies the matching
   // filter so the list shows exactly the items the card counted. An unknown value is ignored — a stale link lands on
   // the full list, never a broken state.
   const [initialFilter, setInitialFilter] = useState<"low" | "expiring" | undefined>()

@@ -210,12 +210,12 @@ export function HonorairesLauncher({
 
               <Command className="rounded-md border" shouldFilter={false}>
                 <CommandInput
-                  placeholder="Rechercher un patient..."
+                  placeholder="Rechercher un patient…"
                   value={search}
                   onValueChange={setSearch}
                 />
                 <CommandList>
-                  <CommandEmpty>{loadingPatients ? "Chargement..." : "Aucun patient trouvé."}</CommandEmpty>
+                  <CommandEmpty>{loadingPatients ? "Chargement…" : "Aucun patient ne correspond."}</CommandEmpty>
                   <CommandGroup>
                     {patients.map((p) => {
                       const name = `${p.firstName} ${p.lastName}`.trim()
@@ -237,7 +237,7 @@ export function HonorairesLauncher({
                   Annuler
                 </Button>
                 <Button onClick={loadSessions} disabled={!selectedId || preparing}>
-                  {preparing ? "Chargement..." : "Continuer"}
+                  {preparing ? "Chargement…" : "Continuer"}
                 </Button>
               </DialogFooter>
             </>

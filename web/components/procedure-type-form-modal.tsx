@@ -360,7 +360,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
 
           <div className="space-y-1.5">
             <Label htmlFor="defaultCost" className="text-sm">
-              Coût par défaut (optionnel)
+              Coût par défaut (facultatif)
             </Label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">DT</span>
@@ -392,7 +392,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
           */}
           <div className="space-y-1.5">
             <Label htmlFor="category" className="text-sm">
-              Catégorie (optionnel)
+              Catégorie (facultative)
             </Label>
             <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
               <PopoverTrigger asChild>
@@ -493,7 +493,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
 
           <div className="space-y-1.5">
             <Label htmlFor="description" className="text-sm">
-              Description (optionnel)
+              Description (facultative)
             </Label>
             <Textarea
               id="description"
@@ -508,7 +508,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
 
           <div className="space-y-1.5">
             <Label htmlFor="resultingCondition" className="text-sm">
-              État résultant sur l'odontogramme (optionnel)
+              État résultant sur l'odontogramme (facultatif)
             </Label>
             <Select
               value={resultingCondition ?? NO_CONDITION}

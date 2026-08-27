@@ -443,7 +443,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     }
 
     if (!date) {
-      setError("Veuillez sélectionner une date")
+      setError("Sélectionnez une date.")
       return false
     }
 
@@ -462,7 +462,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     try {
       const appointmentDateTime = buildAppointmentDateTime()
       if (!appointmentDateTime) {
-        setError("Veuillez sélectionner une date")
+        setError("Sélectionnez une date.")
         setLoading(false)
         return
       }
@@ -851,7 +851,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     disabled={loadingDoctors || loading}
                   >
                     <SelectTrigger className="h-10 w-full" id="doctor">
-                      <SelectValue placeholder={loadingDoctors ? "Chargement des médecins…" : doctors.length === 0 ? "Aucun médecin trouvé" : "Choisir un médecin…"} />
+                      <SelectValue placeholder={loadingDoctors ? "Chargement des médecins…" : doctors.length === 0 ? "Aucun médecin enregistré" : "Choisir un médecin…"} />
                     </SelectTrigger>
                     <SelectContent className="max-h-[200px]">
                       {/* Unassigning is now a real operation server-side (an explicit null clears DoctorId),

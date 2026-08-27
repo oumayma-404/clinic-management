@@ -81,7 +81,7 @@ export function ExportButton({ path, params, label = "lignes", className, compac
       )}
       {/* Hidden below `sm:` when compact, but the label stays in the DOM for screen readers. */}
       <span className={compact ? "sr-only sm:not-sr-only" : undefined}>
-        {working ? "Export..." : "Exporter"}
+        {working ? "Export…" : "Exporter"}
       </span>
     </Button>
   )

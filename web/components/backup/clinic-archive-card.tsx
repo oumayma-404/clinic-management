@@ -265,7 +265,7 @@ export function ClinicArchiveCard() {
           className="h-8 w-full text-xs coarse:h-11 sm:w-auto"
         >
           <ArrowDownToLine className="mr-1 size-3.5" aria-hidden="true" />
-          {downloading ? "Préparation..." : "Télécharger l'archive"}
+          {downloading ? "Préparation…" : "Télécharger l'archive"}
         </Button>
 
         <Button
@@ -372,7 +372,7 @@ export function ClinicArchiveCard() {
               disabled={restoring}
               className="coarse:h-11"
             >
-              {restoring ? "Restauration en cours..." : "Restaurer"}
+              {restoring ? "Restauration en cours…" : "Restaurer"}
             </Button>
           </DialogFooter>
         </DialogContent>

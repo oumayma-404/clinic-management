@@ -129,6 +129,22 @@ export interface DaySummary {
   doneCount: number;
   /** Patients still to come. */
   remainingCount: number;
+  /**
+   * When the day's first **patient** is due, or `null` on a day with nothing booked.
+   *
+   * <p>Patient-only, and that is the point: a 07:00 « créneau occupé » for stock-taking is not when the practice
+   * starts seeing people, so « le premier à 07:00 » would be a confident wrong answer to the one question the
+   * greeting asks in the morning.</p>
+   */
+  firstStartMinutes: number | null;
+  /**
+   * The next patient still ahead — not in the chair, not passed — or `null` when the last one is being treated.
+   *
+   * <p>Distinct from {@link next}, which is the ribbon's next *slot* and may well be a blocked hour.</p>
+   */
+  nextPatientStartMinutes: number | null;
+  /** Chair minutes still ahead: every patient slot not yet passed, the one in the chair included. */
+  remainingMinutes: number;
   /** When the last occupying slot ends — blocks included, because « fin prévue » means the day's own end. */
   endsAtMinutes: number | null;
   /**
@@ -354,6 +370,8 @@ export function buildDaySummary(
   const doneCount = patientSlots.filter((s) => s.isPast).length;
   const lastPatientEnds =
     patientSlots.length > 0 ? Math.max(...patientSlots.map((s) => s.endMinutes)) : null;
+  const aheadSlots = patientSlots.filter((s) => !s.isPast);
+  const stillToStart = aheadSlots.filter((s) => !s.isCurrent);
 
   // `slots` is ordered by start, so the first match is the oldest thing still owed an answer.
   const unclosed = patientSlots.filter((s) => !s.isCurrent && isAwaitingClosure(s, nowMinutes));
@@ -379,6 +397,10 @@ export function buildDaySummary(
     unclosedCount: unclosed.length,
     doneCount,
     remainingCount: patientSlots.length - doneCount,
+    // `patientSlots` inherits `slots`' ordering, so the first entry is the day's opening visit.
+    firstStartMinutes: patientSlots.length > 0 ? patientSlots[0].startMinutes : null,
+    nextPatientStartMinutes: stillToStart.length > 0 ? stillToStart[0].startMinutes : null,
+    remainingMinutes: aheadSlots.reduce((sum, s) => sum + (s.endMinutes - s.startMinutes), 0),
     endsAtMinutes,
     // `current === null` is load-bearing, not belt-and-braces: without it « Journée terminée » rendered above a
     // « Au fauteuil » card naming the patient still being treated — the last séance of the day being the case.
@@ -457,8 +479,8 @@ export function buildDayPreview(
     day: startOfDay,
     label: previewLabel(startOfDay, today),
     count: summary.count,
-    // `slots` is ordered by start, so the first one is the day's opening visit.
-    firstStartMinutes: summary.slots.length > 0 ? summary.slots[0].startMinutes : null,
+    // Patient-only, so « dès 08:30 » names when people arrive rather than when a blocked hour opens the ribbon.
+    firstStartMinutes: summary.firstStartMinutes,
     bookedMinutes: summary.bookedMinutes,
     acts: summary.acts,
   };

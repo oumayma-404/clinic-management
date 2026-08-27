@@ -96,7 +96,7 @@ export function DashboardHeader() {
         /*
          * ⚠️ Recorded, not swallowed into `[]`.
          *
-         * The old `catch { setSearchResults([]) }` rendered « Aucun patient trouvé. » for a network failure — about
+         * The old `catch { setSearchResults([]) }` rendered « Aucun patient ne correspond. » for a network failure — about
          * a twelve-year patient, on the fastest route to a file in the whole product. « This patient does not exist »
          * and « we could not ask » are different answers and only one of them is ever true here.
          */
@@ -372,7 +372,7 @@ export function DashboardHeader() {
                   className="border-0 bg-transparent"
                 />
               ) : searchResults.length === 0 ? (
-                <p className="px-3 py-2 text-sm text-muted-foreground">Aucun patient trouvé.</p>
+                <p className="px-3 py-2 text-sm text-muted-foreground">Aucun patient ne correspond.</p>
               ) : (
                 searchResults.map((patient, index) => (
                   <button

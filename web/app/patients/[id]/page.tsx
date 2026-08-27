@@ -2388,7 +2388,7 @@ export default function PatientDetailsPage() {
               </div>
               <Separator />
               <div>
-                <p className="text-xs font-medium text-muted-foreground">Email</p>
+                <p className="text-xs font-medium text-muted-foreground">E-mail</p>
                 <p className="text-sm text-foreground">{patient.email || "Non renseigné"}</p>
               </div>
               <Separator />

@@ -476,7 +476,7 @@ export function PatientsTable({
                 <TableHead>Nom</TableHead>
                 <TableHead>Date de naissance</TableHead>
                 <TableHead>Téléphone</TableHead>
-                <TableHead>Email</TableHead>
+                <TableHead>E-mail</TableHead>
                 <TableHead>Signalements</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>

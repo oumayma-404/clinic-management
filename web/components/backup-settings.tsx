@@ -354,7 +354,7 @@ export function BackupSettings() {
             disabled={working}
           >
             <FolderDown className="mr-1 h-3.5 w-3.5" />
-            {working ? "Sauvegarde en cours..." : "Sauvegarder maintenant"}
+            {working ? "Sauvegarde en cours…" : "Sauvegarder maintenant"}
           </Button>
         </div>
 
@@ -466,7 +466,7 @@ export function BackupSettings() {
                 onClick={handleSaveSchedule}
                 disabled={savingSchedule}
               >
-                {savingSchedule ? "Enregistrement..." : "Enregistrer la planification"}
+                {savingSchedule ? "Enregistrement…" : "Enregistrer la planification"}
               </Button>
             </div>
           </div>

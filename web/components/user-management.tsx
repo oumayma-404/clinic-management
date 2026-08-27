@@ -610,7 +610,7 @@ export function UserManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Nom</TableHead>
-                      <TableHead>Email</TableHead>
+                      <TableHead>E-mail</TableHead>
                       <TableHead>Rôle</TableHead>
                       <TableHead>Statut</TableHead>
                       <TableHead>Dernière connexion</TableHead>
@@ -838,7 +838,7 @@ export function UserManagement() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="create-user-email">Email</Label>
+              <Label htmlFor="create-user-email">E-mail</Label>
               <Input
                 id="create-user-email"
                 type="email"

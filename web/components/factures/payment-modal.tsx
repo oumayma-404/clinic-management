@@ -182,7 +182,7 @@ export function PaymentModal({ open, onOpenChange, invoice, onSuccess }: Payment
               Annuler
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? "Enregistrement..." : "Enregistrer"}
+              {loading ? "Enregistrement…" : "Enregistrer"}
             </Button>
           </DialogFooter>
         </form>

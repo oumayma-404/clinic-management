@@ -297,7 +297,7 @@ export function StockItemFormModal({
                 id="unitPrice"
                 type="text"
                 inputMode="decimal"
-                placeholder="Optionnel"
+                placeholder="Facultatif"
                 value={unitPrice}
                 onChange={(e) => setUnitPrice(e.target.value)}
               />
@@ -327,7 +327,7 @@ export function StockItemFormModal({
             <Label htmlFor="description">Description</Label>
             <Textarea
               id="description"
-              placeholder="Optionnel"
+              placeholder="Facultatif"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}

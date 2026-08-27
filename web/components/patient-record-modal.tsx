@@ -644,11 +644,11 @@ export function PatientRecordModal({
     } catch (err) {
       // A conflict is not a transient blip — a colleague saved this fiche while it was open — so it stays
       // in the form rather than flashing past in a toast.
-      if (!conflict.capture(err, "Erreur lors de l'enregistrement de la fiche.")) {
+      if (!conflict.capture(err, "L'enregistrement de la fiche a échoué.")) {
         // The fiche may have saved and only the billing failed, which leaves the row a version ahead of this
         // form. Not on the conflict branch: resyncing a real 409 would overwrite the colleague who caused it.
         await resync()
-        showErrorToast(err, "Erreur lors de l'enregistrement de la fiche.")
+        showErrorToast(err, "L'enregistrement de la fiche a échoué.")
       }
     } finally {
       setLoading(false)
@@ -798,7 +798,7 @@ export function PatientRecordModal({
           {planItems.length > 0 && (
             <div className="min-w-0 space-y-1.5">
               <Label htmlFor="plan-item">
-                Acte planifié <span className="font-normal text-muted-foreground">(optionnel)</span>
+                Acte planifié <span className="font-normal text-muted-foreground">(facultatif)</span>
               </Label>
               <Select value={linkedPlanItemId} onValueChange={handlePlanItemLink} disabled={loading}>
                 <SelectTrigger id="plan-item" className="h-9">

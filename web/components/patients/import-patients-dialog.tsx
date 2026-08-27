@@ -274,7 +274,7 @@ export function ImportPatientsDialog({ open, onOpenChange, onImported }: ImportP
               {/* The count is on the button because it is the irreversible part: patient records cannot be merged,
                   so « Importer » with no number is a click whose consequence is unstated. */}
               {working
-                ? "Import en cours..."
+                ? "Import en cours…"
                 : willCreate === 1
                   ? "Importer 1 patient"
                   : `Importer ${willCreate} patients`}
@@ -331,7 +331,7 @@ function ChooseStep({
           ) : (
             <FileSpreadsheet className="size-4" aria-hidden="true" />
           )}
-          {working ? "Lecture du fichier..." : "Choisir un fichier CSV"}
+          {working ? "Lecture du fichier…" : "Choisir un fichier CSV"}
         </Button>
       </div>
 

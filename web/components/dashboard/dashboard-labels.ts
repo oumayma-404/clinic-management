@@ -24,7 +24,7 @@ export const KPI_LABELS: Record<DashboardKpiKey, string> = {
   draftPlans: 'Devis en attente de réponse',
   overdueLabOrders: 'Prothèses en retard',
   lowStock: 'Stock bas',
-  expiringStock: 'Périment bientôt',
+  expiringStock: 'Péremption proche',
 };
 
 /** The one-line explanation under each figure — what it counts, so the number is not read as something else. */

@@ -58,7 +58,7 @@ interface StockTableProps {
   /** When set (from a low-stock notification deep-link), the matching row is highlighted + scrolled into view. */
   highlightItemId?: string | null
   /**
-   * Pre-applies a filter on arrival, from the dashboard's « Stock bas » / « Périment bientôt » drill-through, so the
+   * Pre-applies a filter on arrival, from the dashboard's « Stock bas » / « Péremption proche » drill-through, so the
    * list shows exactly the items that card counted. `undefined` leaves the full list, which is the default.
    */
   initialFilter?: "low" | "expiring"
@@ -704,7 +704,7 @@ export function StockTable({
           {adjustMode === "restock" && (
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="adjustExpiry">Date de péremption (optionnel)</Label>
+                <Label htmlFor="adjustExpiry">Date de péremption (facultative)</Label>
                 <Input
                   id="adjustExpiry"
                   type="date"
@@ -713,7 +713,7 @@ export function StockTable({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="adjustBatch">N° de lot (optionnel)</Label>
+                <Label htmlFor="adjustBatch">N° de lot (facultatif)</Label>
                 <Input
                   id="adjustBatch"
                   type="text"

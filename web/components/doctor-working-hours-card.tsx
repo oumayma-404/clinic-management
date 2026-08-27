@@ -210,7 +210,7 @@ export function DoctorWorkingHoursCard({
                   </div>
                   {/* The mid-day closure, mirroring the clinic-wide editor. Empty means « pas de pause ». */}
                   <div className="flex min-w-0 basis-full flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="w-32 shrink-0 text-xs text-muted-foreground">Pause (optionnel)</span>
+                    <span className="w-32 shrink-0 text-xs text-muted-foreground">Pause (facultative)</span>
                     <Label htmlFor={breakFromId} className="sr-only">
                       {`Début de la pause — ${WEEKDAY_LABELS_FR[weekday] ?? weekday}`}
                     </Label>

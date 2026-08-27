@@ -54,7 +54,7 @@ interface SendDocumentEmailDialogProps {
 }
 
 /**
- * « Envoyer par email » for any generated document. One dialog for all six kinds — the PDF is rendered
+ * « Envoyer par e-mail » for any generated document. One dialog for all six kinds — the PDF is rendered
  * server-side from `documentId`, so nothing about a given document's layout lives here and a new kind needs no
  * new dialog.
  *
@@ -134,7 +134,7 @@ export function SendDocumentEmailDialog({
 
   const handleSend = async () => {
     if (!recipientEmail.trim()) {
-      setFormError("Renseignez l'adresse email du destinataire.")
+      setFormError("Renseignez l'adresse e-mail du destinataire.")
       return
     }
 
@@ -150,7 +150,7 @@ export function SendDocumentEmailDialog({
         subject: subject.trim(),
         body,
       })
-      toast.success("Email mis en file d'envoi", {
+      toast.success("E-mail mis en file d'envoi", {
         description: `${documentLabel} sera envoyé à ${recipientEmail.trim()}.`,
       })
       await loadHistory()
@@ -184,7 +184,7 @@ export function SendDocumentEmailDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" aria-hidden="true" />
-            Envoyer par email
+            Envoyer par e-mail
           </DialogTitle>
           <DialogDescription>
             {documentLabel} — le PDF est généré par le serveur au moment de l&apos;envoi.
@@ -199,7 +199,7 @@ export function SendDocumentEmailDialog({
             <Input
               id="documentEmailRecipient"
               type="email"
-              placeholder="Ex: patient@email.tn"
+              placeholder="Ex : patient@email.tn"
               value={recipientEmail}
               onChange={(e) => setRecipientEmail(e.target.value)}
               disabled={sending}

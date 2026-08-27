@@ -97,7 +97,7 @@ export const DASHBOARD_BLOCKS: Record<DashboardBlockKey, DashboardBlockMeta> = {
   draftPlans: { section: 'journee', form: 'chip', label: 'Devis en attente' },
   overdueLabOrders: { section: 'journee', form: 'chip', label: 'Prothèses en retard' },
   lowStock: { section: 'journee', form: 'chip', label: 'Stock bas' },
-  expiringStock: { section: 'journee', form: 'chip', label: 'Périment bientôt' },
+  expiringStock: { section: 'journee', form: 'chip', label: 'Péremption proche' },
 
   // ── L'activité ────────────────────────────────────────────────────────────────────────────────────────────────
   completedAppointments: { section: 'activity', form: 'figure', label: 'Rendez-vous honorés' },

@@ -209,7 +209,7 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
               Annuler
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? "Enregistrement..." : "Enregistrer"}
+              {loading ? "Enregistrement…" : "Enregistrer"}
             </Button>
           </DialogFooter>
         </form>

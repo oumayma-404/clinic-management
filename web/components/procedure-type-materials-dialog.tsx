@@ -228,7 +228,7 @@ export function ProcedureTypeMaterialsDialog({
                       <Command>
                         <CommandInput placeholder="Rechercher un article…" />
                         <CommandList>
-                          <CommandEmpty>Aucun article trouvé.</CommandEmpty>
+                          <CommandEmpty>Aucun article ne correspond.</CommandEmpty>
                           <CommandGroup>
                             {availableFor(index).map((item) => (
                               <CommandItem

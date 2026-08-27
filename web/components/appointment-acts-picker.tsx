@@ -314,7 +314,7 @@ export function AppointmentActsPicker({
           <Command>
             <CommandInput placeholder="Rechercher un acte…" />
             <CommandList>
-              <CommandEmpty>Aucun acte trouvé.</CommandEmpty>
+              <CommandEmpty>Aucun acte ne correspond.</CommandEmpty>
               {/*
                 One CommandGroup per clinical discipline, in the order a course of treatment runs.
                 A flat list of a clinic's whole catalogue is a wall of French with no landmarks; the headings turn
@@ -470,7 +470,7 @@ export function AppointmentActsPicker({
           </div>
           <div className="flex items-center justify-between gap-3">
             <p className="text-2xs text-muted-foreground">
-              Durée et montant optionnels. Sans durée, {fallbackDurationMinutes} min est utilisé.
+              Durée et montant facultatifs. Sans durée, {fallbackDurationMinutes} min est utilisé.
             </p>
             <div className="flex shrink-0 gap-2">
               <Button

@@ -264,7 +264,7 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="reg-email" className="text-sm font-medium">
-                          Email <span className="text-destructive">*</span>
+                          E-mail <span className="text-destructive">*</span>
                         </Label>
                         <Input
                           id="reg-email"
@@ -335,8 +335,8 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                   {role === "secretary" && (
                     <div className="p-4 bg-accent/20 rounded-lg border border-primary/25">
                       <p className="text-sm text-primary">
-                        En tant que secrétaire/assistant(e), vous n&apos;avez pas besoin de fournir d&apos;informations
-                        personnelles supplémentaires. L&apos;email de votre compte sera utilisé.
+                        En tant que secrétaire ou assistant(e), aucune information personnelle supplémentaire n&apos;est
+                        demandée : l&apos;adresse e-mail de votre compte suffit.
                       </p>
                     </div>
                   )}
@@ -403,7 +403,7 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
 
                     <div className="space-y-2">
                       <Label htmlFor="personal-phone" className="text-sm font-medium">
-                        Numéro de téléphone (optionnel)
+                        Numéro de téléphone (facultatif)
                       </Label>
                       <Input
                         id="personal-phone"
