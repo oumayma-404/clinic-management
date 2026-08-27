@@ -432,7 +432,7 @@ public class NotificationJob
             await BlockAsync(
                 notification,
                 OutboxBlockReason.ChannelDisabled,
-                $"Canal « {ChannelLabel(notification.Type)} » désactivé pour cette clinique");
+                $"Canal « {ChannelLabel(notification.Type)} » désactivé pour ce cabinet");
             return;
         }
 

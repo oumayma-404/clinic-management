@@ -12,20 +12,20 @@
     <string name="app_name">Gestion Clinique</string>
 
     <!-- State: connecting -->
-    <string name="connecting_title">Connexion au serveur de la clinique…</string>
+    <string name="connecting_title">Connexion au serveur du cabinet…</string>
 
     <!-- State: server address -->
     <string name="config_title">Gestion Clinique</string>
-    <string name="config_subtitle">Adresse du serveur de la clinique</string>
+    <string name="config_subtitle">Adresse du serveur du cabinet</string>
     <string name="config_help">Saisissez l\'adresse IP ou le nom du serveur (par ex. 192.168.1.10 ou clinic-server). Le port 5001 est utilisé si vous n\'en indiquez pas.</string>
     <string name="config_invalid">Veuillez saisir une adresse de serveur valide.</string>
     <string name="config_save">Se connecter</string>
     <string name="config_cancel">Annuler</string>
 
     <!-- State: unreachable -->
-    <string name="unreachable_title">Impossible de joindre le serveur de la clinique</string>
+    <string name="unreachable_title">Impossible de joindre le serveur du cabinet</string>
     <string name="unreachable_detail">Adresse : %1$s\nDétail : %2$s\n\nVérifiez que le serveur est allumé et accessible, puis réessayez.</string>
-    <string name="unreachable_certificate">Le certificat de ce serveur n\'est pas approuvé sur cet appareil. Installez le certificat de la clinique (Paramètres → Sécurité → Installer un certificat → Certificat CA), puis réessayez.</string>
+    <string name="unreachable_certificate">Le certificat de ce serveur n\'est pas approuvé sur cet appareil. Installez le certificat du cabinet (Paramètres → Sécurité → Installer un certificat → Certificat CA), puis réessayez.</string>
     <string name="unreachable_retry">Réessayer</string>
     <string name="unreachable_change_server">Changer de serveur</string>
 

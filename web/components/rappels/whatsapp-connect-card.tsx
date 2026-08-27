@@ -53,7 +53,7 @@ export function WhatsAppConnectCard({
         // « annulé » would be false and would send the admin round the same loop expecting a different result.
         toast.error("Aucun numéro n'a été ajouté", {
           description:
-            "Votre compte WhatsApp Business a bien été créé, mais sans numéro. Reprenez la connexion et ajoutez le numéro de la clinique.",
+            "Votre compte WhatsApp Business a bien été créé, mais sans numéro. Reprenez la connexion et ajoutez le numéro du cabinet.",
         })
         return
       }
@@ -120,7 +120,7 @@ export function WhatsAppConnectCard({
           <>
             {/* AC-1.2 — stated BEFORE the flow. See the ⚠️ on the component. */}
             <p className="text-sm text-muted-foreground">
-              Meta enverra un code de vérification par SMS ou par appel <strong>sur le téléphone de la clinique</strong>.
+              Meta enverra un code de vérification par SMS ou par appel <strong>sur le téléphone du cabinet</strong>.
               Ayez ce téléphone à portée de main avant de commencer.
             </p>
             <div>
@@ -168,7 +168,7 @@ function StateExplanation({
     case "NotConnected":
       return (
         <p className="text-sm text-muted-foreground">
-          Connectez le numéro WhatsApp de la clinique pour envoyer les rappels par WhatsApp. Vous n&apos;avez ni compte
+          Connectez le numéro WhatsApp du cabinet pour envoyer les rappels par WhatsApp. Vous n&apos;avez ni compte
           Meta à créer, ni modèle de message à rédiger : nous nous en occupons.
         </p>
       )

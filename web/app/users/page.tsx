@@ -51,7 +51,7 @@ export default function UsersPage() {
                   <Lock className="h-7 w-7 text-destructive" />
                 </div>
                 <CardTitle>Administrateurs uniquement</CardTitle>
-                <CardDescription>La gestion des utilisateurs est réservée aux administrateurs de la clinique.</CardDescription>
+                <CardDescription>La gestion des utilisateurs est réservée aux administrateurs du cabinet.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Button variant="outline" className="w-full gap-2" onClick={() => router.push("/")}>

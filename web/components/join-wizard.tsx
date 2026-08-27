@@ -132,7 +132,7 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
         return
       }
       // Single formatting point (lib/errors) — same reason as the setup wizard.
-      setError(getErrorMessage(err, "Échec de l'adhésion à la clinique. Veuillez réessayer."))
+      setError(getErrorMessage(err, "L'adhésion au cabinet a échoué. Veuillez réessayer."))
       console.error("Error joining clinic:", err)
       setIsLoading(false)
     }
@@ -200,8 +200,8 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-accent/20 mb-2">
             <Building2 className="w-8 h-8 text-primary" />
           </div>
-          <h1 className="text-3xl font-bold text-accent-foreground">Rejoindre une clinique</h1>
-          <p className="text-muted-foreground">Complétez votre profil pour accéder à la clinique</p>
+          <h1 className="text-3xl font-bold text-accent-foreground">Rejoindre un cabinet</h1>
+          <p className="text-muted-foreground">Complétez votre profil pour accéder au cabinet</p>
         </div>
 
         {/* Progress Steps */}
@@ -269,7 +269,7 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                         <Input
                           id="reg-email"
                           type="email"
-                          placeholder="vous@clinique.com"
+                          placeholder="vous@cabinet.tn"
                           value={regEmail}
                           onChange={(e) => setRegEmail(e.target.value)}
                           required
@@ -418,7 +418,7 @@ export default function JoinWizard({ clinicCode, onComplete }: JoinWizardProps) 
                   <div className="p-4 bg-success-wash rounded-lg border border-success/25">
                     <p className="text-sm text-success">
                       Tout est prêt ! En tant que secrétaire/assistant(e), aucune information supplémentaire
-                      n&apos;est nécessaire. Cliquez sur « Terminer » pour rejoindre la clinique.
+                      n&apos;est nécessaire. Cliquez sur « Terminer » pour rejoindre le cabinet.
                     </p>
                   </div>
                 )}

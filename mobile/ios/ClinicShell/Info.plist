@@ -39,7 +39,7 @@
          app, because `SelfHostedLan` is *by definition* a local-network address.
          The Android shell needs no counterpart: Android has no equivalent permission. -->
     <key>NSLocalNetworkUsageDescription</key>
-    <string>L'application se connecte au serveur de votre clinique sur votre réseau pour afficher vos dossiers.</string>
+    <string>L'application se connecte au serveur de votre cabinet sur votre réseau pour afficher vos dossiers.</string>
 
     <!-- The web view's own `input type="file"` uses both. Without these strings the picker crashes on selection. -->
     <key>NSCameraUsageDescription</key>

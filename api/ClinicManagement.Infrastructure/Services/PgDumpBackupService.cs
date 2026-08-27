@@ -221,7 +221,7 @@ public sealed class PgDumpBackupService : IBackupService
     private const string BackupFolderPrefix = "clinic-backup-";
 
     internal const string SameVolumeWarning =
-        "La sauvegarde est enregistrée sur le même disque que les données de la clinique : une panne de ce "
+        "La sauvegarde est enregistrée sur le même disque que les données du cabinet : une panne de ce "
         + "disque ferait perdre les deux. Choisissez un disque externe ou un dossier réseau.";
 
     /// <inheritdoc />

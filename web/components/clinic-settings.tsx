@@ -259,7 +259,7 @@ export default function ClinicSettings() {
         setClinicName(status.clinicName)
       }
     } catch (err: any) {
-      toast.error("Échec du chargement des données de la clinique : " + (err.message || "Erreur inconnue"))
+      toast.error("Échec du chargement des données du cabinet : " + (err.message || "Erreur inconnue"))
     } finally {
       setIsLoading(false)
     }
@@ -362,14 +362,14 @@ export default function ClinicSettings() {
 
   const handleSaveClinicInfo = async () => {
     /*
-     * ⚠️ On the field, and it names « Nom de la clinique ».
+     * ⚠️ On the field, and it names « Nom du cabinet ».
      *
      * Saving an emptied name met a 400 whose toast read « Le champ « name » n'est pas valide ou n'a pas été
      * envoyé. » — the WIRE field name, in a toast, floated away from the input that caused it. `required` on the
      * input does not help: this is not a `<form>` submit, so the browser never validates it.
      */
     if (!clinicName.trim()) {
-      setClinicNameError("Le nom de la clinique est obligatoire.")
+      setClinicNameError("Le nom du cabinet est obligatoire.")
       return
     }
     setClinicNameError(null)
@@ -406,10 +406,10 @@ export default function ClinicSettings() {
       }
       setLogoFile(null) // Clear file after successful upload
 
-      toast.success("Informations de la clinique enregistrées.")
+      toast.success("Informations du cabinet enregistrées.")
       setIsEditingClinicInfo(false)
     } catch (error: any) {
-      toast.error(error.message || "Échec de l'enregistrement des informations de la clinique. Veuillez réessayer.")
+      toast.error(error.message || "Échec de l'enregistrement des informations du cabinet. Veuillez réessayer.")
     } finally {
       setIsSaving(false)
     }
@@ -578,7 +578,7 @@ export default function ClinicSettings() {
       <div className="min-h-full flex items-center justify-center bg-background">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Chargement des paramètres de la clinique…</p>
+          <p className="text-muted-foreground">Chargement des paramètres du cabinet…</p>
         </div>
       </div>
     )
@@ -625,7 +625,7 @@ export default function ClinicSettings() {
         {/* Clinic Code under header */}
         {clinicCode && (
           <div className="bg-accent/20 border border-primary/25 rounded-lg p-3">
-            <Label className="text-xs text-primary font-medium">Code de la clinique</Label>
+            <Label className="text-xs text-primary font-medium">Code du cabinet</Label>
             <div className="flex items-center gap-2 mt-1.5">
               <Badge
                 variant="outline"
@@ -635,7 +635,7 @@ export default function ClinicSettings() {
               </Badge>
             </div>
             <p className="text-2xs text-primary mt-1.5">
-              Communiquez ce code à vos collègues pour qu'ils rejoignent la clinique
+              Communiquez ce code à vos collègues pour qu'ils rejoignent le cabinet
             </p>
           </div>
         )}
@@ -669,7 +669,7 @@ export default function ClinicSettings() {
                   ⚠️ `Building2` repeats the glyph in this page's own title chip ~60px above. That is left
                   alone rather than worked around: the two are different objects (the page mark is a solid
                   `bg-primary` square with an inverted glyph, this is a near-neutral wash), and `Building2` is
-                  the *right* mark for « Informations de la clinique » — swapping in a second-choice glyph to
+                  the *right* mark for « Informations du cabinet » — swapping in a second-choice glyph to
                   dodge the repeat makes the section harder to recognise, which is the only thing the chip is
                   for. The honest fix is in the page mark, which hand-rolls its header instead of using
                   `ui/page-header.tsx` + `navIconForPath` — the rail draws `Settings` for `/settings`, and that
@@ -679,7 +679,7 @@ export default function ClinicSettings() {
                   <span aria-hidden="true" className={CONFIG_CHIP}>
                     <Building2 className="size-4" strokeWidth={1.75} />
                   </span>
-                  Informations de la clinique
+                  Informations du cabinet
                 </CardTitle>
                 <ChevronDown
                   className={`size-4 shrink-0 text-muted-foreground transition-transform ${
@@ -706,12 +706,12 @@ export default function ClinicSettings() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label htmlFor="clinic-name" className="text-xs font-medium flex items-center gap-1">
-                    Nom de la clinique
+                    Nom du cabinet
                     <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     id="clinic-name"
-                    placeholder="Saisir le nom de la clinique"
+                    placeholder="Saisir le nom du cabinet"
                     value={clinicName}
                     onChange={(e) => {
                       setClinicName(e.target.value)
@@ -774,7 +774,7 @@ export default function ClinicSettings() {
                 </Label>
                 <Textarea
                   id="address"
-                  placeholder="Saisir l'adresse complète de la clinique"
+                  placeholder="Saisir l'adresse complète du cabinet"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   disabled={!isEditingClinicInfo}
@@ -809,7 +809,7 @@ export default function ClinicSettings() {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="ex. : contact@maclinique.tn"
+                    placeholder="ex. : contact@moncabinet.tn"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={!isEditingClinicInfo}
@@ -822,7 +822,7 @@ export default function ClinicSettings() {
               <Separator className="my-3" />
 
               <div className="space-y-2">
-                <Label className="text-xs font-medium">Logo de la clinique</Label>
+                <Label className="text-xs font-medium">Logo du cabinet</Label>
                 <div className="flex items-center gap-4">
                   {logoPreview ? (
                     // Show preview when user selects a new file (data URL)

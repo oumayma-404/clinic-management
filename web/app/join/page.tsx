@@ -94,7 +94,7 @@ export default function JoinClinicPage() {
     try {
       // Validate code format (basic check)
       if (clinicCode.trim().length < 4) {
-        setError("Saisissez un code de clinique valide.")
+        setError("Saisissez un code de cabinet valide.")
         setIsLoading(false)
         return
       }
@@ -103,7 +103,7 @@ export default function JoinClinicPage() {
       setShowWizard(true)
       setIsLoading(false)
     } catch (err: any) {
-      setError(err.message || "Échec de la validation du code de clinique. Veuillez réessayer.")
+      setError(err.message || "La validation du code a échoué. Veuillez réessayer.")
       setIsLoading(false)
     }
   }
@@ -118,7 +118,7 @@ export default function JoinClinicPage() {
       <div className="min-h-dvh bg-background flex items-center justify-start p-6">
         <div className="mx-auto text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Vérification du statut de votre clinique…</p>
+          <p className="text-muted-foreground">Vérification du statut de votre cabinet…</p>
         </div>
       </div>
     )
@@ -148,9 +148,9 @@ export default function JoinClinicPage() {
               <Building2 className="w-8 h-8 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-2xl text-accent-foreground">Rejoindre une clinique</CardTitle>
+              <CardTitle className="text-2xl text-accent-foreground">Rejoindre un cabinet</CardTitle>
               <CardDescription className="mt-2">
-                Saisissez le code que votre administrateur vous a remis pour rejoindre sa clinique
+                Saisissez le code que votre administrateur vous a remis pour rejoindre son cabinet
               </CardDescription>
             </div>
           </CardHeader>
@@ -165,11 +165,11 @@ export default function JoinClinicPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="clinic-code" className="text-sm font-medium">
-                  Code de la clinique <span className="text-destructive">*</span>
+                  Code du cabinet <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="clinic-code"
-                  placeholder="Saisir le code de la clinique"
+                  placeholder="Saisir le code du cabinet"
                   value={clinicCode}
                   onChange={(e) => setClinicCode(e.target.value.toUpperCase())}
                   required
@@ -178,7 +178,7 @@ export default function JoinClinicPage() {
                   maxLength={10}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Le code de la clinique comporte généralement 6 à 10 caractères
+                  Le code du cabinet comporte généralement 6 à 10 caractères
                 </p>
               </div>
 
@@ -208,7 +208,7 @@ export default function JoinClinicPage() {
                    */
                   className="h-auto whitespace-normal py-2 text-center text-muted-foreground hover:text-primary"
                 >
-                  Vous n&apos;avez pas de code ? Créez plutôt une nouvelle clinique
+                  Vous n&apos;avez pas de code ? Créez plutôt un nouveau cabinet
                 </Button>
               </div>
             </form>

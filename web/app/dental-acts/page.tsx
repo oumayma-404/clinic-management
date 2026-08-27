@@ -76,7 +76,7 @@ export default function DentalActsPage() {
                 </div>
                 <CardTitle>Réservé aux administrateurs</CardTitle>
                 <CardDescription>
-                  La gestion du catalogue des actes dentaires est réservée aux administrateurs de la clinique.
+                  La gestion du catalogue des actes dentaires est réservée aux administrateurs du cabinet.
                 </CardDescription>
               </CardHeader>
               <CardContent>

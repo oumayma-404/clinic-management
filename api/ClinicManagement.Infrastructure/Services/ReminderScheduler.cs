@@ -21,7 +21,7 @@ public class ReminderScheduler : IReminderScheduler
 {
     private const string ReminderSubject = "Rappel de rendez-vous";
     private const string RecallSubject = "Relance patient";
-    private const string FallbackClinicName = "votre clinique";
+    private const string FallbackClinicName = "votre cabinet";
 
     private readonly INotificationRepository _notifications;
     private readonly IClinicRepository _clinics;

@@ -62,7 +62,7 @@ public class GetClinicLogoQueryHandler : IRequestHandler<GetClinicLogoQuery, Res
 
             if (string.IsNullOrWhiteSpace(clinic.LogoUrl))
             {
-                return Result<ClinicLogoDto>.Failure("Logo de la clinique introuvable.");
+                return Result<ClinicLogoDto>.Failure("Logo du cabinet introuvable.");
             }
 
             // Download logo from MinIO

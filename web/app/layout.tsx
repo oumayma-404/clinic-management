@@ -31,7 +31,7 @@ export const metadata: Metadata = {
     default: PRODUCT_NAME,
     template: `%s · ${PRODUCT_NAME}`,
   },
-  description: "Système de gestion de clinique pour les professionnels de santé",
+  description: "Gestion de cabinet pour les professionnels de santé",
   icons: {
     icon: [
       {

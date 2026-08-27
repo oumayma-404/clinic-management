@@ -40,7 +40,7 @@ public static class ClinicAuthRefusals
         TotpInvalid => "Code de vérification invalide.",
         TotpAlreadyEnrolled => "Le second facteur est déjà enrôlé pour ce compte.",
         TotpNotEnrolled => "Le second facteur n'est pas enrôlé pour ce compte.",
-        AccountDisabled => "Ce compte a été désactivé. Veuillez contacter l'administrateur de votre clinique.",
+        AccountDisabled => "Ce compte a été désactivé. Veuillez contacter l'administrateur de votre cabinet.",
         TooManyAttempts => "Trop de tentatives. Réessayez dans quelques minutes.",
         PasswordPolicy => $"Le mot de passe doit contenir au moins {Common.PasswordPolicy.MinLength} caractères.",
         _ => null

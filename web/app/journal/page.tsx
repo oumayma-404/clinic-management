@@ -155,7 +155,7 @@ export default function JournalPage() {
         ) : !isAdmin ? (
           <AccessDeniedCard
             title="Réservé aux administrateurs"
-            description="Le journal d'activité retrace qui a créé, modifié ou supprimé chaque dossier. Il est réservé aux administrateurs de la clinique."
+            description="Le journal d'activité retrace qui a créé, modifié ou supprimé chaque dossier. Il est réservé aux administrateurs du cabinet."
           />
         ) : (
           <>

@@ -68,7 +68,7 @@ public static class SecondFactorResetNotice
     private static string Actor(SecondFactorResetBy by) => by switch
     {
         SecondFactorResetBy.Vendor => "Le support technique de votre logiciel",
-        _ => "Un administrateur de votre clinique"
+        _ => "Un administrateur de votre cabinet"
     };
 
     /// <summary>

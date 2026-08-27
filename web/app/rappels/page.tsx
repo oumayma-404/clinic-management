@@ -481,7 +481,7 @@ export default function RappelsPage() {
           <SheetHeader>
             <SheetTitle>Canaux de rappel</SheetTitle>
             <SheetDescription>
-              Réglages propres à cette clinique. Les champs laissés vides héritent de la configuration de
+              Réglages propres à ce cabinet. Les champs laissés vides héritent de la configuration de
               l&apos;installation.
             </SheetDescription>
           </SheetHeader>

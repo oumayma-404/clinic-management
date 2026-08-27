@@ -335,9 +335,9 @@ const STATUS_FALLBACK_FR: Record<number, string> = {
   // The three the front-door proxy raises on its own — the API process is down, restarting, or too slow. They
   // are transport-shaped rather than a refusal, so they say « momentanément » : the same request is worth making
   // again, which « Une erreur est survenue » does not convey.
-  502: "Le serveur de la clinique est momentanément indisponible.",
-  503: "Le serveur de la clinique est momentanément indisponible.",
-  504: "Le serveur de la clinique est momentanément indisponible.",
+  502: "Le serveur du cabinet est momentanément indisponible.",
+  503: "Le serveur du cabinet est momentanément indisponible.",
+  504: "Le serveur du cabinet est momentanément indisponible.",
 };
 
 /**

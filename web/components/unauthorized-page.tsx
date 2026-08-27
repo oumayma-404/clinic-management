@@ -25,14 +25,14 @@ export default function UnauthorizedPage() {
             <div>
               <CardTitle className="text-2xl text-destructive">Accès restreint</CardTitle>
               <CardDescription className="mt-2">
-                Vous devez faire partie d'une clinique pour accéder à cette application.
+                Vous devez faire partie d'un cabinet pour accéder à cette application.
               </CardDescription>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="p-4 bg-accent/20 rounded-lg border border-primary/25">
               <p className="text-sm text-accent-foreground">
-                Pour commencer, vous pouvez créer une nouvelle clinique ou en rejoindre une existante à l'aide d'un code de clinique.
+                Pour commencer, vous pouvez créer un nouveau cabinet ou en rejoindre un existant à l'aide d'un code de cabinet.
               </p>
             </div>
 
@@ -43,7 +43,7 @@ export default function UnauthorizedPage() {
                 size="lg"
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Créer une clinique
+                Créer un cabinet
               </Button>
 
               <Button
@@ -53,7 +53,7 @@ export default function UnauthorizedPage() {
                 size="lg"
               >
                 <Building2 className="w-4 h-4 mr-2" />
-                Rejoindre une clinique
+                Rejoindre un cabinet
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </div>
@@ -69,7 +69,7 @@ export default function UnauthorizedPage() {
                 Se déconnecter
               </Button>
               <p className="text-xs text-muted-foreground text-center">
-                Si vous pensez qu'il s'agit d'une erreur, veuillez contacter l'administrateur de votre clinique.
+                Si vous pensez qu'il s'agit d'une erreur, veuillez contacter l'administrateur de votre cabinet.
               </p>
             </div>
           </CardContent>

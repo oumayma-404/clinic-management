@@ -65,7 +65,7 @@ export default function LoginPage() {
   return (
     <LoginShell
       title={`Bienvenue sur ${PRODUCT_NAME}`}
-      description="Connectez-vous pour accéder à la gestion de votre clinique"
+      description="Connectez-vous pour accéder à la gestion de votre cabinet"
     >
       <Button asChild className="min-h-11 w-full" size="lg">
         <a href="/auth/login">Se connecter</a>
@@ -204,7 +204,7 @@ function LocalLoginForm() {
       })
       setMode('enrol')
     } catch {
-      setError('Impossible de joindre le serveur de la clinique. Veuillez réessayer.')
+      setError('Impossible de joindre le serveur du cabinet. Veuillez réessayer.')
     } finally {
       setIsSubmitting(false)
     }
@@ -261,7 +261,7 @@ function LocalLoginForm() {
 
       goHome()
     } catch {
-      setError('Impossible de joindre le serveur de la clinique. Veuillez réessayer.')
+      setError('Impossible de joindre le serveur du cabinet. Veuillez réessayer.')
       setIsSubmitting(false)
     }
   }
@@ -286,7 +286,7 @@ function LocalLoginForm() {
       setTotpCode('')
       setMode('codes')
     } catch {
-      setError('Impossible de joindre le serveur de la clinique. Veuillez réessayer.')
+      setError('Impossible de joindre le serveur du cabinet. Veuillez réessayer.')
     } finally {
       setIsSubmitting(false)
     }
@@ -322,7 +322,7 @@ function LocalLoginForm() {
 
       goHome()
     } catch {
-      setError('Impossible de joindre le serveur de la clinique. Veuillez réessayer.')
+      setError('Impossible de joindre le serveur du cabinet. Veuillez réessayer.')
       setIsSubmitting(false)
     }
   }

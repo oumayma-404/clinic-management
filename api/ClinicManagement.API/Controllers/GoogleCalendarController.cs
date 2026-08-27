@@ -100,7 +100,7 @@ public class GoogleCalendarController : ApiControllerBase
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
         {
-            return BadRequest(new { error = "Google Calendar n'est pas connecté pour cette clinique. Connectez-le depuis les paramètres." });
+            return BadRequest(new { error = "Google Calendar n'est pas connecté pour ce cabinet. Connectez-le depuis les paramètres." });
         }
         catch (Exception ex)
         {
@@ -148,7 +148,7 @@ public class GoogleCalendarController : ApiControllerBase
         var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
         if (clinicResult.IsFailure)
         {
-            return BadRequest(new { error = clinicResult.Error ?? "Impossible de résoudre la clinique." });
+            return BadRequest(new { error = clinicResult.Error ?? "Impossible de résoudre le cabinet." });
         }
 
         var clinic = await _clinicRepository.GetByIdAsync(clinicResult.Value, cancellationToken);
@@ -200,7 +200,7 @@ public class GoogleCalendarController : ApiControllerBase
             message = !hasClientId || !hasClientSecret
                 ? "Le ClientId et le ClientSecret Google doivent être configurés côté serveur."
                 : !hasRefreshToken
-                    ? "Google Calendar n'est pas connecté pour cette clinique. Cliquez sur « Connecter » pour autoriser l'accès."
+                    ? "Google Calendar n'est pas connecté pour ce cabinet. Cliquez sur « Connecter » pour autoriser l'accès."
                     : !tokenValid
                         ? "Le jeton Google Calendar est invalide ou expiré. Reconnectez-vous."
                         : "Google Calendar est connecté et prêt."
@@ -222,7 +222,7 @@ public class GoogleCalendarController : ApiControllerBase
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
         {
-            return BadRequest(new { error = "Google Calendar n'est pas connecté pour cette clinique. Connectez-le depuis les paramètres." });
+            return BadRequest(new { error = "Google Calendar n'est pas connecté pour ce cabinet. Connectez-le depuis les paramètres." });
         }
         catch (Exception ex)
         {
@@ -251,7 +251,7 @@ public class GoogleCalendarController : ApiControllerBase
         var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
         if (clinicResult.IsFailure)
         {
-            return BadRequest(new { error = clinicResult.Error ?? "Impossible de résoudre la clinique." });
+            return BadRequest(new { error = clinicResult.Error ?? "Impossible de résoudre le cabinet." });
         }
 
         var configuredRedirectUri = _configuration["GoogleCalendar:RedirectUri"];
@@ -383,7 +383,7 @@ public class GoogleCalendarController : ApiControllerBase
             if (clinic == null)
             {
                 _logger.LogWarning("Clinic {ClinicId} bound to the OAuth state no longer exists", clinicId);
-                return BadRequest(new { error = "Clinique introuvable pour cette autorisation." });
+                return BadRequest(new { error = "Cabinet introuvable pour cette autorisation." });
             }
 
             string? refreshToken = null;

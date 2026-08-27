@@ -96,7 +96,7 @@ public static class AppleTrustProfile
             WriteString(
                 writer,
                 "PayloadDescription",
-                "Autorité de certification du serveur de la clinique. "
+                "Autorité de certification du serveur du cabinet. "
                 + "Après l'installation, activez-la dans Réglages → Général → Informations → "
                 + "Certificats de confiance.");
             WriteString(writer, "PayloadDisplayName", $"Autorité de certification — {label}");
@@ -112,7 +112,7 @@ public static class AppleTrustProfile
             WriteString(
                 writer,
                 "PayloadDescription",
-                "Permet à cet appareil de se connecter au serveur de la clinique sans avertissement de sécurité.");
+                "Permet à cet appareil de se connecter au serveur du cabinet sans avertissement de sécurité.");
             WriteString(writer, "PayloadIdentifier", ProfileIdentifier);
             WriteString(writer, "PayloadOrganization", label);
             WriteString(writer, "PayloadType", "Configuration");

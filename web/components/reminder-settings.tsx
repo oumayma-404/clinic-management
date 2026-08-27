@@ -203,7 +203,7 @@ export function ReminderSettings() {
       if (outcome.kind === "no-phone-number") {
         toast.error("Aucun numéro ajouté", {
           description:
-            "Le compte WhatsApp Business a été créé sans numéro. Reprenez la connexion et ajoutez le numéro de la clinique.",
+            "Le compte WhatsApp Business a été créé sans numéro. Reprenez la connexion et ajoutez le numéro du cabinet.",
         })
         return
       }
@@ -384,7 +384,7 @@ export function ReminderSettings() {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground">
-          Configurez les canaux de rappel et l&apos;identité d&apos;expéditeur propres à cette clinique. Les
+          Configurez les canaux de rappel et l&apos;identité d&apos;expéditeur propres à ce cabinet. Les
           champs laissés sur « Par défaut » ou vides utilisent la configuration de l&apos;installation. Les clés
           secrètes ne sont jamais réaffichées ; laissez-les vides pour conserver la valeur enregistrée.
         </p>
@@ -449,7 +449,7 @@ export function ReminderSettings() {
                 </Label>
                 <Input
                   id="sms-sender-id"
-                  placeholder="Ex. MaClinique"
+                  placeholder="Ex. MonCabinet"
                   value={smsSenderId}
                   onChange={(e) => setSmsSenderId(e.target.value)}
                   disabled={saving}
@@ -740,7 +740,7 @@ export function ReminderSettings() {
                   <Input
                     id="smtp-from-address"
                     type="email"
-                    placeholder="Ex. cabinet@maclinique.tn"
+                    placeholder="Ex. contact@moncabinet.tn"
                     value={smtpFromAddress}
                     onChange={(e) => setSmtpFromAddress(e.target.value)}
                     disabled={saving}

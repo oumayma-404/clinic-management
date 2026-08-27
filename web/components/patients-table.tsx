@@ -289,7 +289,7 @@ export function PatientsTable({
       description={
         isFiltered
           ? undefined
-          : "Créez le premier dossier de la clinique : identité, coordonnées et antécédents."
+          : "Créez le premier dossier du cabinet : identité, coordonnées et antécédents."
       }
       /*
         ⚠️ No « Ajouter » on a filtered-empty list, ever. The patient may well exist and the search simply

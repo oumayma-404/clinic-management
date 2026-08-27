@@ -84,7 +84,7 @@ export function ClientVersionGate() {
           </div>
           <CardTitle id="client-version-gate-title">Mise à jour requise</CardTitle>
           <CardDescription>
-            Cette version de {PRODUCT_NAME} n&apos;est plus prise en charge par le serveur de votre clinique.
+            Cette version de {PRODUCT_NAME} n&apos;est plus prise en charge par le serveur de votre cabinet.
             Installez la dernière version pour continuer.
           </CardDescription>
         </CardHeader>
@@ -105,7 +105,7 @@ export function ClientVersionGate() {
             // No listing configured yet, or the requirements read failed. Say what to do instead of showing a
             // dead button — « no capability removed by a layout decision » cuts both ways.
             <p className="text-center text-sm text-muted-foreground">
-              Contactez le responsable de votre clinique pour obtenir la dernière version de l&apos;application.
+              Contactez le responsable de votre cabinet pour obtenir la dernière version de l&apos;application.
             </p>
           )}
 

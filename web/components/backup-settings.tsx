@@ -319,7 +319,7 @@ export function BackupSettings() {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Sauvegarde la base de données et les fichiers de la clinique dans un dossier daté, puis vérifie que le
+          Sauvegarde la base de données et les fichiers du cabinet dans un dossier daté, puis vérifie que le
           fichier produit est bien lisible. Laissez le champ vide pour utiliser le dossier par défaut du serveur
           {history?.defaultDestination && (
             <>
@@ -336,7 +336,7 @@ export function BackupSettings() {
           </Label>
           <Input
             id="backup-destination"
-            placeholder={history?.defaultDestination || "Ex. D:\\Sauvegardes clinique"}
+            placeholder={history?.defaultDestination || "Ex. D:\\Sauvegardes cabinet"}
             value={destination}
             onChange={(e) => setDestination(e.target.value)}
             disabled={working}

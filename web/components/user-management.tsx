@@ -59,7 +59,7 @@ import { useSession } from "@/lib/auth/session"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
-/** The chip both section headers wear. `/users` is the `config` zone — see the note at « Code de la clinique ». */
+/** The chip both section headers wear. `/users` is the `config` zone — see the note at « Code du cabinet ». */
 const SECTION_CHIP = `flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`
 
 type PendingAction =
@@ -91,7 +91,7 @@ export function UserManagement() {
    * Whether staff can still mint their own account with the clinic code. False on the hosted profile, where the
    * six-character code is a password everyone who ever worked at the practice knows. Asked of the server because
    * `mode` cannot answer it (US-3). Optimistic default: the LAN install is the common case, and a probe that
-   * failed must not make « Code de la clinique » claim the code is dead when it is not.
+   * failed must not make « Code du cabinet » claim the code is dead when it is not.
    */
   const [selfRegistrationEnabled, setSelfRegistrationEnabled] = useState(true)
   const [userPage, setUserPage] = useState<ClinicUsersPageDto>(() => ({
@@ -238,7 +238,7 @@ export function UserManagement() {
       } else if (pending.type === "regenerate") {
         const clinic = await clinicsApi.regenerateCode()
         setClinicCode(clinic.code || "")
-        toast.success("Code de la clinique régénéré. L'ancien code ne fonctionne plus.")
+        toast.success("Code du cabinet régénéré. L'ancien code ne fonctionne plus.")
       } else if (pending.type === "role") {
         await usersApi.setRole(pending.user.id, pending.role, await currentVersion(pending.user))
         toast.success(
@@ -362,7 +362,7 @@ export function UserManagement() {
               <span aria-hidden="true" className={SECTION_CHIP}>
                 <KeyRound className="size-4" strokeWidth={1.75} />
               </span>
-              Code de la clinique
+              Code du cabinet
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -509,7 +509,7 @@ export function UserManagement() {
                 */}
                 <CardList
                   className={CARDS_ONLY}
-                  ariaLabel="Utilisateurs de la clinique"
+                  ariaLabel="Utilisateurs du cabinet"
                   items={users}
                   getKey={(u) => u.id}
                   title={(u) => u.fullName || u.email || "Compte sans nom"}
@@ -749,7 +749,7 @@ export function UserManagement() {
                   : pending.user.isPendingActivation
                     ? "Activer ce compte ?"
                     : "Réactiver cet utilisateur ?")}
-              {pending?.type === "regenerate" && "Régénérer le code de la clinique ?"}
+              {pending?.type === "regenerate" && "Régénérer le code du cabinet ?"}
               {pending?.type === "role" && "Modifier le rôle de cet utilisateur ?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
@@ -876,7 +876,7 @@ export function UserManagement() {
 
             {/*
               The practitioner behind a « médecin » account. Required by the server for that role and shown only for
-              it, exactly as « Rejoindre une clinique » does — an admin or a secretary is not a practitioner.
+              it, exactly as « Rejoindre un cabinet » does — an admin or a secretary is not a practitioner.
               Without these the account got no `Doctor` record, so the person was absent from the praticien lists,
               « Mon profil » had nothing to edit, the money they collected was unattributed, and their ordonnances
               and certificats printed with **no** cachet and no n° d'ordre CNOMDT.

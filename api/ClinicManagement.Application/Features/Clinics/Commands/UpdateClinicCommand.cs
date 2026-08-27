@@ -255,7 +255,7 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error updating clinic");
-            return Result<ClinicDto>.Failure("Erreur lors de la mise à jour de la clinique.");
+            return Result<ClinicDto>.Failure("La mise à jour du cabinet a échoué.");
         }
     }
 

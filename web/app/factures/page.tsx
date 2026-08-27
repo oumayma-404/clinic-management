@@ -76,7 +76,7 @@ export default function FacturesPage() {
     return (
       <ClinicGuard>
         <AppShell width="none" gutter={false}>
-          <AccessDeniedCard description="Les factures et le chiffre d'affaires de la clinique sont réservés au praticien et à l'administrateur. Vous pouvez encaisser un paiement depuis la fiche du patient." />
+          <AccessDeniedCard description="Les factures et le chiffre d'affaires du cabinet sont réservés au praticien et à l'administrateur. Vous pouvez encaisser un paiement depuis la fiche du patient." />
         </AppShell>
       </ClinicGuard>
     )

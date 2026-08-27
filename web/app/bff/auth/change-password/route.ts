@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     return response;
   } catch {
     return NextResponse.json(
-      { error: 'Impossible de joindre le serveur de la clinique. Veuillez réessayer.' },
+      { error: 'Impossible de joindre le serveur du cabinet. Veuillez réessayer.' },
       { status: 502 }
     );
   }

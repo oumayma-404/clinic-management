@@ -123,8 +123,8 @@ public class RedeemRecoveryCodeCommandHandler
             {
                 return Result<LoginResultDto>.Failure(
                     user.IsPendingActivation
-                        ? "Votre compte a bien été créé mais doit encore être activé par un administrateur de la clinique. Vous pourrez vous connecter dès qu'il l'aura fait."
-                        : "Ce compte a été désactivé. Veuillez contacter l'administrateur de votre clinique.",
+                        ? "Votre compte a bien été créé mais doit encore être activé par un administrateur du cabinet. Vous pourrez vous connecter dès qu'il l'aura fait."
+                        : "Ce compte a été désactivé. Veuillez contacter l'administrateur de votre cabinet.",
                     ClinicAuthRefusals.AccountDisabled);
             }
 

@@ -20,7 +20,7 @@
     <Product>Gestion Clinique</Product>
     <AssemblyTitle>Gestion Clinique</AssemblyTitle>
     <Company>Gestion Clinique</Company>
-    <Description>Client de bureau pour le serveur de la clinique.</Description>
+    <Description>Client de bureau pour le serveur du cabinet.</Description>
     <!-- Self-contained win-x64 publish is driven by packaging/publish-server.ps1 (S6); no RID pinned here
          so `dotnet build` stays framework-dependent for review. -->
   </PropertyGroup>

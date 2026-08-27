@@ -58,7 +58,7 @@ public class CreateMedicationCommandHandler : IRequestHandler<CreateMedicationCo
             var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinicResult.IsFailure)
             {
-                return Result<MedicationDto>.Failure(clinicResult.Error ?? "Impossible de résoudre la clinique.");
+                return Result<MedicationDto>.Failure(clinicResult.Error ?? "Impossible de résoudre le cabinet.");
             }
 
             // Existence check auto-scopes to the caller's clinic via the query filter → uniqueness is per-clinic (#5).

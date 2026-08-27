@@ -42,7 +42,7 @@ function CreancesScreen() {
         {isLoading ? (
           <p className="p-8 text-center text-muted-foreground">Chargement…</p>
         ) : denied ? (
-          <AccessDeniedCard description="Les créances de la clinique sont réservées au praticien et à l'administrateur. Le solde d'un patient reste consultable depuis sa fiche." />
+          <AccessDeniedCard description="Les créances du cabinet sont réservées au praticien et à l'administrateur. Le solde d'un patient reste consultable depuis sa fiche." />
         ) : (
           <>
             <PageHeader

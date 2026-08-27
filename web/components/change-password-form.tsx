@@ -59,7 +59,7 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
       // 401s and bounces them here anyway, with nothing saying the password was actually saved.
       window.location.href = '/login?passwordChanged=1'
     } catch {
-      setError('Impossible de joindre le serveur de la clinique. Veuillez réessayer.')
+      setError('Impossible de joindre le serveur du cabinet. Veuillez réessayer.')
       setIsSubmitting(false)
     }
   }

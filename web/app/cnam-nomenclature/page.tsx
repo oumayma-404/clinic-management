@@ -82,7 +82,7 @@ export default function CnamNomenclaturePage() {
                 </div>
                 <CardTitle>Réservé aux administrateurs</CardTitle>
                 <CardDescription>
-                  La gestion de la nomenclature CNAM est réservée aux administrateurs de la clinique.
+                  La gestion de la nomenclature CNAM est réservée aux administrateurs du cabinet.
                 </CardDescription>
               </CardHeader>
               <CardContent>

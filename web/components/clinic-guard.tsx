@@ -94,7 +94,7 @@ export function ClinicGuard({
         <div className="text-center max-w-md px-4">
           <p className="text-lg font-medium mb-2">Connexion au serveur impossible</p>
           <p className="text-muted-foreground mb-6">
-            Le serveur de la clinique n&apos;a pas pu confirmer votre session. Vérifiez qu&apos;il est démarré,
+            Le serveur du cabinet n&apos;a pas pu confirmer votre session. Vérifiez qu&apos;il est démarré,
             puis réessayez.
           </p>
           {/* The primitive, not a hand-rolled button: same paint, plus the 44px `touch-target` hit area and

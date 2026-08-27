@@ -15,10 +15,10 @@ enum Strings {
     static let appName = "Gestion Clinique"
 
     // State: connecting
-    static let connectingTitle = "Connexion au serveur de la clinique…"
+    static let connectingTitle = "Connexion au serveur du cabinet…"
 
     // State: server address
-    static let configSubtitle = "Adresse du serveur de la clinique"
+    static let configSubtitle = "Adresse du serveur du cabinet"
     static let configHelp = """
         Saisissez l'adresse IP ou le nom du serveur (par ex. 192.168.1.10 ou clinic-server). \
         Le port 5001 est utilisé si vous n'en indiquez pas.
@@ -29,7 +29,7 @@ enum Strings {
     static let configCancel = "Annuler"
 
     // State: unreachable
-    static let unreachableTitle = "Impossible de joindre le serveur de la clinique"
+    static let unreachableTitle = "Impossible de joindre le serveur du cabinet"
     static let unreachableRetry = "Réessayer"
     static let unreachableChangeServer = "Changer de serveur"
 

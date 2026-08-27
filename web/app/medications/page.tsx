@@ -75,7 +75,7 @@ export default function MedicationsPage() {
                 </div>
                 <CardTitle>Réservé aux administrateurs</CardTitle>
                 <CardDescription>
-                  La gestion du catalogue des médicaments est réservée aux administrateurs de la clinique.
+                  La gestion du catalogue des médicaments est réservée aux administrateurs du cabinet.
                 </CardDescription>
               </CardHeader>
               <CardContent>

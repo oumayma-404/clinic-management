@@ -219,7 +219,7 @@ public class TrustController : ApiControllerBase
                          <li>Touchez <b>iPhone / iPad</b> ci-dessus, puis <b>Autoriser</b>.</li>
                          <li>Ouvrez <b>Réglages</b> : un encart <b>Profil téléchargé</b> apparaît en haut. Touchez-le, puis <b>Installer</b>.</li>
                          <li class="warn"><b>Étape indispensable :</b> allez dans <b>Réglages → Général → Informations → Certificats de confiance</b>
-                             et activez l'interrupteur au nom de la clinique.<br>
+                             et activez l'interrupteur au nom du cabinet.<br>
                              Sans cette étape le certificat est installé mais <i>inactif</i>, et l'appareil affichera toujours un avertissement.</li>
                        </ol>
 
@@ -261,9 +261,9 @@ public class TrustController : ApiControllerBase
                 </style>
                 </head>
                 <body>
-                <h1>Accès sécurisé à la clinique</h1>
+                <h1>Accès sécurisé au cabinet</h1>
                 <p class="muted">Cette page installe le certificat qui permet à cet appareil de se connecter au
-                serveur de la clinique sans avertissement de sécurité.</p>
+                serveur du cabinet sans avertissement de sécurité.</p>
                 {actions}
                 <hr>
                 <h2>Si l'avertissement persiste</h2>

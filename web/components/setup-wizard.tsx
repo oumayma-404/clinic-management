@@ -360,7 +360,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
     } catch (err) {
       // Single formatting point (lib/errors): keeps the French fallback when the thrown value carries
       // no usable message, instead of rendering a bare `undefined`/transport string.
-      setError(getErrorMessage(err, "Échec de la création de la clinique. Veuillez réessayer."))
+      setError(getErrorMessage(err, "La création du cabinet a échoué. Veuillez réessayer."))
       console.error("Error creating clinic:", err)
       setIsLoading(false)
     }
@@ -375,7 +375,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
    * content decides its label here. One condition, so the two cannot drift apart again.
    */
   const steps = [
-    { number: 1, title: "Clinique", description: "Informations de base" },
+    { number: 1, title: "Cabinet", description: "Informations de base" },
     collectsAdminAccount
       ? { number: 2, title: "Administrateur", description: "Votre compte et vos identifiants" }
       : { number: 2, title: "Votre rôle", description: "Rôle et infos personnelles" },
@@ -421,9 +421,9 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
             <Building2 className="w-8 h-8 text-primary" />
           </div>
           <h1 className="text-3xl font-bold text-accent-foreground">
-            {isSignup ? "Créez le cabinet de votre clinique" : "Bienvenue dans la gestion de votre clinique"}
+            {isSignup ? "Créez votre cabinet" : "Bienvenue dans la gestion de votre cabinet"}
           </h1>
-          <p className="text-muted-foreground">Configurons votre clinique en 3 étapes simples</p>
+          <p className="text-muted-foreground">Configurons votre cabinet en 3 étapes simples</p>
           {/* AC-1.3. `flex-wrap` + `[overflow-wrap:anywhere]` so it stays one readable line at 320 px instead of
               pushing the first field below a second scroll on the product's first screen. */}
           {trialDays !== null && (
@@ -456,7 +456,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
             >
               {isSignup
                 ? "Vous avez déjà un compte ? Se connecter"
-                : "Vous avez déjà un code clinique ? Rejoindre une clinique"}
+                : "Vous avez déjà un code de cabinet ? Rejoindre un cabinet"}
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </div>
@@ -513,18 +513,18 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
             {currentStep === 1 && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-semibold text-accent-foreground mb-2">Informations de la clinique</h2>
-                  <p className="text-muted-foreground">Parlez-nous de votre clinique</p>
+                  <h2 className="text-2xl font-semibold text-accent-foreground mb-2">Informations du cabinet</h2>
+                  <p className="text-muted-foreground">Parlez-nous de votre cabinet</p>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="clinic-name" className="text-sm font-medium">
-                      Nom de la clinique <span className="text-destructive">*</span>
+                      Nom du cabinet <span className="text-destructive">*</span>
                     </Label>
                     <Input
                       id="clinic-name"
-                      placeholder="Saisir le nom de la clinique"
+                      placeholder="Saisir le nom du cabinet"
                       value={clinicName}
                       onChange={(e) => setClinicName(e.target.value)}
                       required
@@ -588,7 +588,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                       <Input
                         id="email"
                         type="email"
-                        placeholder="ex. : contact@maclinique.tn"
+                        placeholder="ex. : contact@moncabinet.tn"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         required
@@ -606,7 +606,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                 */}
                 {!isSignup && (
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Logo de la clinique (facultatif)</Label>
+                  <Label className="text-sm font-medium">Logo du cabinet (facultatif)</Label>
                   <div className="flex items-center gap-4">
                     {logoPreview ? (
                       <div className="relative w-24 h-24 rounded-lg border-2 border-primary/25 overflow-hidden">
@@ -653,7 +653,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
               <div className="space-y-6">
                 <div>
                   <h2 className="text-2xl font-semibold text-accent-foreground mb-2">{isLocalMode ? "Compte administrateur" : "Votre rôle et vos informations"}</h2>
-                  <p className="text-muted-foreground">{isLocalMode ? "Créez le compte administrateur de la clinique" : "Parlez-nous de vous"}</p>
+                  <p className="text-muted-foreground">{isLocalMode ? "Créez le compte administrateur du cabinet" : "Parlez-nous de vous"}</p>
                 </div>
 
                 {isLocalMode && (
@@ -677,7 +677,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                       <Input
                         id="admin-email"
                         type="email"
-                        placeholder="admin@clinique.com"
+                        placeholder="admin@cabinet.tn"
                         value={adminEmail}
                         onChange={(e) => setAdminEmail(e.target.value)}
                         required
@@ -871,7 +871,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
               <div className="space-y-6">
                 <div>
                   <h2 className="text-2xl font-semibold text-accent-foreground mb-2">Définir les horaires</h2>
-                  <p className="text-muted-foreground">Configurez les horaires d&apos;ouverture de votre clinique (facultatif)</p>
+                  <p className="text-muted-foreground">Configurez les horaires d&apos;ouverture de votre cabinet (facultatif)</p>
                 </div>
 
                 <div className="space-y-3">

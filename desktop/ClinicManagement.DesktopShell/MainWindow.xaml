@@ -63,7 +63,7 @@
                  browser error page before our friendly screen (AC-2.4). -->
             <Grid x:Name="ConnectingPanel" Background="{DynamicResource ShellBackground}" Visibility="Collapsed">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <TextBlock Text="Connexion au serveur de la clinique…"
+                    <TextBlock Text="Connexion au serveur du cabinet…"
                                FontSize="16" Foreground="{DynamicResource ShellInkMuted}" HorizontalAlignment="Center"/>
                     <TextBlock x:Name="ConnectingTarget"
                                FontSize="12" Foreground="{DynamicResource ShellInkMuted}" Opacity="0.75"
@@ -79,7 +79,7 @@
                     <StackPanel>
                         <TextBlock Text="Gestion Clinique" FontSize="22" FontWeight="SemiBold"
                                    Foreground="{DynamicResource ShellInk}"/>
-                        <TextBlock Text="Adresse du serveur de la clinique"
+                        <TextBlock Text="Adresse du serveur du cabinet"
                                    FontSize="14" Foreground="{DynamicResource ShellInkMuted}"
                                    Margin="0,4,0,20" TextWrapping="Wrap"/>
                         <TextBlock Text="Saisissez l'adresse IP ou le nom du serveur (par ex. 192.168.1.10 ou clinic-server). Sur le PC serveur, utilisez « localhost »."
@@ -108,7 +108,7 @@
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="520">
                     <TextBlock Text="⚠" FontSize="48" HorizontalAlignment="Center"
                                Foreground="#FFE67E22" Margin="0,0,0,12"/>
-                    <TextBlock Text="Impossible de joindre le serveur de la clinique"
+                    <TextBlock Text="Impossible de joindre le serveur du cabinet"
                                FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource ShellInk}"
                                HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
                     <TextBlock x:Name="UnreachableDetail"

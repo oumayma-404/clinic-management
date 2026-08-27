@@ -81,7 +81,7 @@ public static class PasswordResetNotice
     private static string Actor(PasswordResetBy by) => by switch
     {
         PasswordResetBy.Vendor => "Le support technique de votre logiciel",
-        _ => "Un administrateur de votre clinique"
+        _ => "Un administrateur de votre cabinet"
     };
 
     /// <summary>Who is holding the temporary password — i.e. who to go and ask for it.</summary>

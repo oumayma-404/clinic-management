@@ -192,7 +192,7 @@ export function CnamLetterValuesCard({ onChanged, reloadToken }: CnamLetterValue
             icon={Coins}
             size="compact"
             title="Aucune valeur de lettre clé"
-            description="Sans valeur en dinars par lettre clé, aucun remboursement CNAM ne peut être estimé. Les valeurs sont créées avec le catalogue de la clinique."
+            description="Sans valeur en dinars par lettre clé, aucun remboursement CNAM ne peut être estimé. Les valeurs sont créées avec le catalogue du cabinet."
           />
         ) : (
           <>
