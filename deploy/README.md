@@ -174,12 +174,20 @@ how the deployment runs stays in `docker-compose.hosted.yml`, where it is docume
 cd /opt/clinic-management/deploy
 export CLINIC_IMAGE_PREFIX=ghcr.io/<owner>/clinic CLINIC_IMAGE_TAG=<sha>
 docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml pull api web console
+docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml build certs postgres backup pitr
 docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml up -d --no-build
 ```
 
-⚠️ **Always `--no-build`.** Compose merge cannot *remove* the base file's `build:` section, so a plain `up -d`
-with a tag missing from the registry would quietly start a full rebuild on the production box instead of
-refusing.
+⚠️ **The `build` line is not optional on a server that has never deployed.** `certs`, `postgres`, `backup` and
+`pitr` are local builds by design (they need their `deploy/` contexts anyway and cost seconds), so nothing pushes
+them — and `--no-build` then refuses to create them. Omitting it fails at the first container with
+`No such image: clinic-internal-certs:1`, naming an image no registry was ever supposed to hold. `postgres` and
+`pitr` share one image, so four services build three times. Cheap on every later run; the layers are cached.
+
+⚠️ **Always `--no-build` on the `up`.** Compose merge cannot *remove* the base file's `build:` section, so a
+plain `up -d` with a tag missing from the registry would quietly start a full rebuild on the production box
+instead of refusing. That is why the two steps are separate: the build names the four cheap services explicitly,
+which leaves `up` free to stay strict about the three expensive ones.
 
 ⚠️ **`web`'s build args are read from Compose and are never restated in the workflow**, deliberately.
 `NEXT_PUBLIC_*` is substituted into the bundle by `npm run build`, so those args decide what the browser gets —
