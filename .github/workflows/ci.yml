@@ -221,6 +221,14 @@ jobs:
       - name: Lint
         run: ./gradlew --no-daemon lint
 
+      # ⚠️ Gradle prints « Lint found N errors. First failure: … » and then only the FIRST one, so errors 2..N
+      # never reach the log and the HTML artifact has to be downloaded to read them. That gap cost a full round
+      # trip diagnosing a red build whose second error nobody could see. The text report carries all of them.
+      # `find` rather than a literal path: the intermediates directory is AGP-version-specific.
+      - name: Show the full lint report on failure
+        if: failure()
+        run: find app/build -name 'lint-results-*.txt' -print -exec cat {} \; || true
+
       - name: Assemble debug
         run: ./gradlew --no-daemon assembleDebug
 
@@ -229,5 +237,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-lint-report
-          path: mobile/android/app/build/reports/lint-results-*.html
+          path: |
+            mobile/android/app/build/reports/lint-results-*.html
+            mobile/android/app/build/intermediates/**/lint-results-*.txt
           if-no-files-found: warn
