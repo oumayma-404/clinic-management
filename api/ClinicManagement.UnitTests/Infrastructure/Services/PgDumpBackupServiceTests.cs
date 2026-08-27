@@ -30,12 +30,22 @@ public sealed class PgDumpBackupServiceTests : IDisposable
         Directory.CreateDirectory(_dir);
     }
 
-    /// <summary>A hardener over a recording fake, so no real ACL is touched by the suite.</summary>
-    private DirectoryAclHardener RecordingHardener(int exitCode = 0) => new(args =>
-    {
-        _aclInvocations.Add(args);
-        return new AclCommandResult(exitCode, exitCode == 0 ? string.Empty : "Accès refusé.");
-    });
+    /// <summary>
+    /// A hardener over a recording fake, so no real ACL is touched by the suite.
+    ///
+    /// <para>⚠️ <c>isWindows: () =&gt; true</c> for the reason spelled out in <c>DirectoryAclHardenerTests</c>: without
+    /// it <c>Harden</c> reads the real platform and returns <c>SkippedNotWindows</c> on the Linux runner, so
+    /// <see cref="_aclInvocations"/> stays empty and the AC-14 cases below assert against nothing. That is not a
+    /// cosmetic skip — <c>Backup_folder_is_restricted_before_the_dump_is_written</c> is the *ordering* proof
+    /// (hardening must happen before the dump is written), and it is worthless if the hardening never ran.</para>
+    /// </summary>
+    private DirectoryAclHardener RecordingHardener(int exitCode = 0) => new(
+        args =>
+        {
+            _aclInvocations.Add(args);
+            return new AclCommandResult(exitCode, exitCode == 0 ? string.Empty : "Accès refusé.");
+        },
+        isWindows: () => true);
 
     /// <summary>
     /// A machine with <b>no discoverable PostgreSQL tools</b> — only the files this test class created itself
@@ -46,9 +56,19 @@ public sealed class PgDumpBackupServiceTests : IDisposable
     /// installed — so « pg_dump is missing » would otherwise be true or false depending on where the suite ran,
     /// and the refusal test below would be worse than absent. The real filesystem is reached only through this
     /// seam, so every case here means the same thing everywhere.</para>
+    ///
+    /// <para>⚠️ <b>That intent was right and the seam did not deliver it.</b> It read
+    /// <c>new(File.Exists, _ =&gt; Array.Empty&lt;string&gt;())</c> — the real <c>File.Exists</c> — which blocks
+    /// discovery by <i>directory enumeration</i> and not discovery by <b>probe</b>. The locator walks <c>PATH</c>
+    /// and asks <c>FileExists</c> for each entry, so on Linux <c>/usr/bin/pg_dump</c> resolved straight through
+    /// the seam and <c>Missing_pg_dump_fails_loud</c> reached the dump and failed on the wrong message. It passed
+    /// on Windows for an unrelated reason: the client installs into a <i>versioned</i> directory, which is reached
+    /// by enumeration — the half that was blocked. Restricting existence to this class's own temp directory closes
+    /// the probe path too, and is what makes the docstring above true.</para>
     /// </summary>
-    private static PostgresToolLocator.FileSystem OnlyTheseFiles() =>
-        new(File.Exists, _ => Array.Empty<string>());
+    private PostgresToolLocator.FileSystem OnlyTheseFiles() =>
+        new(path => path.StartsWith(_dir, StringComparison.Ordinal) && File.Exists(path),
+            _ => Array.Empty<string>());
 
     private PgDumpBackupService Service(
         Dictionary<string, string?> settings,

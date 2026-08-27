@@ -81,6 +81,7 @@ public sealed class DirectoryAclHardener
 
     private readonly Func<IReadOnlyList<string>, AclCommandResult> _runIcacls;
     private readonly Func<string?> _currentIdentitySid;
+    private readonly Func<bool> _isWindows;
 
     /// <summary>Production constructor — runs the real <c>icacls</c>.</summary>
     public DirectoryAclHardener() : this(RunIcacls)
@@ -92,13 +93,34 @@ public sealed class DirectoryAclHardener
     /// grant list does not depend on whichever account happens to be running the suite. Production resolves the
     /// identity through <see cref="CurrentIdentitySid"/>.
     /// </summary>
+    /// <param name="isWindows">
+    /// Whether this platform gets an ACL at all. Defaults to <see cref="OperatingSystem.IsWindows"/>, so
+    /// production behaviour is unchanged.
+    ///
+    /// <para><b>Why this is a seam and not a bare <c>OperatingSystem.IsWindows()</c> call.</b> The policy below
+    /// is <i>argument construction</i> — which SIDs, in which order, with which flags — and that is ordinary
+    /// platform-independent string work, verified against a fake <paramref name="runIcacls"/> that never touches
+    /// a real ACL. Reading the real OS instead made the whole of it unverifiable anywhere but a Windows
+    /// developer machine: on the Linux runner that <b>is</b> this repository's only automated backend gate,
+    /// <see cref="Harden"/> returned <see cref="AclHardeningOutcome.SkippedNotWindows"/> before the fake was ever
+    /// called, so every assertion indexed an empty list. The guard was right and shipped; it simply had no seam,
+    /// which is how a security control ends up asserted by nothing that runs.</para>
+    ///
+    /// <para>⚠️ <see cref="CurrentIdentitySid"/> deliberately keeps its own <c>OperatingSystem.IsWindows()</c>
+    /// check and is NOT routed through this. That one guards <c>WindowsIdentity.GetCurrent()</c> — a genuinely
+    /// Windows-only .NET API — and the literal call is what proves it safe to the platform-compatibility
+    /// analyzer (CA1416). Replacing it with a delegate would silence the analyzer rather than satisfy it. The
+    /// asymmetry is the point: seam the policy, never the platform API.</para>
+    /// </param>
     public DirectoryAclHardener(
         Func<IReadOnlyList<string>, AclCommandResult> runIcacls,
-        Func<string?>? currentIdentitySid = null)
+        Func<string?>? currentIdentitySid = null,
+        Func<bool>? isWindows = null)
     {
         ArgumentNullException.ThrowIfNull(runIcacls);
         _runIcacls = runIcacls;
         _currentIdentitySid = currentIdentitySid ?? CurrentIdentitySid;
+        _isWindows = isWindows ?? OperatingSystem.IsWindows;
     }
 
     /// <summary>
@@ -130,7 +152,7 @@ public sealed class DirectoryAclHardener
                 $"Impossible de sécuriser « {directory} » : le dossier n'existe pas.");
         }
 
-        if (!OperatingSystem.IsWindows())
+        if (!_isWindows())
         {
             return AclHardeningOutcome.SkippedNotWindows;
         }
@@ -182,7 +204,7 @@ public sealed class DirectoryAclHardener
     /// </summary>
     public string Describe(string directory)
     {
-        if (!OperatingSystem.IsWindows())
+        if (!_isWindows())
         {
             return "(ACL non applicable : système non-Windows)";
         }

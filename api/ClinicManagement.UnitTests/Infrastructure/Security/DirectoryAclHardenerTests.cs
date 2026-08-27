@@ -36,12 +36,23 @@ public class DirectoryAclHardenerTests : IDisposable
         }
     }
 
-    /// <summary>Records each invocation and returns success.</summary>
-    private DirectoryAclHardener Recording() => new(args =>
-    {
-        _invocations.Add(args);
-        return new AclCommandResult(0, string.Empty);
-    });
+    /// <summary>
+    /// Records each invocation and returns success — a hardener over a fake, so no real ACL is touched.
+    ///
+    /// <para>⚠️ <c>isWindows: () =&gt; true</c> is what lets this class hold on the <b>Linux</b> runner that is
+    /// this repository's only automated backend gate. What is asserted below is argument construction — which
+    /// SIDs, in which order, with which flags — and none of it touches a Windows API; but <c>Harden</c> reads the
+    /// real platform, so on Linux it returned <c>SkippedNotWindows</c> before this fake was ever called and every
+    /// assertion indexed an empty list. Ten cases in this class failed that way from the day CI was introduced,
+    /// on a security control that passed locally on Windows and was therefore believed green.</para>
+    /// </summary>
+    private DirectoryAclHardener Recording() => new(
+        args =>
+        {
+            _invocations.Add(args);
+            return new AclCommandResult(0, string.Empty);
+        },
+        isWindows: () => true);
 
     [Fact]
     public void Harden_issues_grant_then_inheritance_removal_then_users_removal() // [AC-1.1] [AC-2.1]
@@ -201,10 +212,11 @@ public class DirectoryAclHardenerTests : IDisposable
     public void Harden_fails_loud_when_any_step_fails(int failingStep) // [AC-1.4] [AC-2.9]
     {
         var step = 0;
-        var hardener = new DirectoryAclHardener(_ =>
-            step++ == failingStep
+        var hardener = new DirectoryAclHardener(
+            _ => step++ == failingStep
                 ? new AclCommandResult(5, "Accès refusé.")
-                : new AclCommandResult(0, string.Empty));
+                : new AclCommandResult(0, string.Empty),
+            isWindows: () => true);
 
         var error = Assert.Throws<InvalidOperationException>(() => hardener.Harden(_directory));
 
@@ -218,11 +230,13 @@ public class DirectoryAclHardenerTests : IDisposable
     public void Harden_stops_at_the_first_failing_step() // never continue against a half-applied ACL
     {
         var attempts = 0;
-        var hardener = new DirectoryAclHardener(_ =>
-        {
-            attempts++;
-            return new AclCommandResult(1, "boom");
-        });
+        var hardener = new DirectoryAclHardener(
+            _ =>
+            {
+                attempts++;
+                return new AclCommandResult(1, "boom");
+            },
+            isWindows: () => true);
 
         Assert.Throws<InvalidOperationException>(() => hardener.Harden(_directory));
         Assert.Equal(1, attempts);
@@ -244,10 +258,40 @@ public class DirectoryAclHardenerTests : IDisposable
         Assert.Throws<ArgumentException>(() => Recording().Harden("  "));
     }
 
+    /// <summary>
+    /// The other side of the seam: where there are no NTFS ACLs, <c>Harden</c> does nothing, <b>says</b> it did
+    /// nothing, and never shells out — and <c>Describe</c> explains itself instead of running <c>icacls</c>.
+    ///
+    /// <para>⚠️ <b>This case exists because the fix that made this class run on Linux also removed the only thing
+    /// exercising the non-Windows path.</b> It used to be covered by accident — every case here failed on the
+    /// runner, which is a very expensive way to assert « it skips ». With <c>isWindows: () =&gt; true</c> now
+    /// forced above, nothing else in the suite would notice if <c>SkippedNotWindows</c> stopped being returned,
+    /// and the next author to meet a platform failure could "fix" it by making production run <c>icacls</c>
+    /// everywhere — which on a Linux container means a hard failure on a tool that does not exist.</para>
+    /// </summary>
+    [Fact]
+    public void On_A_Platform_Without_Acls_Harden_Skips_Silently_And_Runs_Nothing()
+    {
+        var invoked = false;
+        var hardener = new DirectoryAclHardener(
+            _ =>
+            {
+                invoked = true;
+                return new AclCommandResult(0, string.Empty);
+            },
+            isWindows: () => false);
+
+        Assert.Equal(AclHardeningOutcome.SkippedNotWindows, hardener.Harden(_directory));
+        Assert.False(invoked, "icacls must not be reached on a platform that has no ACLs to set.");
+        Assert.Contains("non applicable", hardener.Describe(_directory), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Describe_never_throws_when_icacls_fails() // diagnostic output, not a gate
     {
-        var hardener = new DirectoryAclHardener(_ => throw new InvalidOperationException("icacls missing"));
+        var hardener = new DirectoryAclHardener(
+            _ => throw new InvalidOperationException("icacls missing"),
+            isWindows: () => true);
 
         var description = hardener.Describe(_directory);
 
