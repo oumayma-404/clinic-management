@@ -1,0 +1,237 @@
+# Deploy the HostedMultiTenant stack to a VPS, from the Actions tab.
+#
+# The shape is: build the three expensive images HERE, push them to GHCR, ship `deploy/` to the server, and let
+# the server do nothing but `pull` + `up -d`. That split is the whole point — a 4-vCPU box serving clinics
+# should not be running two Next production builds and a `dotnet publish` while it does so, and the images are
+# byte-identical whichever machine pulls them.
+#
+# ⚠️ **The images are built THROUGH Compose (`docker compose build`), not with a build action.** That is
+# deliberate and it is the one thing not to "improve". `web`'s bundle is decided by build args —
+# `NEXT_PUBLIC_API_URL=/api`, `AUTH_MODE=local`, the three `NEXT_PUBLIC_META_*` — and `NEXT_PUBLIC_*` is
+# substituted into the bundle by `npm run build`, never read at runtime. Restating those args here would create
+# a second source of truth for them, and the first edit to only one side ships a bundle that looks fine and
+# cannot log in. `docker-compose.hosted.yml` documents that exact defect having already happened once (an image
+# built with `AUTH_MODE` unset shipped the Auth0 landing page to a deployment with no Auth0). Compose reads its
+# own args; this file never names one.
+#
+# ⚠️ **Nothing here writes `.env`, `secrets/` or `rclone/rclone.conf`.** Those are the deployment's identity —
+# the database password, the key-ring certificate, the audit chain key, the backup age recipient, the WAL-G
+# libsodium key — and they live on the server, created once by an operator, backed up per `KEY-CUSTODY.md`. All
+# three are gitignored, so they are not in this runner's checkout at all; the tar below *also* excludes them by
+# name, because an invariant worth relying on is worth stating twice. A deploy that could overwrite them would
+# be able to make every clinic's second factor and reminder credentials undecryptable, silently.
+#
+# ⚠️ **Rolling back means re-running this workflow from the older ref**, not just naming an older image. Pick
+# the previous tag/branch in the Actions UI and the server gets that commit's compose files *and* its images.
+# `image_tag` alone only skips the rebuild — use it when the images for that SHA are still in GHCR.
+#
+# One-time server preparation, the GitHub secrets/variables this needs, and how to read a failure are in
+# `deploy/README.md` § « Déploiement depuis GitHub ».
+
+name: Deploy — hosted VPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Existing image tag already in GHCR (a full commit SHA) — leave EMPTY to build this ref. Set it to redeploy or roll back without rebuilding."
+        required: false
+        type: string
+
+# Never cancel a deploy in flight. A cancelled `up -d` leaves some containers on the new image and some on the
+# old, which is the one state no health check here would call unhealthy.
+concurrency:
+  group: deploy-hosted
+  cancel-in-progress: false
+
+jobs:
+  images:
+    name: Build & push images
+    # Skipped entirely on a rollback: `image_tag` asserts these images already exist.
+    if: inputs.image_tag == ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR rejects an uppercase path segment, and `github.repository_owner` preserves the case the account was
+      # created with — so a repo owned by `Oumayma-404` would fail at push with a message about the *tag*.
+      - name: Resolve the image prefix
+        run: |
+          owner=$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "CLINIC_IMAGE_PREFIX=ghcr.io/$owner/clinic" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        run: |
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # `--env-file /dev/null` keeps a stray `deploy/.env` on a runner out of it; every variable these files
+      # interpolate has a `:-` default, so the merged config resolves with none of them set. Compose also builds
+      # the cheap infra images (`certs`, `postgres`) as dependencies — harmless, and it type-checks their
+      # Dockerfiles on every deploy for free. Only the three named below are pushed.
+      - name: Build api, web and console through Compose
+        working-directory: deploy
+        env:
+          CLINIC_IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker compose --env-file /dev/null \
+            -f docker-compose.hosted.yml -f docker-compose.registry.yml \
+            build api web console
+
+      - name: Push the commit-pinned tags
+        working-directory: deploy
+        env:
+          CLINIC_IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker compose --env-file /dev/null \
+            -f docker-compose.hosted.yml -f docker-compose.registry.yml \
+            push api web console
+
+      # `latest` is a convenience for a first manual bring-up (it is the override file's default), and this
+      # workflow never deploys by it — the deploy job below always names a full SHA. A deployment that followed
+      # a floating tag could not answer "which commit is live?", which is the first question in an incident.
+      - name: Move `latest`
+        run: |
+          for service in api web console; do
+            docker tag "$CLINIC_IMAGE_PREFIX-$service:${{ github.sha }}" "$CLINIC_IMAGE_PREFIX-$service:latest"
+            docker push "$CLINIC_IMAGE_PREFIX-$service:latest"
+          done
+
+  deploy:
+    name: Deploy to the VPS
+    needs: images
+    # `always()` so a rollback (where `images` is *skipped*, not successful) still runs — but a genuine build
+    # failure must still stop here, hence the explicit result check rather than a bare `always()`.
+    if: always() && (needs.images.result == 'success' || needs.images.result == 'skipped')
+    runs-on: ubuntu-latest
+    # Add required reviewers / a wait timer to this environment in repo settings to gate production deploys.
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the tag to deploy
+        run: |
+          tag="${{ inputs.image_tag }}"
+          [ -n "$tag" ] || tag="${{ github.sha }}"
+          owner=$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "CLINIC_IMAGE_TAG=$tag" >> "$GITHUB_ENV"
+          echo "CLINIC_IMAGE_PREFIX=ghcr.io/$owner/clinic" >> "$GITHUB_ENV"
+          echo "Deploying $tag"
+
+      # ⚠️ `VPS_SSH_KNOWN_HOSTS` is required, not optional, and `StrictHostKeyChecking` is never turned off.
+      # Trust-on-first-use from a fresh runner means the first machine to answer on that address gets handed a
+      # key that can deploy to a server holding patient records. Get the line once, on a machine you trust:
+      #   ssh-keyscan -t ed25519 <host>
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_deploy
+          printf '%s\n' "${{ secrets.VPS_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_deploy ~/.ssh/known_hosts
+          test -s ~/.ssh/known_hosts || { echo "::error::VPS_SSH_KNOWN_HOSTS is empty — refusing to deploy without a pinned host key."; exit 1; }
+          cat >> ~/.ssh/config <<'CONF'
+          Host vps
+            User ${{ vars.VPS_USER }}
+            HostName ${{ vars.VPS_HOST }}
+            Port ${{ vars.VPS_SSH_PORT || 22 }}
+            IdentityFile ~/.ssh/id_deploy
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            BatchMode yes
+          CONF
+
+      # tar rather than rsync (not installed everywhere) or `scp -r` (which cannot exclude). Extracting
+      # overwrites only what the archive contains, so the three excluded paths keep whatever the server has.
+      - name: Ship deploy/ to the server
+        run: |
+          tar -czf - \
+            --exclude='.env' --exclude='secrets' --exclude='rclone/rclone.conf' \
+            -C deploy . \
+          | ssh vps "mkdir -p '${{ vars.VPS_DEPLOY_DIR }}' && tar -xzf - -C '${{ vars.VPS_DEPLOY_DIR }}'"
+
+      # ⚠️ A separate step because stdin is the only thing `--password-stdin` reads, and the next step's remote
+      # script arrives on stdin too — piping the token into an `ssh … <<HEREDOC` call hands `docker login` the
+      # heredoc and the token to nothing. It fails as "no password supplied", two steps from the cause.
+      #
+      # The credential is this job's own GITHUB_TOKEN, valid for the length of the run, so no standing GHCR
+      # credential lives on a box that holds medical records. The logout below runs even when the deploy fails.
+      - name: Authenticate the server to GHCR
+        run: |
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" \
+            | ssh vps "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+
+      - name: Pull images and bring the stack up
+        run: |
+          ssh vps "DEPLOY_DIR='${{ vars.VPS_DEPLOY_DIR }}' CLINIC_IMAGE_PREFIX='$CLINIC_IMAGE_PREFIX' CLINIC_IMAGE_TAG='$CLINIC_IMAGE_TAG' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_DIR"
+          COMPOSE="docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml"
+
+          $COMPOSE pull api web console
+
+          # --no-build: the base file still carries a `build:` section (Compose merge cannot remove a key), so
+          # without this a tag missing from the registry would silently start a 20-minute rebuild of a commit
+          # nobody chose, on the production box. Refusing is the correct outcome.
+          $COMPOSE up -d --no-build --remove-orphans
+
+          echo "--- containers ---"
+          $COMPOSE ps
+          REMOTE
+
+      - name: Log the server out of GHCR
+        if: always()
+        run: ssh vps "docker logout ghcr.io" || true
+
+      # 200 for Healthy AND Degraded, 503 only when the database is unreachable — so a pass here means the DB
+      # round trip works. `Degraded` (e.g. object storage down) is surfaced as a warning, never a failure: a
+      # clinic whose storage is down can still book, record and take money, and failing the deploy for it would
+      # turn a partial outage into a rollback nobody needed.
+      - name: Wait for the front door
+        run: |
+          for attempt in $(seq 1 30); do
+            if body=$(curl -fsS --max-time 10 "https://${{ vars.DEPLOY_DOMAIN }}/health" 2>/dev/null); then
+              echo "$body"
+              case "$body" in
+                *Degraded*) echo "::warning::/health reports Degraded — the deployment is serving, but read the API log." ;;
+              esac
+              exit 0
+            fi
+            echo "attempt $attempt: not answering yet"
+            sleep 10
+          done
+          echo "::error::https://${{ vars.DEPLOY_DOMAIN }}/health did not answer 200 within 5 minutes."
+          exit 1
+
+      # Migrations apply themselves at startup (DeferredStartupService, behind a MigrationLock advisory lock), so
+      # by here they have run. This asks the separate question the repo insists on around any migration batch:
+      # does the live schema match the model? Read-only. 0 clean / 1 cannot run / 2 drift found.
+      - name: verify-schema
+        run: |
+          set +e
+          ssh vps "docker exec clinic-api-prod dotnet ClinicManagement.API.dll verify-schema"
+          code=$?
+          set -e
+          case "$code" in
+            0) echo "Schema matches the model." ;;
+            2) echo "::error::verify-schema found DRIFT between the live schema and the model. The deploy is live — investigate before the next migration batch."; exit 1 ;;
+            *) echo "::error::verify-schema could not run (exit $code)."; exit 1 ;;
+          esac
+
+      - name: Record what is live
+        if: always()
+        run: |
+          {
+            echo "### Deployed"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Commit | \`$CLINIC_IMAGE_TAG\` |"
+            echo "| Images | \`$CLINIC_IMAGE_PREFIX-{api,web,console}:$CLINIC_IMAGE_TAG\` |"
+            echo "| Domain | https://${{ vars.DEPLOY_DOMAIN }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
