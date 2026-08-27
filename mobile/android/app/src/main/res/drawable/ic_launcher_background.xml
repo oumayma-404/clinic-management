@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The adaptive icon's plate: APEXA's brand gradient, the same three stops as `web/branding/icon.svg` and the logo
+  pack's own app icon.
+
+  ⚠️ A drawable rather than the `@color/brand_primary` this used to point at. The launcher plate is part of the
+  LOGO, and the logo is a gradient; `brand_primary` is the app's UI azure and still colours the shell's own
+  pre-load screens, which is a different job. The two are not meant to match — see the master's own comment.
+
+  `android:angle="315"` is top-left → bottom-right (0 is left → right, 90 is bottom → top), matching the
+  `x1,y1 0,0 → x2,y2 512,512` of every other output. ⚠️ The angle must be a multiple of 45 or the gradient is
+  dropped silently at inflate time and the tile renders in `startColor` alone.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="315"
+        android:type="linear"
+        android:startColor="@color/brand_gradient_start"
+        android:centerColor="@color/brand_gradient_mid"
+        android:endColor="@color/brand_gradient_end" />
+</shape>

@@ -1,20 +1,38 @@
 <!--
   The app icon master. THE one authority for the mark — `scripts/generate-icons.mjs` reads the `#mark` path out of
-  this file and composes all seven shipped assets from it, so a designer replaces this file and re-runs the script.
+  this file and composes all shipped assets from it, so a designer replaces this file and re-runs the script.
 
   Two things the script depends on and a designer must keep:
     * `id="mark"` on the glyph path — that is what the script extracts.
     * the `0 0 512 512` viewBox — every variant's geometry is expressed against it.
 
-  Colours are the app's own tokens, converted from `app/globals.css`:
-    --primary            oklch(0.485 0.101 234)  = #02678f
-    --primary-foreground oklch(0.99  0.005 234)  = #f9fcff
-  ⚠️ These are duplicated in `scripts/generate-icons.mjs` (PRIMARY / INK_ON_PRIMARY) because the script composes
+  ⚠️ The mark must be a FILLED path, not a stroked one. The script renders it as `<path fill="…" d="…">` with no
+  stroke, so a stroked glyph would rasterise to a solid blob. APEXA's own logo files draw the chevron as
+  `M 97.26 320 L 200 88 L 302.74 320` stroked at 37.92 in a 400-unit box; the `d` below is that stroke's outline,
+  computed once (butt caps, miter join — miter ratio 2.47, inside SVG's default limit of 4) and mapped into this
+  512 box with the logo pack's own app-icon framing (scale 1.08138, translate 39.725 35.40). Re-deriving it by
+  hand is the mistake to avoid: change the logo, re-outline it, do not eyeball a stroke width.
+
+  Colours are APEXA's brand gradient, the same three stops as `svg/apexa-*.svg` in the logo pack:
+    #1B54CE → #1E86DC → #2FC6E0
+  ⚠️ These are duplicated in `scripts/generate-icons.mjs` (BRAND_STOPS / INK_ON_BRAND) because the script composes
   every output's own plate and ink rather than reading this file's `<rect>`. Both move together, or the master
   previews in one colour and ships in another.
+
+  ⚠️ The brand gradient is NOT the app's UI palette. `app/globals.css`'s `--primary` stays
+  `oklch(0.485 0.101 234)` (azure) and the interface is drawn in it; this gradient is the *logo's* colour and
+  appears only where the logo does — the icons here, the sign-in mark, the sidebar mark and the website header.
+  Do not "reconcile" the two by editing one of them.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img"
-     aria-label="Gestion Clinique">
-  <rect width="512" height="512" rx="112" fill="#02678f"/>
-  <path id="mark" fill="#f9fcff" d="M256 128C196 128 152 162 152 214C152 252 160 286 168 322C174 350 180 380 190 392C200 404 214 400 218 382C226 344 234 316 244 300C248 292 264 292 268 300C278 316 286 344 294 382C298 400 312 404 322 392C332 380 338 350 344 322C352 286 360 252 360 214C360 162 316 128 256 128Z"/>
+     aria-label="APEXA">
+  <defs>
+    <linearGradient id="brand" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="512" y2="512">
+      <stop offset="0" stop-color="#1B54CE"/>
+      <stop offset="0.5" stop-color="#1E86DC"/>
+      <stop offset="1" stop-color="#2FC6E0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#brand)"/>
+  <path id="mark" fill="#FFFFFF" d="M 126.15 373.14 L 256.00 79.93 L 385.85 373.14 L 348.36 389.74 L 256.00 181.20 L 163.65 389.74 Z"/>
 </svg>

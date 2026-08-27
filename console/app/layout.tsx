@@ -9,7 +9,7 @@ import "./globals.css";
  * private address and contains none of the clinic bundle — so those pieces are not hidden here, they are absent.
  */
 export const metadata: Metadata = {
-  title: "Console éditeur",
+  title: "Console éditeur · APEXA",
   description: "Administration des abonnements et de l'activité des cabinets.",
   // The console is reached through a tunnel by one operator; there is nothing here for a crawler, and this
   // costs nothing to state.

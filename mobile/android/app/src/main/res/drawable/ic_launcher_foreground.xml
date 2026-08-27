@@ -1,18 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The tooth mark, copied path-for-path out of `web/branding/icon.svg` — the same authority the seven web icons are
-  generated from, so the installed app's tile and the browser's favicon are the same mark.
+  The APEXA chevron, copied path-for-path out of `web/branding/icon.svg` — the same authority the web icons, the
+  Windows `.ico` and the iOS `AppIcon` are generated from, so the installed app's tile and the browser's favicon
+  are the same mark. An Android vector drawable is the one output `sharp` cannot emit, which is why this file
+  carries the glyph by hand; change the master and copy the new `d` across.
 
   The viewport is the master's own 0 0 512 512, which maps the whole canvas onto the 108 dp adaptive-icon square.
-  The glyph spans x 152…360 and y 128…404, i.e. 41 % of the width and 54 % of the height, so it sits inside the
-  66 % safe zone with room to spare and no launcher's mask can crop it.
+
+  ⚠️ The `<group>` scale is NOT decoration, and the previous mark did not need one. An adaptive icon's foreground
+  is only guaranteed inside the central 66 dp of 108 — a circle of radius 30.5 % of the canvas, i.e. 156.2 of 512.
+  The chevron's furthest point from centre is a bottom corner at 176.1, so unscaled it sits *outside* that circle
+  and a round launcher mask would shave the feet off. At 0.85 the extreme falls to 149.7 and the glyph spans
+  y 20.8 %…72.2 %, x 28.4 %…71.6 % — inside the safe zone on both axes with room.
+  ⚠️ Scale about the canvas centre, do not "centre the mark" first: the glyph's bounding box sits high on purpose
+  (a chevron's mass is at its feet), and pushing it down moves the bottom corners *further* from centre — 202.1,
+  worse than doing nothing.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="512"
     android:viewportHeight="512">
-    <path
-        android:fillColor="@color/brand_on_primary"
-        android:pathData="M256,128C196,128 152,162 152,214C152,252 160,286 168,322C174,350 180,380 190,392C200,404 214,400 218,382C226,344 234,316 244,300C248,292 264,292 268,300C278,316 286,344 294,382C298,400 312,404 322,392C332,380 338,350 344,322C352,286 360,252 360,214C360,162 316,128 256,128Z" />
+    <group
+        android:pivotX="256"
+        android:pivotY="256"
+        android:scaleX="0.85"
+        android:scaleY="0.85">
+        <path
+            android:fillColor="@color/brand_on_primary"
+            android:pathData="M126.15,373.14L256.00,79.93L385.85,373.14L348.36,389.74L256.00,181.20L163.65,389.74Z" />
+    </group>
 </vector>

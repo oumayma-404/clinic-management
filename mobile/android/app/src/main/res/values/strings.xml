@@ -9,13 +9,13 @@
   `local-network-wording` gate enforces on the other side of the same product.
 -->
 <resources>
-    <string name="app_name">Gestion Clinique</string>
+    <string name="app_name">APEXA</string>
 
     <!-- State: connecting -->
     <string name="connecting_title">Connexion au serveur du cabinet…</string>
 
     <!-- State: server address -->
-    <string name="config_title">Gestion Clinique</string>
+    <string name="config_title">APEXA</string>
     <string name="config_subtitle">Adresse du serveur du cabinet</string>
     <string name="config_help">Saisissez l\'adresse IP ou le nom du serveur (par ex. 192.168.1.10 ou clinic-server). Le port 5001 est utilisé si vous n\'en indiquez pas.</string>
     <string name="config_invalid">Veuillez saisir une adresse de serveur valide.</string>

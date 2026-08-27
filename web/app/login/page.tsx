@@ -96,6 +96,22 @@ function LoginShell({
     <div className="fixed inset-0 flex h-dvh items-start justify-center overflow-y-auto bg-background p-4">
       <Card className="my-auto w-full max-w-md">
         <CardHeader className="space-y-1">
+          {/*
+            The app mark, on the one screen that has nothing else to identify the product by: no rail, no clinic
+            name, no chrome. `/icon-192.png` is generated from `branding/icon.svg`, so this is the same lockup as
+            the favicon, the sidebar and the installed-app tile with **no second copy of the path** — inlining the
+            `#mark` `d` here is what that master's own comment warns against.
+            `alt=""`, not the product name: every one of this shell's states already puts its own heading directly
+            under the mark, so a described image would announce the brand ahead of — and on the landing state,
+            twice over — the sentence saying what is being asked. It is chrome, and it is marked as chrome.
+          */}
+          <img
+            src="/icon-192.png"
+            alt=""
+            width={44}
+            height={44}
+            className="mb-2 size-11 rounded-xl"
+          />
           <CardTitle className="text-2xl font-bold">{title}</CardTitle>
           <CardDescription>{description}</CardDescription>
         </CardHeader>

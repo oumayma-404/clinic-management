@@ -14,9 +14,9 @@
 ; build-output\client\ca\ca.crt, then compile with Inno Setup 6 (ISCC.exe). See ..\README.md.
 ; ============================================================================================
 
-#define AppName      "Gestion Clinique"
+#define AppName      "APEXA"
 #define AppVersion   "1.0.0"
-#define AppPublisher "Gestion Clinique"
+#define AppPublisher "APEXA"
 #define AppExe       "ClinicManagement.DesktopShell.exe"
 ; The shell's own icon, read straight out of the repo at compile time. Generated from the one master
 ; (web/branding/icon.svg) by web/scripts/generate-icons.mjs -- the same file the .exe embeds, so the setup
