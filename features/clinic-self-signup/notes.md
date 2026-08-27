@@ -37,3 +37,15 @@ deliberately **not** an outbox either (every queue keys on `ClinicId`, and the v
 host is a French refusal **before** anything is written, never a 202 over an email nobody can send. The link comes
 from `FrontendUrl` via `IPublicAppUrlProvider` — an Application-side seam because that project references no
 configuration package at all. No new config key.
+
+⚠️ **The per-install SMTP keys this flow reads were wired into no deployment template at all**, and that is the
+form the defect took in the field rather than in the code: `Notification:Smtp:Server` is an empty string in
+`appsettings.json`, appeared in no compose file and no `.env` template, so `SmtpConfig.Host` trimmed empty to
+null, `IsConfigured` read false, and a hosted deployment came up `Healthy`, served every screen and could not
+admit **one** cabinet — the refusal above working exactly as designed, over a value nobody had been asked for.
+Four other flows died with it (`password-reset`, an admin's reset, and the vendor's two `platform-account`
+recovery verbs). Fixed in `deploy/docker-compose.hosted.yml` + `.env.hosted.example`, documented under
+« Courrier sortant (SMTP) » in [`deploy/README.md`](../../deploy/README.md), and held by
+`TransportConfigurationTests.The_Hosted_Deployment_Wires_Outbound_Email` plus a derived sibling asserting every
+`Notification__Smtp__*` variable the compose file interpolates is named in the template an operator copies.
+**Nothing refuses to start over it** — it is the one go-live value with no boot-time guard.

@@ -77,6 +77,118 @@ factor at once.
 
 ---
 
+## Déploiement depuis GitHub
+
+`.github/workflows/deploy-hosted.yml` deploys this stack to any VPS from the Actions tab. It builds `api`,
+`web` and `console` **on the runner**, pushes them to GHCR, ships `deploy/` to the server, and the server only
+pulls and restarts.
+
+**Why the build does not happen on the server.** Two Next production builds and a `dotnet publish` want
+gigabytes of RAM and minutes of CPU. Doing that on the box that is meanwhile serving clinics is the one avoidable
+self-inflicted outage in this design — and it is what lets a modest VPS (4 vCPU) host this comfortably.
+
+### One-time server preparation
+
+```bash
+# 1. Docker, and a user that may drive it
+sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2
+sudo useradd -m -s /bin/bash deploy && sudo usermod -aG docker deploy
+
+# 2. Where the deployment lives. The workflow only ever writes INSIDE this directory.
+sudo install -d -o deploy -g deploy /opt/clinic-management/deploy
+
+# 3. The deploy key. Generate it on a machine you trust, keep the PRIVATE half for GitHub.
+ssh-keygen -t ed25519 -f clinic-deploy -C "github-actions"
+ssh-copy-id -i clinic-deploy.pub deploy@<host>      # or append to ~deploy/.ssh/authorized_keys
+
+# 4. The host key GitHub will pin. Run this from a machine you trust, not from the runner.
+ssh-keyscan -t ed25519 <host>
+```
+
+Then create the deployment's own identity **on the server**, once — these never come from GitHub:
+
+```
+/opt/clinic-management/deploy/.env                  # from .env.hosted.example
+/opt/clinic-management/deploy/secrets/*             # per KEY-CUSTODY.md
+/opt/clinic-management/deploy/rclone/rclone.conf    # the off-site remote
+```
+
+⚠️ **The workflow excludes all three from what it ships, by name.** They are also gitignored, so they are not in
+the runner's checkout to begin with — the exclusion is the second statement of an invariant worth relying on.
+A deploy able to overwrite them could make every administrator's second factor and every clinic's reminder
+credentials undecryptable, with nothing in any log saying why.
+
+### What to set in GitHub
+
+| Kind | Name | Value |
+|---|---|---|
+| Secret | `VPS_SSH_KEY` | the **private** half of the deploy key (whole file, including the header lines) |
+| Secret | `VPS_SSH_KNOWN_HOSTS` | the `ssh-keyscan` line from step 4 |
+| Variable | `VPS_HOST` | the server's hostname or IP |
+| Variable | `VPS_USER` | `deploy` |
+| Variable | `VPS_DEPLOY_DIR` | `/opt/clinic-management/deploy` |
+| Variable | `DEPLOY_DOMAIN` | the public domain, for the post-deploy `/health` check |
+| Variable | `VPS_SSH_PORT` | *optional*, defaults to 22 |
+| Variable | `META_APP_ID` / `META_CONFIG_ID` / `META_GRAPH_API_VERSION` | *optional* — read by Compose as `web` build args |
+
+⚠️ **`VPS_SSH_KNOWN_HOSTS` is required and `StrictHostKeyChecking` is never disabled.** Trust-on-first-use from
+a fresh runner means whichever machine answers on that address is handed a key that can deploy to a server
+holding patient records.
+
+⚠️ **No standing registry credential is left on the server.** The workflow logs it in to GHCR with the run's own
+`GITHUB_TOKEN` and logs it out again in a step that runs even when the deploy fails.
+
+The `deploy` job targets a GitHub **environment** called `production` — add required reviewers or a wait timer to
+it in repo settings and every deploy needs an approval, with no change to this file.
+
+### Deploying, and rolling back
+
+**Deploy:** Actions → *Deploy — hosted VPS* → pick the branch or tag → Run. Leave `image_tag` empty.
+
+**Roll back:** run it again from the **older tag or branch** — the server then gets that commit's compose files
+*and* its images. Put that commit's full SHA in `image_tag` to skip the rebuild when its images are still in
+GHCR.
+
+⚠️ **`image_tag` alone is not a rollback.** It changes which images run and leaves the newer `deploy/` on the
+server, so a compose change from the newer commit stays live under older images. Re-run from the older ref.
+
+### Reading a failure
+
+| Symptom | What it means |
+|---|---|
+| `error from registry: denied` at the pull step | that tag is not in GHCR. It fails here rather than rebuilding on the server — which is why `up` is called with `--no-build` |
+| `/health did not answer 200 within 5 minutes` | the containers started but the front door did not. `docker compose logs api`; a 503 means the database is unreachable |
+| `::warning::/health reports Degraded` | **not** a failure. Object storage is down; a clinic can still book, record and take money. Read the API log |
+| `verify-schema found DRIFT` | migrations applied but the live schema does not match the model. The deploy IS live — fix before the next migration batch |
+
+⚠️ **Migrations apply themselves** at startup (`DeferredStartupService`, behind a `MigrationLock` advisory lock),
+so they have already run by the time `verify-schema` is asked. That step answers the different question this
+repository insists on around any migration batch: does the live schema match the model? It is read-only.
+
+### The overlay
+
+`docker-compose.registry.yml` sets `image:` on those three services and **nothing else** — every decision about
+how the deployment runs stays in `docker-compose.hosted.yml`, where it is documented. To deploy by hand:
+
+```bash
+cd /opt/clinic-management/deploy
+export CLINIC_IMAGE_PREFIX=ghcr.io/<owner>/clinic CLINIC_IMAGE_TAG=<sha>
+docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml pull api web console
+docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml up -d --no-build
+```
+
+⚠️ **Always `--no-build`.** Compose merge cannot *remove* the base file's `build:` section, so a plain `up -d`
+with a tag missing from the registry would quietly start a full rebuild on the production box instead of
+refusing.
+
+⚠️ **`web`'s build args are read from Compose and are never restated in the workflow**, deliberately.
+`NEXT_PUBLIC_*` is substituted into the bundle by `npm run build`, so those args decide what the browser gets —
+and this file already records the release where an image built with `AUTH_MODE` unset shipped an Auth0 landing
+page to a deployment with no Auth0. One source of truth, which is why CI builds *through* `docker compose build`
+rather than with a build action.
+
+---
+
 ## Courrier sortant (SMTP) — the go-live value with no guard behind it
 
 **Set this before you open the front door.** `Notification:Smtp:*` gates five flows, and every one of them

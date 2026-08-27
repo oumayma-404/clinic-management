@@ -67,9 +67,15 @@ clinic-management/
 │                                                               caddy, backup, pitr) — not runnable alone since
 │                                                               CloudBrowser's own api/web services were removed
 │                                   docker-compose.hosted.yml = HostedMultiTenant (own accounts) — `extends` prod's infra
+│                                   docker-compose.registry.yml = overlay setting `image:` on api/web/console so the
+│                                                               server pulls them instead of building; nothing else
 ├── backend/                      EMPTY (only .idea/) — ignore
 ├── .github/workflows/            ci.yml = the api · web · desktop · android gate (see below)
 │                                   ios-shell.yml = the iOS shell's only compiler, path-filtered (billed macOS runner)
+│                                   deploy-hosted.yml = `workflow_dispatch` deploy to a VPS: build the three heavy
+│                                                       images → GHCR → ssh `pull` + `up -d --no-build` → /health →
+│                                                       verify-schema. Builds THROUGH compose, so `web`'s build args
+│                                                       have one home. See deploy/README.md § Déploiement depuis GitHub
 ├── docker-compose.yml            postgres (5432) + minio (9000 API / 9001 console) — LOCAL DEV only
 └── *.md (root setup docs, see below)
 ```

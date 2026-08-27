@@ -47,6 +47,7 @@ public class TransportConfigurationTests
     private const string ProdFile = "deploy/docker-compose.prod.yml";
     private const string HbaFile = "deploy/postgres/pg_hba.conf";
     private const string EnvTemplateFile = "deploy/.env.hosted.example";
+    private const string RegistryOverlayFile = "deploy/docker-compose.registry.yml";
 
     private const string ConnectionStringVariable = "ConnectionStrings__DefaultConnection";
     private const string MinioUseSslVariable = "MinIO__UseSSL";
@@ -394,13 +395,63 @@ public class TransportConfigurationTests
     }
 
 
+    /// <summary>
+    /// Every service the registry overlay names already exists in the base file, and the set it names is exactly
+    /// the three built from outside <c>deploy/</c>.
+    ///
+    /// <para><b>The failure this prevents is silent in the worst way.</b> Compose does not validate an override's
+    /// service names against the file it overrides — it <i>merges</i>. So <c>consoel:</c> in
+    /// <c>docker-compose.registry.yml</c> would not be an error: it would define a <b>tenth service</b> whose only
+    /// key is an <c>image:</c>, with no environment, no volumes, no network and no <c>depends_on</c>. Compose would
+    /// pull it and start it, the real <c>console</c> would go on building from source, and <c>ps</c> would list a
+    /// container nobody wrote.</para>
+    ///
+    /// <para>⚠️ Derived in both directions rather than asserting a list of three: the overlay must name only
+    /// services that exist, and the set it names must be exactly those whose build context climbs <b>out</b> of
+    /// <c>deploy/</c> (<c>../api</c>, <c>../web</c>, <c>../console</c>). The second half is what covers a future
+    /// fourth application image — add one to the hosted file and this fails until the overlay learns about it,
+    /// which is the difference between a deploy that pulls it and a deploy that rebuilds it on the server while
+    /// that server is answering clinics.</para>
+    /// </summary>
+    [Fact]
+    public void The_Registry_Overlay_Names_Exactly_The_Services_Built_From_Outside_Deploy()
+    {
+        var overlay = Services(RegistryOverlayFile, minimumServices: 3);
+        var baseFile = Services(HostedFile);
+
+        var unknown = overlay.Keys.Where(name => !baseFile.ContainsKey(name)).ToList();
+        Assert.True(
+            unknown.Count == 0,
+            $"{RegistryOverlayFile} names {string.Join(", ", unknown)}, which {HostedFile} does not define — "
+            + "Compose would merge each one into an ADDITIONAL service carrying nothing but an image.");
+
+        // The application images: a build context that climbs out of `deploy/`. The infra images (`certs`,
+        // `postgres`, `backup`) build from directories inside it and stay local builds on purpose.
+        var builtFromOutside = baseFile
+            .Where(s => s.Value.BuildContext?.StartsWith("..", StringComparison.Ordinal) == true)
+            .Select(s => s.Key)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.NotEmpty(builtFromOutside);
+        Assert.Equal(builtFromOutside, overlay.Keys.OrderBy(n => n, StringComparer.Ordinal).ToList());
+    }
+
     // ---- the reader ---------------------------------------------------------------------------------
 
     private sealed record ServiceBlock(
         Dictionary<string, string> Environment,
         List<string> Volumes,
         List<string> DependsOn,
-        List<string> Command);
+        List<string> Command)
+    {
+        /// <summary>
+        /// <c>build.context</c>, when the service builds. Null for a service that only names an <c>image:</c> or
+        /// that reaches its definition through <c>extends</c> — which is how the overlay guard tells the three
+        /// application images (contexts climbing out of <c>deploy/</c>) from the infra ones built inside it.
+        /// </summary>
+        public string? BuildContext { get; set; }
+    }
 
     /// <summary>
     /// A purpose-built reader for the two files in this repository, not a YAML implementation: it takes the
@@ -409,7 +460,12 @@ public class TransportConfigurationTests
     /// reading <c>cnam.ts</c>, both by hand — and every case above asserts a non-zero count, so a shape this
     /// reader stops understanding fails loudly instead of passing on an empty set.
     /// </summary>
-    private static Dictionary<string, ServiceBlock> Services(string relativePath)
+    /// <param name="minimumServices">
+    /// The floor below which the parse is treated as broken rather than empty. Five for the two full deployment
+    /// files; the registry overlay legitimately defines three, and passing its real floor keeps the guard
+    /// meaningful there instead of switching it off.
+    /// </param>
+    private static Dictionary<string, ServiceBlock> Services(string relativePath, int minimumServices = 5)
     {
         var services = new Dictionary<string, ServiceBlock>(StringComparer.Ordinal);
         var lines = File.ReadAllLines(Locate(relativePath));
@@ -462,6 +518,10 @@ public class TransportConfigurationTests
 
             switch (section)
             {
+                case "build" when indent >= 6 && line.StartsWith("context:", StringComparison.Ordinal):
+                    current.BuildContext = CleanValue(line["context:".Length..].Trim());
+                    break;
+
                 case "environment" when indent >= 6 && line.Contains(':', StringComparison.Ordinal):
                     var separator = line.IndexOf(':', StringComparison.Ordinal);
                     current.Environment[line[..separator].Trim()] = CleanValue(line[(separator + 1)..].Trim());
@@ -487,7 +547,7 @@ public class TransportConfigurationTests
         }
 
         Assert.True(
-            services.Count >= 5,
+            services.Count >= minimumServices,
             $"Parsed only {services.Count} service(s) from {relativePath} — the file moved or this reader "
             + "stopped understanding its shape. A vacuous pass here would hide every assertion above.");
 

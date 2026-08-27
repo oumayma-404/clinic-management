@@ -187,6 +187,50 @@ services:
       # like tampering. Back it up with the key-ring certificate; deploy/KEY-CUSTODY.md.
       Audit__ChainKey_FILE: /run/secrets/audit_chain_key
 
+      # ── Courrier sortant (SMTP) ────────────────────────────────────────────────────────────────────────────
+      # ⚠️ **Five flows are dead without this, and every one of them fails at the moment somebody is locked out
+      # or trying to get in.** `ITransactionalEmailSender` reads these per-install keys — never
+      # `ResolvedReminderSettings`, because a clinic self-signup has no clinic to resolve against (the interface's
+      # own remarks say why). It gates:
+      #   POST /api/auth/signup           — the verification link; NOTHING is written until it is answered
+      #   POST /api/auth/password-reset   — « mot de passe oublié », the only way back a person can take alone
+      #   PUT  …/users/{id}/reset-password — an administrator re-credentialling a member of staff
+      #   platform-account --reset-password / --reset-second-factor — the vendor's two recovery verbs
+      # and it is the per-install fallback under `IDocumentEmailSender` for a clinic that has named no host itself.
+      #
+      # ⚠️ **`Notification:Smtp:Server` ships EMPTY in appsettings.json and was wired into no deployment template
+      # at all** — the failure shape this file documents everywhere else, and it reached go-live. `SmtpConfig.Host`
+      # trims empty to null, `IsConfigured` reads false, and `SignUpClinicCommand` answers a French refusal
+      # **before writing anything**: the deployment comes up Healthy, serves every screen, and cannot let one new
+      # cabinet in — with nothing in any log tying that to a value nobody had been asked for.
+      #
+      # ⚠️ **This block belongs to THIS profile and not to the LAN file**, and that is a capability decision, not
+      # an oversight: `AllowsPublicClinicSignup` and `AllowsPasswordResetByEmail` are true here and false on
+      # `SelfHostedLan`, where a surgery PC has no mailbox and the login screen deliberately offers no « mot de
+      # passe oublié » (`reset-admin-password` on the console is that install's answer). Unset *here* is not a
+      # degraded reminder — it is a closed front door.
+      #
+      # ⚠️ The link inside those emails comes from `FrontendUrl` above, not from a key of its own. Unset, every
+      # verification link would point at the RECIPIENT's own machine — which is why both are asked before a
+      # signup is accepted, and why they must not drift onto different hosts.
+      Notification__Smtp__Server: ${SMTP_SERVER:-}
+      Notification__Smtp__Port: ${SMTP_PORT:-587}
+      Notification__Smtp__UseTls: ${SMTP_USE_TLS:-true}
+      Notification__Smtp__Username: ${SMTP_USERNAME:-}
+      # ⚠️ A literal, deliberately — the one credential in this file that is not a `*_FILE` secret, same treatment
+      # as `Meta__AppSecret` below and for a mechanical reason: a `*_FILE` variable naming a file that does not
+      # exist is a **startup REFUSAL** (`FileBackedSecretsProvider`), and compose validates a secret's source the
+      # moment a service lists it. Wiring it unconditionally would take every deployment that has not yet set up
+      # email off the air on the next `up -d`. To move it out of the environment once a mailbox exists, add a
+      # `smtp_password:` entry to the `secrets:` block at the foot of this file, list it under this service's
+      # `secrets:`, set `Notification__Smtp__Password_FILE: /run/secrets/smtp_password`, and only then drop the
+      # literal — the file wins over a literal of the same name, so that order is safe at every step.
+      Notification__Smtp__Password: ${SMTP_PASSWORD:-}
+      # The envelope sender. `SmtpConfig.FromAddress` falls back to the username when THAT is itself an address,
+      # which is the commonest mailbox-provider setup — so these two are only needed when they differ.
+      Notification__Smtp__FromAddress: ${SMTP_FROM_ADDRESS:-}
+      Notification__Smtp__FromName: ${SMTP_FROM_NAME:-}
+
       # ── Meta / WhatsApp ────────────────────────────────────────────────────────────────────────────────────
       # ⚠️ **The Graph version is read from the SAME key as the web image's build arg below**, and that is the
       # whole point of it being here. It was pinned in two independent places — `MetaConfig.DefaultGraphApiVersion`
