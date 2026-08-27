@@ -1,7 +1,12 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.ProcedureTypes;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
@@ -11,6 +16,7 @@ public class CreateClinicCommand : IRequest<Result<ClinicDto>>
 {
     public string Name { get; set; } = string.Empty;
     public string? Address { get; set; }
+    public string? City { get; set; }
     public string? Phone { get; set; }
     public string? Email { get; set; }
     public bool GenerateCode { get; set; } = true;
@@ -18,52 +24,88 @@ public class CreateClinicCommand : IRequest<Result<ClinicDto>>
     public DoctorPersonalInfoDto? DoctorInfo { get; set; } // Required if Role is "doctor"
     public List<DoctorDto>? Doctors { get; set; } // Legacy: additional doctors (not the creator)
     public Stream? LogoFile { get; set; } // Logo file stream
-    public string? LogoContentType { get; set; } // Logo content type
+    public string? LogoFileName { get; set; } // The format is keyed on this name's extension
+    public long LogoLength { get; set; }
+    public string? WorkingHoursJson { get; set; } // Optional onboarding working hours (finding #16)
+
+    // Local (offline) first-run only. When Password is set, the handler creates the clinic +
+    // first admin from email+password (no Auth0). Never populated in Cloud mode.
+    public string? Password { get; set; }
+    public string? FullName { get; set; } // Admin's full name (Local first-run)
 }
 
 public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, Result<ClinicDto>>
 {
     private readonly IClinicRepository _clinicRepository;
+    private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly IUserRepository _userRepository;
     private readonly IDoctorRepository _doctorRepository;
     private readonly IClinicContext _clinicContext;
-    private readonly IAuth0ManagementService _auth0ManagementService;
     private readonly IFileStorage _fileStorage;
+    private readonly ILocalAuthService _localAuthService;
+    private readonly IClinicCatalogSeeder _clinicCatalogSeeder;
+    private readonly IClinicSubscriptionRepository _subscriptionRepository;
+    private readonly ISubscriptionPolicy _subscriptionPolicy;
+    private readonly IMessagingAllowanceRepository _messagingAllowanceRepository;
+    private readonly IMessagingAllowancePolicy _messagingAllowancePolicy;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<CreateClinicCommandHandler> _logger;
 
     public CreateClinicCommandHandler(
         IClinicRepository clinicRepository,
+        IProcedureTypeRepository procedureTypeRepository,
         IUserRepository userRepository,
         IDoctorRepository doctorRepository,
         IClinicContext clinicContext,
-        IAuth0ManagementService auth0ManagementService,
         IFileStorage fileStorage,
-        IUnitOfWork unitOfWork)
+        ILocalAuthService localAuthService,
+        IClinicCatalogSeeder clinicCatalogSeeder,
+        IClinicSubscriptionRepository subscriptionRepository,
+        ISubscriptionPolicy subscriptionPolicy,
+        IMessagingAllowanceRepository messagingAllowanceRepository,
+        IMessagingAllowancePolicy messagingAllowancePolicy,
+        IUnitOfWork unitOfWork,
+        ILogger<CreateClinicCommandHandler> logger)
     {
         _clinicRepository = clinicRepository;
+        _procedureTypeRepository = procedureTypeRepository;
         _userRepository = userRepository;
         _doctorRepository = doctorRepository;
         _clinicContext = clinicContext;
-        _auth0ManagementService = auth0ManagementService;
         _fileStorage = fileStorage;
+        _localAuthService = localAuthService;
+        _clinicCatalogSeeder = clinicCatalogSeeder;
+        _subscriptionRepository = subscriptionRepository;
+        _subscriptionPolicy = subscriptionPolicy;
+        _messagingAllowanceRepository = messagingAllowanceRepository;
+        _messagingAllowancePolicy = messagingAllowancePolicy;
         _unitOfWork = unitOfWork;
+        _logger = logger;
     }
 
     public async Task<Result<ClinicDto>> Handle(CreateClinicCommand request, CancellationToken cancellationToken)
     {
         try
         {
+            // Local (offline) first-run: create the clinic + first admin from email+password.
+            // No authenticated user exists yet (this is the bootstrap), so this path never
+            // reads the JWT/clinic context. Cloud mode continues below, unchanged.
+            if (!string.IsNullOrEmpty(request.Password))
+            {
+                return await CreateLocalFirstRunAsync(request, cancellationToken);
+            }
+
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<ClinicDto>.Failure("User ID not found in token");
+                return Result<ClinicDto>.Failure("Utilisateur introuvable dans le jeton d'authentification.");
             }
 
             // Validate role
             var role = request.Role.ToLowerInvariant();
             if (role != "doctor" && role != "secretary")
             {
-                return Result<ClinicDto>.Failure("Invalid role. Must be 'doctor' or 'secretary'");
+                return Result<ClinicDto>.Failure("Rôle invalide. Choisissez « médecin » ou « secrétaire ».");
             }
 
             // Validate doctor info if role is doctor
@@ -71,14 +113,14 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             {
                 if (request.DoctorInfo == null)
                 {
-                    return Result<ClinicDto>.Failure("Doctor personal information is required when role is 'doctor'");
+                    return Result<ClinicDto>.Failure("Les informations du praticien sont requises pour le rôle « médecin ».");
                 }
 
                 if (string.IsNullOrWhiteSpace(request.DoctorInfo.FirstName) ||
                     string.IsNullOrWhiteSpace(request.DoctorInfo.LastName) ||
                     string.IsNullOrWhiteSpace(request.DoctorInfo.Specialty))
                 {
-                    return Result<ClinicDto>.Failure("First name, last name, and specialty are required for doctors");
+                    return Result<ClinicDto>.Failure("Le prénom, le nom et la spécialité sont requis pour un médecin.");
                 }
             }
 
@@ -86,7 +128,7 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             var existingUser = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (existingUser != null)
             {
-                return Result<ClinicDto>.Failure("User already belongs to a clinic");
+                return Result<ClinicDto>.Failure("Cet utilisateur appartient déjà à un cabinet.");
             }
 
             // Get email from JWT claims
@@ -103,11 +145,11 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
             string? clinicCode = null;
             if (request.GenerateCode)
             {
-                clinicCode = GenerateClinicCode();
+                clinicCode = ClinicCodeGenerator.Generate();
                 // Ensure code is unique
                 while (await _clinicRepository.CodeExistsAsync(clinicCode, cancellationToken))
                 {
-                    clinicCode = GenerateClinicCode();
+                    clinicCode = ClinicCodeGenerator.Generate();
                 }
             }
 
@@ -119,27 +161,56 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
                 request.Address,
                 request.Phone,
                 request.Email,
-                clinicCode);
+                clinicCode,
+                request.City);
+
+            // Persist the working hours collected by the onboarding wizard (finding #16), normalized like
+            // UpdateClinicCommand; an invalid/empty payload leaves the clinic with no hours (unchanged before).
+            var normalizedWorkingHours = WorkingHoursSerializer.Normalize(request.WorkingHoursJson);
+            if (normalizedWorkingHours != null)
+            {
+                clinic.SetWorkingHours(normalizedWorkingHours);
+            }
 
             await _clinicRepository.AddAsync(clinic, cancellationToken);
 
-            // Handle logo upload if provided
-            if (request.LogoFile != null && !string.IsNullOrWhiteSpace(request.LogoContentType))
+            // Handle logo upload if provided. The logo is rendered into every document and served back inline
+            // from the app's own origin, so it goes through the same profile as the practitioner cachet — this
+            // path had no type check, no size cap and no signature check of any kind.
+            if (request.LogoFile != null)
             {
-                var logoPath = $"{clinicId}/logo";
-                var logoUrl = await _fileStorage.UploadAsync(
+                var logoValidation = await FileUploadValidator.ValidateAsync(
+                    FileUploadProfile.ProfileImage,
+                    request.LogoFileName,
+                    request.LogoLength,
                     request.LogoFile,
-                    request.LogoContentType,
-                    logoPath,
                     cancellationToken);
-                
-                // Update clinic with logo URL
-                clinic.Update(clinic.Name, clinic.Address, clinic.Phone, clinic.Email, logoUrl);
+
+                if (logoValidation.IsFailure)
+                {
+                    return Result<ClinicDto>.Failure(logoValidation.Error!);
+                }
+
+                var logo = logoValidation.Value!;
+
+                // US-5: the clinic segment is the storage's own, so the path here is relative to it.
+                var logoUrl = await _fileStorage.UploadAsync(
+                    logo.Content,
+                    logo.ContentType,
+                    clinicId,
+                    "logo",
+                    cancellationToken);
+
+
+                // Update clinic with logo URL (preserve the city already set on the clinic)
+                clinic.Update(clinic.Name, clinic.Address, clinic.Phone, clinic.Email, logoUrl, clinic.City);
             }
 
-            // Determine user role: if doctor, use "doctor", otherwise use "secretary"
-            // Note: The creator is not "admin" anymore, they have their selected role
-            var userRole = role;
+            // The creator of a new clinic is its admin (finding: Cloud onboarding assigned only
+            // doctor/secretary, so no Cloud clinic ever had an admin and every admin-gated feature was
+            // unreachable). Mirrors the Local first-run, which mints an "admin". The selected doctor/secretary
+            // role still drives whether a Doctor record is created below.
+            var userRole = "admin";
 
             // Create user and associate with clinic
             var user = new User(
@@ -196,47 +267,120 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
                 }
             }
 
+            // Both seeds go through LocalClinicProvisioning, which is the single definition of what a new clinic
+            // starts with — this branch used to hold byte-identical private copies (review finding 33).
+            await LocalClinicProvisioning.SeedDefaultProcedureTypesAsync(
+                clinic.Id, _procedureTypeRepository, cancellationToken);
+
+            // ⚠️ Construction door 2 of 2, and the one AC-1.2a exists to name. This branch builds its own Clinic
+            // and never reaches LocalClinicProvisioning.ProvisionAsync, so the entitlement has to be staged here
+            // too — which is exactly why it is the door easiest to forget. On SelfHostedLan the policy answers
+            // « not enforced », so what lands is an OPEN-ENDED entitlement: FR-13 holds and nothing can expire.
+            await LocalClinicProvisioning.StageEntitlementAsync(
+                clinic.Id, _subscriptionRepository, _subscriptionPolicy, cancellationToken);
+
+            // The same door again, for the WhatsApp reminder forfait (FR-3). On SelfHostedLan the capability answers
+            // « does not sell vendor messaging », so what lands is an allowance nothing meters against — which is
+            // what keeps « no cabinet without one » true in both topologies while EC-16 still holds.
+            await LocalClinicProvisioning.StageMessagingAllowanceAsync(
+                clinic.Id, _messagingAllowanceRepository, _messagingAllowancePolicy, cancellationToken);
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            // Update Auth0 app_metadata
-            try
-            {
-                await _auth0ManagementService.UpdateUserMetadataAsync(userId, clinic.Id, userRole, cancellationToken);
-            }
-            catch (Exception)
-            {
-                // Log but don't fail the operation if Auth0 update fails
-                // The user is already created in the database
-                // TODO: Add proper logging
-            }
+            await LocalClinicProvisioning.TrySeedCatalogsAsync(
+                clinic.Id, _clinicCatalogSeeder, _logger, cancellationToken);
 
             var dto = new ClinicDto
             {
                 Id = clinic.Id,
                 Name = clinic.Name,
                 Address = clinic.Address,
+                City = clinic.City,
                 Phone = clinic.Phone,
                 Email = clinic.Email,
                 Code = clinic.Code,
                 LogoUrl = clinic.LogoUrl,
-                CreatedAt = clinic.CreatedAt
+                CreatedAt = clinic.CreatedAt,
+                Version = clinic.Version,
             };
 
             return Result<ClinicDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<ClinicDto>.Failure($"Error creating clinic: {ex.Message}");
+            // The detail belongs in the log, never in the response: this used to surface raw infrastructure
+            // text to the operator (e.g. `42P01: relation "Users" does not exist`) on the setup screen.
+            _logger.LogError(ex, "Error creating clinic {ClinicName}", request.Name);
+            return Result<ClinicDto>.Failure(ErrorMessages.Generic);
         }
     }
 
-    private string GenerateClinicCode()
+    private async Task<Result<ClinicDto>> CreateLocalFirstRunAsync(CreateClinicCommand request, CancellationToken cancellationToken)
     {
-        // Generate a 6-character alphanumeric code
-        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        var random = new Random();
-        return new string(Enumerable.Repeat(chars, 6)
-            .Select(s => s[random.Next(s.Length)]).ToArray());
+        // AC-1.2a: setup is a one-time bootstrap — closed once any user exists.
+        if (await _userRepository.AnyUserExistsAsync(cancellationToken))
+        {
+            return Result<ClinicDto>.Failure(
+                "La configuration initiale a déjà été effectuée sur cette installation. "
+                + "Connectez-vous, ou rejoignez le cabinet avec son code.");
+        }
+
+        // FR-B2: password policy — minimum length (enforced at the API). Stays here rather than in the shared
+        // provisioning helper: it applies to a password a human typed, and `provision-clinic` generates one.
+        if (request.Password!.Length < PasswordPolicy.MinLength)
+        {
+            return Result<ClinicDto>.Failure($"Le mot de passe doit contenir au moins {PasswordPolicy.MinLength} caractères.");
+        }
+
+        // US-3: the clinic + admin + linked practitioner + seeds are built by LocalClinicProvisioning, shared with
+        // the `provision-clinic` console verb. Every remaining rule of this branch (the bootstrap gate above, the
+        // password policy) is the part that is genuinely setup's and must NOT apply to the verb.
+        var provisioned = await LocalClinicProvisioning.ProvisionAsync(
+            new LocalClinicRequest(
+                Guid.NewGuid(),
+                request.Name,
+                request.Email,
+                _localAuthService.HashPassword(request.Password),
+                request.FullName,
+                MustChangePassword: false,
+                request.Address,
+                request.Phone,
+                request.City,
+                request.DoctorInfo,
+                request.WorkingHoursJson),
+            _clinicRepository,
+            _userRepository,
+            _doctorRepository,
+            _procedureTypeRepository,
+            _subscriptionRepository,
+            _subscriptionPolicy,
+            _messagingAllowanceRepository,
+            _messagingAllowancePolicy,
+            _unitOfWork,
+            _clinicCatalogSeeder,
+            _logger,
+            cancellationToken);
+
+        if (provisioned.IsFailure)
+        {
+            return Result<ClinicDto>.Failure(provisioned.Error ?? ErrorMessages.Generic);
+        }
+
+        var clinic = provisioned.Value!.Clinic;
+
+        return Result<ClinicDto>.Success(new ClinicDto
+        {
+            Id = clinic.Id,
+            Name = clinic.Name,
+            Address = clinic.Address,
+            Phone = clinic.Phone,
+            Email = clinic.Email,
+            Code = clinic.Code,
+            LogoUrl = clinic.LogoUrl,
+            CreatedAt = clinic.CreatedAt,
+            Version = clinic.Version,
+        });
     }
+
 }
 

@@ -9,45 +9,51 @@ export default function UnauthorizedPage() {
   const router = useRouter()
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-6">
+    /*
+     * The page ground is `--background`, not a gradient. This is one of the three screens a new clinic sees
+     * before it has an account, and the gradient it carried (`via-white … dark:from-slate-950`) was the app's
+     * only surface maintaining its own light/dark pair by hand — so it neither matched the themed chrome
+     * behind it nor followed the user's theme correctly.
+     */
+    <div className="min-h-dvh bg-background flex items-center justify-center p-6">
       <div className="w-full max-w-md">
-        <Card className="border-red-100 dark:border-red-900/20 shadow-lg">
+        <Card className="border-destructive/25 shadow-lg">
           <CardHeader className="text-center space-y-4">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/20 mx-auto">
-              <Lock className="w-8 h-8 text-red-600 dark:text-red-400" />
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-destructive-wash mx-auto">
+              <Lock className="w-8 h-8 text-destructive" />
             </div>
             <div>
-              <CardTitle className="text-2xl text-red-900 dark:text-red-100">Access Restricted</CardTitle>
+              <CardTitle className="text-2xl text-destructive">Accès restreint</CardTitle>
               <CardDescription className="mt-2">
-                You need to be part of a clinic organization to access this application.
+                Vous devez faire partie d'un cabinet pour accéder à cette application.
               </CardDescription>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
-              <p className="text-sm text-blue-900 dark:text-blue-100">
-                To get started, you can either create a new clinic or join an existing one using a clinic code.
+            <div className="p-4 bg-accent/20 rounded-lg border border-primary/25">
+              <p className="text-sm text-accent-foreground">
+                Pour commencer, vous pouvez créer un nouveau cabinet ou en rejoindre un existant à l'aide d'un code de cabinet.
               </p>
             </div>
 
             <div className="flex flex-col gap-3">
               <Button
                 onClick={() => router.push("/setup")}
-                className="w-full bg-blue-600 hover:bg-blue-700"
+                className="w-full bg-primary hover:bg-primary/90"
                 size="lg"
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Create New Clinic
+                Créer un cabinet
               </Button>
 
               <Button
                 onClick={() => router.push("/join")}
                 variant="outline"
-                className="w-full border-blue-200 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                className="w-full border-primary/25 hover:bg-accent/20"
                 size="lg"
               >
                 <Building2 className="w-4 h-4 mr-2" />
-                Join Existing Clinic
+                Rejoindre un cabinet
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </div>
@@ -60,10 +66,10 @@ export default function UnauthorizedPage() {
                 size="sm"
               >
                 <LogOut className="w-4 h-4 mr-2" />
-                Logout
+                Se déconnecter
               </Button>
               <p className="text-xs text-muted-foreground text-center">
-                If you believe this is an error, please contact your clinic administrator.
+                Si vous pensez qu'il s'agit d'une erreur, veuillez contacter l'administrateur de votre cabinet.
               </p>
             </div>
           </CardContent>

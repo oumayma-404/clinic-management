@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestion Clinique — Fonctionnalités | Maquette v2</title>
+<link rel="stylesheet" href="shared-styles.css">
+<style>
+  /* Une entrée de fonctionnalité = du texte et, pour trois d'entre elles
+     seulement, une image très simple. En v1 chacune avait son fac-similé
+     d'écran : douze reconstitutions, d'où la sensation d'un manuel. */
+  .feature { padding: clamp(58px, 7vw, 96px) 0; border-top: 1px solid var(--hair); }
+  .feature:first-of-type { border-top: 0; padding-top: 0; }
+
+  /* Odontogramme : une seule arcade, trois dents marquées. Rien d'autre. */
+  .arch { display: flex; gap: 5px; justify-content: center; flex-wrap: wrap; }
+  .t {
+    width: 26px; height: 34px; border-radius: 7px;
+    border: 1px solid var(--hair);
+    display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px;
+    font-family: var(--mono); font-size: 9px; color: var(--ink-2);
+  }
+  .t.mk { border-color: var(--teal); color: var(--teal); }
+  .t.mk::before {
+    content: ""; position: absolute; width: 5px; height: 5px; border-radius: 999px;
+    background: var(--teal); margin-bottom: 20px;
+  }
+  .t { position: relative; }
+
+  /* Chiffres d'argent : trois lignes, grandes et légères. Pas un tableau. */
+  .figs { display: grid; gap: 22px; }
+  .figs div { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; }
+  .figs b { font-size: clamp(26px, 3vw, 34px); font-weight: 300; letter-spacing: -0.035em; }
+  .figs span { font-size: 14px; color: var(--ink-2); }
+
+  /* Peigne IDU du bulletin CNAM — le détail le plus reconnaissable du BS1. */
+  .comb { display: flex; gap: 3px; }
+  .comb i {
+    width: 22px; height: 28px; border: 1px solid var(--hair); border-radius: 4px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 13px; font-style: normal; color: var(--ink);
+  }
+
+  .also { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 26px 48px; }
+  .also div { display: grid; gap: 5px; }
+  .also b { font-weight: 450; font-size: 16px; }
+
+  @media (max-width: 640px) {
+    .also { grid-template-columns: minmax(0, 1fr); }
+    .t { width: 21px; height: 28px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="flag">
+  <span>MAQUETTE v2 — Fonctionnalités</span>
+  <span>aéré &amp; calme · 2/3</span>
+</div>
+
+<!-- ============================ EN-TÊTE ============================ -->
+<header class="top">
+  <div class="wrap row">
+    <a class="brand" href="01-accueil.html">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+      Gestion Clinique
+    </a>
+    <nav class="nav" aria-label="Navigation principale">
+      <a href="02-fonctionnalites.html" aria-current="page">Fonctionnalités</a>
+      <a href="03-contact.html">Contact</a>
+    </nav>
+    <div class="act">
+      <button class="tog" data-theme-toggle aria-label="Basculer le thème sombre">
+        <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+      </button>
+      <a class="btn solid" style="height: 42px; padding: 0 20px; font-size: 15px;" href="03-contact.html">Demander une démo</a>
+    </div>
+    <button class="burger" aria-label="Ouvrir le menu">
+      <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============================ INTRO ============================ -->
+<section class="first" style="padding-bottom: clamp(52px, 6vw, 84px);">
+  <div class="wrap">
+    <p class="label">Fonctionnalités</p>
+    <h1 class="h1" style="margin: 26px 0 0; max-width: 20ch;">Six choses, en détail.</h1>
+    <p class="lede" style="margin-top: 26px;">
+      Le reste est en bas de page. Quand une fonction demande un branchement de
+      votre part, c'est écrit.
+    </p>
+  </div>
+</section>
+
+<div class="wrap">
+
+  <!-- 1 · Dossier patient + schéma dentaire -->
+  <div class="feature">
+    <div class="split">
+      <div class="stack">
+        <h2 class="h2">Le dossier, et la bouche.</h2>
+        <p class="body">
+          Le schéma dentaire est la première carte du dossier, pas un onglet perdu.
+          On clique une dent, on note l'état et les faces. Les diagnostics ouverts
+          se versent ensuite dans un devis sans rien retaper.
+        </p>
+        <p class="small">
+          Numérotation FDI, denture adulte ou enfant selon l'âge. Deux vues :
+          ce qui a été diagnostiqué, ce qui a été réalisé.
+        </p>
+      </div>
+      <div class="frame">
+        <div style="padding: clamp(26px, 3vw, 40px);">
+          <p class="label" style="margin-bottom: 22px;">Mme Ines Trabelsi · denture adulte</p>
+          <div class="arch">
+            <span class="t">18</span><span class="t">17</span><span class="t mk">16</span>
+            <span class="t">15</span><span class="t">14</span><span class="t">13</span>
+            <span class="t">12</span><span class="t">11</span><span class="t">21</span>
+            <span class="t">22</span><span class="t">23</span><span class="t">24</span>
+            <span class="t mk">25</span><span class="t">26</span><span class="t">27</span>
+            <span class="t mk">28</span>
+          </div>
+          <p class="tiny" style="margin-top: 22px;">3 dents signalées</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2 · Devis et échéanciers -->
+  <div class="feature">
+    <div class="stack" style="max-width: 62ch;">
+      <h2 class="h2">Un devis qui sait où il en est.</h2>
+      <p class="body">
+        Chaque acte du devis lit son état dans les rendez-vous qui le visent —
+        à planifier, planifié, réalisé — et affiche la facture qui le règle.
+        Vous cochez des actes et vous les planifiez ensemble ou séparément.
+      </p>
+      <p class="small">
+        Échéancier de paiement révisable, reçu par échéance, PDF du devis. Un devis
+        accepté s'amende avec un numéro de révision plutôt que d'être retapé.
+      </p>
+    </div>
+  </div>
+
+  <!-- 3 · Facturation et caisse -->
+  <div class="feature">
+    <div class="split">
+      <div class="stack">
+        <h2 class="h2">L'argent se corrige,<br>il ne s'efface pas.</h2>
+        <p class="body">
+          Notes d'honoraires numérotées sans trou, avec TVA et timbre fiscal.
+          Une erreur passe par un avoir ; un règlement mal saisi s'annule avec
+          son motif et son auteur, et la ligne reste visible.
+        </p>
+        <p class="small">
+          La caisse a un extrait : chaque mouvement derrière le total, et un écran
+          « Créances » qui répond à qui doit encore combien.
+        </p>
+        <p class="note">
+          La facturation électronique El Fatoora est prête côté logiciel, mais la
+          transmission réelle demande vos identifiants TTN et un certificat de
+          signature.
+        </p>
+      </div>
+      <div class="frame">
+        <div style="padding: clamp(26px, 3vw, 40px);">
+          <p class="label" style="margin-bottom: 26px;">Juillet 2026</p>
+          <div class="figs">
+            <div><b class="nums">24 130</b><span>Facturé (DT)</span></div>
+            <div><b class="nums">18 460</b><span>Encaissé</span></div>
+            <div><b class="nums accent">9 840</b><span>Reste à recouvrer</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4 · CNAM -->
+  <div class="feature">
+    <div class="split">
+      <div class="stack">
+        <h2 class="h2">Le bulletin CNAM,<br>sur le vrai formulaire.</h2>
+        <p class="body">
+          Les données sont imposées sur le PDF officiel du BS1, aux coordonnées
+          calibrées : peigne IDU, régime, identités, tableau des actes avec le code
+          professionnel de santé, cadre de soins.
+        </p>
+        <p class="small">
+          L'estimation de remboursement s'affiche pendant la saisie, au taux qui
+          s'applique à l'âge du patient à la date des soins.
+        </p>
+      </div>
+      <div class="frame">
+        <div style="padding: clamp(26px, 3vw, 40px);">
+          <p class="label" style="margin-bottom: 20px;">Identifiant unique</p>
+          <div class="comb scroll-x">
+            <i>0</i><i>8</i><i>4</i><i>2</i><i>1</i><i>7</i><i>7</i><i>3</i><i>1</i><i>2</i>
+          </div>
+          <hr class="hair" style="margin: 26px 0;">
+          <div class="figs">
+            <div><b class="nums" style="font-size: 24px;">320,000</b><span>Honoraires (DT)</span></div>
+            <div><b class="nums accent" style="font-size: 24px;">224,000</b><span>Remboursement estimé</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5 · Rappels -->
+  <div class="feature">
+    <div class="stack" style="max-width: 62ch;">
+      <h2 class="h2">Les patients qu'on oublie de rappeler.</h2>
+      <p class="body">
+        Des rappels avant le rendez-vous, par paliers que vous fixez, et une liste
+        de relances pour ceux qu'on n'a pas revus depuis six mois. Le texte des
+        messages est modifiable, et un journal montre chaque envoi.
+      </p>
+      <p class="note">
+        Rien n'est fourni d'office : vous branchez la passerelle SMS de votre
+        opérateur et un compte WhatsApp Business. Les envois sont facturés par eux,
+        pas par nous.
+      </p>
+    </div>
+  </div>
+
+  <!-- 6 · Équipe -->
+  <div class="feature">
+    <div class="stack" style="max-width: 62ch;">
+      <h2 class="h2">Trois rôles, un code d'équipe.</h2>
+      <p class="body">
+        Administrateur, praticien, secrétaire. L'administrateur crée la clinique
+        puis distribue un code : l'équipe se rattache seule. Quand la secrétaire
+        déplace un rendez-vous, l'écran du praticien se met à jour sans rechargement.
+      </p>
+      <p class="note">
+        Un compte appartient à une clinique. Le logiciel sert autant de cliniques
+        qu'on veut, étanches, mais il n'y a pas de sélecteur pour piloter plusieurs
+        cabinets d'une seule connexion.
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<hr class="hair">
+
+<!-- ============================ ET AUSSI ============================ -->
+<section>
+  <div class="wrap">
+    <h2 class="h2" style="max-width: 20ch;">Et aussi.</h2>
+    <div class="also" style="margin-top: clamp(40px, 5vw, 64px);">
+      <div><b>Salle d'attente</b><span class="small">Une file d'attente dont on promeut une entrée en rendez-vous.</span></div>
+      <div><b>Rendez-vous récurrents</b><span class="small">Séries créées d'un coup, annulables par occurrence ou en entier.</span></div>
+      <div><b>Bons de prothèse</b><span class="small">Le travail au laboratoire, son étape, et les retards comptés.</span></div>
+      <div><b>Stock</b><span class="small">Lots, seuils de réapprovisionnement, alerte de péremption quotidienne.</span></div>
+      <div><b>Documents</b><span class="small">Ordonnance, lettre de liaison, certificat — en PDF, avec votre cachet.</span></div>
+      <div><b>Tableau de bord</b><span class="small">Chaque chiffre est un lien vers les dossiers qu'il a comptés.</span></div>
+      <div><b>Agenda Google</b><span class="small">Envoi automatique vers Google ; import depuis Google en un clic.</span></div>
+      <div><b>Sauvegarde</b><span class="small">En un clic sur une installation locale. Manuelle, à déclencher.</span></div>
+    </div>
+  </div>
+</section>
+
+<hr class="hair">
+
+<!-- ============================ APPEL ============================ -->
+<section class="last">
+  <div class="wrap">
+    <div class="stack" style="max-width: 46ch;">
+      <h2 class="h2">Le plus simple est de le voir tourner.</h2>
+      <p class="lede">Trente minutes, avec vos actes et vos tarifs.</p>
+      <div class="row-c" style="margin-top: 14px;">
+        <a class="btn solid" href="03-contact.html">Demander une démo</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ PIED DE PAGE ============================ -->
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-row">
+      <a class="brand" href="01-accueil.html">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+        Gestion Clinique
+      </a>
+      <nav class="nav" aria-label="Pied de page">
+        <a href="01-accueil.html">Accueil</a>
+        <a href="03-contact.html">Contact</a>
+        <a href="#">contact@gestion-clinique.tn</a>
+      </nav>
+    </div>
+    <p class="foot-end">© 2026 Gestion Clinique — Tunis</p>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll('[data-theme-toggle]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var r = document.documentElement;
+      r.dataset.theme = r.dataset.theme === 'dark' ? 'light' : 'dark';
+    });
+  });
+</script>
+</body>
+</html>

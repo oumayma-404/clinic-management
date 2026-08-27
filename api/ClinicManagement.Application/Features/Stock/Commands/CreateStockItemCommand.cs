@@ -1,7 +1,9 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Suppliers;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
@@ -17,23 +19,31 @@ public class CreateStockItemCommand : IRequest<Result<StockItemDto>>
     public int? MaximumStockLevel { get; set; }
     public string? Description { get; set; }
     public decimal? UnitPrice { get; set; }
-    public string? Supplier { get; set; }
+
+    /// <summary>The fournisseur this article is ordered from, or null — the common case (AC-5).</summary>
+    public Guid? SupplierId { get; set; }
 }
 
 public class CreateStockItemCommandHandler : IRequestHandler<CreateStockItemCommand, Result<StockItemDto>>
 {
     private readonly IStockItemRepository _stockItemRepository;
+    private readonly ISupplierRepository _supplierRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly INotificationGenerator _notificationGenerator;
 
     public CreateStockItemCommandHandler(
         IStockItemRepository stockItemRepository,
+        ISupplierRepository supplierRepository,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        INotificationGenerator notificationGenerator)
     {
         _stockItemRepository = stockItemRepository;
+        _supplierRepository = supplierRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _notificationGenerator = notificationGenerator;
     }
 
     public async Task<Result<StockItemDto>> Handle(CreateStockItemCommand request, CancellationToken cancellationToken)
@@ -41,21 +51,28 @@ public class CreateStockItemCommandHandler : IRequestHandler<CreateStockItemComm
         try
         {
             if (string.IsNullOrWhiteSpace(request.Name))
-                return Result<StockItemDto>.Failure("Name is required");
+                return Result<StockItemDto>.Failure("Le nom est requis.");
             if (string.IsNullOrWhiteSpace(request.Category))
-                return Result<StockItemDto>.Failure("Category is required");
+                return Result<StockItemDto>.Failure("La catégorie est requise.");
             if (string.IsNullOrWhiteSpace(request.Unit))
-                return Result<StockItemDto>.Failure("Unit is required");
+                return Result<StockItemDto>.Failure("L'unité est requise.");
             if (request.MinimumStockLevel < 0)
-                return Result<StockItemDto>.Failure("Minimum stock level cannot be negative");
+                return Result<StockItemDto>.Failure("Le stock minimum ne peut pas être négatif.");
             if (request.CurrentStock < 0)
-                return Result<StockItemDto>.Failure("Quantity cannot be negative");
+                return Result<StockItemDto>.Failure("La quantité ne peut pas être négative.");
             if (request.UnitPrice.HasValue && request.UnitPrice.Value < 0)
-                return Result<StockItemDto>.Failure("Unit price cannot be negative");
+                return Result<StockItemDto>.Failure("Le prix unitaire ne peut pas être négatif.");
 
             var clinic = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinic.IsFailure)
                 return Result<StockItemDto>.Failure(clinic.Error ?? "Unable to resolve current clinic");
+
+            var supplier = await SupplierLink.ResolveAsync(
+                _supplierRepository, clinic.Value, request.SupplierId, cancellationToken);
+            if (supplier.IsFailure)
+            {
+                return Result<StockItemDto>.FailureFrom(supplier);
+            }
 
             var maximum = request.MaximumStockLevel.HasValue && request.MaximumStockLevel.Value >= request.MinimumStockLevel
                 ? request.MaximumStockLevel.Value
@@ -71,7 +88,7 @@ public class CreateStockItemCommandHandler : IRequestHandler<CreateStockItemComm
                 maximum,
                 request.Description,
                 request.UnitPrice,
-                request.Supplier);
+                supplier.Value?.Id);
 
             if (request.CurrentStock > 0)
                 item.SetCurrentStock(request.CurrentStock);
@@ -79,11 +96,25 @@ public class CreateStockItemCommandHandler : IRequestHandler<CreateStockItemComm
             await _stockItemRepository.AddAsync(item, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return Result<StockItemDto>.Success(item.ToDto());
+            // Notify if an item is created already at/below its minimum (finding #14) — the update path only
+            // fires on a not-low→low crossing, so a born-low item would otherwise never notify. Best-effort.
+            if (item.IsLowStock())
+            {
+                await _notificationGenerator.LowStockAsync(
+                    clinic.Value, item.Id, item.Name, item.CurrentStock, item.MinimumStockLevel, cancellationToken);
+            }
+
+            return Result<StockItemDto>.Success(item.ToDto(supplier: supplier.Value));
         }
-        catch (Exception ex)
+        catch (ArgumentException ex)
         {
-            return Result<StockItemDto>.Failure($"Error creating stock item: {ex.Message}");
+            // The aggregate's own French guards — today the required catégorie, which Normalize refuses when it
+            // folds to nothing. Surfaced verbatim rather than restated, so the entity stays the authority.
+            return Result<StockItemDto>.Failure(ex.Message);
+        }
+        catch (Exception ex) when (ex is not ConflictException)
+        {
+            return Result<StockItemDto>.Failure("Erreur lors de la création de l'article de stock.");
         }
     }
 }

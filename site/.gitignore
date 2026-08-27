@@ -1,0 +1,6 @@
+# Generated. `node build.mjs` writes dist/, `node preview.mjs` writes preview/.
+# dist/ is what gets deployed to oumayma-404/gestion-clinique-site — it is a
+# build output here, not a source. preview/index.html is one ~2 MB self-contained
+# file rebuilt on every publish, which git should never carry.
+dist/
+preview/

@@ -1,0 +1,102 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
+using ClinicManagement.Application.Common;
+
+namespace ClinicManagement.Infrastructure.Services;
+
+/// <summary>
+/// The one place that knows how a reminder states an appointment's moment — and therefore the one place able to
+/// tell whether a queued reminder is still telling the truth.
+///
+/// <para><b>Why the check reads the body.</b> A reminder's text and its <c>ScheduledFor</c> are frozen at enqueue,
+/// so any write path that moves an appointment without voiding and re-enqueuing leaves a row that will cheerfully
+/// announce the old day (L3b — the Google→App sync did exactly that: it called <c>Reschedule</c> and committed
+/// straight through the repository, with <c>IReminderScheduler</c> not injected into that class at all). The
+/// dispatcher's existing safety net re-checked the appointment's <b>status</b> and never its <b>time</b>.</para>
+///
+/// <para>Reading the body rather than a stored snapshot is deliberate: it needs no column, and it validates the
+/// exact thing the patient will read. The formatter below is shared with the scheduler that writes the body, so
+/// the writer and the checker cannot drift — which is the whole reason this is a class and not two string
+/// literals in two files.</para>
+/// </summary>
+public static class ReminderMessage
+{
+    private static readonly CultureInfo FrCulture = CultureInfo.GetCultureInfo("fr-FR");
+
+    /// <summary>
+    /// Does the message carry a day <b>and</b> a time at all? A clinic whose custom wording omits
+    /// <c>{date}</c> has nothing to be wrong about, and must not have its reminders dropped by a check for a
+    /// statement it never makes.
+    /// </summary>
+    private static readonly Regex CarriesADay = new(@"\b\d{2}/\d{2}/\d{4}\b", RegexOptions.Compiled);
+    private static readonly Regex CarriesAnHour = new(@"\b\d{1,2}:\d{2}\b", RegexOptions.Compiled);
+
+    /// <summary>
+    /// A day and month with <b>no year</b> — « 30/08 ».
+    ///
+    /// <para>⚠️ This was the hole. <see cref="CarriesADay"/> matches only the full <c>dd/MM/yyyy</c> the current
+    /// writer emits, so a body stating a bare day/month satisfied neither branch and the check answered « not
+    /// stale » — a reminder announcing 30/08 for an appointment that had moved passed unflagged, which is exactly
+    /// the failure this class exists to prevent. Bodies in that shape are real: 19 of 22 <c>Sent</c> rows in the
+    /// QA pass carried one, whether from an older build, an import, or a clinic's own wording.</para>
+    ///
+    /// <para>The lookarounds keep it from firing on the two halves of a full date (<c>30/08</c> inside
+    /// <c>30/08/2026</c>) — so the full-date branch stays the one that handles those.</para>
+    /// </summary>
+    private static readonly Regex CarriesADayAndMonth =
+        new(@"(?<!\d)(?<!/)(\d{1,2})/(\d{1,2})(?!/)(?!\d)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// How every reminder body states the appointment's moment: clinic-local (Tunisia is UTC+1), French order.
+    /// </summary>
+    public static string FormatAppointmentMoment(DateTime appointmentUtc) =>
+        ClinicClock.ToClinicLocal(appointmentUtc).ToString("dd/MM/yyyy 'à' HH:mm", FrCulture);
+
+    /// <summary>
+    /// True when the message states a moment and that moment is <b>not</b> the appointment's current one — i.e.
+    /// the appointment moved after this row was queued and nothing re-enqueued it.
+    ///
+    /// <para>Conservative in the one direction that matters: a message with no day-and-time token is never
+    /// stale, and neither is one that still contains the current moment. A clinic that hard-codes a *fixed*
+    /// date into its template would read as stale — but a template naming one calendar day is not a template,
+    /// and the alternative (trusting the row) is the defect this exists to close.</para>
+    /// </summary>
+    public static bool AnnouncesStaleMoment(string? message, DateTime appointmentUtc)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return false;
+        }
+
+        if (!CarriesAnHour.IsMatch(message))
+        {
+            return false;
+        }
+
+        // The writer's own format, so an exact match is the right test — and the strictest available.
+        if (CarriesADay.IsMatch(message))
+        {
+            return !message.Contains(FormatAppointmentMoment(appointmentUtc), StringComparison.Ordinal);
+        }
+
+        /*
+         * A bare day/month. Compared NUMERICALLY rather than by formatting a second string: this shape is not
+         * something this codebase writes, so its spacing and zero-padding are unknown — « 30/08 », « 30/8 » and
+         * « le 30/08 à 14:30 » all mean the same thing, and a `Contains` against one rendering of it would flag
+         * the other two as stale. A day and a month with no year is unambiguous over the ~72-hour horizon a
+         * reminder is queued for.
+         */
+        var shortDay = CarriesADayAndMonth.Match(message);
+        if (!shortDay.Success)
+        {
+            return false;
+        }
+
+        var local = ClinicClock.ToClinicLocal(appointmentUtc);
+
+        return !int.TryParse(shortDay.Groups[1].Value, out var day)
+            || !int.TryParse(shortDay.Groups[2].Value, out var month)
+            || day != local.Day
+            || month != local.Month;
+    }
+}

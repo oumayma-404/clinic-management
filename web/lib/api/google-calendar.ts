@@ -1,4 +1,4 @@
-import { apiGet } from './client';
+import { apiGet, apiPost } from './client';
 
 export interface GoogleCalendarStatus {
   isConfigured: boolean;
@@ -25,52 +25,39 @@ export const googleCalendarApi = {
   },
 
   /**
-   * Initiate Google Calendar OAuth authorization
-   * This will redirect the user to Google's authorization page
+   * Initiate Google Calendar OAuth for the current clinic (admin only). Calls the authenticated connect
+   * endpoint to obtain a clinic-bound authorization URL, then navigates the browser to Google. Per-clinic
+   * so each clinic connects its OWN Google account/calendar (no shared account across clinics).
    */
-  authorize: (): void => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-    window.location.href = `${apiUrl}/googlecalendar/authorize`;
+  connect: async (): Promise<void> => {
+    const { authUrl } = await apiPost<{ authUrl: string }>('/googlecalendar/connect', {});
+    window.location.href = authUrl;
   },
 
   /**
-   * Sync from Google Calendar to clinic appointments
+   * AC-P2.33: disconnect this clinic from Google Calendar (admin only) — clears the stored refresh token and
+   * calendar id, so pushes stop and `getStatus()` reports « non connecté ». Appointments already pushed keep
+   * their `googleCalendarEventId`: nothing is deleted in the clinic's Google account (AC-P2.35).
+   */
+  disconnect: async (): Promise<void> => {
+    await apiPost<{ disconnected: boolean }>('/googlecalendar/disconnect', {});
+  },
+
+  /**
+   * Sync from Google Calendar to clinic appointments.
+   * Routed through the shared client.ts wrapper so a mid-request connectivity loss surfaces as
+   * ApiError(status === 0) — unifying calendar failure handling with the AI path (AC-6.5, R-7).
    */
   syncFromGoogle: async (): Promise<{ message: string; timestamp: string }> => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-    const response = await fetch(`${apiUrl}/googlecalendar/sync-from-google`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to sync from Google Calendar');
-    }
-
-    return response.json();
+    return apiPost<{ message: string; timestamp: string }>('/googlecalendar/sync-from-google', {});
   },
 
   /**
-   * Sync a specific appointment to Google Calendar
+   * Sync a specific appointment to Google Calendar (manual "Push to Google").
+   * Routed through client.ts for the same ApiError(status === 0) offline signal (AC-6.5, R-7).
    */
   syncAppointment: async (appointmentId: string): Promise<{ message: string }> => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-    const response = await fetch(`${apiUrl}/googlecalendar/sync-appointment/${appointmentId}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to sync appointment to Google Calendar');
-    }
-
-    return response.json();
+    return apiPost<{ message: string }>(`/googlecalendar/sync-appointment/${appointmentId}`, {});
   },
 };
 

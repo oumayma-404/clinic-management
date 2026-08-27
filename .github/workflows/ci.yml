@@ -1,0 +1,243 @@
+# The backend and frontend gate — the one this repository did not have.
+#
+# Until this file, `.github/workflows/` held exactly one workflow (the iOS shell's), so nothing built `api/` or
+# `web/` on a push. That mattered for two reasons beyond the usual. **The unit suite is the only automated check
+# the backend has** — there is no integration test and nothing touches a database — and it was being run by hand
+# on a Windows machine where Smart App Control intermittently refuses freshly-built test assemblies, which makes
+# "the suite is green" a claim nobody could cheaply verify. And **`web/` has no test runner and no working
+# ESLint**, so `tsc --noEmit` + `check:responsive` + `next build` are not a subset of its gate, they ARE its gate
+# (`.claude/rules/frontend-web.md` says so); running them anywhere other than a developer's memory is new.
+#
+# ⚠️ Six jobs, deliberately independent rather than one matrix: they share no toolchain (dotnet / node / JDK),
+# and a failure should name which stack broke without reading a log. `desktop` and `android` are the shells' only
+# static gates and have never run outside the author's machine; neither can be a *complete* gate, because both
+# products' real verification is a walk on hardware — see `desktop/CLAUDE.md` and `mobile/CLAUDE.md`.
+#
+# ⚠️ `mobile/ios/` is NOT here: it needs a macOS runner, which is billed on private repositories, so it keeps its
+# own path-filtered workflow and its own decision about when to spend that.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run's answer worthless. Cancel it rather than queue it — but
+# never on the default branch, where each commit's result is a record rather than a preview.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  api:
+    name: API — build + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # Restore separately so a dependency failure is not reported as a compile error.
+      - name: Restore
+        run: dotnet restore api/ClinicManagement.sln
+
+      # ⚠️ `--no-restore`, never `--no-build` on the test step below: a stale assembly passing is worse than no
+      # gate at all, and this repo has been bitten by exactly that.
+      - name: Build
+        run: dotnet build api/ClinicManagement.sln --configuration Release --no-restore
+
+      - name: Unit tests
+        run: >
+          dotnet test api/ClinicManagement.UnitTests/ClinicManagement.UnitTests.csproj
+          --configuration Release --no-build --logger "trx;LogFileName=api-tests.trx"
+
+      - name: Upload test results
+        if: always() # The results matter most when the step above failed.
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-results
+          path: "**/TestResults/*.trx"
+          if-no-files-found: warn
+
+  web:
+    name: Web — typecheck + responsive + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # The three checks `.claude/rules/frontend-web.md` names, in its order. Typecheck first: it is the fastest
+      # and the one whose failure makes the other two meaningless.
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Responsive rules
+        run: npm run check:responsive
+
+      - name: Build
+        run: npm run build
+
+  # The vendor console (platform-console Part 1) — a SECOND Next application, held to exactly the `web` job's
+  # gate above. Its own job rather than a matrix entry with `web`, for the same reason the four existing jobs are
+  # separate: a failure should name the stack without anyone reading a log, and these two share no lockfile.
+  #
+  # ⚠️ It runs the console's OWN `scripts/check-responsive.mjs`. That file is a copy of `web`'s with two
+  # documented differences (the agenda check deleted, the inherited card-fallback exemptions emptied), and the
+  # copy is deliberate: two applications in one repository held to one device contract is the point, and a
+  # symlink or a shared script would have to grow a per-app branch at the first divergence.
+  console:
+    name: Console — typecheck + responsive + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Responsive rules
+        run: npm run check:responsive
+
+      - name: Build
+        run: npm run build
+
+  # Known-vulnerable dependencies, across all three package graphs. Until this job, NOTHING in this repository
+  # scanned anything: `SECURITY_REVIEW_2026-08.md`'s own « Scope and limits » names a dependency-vulnerability scan
+  # as one of three open items, and the other two (dynamic testing, a penetration test) cannot be automated here.
+  # This one can, so it is a gate rather than a note.
+  #
+  # ⚠️ Its own job for the same reason the five above are separate: three toolchains, and a failure should name
+  # which package graph is affected without anyone reading a log.
+  #
+  # ⚠️ `--include-transitive` on the .NET side is the whole point — a direct dependency is visible in a .csproj and
+  # gets noticed; a transitive one three levels down is exactly what nobody is tracking.
+  #
+  # ⚠️ `dotnet list package --vulnerable` exits **0 even when it finds something** (it is a reporting verb, not a
+  # gate), so the output is grepped and the step fails on a hit. Without that grep this job is decorative — the
+  # failure shape `SECURITY_ARCHITECTURE.md` § 9.7 calls « present and inert ». `set -o pipefail` matters too, or
+  # a crashed dotnet reads as clean.
+  #
+  # ⚠️ `npm audit` DOES exit non-zero, and deliberately at `--audit-level=high`: a moderate advisory in a
+  # transitive dev-only build dependency must not be able to block a clinical bug fix from shipping. High and
+  # critical do.
+  dependencies:
+    name: Dependencies — known vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Restore (api)
+        run: dotnet restore api/ClinicManagement.sln
+
+      - name: Audit NuGet packages
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet list api/ClinicManagement.sln package --vulnerable --include-transitive \
+            | tee nuget-audit.txt
+          if grep -qiE '^\s*>\s|has the following vulnerable packages' nuget-audit.txt; then
+            echo "::error title=Vulnerable NuGet package::See the report above."
+            exit 1
+          fi
+          echo "No known-vulnerable NuGet packages."
+
+      # `npm audit` needs no install — it reads the lockfile — so this is fast and cannot be broken by a
+      # postinstall script. `--omit=dev` is deliberately NOT passed: the build toolchain runs on CI and on
+      # developer machines, and a compromised build dependency reaches the shipped bundle.
+      - name: Audit web packages
+        working-directory: web
+        run: npm audit --audit-level=high
+
+      - name: Audit console packages
+        working-directory: console
+        run: npm audit --audit-level=high
+
+  desktop:
+    name: Desktop shell — build
+    # Windows-only by construction: net8.0-windows + WPF. It cannot be *run* here (WebView2 runtime), so this
+    # proves it compiles and nothing more — which is still strictly more than it had.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build
+        run: dotnet build desktop/ClinicManagement.DesktopShell.sln --configuration Release
+
+  android:
+    name: Android shell — lint + assemble
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile/android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Lint runs with `warningsAsErrors`, and it is the module's ONLY static gate — there is no test source set.
+      - name: Lint
+        run: ./gradlew --no-daemon lint
+
+      # ⚠️ Gradle prints « Lint found N errors. First failure: … » and then only the FIRST one, so errors 2..N
+      # never reach the log and the HTML artifact has to be downloaded to read them. That gap cost a full round
+      # trip diagnosing a red build whose second error nobody could see. The text report carries all of them.
+      # `find` rather than a literal path: the intermediates directory is AGP-version-specific.
+      - name: Show the full lint report on failure
+        if: failure()
+        run: find app/build -name 'lint-results-*.txt' -print -exec cat {} \; || true
+
+      - name: Assemble debug
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-lint-report
+          path: |
+            mobile/android/app/build/reports/lint-results-*.html
+            mobile/android/app/build/intermediates/**/lint-results-*.txt
+          if-no-files-found: warn

@@ -1,0 +1,11 @@
+# Place your rclone.conf here (gitignored) defining the off-site remote referenced by
+# BACKUP_REMOTE in .env. Example — create it with `rclone config` then copy, or hand-write:
+#
+#   [offsite]
+#   type = s3
+#   provider = Backblaze
+#   access_key_id = ...
+#   secret_access_key = ...
+#   endpoint = s3.eu-central-003.backblazeb2.com
+#
+# rclone supports S3, B2, SFTP, Google Drive, and many more — see https://rclone.org/docs/

@@ -1,0 +1,20 @@
+<!--
+  The app icon master. THE one authority for the mark — `scripts/generate-icons.mjs` reads the `#mark` path out of
+  this file and composes all seven shipped assets from it, so a designer replaces this file and re-runs the script.
+
+  Two things the script depends on and a designer must keep:
+    * `id="mark"` on the glyph path — that is what the script extracts.
+    * the `0 0 512 512` viewBox — every variant's geometry is expressed against it.
+
+  Colours are the app's own tokens, converted from `app/globals.css`:
+    --primary            oklch(0.485 0.101 234)  = #02678f
+    --primary-foreground oklch(0.99  0.005 234)  = #f9fcff
+  ⚠️ These are duplicated in `scripts/generate-icons.mjs` (PRIMARY / INK_ON_PRIMARY) because the script composes
+  every output's own plate and ink rather than reading this file's `<rect>`. Both move together, or the master
+  previews in one colour and ships in another.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img"
+     aria-label="Gestion Clinique">
+  <rect width="512" height="512" rx="112" fill="#02678f"/>
+  <path id="mark" fill="#f9fcff" d="M256 128C196 128 152 162 152 214C152 252 160 286 168 322C174 350 180 380 190 392C200 404 214 400 218 382C226 344 234 316 244 300C248 292 264 292 268 300C278 316 286 344 294 382C298 400 312 404 322 392C332 380 338 350 344 322C352 286 360 252 360 214C360 162 316 128 256 128Z"/>
+</svg>

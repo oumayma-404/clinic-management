@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -39,14 +40,14 @@ public class UpdateDoctorsCommandHandler : IRequestHandler<UpdateDoctorsCommand,
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<List<DoctorDto>>.Failure("User ID not found in token");
+                return Result<List<DoctorDto>>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             // Get user from database to get clinic ID
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result<List<DoctorDto>>.Failure("User not found");
+                return Result<List<DoctorDto>>.Failure("Utilisateur introuvable.");
             }
 
             var clinicId = user.ClinicId;
@@ -76,7 +77,7 @@ public class UpdateDoctorsCommandHandler : IRequestHandler<UpdateDoctorsCommand,
                         var firstName = doctorDto.FirstName ?? (doctorDto.Name?.Split(' ', 2)[0] ?? "");
                         var lastName = doctorDto.LastName ?? (doctorDto.Name?.Split(' ', 2).Length > 1 ? doctorDto.Name.Split(' ', 2)[1] : "");
                         
-                        existingDoctor.Update(firstName, lastName, doctorDto.Specialty, doctorDto.Phone, doctorDto.Email);
+                        existingDoctor.Update(firstName, lastName, doctorDto.Specialty, doctorDto.Phone, doctorDto.Email, doctorDto.CodeProfessionnelSante);
                         _doctorRepository.Update(existingDoctor);
                         doctorIdsToKeep.Add(existingDoctor.Id);
                     }
@@ -113,7 +114,8 @@ public class UpdateDoctorsCommandHandler : IRequestHandler<UpdateDoctorsCommand,
                         lastName,
                         doctorDto.Specialty,
                         doctorDto.Phone,
-                        doctorDto.Email);
+                        doctorDto.Email,
+                        doctorDto.CodeProfessionnelSante);
                     await _doctorRepository.AddAsync(newDoctor, cancellationToken);
                     doctorIdsToKeep.Add(newDoctor.Id);
                 }
@@ -138,12 +140,13 @@ public class UpdateDoctorsCommandHandler : IRequestHandler<UpdateDoctorsCommand,
                 LastName = d.LastName,
                 Specialty = d.Specialty,
                 Phone = d.Phone,
-                Email = d.Email
+                Email = d.Email,
+                CodeProfessionnelSante = d.CodeProfessionnelSante
             }).ToList();
 
             return Result<List<DoctorDto>>.Success(doctorDtos);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<List<DoctorDto>>.Failure($"Error updating doctors: {ex.Message}");
         }

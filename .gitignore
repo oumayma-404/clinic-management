@@ -6,6 +6,10 @@ out/
 # .NET build output
 [Bb]in/
 [Oo]bj/
+# Scratch OutDir for `dotnet vstest`. Smart App Control refuses freshly-built assemblies under %TEMP%, so the
+# suite is built INSIDE the repo instead (see ClinicManagement.UnitTests/CLAUDE.md) — which puts real build
+# output in a path `[Bb]in/` does not cover.
+.testrun/
 
 # .NET / Rider / VS
 *.user
@@ -18,3 +22,59 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local (offline) mode per-install secrets — generated at first run, never committed
+# (.local/ covers the signing key, cert password, generated ca.crt / server.pfx — FR-F4)
+.local/
+**/signing-key
+
+# Packaging build artifacts (Phase 5) — keep the committed .iss/.ps1 scripts, ignore build output
+packaging/**/build-output/
+packaging/build-output/
+# Operator-supplied third-party binaries staged for the installers (not committed)
+packaging/server/tools/
+# Build-time tools fetched by fetch-build-tools.ps1 (PostgreSQL binaries, NSSM) — not committed
+packaging/build-tools/
+
+# Third-party agent skills installed via `npx skills add` (emilkowalski/skills) — personal tooling, not part of
+# the product. `.agents/` holds the real files; the `.claude/skills/` entries are symlinks into it.
+#
+# Listed by name rather than as `.claude/skills/*` on purpose: a blanket rule would silently ignore any NEW
+# project-owned skill too (start-clinic is committed and lives in the same directory). Listing them means a
+# future `skills add` shows up as untracked and visible, instead of disappearing.
+.agents/
+skills-lock.json
+.claude/skills/animation-vocabulary/
+.claude/skills/apple-design/
+.claude/skills/emil-design-eng/
+.claude/skills/find-animation-opportunities/
+.claude/skills/improve-animations/
+.claude/skills/pick-ui-library/
+.claude/skills/prototype/
+.claude/skills/review-animations/
+
+# The LAN certificate password minted by deploy/lan-cert.sh — private key material, never committed.
+deploy/.env
+
+# Key material and per-deployment secrets — NEVER committed.
+#
+# ⚠️ These paths are where the operator docs TELL you to put things. `deploy/docker-compose.hosted.yml` defaults
+# its six Docker secrets to `./secrets/*` and `deploy/KEY-CUSTODY.md` § 1 says
+# `openssl pkcs12 -export … -out deploy/secrets/keyring-certificate.pfx` — i.e. inside the working tree. Without
+# the rules below, one `git add -A` commits the certificate that decrypts every clinic's reminder credentials and
+# every administrator's second factor, plus the audit chain key and BOTH JWT signing keys. Nothing is committed
+# today; these exist so that stays true by construction rather than by whoever is staging.
+deploy/secrets/
+deploy/rclone/rclone.conf
+clinic-keys/
+# Belt and braces: the extensions themselves, wherever they land. A key outside the folders above is still a key.
+*.pfx
+*.p12
+*.pem
+*.key
+
+# Playwright MCP session artifacts — snapshots, console logs and screenshots from driving the app in a browser.
+# Tooling output about a dev database, never project content. Screenshots used to land in the repo ROOT (the tool
+# writes them to the shell's cwd), which is why they were being deleted by hand; the server now takes
+# `--output-dir` pointing outside the tree, and this covers what earlier sessions left behind.
+.playwright-mcp/

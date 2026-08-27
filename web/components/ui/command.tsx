@@ -46,7 +46,17 @@ const CommandInput = React.forwardRef<
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        "flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+        /*
+         * `text-base md:text-sm`, not a bare `text-sm` — the iOS focus-zoom guard.
+         *
+         * Safari auto-zooms the page whenever a focused field's font-size is under 16 px, and it does **not**
+         * zoom back out on blur: the user is left on a magnified, sideways-scrolling app. `ui/input.tsx`,
+         * `ui/textarea.tsx` and `ui/time-field.tsx` all carry this pair for that reason; `CommandInput` was
+         * missed, and it backs nine pickers — the appointment acts picker, both patient pickers, the ordonnance
+         * medication lookup, the CNAM act lookups and the invoice/devis act pickers — every one of them inside
+         * a dialog, where a zoomed viewport is hardest to recover from.
+         */
+        "flex h-11 w-full rounded-md bg-transparent py-3 text-base outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
         className
       )}
       {...props}
@@ -117,7 +127,19 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-accent aria-selected:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      /*
+       * `coarse:py-3` grows the ROW, it does not overlay it.
+       *
+       * `py-1.5` plus a 20 px line box is a 32 px stacked row. `SelectItem` and `DropdownMenuItem` both took
+       * `coarse:py-3` for this and `CommandItem` was missed — which matters most here, because these lists are
+       * the act and patient pickers, where a mis-tap silently selects the neighbouring act and changes the fee
+       * and the état résultant written to the odontogram.
+       *
+       * Growing rather than overlaying is deliberate and is the rule for anything in a **stack**: a 44 px
+       * `.touch-target` pseudo-element on a 32 px row overhangs its neighbours by 6 px each side, and since the
+       * later sibling paints last it steals their taps. Padding cannot do that.
+       */
+      "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors duration-100 aria-selected:bg-accent aria-selected:text-accent-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 coarse:py-3",
       className
     )}
     {...props}

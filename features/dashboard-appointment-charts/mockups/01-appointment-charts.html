@@ -1,0 +1,1675 @@
+<title>Rendez-vous par statut</title>
+
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   DOCUMENT TOKENS — the same three-state pattern the other mockups in this
+   repo use: bare :root = light, prefers-color-scheme guarded so an explicit
+   light choice wins, and [data-theme="dark"] so a toggle wins the other way.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root {
+  --doc-bg:        oklch(0.982 0.006 232);
+  --doc-panel:     oklch(1 0 0);
+  --doc-ink:       oklch(0.215 0.020 236);
+  --doc-ink-soft:  oklch(0.505 0.021 234);
+  --doc-ink-faint: oklch(0.615 0.016 234);
+  --doc-line:      oklch(0.905 0.013 230);
+  --doc-line-soft: oklch(0.945 0.010 230);
+  --doc-accent:    oklch(0.485 0.101 234);
+  --doc-accent-w:  oklch(0.952 0.026 232);
+  --doc-good:      oklch(0.48 0.12 155);
+  --doc-good-w:    oklch(0.955 0.035 155);
+  --doc-warn:      oklch(0.46 0.11 62);
+  --doc-warn-w:    oklch(0.965 0.045 80);
+  --doc-bad:       oklch(0.52 0.19 25);
+  --doc-bad-w:     oklch(0.962 0.030 25);
+  --doc-code-bg:   oklch(0.960 0.012 230);
+
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --col: 68ch;
+  --shadow-sm: 0 1px 2px 0 oklch(0.20 0.02 235 / 0.05), 0 1px 3px 0 oklch(0.20 0.02 235 / 0.04);
+  --shadow-md: 0 2px 4px -1px oklch(0.20 0.02 235 / 0.05), 0 5px 12px -2px oklch(0.20 0.02 235 / 0.07);
+  --shadow-lg: 0 4px 8px -2px oklch(0.20 0.02 235 / 0.06), 0 14px 28px -6px oklch(0.20 0.02 235 / 0.09);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --doc-bg:        oklch(0.215 0.006 268);
+    --doc-panel:     oklch(0.278 0.006 265);
+    --doc-ink:       oklch(0.905 0.004 260);
+    --doc-ink-soft:  oklch(0.700 0.008 265);
+    --doc-ink-faint: oklch(0.615 0.008 265);
+    --doc-line:      oklch(0.362 0.008 268);
+    --doc-line-soft: oklch(0.318 0.007 268);
+    --doc-accent:    oklch(0.740 0.125 234);
+    --doc-accent-w:  oklch(0.345 0.030 245);
+    --doc-good:      oklch(0.740 0.130 155);
+    --doc-good-w:    oklch(0.330 0.042 155);
+    --doc-warn:      oklch(0.810 0.120 80);
+    --doc-warn-w:    oklch(0.345 0.048 78);
+    --doc-bad:       oklch(0.735 0.155 25);
+    --doc-bad-w:     oklch(0.322 0.048 25);
+    --doc-code-bg:   oklch(0.318 0.007 268);
+  }
+}
+:root[data-theme="dark"] {
+  --doc-bg:        oklch(0.215 0.006 268);
+  --doc-panel:     oklch(0.278 0.006 265);
+  --doc-ink:       oklch(0.905 0.004 260);
+  --doc-ink-soft:  oklch(0.700 0.008 265);
+  --doc-ink-faint: oklch(0.615 0.008 265);
+  --doc-line:      oklch(0.362 0.008 268);
+  --doc-line-soft: oklch(0.318 0.007 268);
+  --doc-accent:    oklch(0.740 0.125 234);
+  --doc-accent-w:  oklch(0.345 0.030 245);
+  --doc-good:      oklch(0.740 0.130 155);
+  --doc-good-w:    oklch(0.330 0.042 155);
+  --doc-warn:      oklch(0.810 0.120 80);
+  --doc-warn-w:    oklch(0.345 0.048 78);
+  --doc-bad:       oklch(0.735 0.155 25);
+  --doc-bad-w:     oklch(0.322 0.048 25);
+  --doc-code-bg:   oklch(0.318 0.007 268);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--doc-bg);
+  color: var(--doc-ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px 96px; }
+.col  { max-width: var(--col); }
+
+/* ── masthead ───────────────────────────────────────────────────────────── */
+.mast { padding: 56px 0 34px; border-bottom: 1px solid var(--doc-line); }
+.eyebrow {
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.12em; color: var(--doc-ink-soft);
+  display: flex; align-items: center; gap: 8px; margin: 0 0 14px;
+}
+.eyebrow::before {
+  content: ""; width: 6px; height: 6px; border-radius: 999px;
+  background: var(--doc-accent); flex: none;
+}
+h1 {
+  font-size: clamp(34px, 6vw, 50px); line-height: 1.04; letter-spacing: -0.033em;
+  font-weight: 640; margin: 0 0 18px; text-wrap: balance;
+}
+.lede { font-size: 18px; line-height: 1.6; color: var(--doc-ink-soft); margin: 0; max-width: 62ch; }
+.lede strong { color: var(--doc-ink); font-weight: 600; }
+
+section { padding-top: 60px; }
+h2 { font-size: 25px; letter-spacing: -0.022em; font-weight: 630; margin: 0 0 8px; text-wrap: balance; }
+h3 { font-size: 17px; letter-spacing: -0.012em; font-weight: 620; margin: 30px 0 8px; }
+h4 { font-size: 14.5px; letter-spacing: -0.006em; font-weight: 640; margin: 22px 0 6px; }
+p { margin: 0 0 15px; }
+.col p, .col ul, .col ol { max-width: var(--col); }
+a { color: var(--doc-accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+code {
+  font-family: var(--mono); font-size: 0.855em; background: var(--doc-code-bg);
+  padding: 0.12em 0.38em; border-radius: 5px; word-break: break-word;
+}
+ul, ol { padding-inline-start: 1.3em; margin: 0 0 15px; }
+li { margin-bottom: 7px; }
+li::marker { color: var(--doc-ink-faint); }
+.soft { color: var(--doc-ink-soft); }
+.mono-num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ── option cards ───────────────────────────────────────────────────────── */
+.ledger { display: grid; gap: 12px; margin-top: 24px; }
+.bug {
+  background: var(--doc-panel); border: 1px solid var(--doc-line);
+  border-radius: 12px; padding: 16px 18px;
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 14px;
+  box-shadow: var(--shadow-sm);
+}
+.bug-tag {
+  grid-row: 1 / span 3; align-self: start;
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 4px 8px; border-radius: 6px; white-space: nowrap;
+}
+.bug-tag.sev  { background: var(--doc-bad-w);  color: var(--doc-bad); }
+.bug-tag.mid  { background: var(--doc-warn-w); color: var(--doc-warn); }
+.bug-tag.rec  { background: var(--doc-good-w); color: var(--doc-good); }
+.bug-tag.low  { background: var(--doc-code-bg); color: var(--doc-ink-soft); }
+.bug-what { font-weight: 600; font-size: 15.5px; letter-spacing: -0.008em; }
+.bug-why  { font-size: 14.5px; color: var(--doc-ink-soft); }
+.bug-fix  { font-size: 14px; }
+.bug-fix b { font-weight: 620; }
+
+/* ── canvas: the app mockup surface ─────────────────────────────────────── */
+.canvas-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px; margin: 30px 0 10px; }
+.canvas-name {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.12em; color: var(--doc-ink-soft);
+}
+.canvas-note { font-size: 13px; color: var(--doc-ink-faint); }
+.tog {
+  margin-inline-start: auto; display: inline-flex; gap: 2px; padding: 2px;
+  background: var(--doc-code-bg); border-radius: 8px; border: 1px solid var(--doc-line);
+}
+.tog button {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  border: 0; background: transparent; color: var(--doc-ink-soft);
+  padding: 5px 10px; border-radius: 6px; cursor: pointer; font-weight: 600;
+}
+.tog button[aria-pressed="true"] { background: var(--doc-panel); color: var(--doc-accent); box-shadow: var(--shadow-sm); }
+.tog button:focus-visible { outline: 2px solid var(--doc-accent); outline-offset: 1px; }
+
+.cv { border: 1px solid var(--doc-line); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-md); }
+.cv-inner { padding: 26px 22px 30px; overflow-x: auto; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   APP TOKENS — transcribed from web/app/globals.css, both modes, scoped to
+   the canvas so a canvas never borrows the document's theme.
+   ══════════════════════════════════════════════════════════════════════════ */
+.cv[data-mode="light"] {
+  --ground:  oklch(0.977 0.011 230);
+  --card:    oklch(1 0 0);
+  --fg:      oklch(0.205 0.020 236);
+  --fg-soft: oklch(0.50 0.021 234);
+  --line:    oklch(0.91 0.013 230);
+  --primary: oklch(0.485 0.101 234);
+  --pri-fg:  oklch(0.99 0.005 234);
+  --muted:   oklch(0.964 0.012 230);
+  --accent:  oklch(0.948 0.031 230);
+  --success: oklch(0.52 0.12 155);
+  --success-w: oklch(0.955 0.035 155);
+  --warning-w: oklch(0.965 0.045 80);
+  --warning-ink: oklch(0.45 0.11 62);
+  --destructive: oklch(0.55 0.19 25);
+  --destructive-w: oklch(0.962 0.03 25);
+  --chart-1: oklch(0.615 0.128 234);
+  /* THE FIVE STATUS CLASSES, in the validated stack order (bottom to top). */
+  --s-termine:   oklch(0.52 0.12 155);   /* --success           #187c49 */
+  --s-avenir:    oklch(0.615 0.128 234); /* --chart-1           #0490c5 */
+  --s-acloturer: oklch(0.62 0.13 72);    /* --warning           #b6770b */
+  --s-annule:    oklch(0.50 0.021 234);  /* --muted-foreground  #58666e */
+  --s-absent:    oklch(0.55 0.19 25);    /* --destructive       #c92f33 */
+  --el-sm: 0 1px 2px 0 oklch(0.20 0.02 235 / 0.05), 0 1px 3px 0 oklch(0.20 0.02 235 / 0.04);
+  --el-md: 0 2px 4px -1px oklch(0.20 0.02 235 / 0.05), 0 5px 12px -2px oklch(0.20 0.02 235 / 0.07);
+  --el-lg: 0 4px 8px -2px oklch(0.20 0.02 235 / 0.06), 0 14px 28px -6px oklch(0.20 0.02 235 / 0.09);
+  background: var(--ground); color: var(--fg);
+}
+.cv[data-mode="dark"] {
+  --ground:  oklch(0.245 0.006 268);
+  --card:    oklch(0.305 0.006 265);
+  --fg:      oklch(0.895 0.004 260);
+  --fg-soft: oklch(0.685 0.008 265);
+  --line:    oklch(0.372 0.008 268);
+  --primary: oklch(0.72 0.125 234);
+  --pri-fg:  oklch(0.20 0.030 240);
+  --muted:   oklch(0.345 0.007 265);
+  --accent:  oklch(0.368 0.030 245);
+  --success: oklch(0.72 0.13 155);
+  --success-w: oklch(0.340 0.042 155);
+  --warning-w: oklch(0.355 0.048 78);
+  --warning-ink: oklch(0.87 0.11 80);
+  --destructive: oklch(0.70 0.155 25);
+  --destructive-w: oklch(0.330 0.048 25);
+  --chart-1: oklch(0.71 0.135 234);
+  --s-termine:   oklch(0.72 0.13 155);   /* #57bc80 */
+  --s-avenir:    oklch(0.71 0.135 234);  /* #30aee8 */
+  --s-acloturer: oklch(0.78 0.13 78);    /* #e5ac4c */
+  --s-annule:    oklch(0.685 0.008 265); /* #979a9f */
+  --s-absent:    oklch(0.70 0.155 25);   /* #ef736c */
+  --el-sm: 0 1px 2px 0 oklch(0.20 0.02 235 / 0.05), 0 1px 3px 0 oklch(0.20 0.02 235 / 0.04);
+  --el-md: 0 2px 4px -1px oklch(0.20 0.02 235 / 0.05), 0 5px 12px -2px oklch(0.20 0.02 235 / 0.07);
+  --el-lg: 0 4px 8px -2px oklch(0.20 0.02 235 / 0.06), 0 14px 28px -6px oklch(0.20 0.02 235 / 0.09);
+  background: var(--ground); color: var(--fg);
+}
+
+/* ── app primitives ─────────────────────────────────────────────────────── */
+.zones { display: grid; gap: 22px; min-width: 640px; }
+.zones.narrow { min-width: 0; }
+.secbar {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 8px;
+}
+.sectitle {
+  display: flex; align-items: center; gap: 8px; margin: 0;
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.12em; color: var(--fg-soft);
+}
+.sectitle .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--primary); flex: none; }
+.sechint { font-size: 12px; color: var(--fg-soft); font-family: var(--mono); }
+
+.seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--muted); border: 1px solid var(--line); border-radius: 10px; }
+.seg span { font-size: 12.5px; font-weight: 500; color: var(--fg-soft); padding: 5px 11px; border-radius: 7px; white-space: nowrap; }
+.seg span.on {
+  background: var(--card); color: var(--primary); font-weight: 620;
+  box-shadow: var(--el-sm); outline: 1px solid color-mix(in oklab, var(--primary) 30%, transparent);
+}
+.seg.wfull { display: flex; width: 100%; }
+.seg.wfull span { flex: 1; text-align: center; padding-inline: 4px; }
+
+.acard {
+  background: var(--card); border: 1px solid transparent; border-radius: 14px;
+  box-shadow: var(--el-md); padding: 18px 20px; display: grid; gap: 14px; align-content: start;
+}
+.acard-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.acard-title { margin: 0; font-size: 14.5px; font-weight: 620; letter-spacing: -0.008em; }
+.acard-sub { margin: 3px 0 0; font-size: 12px; color: var(--fg-soft); }
+.acard-sub.mono { font-family: var(--mono); }
+.ghostbtn {
+  font-size: 12.5px; font-weight: 550; color: var(--fg); background: var(--card);
+  border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; white-space: nowrap;
+}
+.two { display: grid; gap: 14px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+
+.stub {
+  border: 1px dashed var(--line); border-radius: 14px; padding: 13px 16px; color: var(--fg-soft);
+  display: flex; align-items: center; gap: 10px; font-size: 12.5px;
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+}
+.stub b { color: var(--fg); font-weight: 600; }
+
+/* ── the stacked-column chart ───────────────────────────────────────────── */
+.plot { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 0 8px; }
+.yax {
+  display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end;
+  font-family: var(--mono); font-size: 10.5px; color: var(--fg-soft);
+  height: 176px; line-height: 1;
+}
+.yax span { transform: translateY(-50%); }
+.yax span:first-child { transform: translateY(-20%); }
+.yax span:last-child { transform: translateY(-80%); }
+.field { position: relative; height: 176px; }
+.grid { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; }
+.grid i { display: block; height: 1px; background: var(--line); }
+.track { position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 4px; }
+.track > div { flex: 1 1 0; min-width: 10px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
+.stk {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; max-width: 34px; margin-inline: auto;
+  border-radius: 4px 4px 0 0; overflow: hidden;
+}
+.stk i { display: block; flex-basis: 0; }
+.stk i.termine   { background: var(--s-termine); }
+.stk i.avenir    { background: var(--s-avenir); }
+.stk i.acloturer { background: var(--s-acloturer); }
+.stk i.annule    { background: var(--s-annule); }
+.stk i.absent    { background: var(--s-absent); }
+.xax {
+  display: flex; gap: 4px; margin-top: 7px; padding-inline-start: 42px;
+  font-family: var(--mono); font-size: 10.5px; color: var(--fg-soft);
+}
+.xax span { flex: 1 1 0; min-width: 10px; text-align: center; white-space: nowrap; }
+.xax span.now { color: var(--primary); font-weight: 700; }
+
+/* the single-day form: one horizontal stacked bar, never a one-column chart */
+.hbar { display: flex; gap: 2px; height: 26px; border-radius: 6px; overflow: hidden; }
+.hbar i { display: block; }
+.hbar i.termine   { background: var(--s-termine); }
+.hbar i.avenir    { background: var(--s-avenir); }
+.hbar i.acloturer { background: var(--s-acloturer); }
+.hbar i.annule    { background: var(--s-annule); }
+.hbar i.absent    { background: var(--s-absent); }
+
+/* ── legend: the direct-label channel ───────────────────────────────────── */
+.lgd { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.lgd > div { background: var(--card); padding: 7px 11px; display: flex; align-items: center; gap: 9px; }
+.lgd .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.lgd .sw.termine   { background: var(--s-termine); }
+.lgd .sw.avenir    { background: var(--s-avenir); }
+.lgd .sw.acloturer { background: var(--s-acloturer); }
+.lgd .sw.annule    { background: var(--s-annule); }
+.lgd .sw.absent    { background: var(--s-absent); }
+.lgd .nm { font-size: 12.5px; flex: 1 1 auto; min-width: 0; }
+.lgd .nm em { font-style: normal; color: var(--fg-soft); font-size: 11.5px; }
+.lgd .ct { font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; font-weight: 620; }
+.lgd .pc { font-family: var(--mono); font-size: 11px; color: var(--fg-soft); font-variant-numeric: tabular-nums; width: 44px; text-align: end; }
+
+.total { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.total b { font-size: 27px; font-weight: 680; letter-spacing: -0.028em; line-height: 1; }
+.total .u { font-size: 12.5px; color: var(--fg-soft); }
+.pill {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 620; font-variant-numeric: tabular-nums;
+}
+.pill.up   { background: var(--success-w); color: var(--success); }
+.pill.down { background: var(--destructive-w); color: var(--destructive); }
+
+/* the hover readout */
+.tip {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: var(--el-lg); padding: 9px 11px; width: max-content; font-size: 12px;
+}
+.tip .th { font-family: var(--mono); font-size: 10.5px; color: var(--fg-soft); text-transform: uppercase; letter-spacing: 0.08em; }
+.tip .tt { font-weight: 640; font-size: 13.5px; margin: 3px 0 6px; font-variant-numeric: tabular-nums; }
+.tip ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.tip li { display: flex; align-items: center; gap: 7px; margin: 0; font-variant-numeric: tabular-nums; }
+.tip li .sw { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.tip li .n { flex: 1; color: var(--fg-soft); padding-inline-end: 14px; }
+.tip li b { font-weight: 620; }
+.tip li .sw.termine   { background: var(--s-termine); }
+.tip li .sw.avenir    { background: var(--s-avenir); }
+.tip li .sw.acloturer { background: var(--s-acloturer); }
+.tip li .sw.annule    { background: var(--s-annule); }
+.tip li .sw.absent    { background: var(--s-absent); }
+
+/* the trend chart */
+.trend svg { width: 100%; height: auto; display: block; }
+
+/* the range popover */
+.pop {
+  width: 300px; max-width: 100%; background: var(--card); border: 1px solid var(--line);
+  border-radius: 12px; box-shadow: var(--el-lg); padding: 15px; display: grid; gap: 12px;
+}
+.pop h5 { margin: 0; font-size: 13px; font-weight: 640; }
+.pop .fld { display: grid; gap: 5px; }
+.pop label { font-size: 12px; color: var(--fg-soft); }
+.pop .inp {
+  border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font-size: 13px;
+  background: var(--card); color: var(--fg); font-family: var(--mono); min-height: 44px;
+  display: flex; align-items: center;
+}
+.pop .presets { display: flex; flex-wrap: wrap; gap: 5px; }
+.pop .presets span {
+  font-size: 11.5px; border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; color: var(--fg-soft);
+}
+.pop .go {
+  background: var(--primary); color: var(--pri-fg); border: 0; border-radius: 8px;
+  padding: 9px 12px; font-size: 13px; font-weight: 620; text-align: center; min-height: 44px;
+  display: grid; place-content: center;
+}
+.pop .warn { font-size: 11.5px; color: var(--warning-ink); background: var(--warning-w); border-radius: 7px; padding: 7px 9px; }
+
+/* app table view */
+table.app { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+table.app th, table.app td { text-align: start; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+table.app th {
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--fg-soft);
+}
+table.app td.n, table.app th.n { text-align: end; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+table.app tbody tr:last-child td { border-bottom: 0; }
+table.app tfoot td { font-weight: 640; border-top: 1px solid var(--line); border-bottom: 0; }
+
+/* empty + loading states */
+.states { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+.emptyst {
+  display: grid; justify-items: center; align-content: center; gap: 7px; text-align: center;
+  height: 176px; border-radius: 12px; border: 1px dashed var(--line); padding: 12px;
+}
+.emptyst .ic {
+  width: 34px; height: 34px; border-radius: 10px; display: grid; place-content: center;
+  background: color-mix(in oklab, var(--primary) 10%, transparent); color: var(--primary);
+}
+.emptyst b { font-size: 13.5px; font-weight: 620; }
+.emptyst p { margin: 0; font-size: 12px; color: var(--fg-soft); max-width: 34ch; }
+.skelplot { display: grid; gap: 8px; }
+.skelplot i { display: block; border-radius: 8px; background: var(--muted); }
+
+/* phone frames */
+.phones { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+.phone { flex: none; }
+.phone-cap { font-family: var(--mono); font-size: 10.5px; color: var(--doc-ink-faint); letter-spacing: 0.08em; margin: 0 0 6px; text-transform: uppercase; }
+.phone .cv-inner { padding: 14px 12px 18px; }
+.phone.w390 { width: 390px; }
+.phone.w320 { width: 320px; }
+
+/* verdict + doc tables */
+.verdict { margin: 26px 0 0; border: 1px solid var(--doc-line); border-radius: 12px; background: var(--doc-panel); overflow: hidden; box-shadow: var(--shadow-sm); }
+.verdict-bar {
+  display: flex; align-items: center; gap: 10px; padding: 11px 16px;
+  border-bottom: 1px solid var(--doc-line-soft);
+  font-family: var(--mono); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;
+}
+.verdict-bar.rec  { background: var(--doc-good-w); color: var(--doc-good); }
+.verdict-bar.risk { background: var(--doc-bad-w);  color: var(--doc-bad); }
+.pc2 { display: grid; gap: 0; grid-template-columns: 1fr; }
+@media (min-width: 760px) { .pc2 { grid-template-columns: 1fr 1fr; } }
+.pc2 > div { padding: 15px 17px; }
+.pc2 > div + div { border-top: 1px solid var(--doc-line-soft); }
+@media (min-width: 760px) { .pc2 > div + div { border-top: 0; border-inline-start: 1px solid var(--doc-line-soft); } }
+.pc2 h5 {
+  margin: 0 0 8px; font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--doc-ink-faint);
+}
+.pc2 ul { margin: 0; padding-inline-start: 1.15em; }
+.pc2 li { font-size: 14px; margin-bottom: 6px; }
+
+.tablewrap { overflow-x: auto; margin-top: 20px; border: 1px solid var(--doc-line); border-radius: 12px; background: var(--doc-panel); }
+table.doc { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14.5px; }
+table.doc th, table.doc td { text-align: start; padding: 11px 15px; border-bottom: 1px solid var(--doc-line-soft); vertical-align: top; }
+table.doc th {
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--doc-ink-faint); background: var(--doc-code-bg);
+}
+table.doc tr:last-child td { border-bottom: 0; }
+table.doc td code { white-space: nowrap; }
+table.doc td.pass { color: var(--doc-good); font-weight: 620; }
+table.doc td.fail { color: var(--doc-bad); font-weight: 620; }
+table.doc td.warnc { color: var(--doc-warn); font-weight: 620; }
+.swatch-cell { display: flex; align-items: center; gap: 8px; }
+.swatch-cell i { width: 14px; height: 14px; border-radius: 4px; flex: none; display: block; }
+
+.callout {
+  margin: 24px 0 0; padding: 15px 18px; border-radius: 12px;
+  background: var(--doc-accent-w); border: 1px solid color-mix(in oklab, var(--doc-accent) 22%, transparent);
+  font-size: 14.5px;
+}
+.callout p:last-child { margin-bottom: 0; }
+.callout strong { font-weight: 640; }
+
+ol.asks { counter-reset: ask; list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 10px; }
+ol.asks > li {
+  counter-increment: ask; position: relative; padding: 14px 16px 14px 52px; margin: 0;
+  background: var(--doc-panel); border: 1px solid var(--doc-line); border-radius: 12px;
+  box-shadow: var(--shadow-sm); font-size: 14.5px;
+}
+ol.asks > li::before {
+  content: counter(ask); position: absolute; inset-inline-start: 15px; top: 15px;
+  font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--doc-accent);
+  background: var(--doc-accent-w); width: 24px; height: 24px; border-radius: 7px;
+  display: grid; place-content: center;
+}
+ol.asks b { font-weight: 640; }
+ol.asks .rec { display: block; margin-top: 4px; font-size: 13.5px; color: var(--doc-ink-soft); }
+
+hr.rule { border: 0; border-top: 1px solid var(--doc-line); margin: 58px 0 0; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+@media (max-width: 720px) {
+  .wrap { padding: 0 16px 72px; }
+  .cv-inner { padding: 18px 14px 22px; }
+  .two, .states { grid-template-columns: minmax(0, 1fr); }
+  .phone.w390, .phone.w320 { width: 100%; }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-cal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m12.8 2.5 8 4a1 1 0 0 1 0 1.8l-8 4a2 2 0 0 1-1.6 0l-8-4a1 1 0 0 1 0-1.8l8-4a2 2 0 0 1 1.6 0Z"/><path d="m3.2 12.3 8 4a2 2 0 0 0 1.6 0l8-4"/><path d="m3.2 16.8 8 4a2 2 0 0 0 1.6 0l8-4"/></symbol>
+    <symbol id="i-trend" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7h6v6"/><path d="m22 7-8.5 8.5-5-5L2 17"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+  <header class="mast">
+    <p class="eyebrow">Tableau de bord &middot; l&rsquo;activit&eacute;</p>
+    <h1>Rendez-vous, par statut et dans le temps</h1>
+    <p class="lede">
+      Deux graphes &agrave; ajouter sous &laquo;&nbsp;L&rsquo;activit&eacute;&nbsp;&raquo;&nbsp;: <strong>de quoi la
+      p&eacute;riode est faite</strong> &mdash; combien de rendez-vous, et ce qu&rsquo;ils sont devenus &mdash; et
+      <strong>combien de rendez-vous par mois</strong>, le jumeau exact de la courbe de l&rsquo;encaiss&eacute;.
+      Une seule question demande votre arbitrage, et elle est en &sect;&nbsp;2.
+    </p>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="quoi">
+    <div class="col">
+      <p class="eyebrow">Ce qu&rsquo;on ajoute</p>
+      <h2>Deux cartes, une par question</h2>
+      <p class="soft">
+        Elles se posent en <b>seconde rang&eacute;e</b> de la section &laquo;&nbsp;L&rsquo;activit&eacute;&nbsp;&raquo;,
+        dans la m&ecirc;me grille <code>xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]</code> que la rang&eacute;e
+        existante &mdash; le graphe des statuts prend le c&ocirc;t&eacute; large, il en a besoin.
+      </p>
+    </div>
+
+    <div class="ledger">
+      <div class="bug">
+        <span class="bug-tag low">Carte A</span>
+        <span class="bug-what">&laquo;&nbsp;Rendez-vous par statut&nbsp;&raquo; &mdash; colonnes empil&eacute;es</span>
+        <span class="bug-why">
+          Combien de rendez-vous sur la p&eacute;riode, r&eacute;partis dans le temps, chaque colonne
+          d&eacute;coup&eacute;e par ce que la s&eacute;ance est devenue.
+        </span>
+        <span class="bug-fix">
+          R&eacute;pond &agrave; <b>&laquo;&nbsp;ma semaine a-t-elle tenu&nbsp;?&nbsp;&raquo;</b> &mdash; et &agrave;
+          &laquo;&nbsp;quel jour ai-je perdu du monde&nbsp;?&nbsp;&raquo;, ce qu&rsquo;aucun chiffre du tableau de bord
+          ne dit aujourd&rsquo;hui.
+        </span>
+      </div>
+      <div class="bug">
+        <span class="bug-tag low">Carte B</span>
+        <span class="bug-what">&laquo;&nbsp;Rendez-vous &mdash; 6 derniers mois&nbsp;&raquo; &mdash; aire, une s&eacute;rie</span>
+        <span class="bug-why">
+          Le jumeau de <code>collected-trend-chart.tsx</code>&nbsp;: m&ecirc;me forme, m&ecirc;me trait de 2,4&nbsp;px,
+          m&ecirc;me lavis, m&ecirc;me marqueur terminal, m&ecirc;me tableau d&eacute;pliable.
+        </span>
+        <span class="bug-fix">
+          R&eacute;pond &agrave; <b>&laquo;&nbsp;le cabinet grossit-il&nbsp;?&nbsp;&raquo;</b>. Fen&ecirc;tre fixe de
+          6&nbsp;mois, ind&eacute;pendante du s&eacute;lecteur de p&eacute;riode &mdash; exactement comme la courbe de
+          l&rsquo;argent.
+        </span>
+      </div>
+    </div>
+
+    <div class="callout col">
+      <p>
+        <strong>Pourquoi les deux ne se recouvrent pas.</strong> La carte&nbsp;A d&eacute;coupe <em>une</em>
+        fen&ecirc;tre choisie en jours ou semaines et r&eacute;pond &laquo;&nbsp;de quoi est-elle faite&nbsp;&raquo;.
+        La carte&nbsp;B ignore la fen&ecirc;tre, tient six mois, et r&eacute;pond &laquo;&nbsp;o&ugrave; va la
+        tendance&nbsp;&raquo;. C&rsquo;est la m&ecirc;me paire que &laquo;&nbsp;Encaiss&eacute;&nbsp;&raquo; et
+        &laquo;&nbsp;Encaiss&eacute; &mdash; 6 derniers mois&nbsp;&raquo; c&ocirc;t&eacute; argent, et elle marche
+        pour la m&ecirc;me raison.
+      </p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="periode">
+    <div class="col">
+      <p class="eyebrow">La seule question &agrave; trancher</p>
+      <h2>O&ugrave; vit le s&eacute;lecteur de p&eacute;riode&nbsp;?</h2>
+      <p>
+        Vous demandez &laquo;&nbsp;cette semaine, ce mois, ou une p&eacute;riode libre&nbsp;&raquo;. La page a
+        <em>d&eacute;j&agrave;</em> un s&eacute;lecteur de p&eacute;riode, qui gouverne tout le bilan &mdash; et son
+        propre code argumente contre un deuxi&egrave;me&nbsp;:
+      </p>
+      <p class="soft" style="border-inline-start: 3px solid var(--doc-line); padding-inline-start: 14px; font-style: italic;">
+        &laquo;&nbsp;Deliberately not per-section: every figure and the trend re-read against the same window, which is
+        what lets the numbers on the page be compared with each other. A per-card range would let two cards describe
+        different months while sitting side by side.&nbsp;&raquo;
+        <br><span style="font-style: normal; font-size: 13px;">&mdash; <code>components/dashboard/period-selector.tsx</code></span>
+      </p>
+      <p>
+        Deux fa&ccedil;ons de vous donner la p&eacute;riode libre. Elles ne co&ucirc;tent pas la m&ecirc;me chose,
+        et l&rsquo;une n&rsquo;a pas besoin d&rsquo;un nouvel endpoint.
+      </p>
+    </div>
+
+    <div class="ledger">
+      <div class="bug">
+        <span class="bug-tag rec">Option B &mdash; recommand&eacute;e</span>
+        <span class="bug-what">Le s&eacute;lecteur de la page gagne une 4<sup>e</sup> position&nbsp;: &laquo;&nbsp;Personnalis&eacute;&nbsp;&raquo;</span>
+        <span class="bug-why">
+          Un seul contr&ocirc;le, toute la page d&rsquo;accord avec elle-m&ecirc;me, et la p&eacute;riode libre
+          profite aussi &agrave; &laquo;&nbsp;Encaiss&eacute;&nbsp;&raquo;, &agrave;
+          &laquo;&nbsp;R&eacute;partition des actes&nbsp;&raquo; et aux 9&nbsp;chiffres.
+        </span>
+        <span class="bug-fix">
+          C&ocirc;t&eacute; serveur&nbsp;: <code>DashboardPeriod.Resolve</code> accepte deux cl&eacute;s de jour
+          <code>yyyy-MM-dd</code> et d&eacute;rive la fen&ecirc;tre pr&eacute;c&eacute;dente comme
+          <b>le m&ecirc;me nombre de jours imm&eacute;diatement avant</b>. Les deux graphes tiennent alors dans
+          <code>GET /api/dashboard</code> &mdash; <b>aucun nouvel endpoint</b>. Le libell&eacute; de comparaison
+          devient &laquo;&nbsp;Compar&eacute; aux 49&nbsp;jours pr&eacute;c&eacute;dents&nbsp;&raquo;.
+        </span>
+      </div>
+      <div class="bug">
+        <span class="bug-tag mid">Option A</span>
+        <span class="bug-what">La carte porte son propre contr&ocirc;le, dans son en-t&ecirc;te</span>
+        <span class="bug-why">
+          Litt&eacute;ralement ce que vous d&eacute;crivez, et il y a un pr&eacute;c&eacute;dent&nbsp;: le filtre
+          &laquo;&nbsp;Praticien&nbsp;&raquo; (L9) vit dans l&rsquo;en-t&ecirc;te de &laquo;&nbsp;L&rsquo;argent&nbsp;&raquo;
+          et ne narre que cette section.
+        </span>
+        <span class="bug-fix">
+          Co&ucirc;t r&eacute;el&nbsp;: deux contr&ocirc;les de p&eacute;riode sur un &eacute;cran, et la carte peut
+          afficher ao&ucirc;t pendant que le chiffre au-dessus d&rsquo;elle affiche la semaine. Il faut alors
+          <b>un endpoint d&eacute;di&eacute;</b> (<code>GET /api/dashboard/appointments-by-status?from&amp;to</code>),
+          parce que la fen&ecirc;tre n&rsquo;est plus celle du reste de la page &mdash; et la carte doit &eacute;noncer
+          sa fen&ecirc;tre en mots pour ne pas &ecirc;tre lue comme celle de la page.
+        </span>
+      </div>
+    </div>
+
+    <div class="canvas-head">
+      <span class="canvas-name">Les deux en-t&ecirc;tes, c&ocirc;te &agrave; c&ocirc;te</span>
+      <span class="canvas-note">m&ecirc;me carte, m&ecirc;me donn&eacute;e &mdash; seul le contr&ocirc;le d&eacute;m&eacute;nage</span>
+      <span class="tog">
+        <button type="button" data-target="cv-head" data-mode="light" aria-pressed="true">Clair</button>
+        <button type="button" data-target="cv-head" data-mode="dark" aria-pressed="false">Sombre</button>
+      </span>
+    </div>
+    <div class="cv" id="cv-head" data-mode="light">
+      <div class="cv-inner">
+        <div class="zones">
+
+          <!-- Option B -->
+          <div style="display: grid; gap: 10px;">
+            <p class="sechint" style="margin: 0; text-transform: uppercase; letter-spacing: 0.1em;">Option&nbsp;B &mdash; la p&eacute;riode est &agrave; la page</p>
+            <div class="secbar">
+              <p class="sectitle"><span class="dot"></span>Sur cette p&eacute;riode</p>
+              <span class="sechint">6&nbsp;juillet &ndash; 23&nbsp;ao&ucirc;t</span>
+              <span class="seg">
+                <span>Jour</span><span>Semaine</span><span>Mois</span><span class="on">Personnalis&eacute;&hellip;</span>
+              </span>
+            </div>
+            <div class="acard" style="gap: 10px;">
+              <div class="acard-head">
+                <div>
+                  <p class="acard-title">Rendez-vous par statut</p>
+                  <p class="acard-sub mono">par semaine &middot; 7&nbsp;semaines</p>
+                </div>
+                <span class="ghostbtn">Afficher le tableau</span>
+              </div>
+              <div class="stub">Le graphe suit la fen&ecirc;tre de la page. <b>Un seul contr&ocirc;le sur l&rsquo;&eacute;cran.</b></div>
+            </div>
+          </div>
+
+          <!-- Option A -->
+          <div style="display: grid; gap: 10px;">
+            <p class="sechint" style="margin: 0; text-transform: uppercase; letter-spacing: 0.1em;">Option&nbsp;A &mdash; la p&eacute;riode est &agrave; la carte</p>
+            <div class="secbar">
+              <p class="sectitle"><span class="dot"></span>Sur cette p&eacute;riode</p>
+              <span class="sechint">1&nbsp;&ndash;&nbsp;31&nbsp;ao&ucirc;t</span>
+              <span class="seg"><span>Jour</span><span>Semaine</span><span class="on">Mois</span></span>
+            </div>
+            <div class="acard" style="gap: 10px;">
+              <div class="acard-head">
+                <div>
+                  <p class="acard-title">Rendez-vous par statut</p>
+                  <p class="acard-sub mono">par semaine &middot; 6&nbsp;juillet &ndash; 23&nbsp;ao&ucirc;t</p>
+                </div>
+                <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                  <span class="seg">
+                    <span>Semaine</span><span>Mois</span><span class="on">Personnalis&eacute;</span>
+                  </span>
+                  <span class="ghostbtn" style="display: inline-flex; gap: 6px; align-items: center;">
+                    <svg width="13" height="13" aria-hidden="true"><use href="#i-cal"/></svg>
+                    06/07 &rarr; 23/08
+                    <svg width="12" height="12" aria-hidden="true"><use href="#i-chev"/></svg>
+                  </span>
+                </div>
+              </div>
+              <div class="stub" style="border-color: color-mix(in oklab, var(--destructive) 40%, transparent);">
+                La carte dit <b>6&nbsp;juillet &ndash; 23&nbsp;ao&ucirc;t</b> pendant que la bande au-dessus d&rsquo;elle
+                dit <b>1&nbsp;&ndash;&nbsp;31&nbsp;ao&ucirc;t</b>. C&rsquo;est le co&ucirc;t, et il est visible ici.
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="canvas-head">
+      <span class="canvas-name">La p&eacute;riode libre, dans les deux options</span>
+      <span class="canvas-note">popover, deux champs date, des raccourcis, une borne &eacute;nonc&eacute;e</span>
+      <span class="tog">
+        <button type="button" data-target="cv-pop" data-mode="light" aria-pressed="true">Clair</button>
+        <button type="button" data-target="cv-pop" data-mode="dark" aria-pressed="false">Sombre</button>
+      </span>
+    </div>
+    <div class="cv" id="cv-pop" data-mode="light">
+      <div class="cv-inner">
+        <div class="zones narrow" style="display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start;">
+          <div class="pop">
+            <h5>P&eacute;riode personnalis&eacute;e</h5>
+            <div class="presets">
+              <span>7&nbsp;derniers jours</span><span>30&nbsp;derniers jours</span><span>Ce trimestre</span><span>Cette ann&eacute;e</span>
+            </div>
+            <div class="fld">
+              <label for="mk-from">Du</label>
+              <div class="inp" id="mk-from">2026-07-06</div>
+            </div>
+            <div class="fld">
+              <label for="mk-to">Au</label>
+              <div class="inp" id="mk-to">2026-08-23</div>
+            </div>
+            <div class="go">Appliquer</div>
+          </div>
+          <div style="max-width: 42ch; display: grid; gap: 12px; align-content: start;">
+            <div class="pop" style="width: auto;">
+              <div class="warn">
+                La p&eacute;riode ne peut pas d&eacute;passer 366&nbsp;jours. Choisissez une date de fin plus proche.
+              </div>
+            </div>
+            <p class="acard-sub" style="font-size: 12.5px; line-height: 1.55;">
+              Trois d&eacute;cisions dans ce petit panneau&nbsp;: la borne est <b>&eacute;nonc&eacute;e et refus&eacute;e</b>,
+              jamais rogn&eacute;e en silence (une plage libre non born&eacute;e, c&rsquo;est une lecture non
+              born&eacute;e)&nbsp;; les champs sont des <code>&lt;input type="date"&gt;</code>, qui h&eacute;ritent
+              d&eacute;j&agrave; du plancher 44&nbsp;px de <code>globals.css</code> sur pointeur grossier&nbsp;; et ce
+              sont les <b>cl&eacute;s de jour</b> <code>yyyy-MM-dd</code> qui partent au serveur, jamais un instant UTC
+              construit dans le navigateur &mdash; c&rsquo;est exactement le d&eacute;faut AC-6 corrig&eacute; sur
+              <code>/caisse</code>, o&ugrave; &laquo;&nbsp;la caisse du 3&nbsp;ao&ucirc;t&nbsp;&raquo; se d&eacute;calait
+              de plusieurs heures sur un poste qui n&rsquo;&eacute;tait pas en UTC+1.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="forme">
+    <div class="col">
+      <p class="eyebrow">Carte A &middot; la forme</p>
+      <h2>Pourquoi des colonnes empil&eacute;es</h2>
+      <p>
+        Le lecteur a deux choses &agrave; faire en m&ecirc;me temps&nbsp;: lire un <em>total</em> par jour et lire une
+        <em>composition</em>. C&rsquo;est la d&eacute;finition de l&rsquo;empilement. Les autres formes ont
+        toutes &eacute;t&eacute; essay&eacute;es et &eacute;cart&eacute;es&nbsp;:
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table class="doc">
+        <thead>
+          <tr><th>Forme</th><th>Ce qu&rsquo;elle donne</th><th>Pourquoi non</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>Colonnes empil&eacute;es</b></td>
+            <td>Total par bucket <em>et</em> composition, un seul axe.</td>
+            <td class="pass">Retenue.</td>
+          </tr>
+          <tr>
+            <td>Donut / camembert</td>
+            <td>La composition d&rsquo;une seule fen&ecirc;tre.</td>
+            <td>Perd le temps enti&egrave;rement, et compare mal des parts proches. Le s&eacute;lecteur de p&eacute;riode ne servirait &agrave; rien.</td>
+          </tr>
+          <tr>
+            <td>Une barre horizontale unique</td>
+            <td>La composition de toute la fen&ecirc;tre.</td>
+            <td>Sur une plage libre de six mois, une seule barre ne dit rien. <b>Gard&eacute;e quand la fen&ecirc;tre est d&rsquo;un seul jour</b> &mdash; voir &sect;&nbsp;4.</td>
+          </tr>
+          <tr>
+            <td>Barres group&eacute;es (5 par jour)</td>
+            <td>Comparer statut &agrave; statut.</td>
+            <td>35&nbsp;barres pour une semaine, et le total du jour n&rsquo;est plus lisible &mdash; c&rsquo;est pourtant la premi&egrave;re chose qu&rsquo;on cherche.</td>
+          </tr>
+          <tr>
+            <td>7 barres horizontales, une par statut</td>
+            <td>Comparer les magnitudes.</td>
+            <td>C&rsquo;est d&eacute;j&agrave; la forme de &laquo;&nbsp;R&eacute;partition des actes&nbsp;&raquo;, juste &agrave; c&ocirc;t&eacute;. Deux fois la m&ecirc;me forme dans une section.</td>
+          </tr>
+          <tr>
+            <td>Empilement &agrave; 100&nbsp;%</td>
+            <td>Les parts, parfaitement comparables.</td>
+            <td>Cache le volume&nbsp;: une semaine &agrave; 12&nbsp;rendez-vous et une &agrave; 76 dessinent la m&ecirc;me colonne. Or le volume est la moiti&eacute; de la question.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Sept statuts, cinq classes &mdash; et c&rsquo;est le validateur qui a tranch&eacute;</h3>
+    <div class="col">
+      <p>
+        L&rsquo;app a <b>sept</b> statuts. Sept aplats c&ocirc;te &agrave; c&ocirc;te ne passent aucun contr&ocirc;le de
+        s&eacute;paration&nbsp;: la palette de l&rsquo;app n&rsquo;a que cinq slots de graphe, et surtout deux paires
+        s&rsquo;effondrent. J&rsquo;ai <b>mesur&eacute;</b> plut&ocirc;t que jug&eacute; &mdash; deux variantes
+        essay&eacute;es, une seule tient.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table class="doc">
+        <thead>
+          <tr><th>Variante essay&eacute;e</th><th>Paire la plus faible</th><th>&Delta;E deutan/protan</th><th>Verdict</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>6&nbsp;classes &mdash; Planifi&eacute; en deux <em>pas</em> du m&ecirc;me azur</td>
+            <td><code>#71b2d7</code> &harr; <code>#0490c5</code></td>
+            <td class="fail">12,6 en vision normale</td>
+            <td class="fail">&Eacute;chec&nbsp;: sous le plancher de 15, indistinguables m&ecirc;me sans daltonisme.</td>
+          </tr>
+          <tr>
+            <td>6&nbsp;classes &mdash; Planifi&eacute; en violet (<code>--chart-3</code>)</td>
+            <td><code>#996cbf</code> &harr; <code>#0490c5</code></td>
+            <td class="fail">2,1 (deut&eacute;ranopie)</td>
+            <td class="fail">&Eacute;chec net. Le violet et l&rsquo;azur sont la m&ecirc;me couleur pour ce lecteur.</td>
+          </tr>
+          <tr>
+            <td><b>5&nbsp;classes &mdash; retenue</b></td>
+            <td><code>#c92f33</code> &harr; <code>#58666e</code></td>
+            <td class="pass">9,0 (protanopie)</td>
+            <td class="pass">Passe. Vision normale&nbsp;: 18,4.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="col">
+      <p style="margin-top: 20px;">
+        Le seul regroupement qui perd de l&rsquo;information est <b>Planifi&eacute;&nbsp;+&nbsp;Confirm&eacute; &rarr;
+        &laquo;&nbsp;&Agrave; venir&nbsp;&raquo;</b>, et la distinction compte vraiment ailleurs&nbsp;: dans
+        l&rsquo;agenda, &laquo;&nbsp;le patient a dit oui&nbsp;&raquo; contre &laquo;&nbsp;on l&rsquo;a mis au
+        livre&nbsp;&raquo; est <em>exactement</em> ce que la couleur y porte. Elle n&rsquo;est donc pas perdue&nbsp;:
+        la ligne de l&eacute;gende la reprend en sous-titre &mdash; <em>dont 20&nbsp;confirm&eacute;s</em>. Le
+        graphe garde cinq aplats, le lecteur garde les sept faits.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table class="doc">
+        <thead>
+          <tr><th>Classe</th><th>Statuts r&eacute;els</th><th>Jeton</th><th>Clair</th><th>Sombre</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="swatch-cell"><i style="background:#187c49"></i> <b>Termin&eacute;</b></span></td>
+            <td><code>Completed</code></td>
+            <td><code>--success</code></td>
+            <td><code>#187c49</code></td>
+            <td><code>#57bc80</code></td>
+          </tr>
+          <tr>
+            <td><span class="swatch-cell"><i style="background:#0490c5"></i> <b>&Agrave; venir</b></span></td>
+            <td><code>Scheduled</code> + <code>Confirmed</code></td>
+            <td><code>--chart-1</code></td>
+            <td><code>#0490c5</code></td>
+            <td><code>#30aee8</code></td>
+          </tr>
+          <tr>
+            <td><span class="swatch-cell"><i style="background:#b6770b"></i> <b>&Agrave; cl&ocirc;turer</b></span></td>
+            <td><code>InProgress</code> + <code>AwaitingClosure</code></td>
+            <td><code>--warning</code></td>
+            <td><code>#b6770b</code></td>
+            <td><code>#e5ac4c</code></td>
+          </tr>
+          <tr>
+            <td><span class="swatch-cell"><i style="background:#58666e"></i> <b>Annul&eacute;</b></span></td>
+            <td><code>Cancelled</code></td>
+            <td><code>--muted-foreground</code></td>
+            <td><code>#58666e</code></td>
+            <td><code>#979a9f</code></td>
+          </tr>
+          <tr>
+            <td><span class="swatch-cell"><i style="background:#c92f33"></i> <b>Absent</b></span></td>
+            <td><code>NoShow</code></td>
+            <td><code>--destructive</code></td>
+            <td><code>#c92f33</code></td>
+            <td><code>#ef736c</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="col">
+      <p style="margin-top: 20px;">
+        Ce sont des <b>jetons d&rsquo;&eacute;tat</b>, pas des jetons de s&eacute;rie, et c&rsquo;est volontaire&nbsp;:
+        un statut de rendez-vous <em>signifie</em> bon ou mauvais. C&rsquo;est aussi ce qui garde le graphe
+        d&rsquo;accord avec <code>ui/status-tone.ts</code>&nbsp;: la pastille verte d&rsquo;un
+        &laquo;&nbsp;Termin&eacute;&nbsp;&raquo; dans l&rsquo;agenda et l&rsquo;aplat vert de la colonne sont la
+        m&ecirc;me d&eacute;cision.
+      </p>
+      <p>
+        <b>L&rsquo;ordre de l&rsquo;empilement n&rsquo;est pas d&eacute;coratif.</b> Bas &rarr; haut&nbsp;:
+        Termin&eacute; &middot; &Agrave; venir &middot; &Agrave; cl&ocirc;turer &middot; Annul&eacute; &middot;
+        Absent. Dans un empilement, seules les paires <em>voisines</em> se touchent&nbsp;; cet ordre est celui qui
+        maximise la plus faible d&rsquo;entre elles, et il &eacute;vite les deux effondrements classiques
+        (vert&nbsp;&harr;&nbsp;ambre en protanopie, vert&nbsp;&harr;&nbsp;rouge en deut&eacute;ranopie). Il se lit
+        aussi&nbsp;: le travail fait en bas, les pertes en haut, donc le &laquo;&nbsp;chapeau&nbsp;&raquo; de perte
+        se compare d&rsquo;un jour &agrave; l&rsquo;autre d&rsquo;un seul regard.
+      </p>
+    </div>
+
+    <div class="verdict">
+      <div class="verdict-bar risk">Trois &eacute;carts, tous d&eacute;lib&eacute;r&eacute;s et &eacute;nonc&eacute;s</div>
+      <div class="pc2">
+        <div>
+          <h5>Ce que le validateur signale</h5>
+          <ul>
+            <li><b>Plancher de chroma sur le gris</b> d&rsquo;&laquo;&nbsp;Annul&eacute;&nbsp;&raquo; (C&nbsp;0,021). C&rsquo;est le but&nbsp;: un rendez-vous annul&eacute; n&rsquo;attend rien de personne, il ne porte pas d&rsquo;identit&eacute;. C&rsquo;est le canal de mise en retrait, pas un 5<sup>e</sup> hue.</li>
+            <li><b>Bande de clart&eacute; en sombre</b>&nbsp;: les cinq sont au-dessus. H&eacute;rit&eacute; des jetons sombres existants de l&rsquo;app, dont la carte sombre (<code>#2e2f32</code>) est plus claire que celle du standard. Le contraste, lui, passe &agrave; 3:1 pour les cinq &mdash; c&rsquo;est ce que la bande sert &agrave; prot&eacute;ger.</li>
+            <li><b>&Delta;E&nbsp;7,8 en sombre</b> sur Annul&eacute;&nbsp;&harr;&nbsp;Absent&nbsp;: dans la bande 6&ndash;8, l&eacute;gale <em>&agrave; condition</em> d&rsquo;un encodage secondaire.</li>
+          </ul>
+        </div>
+        <div>
+          <h5>L&rsquo;encodage secondaire qui l&rsquo;autorise</h5>
+          <ul>
+            <li>Un <b>&eacute;cart de 2&nbsp;px de la couleur du fond</b> entre chaque segment empil&eacute; &mdash; jamais un contour autour des aplats.</li>
+            <li>Une <b>l&eacute;gende qui nomme et chiffre</b> les cinq classes&nbsp;: la couleur n&rsquo;est jamais le seul porteur de l&rsquo;identit&eacute;.</li>
+            <li>Un <b>tableau d&eacute;pliable</b>, l&rsquo;&eacute;quivalent propre au sens WCAG&nbsp;: aucune valeur n&rsquo;est enferm&eacute;e derri&egrave;re un survol.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+<style>
+/* Supplement: the horizontal-scroll case (§ 11 of the frontend rules — wide
+   content scrolls in its OWN container, the page body never does). */
+.scrollx { overflow-x: auto; padding-bottom: 2px; }
+.scrollx .xax { padding-inline-start: 0; }
+.dayrow { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .dayrow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+</style>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="carte-a">
+    <div class="col">
+      <p class="eyebrow">Carte A &middot; la maquette</p>
+      <h2>&laquo;&nbsp;Rendez-vous par statut&nbsp;&raquo;</h2>
+      <p class="soft">
+        La rang&eacute;e telle qu&rsquo;elle se poserait&nbsp;: le graphe des statuts &agrave; gauche, la courbe des
+        six mois &agrave; droite, dans la m&ecirc;me grille 1,35&nbsp;/&nbsp;1 que la rang&eacute;e existante. La
+        rang&eacute;e du dessus (les quatre chiffres + &laquo;&nbsp;R&eacute;partition des actes&nbsp;&raquo;) est
+        r&eacute;duite &agrave; un rappel&nbsp;: elle ne change pas.
+      </p>
+    </div>
+
+    <div class="canvas-head">
+      <span class="canvas-name">1180&nbsp;px &middot; semaine du 17 au 23 ao&ucirc;t</span>
+      <span class="canvas-note">jeudi 20 est aujourd&rsquo;hui &mdash; d&rsquo;o&ugrave; l&rsquo;azur qui appara&icirc;t ce jour-l&agrave;</span>
+      <span class="tog">
+        <button type="button" data-target="cv-week" data-mode="light" aria-pressed="true">Clair</button>
+        <button type="button" data-target="cv-week" data-mode="dark" aria-pressed="false">Sombre</button>
+      </span>
+    </div>
+    <div class="cv" id="cv-week" data-mode="light">
+      <div class="cv-inner">
+        <div class="zones">
+
+          <div class="secbar">
+            <p class="sectitle"><span class="dot"></span>L&rsquo;activit&eacute;</p>
+            <span class="sechint">Compar&eacute; &agrave; la semaine derni&egrave;re</span>
+          </div>
+
+          <div class="stub">
+            <b>Rang&eacute;e&nbsp;1, inchang&eacute;e</b> &mdash; Rendez-vous honor&eacute;s &middot; Taux d&rsquo;absence
+            &middot; Nouveaux patients &middot; Devis accept&eacute;s &middot; R&eacute;partition des actes
+          </div>
+
+          <div class="two">
+
+            <!-- ── CARTE A ────────────────────────────────────────────── -->
+            <div class="acard">
+              <div class="acard-head">
+                <div>
+                  <p class="acard-title">Rendez-vous par statut</p>
+                  <p class="acard-sub mono">par jour &middot; 17 &ndash; 23 ao&ucirc;t</p>
+                </div>
+                <span class="ghostbtn">Afficher le tableau</span>
+              </div>
+
+              <div class="total">
+                <b>76</b>
+                <span class="u">rendez-vous</span>
+                <span class="pill up">
+                  <svg width="11" height="11" aria-hidden="true"><use href="#i-up"/></svg>12&nbsp;%
+                </span>
+              </div>
+
+              <div>
+                <div class="plot">
+                  <div class="yax"><span>15</span><span>10</span><span>5</span><span>0</span></div>
+                  <div class="field">
+                    <div class="grid"><i></i><i></i><i></i><i></i></div>
+                    <div class="track">
+                      <div><div class="stk" style="height:93.3%"><i class="absent" style="flex:1"></i><i class="annule" style="flex:1"></i><i class="acloturer" style="flex:1"></i><i class="termine" style="flex:11"></i></div></div>
+                      <div><div class="stk" style="height:100%"><i class="annule" style="flex:2"></i><i class="termine" style="flex:13"></i></div></div>
+                      <div><div class="stk" style="height:93.3%"><i class="absent" style="flex:2"></i><i class="annule" style="flex:1"></i><i class="acloturer" style="flex:2"></i><i class="termine" style="flex:9"></i></div></div>
+                      <div><div class="stk" style="height:80%"><i class="absent" style="flex:1"></i><i class="acloturer" style="flex:1"></i><i class="avenir" style="flex:4"></i><i class="termine" style="flex:6"></i></div></div>
+                      <div><div class="stk" style="height:93.3%"><i class="annule" style="flex:1"></i><i class="avenir" style="flex:13"></i></div></div>
+                      <div><div class="stk" style="height:46.7%"><i class="avenir" style="flex:7"></i></div></div>
+                      <div></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="xax">
+                  <span>lun 17</span><span>mar 18</span><span>mer 19</span><span class="now">jeu 20</span><span>ven 21</span><span>sam 22</span><span>dim 23</span>
+                </div>
+              </div>
+
+              <div class="lgd">
+                <div><span class="sw termine"></span><span class="nm">Termin&eacute;</span><span class="ct">39</span><span class="pc">51&nbsp;%</span></div>
+                <div><span class="sw avenir"></span><span class="nm">&Agrave; venir <em>&middot; dont 20 confirm&eacute;s</em></span><span class="ct">24</span><span class="pc">32&nbsp;%</span></div>
+                <div><span class="sw acloturer"></span><span class="nm">&Agrave; cl&ocirc;turer</span><span class="ct">4</span><span class="pc">5&nbsp;%</span></div>
+                <div><span class="sw annule"></span><span class="nm">Annul&eacute;</span><span class="ct">5</span><span class="pc">7&nbsp;%</span></div>
+                <div><span class="sw absent"></span><span class="nm">Absent</span><span class="ct">4</span><span class="pc">5&nbsp;%</span></div>
+              </div>
+            </div>
+
+            <!-- ── CARTE B ────────────────────────────────────────────── -->
+            <div class="acard">
+              <div class="acard-head">
+                <div>
+                  <p class="acard-title">Rendez-vous &mdash; 6 derniers mois</p>
+                  <p class="acard-sub">S&eacute;ances au livre, par mois. 1&nbsp;448 sur la p&eacute;riode.</p>
+                </div>
+                <span class="seg" style="border-radius: 999px;">
+                  <span class="on" style="border-radius: 999px;">Tous</span><span style="border-radius: 999px;">Honor&eacute;s</span>
+                </span>
+              </div>
+
+              <div class="trend">
+                <svg viewBox="0 0 620 250" role="img" aria-label="Courbe du nombre de rendez-vous sur six mois, de 246 en mars à 176 en août (mois en cours)">
+                  <defs>
+                    <linearGradient id="apptWash" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="var(--chart-1)" stop-opacity="0.26"/>
+                      <stop offset="100%" stop-color="var(--chart-1)" stop-opacity="0.02"/>
+                    </linearGradient>
+                  </defs>
+
+                  <g stroke="var(--line)" stroke-width="1">
+                    <line x1="52" y1="16" x2="612" y2="16"/>
+                    <line x1="52" y1="77.3" x2="612" y2="77.3"/>
+                    <line x1="52" y1="138.7" x2="612" y2="138.7"/>
+                    <line x1="52" y1="200" x2="612" y2="200"/>
+                  </g>
+
+                  <g fill="var(--fg-soft)" font-size="11" font-family="ui-monospace, monospace" text-anchor="end">
+                    <text x="44" y="19.5">300</text>
+                    <text x="44" y="80.8">200</text>
+                    <text x="44" y="142.2">100</text>
+                    <text x="44" y="203.5">0</text>
+                  </g>
+
+                  <path fill="url(#apptWash)" stroke="none"
+                        d="M 52,49.1 C 89,49.1 127,35.6 164,35.6 C 201,35.6 239,44.2 276,44.2 C 313,44.2 351,21.5 388,21.5 C 425,21.5 463,69.4 500,69.4 C 537,69.4 575,92.1 612,92.1 L 612,200 L 52,200 Z"/>
+                  <path fill="none" stroke="var(--chart-1)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"
+                        d="M 52,49.1 C 89,49.1 127,35.6 164,35.6 C 201,35.6 239,44.2 276,44.2 C 313,44.2 351,21.5 388,21.5 C 425,21.5 463,69.4 500,69.4 C 537,69.4 575,92.1 612,92.1"/>
+
+                  <!-- The endpoint is the month IN PROGRESS, so it is a ring, not a filled dot. -->
+                  <circle cx="612" cy="92.1" r="5" fill="var(--card)" stroke="var(--chart-1)" stroke-width="2.5"/>
+
+                  <g fill="var(--fg-soft)" font-size="11" font-family="ui-monospace, monospace" text-anchor="middle">
+                    <text x="52" y="222">mars</text>
+                    <text x="164" y="222">avr.</text>
+                    <text x="276" y="222">mai</text>
+                    <text x="388" y="222">juin</text>
+                    <text x="500" y="222">juil.</text>
+                    <text x="612" y="222">ao&ucirc;t</text>
+                  </g>
+                </svg>
+              </div>
+
+              <p class="acard-sub" style="margin: 0;">
+                <b style="color: var(--fg); font-weight: 620;">ao&ucirc;t 2026</b>&nbsp;: 176 rendez-vous &mdash;
+                <em style="font-style: normal; color: var(--warning-ink);">mois en cours, 20&nbsp;jours sur 31</em>
+              </p>
+              <span class="ghostbtn" style="justify-self: start;">Afficher le tableau</span>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <h3>Le dernier point est un mois incomplet, et il faut le dire</h3>
+      <p>
+        Le 20&nbsp;ao&ucirc;t, ao&ucirc;t vaut 20&nbsp;jours sur 31. Trac&eacute; comme les cinq autres, il dessine une
+        chute de 26&nbsp;% qui n&rsquo;existe pas. D&rsquo;o&ugrave; deux choses ici&nbsp;: le marqueur terminal est un
+        <b>anneau creux</b> et non un point plein, et l&rsquo;&eacute;tiquette dit
+        <em>&laquo;&nbsp;mois en cours, 20&nbsp;jours sur 31&nbsp;&raquo;</em>.
+      </p>
+      <p>
+        <b>La courbe de l&rsquo;encaiss&eacute; a exactement le m&ecirc;me d&eacute;faut aujourd&rsquo;hui</b>, et
+        personne ne l&rsquo;a signal&eacute;&nbsp;: le 1<sup>er</sup> du mois, &laquo;&nbsp;Encaiss&eacute; &mdash; 6
+        derniers mois&nbsp;&raquo; termine sur une falaise. C&rsquo;est un correctif d&rsquo;une ligne &agrave; faire
+        dans le m&ecirc;me passage &mdash; sinon on aura deux courbes voisines dont une seule dit la v&eacute;rit&eacute;
+        sur son dernier point. Question&nbsp;5 en fin de page.
+      </p>
+    </div>
+
+    <h3>Le survol, et la fen&ecirc;tre d&rsquo;un seul jour</h3>
+    <div class="canvas-head">
+      <span class="canvas-name">Le rep&egrave;re de survol &middot; la forme &laquo;&nbsp;Aujourd&rsquo;hui&nbsp;&raquo;</span>
+      <span class="tog">
+        <button type="button" data-target="cv-day" data-mode="light" aria-pressed="true">Clair</button>
+        <button type="button" data-target="cv-day" data-mode="dark" aria-pressed="false">Sombre</button>
+      </span>
+    </div>
+    <div class="cv" id="cv-day" data-mode="light">
+      <div class="cv-inner">
+        <div class="zones narrow dayrow">
+
+          <div class="acard" style="align-content: start;">
+            <p class="acard-title">Au survol de mercredi 19</p>
+            <p class="acard-sub" style="margin: 0 0 4px;">
+              Le total m&egrave;ne, les classes suivent, et seules celles qui existent ce jour-l&agrave; sont
+              list&eacute;es &mdash; une ligne &agrave; z&eacute;ro n&rsquo;apprend rien.
+            </p>
+            <div class="tip">
+              <p class="th" style="margin: 0;">mercredi 19 ao&ucirc;t</p>
+              <p class="tt">14 rendez-vous</p>
+              <ul>
+                <li><span class="sw termine"></span><span class="n">Termin&eacute;</span><b>9</b></li>
+                <li><span class="sw acloturer"></span><span class="n">&Agrave; cl&ocirc;turer</span><b>2</b></li>
+                <li><span class="sw annule"></span><span class="n">Annul&eacute;</span><b>1</b></li>
+                <li><span class="sw absent"></span><span class="n">Absent</span><b>2</b></li>
+              </ul>
+            </div>
+            <p class="acard-sub" style="margin: 0;">
+              La zone de capture couvre toute la <b>colonne</b>, pas les aplats&nbsp;: un segment de 8&nbsp;px ne se
+              vise pas au doigt. Le clavier donne le m&ecirc;me rep&egrave;re que la souris.
+            </p>
+          </div>
+
+          <div class="acard" style="align-content: start;">
+            <div class="acard-head">
+              <div>
+                <p class="acard-title">Rendez-vous par statut</p>
+                <p class="acard-sub mono">jeudi 20 ao&ucirc;t</p>
+              </div>
+            </div>
+            <div class="total"><b>12</b><span class="u">rendez-vous aujourd&rsquo;hui</span></div>
+            <div class="hbar">
+              <i class="termine" style="flex:6"></i><i class="avenir" style="flex:4"></i><i class="acloturer" style="flex:1"></i><i class="absent" style="flex:1"></i>
+            </div>
+            <div class="lgd">
+              <div><span class="sw termine"></span><span class="nm">Termin&eacute;</span><span class="ct">6</span><span class="pc">50&nbsp;%</span></div>
+              <div><span class="sw avenir"></span><span class="nm">&Agrave; venir</span><span class="ct">4</span><span class="pc">33&nbsp;%</span></div>
+              <div><span class="sw acloturer"></span><span class="nm">&Agrave; cl&ocirc;turer</span><span class="ct">1</span><span class="pc">8&nbsp;%</span></div>
+              <div><span class="sw absent"></span><span class="nm">Absent</span><span class="ct">1</span><span class="pc">8&nbsp;%</span></div>
+            </div>
+            <p class="acard-sub" style="margin: 0;">
+              Fen&ecirc;tre d&rsquo;un seul jour&nbsp;: la forme devient <b>une barre horizontale</b>. Un graphe
+              &agrave; une colonne est un graphe &agrave; une barre &mdash; la m&ecirc;me donn&eacute;e, dans la forme
+              qui la porte.
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <h3>Le tableau, et les deux &eacute;tats qui ne sont pas des donn&eacute;es</h3>
+    <div class="canvas-head">
+      <span class="canvas-name">Tableau d&eacute;pli&eacute; &middot; vide &middot; chargement</span>
+      <span class="tog">
+        <button type="button" data-target="cv-tbl" data-mode="light" aria-pressed="true">Clair</button>
+        <button type="button" data-target="cv-tbl" data-mode="dark" aria-pressed="false">Sombre</button>
+      </span>
+    </div>
+    <div class="cv" id="cv-tbl" data-mode="light">
+      <div class="cv-inner">
+        <div class="zones narrow" style="display: grid; gap: 14px;">
+
+          <div class="acard">
+            <div class="acard-head">
+              <div>
+                <p class="acard-title">Rendez-vous par statut</p>
+                <p class="acard-sub mono">par jour &middot; 17 &ndash; 23 ao&ucirc;t</p>
+              </div>
+              <span class="ghostbtn">Masquer le tableau</span>
+            </div>
+            <div style="overflow-x: auto;">
+              <table class="app" style="min-width: 560px;">
+                <thead>
+                  <tr>
+                    <th>Jour</th>
+                    <th class="n">Termin&eacute;</th><th class="n">&Agrave; venir</th><th class="n">&Agrave; cl&ocirc;turer</th>
+                    <th class="n">Annul&eacute;</th><th class="n">Absent</th><th class="n">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>lundi 17</td><td class="n">11</td><td class="n">&mdash;</td><td class="n">1</td><td class="n">1</td><td class="n">1</td><td class="n">14</td></tr>
+                  <tr><td>mardi 18</td><td class="n">13</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="n">2</td><td class="n">&mdash;</td><td class="n">15</td></tr>
+                  <tr><td>mercredi 19</td><td class="n">9</td><td class="n">&mdash;</td><td class="n">2</td><td class="n">1</td><td class="n">2</td><td class="n">14</td></tr>
+                  <tr><td>jeudi 20</td><td class="n">6</td><td class="n">4</td><td class="n">1</td><td class="n">&mdash;</td><td class="n">1</td><td class="n">12</td></tr>
+                  <tr><td>vendredi 21</td><td class="n">&mdash;</td><td class="n">13</td><td class="n">&mdash;</td><td class="n">1</td><td class="n">&mdash;</td><td class="n">14</td></tr>
+                  <tr><td>samedi 22</td><td class="n">&mdash;</td><td class="n">7</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="n">7</td></tr>
+                  <tr><td>dimanche 23</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="n">0</td></tr>
+                </tbody>
+                <tfoot>
+                  <tr><td>Total</td><td class="n">39</td><td class="n">24</td><td class="n">4</td><td class="n">5</td><td class="n">4</td><td class="n">76</td></tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          <div class="states">
+            <div class="acard">
+              <p class="acard-title">Aucun rendez-vous</p>
+              <div class="emptyst">
+                <span class="ic"><svg width="17" height="17" aria-hidden="true"><use href="#i-cal"/></svg></span>
+                <b>Aucun rendez-vous sur cette p&eacute;riode</b>
+                <p>Les colonnes appara&icirc;tront d&egrave;s le premier rendez-vous pris sur la fen&ecirc;tre choisie.</p>
+              </div>
+              <p class="acard-sub" style="margin: 0;">
+                Jamais des axes vides sous un total de <b>0</b>&nbsp;: la premi&egrave;re semaine d&rsquo;un cabinet
+                serait indistinguable d&rsquo;un graphe cass&eacute;.
+              </p>
+            </div>
+            <div class="acard">
+              <p class="acard-title">Chargement</p>
+              <div class="skelplot" style="height: 176px; align-content: end; grid-template-rows: 1fr;">
+                <i style="height: 40%; width: 100%;"></i>
+              </div>
+              <p class="acard-sub" style="margin: 0;">
+                Un squelette distinct du vide. Et sur un <em>re</em>-chargement (un confr&egrave;re modifie un
+                rendez-vous, le temps r&eacute;el rafra&icirc;chit), le rendu pr&eacute;c&eacute;dent tient en
+                opacit&eacute; r&eacute;duite &mdash; pas de saut de mise en page.
+              </p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="telephone">
+    <div class="col">
+      <p class="eyebrow">Le contrat d&rsquo;appareil</p>
+      <h2>390&nbsp;px et 320&nbsp;px, d&rsquo;embl&eacute;e</h2>
+      <p class="soft">
+        Les deux colonnes s&rsquo;empilent, la l&eacute;gende passe sous le graphe, le contr&ocirc;le de p&eacute;riode
+        prend toute la largeur en trois positions. Et 31&nbsp;colonnes ne rentrent pas dans 320&nbsp;px&nbsp;: le trac&eacute;
+        d&eacute;file <b>dans son propre conteneur</b>, largeur de colonne plancher &agrave; 10&nbsp;px. On ne
+        d&eacute;grade pas la granularit&eacute; &mdash; une d&eacute;cision de mise en page ne retire pas une capacit&eacute;.
+      </p>
+    </div>
+
+    <div class="canvas-head">
+      <span class="canvas-name">Les deux largeurs</span>
+      <span class="tog">
+        <button type="button" data-target="cv-p390" data-mode="light" aria-pressed="true">Clair</button>
+        <button type="button" data-target="cv-p390" data-mode="dark" aria-pressed="false">Sombre</button>
+      </span>
+    </div>
+
+    <div class="phones">
+      <div class="phone w390">
+        <p class="phone-cap">390&nbsp;px &middot; ce mois &middot; d&eacute;filement horizontal</p>
+        <div class="cv" id="cv-p390" data-mode="light">
+          <div class="cv-inner">
+            <div class="zones narrow" style="display: grid; gap: 12px;">
+              <span class="seg wfull"><span>Jour</span><span>Semaine</span><span class="on">Mois</span><span>Perso.</span></span>
+              <div class="acard" style="padding: 14px 15px;">
+                <div>
+                  <p class="acard-title">Rendez-vous par statut</p>
+                  <p class="acard-sub mono">par jour &middot; 1 &ndash; 31 ao&ucirc;t</p>
+                </div>
+                <div class="total"><b>302</b><span class="u">rendez-vous</span><span class="pill up"><svg width="11" height="11" aria-hidden="true"><use href="#i-up"/></svg>9&nbsp;%</span></div>
+                <div>
+                  <div class="plot" style="grid-template-columns: 24px minmax(0, 1fr);">
+                    <div class="yax"><span>15</span><span>10</span><span>5</span><span>0</span></div>
+                    <div class="scrollx">
+                      <div class="field" style="min-width: 434px;">
+                        <div class="grid"><i></i><i></i><i></i><i></i></div>
+                        <div class="track">
+                          <div><div class="stk" style="height:40%"><i class="annule" style="flex:1"></i><i class="termine" style="flex:5"></i></div></div>
+                          <div></div>
+                          <div><div class="stk" style="height:86.7%"><i class="absent" style="flex:1"></i><i class="annule" style="flex:1"></i><i class="termine" style="flex:11"></i></div></div>
+                          <div><div class="stk" style="height:93.3%"><i class="annule" style="flex:2"></i><i class="termine" style="flex:12"></i></div></div>
+                          <div><div class="stk" style="height:80%"><i class="absent" style="flex:1"></i><i class="acloturer" style="flex:1"></i><i class="termine" style="flex:10"></i></div></div>
+                          <div><div class="stk" style="height:100%"><i class="absent" style="flex:1"></i><i class="annule" style="flex:1"></i><i class="termine" style="flex:13"></i></div></div>
+                          <div><div class="stk" style="height:86.7%"><i class="annule" style="flex:2"></i><i class="termine" style="flex:11"></i></div></div>
+                          <div><div class="stk" style="height:46.7%"><i class="annule" style="flex:1"></i><i class="termine" style="flex:6"></i></div></div>
+                          <div></div>
+                          <div><div class="stk" style="height:93.3%"><i class="absent" style="flex:1"></i><i class="annule" style="flex:1"></i><i class="termine" style="flex:12"></i></div></div>
+                          <div><div class="stk" style="height:100%"><i class="annule" style="flex:1"></i><i class="termine" style="flex:14"></i></div></div>
+                          <div><div class="stk" style="height:86.7%"><i class="absent" style="flex:1"></i><i class="annule" style="flex:1"></i><i class="acloturer" style="flex:1"></i><i class="termine" style="flex:10"></i></div></div>
+                          <div><div class="stk" style="height:93.3%"><i class="annule" style="flex:2"></i><i class="termine" style="flex:12"></i></div></div>
+                          <div><div class="stk" style="height:80%"><i class="absent" style="flex:1"></i><i class="annule" style="flex:1"></i><i class="termine" style="flex:10"></i></div></div>
+                          <div><div class="stk" style="height:40%"><i class="absent" style="flex:1"></i><i class="termine" style="flex:5"></i></div></div>
+                          <div></div>
+                          <div><div class="stk" style="height:93.3%"><i class="absent" style="flex:1"></i><i class="annule" style="flex:1"></i><i class="acloturer" style="flex:1"></i><i class="termine" style="flex:11"></i></div></div>
+                          <div><div class="stk" style="height:100%"><i class="annule" style="flex:2"></i><i class="termine" style="flex:13"></i></div></div>
+                          <div><div class="stk" style="height:93.3%"><i class="absent" style="flex:2"></i><i class="annule" style="flex:1"></i><i class="acloturer" style="flex:2"></i><i class="termine" style="flex:9"></i></div></div>
+                          <div><div class="stk" style="height:80%"><i class="absent" style="flex:1"></i><i class="acloturer" style="flex:1"></i><i class="avenir" style="flex:4"></i><i class="termine" style="flex:6"></i></div></div>
+                          <div><div class="stk" style="height:93.3%"><i class="annule" style="flex:1"></i><i class="avenir" style="flex:13"></i></div></div>
+                          <div><div class="stk" style="height:46.7%"><i class="avenir" style="flex:7"></i></div></div>
+                          <div></div>
+                          <div><div class="stk" style="height:80%"><i class="avenir" style="flex:12"></i></div></div>
+                          <div><div class="stk" style="height:73.3%"><i class="avenir" style="flex:11"></i></div></div>
+                          <div><div class="stk" style="height:86.7%"><i class="avenir" style="flex:13"></i></div></div>
+                          <div><div class="stk" style="height:80%"><i class="avenir" style="flex:12"></i></div></div>
+                          <div><div class="stk" style="height:66.7%"><i class="avenir" style="flex:10"></i></div></div>
+                          <div><div class="stk" style="height:33.3%"><i class="avenir" style="flex:5"></i></div></div>
+                          <div></div>
+                          <div><div class="stk" style="height:60%"><i class="avenir" style="flex:9"></i></div></div>
+                        </div>
+                      </div>
+                      <div class="xax" style="min-width: 434px;">
+                        <span>1</span><span>&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span><span>5</span>
+                        <span>&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span><span>10</span>
+                        <span>&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span><span>15</span>
+                        <span>&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span><span class="now">20</span>
+                        <span>&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span><span>25</span>
+                        <span>&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span><span>&nbsp;</span><span>31</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="lgd">
+                  <div><span class="sw termine"></span><span class="nm">Termin&eacute;</span><span class="ct">170</span><span class="pc">56&nbsp;%</span></div>
+                  <div><span class="sw avenir"></span><span class="nm">&Agrave; venir</span><span class="ct">96</span><span class="pc">32&nbsp;%</span></div>
+                  <div><span class="sw acloturer"></span><span class="nm">&Agrave; cl&ocirc;turer</span><span class="ct">6</span><span class="pc">2&nbsp;%</span></div>
+                  <div><span class="sw annule"></span><span class="nm">Annul&eacute;</span><span class="ct">19</span><span class="pc">6&nbsp;%</span></div>
+                  <div><span class="sw absent"></span><span class="nm">Absent</span><span class="ct">11</span><span class="pc">4&nbsp;%</span></div>
+                </div>
+                <span class="ghostbtn" style="justify-self: start;">Afficher le tableau</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phone w320">
+        <p class="phone-cap">320&nbsp;px &middot; cette semaine &middot; sans d&eacute;filement</p>
+        <div class="cv" id="cv-p320" data-mode="light">
+          <div class="cv-inner">
+            <div class="zones narrow" style="display: grid; gap: 12px;">
+              <span class="seg wfull"><span>Jour</span><span class="on">Semaine</span><span>Mois</span><span>Perso.</span></span>
+              <div class="acard" style="padding: 14px 15px;">
+                <div>
+                  <p class="acard-title">Rendez-vous par statut</p>
+                  <p class="acard-sub mono">par jour &middot; 17 &ndash; 23 ao&ucirc;t</p>
+                </div>
+                <div class="total"><b>76</b><span class="u">rendez-vous</span></div>
+                <div>
+                  <div class="plot" style="grid-template-columns: 22px minmax(0, 1fr);">
+                    <div class="yax"><span>15</span><span>10</span><span>5</span><span>0</span></div>
+                    <div class="field">
+                      <div class="grid"><i></i><i></i><i></i><i></i></div>
+                      <div class="track">
+                        <div><div class="stk" style="height:93.3%"><i class="absent" style="flex:1"></i><i class="annule" style="flex:1"></i><i class="acloturer" style="flex:1"></i><i class="termine" style="flex:11"></i></div></div>
+                        <div><div class="stk" style="height:100%"><i class="annule" style="flex:2"></i><i class="termine" style="flex:13"></i></div></div>
+                        <div><div class="stk" style="height:93.3%"><i class="absent" style="flex:2"></i><i class="annule" style="flex:1"></i><i class="acloturer" style="flex:2"></i><i class="termine" style="flex:9"></i></div></div>
+                        <div><div class="stk" style="height:80%"><i class="absent" style="flex:1"></i><i class="acloturer" style="flex:1"></i><i class="avenir" style="flex:4"></i><i class="termine" style="flex:6"></i></div></div>
+                        <div><div class="stk" style="height:93.3%"><i class="annule" style="flex:1"></i><i class="avenir" style="flex:13"></i></div></div>
+                        <div><div class="stk" style="height:46.7%"><i class="avenir" style="flex:7"></i></div></div>
+                        <div></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="xax" style="padding-inline-start: 30px;">
+                    <span>L</span><span>M</span><span>M</span><span class="now">J</span><span>V</span><span>S</span><span>D</span>
+                  </div>
+                </div>
+                <div class="lgd">
+                  <div><span class="sw termine"></span><span class="nm">Termin&eacute;</span><span class="ct">39</span><span class="pc">51&nbsp;%</span></div>
+                  <div><span class="sw avenir"></span><span class="nm">&Agrave; venir</span><span class="ct">24</span><span class="pc">32&nbsp;%</span></div>
+                  <div><span class="sw acloturer"></span><span class="nm">&Agrave; cl&ocirc;turer</span><span class="ct">4</span><span class="pc">5&nbsp;%</span></div>
+                  <div><span class="sw annule"></span><span class="nm">Annul&eacute;</span><span class="ct">5</span><span class="pc">7&nbsp;%</span></div>
+                  <div><span class="sw absent"></span><span class="nm">Absent</span><span class="ct">4</span><span class="pc">5&nbsp;%</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout col">
+      <p>
+        &Agrave; 320&nbsp;px l&rsquo;axe des jours passe &agrave; <b>une initiale</b> &mdash; abr&eacute;viation
+        <em>visuelle</em> seulement&nbsp;: le nom accessible de chaque colonne reste
+        &laquo;&nbsp;jeudi&nbsp;20&nbsp;ao&ucirc;t&nbsp;&raquo;, comme <code>PERIOD_LABELS_SHORT</code> le fait
+        d&eacute;j&agrave; pour le s&eacute;lecteur de p&eacute;riode. Et le contr&ocirc;le en quatre positions passe
+        &agrave; <code>Perso.</code> pour la m&ecirc;me raison&nbsp;: quatre libell&eacute;s complets mesurent
+        ~430&nbsp;px contre 288&nbsp;px de bo&icirc;te de contenu.
+      </p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="buckets">
+    <div class="col">
+      <p class="eyebrow">La r&egrave;gle de d&eacute;coupe</p>
+      <h2>Une colonne, c&rsquo;est quoi&nbsp;?</h2>
+      <p>
+        La granularit&eacute; se d&eacute;duit de l&rsquo;&eacute;tendue, et elle est <b>&eacute;nonc&eacute;e dans le
+        sous-titre de la carte</b> (&laquo;&nbsp;par jour&nbsp;&raquo;, &laquo;&nbsp;par semaine&nbsp;&raquo;) &mdash;
+        jamais devin&eacute;e par le lecteur. Pas de troisi&egrave;me contr&ocirc;le&nbsp;: une plage libre porte
+        d&eacute;j&agrave; sa propre &eacute;chelle.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table class="doc">
+        <thead>
+          <tr><th>&Eacute;tendue</th><th>Une colonne</th><th>Colonnes</th><th>Cas r&eacute;el</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><b>1 jour</b></td><td>&mdash; une barre horizontale</td><td>1</td><td>&laquo;&nbsp;Aujourd&rsquo;hui&nbsp;&raquo;</td></tr>
+          <tr><td>2 &agrave; 31 jours</td><td>un jour</td><td>2 &agrave; 31</td><td>&laquo;&nbsp;Cette semaine&nbsp;&raquo; (7) &middot; &laquo;&nbsp;Ce mois&nbsp;&raquo; (31)</td></tr>
+          <tr><td>32 &agrave; 120 jours</td><td>une semaine (lundi &rarr; dimanche)</td><td>5 &agrave; 18</td><td>&laquo;&nbsp;du 6 juillet au 23 ao&ucirc;t&nbsp;&raquo; (7)</td></tr>
+          <tr><td>plus de 120 jours</td><td>un mois calendaire</td><td>5 &agrave; 12</td><td>&laquo;&nbsp;cette ann&eacute;e&nbsp;&raquo; (8)</td></tr>
+          <tr><td>plus de 366 jours</td><td colspan="3">refus&eacute;, avec la phrase qui le dit. Une plage non born&eacute;e est une lecture non born&eacute;e.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="col">
+      <p style="margin-top: 20px;">
+        Le seuil &agrave; 120&nbsp;jours n&rsquo;est pas arbitraire&nbsp;: 120&nbsp;colonnes &agrave; 10&nbsp;px de
+        plancher font 1&nbsp;400&nbsp;px de d&eacute;filement sur un t&eacute;l&eacute;phone, et &ccedil;a cesse
+        d&rsquo;&ecirc;tre un graphe. La semaine commence <b>lundi</b>, comme
+        <code>DashboardPeriod.ResolveWeek</code> et comme le <code>weekStartsOn:&nbsp;1</code> de l&rsquo;agenda &mdash;
+        deux d&eacute;coupes de semaine dans un produit, c&rsquo;est un chiffre qui ne tombe jamais juste.
+      </p>
+      <p>
+        Un bucket sans rendez-vous est <b>rempli &agrave; z&eacute;ro, jamais omis</b>. La le&ccedil;on est
+        d&eacute;j&agrave; &eacute;crite dans <code>DashboardTrendReader</code>&nbsp;: sauter un mois vide
+        raccourcit la s&eacute;rie en silence et d&eacute;cale tous les points suivants vers la gauche. Ici c&rsquo;est
+        pire encore &mdash; les dimanches disparaissent et la semaine compte six jours.
+      </p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="touche">
+    <div class="col">
+      <p class="eyebrow">Ce que &ccedil;a touche</p>
+      <h2>Les fichiers, et le pi&egrave;ge Postgres au milieu</h2>
+      <p>
+        Rien ici ne demande de migration. Le point d&eacute;licat est unique et il est d&eacute;j&agrave;
+        document&eacute; dans le d&eacute;p&ocirc;t&nbsp;: <b>on ne d&eacute;coupe pas une date locale dans SQL.</b>
+      </p>
+    </div>
+
+    <div class="verdict">
+      <div class="verdict-bar risk">Le pi&egrave;ge, mot pour mot</div>
+      <div style="padding: 15px 17px;">
+        <p style="margin: 0 0 10px; font-size: 14.5px;">
+          <code>DashboardTrendReader</code> raconte l&rsquo;&eacute;chec&nbsp;: un <code>GROUP BY</code> sur le mois
+          local, &eacute;crit comme <code>GroupBy(p =&gt; p.PaidOn.AddMinutes(offset).Month)</code>, compilait, passait
+          ses tests unitaires (qui bouchonnent le d&eacute;p&ocirc;t) et cassait &agrave; la premi&egrave;re vraie
+          requ&ecirc;te avec
+          <code>42883: function pg_catalog.timezone(unknown, interval) does not exist</code>. L&rsquo;arithm&eacute;tique
+          de date sur une colonne <code>timestamptz</code> n&rsquo;a pas de traduction ici.
+        </p>
+        <p style="margin: 0; font-size: 14.5px;">
+          <b>Donc&nbsp;:</b> une seule lecture projet&eacute;e de deux colonnes
+          (<code>AppointmentDateTime</code>, <code>Status</code>) sur la fen&ecirc;tre, et le d&eacute;coupage en
+          buckets se fait <b>en C#</b> &agrave; travers <code>ClinicClock</code>. Born&eacute;e par la r&egrave;gle des
+          366&nbsp;jours, cette lecture reste l&rsquo;agenda r&eacute;cent d&rsquo;un cabinet, pas son histoire.
+          La courbe des six mois, elle, r&eacute;utilise <code>CountByStatusBetweenAsync</code> une fois par mois &mdash;
+          six agr&eacute;gats index&eacute;s, la m&ecirc;me forme que la courbe de l&rsquo;argent, et la m&ecirc;me
+          garantie&nbsp;: son dernier point et &laquo;&nbsp;Rendez-vous honor&eacute;s&nbsp;&raquo; ne peuvent pas se
+          contredire.
+        </p>
+      </div>
+    </div>
+
+    <div class="tablewrap">
+      <table class="doc">
+        <thead><tr><th>Fichier</th><th>Ce qui change</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>Domain/Repositories/IAppointmentRepository.cs</code></td>
+            <td>Une m&eacute;thode&nbsp;: <code>GetStatusTimelineAsync(clinicId, from, toInclusive, doctorId, ct)</code>, projet&eacute;e sur <code>(StartUtc, Status)</code>.</td>
+          </tr>
+          <tr>
+            <td><code>Infrastructure/Repositories/AppointmentRepository.cs</code></td>
+            <td>Son impl&eacute;mentation. <b>Aucune arithm&eacute;tique de date dans SQL</b> &mdash; voir l&rsquo;encadr&eacute; ci-dessus.</td>
+          </tr>
+          <tr>
+            <td><code>Application/&hellip;/Readers/DashboardAppointmentStatusReader.cs</code></td>
+            <td><b>Nouveau</b> (+ son interface). Le repli 7&nbsp;statuts &rarr; 5&nbsp;classes vit ici, une seule fois, et nulle part ailleurs.</td>
+          </tr>
+          <tr>
+            <td><code>Application/&hellip;/Readers/DashboardAppointmentTrendReader.cs</code></td>
+            <td><b>Nouveau</b> (+ son interface). Six lectures mensuelles, calqu&eacute;es sur <code>DashboardTrendReader</code>.</td>
+          </tr>
+          <tr>
+            <td><code>Application/DTOs/</code></td>
+            <td><code>AppointmentStatusMixDto</code>, <code>AppointmentStatusBucketDto</code>, <code>MonthlyAppointmentPointDto</code>.</td>
+          </tr>
+          <tr>
+            <td><code>Application/&hellip;/Queries/GetDashboardQuery.cs</code></td>
+            <td>Deux champs de plus sur <code>DashboardDto</code>, c&acirc;bl&eacute;s aux deux lecteurs.</td>
+          </tr>
+          <tr>
+            <td><code>Application/&hellip;/DashboardPeriod.cs</code> + <code>DashboardPeriodKey.cs</code></td>
+            <td><b>Option&nbsp;B seulement</b>&nbsp;: une cl&eacute; <code>Custom</code>, et <code>Resolve</code> qui d&eacute;rive la fen&ecirc;tre pr&eacute;c&eacute;dente comme le m&ecirc;me nombre de jours juste avant. Les bornes restent des derniers <em>ticks</em> de journ&eacute;e locale.</td>
+          </tr>
+          <tr>
+            <td><code>API/Controllers/DashboardController.cs</code></td>
+            <td><b>Option&nbsp;B</b>&nbsp;: deux param&egrave;tres optionnels <code>from</code>/<code>to</code> en cl&eacute;s de jour. <b>Option&nbsp;A</b>&nbsp;: une action suppl&eacute;mentaire d&eacute;di&eacute;e.</td>
+          </tr>
+          <tr>
+            <td><code>Application/&hellip;/DashboardKpiKeys.cs</code></td>
+            <td><code>appointmentStatusMix</code> et <code>appointmentTrend</code> dans <code>All</code>. <code>DashboardKpiKeysTests</code> &eacute;pingle cette liste contre celle du navigateur&nbsp;: les deux bougent ensemble ou le test rougit.</td>
+          </tr>
+          <tr>
+            <td><code>UnitTests/Features/Dashboard/</code></td>
+            <td>Deux classes de tests neuves (le repli, les seuils de granularit&eacute;, les buckets vides remplis, la fronti&egrave;re de minuit tunisienne) + les cas <code>Custom</code> dans <code>DashboardPeriodTests</code>.</td>
+          </tr>
+          <tr>
+            <td><code>web/lib/api/types.ts</code></td>
+            <td>Les trois DTOs, et <code>DashboardPeriodKey</code> gagne <code>'Custom'</code>.</td>
+          </tr>
+          <tr>
+            <td><code>web/lib/dashboard-blocks.ts</code></td>
+            <td>Deux entr&eacute;es dans <code>DASHBOARD_BLOCKS</code> (section <code>activity</code>, forme <code>chart</code>). Le <code>Record</code> exhaustif fait qu&rsquo;un bloc sans entr&eacute;e de personnalisation est une erreur <code>tsc</code>, pas une d&eacute;couverte d&rsquo;utilisateur.</td>
+          </tr>
+          <tr>
+            <td><code>web/lib/dashboard-links.ts</code></td>
+            <td><b>Inchang&eacute;.</b> Ce sont des graphes&nbsp;: <code>DashboardBlockKey</code> est un surensemble de <code>DashboardKpiKey</code> pr&eacute;cis&eacute;ment pour qu&rsquo;un graphe n&rsquo;ait pas &agrave; s&rsquo;inventer une destination.</td>
+          </tr>
+          <tr>
+            <td><code>web/components/dashboard/appointment-status-chart.tsx</code></td>
+            <td><b>Nouveau.</b> Colonnes empil&eacute;es, l&eacute;gende chiffr&eacute;e, tableau d&eacute;pliable, forme &agrave; une barre pour une fen&ecirc;tre d&rsquo;un jour.</td>
+          </tr>
+          <tr>
+            <td><code>web/components/dashboard/appointment-trend-chart.tsx</code></td>
+            <td><b>Nouveau.</b> Jumeau de <code>collected-trend-chart.tsx</code>, plus l&rsquo;anneau du mois en cours.</td>
+          </tr>
+          <tr>
+            <td><code>web/components/dashboard/period-selector.tsx</code></td>
+            <td><b>Option&nbsp;B</b>&nbsp;: une 4<sup>e</sup> position et le popover de plage. L&rsquo;abr&eacute;viation visuelle passe &agrave; <code>Perso.</code>, le nom accessible reste complet.</td>
+          </tr>
+          <tr>
+            <td><code>web/components/dashboard/collected-trend-chart.tsx</code></td>
+            <td>L&rsquo;anneau + la mention du mois en cours, <em>si</em> vous r&eacute;pondez oui &agrave; la question&nbsp;5.</td>
+          </tr>
+          <tr>
+            <td><code>web/lib/hooks/use-dashboard.ts</code> &middot; <code>web/lib/api/dashboard.ts</code></td>
+            <td>Portent les bornes personnalis&eacute;es jusqu&rsquo;&agrave; la requ&ecirc;te.</td>
+          </tr>
+          <tr>
+            <td><code>web/app/page.tsx</code></td>
+            <td>La seconde rang&eacute;e de &laquo;&nbsp;L&rsquo;activit&eacute;&nbsp;&raquo;, et la restauration de la p&eacute;riode personnalis&eacute;e depuis l&rsquo;URL (le param&egrave;tre <code>period</code> existe d&eacute;j&agrave;&nbsp;; il en faut deux de plus).</td>
+          </tr>
+          <tr>
+            <td>Temps r&eacute;el</td>
+            <td><b>Rien.</b> <code>RealtimeResource.Appointments</code> d&eacute;clenche d&eacute;j&agrave; <code>refetchAll</code>, et aucun dossier <code>Features/&lt;Area&gt;</code> n&rsquo;est cr&eacute;&eacute; &mdash; donc <code>RealtimeResourceResolverTests</code> reste vert.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout col">
+      <p>
+        <strong>Le portillon, &agrave; faire tourner et non &agrave; supposer&nbsp;:</strong>
+        <code>npm run check:responsive</code> &middot; <code>npx tsc --noEmit</code> &middot;
+        <code>npm run build</code>, puis une passe &agrave; l&rsquo;&oelig;il &agrave;
+        <span class="mono-num">320&nbsp;/&nbsp;390&nbsp;/&nbsp;820&nbsp;/&nbsp;1180&nbsp;/&nbsp;1440&nbsp;px</span> plus un
+        t&eacute;l&eacute;phone en paysage. C&ocirc;t&eacute; API&nbsp;: <code>dotnet test -c Release</code> hors du
+        d&eacute;p&ocirc;t. Aucune migration ici, donc pas de <code>verify-schema</code> &agrave; encadrer.
+      </p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <section id="questions">
+    <div class="col">
+      <p class="eyebrow">Avant d&rsquo;&eacute;crire une ligne</p>
+      <h2>Sept r&eacute;ponses et je construis</h2>
+      <p class="soft">
+        La 1 est la seule qui change la forme du travail. Les six autres ont chacune une recommandation&nbsp;: un
+        &laquo;&nbsp;d&rsquo;accord sur tout&nbsp;&raquo; suffit.
+      </p>
+    </div>
+
+    <ol class="asks">
+      <li>
+        <b>O&ugrave; vit la p&eacute;riode&nbsp;?</b> Option&nbsp;B (le s&eacute;lecteur de la page gagne
+        &laquo;&nbsp;Personnalis&eacute;&nbsp;&raquo;, toute la page suit) ou Option&nbsp;A (le contr&ocirc;le dans
+        l&rsquo;en-t&ecirc;te de la carte)&nbsp;?
+        <span class="rec">Recommandation&nbsp;: <b>B</b>. Un seul contr&ocirc;le, aucun nouvel endpoint, et la
+        p&eacute;riode libre profite aussi &agrave; l&rsquo;argent et aux actes. C&rsquo;est aussi ce que le code de
+        <code>period-selector.tsx</code> demande explicitement.</span>
+      </li>
+      <li>
+        <b>Le repli &agrave; cinq classes&nbsp;?</b> En particulier
+        Planifi&eacute;&nbsp;+&nbsp;Confirm&eacute;&nbsp;&rarr;&nbsp;&laquo;&nbsp;&Agrave; venir&nbsp;&raquo;, avec
+        <em>dont N confirm&eacute;s</em> en sous-ligne de l&eacute;gende.
+        <span class="rec">Recommandation&nbsp;: <b>oui</b>. Les deux variantes &agrave; six classes &eacute;chouent au
+        validateur (&Delta;E 2,1 et 12,6) &mdash; ce n&rsquo;est pas un jugement de go&ucirc;t.</span>
+      </li>
+      <li>
+        <b>La courbe compte quoi&nbsp;?</b> Tous les rendez-vous du livre, ou seulement les honor&eacute;s&nbsp;?
+        <span class="rec">Recommandation&nbsp;: <b>un bascule Tous&nbsp;/&nbsp;Honor&eacute;s</b>, par d&eacute;faut
+        &laquo;&nbsp;Tous&nbsp;&raquo; &mdash; m&ecirc;me motif que Dur&eacute;e&nbsp;/&nbsp;Nombre sur
+        &laquo;&nbsp;R&eacute;partition des actes&nbsp;&raquo;. Une seule s&eacute;rie &agrave; l&rsquo;&eacute;cran,
+        donc aucun co&ucirc;t de palette.</span>
+      </li>
+      <li>
+        <b>Les seuils de d&eacute;coupe</b> (1&nbsp;jour &rarr; barre &middot; &le;&nbsp;31&nbsp;j &rarr; jour &middot;
+        &le;&nbsp;120&nbsp;j &rarr; semaine &middot; au-del&agrave; &rarr; mois) et le <b>plafond de 366&nbsp;jours</b>.
+        <span class="rec">Recommandation&nbsp;: tels quels. Le plafond est refus&eacute; avec une phrase, jamais rogn&eacute; en silence.</span>
+      </li>
+      <li>
+        <b>Le mois en cours&nbsp;:</b> anneau creux + &laquo;&nbsp;20&nbsp;jours sur 31&nbsp;&raquo;. On corrige
+        &laquo;&nbsp;Encaiss&eacute; &mdash; 6 derniers mois&nbsp;&raquo; dans le m&ecirc;me passage&nbsp;?
+        <span class="rec">Recommandation&nbsp;: <b>oui</b>. Sinon deux courbes voisines dont une seule dit la
+        v&eacute;rit&eacute; sur son dernier point &mdash; exactement la forme de d&eacute;faut la plus fr&eacute;quente
+        de ce d&eacute;p&ocirc;t&nbsp;: un correctif c&acirc;bl&eacute; &agrave; un seul appelant.</span>
+      </li>
+      <li>
+        <b>Visibles par d&eacute;faut&nbsp;?</b> Les deux cartes sont d&eacute;brayables depuis le panneau de
+        personnalisation dans tous les cas.
+        <span class="rec">Recommandation&nbsp;: <b>les deux visibles</b>. La section &laquo;&nbsp;L&rsquo;activit&eacute;&nbsp;&raquo;
+        passe &agrave; deux rang&eacute;es&nbsp;; si &ccedil;a vous para&icirc;t lourd, on cache la courbe par
+        d&eacute;faut plut&ocirc;t que le graphe des statuts.</span>
+      </li>
+      <li>
+        <b>Le filtre &laquo;&nbsp;Praticien&nbsp;&raquo;</b> narre aujourd&rsquo;hui &laquo;&nbsp;L&rsquo;argent&nbsp;&raquo;
+        seulement. Les deux nouveaux graphes le suivent-ils&nbsp;?
+        <span class="rec">Recommandation&nbsp;: <b>non pour l&rsquo;instant</b>. Le d&eacute;placer au niveau de la page
+        est une d&eacute;cision s&eacute;par&eacute;e, et L9 argumente pour qu&rsquo;il reste un filtre de section.
+        Les deux lecteurs acceptent d&eacute;j&agrave; un <code>doctorId</code>&nbsp;: le jour o&ugrave; vous le voudrez,
+        c&rsquo;est un param&egrave;tre &agrave; passer, pas une refonte.</span>
+      </li>
+    </ol>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  document.querySelectorAll(".tog button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var mode = btn.getAttribute("data-mode");
+      // Every canvas follows the toggle that was clicked, so the two phone
+      // frames never end up in different themes from each other.
+      document.querySelectorAll(".cv").forEach(function (cv) {
+        cv.setAttribute("data-mode", mode);
+      });
+      document.querySelectorAll(".tog button").forEach(function (b) {
+        b.setAttribute("aria-pressed", String(b.getAttribute("data-mode") === mode));
+      });
+    });
+  });
+})();
+</script>

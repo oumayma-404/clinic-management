@@ -15,6 +15,14 @@ public class MedicalDocumentConfiguration : IEntityTypeConfiguration<MedicalDocu
         builder.Property(d => d.PatientId)
             .IsRequired();
 
+        // Denormalised from the patient so this clinical child carries a global query filter of its
+        // own — see ApplicationDbContext.OnModelCreating. The two must agree; verify-schema's
+        // clinical-child-clinic-matches-patient is what holds that.
+        builder.Property(d => d.ClinicId)
+            .IsRequired();
+
+        builder.HasIndex(d => d.ClinicId);
+
         builder.Property(d => d.DocumentType)
             .IsRequired()
             .HasMaxLength(50);
@@ -63,6 +71,11 @@ public class MedicalDocumentConfiguration : IEntityTypeConfiguration<MedicalDocu
             .IsRequired();
 
         builder.Property(d => d.UpdatedAt);
+
+        // Optional, unenforced link to the documented appointment (no FK — see entity). Indexed for the
+        // completion lookup path.
+        builder.Property(d => d.AppointmentId);
+        builder.HasIndex(d => d.AppointmentId);
 
         // Relationships
         builder.HasOne(d => d.Patient)

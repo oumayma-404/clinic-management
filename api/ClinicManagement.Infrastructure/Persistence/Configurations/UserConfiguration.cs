@@ -33,8 +33,39 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 
         builder.Property(u => u.UpdatedAt);
 
+        // Local-mode credential fields (inert in Cloud mode).
+        builder.Property(u => u.PasswordHash)
+            .HasMaxLength(500);
+
+        builder.Property(u => u.IsActive)
+            .IsRequired()
+            .HasDefaultValue(true);
+
+        builder.Property(u => u.MustChangePassword)
+            .IsRequired()
+            .HasDefaultValue(false);
+
+        // Token revocation stamp (security-hardening US-5). Existing rows default to 0; because every token
+        // issued from this release onward carries the claim and pre-upgrade tokens carry none, the default
+        // value does not weaken the check — a versionless token is rejected regardless.
+        builder.Property(u => u.TokenVersion)
+            .IsRequired()
+            .HasDefaultValue(0);
+
+        builder.Property(u => u.LastLoginAt);
+        builder.Property(u => u.FailedLoginAttempts)
+            .IsRequired()
+            .HasDefaultValue(0);
+        builder.Property(u => u.LockoutEnd);
+
         builder.HasIndex(u => u.ClinicId);
         builder.HasIndex(u => new { u.ClinicId, u.Role });
+
+        // Local accounts (those with a password) must have a unique email per install.
+        // Filtered so Cloud rows (null/duplicate emails, no password) are excluded and unaffected.
+        builder.HasIndex(u => u.Email)
+            .IsUnique()
+            .HasFilter("\"PasswordHash\" IS NOT NULL");
     }
 }
 

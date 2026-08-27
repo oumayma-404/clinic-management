@@ -1,19 +1,72 @@
 "use client"
 
-import { useState } from "react"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
+import { useCallback, useEffect, useState } from "react"
+import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { PageHeader } from "@/components/ui/page-header"
 import { StockTable } from "@/components/stock-table"
 import { StockItemFormModal } from "@/components/stock-item-form-modal"
+import { StockExpirySettingsCard } from "@/components/stock-expiry-settings-card"
+import { useSession } from "@/lib/auth/session"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import type { StockItemDto } from "@/lib/api/types"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
 export default function StockPage() {
+  const { user } = useSession()
   const [modalOpen, setModalOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<StockItemDto | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [highlightItemId, setHighlightItemId] = useState<string | null>(null)
+  // Dashboard drill-through (« Stock bas » / « Péremption proche »): ?filter=low|expiring pre-applies the matching
+  // filter so the list shows exactly the items the card counted. An unknown value is ignored — a stale link lands on
+  // the full list, never a broken state.
+  const [initialFilter, setInitialFilter] = useState<"low" | "expiring" | undefined>()
+  // The catégorie options the item form offers, lifted from the list read (see StockTable.onCategoriesChange).
+  const [categories, setCategories] = useState<string[]>([])
+
+  // Live-refresh on a peer's stock mutation (finding #14: the page didn't subscribe though the backend
+  // already broadcasts the "stock" key).
+  useClinicRealtime(RealtimeResource.Stock, useCallback(() => setRefreshKey((k) => k + 1), []))
+
+  // Deep-link from a low-stock notification: highlight the referenced item's row. Clears the query
+  // param so a refresh doesn't re-trigger it. Graceful — if the item isn't in the list, nothing is
+  // highlighted (the user still lands on the stock screen).
+  const highlightItem = useCallback((itemId: string) => {
+    setHighlightItemId(itemId)
+    window.history.replaceState({}, "", "/stock")
+  }, [])
+
+  // On mount (cross-page navigation): read the query params. `filter` is read BEFORE highlightItem may clear the
+  // query string, so a link carrying both still applies both.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const filter = params.get("filter")
+    if (filter === "low" || filter === "expiring") setInitialFilter(filter)
+
+    const itemId = params.get("itemId")
+    if (itemId) highlightItem(itemId)
+  }, [highlightItem])
+
+  // Already on this page: a same-route push doesn't remount, so react to the header's deep-link event.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const id = (e as CustomEvent<{ itemId?: string }>).detail?.itemId
+      if (id) highlightItem(id)
+    }
+    window.addEventListener("clinic:deeplink", handler)
+    return () => window.removeEventListener("clinic:deeplink", handler)
+  }, [highlightItem])
+
+  // The highlight is a transient "here it is" cue — clear it after a few seconds so the row doesn't
+  // keep a stuck selection look for the lifetime of the page.
+  useEffect(() => {
+    if (!highlightItemId) return
+    const t = setTimeout(() => setHighlightItemId(null), 4000)
+    return () => clearTimeout(t)
+  }, [highlightItemId])
 
   const handleAddNew = () => {
     setEditingItem(null)
@@ -27,40 +80,56 @@ export default function StockPage() {
 
   return (
     <ClinicGuard>
-      <div className="flex h-screen bg-background">
-        <DashboardSidebar />
+      <AppShell contentClassName="space-y-6">
+        {/*
+          The action goes through `PageHeader`'s own `actions` slot, NOT a hand-rolled flex row around it: as a
+          flex item beside a sibling the header shrinks to its title's width, and its zone wash — which bleeds
+          past its own box to meet the page gutter — was cut off mid-page with a hard vertical edge.
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader />
+          No `zone` prop: `PageHeader` derives it from the route now (`lib/zones.ts` puts `/stock` in
+          « Gestion »), and the hardcoded « Clinique » here disagreed with the rail — the exact drift the
+          derivation was introduced to end.
+        */}
+        <PageHeader
+          title="Stock"
+          subtitle="Fournitures, lots et seuils de réapprovisionnement."
+          actions={
+            <Button onClick={handleAddNew} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Ajouter un article
+            </Button>
+          }
+        />
 
-          <main className="flex-1 overflow-y-auto p-6">
-            <div className="mx-auto max-w-7xl space-y-6">
-              {/* Page Header */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-semibold text-foreground">Stock Management</h1>
-                  <p className="mt-1 text-sm text-muted-foreground">Manage medical supplies and inventory</p>
-                </div>
+        {/* Stock Table */}
+        <StockTable
+          refreshKey={refreshKey}
+          onEdit={handleEdit}
+          onAdd={handleAddNew}
+          highlightItemId={highlightItemId}
+          initialFilter={initialFilter}
+          onCategoriesChange={setCategories}
+          // Remount when the arriving filter resolves, so StockTable's initial filter state actually takes
+          // effect — it seeds useState, which a re-render alone would not revisit.
+          key={initialFilter ?? "all"}
+        />
 
-                <Button onClick={handleAddNew} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Add New Item
-                </Button>
-              </div>
-
-              {/* Stock Table */}
-              <StockTable refreshKey={refreshKey} onEdit={handleEdit} />
-            </div>
-          </main>
-        </div>
+        {/* Below the list, not above it: the list is what this page is for, and the window is set once and then
+            left alone for months. Bumping `refreshKey` on save is what makes the « expire bientôt » column and
+            the header counts re-read against the new window immediately (AC-20). */}
+        <StockExpirySettingsCard
+          isAdmin={user?.role === "admin"}
+          onChanged={() => setRefreshKey((k) => k + 1)}
+        />
 
         <StockItemFormModal
           open={modalOpen}
           onOpenChange={setModalOpen}
           editingItem={editingItem}
           onSaved={() => setRefreshKey((k) => k + 1)}
+          categories={categories}
         />
-      </div>
+      </AppShell>
     </ClinicGuard>
   )
 }

@@ -1,5 +1,6 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
@@ -18,11 +19,16 @@ public class CreatePatientMedicalHistoryCommand : IRequest<Result<PatientMedical
 public class CreatePatientMedicalHistoryCommandHandler : IRequestHandler<CreatePatientMedicalHistoryCommand, Result<PatientMedicalHistoryDto>>
 {
     private readonly IPatientRepository _patientRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
-    public CreatePatientMedicalHistoryCommandHandler(IPatientRepository patientRepository, IUnitOfWork unitOfWork)
+    public CreatePatientMedicalHistoryCommandHandler(
+        IPatientRepository patientRepository,
+        ICurrentClinicResolver clinicResolver,
+        IUnitOfWork unitOfWork)
     {
         _patientRepository = patientRepository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
 
@@ -32,30 +38,38 @@ public class CreatePatientMedicalHistoryCommandHandler : IRequestHandler<CreateP
         {
             if (string.IsNullOrWhiteSpace(request.Description))
             {
-                return Result<PatientMedicalHistoryDto>.Failure("Description is required");
+                return Result<PatientMedicalHistoryDto>.Failure("La description est requise.");
+            }
+
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<PatientMedicalHistoryDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
             }
 
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
-            if (patient == null)
+            if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<PatientMedicalHistoryDto>.Failure("Patient not found");
+                return Result<PatientMedicalHistoryDto>.Failure("Patient introuvable.");
             }
 
             var entry = new PatientMedicalHistory(
                 Guid.NewGuid(),
                 request.PatientId,
+                // The patient's own clinic, not the caller's — they are equal by the check above, and taking it
+                // from the patient is what makes the denormalised column true by construction.
+                patient.ClinicId,
                 request.Description,
                 request.Date,
                 request.Notes);
 
-            // Update patient's UpdatedAt timestamp
             patient.AddMedicalHistoryEntry(entry);
             
             // Add the entry directly to the repository (adds to DbSet)
             await _patientRepository.AddMedicalHistoryEntryAsync(entry, cancellationToken);
             
-            // Update only the patient's UpdatedAt property
-            await _patientRepository.UpdateAsync(patient, cancellationToken);
+            // No write to the patient row. A history entry is a child, and on this entity `UpdatedAt` shares
+            // its row with the concurrency token — stamping it here refused the user’s own next save.
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var dto = new PatientMedicalHistoryDto
@@ -70,7 +84,7 @@ public class CreatePatientMedicalHistoryCommandHandler : IRequestHandler<CreateP
 
             return Result<PatientMedicalHistoryDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<PatientMedicalHistoryDto>.Failure($"Error creating medical history entry: {ex.Message}");
         }

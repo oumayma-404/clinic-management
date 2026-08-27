@@ -1,0 +1,120 @@
+using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace ClinicManagement.Infrastructure.Repositories;
+
+/// <summary>
+/// The entitlement and its ledger. No <c>IgnoreQueryFilters()</c> anywhere: both tables carry a non-nullable
+/// <c>ClinicId</c> and are filtered, so a caller with no clinic in scope must declare <c>UseSystemWide</c> rather
+/// than have this class quietly read across cabinets.
+/// </summary>
+public class ClinicSubscriptionRepository : IClinicSubscriptionRepository
+{
+    private readonly ApplicationDbContext _context;
+
+    public ClinicSubscriptionRepository(ApplicationDbContext context)
+    {
+        _context = context;
+    }
+
+    public async Task<ClinicSubscription?> GetByClinicAsync(
+        Guid clinicId, CancellationToken cancellationToken = default) =>
+        await _context.ClinicSubscriptions
+            .FirstOrDefaultAsync(s => s.ClinicId == clinicId, cancellationToken);
+
+    /// <summary>
+    /// The whole ledger, oldest first with <c>Id</c> as the tie-break. The ordering is not cosmetic: two grants
+    /// recorded in the same tick must fold in a stable order, or <c>EndsOn</c> would depend on which row
+    /// PostgreSQL happened to return first. <c>SubscriptionLedger</c> re-applies the same order, so neither side
+    /// silently depends on the other.
+    /// </summary>
+    public async Task<IReadOnlyList<SubscriptionPeriod>> GetEntriesAsync(
+        Guid clinicId, CancellationToken cancellationToken = default) =>
+        await _context.SubscriptionPeriods
+            .Where(p => p.ClinicId == clinicId)
+            .OrderBy(p => p.RecordedAtUtc)
+            .ThenBy(p => p.Id)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// Every cabinet beside its entitlement, name-ordered. Two reads joined here rather than a LINQ left join:
+    /// one row per clinic on a read-only operator verb, and the two tables answer to different query filters
+    /// (see the interface's warning), so keeping them visibly separate is what makes that asymmetry readable.
+    /// </summary>
+    public async Task<IReadOnlyList<ClinicSubscriptionReportRow>> GetForReportAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var clinics = await _context.Clinics
+            .AsNoTracking()
+            .Select(c => new { c.Id, c.Name })
+            .OrderBy(c => c.Name)
+            .ThenBy(c => c.Id)
+            .ToListAsync(cancellationToken);
+
+        var subscriptions = await _context.ClinicSubscriptions
+            .AsNoTracking()
+            .ToDictionaryAsync(s => s.ClinicId, cancellationToken);
+
+        return clinics
+            .Select(c => new ClinicSubscriptionReportRow(
+                c.Id, c.Name, subscriptions.TryGetValue(c.Id, out var s) ? s : null))
+            .ToList();
+    }
+
+    /// <summary>
+    /// The vendor's own takings over an inclusive window. A projected <c>SUM</c>, so a deployment with a long ledger
+    /// pays for one scalar rather than for every entry it ever recorded.
+    /// </summary>
+    public async Task<decimal> GetVendorCollectedBetweenAsync(
+        DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
+        await _context.SubscriptionPeriods
+            .AsNoTracking()
+            .Where(p => !p.IsCancelled && p.RecordedAtUtc >= fromUtc && p.RecordedAtUtc <= toUtc)
+            .SumAsync(p => p.Amount ?? 0m, cancellationToken);
+
+    /// <summary>
+    /// One cabinet's report row. Same two-read shape as its deployment-wide sibling and for the same reason — the
+    /// two tables answer to different query filters — but bounded to the clinic asked about.
+    /// </summary>
+    public async Task<ClinicSubscriptionReportRow?> GetReportRowAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        var clinic = await _context.Clinics
+            .AsNoTracking()
+            .Where(c => c.Id == clinicId)
+            .Select(c => new { c.Id, c.Name })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (clinic is null)
+        {
+            return null;
+        }
+
+        var subscription = await _context.ClinicSubscriptions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.ClinicId == clinicId, cancellationToken);
+
+        return new ClinicSubscriptionReportRow(clinic.Id, clinic.Name, subscription);
+    }
+
+    public async Task AddAsync(ClinicSubscription subscription, CancellationToken cancellationToken = default) =>
+        await _context.ClinicSubscriptions.AddAsync(subscription, cancellationToken);
+
+    public async Task AddEntryAsync(SubscriptionPeriod entry, CancellationToken cancellationToken = default) =>
+        await _context.SubscriptionPeriods.AddAsync(entry, cancellationToken);
+
+    public Task UpdateAsync(ClinicSubscription subscription, CancellationToken cancellationToken = default)
+    {
+        // The guarded form ClinicRepository, PatientRepository and ClinicSignupRepository all use: Version is
+        // mapped onto xmin, so a blind Update on a detached instance sends `WHERE xmin = 0`, matches nothing, and
+        // 409s with nobody at fault.
+        if (_context.Entry(subscription).State == EntityState.Detached)
+        {
+            _context.ClinicSubscriptions.Update(subscription);
+        }
+
+        return Task.CompletedTask;
+    }
+}

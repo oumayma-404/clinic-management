@@ -29,11 +29,32 @@ services:
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9000/minio/health/live || exit 1"]
+      # ⚠️ `curl`, not `wget`: the minio/minio image ships no `wget`, so this probe answered
+      # « /bin/sh: wget: command not found » on every run — 4 748 consecutive failures, the container
+      # permanently `unhealthy` while MinIO itself was fine. A probe that can never pass is worse than none:
+      # a `depends_on: { condition: service_healthy }` on it would hang for ever, and a real outage was
+      # indistinguishable from the standing red. `curl` and `mc` are both present in the image; `curl -f`
+      # already exits non-zero on an HTTP error, so no `|| exit 1` is needed.
+      test: ["CMD-SHELL", "curl -f -s http://localhost:9000/minio/health/live"]
       interval: 30s
       timeout: 20s
       retries: 3
 
+  # LOCAL DEV ONLY. A mail sink so transactional email (clinic self-signup's verification link) can be
+  # exercised without a real relay: SMTP on 1025 accepts anything, the web UI on 8025 shows what arrived.
+  # Nothing in the product knows about it — it is pointed at by Notification:Smtp:* in
+  # appsettings.Development.json, the same keys a real deployment fills in.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: clinic-mailpit
+    ports:
+      - "1025:1025"  # SMTP submission
+      - "8025:8025"  # Web UI
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 
 volumes:

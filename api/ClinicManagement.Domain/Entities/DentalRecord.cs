@@ -1,128 +1,246 @@
 using ClinicManagement.Domain.Common;
+using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.Services;
+using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Domain.Entities;
 
+/// <summary>
+/// A dental-record session: a list of <see cref="DentalRecordAct"/> (the acts done), from which the record's
+/// <see cref="ProcedureType"/> summary, <see cref="Cost"/>, and flat <see cref="Teeth"/> list are DERIVED
+/// (recomputed in <see cref="SetActs"/>). Kept as stored columns for display / AI summary / the invoice bridge.
+/// </summary>
 public class DentalRecord : Entity<Guid>
 {
+    private const int ProcedureSummaryMaxLength = 200;
+
     public Guid PatientId { get; private set; }
+
+    /// <summary>The owning clinic, denormalised from <see cref="Patient"/>. See <see cref="PatientMedicalHistory.ClinicId"/>.</summary>
+    public Guid ClinicId { get; private set; }
     public DateTime InterventionDate { get; private set; }
-    public string ProcedureType { get; private set; }
+
+    /// <summary>
+    /// The appointment this session documents, when it was recorded from one. Null for a fiche entered without going
+    /// through the agenda.
+    ///
+    /// <para>
+    /// ⚠️ The <c>DentalRecords.AppointmentId</c> column and its index have existed since
+    /// <c>AddDentalRecordAppointmentId</c> (2026-07-17) — but the property did not, so the EF model never declared it,
+    /// nothing populated it, and every row held NULL. The id *was* already reaching the write side: the create command
+    /// takes it, uses it post-commit to mark the visit completed and cancel its post-visit prompt, then discards it.
+    /// Storing it is what finally makes « quelles séances n'ont pas encore de fiche ? » answerable — the same defect,
+    /// and the same repair, as <c>Invoice.AppointmentId</c>.
+    /// </para>
+    ///
+    /// <para>
+    /// It is deliberately NOT a required link and NOT unique: a visit may legitimately produce more than one fiche,
+    /// and a fiche may exist with no appointment behind it.
+    /// </para>
+    /// </summary>
+    public Guid? AppointmentId { get; private set; }
+    /// <summary>
+    /// Which practitioner earned this — nullable, and nullable means nullable (L9 attribution).
+    ///
+    /// <para><b>What was missing.</b> <c>DoctorId</c> existed on exactly three entities in the whole model
+    /// (<c>Appointment</c> — the only real FK to <c>Doctors</c> — <c>RecurringAppointment</c>, and
+    /// <c>WaitingListEntry.PreferredDoctorId</c>, which was not even an FK), and on nothing that carries money or
+    /// clinical work. So « combien a produit ce praticien ce mois ? » had no answer, and
+    /// <c>Features/Dashboard/</c> contained <b>zero</b> occurrences of <c>Doctor</c> across all four readers.</para>
+    ///
+    /// <para>⚠️ <b>Historical rows legitimately have none</b> — the column did not exist when they were written,
+    /// and the migration only backfills where a linked appointment names a practitioner. Every read must therefore
+    /// tolerate null rather than treating it as « the clinic », which would silently attribute one dentist's work
+    /// to whoever the filter happens to select.</para>
+    ///
+    /// <para>This is <b>attribution, not authorization</b>: it answers who earned a figure. Per-practitioner data
+    /// scoping (« this dentist sees only their own patients ») is a separate decision with its own blast radius and
+    /// is deliberately out of scope.</para>
+    /// </summary>
+    public Guid? DoctorId { get; private set; }
+
+    /// <summary>The practitioner navigation, for the read-side name resolution. Null when unattributed.</summary>
+    public Doctor? Doctor { get; private set; }
+
+    /// <summary>
+    /// Attribute (or un-attribute) this record to a practitioner. Deliberately its own mutator rather than a ctor
+    /// parameter on every construction path: the answer is often only known *after* the aggregate exists (it comes
+    /// from the appointment the record was written against), and a required ctor argument would have forced every
+    /// caller to guess.
+    /// </summary>
+    public void SetDoctor(Guid? doctorId)
+    {
+        DoctorId = doctorId == Guid.Empty ? null : doctorId;
+        // This entity has no `Touch()` helper — its two other mutators assign `UpdatedAt` inline.
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+
+    /// <summary>Derived summary of the acts' procedure names (recomputed in <see cref="SetActs"/>).</summary>
+    public string ProcedureType { get; private set; } = string.Empty;
+    /// <summary>Derived total = sum of act costs (recomputed in <see cref="SetActs"/>).</summary>
     public decimal Cost { get; private set; }
     public decimal AmountPaid { get; private set; }
+
+    /// <summary>
+    /// How <see cref="AmountPaid"/> was settled at the chair — and, for a cheque, which cheque.
+    ///
+    /// <para><b>Why the fiche carries this at all.</b> Saving a fiche with a « Montant payé » raises the note
+    /// d'honoraires and records that payment, and the payment used to be booked as <b>cash, always</b> — a
+    /// hard-coded <c>PaymentMethod.Cash</c> at the one call site. A patient settling a session with a post-dated
+    /// cheque therefore produced a payment indistinguishable from notes in the drawer: it never reached
+    /// « Chèques à encaisser », and it was counted under « dont espèces » in the till's own breakdown.</para>
+    ///
+    /// <para>⚠️ <b>Null means cash, by read-side convention and not by backfill.</b> Every row written before this
+    /// column existed was booked as cash, so a historical null is not a missing answer — it is the answer. Filling
+    /// them in would be a migration that invents facts nobody recorded.</para>
+    /// </summary>
+    public PaymentMethod? PaymentMethod { get; private set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public string? ChequeNumber { get; private set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public string? ChequeBankName { get; private set; }
+
+    /// <inheritdoc cref="PaymentMethod"/>
+    public DateTime? ChequeDueDate { get; private set; }
+
+    /// <summary>
+    /// Record how this session was settled. The cheque parts are validated by the <b>existing</b>
+    /// <see cref="ChequeDetails.For"/> — the single guard both payment ledgers already pass through — rather than
+    /// by a second copy of « des détails de chèque n'ont de sens que sur un chèque » written here.
+    ///
+    /// <para>A null <paramref name="method"/> is « not recorded », which every read takes as cash (see
+    /// <see cref="PaymentMethod"/>); details supplied alongside it are refused exactly as they would be on a cash
+    /// payment, because that is what a null means.</para>
+    /// </summary>
+    /// <exception cref="ArgumentException">Cheque details supplied for a method that is not a cheque.</exception>
+    public void SetPayment(PaymentMethod? method, string? chequeNumber, string? chequeBankName, DateTime? chequeDueDate)
+    {
+        var cheque = ChequeDetails.For(
+            method ?? Enums.PaymentMethod.Cash, chequeNumber, chequeBankName, chequeDueDate);
+
+        PaymentMethod = method;
+        ChequeNumber = cheque?.Number;
+        ChequeBankName = cheque?.BankName;
+        ChequeDueDate = cheque?.DueDate;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     private readonly List<string> _notes = new();
     public IReadOnlyList<string> Notes => _notes.AsReadOnly();
     private readonly List<string> _importantNotes = new();
     public IReadOnlyList<string> ImportantNotes => _importantNotes.AsReadOnly();
-    public bool IsAdultTeeth { get; private set; } // True for adult, false for child/baby teeth
+
+    public bool IsAdultTeeth { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
-    // Navigation properties
+    // Navigation
     public Patient Patient { get; private set; } = null!;
     private readonly List<DentalRecordTooth> _teeth = new();
     public IReadOnlyCollection<DentalRecordTooth> Teeth => _teeth.AsReadOnly();
+    private readonly List<DentalRecordAct> _acts = new();
+    public IReadOnlyCollection<DentalRecordAct> Acts => _acts.AsReadOnly();
 
     private DentalRecord() { } // For EF Core
 
     public DentalRecord(
         Guid id,
         Guid patientId,
+        Guid clinicId,
         DateTime interventionDate,
-        string procedureType,
-        decimal cost,
         decimal amountPaid,
         bool isAdultTeeth,
         List<string>? notes = null,
-        List<string>? importantNotes = null)
+        List<string>? importantNotes = null,
+        Guid? appointmentId = null)
     {
-        if (string.IsNullOrWhiteSpace(procedureType))
-            throw new ArgumentException("Procedure type cannot be null or empty", nameof(procedureType));
-
-        if (cost < 0)
-            throw new ArgumentException("Cost cannot be negative", nameof(cost));
-
         if (amountPaid < 0)
             throw new ArgumentException("Amount paid cannot be negative", nameof(amountPaid));
 
         Id = id;
         PatientId = patientId;
+        ClinicId = clinicId;
         InterventionDate = interventionDate;
-        ProcedureType = procedureType.Trim();
-        Cost = cost;
         AmountPaid = amountPaid;
         IsAdultTeeth = isAdultTeeth;
-        
+        AppointmentId = appointmentId;
+
         if (notes != null)
-        {
             _notes.AddRange(notes.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()));
-        }
-        
         if (importantNotes != null)
-        {
             _importantNotes.AddRange(importantNotes.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()));
-        }
-        
+
         CreatedAt = DateTime.UtcNow;
     }
 
-    public void AddTooth(int toothNumber)
+    /// <summary>
+    /// Replace all acts, then recompute the derived cost / procedure summary / flat tooth list.
+    /// NOTE: every act is rebuilt with a fresh id, so <see cref="DentalRecordAct.Id"/> is NOT stable across
+    /// updates — nothing may hold a foreign key to it. Downstream links target the record instead
+    /// (e.g. <c>InvoiceLine.DentalRecordId</c>, <c>TreatmentPlanItem.LinkedDentalRecordId</c>).
+    /// </summary>
+    public void SetActs(IEnumerable<DentalRecordActInput> acts)
     {
-        if (_teeth.Any(t => t.ToothNumber == toothNumber))
-            return; // Tooth already added
+        _acts.Clear();
+        _teeth.Clear();
+        var teethSeen = new HashSet<int>();
 
-        var tooth = new DentalRecordTooth(
-            Guid.NewGuid(),
-            Id,
-            toothNumber);
-        _teeth.Add(tooth);
-        UpdatedAt = DateTime.UtcNow;
-    }
-
-    public void RemoveTooth(int toothNumber)
-    {
-        var tooth = _teeth.FirstOrDefault(t => t.ToothNumber == toothNumber);
-        if (tooth != null)
+        foreach (var a in acts)
         {
-            _teeth.Remove(tooth);
-            UpdatedAt = DateTime.UtcNow;
+            _acts.Add(new DentalRecordAct(Guid.NewGuid(), Id, a));
+
+            foreach (var tooth in a.ToothNumbers ?? Array.Empty<int>())
+            {
+                if (teethSeen.Add(tooth))
+                    _teeth.Add(new DentalRecordTooth(Guid.NewGuid(), Id, tooth));
+            }
         }
+
+        RecomputeDerived();
+        UpdatedAt = DateTime.UtcNow;
     }
 
     public void Update(
         DateTime interventionDate,
-        string procedureType,
-        decimal cost,
         decimal amountPaid,
         List<string>? notes = null,
         List<string>? importantNotes = null)
     {
-        if (string.IsNullOrWhiteSpace(procedureType))
-            throw new ArgumentException("Procedure type cannot be null or empty", nameof(procedureType));
-
-        if (cost < 0)
-            throw new ArgumentException("Cost cannot be negative", nameof(cost));
-
         if (amountPaid < 0)
             throw new ArgumentException("Amount paid cannot be negative", nameof(amountPaid));
 
         InterventionDate = interventionDate;
-        ProcedureType = procedureType.Trim();
-        Cost = cost;
         AmountPaid = amountPaid;
-        
+
         if (notes != null)
         {
             _notes.Clear();
             _notes.AddRange(notes.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()));
         }
-        
         if (importantNotes != null)
         {
             _importantNotes.Clear();
             _importantNotes.AddRange(importantNotes.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()));
         }
-        
+
         UpdatedAt = DateTime.UtcNow;
     }
-}
 
+    private void RecomputeDerived()
+    {
+        Cost = InvoiceCalculator.RoundMoney(_acts.Sum(a => a.Cost));
+
+        var names = _acts
+            .Select(a => a.ProcedureName)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct()
+            .ToList();
+        var summary = names.Count > 0 ? string.Join(", ", names) : string.Empty;
+        ProcedureType = summary.Length > ProcedureSummaryMaxLength
+            ? summary[..(ProcedureSummaryMaxLength - 1)] + "…"
+            : summary;
+    }
+}

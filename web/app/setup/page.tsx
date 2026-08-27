@@ -1,63 +1,60 @@
 "use client"
 
-import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { useUser } from "@auth0/nextjs-auth0/client"
+import { useSession } from "@/lib/auth/session"
 import SetupWizard from "@/components/setup-wizard"
 import { clinicsApi } from "@/lib/api/clinics"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 
 export default function SetupPage() {
-  const router = useRouter()
-  const { user, isLoading: userLoading } = useUser()
+  const { user, isLoading: userLoading, mode } = useSession()
   const { accessToken, isLoading: authLoading } = useAuthToken()
   const [isChecking, setIsChecking] = useState(true)
 
   useEffect(() => {
-    // Only check once when component mounts or auth state changes
-    if (!isChecking) return // Already checked, don't check again
-    
-    checkUserStatus()
-  }, [user, userLoading, accessToken, authLoading])
+    // Local mode: first-run setup needs no existing session — show the wizard directly.
+    if (mode === "local") {
+      setIsChecking(false)
+      return
+    }
 
-  const checkUserStatus = async () => {
-    // Wait for auth to load
+    // Cloud mode: require an authenticated Auth0 user, then check clinic status.
     if (userLoading || authLoading) {
       return
     }
 
-    // If not authenticated, redirect to login
     if (!user || !accessToken) {
       window.location.href = "/auth/login?returnTo=/setup"
       return
     }
 
-    try {
-      const status = await clinicsApi.getUserStatus()
-      if (status.hasClinic) {
-        // User has clinic, redirect to app
-        window.location.href = "/"
-        return
-      }
-      // User doesn't have clinic, show setup wizard
-      setIsChecking(false)
-    } catch (err) {
-      console.error("Error checking user status:", err)
-      setIsChecking(false)
+    let cancelled = false
+    clinicsApi
+      .getUserStatus()
+      .then((status) => {
+        if (cancelled) return
+        if (status.hasClinic) {
+          window.location.href = "/"
+          return
+        }
+        setIsChecking(false)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.error("Error checking user status:", err)
+        setIsChecking(false)
+      })
+    return () => {
+      cancelled = true
     }
-  }
+  }, [user, userLoading, accessToken, authLoading, mode])
 
-  if (userLoading || authLoading || isChecking) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Checking your clinic status...</p>
-        </div>
-      </div>
-    )
-  }
-
+  /*
+   * ⚠️ A « Vérification du statut de votre clinique… » spinner stood here, gated on `mode !== "local"` — i.e. it
+   * rendered only on the Auth0-backed deployment, while that provider resolved an existing session before
+   * first-run setup could decide whether to redirect. That kind is retired, every deployment is now "local", and
+   * the branch was already unreachable on both compose files (which set AUTH_MODE=local). First-run setup has no
+   * session to wait for, so rendering the wizard straight away is what it already did in practice.
+   */
   return <SetupWizard onComplete={() => {}} />
 }
-

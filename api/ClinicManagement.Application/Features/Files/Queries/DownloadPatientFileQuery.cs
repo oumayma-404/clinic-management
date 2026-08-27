@@ -1,5 +1,6 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
@@ -21,29 +22,48 @@ public class FileDownloadDto
 public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFileQuery, Result<FileDownloadDto>>
 {
     private readonly IPatientFileRepository _fileRepository;
+    private readonly IPatientRepository _patientRepository;
     private readonly IFileStorage _fileStorage;
+    private readonly ICurrentClinicResolver _clinicResolver;
 
     public DownloadPatientFileQueryHandler(
         IPatientFileRepository fileRepository,
-        IFileStorage fileStorage)
+        IPatientRepository patientRepository,
+        IFileStorage fileStorage,
+        ICurrentClinicResolver clinicResolver)
     {
         _fileRepository = fileRepository;
+        _patientRepository = patientRepository;
         _fileStorage = fileStorage;
+        _clinicResolver = clinicResolver;
     }
 
     public async Task<Result<FileDownloadDto>> Handle(DownloadPatientFileQuery request, CancellationToken cancellationToken)
     {
         try
         {
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<FileDownloadDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+
             var file = await _fileRepository.GetByIdAsync(request.FileId, cancellationToken);
             if (file == null)
             {
-                return Result<FileDownloadDto>.Failure("File not found");
+                return Result<FileDownloadDto>.Failure("Fichier introuvable.");
             }
 
             if (file.PatientId != request.PatientId)
             {
-                return Result<FileDownloadDto>.Failure("File does not belong to the specified patient");
+                return Result<FileDownloadDto>.Failure("Ce fichier n'appartient pas à ce patient.");
+            }
+
+            // Verify the owning patient belongs to the caller's clinic before streaming any bytes (AC-1).
+            var patient = await _patientRepository.GetByIdAsync(file.PatientId, cancellationToken);
+            if (patient == null || patient.ClinicId != clinicResult.Value)
+            {
+                return Result<FileDownloadDto>.Failure("Fichier introuvable.");
             }
 
             var fileStream = await _fileStorage.DownloadAsync(file.StorageKey, cancellationToken);
@@ -57,18 +77,9 @@ public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFi
 
             return Result<FileDownloadDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<FileDownloadDto>.Failure($"Error downloading file: {ex.Message}");
         }
     }
 }
-
-
-
-
-
-
-
-
-

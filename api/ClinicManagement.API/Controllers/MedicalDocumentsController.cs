@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using MediatR;
+using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Features.Documents.Commands;
 using ClinicManagement.Application.Features.Documents.Queries;
 using ClinicManagement.API.Models;
@@ -12,13 +14,31 @@ namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/medical-documents")]
-public class MedicalDocumentsController : ControllerBase
+// Explicit defense-in-depth: this controller was previously anonymous-by-omission and serves patient
+// PHI (medical documents + generated PDFs). The class-level [Authorize] documents the intent and
+// authenticates it in BOTH modes' terms — in Local mode it is also covered by the fail-closed fallback
+// policy (FR-E3); in Cloud it now requires the Auth0 bearer the frontend already sends (verified: the
+// one raw-fetch caller attaches the token).
+//
+// `AnyClinicRole` (was `AdminOrDoctor`): ordonnances, certificats, lettres de liaison, bulletins CNAM and
+// arrêts de travail are typed at the desk in a Tunisian cabinet, and the whole « Documents » screen 403'd for
+// a secretary. `DELETE` still tightens to `AdminOrDoctor` — see the attribute on DeleteDocument.
+//
+// ⚠️ Opening authorship required fixing what used to make it safe by accident. The cachet and the n° d'ordre
+// CNOMDT were resolved from the *caller's* own Doctor record, so a document authored by anyone without one
+// rendered with no practitioner identity at all — silently, on a form whose whole purpose is to carry it.
+// They are now resolved from the practitioner the editor **chose** (`IssuingDoctorId`), validated against this
+// clinic's roster, with the caller's own record as the fall-back. See PractitionerRenderSnapshot.ResolveAsync.
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+public class MedicalDocumentsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
+    private readonly ILogger<MedicalDocumentsController> _logger;
 
-    public MedicalDocumentsController(IMediator mediator)
+    public MedicalDocumentsController(IMediator mediator, ILogger<MedicalDocumentsController> logger)
     {
         _mediator = mediator;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -37,7 +57,7 @@ public class MedicalDocumentsController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
@@ -53,7 +73,7 @@ public class MedicalDocumentsController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return NotFound(result.Error);
+            return HandleFailure(result, StatusCodes.Status404NotFound);
         }
 
         return Ok(result.Value);
@@ -94,6 +114,8 @@ public class MedicalDocumentsController : ControllerBase
                 ClinicPhone = GetFormValue("clinicPhone") ?? throw new ArgumentException("clinicPhone is required"),
                 DoctorName = GetFormValue("doctorName") ?? throw new ArgumentException("doctorName is required"),
                 DoctorSpecialty = GetFormValue("doctorSpecialty") ?? throw new ArgumentException("doctorSpecialty is required"),
+                AppointmentId = Guid.TryParse(GetFormValue("appointmentId"), out var appointmentIdValue) ? appointmentIdValue : null,
+                IssuingDoctorId = Guid.TryParse(GetFormValue("issuingDoctorId"), out var issuingDoctorIdValue) ? issuingDoctorIdValue : null,
                 PdfFile = null // Will be set separately
             };
             
@@ -113,7 +135,7 @@ public class MedicalDocumentsController : ControllerBase
             request = await Request.ReadFromJsonAsync<CreateMedicalDocumentRequest>(cancellationToken);
             if (request == null)
             {
-                return BadRequest("Invalid request body");
+                return Failure("Requête invalide.");
             }
         }
 
@@ -130,7 +152,9 @@ public class MedicalDocumentsController : ControllerBase
             ClinicAddress = request.ClinicAddress,
             ClinicPhone = request.ClinicPhone,
             DoctorName = request.DoctorName,
-            DoctorSpecialty = request.DoctorSpecialty
+            DoctorSpecialty = request.DoctorSpecialty,
+            AppointmentId = request.AppointmentId,
+            IssuingDoctorId = request.IssuingDoctorId
         };
 
         // Read PDF file if provided
@@ -145,7 +169,7 @@ public class MedicalDocumentsController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return CreatedAtAction(nameof(GetDocument), new { id = result.Value.Id }, result.Value);
@@ -181,6 +205,7 @@ public class MedicalDocumentsController : ControllerBase
                 RecipientDoctorSpecialty = GetFormValue("recipientDoctorSpecialty"),
                 ContentJson = GetFormValue("contentJson") ?? throw new ArgumentException("contentJson is required"),
                 FileId = Guid.TryParse(GetFormValue("fileId"), out var fileIdValue) ? (Guid?)fileIdValue : null,
+                IssuingDoctorId = Guid.TryParse(GetFormValue("issuingDoctorId"), out var issuingDoctorIdValue) ? issuingDoctorIdValue : null,
                 PdfFile = null // Will be set separately
             };
             
@@ -197,7 +222,7 @@ public class MedicalDocumentsController : ControllerBase
             command = await Request.ReadFromJsonAsync<UpdateMedicalDocumentCommand>(cancellationToken);
             if (command == null)
             {
-                return BadRequest("Invalid request body");
+                return Failure("Requête invalide.");
             }
             command.Id = id;
         }
@@ -206,13 +231,24 @@ public class MedicalDocumentsController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);
     }
 
+    /// <summary>
+    /// Delete a medical document (ordonnance, certificat, lettre de liaison…) and its stored blob.
+    /// `AdminOrDoctor` — the document is a signed clinical instrument issued in a practitioner's name; the
+    /// class-level <c>[Authorize]</c> was the only gate (audit adjacent defect A-12), so a secretary could
+    /// destroy an ordonnance.
+    ///
+    /// <para>⚠️ Since the class opened to <c>AnyClinicRole</c> this attribute is the only gate on the delete,
+    /// and the distinction it draws is the feature's: reception <b>writes</b> the cabinet's documents and does
+    /// not <b>destroy</b> them. Note this also deletes the blob, so there is nothing to restore afterwards.</para>
+    /// </summary>
     [HttpDelete("{id}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<IActionResult> DeleteDocument(
         Guid id,
         CancellationToken cancellationToken = default)
@@ -222,7 +258,7 @@ public class MedicalDocumentsController : ControllerBase
 
         if (!result.IsSuccess)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return NoContent();
@@ -239,7 +275,7 @@ public class MedicalDocumentsController : ControllerBase
 
         if (!documentResult.IsSuccess || documentResult.Value == null)
         {
-            return NotFound("Document not found");
+            return Failure("Document introuvable.", StatusCodes.Status404NotFound);
         }
 
         var document = documentResult.Value;
@@ -252,12 +288,48 @@ public class MedicalDocumentsController : ControllerBase
     }
 
     [HttpPost("generate-pdf-download")]
+    [AllowsWithoutSubscription(
+        "AC-4.9 — a request that looks like a write but only renders: it takes the document in the BODY, loads "
+        + "nothing, and PERSISTS nothing. Stated that way rather than as « a document the cabinet already holds », "
+        + "which AC-4.3's wording invites but this action does not check: there is no document id and no ownership "
+        + "lookup, so an expired cabinet can render a brand-new ordonnance or bulletin. AC-4.9 exempts it anyway, "
+        + "and the commercial pressure is intact because nothing about that document is recorded.")]
     public async Task<ActionResult> GeneratePdfForDownload(
         [FromBody] Application.Common.Models.MedicalDocumentPdfData documentData,
         CancellationToken cancellationToken = default)
     {
         try
         {
+            // Part C (FR-3.2/FR-3.3/FR-6.1) + security: the cachet storage key, its content type, the CNOMDT
+            // ordre and the cabinet city are authoritative server-side values — they must NEVER be trusted
+            // from the client body (a caller-supplied DoctorCachetKey would let them embed another
+            // practitioner's cachet). Clear any client-provided values first, then overlay the server-resolved
+            // snapshot. Best-effort: a resolution failure renders without a cachet/city/ordre — never with a
+            // client-injected one.
+            //
+            // IssuingDoctorId is deliberately NOT cleared: it selects which of the caller's own clinic's
+            // practitioners to resolve (tenant-checked in PractitionerRenderSnapshot.ResolveAsync) and carries no
+            // value of its own. Clearing it would put us back to resolving from the caller, which is what printed
+            // an ordonnance with no cachet whenever the person at the keyboard was not the prescriber.
+            documentData.DoctorCachetKey = null;
+            documentData.DoctorCachetContentType = null;
+            documentData.DoctorOrdreNumber = null;
+            documentData.ClinicCity = null;
+            documentData.ClinicEmail = null;
+
+            var snapshotResult = await _mediator.Send(
+                new GetPractitionerRenderSnapshotQuery { IssuingDoctorId = documentData.IssuingDoctorId },
+                cancellationToken);
+            if (snapshotResult.IsSuccess && snapshotResult.Value != null)
+            {
+                var snap = snapshotResult.Value;
+                documentData.ClinicCity = snap.ClinicCity;
+                documentData.ClinicEmail = snap.ClinicEmail;
+                documentData.DoctorOrdreNumber = snap.DoctorOrdreNumber;
+                documentData.DoctorCachetKey = snap.DoctorCachetKey;
+                documentData.DoctorCachetContentType = snap.DoctorCachetContentType;
+            }
+
             var pdfService = HttpContext.RequestServices.GetRequiredService<ClinicManagement.Application.Common.Interfaces.IPdfGenerationService>();
             var pdfBytes = await pdfService.GeneratePdfFromDocumentDataAsync(documentData, cancellationToken);
             
@@ -266,7 +338,20 @@ public class MedicalDocumentsController : ControllerBase
         }
         catch (Exception ex)
         {
-            return BadRequest($"Error generating PDF: {ex.Message}");
+            // Was `BadRequest($"Error generating PDF: {ex.Message}")` — a bare JSON *string*, not the canonical
+            // `{ error }` body. The client's `generatePdfForDownload` therefore threw a plain `Error` rather than
+            // an `ApiError`, and `handleDownloadPdf` only surfaces a message `if (error instanceof ApiError)`, so
+            // the three deliberate French operator messages on this path (a missing or unreadable `Assets/BS1.pdf`,
+            // no system font for the overlay) were **structurally unreachable** — the dentist got a generic toast
+            // for a problem with a named remedy.
+            //
+            // Only `InvalidOperationException` is surfaced verbatim: that is the type those three fail-fast
+            // messages use, and they are written for an operator. Anything else is generic — an arbitrary
+            // exception message is a .NET internal, not French, and can carry a path or a connection string.
+            _logger.LogError(ex, "Failed to render a document PDF for download ({DocumentType})", documentData.DocumentType);
+            return ex is InvalidOperationException
+                ? Failure(ex.Message)
+                : Failure(ClinicManagement.Application.Common.ErrorMessages.Generic);
         }
     }
 }

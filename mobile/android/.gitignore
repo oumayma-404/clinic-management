@@ -1,0 +1,14 @@
+.gradle/
+build/
+local.properties
+*.iml
+
+# The release signing material. An upload key in the repository is an upload key anyone with the repository can
+# publish as — and losing it ends this listing's ability to ever be updated, so it is backed up off this machine
+# rather than committed. `keystore.properties.example` records the shape; see `mobile/README.md` § Signing.
+keystore.properties
+*.jks
+*.keystore
+.idea/
+.kotlin/
+captures/

@@ -1,5 +1,6 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
@@ -42,26 +43,26 @@ public class GetClinicLogoQueryHandler : IRequestHandler<GetClinicLogoQuery, Res
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<ClinicLogoDto>.Failure("User ID not found in token");
+                return Result<ClinicLogoDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             // Get user from database to get clinic ID
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
             if (user == null)
             {
-                return Result<ClinicLogoDto>.Failure("User not found");
+                return Result<ClinicLogoDto>.Failure("Utilisateur introuvable.");
             }
 
             // Get clinic from database
             var clinic = await _clinicRepository.GetByIdAsync(user.ClinicId, cancellationToken);
             if (clinic == null)
             {
-                return Result<ClinicLogoDto>.Failure("Clinic not found");
+                return Result<ClinicLogoDto>.Failure("Clinique introuvable.");
             }
 
             if (string.IsNullOrWhiteSpace(clinic.LogoUrl))
             {
-                return Result<ClinicLogoDto>.Failure("Clinic logo not found");
+                return Result<ClinicLogoDto>.Failure("Logo du cabinet introuvable.");
             }
 
             // Download logo from MinIO
@@ -75,7 +76,7 @@ public class GetClinicLogoQueryHandler : IRequestHandler<GetClinicLogoQuery, Res
 
             return Result<ClinicLogoDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<ClinicLogoDto>.Failure($"Error getting clinic logo: {ex.Message}");
         }

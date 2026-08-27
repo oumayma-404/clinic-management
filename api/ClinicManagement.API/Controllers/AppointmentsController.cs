@@ -1,17 +1,19 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using MediatR;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Appointments.Commands;
 using ClinicManagement.Application.Features.Appointments.Queries;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Domain.Common;
 using Microsoft.AspNetCore.Authorization;
+using ClinicManagement.Application.Common.Csv;
 
 namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
-public class AppointmentsController : ControllerBase
+[Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+public class AppointmentsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
 
@@ -21,23 +23,132 @@ public class AppointmentsController : ControllerBase
     }
 
     /// <summary>
+    /// « À clôturer » — the séances whose slot has passed and which still owe one of the three answers:
+    /// est-il venu, qu'a-t-on fait, combien a-t-il payé.
+    ///
+    /// <para>⚠️ <b><c>AnyClinicRole</c>, from the class, and that is the point rather than an oversight.</b> The
+    /// dashboard is <c>AdminOrDoctor</c> and <c>app/page.tsx</c> redirects a secretary to <c>/appointments</c>, so
+    /// a worklist reachable only from the dashboard would be invisible to reception — who is exactly the person
+    /// who knows whether the patient came and who took the money. The dashboard chip is the secondary surface;
+    /// this read and the agenda strip are the primary ones.</para>
+    ///
+    /// <para>No <c>[AllowsWithoutSubscription]</c>: it is a GET, and the subscription gate never inspects one.</para>
+    /// </summary>
+    [HttpGet("to-close")]
+    public async Task<ActionResult<PagedResult<VisitToCloseDto>>> GetVisitsToClose(
+        [FromQuery] int? days = null,
+        [FromQuery] Guid? doctorId = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
+    {
+        var result = await _mediator.Send(new GetVisitsToCloseQuery
+        {
+            Days = days,
+            DoctorId = doctorId,
+            Paging = PageRequest.From(page, pageSize),
+        });
+
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Rien à facturer » — record that a séance raises no note d'honoraires, or withdraw that.
+    ///
+    /// <para>A <b>POST and not a DELETE</b> in both directions: nothing is deleted either way, and the body's
+    /// <c>nothingToBill</c> is what the URL cannot carry — unlike the console's suspension pair, this is one
+    /// control the user toggles from one row, so a second route would be a second thing to keep in step for no
+    /// safety gained.</para>
+    /// </summary>
+    [HttpPost("{id:guid}/nothing-to-bill")]
+    public async Task<ActionResult> SetNothingToBill(Guid id, [FromBody] SetNothingToBillRequest request)
+    {
+        var result = await _mediator.Send(new MarkNothingToBillCommand
+        {
+            AppointmentId = id,
+            NothingToBill = request.NothingToBill,
+            Reason = request.Reason,
+        });
+
+        return result.IsFailure ? HandleFailure(result) : Ok(new { nothingToBill = result.Value });
+    }
+
+    /// <summary>Body of <see cref="SetNothingToBill"/>.</summary>
+    public class SetNothingToBillRequest
+    {
+        public bool NothingToBill { get; set; } = true;
+
+        /// <summary>Mandatory when marking; the handler refuses a blank one.</summary>
+        public string? Reason { get; set; }
+    }
+
+    /// <summary>
     /// Get all appointments for the current user's clinic
     /// </summary>
+
+    /// <summary>
+    /// « Exporter » (L5) — the same list, as a CSV.
+    ///
+    /// <para>⚠️ It re-sends the <b>identical query with no paging</b>, which the paging primitive models as a
+    /// first-class case rather than as a huge page. That is what makes « honours the current filters, exports the
+    /// whole filtered set, never the current page » true by construction rather than by discipline.</para>
+    /// </summary>
+    [HttpGet("export")]
+    public async Task<ActionResult> ExportAppointments(
+        [FromQuery] DateTime? startDate = null,
+        [FromQuery] DateTime? endDate = null,
+        [FromQuery] Guid? doctorId = null)
+    {
+        var result = await _mediator.Send(new GetAppointmentsQuery
+        {
+            StartDate = startDate,
+            EndDate = endDate,
+            DoctorId = doctorId,
+        });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Csv(ExportTables.Appointments(result.Value!), "rendez-vous");
+    }
+
     [HttpGet]
     public async Task<ActionResult<IEnumerable<AppointmentDto>>> GetAppointments(
         [FromQuery] DateTime? startDate,
-        [FromQuery] DateTime? endDate)
+        [FromQuery] DateTime? endDate,
+        [FromQuery] Guid? doctorId,
+        [FromQuery] Guid? patientId)
     {
         var query = new GetAppointmentsQuery
         {
             StartDate = startDate,
-            EndDate = endDate
+            EndDate = endDate,
+            DoctorId = doctorId,
+            PatientId = patientId
         };
         var result = await _mediator.Send(query);
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Get a single appointment by id (used by notification deep-links). Tenant-scoped: an appointment
+    /// from another clinic reads as "not found".
+    /// </summary>
+    [HttpGet("{id}")]
+    public async Task<ActionResult<AppointmentDto>> GetAppointment(Guid id)
+    {
+        var result = await _mediator.Send(new GetAppointmentQuery { Id = id });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result, StatusCodes.Status404NotFound);
         }
 
         return Ok(result.Value);
@@ -53,10 +164,51 @@ public class AppointmentsController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return CreatedAtAction(nameof(GetAppointments), new { id = result.Value.Id }, result.Value);
+    }
+
+    /// <summary>List the clinic's recurring appointment series (active by default).</summary>
+    [HttpGet("recurring")]
+    /// <param name="page">1-based page number. Omit both paging parameters to get every match.</param>
+    /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
+    /// <param name="search">
+    /// Free-text filter over the patient's name, the practitioner and the notes. Applied in SQL before the page
+    /// is cut, so it spans the whole clinic.
+    /// </param>
+    public async Task<ActionResult<PagedResult<RecurringAppointmentDto>>> GetRecurringSeries(
+        [FromQuery] bool activeOnly = true,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? search = null)
+    {
+        var result = await _mediator.Send(new GetRecurringSeriesQuery
+        {
+            ActiveOnly = activeOnly,
+            Page = page,
+            PageSize = pageSize,
+            SearchTerm = search
+        });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Create a recurring series; expands into linked appointments (returns created/skipped/conflict counts).</summary>
+    [HttpPost("recurring")]
+    public async Task<ActionResult<RecurringSeriesResultDto>> CreateRecurringSeries([FromBody] CreateRecurringSeriesCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Cancel part or all of a recurring series (scope: Occurrence / Following / WholeSeries).</summary>
+    [HttpPost("recurring/{id:guid}/cancel")]
+    public async Task<IActionResult> CancelRecurringSeries(Guid id, [FromBody] CancelRecurringSeriesCommand command)
+    {
+        command.RecurringAppointmentId = id;
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? HandleFailure(result) : Ok(new { cancelled = result.Value });
     }
 
     /// <summary>
@@ -70,7 +222,7 @@ public class AppointmentsController : ControllerBase
 
         if (result.IsFailure)
         {
-            return BadRequest(result.Error);
+            return HandleFailure(result);
         }
 
         return Ok(result.Value);

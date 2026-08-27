@@ -4,6 +4,10 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Phase 5 (S2): precompile IL to native on publish so the API's cold start is fast enough for the
+         Windows Service Control Manager's ~30s start timeout on first boot. Publish-only (ignored by a
+         plain `dotnet build`); behaviour is identical to JIT, only faster to start. -->
+    <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,7 +16,7 @@
     <PackageReference Include="Hangfire.PostgreSql" Version="1.20.13" />
     <PackageReference Include="MediatR" Version="14.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.22" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
@@ -23,6 +27,12 @@
     <PackageReference Include="Serilog.Enrichers.Thread" Version="4.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+    <!-- Phase 5 (S2): run the API as an auto-starting Windows service (no-op in console/dev). -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+    <!-- Phase 5 (S2): surface startup failures to the Windows Event Log (best-effort, Windows-only). -->
+    <PackageReference Include="System.Diagnostics.EventLog" Version="8.0.1" />
+    <!-- Phase 5 (S4): same-origin front door — reverse-proxy non-/api routes to the localhost Next server. -->
+    <PackageReference Include="Yarp.ReverseProxy" Version="2.2.0" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,886 @@
+<!--{
+  "path": "index.html",
+  "root": "",
+  "nav": "",
+  "bodyClass": "",
+  "barClass": "",
+  "title": "Gestion Clinique — logiciel de cabinet dentaire, Tunisie",
+  "desc": "Agenda, dossiers, caisse et sauvegardes dans un seul logiciel, écrit pour les cabinets dentaires tunisiens. Essai 30 jours, sans carte bancaire."
+}-->
+
+<!-- ══ 1 · HERO ═════════════════════════════════════════════════════════════════ -->
+<section class="hero on-ink">
+  <div class="wrap hero-grid">
+
+    <div>
+      <p class="eyebrow rise">Logiciel de gestion pour cabinet dentaire</p>
+      <h1 class="rise d1">Une seule saisie. Tout le cabinet suit.</h1>
+      <p class="lede rise d2">Conçu en Tunisie, pour les dentistes d’ici.</p>
+
+      <div class="hero-actions rise d3">
+        <a class="btn btn-primary" href="demo.html#essai">Essayer gratuitement</a>
+        <a class="btn btn-ghost" href="demo.html">Découvrir le logiciel</a>
+      </div>
+
+      <ul class="trust rise d4">
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>30 jours, sans carte bancaire</li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Sans engagement</li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Vos données s’exportent quand vous voulez</li>
+      </ul>
+
+      <div class="hero-aside rise d5">
+        <p>Vous utilisez déjà un logiciel ?</p>
+        <a class="link-arrow" href="fonctionnalites/gestion.html#reprise">Reprendre vos données en CSV
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <div class="hero-film rise d2">
+      <iframe class="hero-film__frame"
+              src="assets/scenes/hero-quatre-temps.html"
+              title="Le logiciel en quatre temps"
+              loading="eager" scrolling="no" tabindex="-1" aria-hidden="true"></iframe>
+    </div>
+    <p class="sr-only">Une animation en quatre temps&nbsp;: la journée s’organise dans l’agenda, le dossier du patient s’ouvre, la note d’honoraires se crée, puis la caisse se met à jour et le rappel de contrôle part.</p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══ 2 · LE DOSSIER PATIENT ═══════════════════════════════════════════════════
+     The page's opening argument, and the first thing under the hero. LIGHT
+     ground: the hero above it is dark and §3 (l'argent) below it is dark. It
+     changed places with « le quotidien » and l'argent did not move, which is
+     the only reason the whole page still alternates. -->
+<section data-reveal class="s5" id="dossier" aria-labelledby="s5-titre">
+  <div class="wrap">
+
+    <header class="s5-head">
+      <p class="s5-eyebrow" style="--i: 0">Le dossier patient</p>
+      <h2 class="s5-h2" id="s5-titre" style="--i: 1">Retrouvez n’importe quel patient en trois secondes.</h2>
+      <p class="s5-lede" style="--i: 2">Fiche, radios, actes, paiements&nbsp;: un seul dossier, à son nom.</p>
+    </header>
+
+    <!-- ── Le dossier : une seule pièce de papier, qui s'assemble ────────── -->
+    <div class="s5-dossier">
+
+      <!-- ── La barre de titre : c'est ce qui fait lire une fenêtre de logiciel
+           plutôt qu'un schéma, et c'est la seule surface sombre que la section
+           puisse s'offrir sans casser l'alternance de la page. ──────────── -->
+      <div class="s5-chrome">
+      <header class="s5-ident">
+        <i class="s5-av" aria-hidden="true">KH</i>
+        <p class="s5-who">
+          <b class="s5-name">Karim Hamdi</b>
+          <s>42 ans · Homme · +216&nbsp;98&nbsp;445&nbsp;123</s>
+        </p>
+      </header>
+
+      <!-- ── Les sept onglets : ils se distribuent, puis se rangent ──────── -->
+      <ul class="s5-tabs">
+        <li class="s5-tab s5-tab--on" style="--i: 0; --tx: -1.7em; --ty: -1.2em; --r: -5deg">Dossiers médicaux</li>
+        <li class="s5-tab" style="--i: 1; --tx: 1.5em; --ty: -1.5em; --r: 4deg">Rendez-vous</li>
+        <li class="s5-tab" style="--i: 2; --tx: -2.2em; --ty: 1.0em; --r: 6deg">Notes</li>
+        <li class="s5-tab" style="--i: 3; --tx: 2.0em; --ty: 1.3em; --r: -4deg">Documents</li>
+        <li class="s5-tab" style="--i: 4; --tx: -1.3em; --ty: 1.6em; --r: -7deg">Fichiers</li>
+        <li class="s5-tab" style="--i: 5; --tx: 2.3em; --ty: -0.9em; --r: 5deg">Factures</li>
+        <li class="s5-tab" style="--i: 6; --tx: -1.9em; --ty: 1.4em; --r: 3deg">Plan de traitement</li>
+      </ul>
+      </div>
+
+      <div class="s5-body">
+
+        <!-- ── L'odontogramme : deux lectures de la même bouche ──────────── -->
+        <div class="s5-chart">
+          <i class="s5-sweep" aria-hidden="true"></i>
+          <i class="s5-fly" aria-hidden="true"><b>Soin de carie / obturation</b><s>90,000&nbsp;DT · tarif par dent</s></i>
+
+          <div class="s5-chead">
+            <h3 class="s5-ct">Odontogramme</h3>
+            <p class="s5-views">
+              <i class="s5-thumb" aria-hidden="true"></i>
+              <button type="button" class="s5-view s5-view--d" aria-pressed="true">Diagnostics</button>
+              <button type="button" class="s5-view s5-view--a" aria-pressed="false">Actes réalisés</button>
+            </p>
+          </div>
+
+          <div class="s5-mouth" aria-hidden="true">
+            <p class="s5-jaw">Maxillaire (haut)</p>
+            <div class="s5-arch">
+              <div class="s5-quad" style="--q: 0">
+                <i class="s5-t"><b></b><s>18</s></i>
+                <i class="s5-t"><b></b><s>17</s></i>
+                <i class="s5-t s5-t--k" data-t="16">
+                  <b>
+                    <i class="s5-tf s5-tf--d" style="--tc: var(--amber)"></i>
+                    <i class="s5-tf s5-tf--a" style="--tc: var(--azure)"></i>
+                    <i class="s5-halo"></i>
+                  </b><s>16</s>
+                </i>
+                <i class="s5-t"><b></b><s>15</s></i>
+                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--b" style="--tc: var(--violet)"></i></b><s>14</s></i>
+                <i class="s5-t"><b></b><s>13</s></i>
+                <i class="s5-t"><b></b><s>12</s></i>
+                <i class="s5-t"><b></b><s>11</s></i>
+              </div>
+              <i class="s5-mid"></i>
+              <div class="s5-quad" style="--q: 1">
+                <i class="s5-t"><b></b><s>21</s></i>
+                <i class="s5-t"><b></b><s>22</s></i>
+                <i class="s5-t"><b></b><s>23</s></i>
+                <i class="s5-t"><b></b><s>24</s></i>
+                <i class="s5-t"><b></b><s>25</s></i>
+                <i class="s5-t s5-t--k" data-t="26">
+                  <b>
+                    <i class="s5-tf s5-tf--d" style="--tc: var(--amber)"></i>
+                    <i class="s5-tf s5-tf--a" style="--tc: var(--azure)"></i>
+                    <i class="s5-halo"></i>
+                  </b><s>26</s>
+                </i>
+                <i class="s5-t"><b></b><s>27</s></i>
+                <i class="s5-t"><b></b><s>28</s></i>
+              </div>
+            </div>
+
+            <div class="s5-arch s5-arch--low">
+              <div class="s5-quad" style="--q: 2">
+                <i class="s5-t"><b></b><s>48</s></i>
+                <i class="s5-t"><b></b><s>47</s></i>
+                <i class="s5-t"><b></b><s>46</s></i>
+                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--d" style="--tc: var(--amber)"></i></b><s>45</s></i>
+                <i class="s5-t"><b></b><s>44</s></i>
+                <i class="s5-t"><b></b><s>43</s></i>
+                <i class="s5-t"><b></b><s>42</s></i>
+                <i class="s5-t"><b></b><s>41</s></i>
+              </div>
+              <i class="s5-mid"></i>
+              <div class="s5-quad" style="--q: 3">
+                <i class="s5-t"><b></b><s>31</s></i>
+                <i class="s5-t"><b></b><s>32</s></i>
+                <i class="s5-t"><b></b><s>33</s></i>
+                <i class="s5-t"><b></b><s>34</s></i>
+                <i class="s5-t"><b></b><s>35</s></i>
+                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--b" style="--tc: var(--green)"></i></b><s>36</s></i>
+                <i class="s5-t"><b></b><s>37</s></i>
+                <i class="s5-t s5-t--k"><b><i class="s5-tf s5-tf--b" style="--tc: var(--text-faint)"></i></b><s>38</s></i>
+              </div>
+            </div>
+            <p class="s5-jaw">Mandibule (bas)</p>
+          </div>
+
+
+          <p class="s5-still">Ce qui reste à traiter d’un côté, ce qui est fait de l’autre.</p>
+        </div>
+
+        <!-- ── Ce qu'il y a derrière deux de ces onglets ─────────────────── -->
+        <div class="s5-side">
+          <p class="s5-sk">Derrière deux de ces onglets</p>
+
+          <div class="s5-panes">
+
+          <!-- Onglet 1 · Dossiers médicaux -->
+          <div class="s5-pane" style="--zc: var(--azure); --zcl: var(--azure-lit)">
+            <i class="s5-mark" aria-hidden="true"></i>
+            <header class="s5-ph">
+              <i aria-hidden="true"></i>
+              <h3>Dossiers médicaux</h3>
+              <s>21/08/2026</s>
+            </header>
+            <p class="s5-pc">Fiche de soins · 2 actes</p>
+
+            <div class="s5-acte" style="--i: 0">
+              <i class="s5-edge" aria-hidden="true"></i>
+              <p class="s5-ak">Acte réalisé</p>
+              <p class="s5-an"><b>Soin de carie / obturation</b><em>90,000&nbsp;DT</em></p>
+              <p class="s5-am"><span class="s5-cond">Obturation</span><s>tarif par dent</s></p>
+              <p class="s5-ad">
+                <s>Dents</s><u>16</u><u>26</u>
+                <s>Surfaces</s><u>M</u><u>O</u>
+              </p>
+            </div>
+
+            <div class="s5-acte" style="--i: 1">
+              <i class="s5-edge" aria-hidden="true"></i>
+              <p class="s5-ak">Acte réalisé</p>
+              <p class="s5-an"><b>Radiographie panoramique</b><em>40,000&nbsp;DT</em></p>
+            </div>
+
+            <dl class="s5-tot">
+              <div><dt>Total</dt><dd class="s5-fig">220,000&nbsp;DT</dd></div>
+              <div><dt>Payé</dt><dd>220,000&nbsp;DT</dd></div>
+            </dl>
+          </div>
+
+          <!-- Onglet 2 · Fichiers -->
+          <div class="s5-pane" style="--zc: var(--green); --zcl: var(--green-lit)">
+            <i class="s5-mark" aria-hidden="true"></i>
+            <header class="s5-ph">
+              <i aria-hidden="true"></i>
+              <h3>Fichiers</h3>
+              <s>3 fichiers</s>
+            </header>
+
+            <div class="s5-fwrap">
+            <ul class="s5-files">
+              <li class="s5-fold" style="--i: 0"><i aria-hidden="true"></i><b>Radiographies</b><em>2</em></li>
+              <li class="s5-f s5-f--p" style="--i: 1">
+                <b>pano-2026-08-21.jpg</b>
+                <s>image/jpeg · 2,4&nbsp;Mo · 21/08/2026 · Dr Salma Ben Youssef</s>
+              </li>
+              <li class="s5-f s5-f--k" style="--i: 2">
+                <b>retro-16-26.jpg</b>
+                <s>image/jpeg · 1,1&nbsp;Mo · 21/08/2026 · Dr Salma Ben Youssef</s>
+              </li>
+              <li class="s5-fold" style="--i: 3"><i aria-hidden="true"></i><b>Consentements</b><em>1</em></li>
+              <li class="s5-f" style="--i: 4">
+                <b>consentement-implant.pdf</b>
+                <s>application/pdf · 186&nbsp;Ko · 04/07/2026 · Dr Salma Ben Youssef</s>
+              </li>
+            </ul>
+
+            <!-- ── Le fichier s'ouvre : la panoramique du 21/08 ─────────────
+                 Le deuxième acte de la fiche est « Radiographie panoramique »,
+                 et ce fichier porte la date de la séance. C'est le même
+                 événement, dans le même dossier, sous deux onglets. -->
+            <i class="s5-open" aria-hidden="true">
+              <i class="s5-lightbox">
+              <i class="s5-obar">
+                <i class="s5-odot"></i>
+                <b>pano-2026-08-21.jpg</b>
+                <s>Radiographie panoramique · 21/08/2026</s>
+              </i>
+              <i class="s5-stage">
+                <i class="s5-film">
+                  <img class="s5-pano" src="assets/img/pano.webp" width="528" height="378" alt="" decoding="async">
+                  <i class="s5-ring" style="--x: 36.2%; --y: 46%"></i>
+                  <i class="s5-ring" style="--x: 70.2%; --y: 44.5%"></i>
+                  <i class="s5-scan"></i>
+                </i>
+              </i>
+              </i>
+            </i>
+            </div>
+          </div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <p class="s5-close">Vous notez l’acte. Le total et le schéma suivent.</p>
+
+    <p class="s5-sr">Illustration&nbsp;: le dossier de Karim Hamdi. Sept onglets, à savoir Dossiers médicaux, Rendez-vous, Notes, Documents, Fichiers, Factures et Plan de traitement, plus un odontogramme qui se lit de deux façons, Diagnostics et Actes réalisés. La fiche de soins du 21/08/2026 porte deux actes, dont un soin de carie sur les dents 16 et 26&nbsp;; à l’enregistrement, ces deux dents passent d’elles-mêmes de l’état À traiter à l’état Obturation, et le total de la séance découle des actes. L'onglet Fichiers contient la panoramique de cette même séance, pano-2026-08-21.jpg, sur laquelle les deux obturations sont visibles.</p>
+  </div>
+</section>
+
+<!-- ══ 3 · L'ARGENT ═════════════════════════════════════════════════════════════ -->
+<section data-reveal class="s3" id="argent">
+  <div class="wrap">
+
+    <div class="s3-head">
+      <p class="s3-eyebrow s3-up" style="--d:0ms">L’argent</p>
+      <h2 class="s3-h2 s3-up" style="--d:70ms">Votre chiffre du mois s’écrit tout seul.</h2>
+      <p class="s3-lede s3-up" style="--d:140ms">Vous ne saisissez que les dépenses.</p>
+    </div>
+
+    <div class="s3-sheet">
+
+      <div class="s3-strip">
+        <p class="s3-name s3-up" style="--d:60ms"><b>La caisse</b><s>ce mois-ci, jour par jour</s></p>
+        <p class="s3-pin"><b>0</b><s>recette à saisir</s></p>
+      </div>
+
+      <div class="s3-body">
+
+        <div class="s3-col s3-col--field">
+          <div class="s3-colhead">
+            <p class="s3-one s3-up" style="--d:200ms">
+              <b>1</b><span>saisie au fauteuil<s>au lieu de quatre cahiers</s></span>
+            </p>
+            <p class="s3-keys s3-up" style="--d:280ms">
+              <span class="s3-key"><i></i>séance terminée</span>
+              <span class="s3-key s3-key--dep"><i></i>dépense saisie</span>
+            </p>
+          </div>
+
+          <div class="s3-field" aria-hidden="true">
+            <i class="s3-wk">L</i><i class="s3-wk">M</i><i class="s3-wk">M</i><i class="s3-wk">J</i><i class="s3-wk">V</i><i class="s3-wk">S</i><i class="s3-wk">D</i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d" style="--i:5"><i class="s3-ln"></i></i>
+            <i class="s3-d s3-d--v" style="--i:6"></i>
+            <i class="s3-d" style="--i:7"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:8"><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:9"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:10"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln s3-ln--dep"></i></i>
+            <i class="s3-d" style="--i:11"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:12"><i class="s3-ln"></i></i>
+            <i class="s3-d s3-d--v" style="--i:13"></i>
+            <i class="s3-d" style="--i:14"><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:15"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:16"><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:17"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:18"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln s3-ln--dep"></i></i>
+            <i class="s3-d" style="--i:19"><i class="s3-ln"></i></i>
+            <i class="s3-d s3-d--v" style="--i:20"></i>
+            <i class="s3-d" style="--i:21"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:22"><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:23"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:24"><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:25"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln s3-ln--dep"></i></i>
+            <i class="s3-d" style="--i:26"><i class="s3-ln"></i></i>
+            <i class="s3-d s3-d--v" style="--i:27"></i>
+            <i class="s3-d" style="--i:28"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:29"><i class="s3-ln"></i><i class="s3-ln"></i></i>
+            <i class="s3-d" style="--i:30"><i class="s3-ln"></i><i class="s3-ln"></i><i class="s3-cr"></i></i>
+            <i class="s3-d s3-d--v s3-d--f" style="--i:31"></i>
+            <i class="s3-d s3-d--v s3-d--f" style="--i:32"></i>
+            <i class="s3-d s3-d--v s3-d--f" style="--i:33"></i>
+            <i class="s3-d s3-d--v s3-d--f" style="--i:34"></i>
+            <i class="s3-d s3-d--v s3-d--f" style="--i:35"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+            <i class="s3-d s3-d--off"></i>
+          </div>
+
+          <div class="s3-rdv" aria-hidden="true">
+            <p class="s3-rdv-k"><i></i>Nouveau rendez-vous</p>
+            <p class="s3-rdv-n"><b>Soin de carie / obturation</b><s>Mme Ben Salah &middot; 09:30</s></p>
+            <p class="s3-rdv-pay"><i></i><b>Payé</b><s>Espèces</s><em>90,000&nbsp;DT</em></p>
+          </div>
+
+          <p class="s3-foot s3-up" style="--d:1420ms">Seules les trois dépenses ont été tapées.</p>
+        </div>
+
+        <div class="s3-col s3-col--read">
+          <div class="s3-blk">
+            <p class="s3-lab s3-up" style="--d:300ms">Encaissé ce mois-ci</p>
+            <p class="s3-total">
+              <span class="s3-fig"><i class="s3-fig-a">19&nbsp;190,000&nbsp;DT</i><i class="s3-fig-b">19&nbsp;280,000&nbsp;DT</i></span>
+              <span class="s3-base"><i class="s3-dash"></i><i class="s3-solid"></i></span>
+            </p>
+          </div>
+
+          <div class="s3-blk">
+            <p class="s3-lab s3-up" style="--d:1900ms">Les dernières recettes</p>
+            <ul class="s3-recs" aria-hidden="true">
+              <li class="s3-rec s3-rec--new"><b>Soin de carie / obturation</b><s>Mme Ben Salah</s><em>90,000&nbsp;DT</em></li>
+              <li class="s3-rec" style="--i:1"><b>Radiographie panoramique</b><s>M. Gharbi</s><em>40,000&nbsp;DT</em></li>
+              <li class="s3-rec" style="--i:2"><b>Détartrage</b><s>Mme Trabelsi</s><em>60,000&nbsp;DT</em></li>
+            </ul>
+          </div>
+
+          <div class="s3-blk">
+            <p class="s3-lab s3-up" style="--d:2400ms">Comment il est entré</p>
+            <ul class="s3-modes">
+              <li style="--i:0"><i></i><b>Espèces</b></li>
+              <li style="--i:1"><i></i><b>Chèque</b></li>
+              <li style="--i:2"><i></i><b>Carte</b></li>
+              <li style="--i:3"><i></i><b>Virement</b></li>
+            </ul>
+          </div>
+
+          <p class="s3-foot s3-up" style="--d:3180ms">Un chèque n’est pas des espèces. La caisse ne les mélange jamais.</p>
+        </div>
+
+      </div>
+    </div>
+
+    <p class="s3-sr">Illustration&nbsp;: le mois en cours, jour par jour. Chaque séance terminée y inscrit sa ligne toute seule&nbsp;; les seules lignes saisies à la main sont les trois dépenses.</p>
+  </div>
+</section>
+
+<!-- ══ 4 · LE QUOTIDIEN ═════════════════════════════════════════════════════════
+     The page's selling section, and the one that has to be SHOWN rather than
+     read. Six moments, one at a time: the paper moment struck through on the
+     left, the screen that answers it on the right. Scroll advances it — no
+     rail, no tabs, no auto-play, so it does not repeat §3's card switcher or
+     §5's zone rail.
+
+     Every item carries its own copy AND its own shot, so the same markup is
+     six cards in normal flow wherever the sticky version cannot run: below
+     62rem, under reduced motion, and with the script blocked. Nothing is ever
+     hidden behind a control that is not rendered. ══════════════════════════ -->
+<section class="sec" id="avant-avec">
+  <div class="wrap">
+    <div class="head rise">
+      <p class="eyebrow">Le quotidien</p>
+      <h2>Tournez la page, gardez tout ce qu’il y a dessus.</h2>
+      <p class="lede">Trois moments de votre semaine, avant et après.</p>
+    </div>
+
+    <div class="jour" data-jour>
+      <div class="jour-stage">
+      <div class="jour-track" tabindex="0" role="group" aria-label="Six situations du quotidien : faites défiler pour les parcourir">
+
+          <article class="jour-item" style="--zc: var(--azure); --zcl: var(--azure-lit)">
+            <div class="jour-copy">
+              <p class="jour-n"><b>01</b><span>/ 03</span></p>
+              <div class="jour-when">
+                <p class="jour-state">Avant</p>
+                <p class="jour-k">Aujourd’hui</p>
+              <h3 class="jour-t"><s>La fiche introuvable</s></h3>
+              <p class="jour-p">Le patient est installé. Son dossier est ailleurs.</p>
+              </div>
+              <div class="jour-then">
+                <p class="jour-state">Après</p>
+                <p class="jour-a">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+                <b>Le dossier s’ouvre au nom du patient</b>
+              </p>
+              </div>
+            </div>
+
+            <figure class="jour-shot jour-shot--jd" data-flip="0">
+              <div class="jd-switch">
+                <button type="button" data-flip-to="0" aria-pressed="true">Sur le papier</button>
+                <button type="button" data-flip-to="1" aria-pressed="false">Avec le logiciel</button>
+              </div>
+              <div class="jd-half jd-sans">
+                <p class="jd-lab">Sur le papier</p>
+                <div class="jd-art jd-pile" aria-hidden="true">
+                  <i class="jd-tab" style="--y: 0%;  --x: -9%; --r: -5deg; --w: 76%; --i: 0"><b>Trabelsi</b><u>Nadia · 1998</u></i>
+                  <i class="jd-tab" style="--y: 19%; --x: 7%;  --r: 5deg;  --w: 70%; --i: 1"><b>Khelifi</b><u>Amine · 1986</u></i>
+                  <i class="jd-tab jd-tab--out" style="--y: 38%; --x: -5%; --r: -2deg; --w: 82%; --i: 2"><b>Gharbi</b><s>ce n’est pas lui</s></i>
+                  <i class="jd-tab" style="--y: 57%; --x: 8%;  --r: 7deg;  --w: 72%; --i: 3"><b>Mansour</b><u>Leïla · 2004</u></i>
+                  <i class="jd-tab" style="--y: 76%; --x: -7%; --r: -4deg; --w: 78%; --i: 4"><b>Sassi</b><u>Hatem · 1979</u></i>
+                  <span class="jd-hunt"></span>
+                </div>
+                <p class="jd-note">Encore faut-il savoir qui l’a sorti.</p>
+              </div>
+
+              <div class="jd-half jd-avec">
+                <p class="jd-lab">Avec le logiciel</p>
+                <div class="jd-art" aria-hidden="true">
+                  <span class="jd-field jd-in" style="--i: 0">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+                    <em>ben&nbsp;a</em><i class="jd-caret"></i>
+                  </span>
+                  <span class="jd-hit jd-in" style="--i: 2"><b>Sonia Ben Amor</b><s>34 ans · 12 séances · Ariana</s></span>
+                  <ul class="jd-secs">
+                    <li class="jd-in" style="--i: 3"><i class="jd-tick"></i><b>Fiche</b><u>à jour</u></li>
+                    <li class="jd-in" style="--i: 4"><i class="jd-tick"></i><b>Radios</b><u>3 clichés</u></li>
+                    <li class="jd-in" style="--i: 5"><i class="jd-tick"></i><b>Soins</b><u>9 actes</u></li>
+                    <li class="jd-in" style="--i: 6"><i class="jd-tick"></i><b>Paiements</b><u>à jour</u></li>
+                  </ul>
+                  <span class="jd-x jd-last jd-in" style="--i: 7"><s>Dernière séance</s><b>12 mars · Composite · 26</b></span>
+                </div>
+                <p class="jd-note">On tape le nom, le dossier s’ouvre.</p>
+              </div>
+            </figure>
+          </article>
+
+                                        <article class="jour-item" style="--zc: var(--green); --zcl: var(--green-lit)">
+            <div class="jour-copy">
+              <p class="jour-n"><b>02</b><span>/ 03</span></p>
+              <div class="jour-when">
+                <p class="jour-state">Avant</p>
+                <p class="jour-k">La veille</p>
+              <h3 class="jour-t"><s>Les rappels, un par un</s></h3>
+              <p class="jour-p">Une matinée au téléphone pour confirmer demain.</p>
+              </div>
+              <div class="jour-then">
+                <p class="jour-state">Après</p>
+                <p class="jour-a">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+                <b>Les rappels partent tout seuls</b>
+              </p>
+              </div>
+            </div>
+
+            <figure class="jour-shot jour-shot--jd" data-flip="0">
+              <div class="jd-switch">
+                <button type="button" data-flip-to="0" aria-pressed="true">Sur le papier</button>
+                <button type="button" data-flip-to="1" aria-pressed="false">Avec le logiciel</button>
+              </div>
+              <div class="jd-half jd-sans">
+                <p class="jd-lab">Sur le papier</p>
+                <div class="jd-art jd-cahier" aria-hidden="true">
+                  <span class="jd-ru jd-in" style="--i: 0"><b>Demain</b><s>6 rendez-vous à confirmer</s></span>
+                  <span class="jd-prow jd-in" style="--i: 1"><b>Trabelsi</b><em>appelée</em></span>
+                  <span class="jd-prow jd-in" style="--i: 2"><b>Ben Amor</b><em class="no">pas de réponse</em></span>
+                  <span class="jd-prow jd-in" style="--i: 3"><b>Gharbi</b><em>appelé</em></span>
+                  <span class="jd-prow jd-in" style="--i: 4"><b>Khelifi</b><em class="no">pas de réponse</em></span>
+                  <span class="jd-prow jd-in" style="--i: 5"><b>Mansour</b><em class="no">à rappeler</em></span>
+                  <span class="jd-prow jd-in" style="--i: 6"><b>Sassi</b><em class="no">à rappeler</em></span>
+                  <span class="jd-x jd-tot jd-in" style="--i: 8"><s>Confirmés</s><em>2 / 6</em></span>
+                </div>
+                <p class="jd-note">Une matinée, et la liste est à refaire.</p>
+              </div>
+
+              <div class="jd-half jd-avec">
+                <p class="jd-lab">Avec le logiciel</p>
+                <div class="jd-art" aria-hidden="true">
+                  <span class="jd-hdr jd-in" style="--i: 0"><b>Demain</b><s>6 rendez-vous</s></span>
+                  <ul class="jd-ln">
+                    <li class="jd-row jd-fly" style="--i: 1"><i class="jd-tick"></i><b>Trabelsi</b><s>08:00</s><em>SMS</em></li>
+                    <li class="jd-row jd-fly" style="--i: 2"><i class="jd-tick"></i><b>Ben Amor</b><s>08:45</s><em>WhatsApp</em></li>
+                    <li class="jd-row jd-fly" style="--i: 3"><i class="jd-tick"></i><b>Gharbi</b><s>09:30</s><em>SMS</em></li>
+                    <li class="jd-row jd-fly" style="--i: 4"><i class="jd-tick"></i><b>Khelifi</b><s>10:15</s><em>WhatsApp</em></li>
+                    <li class="jd-row jd-fly" style="--i: 5"><i class="jd-tick"></i><b>Mansour</b><s>11:00</s><em>SMS</em></li>
+                    <li class="jd-row jd-fly" style="--i: 6"><i class="jd-tick"></i><b>Sassi</b><s>11:45</s><em>WhatsApp</em></li>
+                  </ul>
+                  <span class="jd-x jd-all jd-in" style="--i: 8">Partis à la date prévue</span>
+                </div>
+                <p class="jd-note">Le téléphone ne sert plus qu’aux exceptions.</p>
+              </div>
+            </figure>
+          </article>
+
+          <article class="jour-item" style="--zc: var(--amber); --zcl: var(--amber-lit)">
+            <div class="jour-copy">
+              <p class="jour-n"><b>03</b><span>/ 03</span></p>
+              <div class="jour-when">
+                <p class="jour-state">Avant</p>
+                <p class="jour-k">Le soir</p>
+              <h3 class="jour-t"><s>La séance jamais facturée</s></h3>
+              <p class="jour-p">Le soin est fait, la note n’a jamais été écrite. Rien ne vous le rappellera.</p>
+              </div>
+              <div class="jour-then">
+                <p class="jour-state">Après</p>
+                <p class="jour-a">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+                <b>Rien ne se termine à moitié</b>
+              </p>
+              </div>
+            </div>
+
+            <figure class="jour-shot jour-shot--jd" data-flip="0">
+              <div class="jd-switch">
+                <button type="button" data-flip-to="0" aria-pressed="true">Sur le papier</button>
+                <button type="button" data-flip-to="1" aria-pressed="false">Avec le logiciel</button>
+              </div>
+              <div class="jd-half jd-sans">
+                <p class="jd-lab">Sur le papier</p>
+                <div class="jd-art jd-cahier" aria-hidden="true">
+                  <span class="jd-ru jd-in" style="--i: 0"><b>Mardi</b><s>6 séances</s></span>
+                  <span class="jd-prow jd-in" style="--i: 1"><b>Trabelsi</b><em>notée</em></span>
+                  <span class="jd-prow jd-in" style="--i: 2"><b>Ben Amor</b><em>notée</em></span>
+                  <span class="jd-prow jd-in jd-gap" style="--i: 3"><b>Gharbi</b><em class="no">rien d’écrit</em></span>
+                  <span class="jd-prow jd-in" style="--i: 4"><b>Khelifi</b><em>notée</em></span>
+                  <span class="jd-prow jd-in" style="--i: 5"><b>Mansour</b><em>notée</em></span>
+                  <span class="jd-prow jd-in" style="--i: 6"><b>Sassi</b><em>notée</em></span>
+                  <span class="jd-x jd-vanish jd-in" style="--i: 8">La page tourne, et la séance part avec elle.</span>
+                </div>
+                <p class="jd-note">Une séance oubliée ne réclame rien.</p>
+              </div>
+
+              <div class="jd-half jd-avec">
+                <p class="jd-lab">Avec le logiciel</p>
+                <div class="jd-art" aria-hidden="true">
+                  <span class="jd-hdr jd-in" style="--i: 0"><b>À clôturer</b><s>1 séance</s></span>
+                  <span class="jd-cl jd-in" style="--i: 1"><b>Youssef Gharbi</b><s>Mardi · 14:30 · Fauteuil 2</s></span>
+                  <ul class="jd-qs">
+                    <li class="jd-in" style="--i: 3"><i class="jd-tick"></i><b>Est-il venu&nbsp;?</b><u>oui</u></li>
+                    <li class="jd-in" style="--i: 4"><i class="jd-tick"></i><b>Qu’a-t-on fait&nbsp;?</b><u>composite · 26</u></li>
+                    <li class="jd-in jd-now" style="--i: 5"><i class="jd-dot"></i><b>Combien a-t-il payé&nbsp;?</b><u>à renseigner</u></li>
+                  </ul>
+                  <span class="jd-x jd-all jd-in" style="--i: 7">Une question à la fois</span>
+                </div>
+                <p class="jd-note">Elle y reste tant qu’il manque une réponse.</p>
+              </div>
+            </figure>
+          </article>
+
+      </div>
+        <div class="jour-arrows">
+          <button type="button" class="jour-arrow" data-dir="-1" aria-label="Situation précédente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+          <button type="button" class="jour-arrow" data-dir="1" aria-label="Situation suivante"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+        </div>
+      </div>
+
+      <div class="jour-ctl">
+        <ol class="jour-dots">
+<li><button type="button" data-go="0" aria-label="Situation 1 sur 6"><b>01</b></button></li>
+<li><button type="button" data-go="4" aria-label="Situation 5 sur 6"><b>02</b></button></li>
+<li><button type="button" data-go="5" aria-label="Situation 6 sur 6"><b>03</b></button></li>
+</ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 5 · SUR LE TÉLÉPHONE ═════════════════════════════════════════════════════ -->
+<section class="s4 rise" id="mobile" aria-labelledby="s4-t">
+  <div class="wrap">
+
+    <div class="s4-head">
+      <p class="s4-eyebrow s4-in" style="--i: 0">Mobile</p>
+      <h2 class="s4-title s4-in" id="s4-t" style="--i: 1">Votre cabinet tient dans votre poche</h2>
+      <p class="s4-lede s4-in" style="--i: 2">Les mêmes données qu’au cabinet, entre deux fauteuils.</p>
+    </div>
+
+    <!-- ── L’éventail ────────────────────────────────────────────────────────
+         Six captures réelles, quatre appareils. Les trois écrans nommés plus
+         bas passent au premier plan à tour de rôle ; les trois autres tiennent
+         la profondeur. -->
+    <div class="s4-deck">
+      <i class="s4-pool" aria-hidden="true"></i>
+
+      <!-- ── Fond droit · l’accueil ───────────────────────────────────────── -->
+      <div class="s4-slot s4-slot--far" style="--i: 3; --dx: 150%; --dy: 5%; --rot: 15deg; --sc: .70; --op: .84; --veil: .34; --fl: 12.5s">
+        <div class="s4-lift">
+          <div class="s4-phone">
+            <i class="s4-notch" aria-hidden="true"><i></i></i>
+            <div class="s4-screen">
+              <img class="s4-shot" src="assets/img/m-dashboard.webp" width="390" height="844" loading="lazy" decoding="async"
+                   alt="L’accueil du logiciel sur un téléphone&nbsp;: la séance à clôturer, la frise de la journée et les actes prévus.">
+              <i class="s4-veil" aria-hidden="true"></i>
+            </div>
+            <i class="s4-glass" aria-hidden="true"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Plan gauche · à clôturer ─────────────────────────────────────── -->
+      <div class="s4-slot s4-slot--near s4-slot--l" style="--i: 1; --dx: -95%; --dy: 3%; --rot: -7deg; --sc: .84; --op: .94; --veil: .18; --fl: 10.5s">
+        <div class="s4-lift">
+          <div class="s4-phone">
+            <i class="s4-notch" aria-hidden="true"><i></i></i>
+            <div class="s4-screen">
+              <img class="s4-shot" src="assets/img/m-cloturer.webp" width="390" height="844" loading="lazy" decoding="async"
+                   alt="La liste «&nbsp;à clôturer&nbsp;» sur un téléphone&nbsp;: les séances passées en attente d’une présence, d’une fiche ou d’un encaissement.">
+              <i class="s4-veil" aria-hidden="true"></i>
+            </div>
+            <i class="s4-glass" aria-hidden="true"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Plan droit · la caisse ───────────────────────────────────────── -->
+      <div class="s4-slot s4-slot--near" style="--i: 2; --dx: 95%; --dy: 3%; --rot: 7deg; --sc: .84; --op: .94; --veil: .18; --fl: 9.5s">
+        <div class="s4-lift">
+          <div class="s4-phone">
+            <i class="s4-notch" aria-hidden="true"><i></i></i>
+            <div class="s4-screen">
+              <img class="s4-shot" src="assets/img/m-caisse.webp" width="390" height="844" loading="lazy" decoding="async"
+                   alt="La caisse sur un téléphone&nbsp;: encaissements, avoirs remboursés, dépenses et net du jour, puis le détail par mode de paiement.">
+              <i class="s4-veil" aria-hidden="true"></i>
+            </div>
+            <i class="s4-glass" aria-hidden="true"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Premier plan · les trois surfaces nommées ─────────────────────── -->
+      <div class="s4-slot s4-slot--front" style="--i: 0; --fl: 14s">
+        <div class="s4-lift">
+          <div class="s4-phone">
+            <i class="s4-notch" aria-hidden="true"><i></i></i>
+            <div class="s4-screen">
+              <img class="s4-shot s4-slide" style="--n: 0" src="assets/img/m-odonto.webp" width="390" height="844" loading="lazy" decoding="async"
+                   alt="L’odontogramme sur un téléphone&nbsp;: les dents du maxillaire colorées par diagnostic, la légende des états et les onglets Diagnostics et Actes réalisés.">
+              <img class="s4-shot s4-slide" style="--n: 1" src="assets/img/m-agenda.webp" width="390" height="844" loading="lazy" decoding="async"
+                   alt="L’agenda du jour sur un téléphone&nbsp;: la semaine, les rendez-vous de la matinée avec le motif de chacun et le rappel des séances à clôturer.">
+              <img class="s4-shot s4-slide" style="--n: 2" src="assets/img/m-argent.webp" width="390" height="844" loading="lazy" decoding="async"
+                   alt="Les chiffres du mois sur un téléphone&nbsp;: le net, l’encaissé, les dépenses et la courbe des six derniers mois.">
+            </div>
+            <i class="s4-glass" aria-hidden="true"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Les trois surfaces, nommées ───────────────────────────────────── -->
+    <ul class="s4-lines" role="list">
+      <li class="s4-line s4-in" style="--i: 0; --n: 0; --zc: var(--violet-lit)">
+        <i class="s4-bar" aria-hidden="true"></i>
+        <h3 class="s4-line-t"><i class="s4-dot" aria-hidden="true"></i>La fiche du patient</h3>
+        <p class="s4-line-p">L’odontogramme, les actes déjà réalisés et le plan de traitement en cours, dent par dent.</p>
+      </li>
+      <li class="s4-line s4-in" style="--i: 1; --n: 1; --zc: var(--azure-lit)">
+        <i class="s4-bar" aria-hidden="true"></i>
+        <h3 class="s4-line-t"><i class="s4-dot" aria-hidden="true"></i>L’agenda du jour</h3>
+        <p class="s4-line-p">Qui arrive, à quelle heure et pour quel acte.</p>
+      </li>
+      <li class="s4-line s4-in" style="--i: 2; --n: 2; --zc: var(--amber-lit)">
+        <i class="s4-bar" aria-hidden="true"></i>
+        <h3 class="s4-line-t"><i class="s4-dot" aria-hidden="true"></i>Les chiffres</h3>
+        <p class="s4-line-p">L’encaissé, les dépenses et le net du mois.</p>
+      </li>
+    </ul>
+
+    <div class="s4-claim">
+      <i class="s4-rule" aria-hidden="true"></i>
+      <p class="s4-claim-p">La même application qu’au cabinet, avec les mêmes droits.</p>
+      <p class="s4-plat"><span class="s4-plat-k">Disponible sur</span>
+        <span class="s4-os"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 12.4a6 6 0 0 1 12 0"/><path d="M8.3 9.3 6.7 6.9M15.7 9.3l1.6-2.4M9.6 10.9h.01M14.4 10.9h.01"/><path d="M6 12.4h12v5a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 6 17.4Z"/></svg>Android</span>
+        <span class="s4-os"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.6"/><path d="M10.6 5.2h2.8M10.2 18.6h3.6"/></svg>iPhone</span>
+      </p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══ 6 · LA FAQ ═══════════════════════════════════════════════════════════════ -->
+<section data-reveal class="s6" id="faq" aria-labelledby="s6-titre">
+  <div class="wrap">
+
+    <div class="s6-head">
+      <p class="s6-eyebrow s6-rise" style="--i: 0">FAQ</p>
+      <h2 class="s6-h2 s6-rise" id="s6-titre" style="--i: 1">Les questions qu’on nous pose</h2>
+    </div>
+
+    <ol class="s6-list">
+
+      <li class="s6-row" style="--i: 0; --zc: var(--green)">
+        <p class="s6-num" aria-hidden="true">01</p>
+        <div class="s6-txt">
+          <h3 class="s6-q">Et si l’ordinateur lâche&nbsp;?</h3>
+          <p class="s6-a">Une sauvegarde part toutes les heures. Chacune est vérifiée, et chacune se restaure.</p>
+        </div>
+
+        <figure class="s6-mark s6-mark--rail" role="img"
+                aria-label="Une sauvegarde par heure, de 9 h à 17 h, chacune vérifiée. La dernière remonte à 12 minutes.">
+          <p class="s6-last"><i></i>Dernière&nbsp;: il y a 12&nbsp;min</p>
+          <ol class="s6-rail">
+            <li class="s6-tick" style="--i: 0"><i class="s6-dot"></i><span class="s6-hh">09</span></li>
+            <li class="s6-tick" style="--i: 1"><i class="s6-dot"></i><span class="s6-hh">10</span></li>
+            <li class="s6-tick" style="--i: 2"><i class="s6-dot"></i><span class="s6-hh">11</span></li>
+            <li class="s6-tick" style="--i: 3"><i class="s6-dot"></i><span class="s6-hh">12</span></li>
+            <li class="s6-tick" style="--i: 4"><i class="s6-dot"></i><span class="s6-hh">13</span></li>
+            <li class="s6-tick" style="--i: 5"><i class="s6-dot"></i><span class="s6-hh">14</span></li>
+            <li class="s6-tick" style="--i: 6"><i class="s6-dot"></i><span class="s6-hh">15</span></li>
+            <li class="s6-tick" style="--i: 7"><i class="s6-dot"></i><span class="s6-hh">16</span></li>
+            <li class="s6-tick s6-tick--now" style="--i: 8"><i class="s6-ring"></i><i class="s6-dot"></i><span class="s6-hh">17</span></li>
+          </ol>
+        </figure>
+      </li>
+
+      <li class="s6-row" style="--i: 1; --zc: var(--violet)">
+        <p class="s6-num" aria-hidden="true">02</p>
+        <div class="s6-txt">
+          <h3 class="s6-q">Et mes données, si j’arrête&nbsp;?</h3>
+          <p class="s6-a">Elles sortent en CSV quand vous voulez&nbsp;: patients, actes, paiements. Rien n’est retenu.</p>
+        </div>
+
+        <figure class="s6-mark s6-mark--out" role="img"
+                aria-label="Trois fichiers qui sortent du logiciel : patients, actes, paiements.">
+          <p class="s6-file" style="--i: 0">Patients</p>
+          <p class="s6-file" style="--i: 1">Actes</p>
+          <p class="s6-file" style="--i: 2">Paiements</p>
+        </figure>
+      </li>
+
+      <li class="s6-row" style="--i: 2; --zc: var(--amber)">
+        <p class="s6-num" aria-hidden="true">03</p>
+        <div class="s6-txt">
+          <h3 class="s6-q">Combien de temps pour être opérationnel&nbsp;?</h3>
+          <p class="s6-a">Une demi-journée. Actes, tarifs et rôles sont déjà en place.</p>
+        </div>
+
+        <figure class="s6-mark s6-mark--day" role="img"
+                aria-label="Une journée coupée en deux : l’installation le matin, vous recevez l’après-midi.">
+          <div class="s6-bar"><i class="s6-fill"></i><b class="s6-flag">prêt</b></div>
+          <p class="s6-legend"><span>installation</span><span>vous recevez</span></p>
+        </figure>
+      </li>
+
+      <li class="s6-row" style="--i: 3; --zc: var(--azure)">
+        <p class="s6-num" aria-hidden="true">04</p>
+        <div class="s6-txt">
+          <h3 class="s6-q">Peut-on l’utiliser sur téléphone&nbsp;?</h3>
+          <p class="s6-a">Oui, Android et iPhone.</p>
+        </div>
+
+        <figure class="s6-mark s6-mark--phones" role="img"
+                aria-label="Le logiciel sur un téléphone Android et sur un iPhone, avec la même barre de zones.">
+          <p class="s6-dev" style="--i: 0">
+            <i class="s6-scr"><b></b><span></span><span></span><em></em></i>
+            <span>Android</span>
+          </p>
+          <p class="s6-dev" style="--i: 1">
+            <i class="s6-scr"><b></b><span></span><span></span><em></em></i>
+            <span>iPhone</span>
+          </p>
+        </figure>
+      </li>
+
+    </ol>
+
+  </div>
+</section>
+
+<!-- ══ 7 · L'ESSAI ET LE PRIX ═══════════════════════════════════════════════════ -->
+<section data-reveal class="s7" id="essai" aria-labelledby="s7-titre">
+  <div class="wrap s7-in">
+
+    <div class="s7-lead">
+      <p class="s7-eyebrow s7-rise" style="--i: 0">L’essai et le prix</p>
+      <h2 class="s7-h s7-rise" id="s7-titre" style="--i: 1">Deux formules, et trente jours pour choisir</h2>
+      <p class="s7-p s7-rise" style="--i: 2">Le choix se fait sur la taille du cabinet.</p>
+    </div>
+
+    <div class="s7-ticket">
+
+      <!-- ── Formule 1 ─────────────────────────────────────────────────── -->
+      <article class="s7-pack" style="--b: 0ms">
+        <p class="s7-k s7-cin" style="--i: 0"><i aria-hidden="true"></i>Formule 1</p>
+        <h3 class="s7-who s7-cin" style="--i: 1">Un praticien et une secrétaire</h3>
+
+        <p class="s7-price s7-cin" style="--i: 2">Prix communiqué à la démo</p>
+
+        <p class="s7-quota s7-cin" style="--i: 3">
+          <span class="s7-tick" aria-hidden="true"></span>
+          <span><b>500</b> rappels SMS ou WhatsApp compris</span>
+        </p>
+      </article>
+
+      <!-- ── Formule 2 ─────────────────────────────────────────────────── -->
+      <article class="s7-pack" style="--b: 140ms">
+        <p class="s7-k s7-cin" style="--i: 0"><i aria-hidden="true"></i>Formule 2</p>
+        <h3 class="s7-who s7-cin" style="--i: 1">Plusieurs praticiens</h3>
+
+        <p class="s7-price s7-cin" style="--i: 2">Prix communiqué à la démo</p>
+
+        <p class="s7-quota s7-cin" style="--i: 3">
+          <span class="s7-tick" aria-hidden="true"></span>
+          <span><b>1 000</b> rappels SMS ou WhatsApp compris</span>
+        </p>
+      </article>
+
+      <!-- ── Said once, under both, and shown rather than asserted ─────── -->
+      <div class="s7-incl s7-cin" style="--i: 6">
+        <p class="s7-incl-h">
+          <span class="s7-tick" aria-hidden="true"></span>
+          <span><b>Aucune option payante.</b> Les deux formules ouvrent le logiciel entier&nbsp;:</span>
+        </p>
+        <ul class="s7-all">
+          <li style="--i: 0">Les 24 écrans, en 4 zones</li>
+          <li style="--i: 1">Odontogramme et traitements</li>
+          <li style="--i: 2">Chèques postdatés par échéance</li>
+          <li style="--i: 3">Stock, péremptions, fournisseurs</li>
+          <li style="--i: 4">Sauvegardes vérifiées</li>
+          <li style="--i: 5">Import/export CSV</li>
+          <li style="--i: 6">Windows, Android et iPhone</li>
+          <li style="--i: 7">Rôles et droits par personne</li>
+        </ul>
+      </div>
+
+      <!-- ── How the figure is obtained, since the ticket does not print it ─ -->
+      <p class="s7-devis s7-cin" style="--i: 7">
+        <span>Le prix dépend de la formule et de la taille du cabinet.</span>
+        <a class="s7-devis-a" href="demo.html#devis">Demander un devis<i aria-hidden="true">→</i></a>
+      </p>
+
+    </div>
+
+    <div class="s7-act s7-rise" style="--i: 3">
+      <div class="s7-btns">
+        <a class="s7-btn s7-btn--primary" href="demo.html#essai">Essayer gratuitement</a>
+        <a class="s7-btn s7-btn--ghost" href="demo.html">Demander une démo</a>
+      </div>
+      <p class="s7-trial">Trente jours d’essai, sans carte bancaire.</p>
+    </div>
+
+  </div>
+</section>
+

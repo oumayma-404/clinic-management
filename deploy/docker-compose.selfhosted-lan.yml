@@ -1,0 +1,140 @@
+# `SelfHostedLan` in containers — the clinic's own server, reached over its LAN by a phone.
+#
+# The third deployment topology, and until now the only one with no compose file: `docker-compose.prod.yml` is
+# CloudBrowser and `docker-compose.hosted.yml` is HostedMultiTenant, both of which terminate TLS at Caddy in front.
+# `SelfHostedLan` does not — the API **is** the front door: Kestrel serves `/api` in-process, a YARP catch-all
+# proxies every other route to Next, and the certificate is self-generated into `.local/` on first boot.
+#
+# It exists for two reasons. The shipped one: `packaging/` installs this profile as a Windows service, and there
+# was no way to reproduce it on a machine that is not a clinic PC. The immediate one: **Windows Smart App Control
+# refuses to load freshly-built .NET assemblies** (`0x800711C7`), so the API cannot run on the development machine
+# at all — inside a Linux container it is not subject to Windows Application Control.
+#
+# ⚠️ **`api` shares `web`'s network namespace, and that is load-bearing, not a shortcut.** Program.cs builds the
+# YARP destination as a literal `http://localhost:{Hosting:WebPort}` because in the shipped profile the two are
+# co-located on one machine. `network_mode: "service:web"` reproduces exactly that: one namespace, so the API
+# reaches Next on `localhost:3000` **and** Next's BFF reaches the API on `localhost:5000` — which is bound
+# loopback-only on purpose and would be unreachable from a separate container. Every published port therefore
+# belongs to `web`, the namespace's owner; `api` may declare none.
+#
+#   docker compose -f deploy/docker-compose.selfhosted-lan.yml up -d --build
+#
+# Then, from the phone: install the CA from http://<server-ip>:5080/api/trust, trust it in the OS settings, and
+# type `<server-ip>:5001` into the shell's address screen.
+
+name: clinic-selfhosted-lan
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: clinic-lan-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: clinic_user
+      POSTGRES_PASSWORD: clinic_password
+      POSTGRES_DB: clinic_management
+    volumes:
+      - lan-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clinic_user -d clinic_management"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        # Relative on purpose: the browser calls whatever host it loaded the page from, so one image serves any
+        # server IP. ⚠️ This arg did nothing until `web/Dockerfile` gained the matching `ARG` declaration.
+        NEXT_PUBLIC_API_URL: /api
+        # ⚠️ **Also a build arg, not only the runtime variable below.** `/login` is statically prerendered and
+        # the root layout picks the session provider server-side, so the mode is baked by `npm run build`. Set
+        # at runtime alone, the image ships the Auth0 landing page and « Se connecter » goes nowhere.
+        AUTH_MODE: local
+    container_name: clinic-lan-web
+    restart: unless-stopped
+    environment:
+      AUTH_MODE: local
+      NEXT_PUBLIC_API_URL: /api
+      # Server-side hop. Same namespace as the API, so this really is the API's loopback HTTP listener.
+      API_INTERNAL_URL: http://localhost:5000/api
+      # The browser talks HTTPS to Kestrel, but Next is reached over a plain-HTTP loopback hop, so without this
+      # the BFF derives a non-Secure scheme and drops the flag from the session cookie — silently ending every
+      # session the moment it is written.
+      AUTH_COOKIE_SECURE: "true"
+      NODE_ENV: production
+    # Every port the deployment publishes lives here: `api` shares this namespace and cannot declare its own.
+    #
+    # ⚠️ **`0.0.0.0:` is explicit on purpose — a bare `5001:5001` is not LAN-reachable under every runtime.**
+    # Rancher Desktop forwards published ports through `host-switch.exe`, which binds `::`/`::1` and offers
+    # nothing on IPv4 to other machines: the browser on the server works, every phone times out, and no firewall
+    # rule is involved so the usual diagnosis finds nothing. Naming the bind address makes the intent explicit
+    # and portable across Docker Desktop, Rancher and plain dockerd.
+    ports:
+      - "0.0.0.0:5001:5001"   # the HTTPS front door — the only port a browser or a phone shell uses
+      - "0.0.0.0:5080:5080"   # cleartext, serves ONLY /api/trust so a phone can install the CA (TrustPortGate)
+
+  api:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    container_name: clinic-lan-api
+    restart: unless-stopped
+    network_mode: "service:web"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      web:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # `Local` is what makes Kestrel the front door, mounts the YARP catch-all, self-generates the certificate
+      # and enables the trust page. `Deployment:Profile` is left to derive `SelfHostedLan` from it.
+      Auth__Mode: Local
+      # ⚠️ `postgres` resolves through the shared namespace: `web` is on this compose's network, and `api` borrows
+      # its stack, so service DNS still works even though `api` joins no network of its own.
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=clinic_management;Username=clinic_user;Password=clinic_password"
+      Hosting__HttpPort: "5000"
+      Hosting__HttpsPort: "5001"
+      Hosting__WebPort: "3000"
+      Hosting__TrustPort: "5080"
+      # ⚠️ **Operator-supplied, and in a container it has to be.** Left empty, the API self-generates a
+      # certificate whose SANs come from `LanAddresses.IPv4()` — *the container's* interfaces — so it names
+      # `172.x.x.x` and `localhost` and a phone connecting to the host's LAN address fails the TLS handshake
+      # **after** the user has installed and trusted the CA. Run `deploy/lan-cert.sh` once (see its header) to
+      # mint a certificate that names the real address, then these two point at it.
+      #
+      # A *set but missing* path fails startup loud rather than dropping to cleartext, so a typo here is a
+      # refusal to boot, never a silent downgrade to HTTP.
+      Https__CertPath: "/app/.local/server.pfx"
+      Https__CertPassword: "${LAN_CERT_PASSWORD:?run deploy/lan-cert.sh and export LAN_CERT_PASSWORD}"
+      # Where « Sauvegarder maintenant » and the hourly `BackupJob` write. The image now carries the PostgreSQL 16
+      # client, so `PostgresToolLocator` finds `pg_dump`/`pg_restore` on PATH and **no tool path is configured
+      # here** — that key existing at all is what made the backup look configurable while being dead.
+      #
+      # ⚠️ This must point at the mounted volume below. The install-relative default (`/app/Backups`) resolves
+      # inside the container, so without the mount every backup would be written into the writable layer and
+      # destroyed by the next `docker compose up` — silently, with the history still reporting « réussie ».
+      #
+      # ⚠️ And it is still the SAME DISK as the live database (`lan-postgres` is a volume on this host too), so the
+      # backup carries `PgDumpBackupService`'s same-volume warning. Copy the volume off the machine on a schedule;
+      # a backup that dies with the disk it protects is not one. This is a LAN install's standing homework, not a
+      # defect — see `packaging/README.md`.
+      Backup__DefaultDestination: "/app/Backups"
+    volumes:
+      # The self-generated CA and server certificate. Without a volume, every restart mints a new CA and every
+      # phone that trusted the old one has to be re-enrolled.
+      - lan-certs:/app/.local
+      # Patient files: `LocalDiskFileStorage` writes under `FileStorage:BasePath`, relative to the install dir.
+      - lan-files:/app/Files
+      # The backup destination. `api/Dockerfile` creates and chowns `/app/Backups` before this mounts over it, so
+      # Docker propagates the ownership to the new volume and the non-root process can write into it.
+      - lan-backups:/app/Backups
+
+volumes:
+  lan-postgres:
+  lan-certs:
+  lan-files:
+  lan-backups:

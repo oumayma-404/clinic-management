@@ -1,16 +1,58 @@
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Common;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Infrastructure.Persistence.Configurations;
+using ClinicManagement.Infrastructure.Security;
 
 namespace ClinicManagement.Infrastructure.Persistence;
 
-public class ApplicationDbContext : DbContext
+public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 {
-    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options)
+    /// <summary>
+    /// The Data Protection key ring, where <c>DataProtection:PersistToDatabase</c> puts it instead of a volume.
+    ///
+    /// <para><b>Deployment-wide key material, not a clinic's data.</b> It is therefore excluded from the
+    /// per-clinic archive (<c>ClinicArchiveScope.Excluded</c>) — a cabinet's zip is deliberately unencrypted and
+    /// travels on a laptop, and these rows decrypt every administrator's second factor and every clinic's
+    /// reminder credentials. It carries no <c>ClinicId</c> and so is outside the tenant filter by construction.</para>
+    ///
+    /// <para>⚠️ The rows are still encrypted by the deployment's certificate
+    /// (<c>DataProtection:CertificatePath</c> / <c>:CertificateBase64</c>) exactly as on a volume, so moving the
+    /// ring into the database changes <i>where</i> it lives and nothing about what protects it. A database dump
+    /// is not a way to read it.</para>
+    /// </summary>
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
+
+    private readonly ICurrentClinicProvider? _clinicProvider;
+    private readonly IAuditChainKeyProvider? _auditChainKey;
+
+    // The clinic provider is optional so the design-time factory and any manual construction still work (they
+    // pass no provider → the filters return everything, as before). At runtime AddDbContext always injects it.
+    // The chain-key provider is optional for the same reason and is required only to *write* the ledger — see
+    // SaveChangesAsync, which refuses rather than leaving a row unchained.
+    public ApplicationDbContext(
+        DbContextOptions<ApplicationDbContext> options,
+        ICurrentClinicProvider? clinicProvider = null,
+        IAuditChainKeyProvider? auditChainKey = null) : base(options)
     {
+        _clinicProvider = clinicProvider;
+        _auditChainKey = auditChainKey;
     }
+
+    // Exposed for the global query filters below. Accessed through the context instance so EF Core treats them
+    // as parameters re-evaluated per query (never baked into the cached model).
+    //
+    // ⚠️ The three states are ITenantScope's, and only one of them returns everything: a scope that declared
+    // itself cross-clinic. A scope nobody set leaves ScopedClinicId at Guid.Empty, which no row carries — so the
+    // filter refuses instead of switching off, and a path that forgot to establish a scope reads nothing rather
+    // than every clinic. No provider *at all* (the design-time factory, a hand-constructed context) still reads
+    // as system-wide; every DI'd path has one, including the console verbs (see the floor in AddInfrastructure).
+    private bool IsSystemWide => _clinicProvider is null || _clinicProvider.IsSystemWide;
+    private Guid ScopedClinicId => _clinicProvider?.ClinicId ?? Guid.Empty;
 
     public DbSet<Clinic> Clinics { get; set; }
     public DbSet<User> Users { get; set; }
@@ -22,18 +64,319 @@ public class ApplicationDbContext : DbContext
     public DbSet<PatientFlag> PatientFlags { get; set; }
     public DbSet<RecurringAppointment> RecurringAppointments { get; set; }
     public DbSet<StockItem> StockItems { get; set; }
+    // Append-only stock-movement audit log (consume/restock history) — clinic-scoped aggregate root.
+    public DbSet<StockMovement> StockMovements { get; set; }
+    // Who the cabinet buys from — clinic-scoped aggregate root, filtered below. It replaced the free-text
+    // StockItem.Supplier, which named somebody nobody could call.
+    public DbSet<Supplier> Suppliers { get; set; }
     public DbSet<ProcedureType> ProcedureTypes { get; set; }
+    // Clinical-workflow-depth: caisse expenses, salle-d'attente entries, and dental-lab work orders
+    // (all clinic-scoped aggregate roots — added to the global clinic query filter below).
+    public DbSet<Expense> Expenses { get; set; }
+    public DbSet<WaitingListEntry> WaitingListEntries { get; set; }
+    public DbSet<LabWorkOrder> LabWorkOrders { get; set; }
     public DbSet<PatientMedicalHistory> PatientMedicalHistories { get; set; }
     public DbSet<PatientFamilyHistory> PatientFamilyHistories { get; set; }
     public DbSet<DentalRecord> DentalRecords { get; set; }
     public DbSet<DentalRecordTooth> DentalRecordTeeth { get; set; }
+    public DbSet<DentalRecordAct> DentalRecordActs { get; set; }
+    // Persistent odontogram — child-of-patient, and since the clinical-child filter work it carries its own
+    // denormalised ClinicId and a HasQueryFilter like every other clinic-scoped table.
+    public DbSet<ToothState> ToothStates { get; set; }
     public DbSet<PatientFolder> PatientFolders { get; set; }
     public DbSet<MedicalDocument> MedicalDocuments { get; set; }
+    public DbSet<StaffNotification> StaffNotifications { get; set; }
+    public DbSet<NotificationRead> NotificationReads { get; set; }
+    public DbSet<Invoice> Invoices { get; set; }
+    // Avoirs (credit notes) — clinic-scoped aggregate root offsetting a paid invoice's collected amount.
+    public DbSet<CreditNote> CreditNotes { get; set; }
+    // Treatment plans / devis (clinic-scoped aggregate root; children TreatmentPlanItem/Installment reached via it).
+    public DbSet<TreatmentPlan> TreatmentPlans { get; set; }
+    public DbSet<ClinicReminderSettings> ClinicReminderSettings { get; set; }
+    // Outbound document-email outbox (clinic-scoped aggregate root — added to the global filter below). Its
+    // dispatcher job runs with no clinic in scope, so the filter is inactive there and it can drain every
+    // clinic's queue, exactly like the reminder outbox.
+    public DbSet<DocumentEmail> DocumentEmails { get; set; }
+    // One user's dashboard layout choices (1:1 with User, shared PK). Deliberately carries NO clinic query
+    // filter: the row is keyed by the user id and a user belongs to exactly one clinic, so it is scoped by
+    // UserId alone — the same reasoning as NotificationRead below.
+    public DbSet<UserDashboardPreference> UserDashboardPreferences { get; set; }
+    // Per-clinic CNAM reference data (feature cloud-security-and-tenant-isolation, #5): clinic-scoped via
+    // HasQueryFilter below. Every clinic is seeded with the SAME default catalog + VLC values on creation,
+    // then each clinic's admin edits stay private to it.
+    public DbSet<CnamNomenclatureEntry> CnamNomenclatureEntries { get; set; }
+    public DbSet<CnamLetterValue> CnamLetterValues { get; set; }
+    // Per-clinic medication catalog (#5): clinic-scoped. Backs the ordonnance medication picker.
+    public DbSet<Medication> Medications { get; set; }
+    // Child of Medication (reached via its parent) — no ClinicId, no query filter of its own.
+    public DbSet<MedicationActiveIngredient> MedicationActiveIngredients { get; set; }
+    // Per-clinic dental act catalog (chapitre DCH, #5): clinic-scoped. Backs the treatment-plan act picker.
+    public DbSet<DentalActCode> DentalActCodes { get; set; }
+    // The audit ledger (I6) — written only by AuditSaveChangesInterceptor, read only by GET /api/audit.
+    // ⚠️ Deliberately carries **no** global clinic query filter, unlike every other clinic-scoped table here.
+    // Two reasons, and both point the same way: its ClinicId is nullable (a job or a console verb can mutate a
+    // row with no clinic derivable from it), so a filter comparing it to the scoped id would silently hide
+    // exactly the unattributed rows an owner most needs to see; and the interceptor writes on a context whose
+    // clinic scope belongs to the request being audited, not to the row — filtering the write side is
+    // meaningless. `GetAuditEntriesQuery` filters by the caller's DB-resolved clinic explicitly, which is the
+    // authoritative check everywhere in this codebase anyway.
+    public DbSet<AuditEntry> AuditEntries { get; set; }
+
+    // The backup ledger (L4d). Clinic-scoped and **filtered** (see OnModelCreating), unlike AuditEntries: its
+    // ClinicId is non-nullable, so the filter has nothing to hide. The daily job runs with no clinic in scope,
+    // which leaves the filter inactive — the same arrangement the reminder dispatcher and the per-clinic seeder
+    // already rely on.
+    public DbSet<BackupRun> BackupRuns { get; set; }
+    public DbSet<ClinicRecoveryPoint> ClinicRecoveryPoints { get; set; }
+
+    // OS push (mobile-native-shells Part 6). Both clinic-scoped and filtered; PushDispatchJob declares
+    // UseSystemWide to drain every clinic's queue, exactly as the reminder dispatcher does.
+    public DbSet<DeviceRegistration> DeviceRegistrations { get; set; }
+    public DbSet<PushDelivery> PushDeliveries { get; set; }
+
+    // Pending clinic self-signups (clinic-self-signup). Carries **no ClinicId at all** — there is no clinic yet —
+    // so it is outside the tenant filter by construction rather than by exemption, and the guard that derives the
+    // clinic-owned set from that column never sees it.
+    public DbSet<ClinicSignup> ClinicSignups { get; set; }
+
+    // Live and recently-spent password-reset requests. Carries **no ClinicId**, for the same mechanical reason as
+    // ClinicSignups above and a sharper one of its own: both endpoints reading it are anonymous, so no tenant
+    // scope is ever established and a filtered read would return zero rows with no error — indistinguishable from
+    // « no such request », on the one path whose job is to tell those two apart.
+    public DbSet<PasswordResetRequest> PasswordResetRequests { get; set; }
+
+    // The vendor's console identity population (platform-console FR-1). Like ClinicSignup above and for the same
+    // structural reason, these carry **no ClinicId**: a console account belongs to no cabinet, which is the whole
+    // point of it, so they sit outside the tenant filter by construction and need no named exemption in
+    // TenantScopeFilterTests — that guard derives its clinic-owned set from the column neither of them has.
+    public DbSet<PlatformAccount> PlatformAccounts { get; set; }
+    public DbSet<PlatformRecoveryCode> PlatformRecoveryCodes { get; set; }
+
+    // The clinic second factor (hosted-security-hardening FR-1.4/FR-1.6). Both hang off `User` and neither
+    // carries a ClinicId — the same position the two above are in, and for `SessionFamily` the absence is
+    // load-bearing rather than incidental: its hot read is by credential hash on the refresh path, which runs
+    // before any clinic scope exists, so a query filter would match nothing and replay detection would never
+    // fire. See the property's own note.
+    public DbSet<UserRecoveryCode> UserRecoveryCodes { get; set; }
+    public DbSet<SessionFamily> SessionFamilies { get; set; }
+
+    // The console's activity counters (platform-console Part 2). These DO carry a ClinicId, so unlike the two
+    // above they are named decisions in TenantScopeFilterTests rather than absent from it: they are the VENDOR's
+    // measurements about a cabinet, written by the counter job and read only by the console — no clinic-facing
+    // surface reads them, so a per-clinic filter would guard a door nobody uses while making the one legitimate
+    // reader depend on lifting it.
+    public DbSet<ClinicActivityDay> ClinicActivityDays { get; set; }
+    public DbSet<ClinicActivitySnapshot> ClinicActivitySnapshots { get; set; }
+
+    // The console's own access ledger (platform-console Part 3, FR-5). Carries a ClinicId — the cabinet that was
+    // looked at — so it is a named decision in TenantScopeFilterTests like the two counter tables above. Filtering
+    // it per clinic would be doubly wrong here: the journal's whole purpose is to read ACROSS cabinets, and the
+    // rows worth most are the ones about a cabinet that no longer exists.
+    public DbSet<PlatformAccessEntry> PlatformAccessEntries { get; set; }
+
+    // A cabinet's dated right to record new work, and the append-only ledger EndsOn is a full re-fold of
+    // (clinic-subscription FR-1). Both clinic-owned with non-nullable ClinicIds, so both are filtered like the
+    // rest; the vendor's console verbs declare UseSystemWide to reach every cabinet.
+    public DbSet<ClinicSubscription> ClinicSubscriptions { get; set; }
+    public DbSet<SubscriptionPeriod> SubscriptionPeriods { get; set; }
+
+    // The vendor-purchased WhatsApp reminder forfait: the append-only allocation ledger, and one counting row per
+    // cabinet per Tunisian month (vendor-whatsapp-messaging-quota FR-1, FR-2). Both clinic-owned with non-nullable
+    // ClinicIds, so both are filtered; the three messaging-* verbs declare UseSystemWide to reach every cabinet.
+    public DbSet<MessagingAllowanceEntry> MessagingAllowanceEntries { get; set; }
+    public DbSet<ClinicMessagingMonth> ClinicMessagingMonths { get; set; }
+
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        // The clinic-scoping query filters are applied to the directly-clinic-owned AGGREGATE ROOTS — 19 of
+        // them, listed in OnModelCreating — never to their child entities, which are reached only through a
+        // filtered parent. This is deliberate. EF then warns that the roots are the required end of
+        // relationships whose dependents lack a matching filter; handlers guard the filtered-out case
+        // explicitly (null owning-patient => "not found"), so this warning is expected noise.
+        //
+        // (AC-P4.29: this comment used to name only Patient/Appointment/ProcedureType. Fourteen more roots had
+        // been filtered since it was written, so it was actively misleading about the size of the backstop.)
+        optionsBuilder.ConfigureWarnings(w =>
+            w.Ignore(CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning));
+        base.OnConfiguring(optionsBuilder);
+    }
+
+    /// <summary>
+    /// Model-wide money precision (AC-P4.37). Every decimal in this model is Tunisian dinars stored in millimes,
+    /// so <c>(18,3)</c> is the rule and the 26 explicit <c>HasColumnType("decimal(18,3)")</c> calls that used to
+    /// state it 26 times are gone.
+    ///
+    /// <para><b>The convention alone would have done nothing</b>, which is why those deletions are part of the
+    /// same change. <c>GetColumnType()</c> returns an explicit annotation verbatim and bypasses facet-derived
+    /// store types entirely, so with the annotations still in place the differ would emit zero
+    /// <c>AlterColumn</c>s and <c>StockItem.UnitPrice</c> would have stayed at 2 decimals — the exact bug this
+    /// looks like it fixes. An earlier draft of the spec claimed otherwise; it was corrected during planning.</para>
+    ///
+    /// <para>The two VAT-rate columns keep their own precision through a retained explicit annotation
+    /// (<c>ClinicConfiguration</c>, <c>InvoiceConfiguration</c>): they are rates, not money, and a convention
+    /// that silently widened a VAT rate would be worse than the drift it fixes (AC-P4.38). <c>verify-schema</c>
+    /// asserts both halves — every other decimal at <c>(18,3)</c>, those two <b>not</b>.</para>
+    /// </summary>
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        configurationBuilder.Properties<decimal>().HavePrecision(18, 3);
+        base.ConfigureConventions(configurationBuilder);
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
-        
+
+        // PostgreSQL's unaccent(), so the paginated lists' free-text search can fold accents in SQL. Before
+        // paging, search ran in C# over every row of the clinic; a page of 25 makes that impossible — the term
+        // has to be matched by the database or it only ever sees the page the user is already looking at.
+        SqlSearch.MapUnaccent(modelBuilder);
+
+        AlignSentinelsWithDatabaseDefaults(modelBuilder);
+
+        // Multi-tenant isolation layer: scope the directly-clinic-owned entities to the scope's clinic.
+        //
+        // ⚠️ These filters used to be **fail-open** — no clinic in scope meant no filter — which made them a
+        // backstop that protected nothing on any path that failed to establish one. They now refuse
+        // (ITenantScope.Unset ⇒ ScopedClinicId is Guid.Empty ⇒ no rows), so a job, verb or request that reads
+        // across clinics has to say so through UseSystemWide and is answerable for it. Handlers still do the
+        // authoritative DB-resolved User.ClinicId check: this is the second layer, not the first.
+        //
+        // User/Clinic stay deliberately unfiltered — the auth, setup and join flows resolve them before any
+        // clinic exists to be in scope, and filtering them would break onboarding rather than protect it.
+        //
+        // ⚠️ `Notification` is unfiltered for the same structural reason as `AuditEntries` below, and it is recorded
+        // here because that reason is NOT the one `TenantScopeFilterTests.UnfilteredByDesign` gives: its `ClinicId`
+        // is **nullable**, so a filter comparing it to the scoped id would hide exactly the unattributed rows an
+        // owner needs. « Drained cross-clinic by the dispatcher » is not the reason — `DocumentEmail` is filtered and
+        // its dispatcher declares `UseSystemWide` too. All four reachable reads take a `clinicId` explicitly.
+        modelBuilder.Entity<Patient>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
+        // The seven clinical children of Patient. They carried no ClinicId for the product's whole life, so the
+        // per-handler check was their ONLY layer — and it is the layer a new read forgets, silently, with the
+        // symptom being another clinic's record on screen. The column is denormalised from the patient (the two
+        // must agree; `verify-schema`'s `clinical-child-clinic-matches-patient` is what holds that, since no
+        // model construct can) rather than filtered through the `Patient` navigation: filtering through it would
+        // put a correlated subquery on the hottest reads in the product, and every other filtered entity here
+        // states its clinic as a column. Same shape, same rule, one join fewer.
+        modelBuilder.Entity<PatientFile>().HasQueryFilter(f => IsSystemWide || f.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<PatientFolder>().HasQueryFilter(f => IsSystemWide || f.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<MedicalDocument>().HasQueryFilter(d => IsSystemWide || d.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<DentalRecord>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ToothState>().HasQueryFilter(t => IsSystemWide || t.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<PatientMedicalHistory>().HasQueryFilter(h => IsSystemWide || h.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<PatientFamilyHistory>().HasQueryFilter(h => IsSystemWide || h.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<Appointment>().HasQueryFilter(a => IsSystemWide || a.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ProcedureType>().HasQueryFilter(pt => IsSystemWide || pt.ClinicId == ScopedClinicId);
+        // StaffNotification is directly clinic-owned → filtered like the others. NotificationRead has no
+        // ClinicId; it is always queried scoped by UserId and joined to its clinic-filtered notification
+        // (a user belongs to one clinic), so it needs no filter of its own (plan R-5).
+        modelBuilder.Entity<StaffNotification>().HasQueryFilter(n => IsSystemWide || n.ClinicId == ScopedClinicId);
+        // Invoice is directly clinic-owned → filtered like the other aggregate roots. Its children
+        // (InvoiceLine/Payment) are reached only through the invoice, so they need no filter of their own.
+        modelBuilder.Entity<Invoice>().HasQueryFilter(i => IsSystemWide || i.ClinicId == ScopedClinicId);
+        // CreditNote (avoir) is directly clinic-owned → filtered like the other aggregate roots.
+        modelBuilder.Entity<CreditNote>().HasQueryFilter(c => IsSystemWide || c.ClinicId == ScopedClinicId);
+        // StockMovement is directly clinic-owned → filtered like the other aggregate roots.
+        modelBuilder.Entity<StockMovement>().HasQueryFilter(m => IsSystemWide || m.ClinicId == ScopedClinicId);
+        // TreatmentPlan is directly clinic-owned → filtered like the other aggregate roots. Its children
+        // (TreatmentPlanItem/Installment) are reached only through the plan, so they need no filter of their own.
+        modelBuilder.Entity<TreatmentPlan>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
+        // ClinicReminderSettings is keyed by the clinic id (shared PK) → filter on Id. The reminder dispatcher
+        // declares UseSystemWide, which is what lets it resolve any clinic's settings by id.
+        modelBuilder.Entity<ClinicReminderSettings>().HasQueryFilter(s => IsSystemWide || s.Id == ScopedClinicId);
+        // DocumentEmail is directly clinic-owned → filtered like the other aggregate roots. Its dispatcher
+        // declares UseSystemWide, which is what lets one tick drain every clinic's queue.
+        modelBuilder.Entity<DocumentEmail>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
+        // Per-clinic reference catalogs (#5): scoped like the other aggregate roots. The per-clinic seeder reads
+        // through IgnoreQueryFilters() throughout, so it is immune to the scope rather than dependent on it.
+        // MedicationActiveIngredient is reached only through Medication, so it needs no filter of its own.
+        modelBuilder.Entity<CnamNomenclatureEntry>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<CnamLetterValue>().HasQueryFilter(v => IsSystemWide || v.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<Medication>().HasQueryFilter(m => IsSystemWide || m.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<DentalActCode>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
+        // Clinical-workflow-depth aggregate roots — directly clinic-owned → filtered like the others. Their
+        // Patient children are reached only through the aggregate, so they need no filter of their own.
+        modelBuilder.Entity<Expense>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<WaitingListEntry>().HasQueryFilter(w => IsSystemWide || w.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<LabWorkOrder>().HasQueryFilter(l => IsSystemWide || l.ClinicId == ScopedClinicId);
+        // RecurringAppointment gained a ClinicId (clinical-workflow-depth) → clinic-scoped like the others.
+        modelBuilder.Entity<RecurringAppointment>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
+        // AC-P4.27 — Doctor and StockItem were the last two directly-clinic-owned roots left unfiltered, and
+        // StockItem's own child StockMovement was filtered while its PARENT was not: the backstop protected the
+        // ledger but not the item it belongs to.
+        modelBuilder.Entity<Doctor>().HasQueryFilter(d => IsSystemWide || d.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<StockItem>().HasQueryFilter(s => IsSystemWide || s.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<Supplier>().HasQueryFilter(s => IsSystemWide || s.ClinicId == ScopedClinicId);
+        // StockBatch is a child of StockItem, reached only through its filtered parent → no filter of its own,
+        // the same rule as InvoiceLine/Installment. ProcedureTypeMaterial likewise, under ProcedureType.
+        // L4d — the backup ledger is clinic-owned with a NON-nullable ClinicId, so unlike AuditEntries it is
+        // filtered like the rest. The hourly BackupJob declares UseSystemWide to iterate every clinic.
+        modelBuilder.Entity<BackupRun>().HasQueryFilter(b => IsSystemWide || b.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ClinicRecoveryPoint>()
+            .HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
+        // Part 6 — the push registry and its outbox, both clinic-owned with non-nullable ClinicIds (AC-53).
+        // ⚠️ One read deliberately escapes this filter: IDeviceRegistrationRepository.GetByTokenAcrossClinicsAsync,
+        // because the token is globally unique and a clinic-scoped lookup would miss another clinic's row and turn
+        // the rebind into a unique-index violation. Its own doc comment carries why that is not a leak.
+        modelBuilder.Entity<DeviceRegistration>().HasQueryFilter(d => IsSystemWide || d.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<PushDelivery>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
+        // clinic-subscription — the entitlement and its ledger. Both are read on the write path of every request
+        // in the hosted deployment, so an unfiltered one would be the widest cross-clinic read in the product.
+        modelBuilder.Entity<ClinicSubscription>().HasQueryFilter(s => IsSystemWide || s.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<SubscriptionPeriod>().HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
+
+        // vendor-whatsapp-messaging-quota — the allocation ledger and the per-month counters. The counting row is a
+        // plain Entity<Guid> rather than an aggregate root (D-6, so the minutely increment writes no audit row), but
+        // it carries its own ClinicId and is filtered exactly like every other clinic-owned table: what decides the
+        // filter is owning a clinic, not being a root.
+        modelBuilder.Entity<MessagingAllowanceEntry>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ClinicMessagingMonth>().HasQueryFilter(m => IsSystemWide || m.ClinicId == ScopedClinicId);
+
+        // Optimistic concurrency for every entity, with no schema change: map Entity<T>.Version onto
+        // PostgreSQL's xmin system column. EF then appends it to the WHERE of each UPDATE/DELETE, so a row a
+        // peer changed since we read it matches nothing and throws DbUpdateConcurrencyException — which
+        // UnitOfWork translates into a ConflictException → HTTP 409.
+        //
+        // ⚠️ `SkipsConcurrencyToken` (declared below) is the one opt-out, and it is about *semantics*, not about
+        // avoiding an inconvenience. See its own comment.
+        //
+        // Three exclusions, each load-bearing:
+        //  * ToList() first — modelBuilder.Entity(clrType) can ADD entity types, and mutating the collection
+        //    being enumerated throws.
+        //  * Owned types and shared-CLR-type entities are skipped. An owned type has no row of its own, and
+        //    PhoneNumber is owned TWICE by Patient (PhoneNumber + EmergencyContactPhone), so it arrives as a
+        //    shared-CLR-type entity that must not be configured by CLR type at all.
+        //  * Anything not deriving from Entity<> is skipped — NotificationRead is a plain composite-key class
+        //    and has no Version property to map.
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes().ToList())
+        {
+            if (entityType.IsOwned() || entityType.HasSharedClrType)
+            {
+                continue;
+            }
+
+            if (!DerivesFromEntity(entityType.ClrType))
+            {
+                continue;
+            }
+
+            // Deliberately NOT Npgsql's UseXminAsConcurrencyToken(): it is obsolete in 8.0 and, worse, it adds
+            // a SHADOW xmin property — leaving our CLR Version property to be mapped as an ordinary bigint
+            // column called "Version". Mapping Version onto xmin explicitly is what actually binds the two.
+            var version = modelBuilder.Entity(entityType.ClrType)
+                .Property<uint>(nameof(Domain.Common.Entity<int>.Version))
+                .HasColumnName("xmin")
+                .HasColumnType("xid")
+                .ValueGeneratedOnAddOrUpdate();
+
+            // The mapping above is unconditional — every entity's Version must resolve to the xmin system column,
+            // or EF would look for an ordinary "Version" column that no table has. Only the *token* is opt-out.
+            if (!SkipsConcurrencyToken.Contains(entityType.ClrType))
+            {
+                version.IsConcurrencyToken();
+            }
+        }
+
         // Apply a value converter for all DateTime and DateTime? properties to ensure UTC
         // This is required for PostgreSQL which only accepts UTC DateTime values
         // We apply this after configurations to ensure it works with all entities
@@ -61,6 +404,104 @@ public class ApplicationDbContext : DbContext
         }
 
         base.OnModelCreating(modelBuilder);
+    }
+
+    /// <summary>
+    /// Entities whose <c>Version</c> is still mapped onto <c>xmin</c> (so it reads back) but is <b>not</b> used as
+    /// a concurrency token, so a losing write is not rejected.
+    ///
+    /// <para>
+    /// This is a semantic opt-out, not a way around an inconvenient error. Optimistic concurrency exists here to
+    /// stop a <i>lost update</i> to shared clinical or financial data: two people editing one patient, one invoice,
+    /// one devis, where silently discarding the earlier write loses real information and « quelqu'un d'autre a
+    /// modifié cet enregistrement » is exactly the right thing to say.
+    /// </para>
+    /// <para>
+    /// <see cref="UserDashboardPreference"/> is none of that. It is one user's own view of their own dashboard,
+    /// written only by them, and a full replace every time. Two writes racing — a double-click, two browser tabs,
+    /// the desktop and the phone — is not a data-integrity event: last-write-wins is the *correct* semantics, and
+    /// blocking the save is strictly worse than accepting the later one. Worse, the message the token produces is
+    /// simply false for this row, because there is no « quelqu'un d'autre » who can write it.
+    /// </para>
+    /// <para>
+    /// Adding a type here needs that argument to hold. If losing a write would lose information a user typed, it
+    /// does not belong in this set.
+    /// </para>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="SessionFamily"/> is the second entry, and it satisfies that argument for a different reason
+    /// (<c>hosted-security-hardening</c> FR-1.6). Two tabs — or a shell and a browser — legitimately exchange a
+    /// refresh credential within moments of each other, and both must keep working: that is the whole point of
+    /// accepting the immediate predecessor. With the token on, both writers UPDATE the family row, the loser
+    /// raises <c>DbUpdateConcurrencyException</c>, <c>UnitOfWork</c> translates it to <c>ConflictException</c>,
+    /// and <c>/api/auth/refresh</c> answers <b>409</b> to precisely the case FR-1.6 exists to preserve —
+    /// signing a working user out for using the product normally.
+    /// </para>
+    /// <para>
+    /// The set's required argument holds: <b>a lost rotation loses no information a user typed.</b> The row
+    /// records which credential is current, both writers are the same person on the same account, and the cost
+    /// is one generation of slack in replay detection — which FR-1.6 states as its own tolerance, because the
+    /// rule is about <i>ordering</i>, not elapsed time.
+    /// </para>
+    /// </remarks>
+    private static readonly HashSet<Type> SkipsConcurrencyToken = new()
+    {
+        typeof(UserDashboardPreference),
+        typeof(SessionFamily),
+    };
+
+    /// <summary>
+    /// Makes each column's <b>sentinel</b> equal to the database default it carries, so « the caller did not
+    /// supply a value » and « the caller supplied the same value the database would » stop being the same thing.
+    ///
+    /// <para><b>What it fixes.</b> EF omits a store-generated column from the INSERT whenever the value equals the
+    /// property's sentinel — the CLR default unless told otherwise — and <c>HasDefaultValue(…)</c> makes a column
+    /// store-generated. So inserting a <c>ProcedureType</c> with <c>IsActive = false</c>, a <c>Clinic</c> with VAT
+    /// switched off, or a <c>PatientFlag</c> that is inactive stored the <i>opposite</i> of what was asked for:
+    /// EF sent nothing and PostgreSQL wrote <c>true</c>. Found through the archive restore, where every row is an
+    /// insert and the symptom is a deactivated acte coming back active — but it was never restricted to it.</para>
+    ///
+    /// <para><b>Why the default is the right sentinel, and why this changes nothing else.</b> A value equal to the
+    /// database default is written explicitly instead of being left out, and the row lands identical either way;
+    /// every other value now reaches the column instead of being replaced. There is no schema change — a sentinel
+    /// is model metadata and emits no migration.</para>
+    ///
+    /// <para>⚠️ <b>Derived, never listed.</b> Eleven configurations declare a default today and the twelfth would
+    /// otherwise arrive with the defect intact and nothing to notice it. The concurrency token is skipped: it maps
+    /// onto <c>xmin</c> and is the database's in every sense.</para>
+    /// </summary>
+    private static void AlignSentinelsWithDatabaseDefaults(ModelBuilder modelBuilder)
+    {
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetProperties())
+            {
+                if (property.IsConcurrencyToken || property.GetDefaultValue() is not { } value)
+                {
+                    continue;
+                }
+
+                property.Sentinel = value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Walks the base chain looking for the open generic <c>Entity&lt;&gt;</c>. Checking for the property by
+    /// name would also match anything that merely happens to have one.
+    /// </summary>
+    private static bool DerivesFromEntity(Type? clrType)
+    {
+        for (var type = clrType; type != null; type = type.BaseType)
+        {
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Domain.Common.Entity<>))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static DateTime ConvertToUtc(DateTime dateTime)
@@ -144,14 +585,71 @@ public class ApplicationDbContext : DbContext
     public override int SaveChanges()
     {
         ConvertDateTimesToUtc();
+
+        // The synchronous path exists for completeness — the whole application saves asynchronously — and no
+        // audit row has ever reached it. Refusing beats chaining without a lock, which is the one failure this
+        // whole mechanism is built to prevent.
+        if (PendingAuditRows().Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Le journal d'audit ne peut être chaîné que sur le chemin asynchrone : utilisez SaveChangesAsync.");
+        }
+
         return base.SaveChanges();
     }
 
+    /// <summary>
+    /// Saves, chaining any new audit rows on the way (<c>hosted-security-hardening</c> FR-4.1 step 4).
+    ///
+    /// <para>⚠️ <b>The chaining is HERE and not in the interceptor that collects the rows</b>, and the reason is
+    /// that the interceptor is not the only writer: <c>ClinicArchiveRestorer</c> stages a summary row per table
+    /// through <c>IAuditEntryRepository</c>, into its caller's own transaction, on purpose. Chaining at the point
+    /// of collection would leave those rows unchained after chained ones — which is precisely the signature
+    /// <c>AuditChain.Walk</c> reports as tampering. Chaining where the rows are <i>saved</i> catches every
+    /// writer, present and future, by construction: the interceptor's own argument one level down.</para>
+    ///
+    /// <para>⚠️ <b>A transaction is opened when the caller has none</b>, because the advisory lock the appender
+    /// takes is <c>xact</c>-scoped: outside a transaction it would be released before the insert it protects, and
+    /// serialise nothing. Where the caller already has one — the restorer, and the interceptor's own — this rides
+    /// it, so the ledger row and the operation it records commit together or not at all.</para>
+    /// </summary>
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         ConvertDateTimesToUtc();
-        return await base.SaveChangesAsync(cancellationToken);
+
+        var auditRows = PendingAuditRows();
+        if (auditRows.Count == 0)
+        {
+            return await base.SaveChangesAsync(cancellationToken);
+        }
+
+        if (_auditChainKey is null)
+        {
+            // Unreachable through DI — AddInfrastructure registers the provider — so this is the design-time
+            // factory or a hand-built context trying to write the ledger. Silently leaving the rows unchained
+            // would put a permanent unverifiable hole in a chain nobody would think to look at.
+            throw new InvalidOperationException(
+                "Aucune clé de chaînage n'est disponible : ce contexte ne peut pas écrire au journal d'audit.");
+        }
+
+        if (Database.CurrentTransaction is not null)
+        {
+            await AuditChainAppender.AssignAsync(this, auditRows, _auditChainKey.Key, cancellationToken);
+            return await base.SaveChangesAsync(cancellationToken);
+        }
+
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        await AuditChainAppender.AssignAsync(this, auditRows, _auditChainKey.Key, cancellationToken);
+        var written = await base.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return written;
     }
+
+    private List<AuditEntry> PendingAuditRows() =>
+        ChangeTracker.Entries<AuditEntry>()
+            .Where(e => e.State == EntityState.Added && e.Entity.Sequence == 0)
+            .Select(e => e.Entity)
+            .ToList();
 }
 
 

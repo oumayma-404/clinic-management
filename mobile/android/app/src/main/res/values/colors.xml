@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The tokens the shell's own screens use, converted from `web/app/globals.css` so the states that render *before*
+  the web app loads do not look like a different product than the one that follows them.
+    primary            = oklch(0.485 0.101 234) = #02678F
+    primary-foreground = oklch(0.99  0.005 234) = #F9FCFF
+    background         = oklch(0.977 0.011 230) = #F0F9FE
+    foreground         = oklch(0.205 0.020 236) = #0E191F
+    muted-foreground   = oklch(0.50  0.021 234) = #58666E
+    destructive        = oklch(0.55  0.19   25) = #C92F33
+  (An XML comment may not contain a double hyphen, so the CSS custom-property prefix is dropped here.)
+
+  The lower four had drifted: they were still #F4F6F8 / #1F2933 / #52606D / #C0392B, i.e. values from before the
+  palette this file claims to be converted from. A comment asserting a derivation that stopped being true is worse
+  than no comment, so they are re-derived here with the rest.
+-->
+<resources>
+    <color name="brand_primary">#FF02678F</color>
+    <color name="brand_on_primary">#FFF9FCFF</color>
+    <color name="shell_surface">#FFF0F9FE</color>
+    <color name="shell_ink">#FF0E191F</color>
+    <color name="shell_ink_muted">#FF58666E</color>
+    <color name="shell_danger">#FFC92F33</color>
+</resources>

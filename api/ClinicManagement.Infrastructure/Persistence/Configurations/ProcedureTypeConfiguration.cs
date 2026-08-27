@@ -16,18 +16,24 @@ public class ProcedureTypeConfiguration : IEntityTypeConfiguration<ProcedureType
         builder.Property(pt => pt.Id)
             .ValueGeneratedNever();
 
+        builder.Property(pt => pt.ClinicId)
+            .IsRequired();
+
         builder.Property(pt => pt.Name)
             .IsRequired()
             .HasMaxLength(200);
 
-        builder.HasIndex(pt => pt.Name)
+        // Names are unique per clinic (tenant-scoped) — not globally — so two clinics can each
+        // define e.g. "Détartrage" independently.
+        builder.HasIndex(pt => new { pt.ClinicId, pt.Name })
             .IsUnique();
 
         builder.Property(pt => pt.DefaultDurationMinutes)
             .IsRequired();
 
-        builder.Property(pt => pt.DefaultCost)
-            .HasColumnType("decimal(18,2)");
+        // Millimes (3 decimals) — the catalog price seeds a dental act's unit cost, so it must carry the
+        // same precision as the act it prefills.
+        builder.Property(pt => pt.DefaultCost);
 
         // Configure ColorHex as value object
         builder.OwnsOne(pt => pt.Color, colorBuilder =>
@@ -40,6 +46,20 @@ public class ProcedureTypeConfiguration : IEntityTypeConfiguration<ProcedureType
 
         builder.Property(pt => pt.Description)
             .HasMaxLength(1000);
+
+        // Shorter than Description on purpose: a category is a label to group and filter on, not prose. 100 is
+        // ~3× the longest canonical discipline, leaving a clinic room for one of its own.
+        builder.Property(pt => pt.Category)
+            .HasMaxLength(100);
+
+        // The catalogue list orders by category then name and filters by category, always inside one clinic — so
+        // the index carries all three, and the leading ClinicId is what lets the same index serve the unfiltered
+        // list. Declared here rather than hand-written in the migration so `verify-schema` picks it up from the
+        // model for free (it matches indexes on table + ordered columns, never on name).
+        builder.HasIndex(pt => new { pt.ClinicId, pt.Category, pt.Name });
+
+        builder.Property(pt => pt.ResultingCondition)
+            .HasConversion<int?>();
 
         builder.Property(pt => pt.IsActive)
             .IsRequired()
@@ -55,6 +75,12 @@ public class ProcedureTypeConfiguration : IEntityTypeConfiguration<ProcedureType
             .WithOne(a => a.ProcedureType)
             .HasForeignKey(a => a.ProcedureTypeId)
             .OnDelete(DeleteBehavior.SetNull); // Set null if procedure type is deleted
+
+        // The material list is a backing-field collection (AC-P4.9); the public surface is IReadOnlyCollection,
+        // so EF has to be told to go through the field. Its FKs live in ProcedureTypeMaterialConfiguration.
+        builder.Metadata
+            .FindNavigation(nameof(ProcedureType.Materials))!
+            .SetPropertyAccessMode(PropertyAccessMode.Field);
     }
 }
 

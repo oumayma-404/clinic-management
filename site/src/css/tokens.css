@@ -1,0 +1,126 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOKENS
+
+   The chassis is CareStack's, measured off the live site rather than guessed:
+
+     container   1272 px          section padding-block   96 px
+     display     Geist            headings                weight 400 (NOT bold)
+     section h   36 px / 40 px    closing CTA h           60 px / 60 px, w600
+     body        18 px / 28.8 px  eyebrow                 13 px, caps, tracked
+     page #ffffff · card #f3f3f0 · dark #152d18 · rule #e4e4e3
+     text #09090b · muted #52525b · accent #c8f46e
+
+   Ours keeps every one of those numbers and swaps two hues: the dark is a
+   mid navy instead of forest, and the accent is a clinical green instead of
+   lime. The app's four zone colours stay meaningful inside the feature card.
+
+   ⚠️ THE DARK IS #1e3a5f AND NOT A NEAR-BLACK, which is the whole point of
+   it. It used to be #0e1b2a, about 10% luminance. A near-black navy under a
+   saturated cyan accent is the palette of a developer tool, and this is a
+   product a dentist buys. At 24% it is still dark enough for a light screen
+   capture to lift off it, and it reads as an institution rather than as a
+   terminal. The accent left #2dd4bf for #2a9d8f, which is not invented: it
+   is the colour the application itself gives to detartrage.
+
+   ⚠️ THE HUES ARE KEPT ON PURPOSE. Collapsing the four zone colours onto
+   the app's nine clinical ones was proposed and REFUSED: the owner wants the
+   page to keep its variety. Do not quietly unify them later.
+
+   ⚠️ A LIGHT TEAL BELONGS ON THE DARK GROUND, NOWHERE ELSE. `--accent-lit`
+   measures 1.49:1 on white, which is invisible. Text on white takes
+   `--accent-ink`, which is dark. The two are not interchangeable, and a
+   preview that swapped them is what caught this.
+
+   ⚠️ AND THE HEX LIVES IN FOUR OTHER PLACES: `theme-color`, the inline SVG
+   favicon (url-encoded, so `%23` and not `#`), and the three hero scenes,
+   62 occurrences between them. Editing this file alone leaves the browser
+   chrome, the tab icon and every animation on the old navy. `og-card.jpg`
+   is NOT one of them: it is a capture of the application's dashboard, so it
+   wears the app's colours and a palette change never reaches it.
+
+   ⚠️ ONE palette on bare :root. No dark-mode block — a marketing page is a
+   fixed composition, and a token defined only inside a media query never
+   applies in the viewer's un-stamped default state.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  color-scheme: light;
+
+  /* ── Ground ──────────────────────────────────────────────────────────── */
+  --page:     #f4f8fd;
+  --paper:    #e9f0f8;   /* the warm-grey card, CareStack's signature surface */
+  --paper-2:  #dde8f3;
+  --ink:      #1e3a5f;   /* the dark hero, the dark bands, the links panel   */
+  --ink-2:    #254768;
+  --ink-3:    #2d5478;
+
+  /* ── Text ────────────────────────────────────────────────────────────── */
+  --text:          #09090b;
+  --text-muted:    #52525b;
+  --text-faint:    #7b7b85;
+  --on-ink:        #ffffff;
+  --on-ink-muted:  #a9b6c4;
+  --on-ink-faint:  #7c8b9b;
+
+  /* ── Rules ───────────────────────────────────────────────────────────── */
+  --rule:      #d7e2ee;
+  --rule-soft: #e6eef7;
+  --rule-ink:  #3b587c;
+
+  /* ── The accent. Buttons and links, nothing else. ────────────────────── */
+  --accent:      #2a9d8f;   /* fills — sits at lime's luminance on the dark  */
+  --accent-hi:   #35b9a8;
+  --accent-ink:  #1c7d70;   /* the same accent as TEXT on white              */
+  --accent-lit:  #6fd8c6;   /* eyebrows and links on the dark ground         */
+  --on-accent:   #04231f;
+
+  /* ── The app's four zones, twice: readable on white, and on ink. ─────── */
+  --azure:  #0284c7;  --azure-lit:  #7dd0fb;
+  --violet: #7c3aed;  --violet-lit: #c4aeff;
+  --amber:  #b45309;  --amber-lit:  #fbc76a;
+  --green:  #047857;  --green-lit:  #6ee7b7;
+
+  /* ── Type ────────────────────────────────────────────────────────────── */
+  --sans: "Geist", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+
+  --t-eyebrow: 0.8125rem;                                     /* 13 px       */
+  --t-body:    1.125rem;                                      /* 18 px       */
+  --t-small:   1rem;
+  --t-h4:      1.125rem;
+  --t-h3:      clamp(1.375rem, 1.2rem + 0.7vw, 1.75rem);      /* card titles */
+  --t-h2:      clamp(1.75rem, 1.35rem + 1.7vw, 2.25rem);      /* 36 px       */
+  --t-h1:      clamp(2.125rem, 1.4rem + 3.1vw, 3.375rem);     /* hero        */
+  --t-cta:     clamp(2rem, 1.05rem + 4.1vw, 3.75rem);         /* 60 px       */
+
+  /* ── Space & shape ───────────────────────────────────────────────────── */
+  --gutter: clamp(1.25rem, 0.6rem + 3.2vw, 2.5rem);
+  --wrap:   79.5rem;                                          /* 1272 px     */
+  --sec-y:  clamp(3.5rem, 2.3rem + 4.6vw, 6rem);              /* 96 px       */
+  --r-card: 20px;
+  --r-med:  12px;
+  --r-btn:  8px;
+
+  /* ── Motion ──────────────────────────────────────────────────────────────
+     The built-in CSS easings are too weak to read as deliberate. These are the
+     strong variants: ease-out for anything entering (it moves at the instant
+     the eye is watching), ease-in-out for something travelling across the
+     screen, linear only for constant motion. `ease-in` is never used on UI —
+     it delays the first frame and reads as lag at the same duration.
+
+     Durations: press 140ms · hover 180ms · dropdown 200ms · panel 260ms.
+     Nothing interactive goes over 300ms; only the scroll reveals and the
+     marquee, which are decorative, run longer. */
+  --ease:        cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --press:  140ms;
+  --fast:   180ms;
+  --mid:    260ms;
+  --slow:   680ms;
+
+  --shadow-sm:   0 1px 2px rgb(9 9 11 / 0.06), 0 2px 6px -2px rgb(9 9 11 / 0.08);
+  --shadow-card: 0 1px 3px rgb(9 9 11 / 0.07), 0 12px 32px -14px rgb(9 9 11 / 0.20);
+  --shadow-lift: 0 2px 6px rgb(9 9 11 / 0.09), 0 28px 60px -26px rgb(9 9 11 / 0.32);
+  --shadow-chip: 0 2px 6px rgb(9 9 11 / 0.10), 0 16px 36px -16px rgb(9 9 11 / 0.34);
+  --shadow-shot: 0 2px 8px rgb(9 9 11 / 0.10), 0 30px 70px -30px rgb(9 9 11 / 0.45);
+}

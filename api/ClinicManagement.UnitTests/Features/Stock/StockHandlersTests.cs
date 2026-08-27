@@ -1,3 +1,5 @@
+using ClinicManagement.UnitTests.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Stock.Commands;
@@ -26,9 +28,33 @@ public static class StockTestData
 public class GetStockItemsQueryHandlerTests
 {
     private readonly Mock<IStockItemRepository> _stock = new();
+    private readonly Mock<ISupplierRepository> _suppliers = new();
+    private readonly Mock<IClinicRepository> _clinics = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
 
-    private GetStockItemsQueryHandler Handler() => new(_stock.Object, _clinicResolver.Object);
+    // The query reads the clinic's approaching-expiry lead time (AC-P4.6). Unstubbed, GetByIdAsync returns
+    // null and the handler falls back to Clinic.DefaultStockExpiryLeadDays — which is the intended behaviour
+    // for a clinic row that cannot be loaded, so that one needs no setup.
+    //
+    // ⚠️ The three clinic-wide chips do: the query grew `CountLowStockAsync`, `CountExpiringSoonAsync` and
+    // `GetDistinctCategoriesAsync`, and an unstubbed `GetDistinctCategoriesAsync` hands back a **null**
+    // IEnumerable, which the handler's `.ToList()` dereferences — so every case here failed on
+    // `Assert.True(result.IsSuccess)` with a NullReferenceException swallowed into a French Result.Failure,
+    // which reads nothing like "the fixture is missing a stub".
+    private GetStockItemsQueryHandler Handler()
+    {
+        _stock.Setup(r => r.GetDistinctCategoriesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<string>());
+        // Same trap as GetDistinctCategoriesAsync above: unstubbed, GetByIdsAsync hands back a null dictionary
+        // and the per-row TryGetValue dereferences it, which surfaces as a French Result.Failure rather than as
+        // "the fixture is missing a stub". Empty = no article on this page names a fournisseur, which is what
+        // every case here was already asserting before the link existed.
+        _suppliers.Setup(r => r.GetByIdsAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, Supplier>());
+        return new GetStockItemsQueryHandler(
+            _stock.Object, _suppliers.Object, _clinics.Object, _clinicResolver.Object);
+    }
 
     private void Authenticated() =>
         _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))
@@ -39,13 +65,14 @@ public class GetStockItemsQueryHandlerTests
     public async Task Handle_Should_Return_Clinic_Scoped_Items()
     {
         Authenticated();
-        _stock.Setup(r => r.GetByClinicIdAsync(StockTestData.ClinicId, false, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { StockTestData.Item(StockTestData.ClinicId, currentStock: 3, min: 5) });
+        _stock.Setup(r => r.GetByClinicIdAsync(StockTestData.ClinicId, false, It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new[] { StockTestData.Item(StockTestData.ClinicId, currentStock: 3, min: 5) }).AsPage());
 
         var result = await Handler().Handle(new GetStockItemsQuery(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        var dto = Assert.Single(result.Value!);
+        var dto = Assert.Single(result.Value!.Items);
         Assert.True(dto.IsLowStock); // current 3 <= min 5
     }
 
@@ -54,13 +81,15 @@ public class GetStockItemsQueryHandlerTests
     public async Task Handle_Should_Pass_LowStockOnly_To_Repository()
     {
         Authenticated();
-        _stock.Setup(r => r.GetByClinicIdAsync(StockTestData.ClinicId, true, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<StockItem>());
+        _stock.Setup(r => r.GetByClinicIdAsync(StockTestData.ClinicId, true, It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Array.Empty<StockItem>()).AsPage());
 
         var result = await Handler().Handle(new GetStockItemsQuery { LowStockOnly = true }, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        _stock.Verify(r => r.GetByClinicIdAsync(StockTestData.ClinicId, true, It.IsAny<CancellationToken>()), Times.Once);
+        _stock.Verify(r => r.GetByClinicIdAsync(StockTestData.ClinicId, true, It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // [AC-7] Fails when the clinic cannot be resolved (unauthenticated).
@@ -73,17 +102,23 @@ public class GetStockItemsQueryHandlerTests
         var result = await Handler().Handle(new GetStockItemsQuery(), CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        _stock.Verify(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+        _stock.Verify(r => r.GetByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()), Times.Never);
     }
 }
 
 public class CreateStockItemCommandHandlerTests
 {
     private readonly Mock<IStockItemRepository> _stock = new();
+    private readonly Mock<ISupplierRepository> _suppliers = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
+    private readonly Mock<INotificationGenerator> _notifications = new();
 
-    private CreateStockItemCommandHandler Handler() => new(_stock.Object, _clinicResolver.Object, _uow.Object);
+    // Permissive by default: an unstubbed GetByIdAsync returns null, which SupplierLink reads as « no such
+    // supplier » — and every command in this fixture sends no SupplierId at all, so it never gets that far.
+    private CreateStockItemCommandHandler Handler() =>
+        new(_stock.Object, _suppliers.Object, _clinicResolver.Object, _uow.Object, _notifications.Object);
 
     private StockItem? _captured;
 
@@ -181,10 +216,16 @@ public class CreateStockItemCommandHandlerTests
 public class UpdateStockItemCommandHandlerTests
 {
     private readonly Mock<IStockItemRepository> _stock = new();
+    private readonly Mock<ISupplierRepository> _suppliers = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
-    private UpdateStockItemCommandHandler Handler() => new(_stock.Object, _clinicResolver.Object, _uow.Object);
+    private readonly Mock<INotificationGenerator> _notificationGenerator = new();
+    private readonly Mock<IStockMovementRepository> _movements = new();
+
+    private UpdateStockItemCommandHandler Handler() =>
+        new(_stock.Object, _movements.Object, _suppliers.Object, _clinicResolver.Object, _uow.Object,
+            _notificationGenerator.Object);
 
     private void Authenticated()
     {

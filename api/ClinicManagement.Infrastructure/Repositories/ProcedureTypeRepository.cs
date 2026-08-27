@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using ClinicManagement.Application.Common;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 using ClinicManagement.Infrastructure.Persistence;
 
 namespace ClinicManagement.Infrastructure.Repositories;
@@ -17,6 +20,10 @@ public class ProcedureTypeRepository : IProcedureTypeRepository
     public async Task<ProcedureType?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.ProcedureTypes
+            // The material list is part of the aggregate (AC-P4.9). Without this the consumption service reads
+            // an empty list and silently consumes nothing — the failure mode would look exactly like the
+            // opt-out case (AC-P4.11), which is the one thing it must not be confusable with.
+            .Include(pt => pt.Materials)
             .FirstOrDefaultAsync(pt => pt.Id == id, cancellationToken);
     }
 
@@ -26,20 +33,77 @@ public class ProcedureTypeRepository : IProcedureTypeRepository
             .FirstOrDefaultAsync(pt => pt.Name.ToLower() == name.ToLower(), cancellationToken);
     }
 
-    public async Task<IEnumerable<ProcedureType>> GetAllAsync(CancellationToken cancellationToken = default)
+    // The list reads Include the material list for the same reason GetByIdAsync does (AC-P4.14): the catalog
+    // screen shows which acts consume stock, and a silently-empty list is indistinguishable from an act that
+    // has opted out (AC-P4.11). This is a small per-clinic catalog, so the extra join is not a concern.
+    /// <summary>
+    /// The single list read for the act catalog. It replaced <c>GetAllAsync</c> + <c>GetActiveAsync</c>, which
+    /// differed only by one <c>Where</c> and would have needed the same paging and the same search predicate
+    /// added to both — two copies of a list read is how they drift.
+    /// </summary>
+    public async Task<PagedResult<ProcedureType>> GetFilteredAsync(
+        Guid clinicId,
+        bool includeInactive = false,
+        string? searchTerm = null,
+        string? category = null,
+        PageRequest? paging = null,
+        CancellationToken cancellationToken = default)
+    {
+        // The clinic predicate is explicit and in SQL. The handler used to apply it in memory AFTER the read,
+        // for defense-in-depth over the fail-open global filter — harmless when the read returned everything,
+        // but with a page it would filter rows out of an already-cut window and shrink pages unpredictably.
+        var query = _context.ProcedureTypes
+            .Include(pt => pt.Materials)
+            .Where(pt => pt.ClinicId == clinicId);
+
+        if (!includeInactive)
+        {
+            query = query.Where(pt => pt.IsActive);
+        }
+
+        // Compared on the canonical spelling, so « endodontie » from a stale deep link still selects the acts
+        // stored as « Endodontie » — the same fold the write path applies.
+        var normalizedCategory = ProcedureTypeCategories.Normalize(category);
+        if (normalizedCategory is not null)
+        {
+            query = query.Where(pt => pt.Category == normalizedCategory);
+        }
+
+        var pattern = SearchTerm.ToLikePattern(searchTerm);
+        if (pattern is not null)
+        {
+            query = query.Where(pt =>
+                EF.Functions.ILike(SqlSearch.Unaccent(pt.Name)!, pattern, SqlSearch.EscapeString) ||
+                // Searching « endo » must find the endodontic acts even though none of them is named « endo » —
+                // the discipline is how staff refer to a group of acts out loud.
+                EF.Functions.ILike(SqlSearch.Unaccent(pt.Category)!, pattern, SqlSearch.EscapeString) ||
+                EF.Functions.ILike(SqlSearch.Unaccent(pt.Description)!, pattern, SqlSearch.EscapeString));
+        }
+
+        return await query
+            // `Category == null` first, so unfiled acts land at the END of the list rather than at the top of it.
+            // Written as a predicate rather than relying on PostgreSQL's NULLS-LAST default for ASC, because the
+            // placement of the unfiled rows is a decision this read is making, not a property of the provider.
+            .OrderBy(pt => pt.Category == null)
+            .ThenBy(pt => pt.Category)
+            .ThenBy(pt => pt.Name)
+            // Unique column last: OFFSET over a non-unique sort can show one row on two pages and skip another.
+            .ThenBy(pt => pt.Id)
+            .ToPagedResultAsync(paging, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<string>> GetCategoriesAsync(
+        Guid clinicId,
+        CancellationToken cancellationToken = default)
     {
         return await _context.ProcedureTypes
-            .OrderBy(pt => pt.Name)
+            .Where(pt => pt.ClinicId == clinicId && pt.Category != null)
+            .Select(pt => pt.Category!)
+            .Distinct()
+            .OrderBy(category => category)
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<IEnumerable<ProcedureType>> GetActiveAsync(CancellationToken cancellationToken = default)
-    {
-        return await _context.ProcedureTypes
-            .Where(pt => pt.IsActive)
-            .OrderBy(pt => pt.Name)
-            .ToListAsync(cancellationToken);
-    }
 
     public async Task<bool> ExistsByNameAsync(string name, Guid? excludeId = null, CancellationToken cancellationToken = default)
     {

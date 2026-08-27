@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestion Clinique — Tarifs | Maquette</title>
+<link rel="stylesheet" href="shared-styles.css">
+<style>
+  /* Bascule mensuel / annuel. */
+  .switcher {
+    display: inline-flex; gap: 3px; padding: 3px;
+    border: 1px solid var(--border); border-radius: 999px; background: var(--card);
+  }
+  .switcher button {
+    border: 0; background: transparent; cursor: pointer; font-family: inherit;
+    padding: 7px 16px; border-radius: 999px; font-size: 13.5px; font-weight: 550;
+    color: var(--muted-foreground);
+    transition: background-color 160ms var(--ease-snap), color 160ms var(--ease-snap);
+  }
+  .switcher button[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); }
+
+  /* Cartes de plan. Trois colonnes, la médiane mise en avant. */
+  .plans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: start; }
+  .plan { display: flex; flex-direction: column; gap: 0; position: relative; }
+  .plan.featured {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px var(--primary) inset, var(--lift);
+  }
+  .plan-badge {
+    position: absolute; top: -11px; left: 24px;
+    background: var(--primary); color: var(--primary-foreground);
+    font-size: 11px; font-weight: 620; padding: 4px 11px; border-radius: 999px;
+    letter-spacing: 0.01em;
+  }
+  .plan-name { font-size: 17px; font-weight: 650; letter-spacing: -0.02em; }
+  .plan-for { font-size: 13.5px; color: var(--muted-foreground); margin-top: 5px; min-height: 40px; }
+  .price { display: flex; align-items: baseline; gap: 6px; margin: 20px 0 4px; }
+  .price .amt { font-size: 40px; font-weight: 700; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; line-height: 1; }
+  .price .cur { font-size: 16px; font-weight: 600; color: var(--muted-foreground); }
+  .price-note { font-size: 12.5px; color: var(--muted-foreground); min-height: 34px; }
+  .plan-cta { margin: 20px 0 22px; }
+  .plan-cta .btn { width: 100%; }
+  .plan hr { margin: 0 0 18px; }
+  .plan-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .plan-list li { display: flex; gap: 10px; font-size: 13.8px; line-height: 1.5; }
+  .plan-list .ico { color: var(--success); margin-top: 3px; }
+  .plan-list .ico.no { color: var(--muted-foreground); opacity: 0.5; }
+  .plan-list li.off { color: var(--muted-foreground); }
+  /* Séparateur à l'intérieur de la liste : c'est un <li> et non un <div>,
+     un <div> enfant direct d'<ul> étant du HTML invalide. */
+  li.plan-group {
+    display: block; font-family: var(--font-mono); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--muted-foreground); margin: 8px 0 -2px;
+  }
+
+  /* Tableau comparatif complet. */
+  .cmp { width: 100%; border-collapse: collapse; }
+  .cmp th, .cmp td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--line-soft); font-size: 13.8px; }
+  .cmp thead th {
+    font-family: var(--font-mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: var(--muted-foreground); border-bottom: 1px solid var(--border); font-weight: 500;
+    position: sticky; top: 64px; background: var(--card); z-index: 10;
+  }
+  .cmp td.c, .cmp th.c { text-align: center; }
+  .cmp tr.grp td {
+    background: var(--muted); font-family: var(--font-mono); font-size: 10.5px;
+    text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted-foreground);
+    font-weight: 500; padding: 8px 14px;
+  }
+  .yes { color: var(--success); }
+  .no { color: var(--muted-foreground); opacity: 0.45; }
+  .cmp .feat-name { font-weight: 500; }
+  .cmp .feat-name span { display: block; font-size: 12.3px; color: var(--muted-foreground); font-weight: 400; margin-top: 2px; }
+
+  .faq-item { padding: 18px 22px; border-bottom: 1px solid var(--line-soft); }
+  .faq-item:last-child { border-bottom: 0; }
+  .faq-item summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+  .faq-item p { margin: 10px 0 0; font-size: 14px; color: var(--muted-foreground); line-height: 1.6; }
+
+  @media (max-width: 1000px) {
+    .plans { grid-template-columns: minmax(0, 1fr); }
+    .plan-for, .price-note { min-height: 0; }
+    .cmp thead th { top: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="mockup-bar">
+  <span><b>MAQUETTE :</b> Tarifs — trois formules, bascule mensuel/annuel, comparatif complet, FAQ commerciale</span>
+  <span class="ref">landing-website · 03/05</span>
+</div>
+
+<!-- ======================= EN-TÊTE ======================= -->
+<header class="site-header">
+  <div class="wrap row">
+    <a class="logo" href="01-accueil.html">
+      <span class="logo-mark">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+      </span>
+      Gestion Clinique
+    </a>
+    <nav class="nav" aria-label="Navigation principale">
+      <a href="02-fonctionnalites.html">Fonctionnalités</a>
+      <a href="04-cloud-vs-local.html">Cloud ou Local</a>
+      <a href="03-tarifs.html" aria-current="page">Tarifs</a>
+      <a href="05-contact-demo.html">Contact</a>
+    </nav>
+    <div class="header-cta">
+      <button class="theme-toggle" id="themeToggle" aria-label="Basculer le thème sombre">
+        <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </button>
+      <a class="btn btn-primary btn-sm" href="05-contact-demo.html">Demander une démo</a>
+    </div>
+    <button class="burger" aria-label="Ouvrir le menu">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ======================= INTRO ======================= -->
+<section class="tight">
+  <div class="wrap">
+    <p class="eyebrow">Tarifs</p>
+    <h1 class="display" style="max-width: 22ch;">Un prix par cabinet, pas par clic</h1>
+    <p class="lede">
+      Toutes les formules donnent accès à <strong style="color: var(--foreground);">tout le logiciel</strong> —
+      il n'y a pas de module CNAM en option ni de facturation vendue à part. Ce qui change, c'est le
+      nombre de praticiens, le mode d'installation et le niveau d'accompagnement.
+    </p>
+
+    <!-- Annotation de maquette : les montants ne viennent de rien de vérifiable. -->
+    <div class="note" style="margin-top: 26px; max-width: 78ch;">
+      <b>Note de maquette :</b> les montants ci-dessous sont des <b>placeholders</b>. Rien dans le
+      dépôt ne définit de tarification — ni grille, ni abonnement, ni code de facturation client. Les
+      chiffres servent uniquement à valider la mise en page et la structure des formules ; il faut les
+      remplacer par votre vraie grille avant toute publication.
+    </div>
+  </div>
+</section>
+
+<!-- ======================= FORMULES ======================= -->
+<section class="tight" style="padding-top: 34px;">
+  <div class="wrap">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 28px;">
+      <div class="switcher" role="group" aria-label="Période de facturation">
+        <button id="btnMois" aria-pressed="true">Mensuel</button>
+        <button id="btnAn" aria-pressed="false">Annuel · −2 mois</button>
+      </div>
+      <span class="small muted">Prix hors TVA, en dinars tunisiens · installation et formation incluses</span>
+    </div>
+
+    <div class="plans">
+      <!-- ---------- Cabinet ---------- -->
+      <div class="card card-pad-lg plan">
+        <div class="plan-name">Cabinet</div>
+        <div class="plan-for">Un praticien, avec ou sans secrétaire. Le cabinet individuel.</div>
+        <div class="price">
+          <span class="amt" data-mois="120" data-an="100">120</span>
+          <span class="cur">DT / mois</span>
+        </div>
+        <div class="price-note" data-note-mois="Sans engagement, résiliable au mois."
+             data-note-an="Facturé 1 200 DT par an, soit deux mois offerts.">Sans engagement, résiliable au mois.</div>
+        <div class="plan-cta"><a class="btn btn-outline" href="05-contact-demo.html">Demander une démo</a></div>
+        <hr class="rule">
+        <ul class="plan-list">
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span><strong>1 praticien</strong> + 1 secrétaire</span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Patients et rendez-vous illimités</span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Schéma dentaire et fiches de soins</span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Devis, échéanciers, factures, caisse</span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Bulletin CNAM BS1 et nomenclature</span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Cloud <em>ou</em> installation locale</span></li>
+          <li class="off"><svg class="ico ico-sm no" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg><span>Rappels SMS / WhatsApp</span></li>
+          <li class="off"><svg class="ico ico-sm no" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg><span>El Fatoora (TTN)</span></li>
+        </ul>
+      </div>
+
+      <!-- ---------- Clinique (mise en avant) ---------- -->
+      <div class="card card-pad-lg plan featured">
+        <span class="plan-badge">Le plus courant</span>
+        <div class="plan-name">Clinique</div>
+        <div class="plan-for">Plusieurs praticiens, un secrétariat, du laboratoire et du stock à suivre.</div>
+        <div class="price">
+          <span class="amt" data-mois="290" data-an="242">290</span>
+          <span class="cur">DT / mois</span>
+        </div>
+        <div class="price-note" data-note-mois="Jusqu'à 5 praticiens, puis 45 DT par praticien supplémentaire."
+             data-note-an="Facturé 2 900 DT par an, soit deux mois offerts.">Jusqu'à 5 praticiens, puis 45 DT par praticien supplémentaire.</div>
+        <div class="plan-cta"><a class="btn btn-primary" href="05-contact-demo.html">Demander une démo</a></div>
+        <hr class="rule">
+        <ul class="plan-list">
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span><strong>Jusqu'à 5 praticiens</strong>, secrétariat illimité</span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Tout ce que contient « Cabinet »</span></li>
+          <li class="plan-group" aria-hidden="true">En plus</li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span><strong>Rappels SMS et WhatsApp</strong> <span class="muted">(votre passerelle)</span></span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Relances patients et salle d'attente</span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Laboratoire, stock, lots et péremption</span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Agenda Google et assistant intégré</span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Reprise de vos données existantes</span></li>
+          <li class="off"><svg class="ico ico-sm no" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg><span>El Fatoora (TTN)</span></li>
+        </ul>
+      </div>
+
+      <!-- ---------- Sur-mesure ---------- -->
+      <div class="card card-pad-lg plan">
+        <div class="plan-name">Sur-mesure</div>
+        <div class="plan-for">Plus de cinq praticiens, plusieurs sites, ou une contrainte particulière.</div>
+        <div class="price">
+          <span class="amt" style="font-size: 30px;">Sur devis</span>
+        </div>
+        <div class="price-note">Après un échange sur votre organisation et votre infrastructure.</div>
+        <div class="plan-cta"><a class="btn btn-outline" href="05-contact-demo.html">Nous contacter</a></div>
+        <hr class="rule">
+        <ul class="plan-list">
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span><strong>Praticiens illimités</strong></span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Tout ce que contient « Clinique »</span></li>
+          <li class="plan-group" aria-hidden="true">En plus</li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span><strong>El Fatoora (TTN)</strong> — accompagnement au paramétrage et au certificat</span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Installation locale sur votre propre serveur</span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Formation sur site de toute l'équipe</span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Interlocuteur dédié</span></li>
+          <li><svg class="ico ico-sm" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><span>Adaptation de documents à votre charte</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Licence locale : le produit s'installe vraiment hors ligne, donc l'achat
+         unique est une vraie option commerciale, pas un argument théorique. -->
+    <div class="card card-pad-lg" style="margin-top: 20px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap;">
+      <span class="ico-tile" style="width: 52px; height: 52px;">
+        <svg class="ico ico-lg" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      </span>
+      <div style="flex: 1; min-width: 260px;">
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <h3 class="sub">Licence locale, achat unique</h3>
+          <span class="pill pill-accent" style="padding: 3px 10px; font-size: 11.5px;">Sans abonnement</span>
+        </div>
+        <p class="small muted" style="margin: 8px 0 0; max-width: 62ch;">
+          Vous préférez payer une fois ? Le logiciel s'installe sur un poste du cabinet et vous
+          l'utilisez sans abonnement. La maintenance et les mises à jour sont alors annuelles et
+          facultatives — sans elles, la version installée continue de fonctionner.
+        </p>
+      </div>
+      <div style="text-align: right;">
+        <div class="price" style="margin: 0 0 4px; justify-content: flex-end;">
+          <span class="amt" style="font-size: 32px;">3 900</span><span class="cur">DT</span>
+        </div>
+        <div class="small muted">+ 690 DT / an de maintenance <em>(facultative)</em></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= COMPARATIF ======================= -->
+<section class="band">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Comparatif</p>
+      <h2 class="title">Tout, ligne par ligne</h2>
+      <p class="lede">
+        Les fonctions dépendant d'un branchement de votre part ou d'une connexion internet sont
+        signalées — l'inclusion dans une formule ne veut pas dire qu'elles marchent sans rien faire.
+      </p>
+    </div>
+
+    <div class="card" style="padding: 0; overflow: hidden;">
+      <div class="scroll-x">
+        <table class="cmp">
+          <thead>
+            <tr>
+              <th style="min-width: 280px;">Fonction</th>
+              <th class="c" style="min-width: 110px;">Cabinet</th>
+              <th class="c" style="min-width: 110px;">Clinique</th>
+              <th class="c" style="min-width: 110px;">Sur-mesure</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="grp"><td colspan="4">Quotidien</td></tr>
+            <tr><td class="feat-name">Agenda jour / semaine / mois<span>Filtre par praticien, couleur par acte</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Plusieurs actes par séance<span>« Détartrage + 2 obturations » = un RDV</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Rendez-vous récurrents</td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Salle d'attente<span>Promotion d'une entrée en rendez-vous</span></td>
+              <td class="c no">—</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Tableau de bord comparé<span>Écart avec la période précédente, chaque chiffre cliquable</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Mise à jour en direct entre postes</td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+
+            <tr class="grp"><td colspan="4">Dossiers &amp; clinique</td></tr>
+            <tr><td class="feat-name">Dossier patient en 7 onglets</td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Schéma dentaire interactif<span>FDI, adulte et enfant, deux vues</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Fichiers patients<span>Radios, photos, documents scannés</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Ordonnance, liaison, certificat<span>PDF français avec cachet</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Bons de prothèse<span>Étapes et compteur de retards</span></td>
+              <td class="c no">—</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Stock, lots et alerte de péremption<span>L'alerte fonctionne hors ligne</span></td>
+              <td class="c no">—</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+
+            <tr class="grp"><td colspan="4">Argent</td></tr>
+            <tr><td class="feat-name">Devis et plans de traitement<span>Actes ordonnés, révisions, PDF</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Échéanciers de paiement<span>Reçu par échéance</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Factures numérotées, TVA, timbre fiscal</td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Avoirs et annulation de règlement<span>Motif, auteur, reçu « ANNULÉ »</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Caisse et extrait de caisse<span>Chaque mouvement, solde de période</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Créances par patient</td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+
+            <tr class="grp"><td colspan="4">Tunisie</td></tr>
+            <tr><td class="feat-name">Bulletin de soins CNAM BS1<span>Imposé sur le formulaire officiel</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Nomenclature CNAM et lettre clé<span>Propres à votre clinique</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Estimation de remboursement<span>Au taux applicable à la date des soins</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">El Fatoora / TTN
+                <span>Demande vos identifiants TTN et un certificat de signature. Avoirs non transmis.</span></td>
+              <td class="c no">—</td><td class="c no">—</td><td class="c yes">✓</td></tr>
+
+            <tr class="grp"><td colspan="4">Communication (demande une connexion internet)</td></tr>
+            <tr><td class="feat-name">Rappels SMS<span>Vous branchez la passerelle de votre opérateur</span></td>
+              <td class="c no">—</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Rappels WhatsApp<span>Compte WhatsApp Business + modèle approuvé par Meta</span></td>
+              <td class="c no">—</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Relances patients<span>Liste de travail, intervalle configurable</span></td>
+              <td class="c no">—</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Agenda Google
+                <span>Envoi automatique ; import depuis Google en un clic</span></td>
+              <td class="c no">—</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Assistant intégré<span>Créer, chercher, lister, annuler un rendez-vous</span></td>
+              <td class="c no">—</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+
+            <tr class="grp"><td colspan="4">Installation &amp; équipe</td></tr>
+            <tr><td class="feat-name">Mode Cloud (hébergé)</td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Mode Local / réseau du cabinet<span>Fonctionne sans internet</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Trois rôles et code d'équipe<span>Administrateur, praticien, secrétaire</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Sauvegarde en un clic<span>Installation locale, administrateur, manuelle</span></td>
+              <td class="c yes">✓</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Installation et formation</td>
+              <td class="c">À distance</td><td class="c">Sur site</td><td class="c">Sur site, équipe entière</td></tr>
+            <tr><td class="feat-name">Reprise de vos données existantes</td>
+              <td class="c">En option</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+            <tr><td class="feat-name">Support</td>
+              <td class="c">E-mail</td><td class="c">Téléphone + e-mail</td><td class="c">Interlocuteur dédié</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="padding: 12px 16px; border-top: 1px solid var(--border);">
+        <span class="small muted">
+          ✓ inclus · — non inclus dans cette formule. « Demande une connexion internet » signifie que
+          la fonction se désactive proprement hors ligne et se réactive au retour du réseau.
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= FAQ ======================= -->
+<section>
+  <div class="wrap-narrow" style="padding: 0;">
+    <div class="section-head">
+      <p class="eyebrow">Questions de tarif</p>
+      <h2 class="title">Ce qu'on nous demande sur le prix</h2>
+    </div>
+    <div class="card" style="padding: 0; overflow: hidden;">
+      <details class="faq-item">
+        <summary>Le prix dépend-il du nombre de patients ?</summary>
+        <p>Non. Les dossiers patients, les rendez-vous, les factures et les documents sont illimités
+          dans toutes les formules. Seul le nombre de <em>praticiens</em> entre dans le prix.</p>
+      </details>
+      <details class="faq-item">
+        <summary>Une secrétaire compte-t-elle comme un praticien ?</summary>
+        <p>Non. Les comptes secrétaire ne sont pas facturés : ils ne posent pas d'acte et n'ont pas
+          de numéro CNOMDT. Seuls les praticiens comptent.</p>
+      </details>
+      <details class="faq-item">
+        <summary>Les envois SMS et WhatsApp sont-ils inclus dans l'abonnement ?</summary>
+        <p><strong>Non</strong>, et c'est important. Le logiciel prépare, planifie et journalise les
+          messages, mais l'envoi passe par <em>votre</em> passerelle SMS et <em>votre</em> compte
+          WhatsApp Business. Le coût des messages est facturé par votre opérateur et par Meta,
+          pas par nous.</p>
+      </details>
+      <details class="faq-item">
+        <summary>El Fatoora est-il utilisable dès l'abonnement ?</summary>
+        <p>La chaîne technique est là, mais la transmission réelle demande vos identifiants TTN et un
+          certificat de signature électronique, que vous obtenez auprès de TTN. Un mode bac à sable
+          permet de valider tout le paramétrage avant. C'est la raison pour laquelle El Fatoora est
+          dans la formule « Sur-mesure » : il vient avec un accompagnement, pas juste une case à cocher.</p>
+      </details>
+      <details class="faq-item">
+        <summary>Que se passe-t-il si j'arrête de payer ?</summary>
+        <p>En Cloud, l'accès s'arrête mais vos données sont conservées le temps que vous récupériez
+          une sauvegarde complète. En licence locale, la version installée continue de fonctionner —
+          seules les mises à jour s'arrêtent.</p>
+      </details>
+      <details class="faq-item">
+        <summary>Peut-on passer du Cloud au Local, ou l'inverse ?</summary>
+        <p>Oui, c'est le même logiciel. Le changement est un travail d'installation et de transfert de
+          données, que nous faisons avec vous ; il n'y a pas de réécriture de dossiers.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= APPEL ======================= -->
+<section class="tight">
+  <div class="wrap">
+    <div class="hero-surface" style="border-radius: var(--radius-xl); padding: 48px 44px; position: relative; overflow: hidden;">
+      <svg class="hero-watermark" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/>
+        <path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/>
+      </svg>
+      <div style="position: relative; max-width: 58ch;">
+        <p class="eyebrow on-hero">Pas sûr de la formule ?</p>
+        <h2 class="title" style="font-size: clamp(24px, 3vw, 32px);">On la choisit ensemble en trente minutes</h2>
+        <p class="lede on-hero">
+          Le nombre de praticiens, votre connexion internet et vos obligations de facturation
+          suffisent à trancher. Pas de devis à rallonge.
+        </p>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 26px;">
+          <a class="btn btn-on-hero btn-lg" href="05-contact-demo.html">Demander une démo</a>
+          <a class="btn btn-on-hero-outline btn-lg" href="04-cloud-vs-local.html">Cloud ou Local ?</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= PIED DE PAGE ======================= -->
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <a class="logo" href="01-accueil.html" style="margin-bottom: 12px;">
+          <span class="logo-mark">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+          </span>
+          Gestion Clinique
+        </a>
+        <p class="small muted" style="max-width: 34ch;">
+          Le logiciel de gestion des cabinets et cliniques dentaires en Tunisie.
+        </p>
+      </div>
+      <div class="footer-col">
+        <h4>Produit</h4>
+        <ul>
+          <li><a href="02-fonctionnalites.html">Fonctionnalités</a></li>
+          <li><a href="04-cloud-vs-local.html">Cloud ou Local</a></li>
+          <li><a href="03-tarifs.html">Tarifs</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Formules</h4>
+        <ul>
+          <li><a href="#">Cabinet</a></li>
+          <li><a href="#">Clinique</a></li>
+          <li><a href="#">Sur-mesure</a></li>
+          <li><a href="#">Licence locale</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Contact</h4>
+        <ul>
+          <li><a href="05-contact-demo.html">Demander une démo</a></li>
+          <li><a href="#">contact@gestion-clinique.tn</a></li>
+          <li><a href="#" class="nums">+216 71 000 000</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Gestion Clinique — Tunis, Tunisie</span>
+      <span>Conditions · Confidentialité</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  const root = document.documentElement;
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  });
+
+  // Bascule mensuel / annuel : réécrit les montants et leur note.
+  const btnMois = document.getElementById('btnMois');
+  const btnAn = document.getElementById('btnAn');
+  function setPeriod(annuel) {
+    btnMois.setAttribute('aria-pressed', String(!annuel));
+    btnAn.setAttribute('aria-pressed', String(annuel));
+    document.querySelectorAll('.amt[data-mois]').forEach(el => {
+      el.textContent = annuel ? el.dataset.an : el.dataset.mois;
+    });
+    document.querySelectorAll('.price-note[data-note-mois]').forEach(el => {
+      el.textContent = annuel ? el.dataset.noteAn : el.dataset.noteMois;
+    });
+  }
+  btnMois.addEventListener('click', () => setPeriod(false));
+  btnAn.addEventListener('click', () => setPeriod(true));
+</script>
+</body>
+</html>

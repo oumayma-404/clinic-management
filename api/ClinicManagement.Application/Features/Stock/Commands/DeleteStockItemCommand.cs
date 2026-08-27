@@ -1,4 +1,5 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Repositories;
@@ -36,14 +37,14 @@ public class DeleteStockItemCommandHandler : IRequestHandler<DeleteStockItemComm
 
             var item = await _stockItemRepository.GetByIdAsync(request.Id, cancellationToken);
             if (item == null || item.ClinicId != clinic.Value)
-                return Result<bool>.Failure("Stock item not found");
+                return Result<bool>.Failure("Article de stock introuvable.");
 
             await _stockItemRepository.DeleteAsync(request.Id, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Result<bool>.Success(true);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<bool>.Failure($"Error deleting stock item: {ex.Message}");
         }

@@ -1,0 +1,281 @@
+using ClinicManagement.Infrastructure.Security;
+using ClinicManagement.Infrastructure.Services;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+
+namespace ClinicManagement.UnitTests.Infrastructure.Services;
+
+/// <summary>
+/// The pg_dump-backed backup service (US-8 / AC-8.2, AC-8.3). Covers the fail-loud pre-checks that run
+/// <b>before</b> any process is started — missing connection string, missing pg_dump, and missing
+/// destination each surface a distinct, non-silent error. (The actual dump requires a real pg_dump.exe +
+/// PostgreSQL, exercised by the operator per packaging/README.md — Smart App Control blocks running
+/// freshly-built test DLLs here anyway, R-1.)
+///
+/// Also covers the backup-output hardening (security-hardening US-14): the destination folder must be
+/// access-restricted <b>before</b> the dump is written, or one click hands out an unprotected copy of
+/// everything the install-level hardening protects.
+/// </summary>
+public sealed class PgDumpBackupServiceTests : IDisposable
+{
+    private readonly string _dir;
+
+    /// <summary>Every icacls invocation the service caused, in order.</summary>
+    private readonly List<IReadOnlyList<string>> _aclInvocations = new();
+
+    public PgDumpBackupServiceTests()
+    {
+        _dir = Path.Combine(Path.GetTempPath(), "cm-backup-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_dir);
+    }
+
+    /// <summary>
+    /// A hardener over a recording fake, so no real ACL is touched by the suite.
+    ///
+    /// <para>⚠️ <c>isWindows: () =&gt; true</c> for the reason spelled out in <c>DirectoryAclHardenerTests</c>: without
+    /// it <c>Harden</c> reads the real platform and returns <c>SkippedNotWindows</c> on the Linux runner, so
+    /// <see cref="_aclInvocations"/> stays empty and the AC-14 cases below assert against nothing. That is not a
+    /// cosmetic skip — <c>Backup_folder_is_restricted_before_the_dump_is_written</c> is the *ordering* proof
+    /// (hardening must happen before the dump is written), and it is worthless if the hardening never ran.</para>
+    /// </summary>
+    private DirectoryAclHardener RecordingHardener(int exitCode = 0) => new(
+        args =>
+        {
+            _aclInvocations.Add(args);
+            return new AclCommandResult(exitCode, exitCode == 0 ? string.Empty : "Accès refusé.");
+        },
+        isWindows: () => true);
+
+    /// <summary>
+    /// A machine with <b>no discoverable PostgreSQL tools</b> — only the files this test class created itself
+    /// exist, and no probe directory lists any children.
+    ///
+    /// <para>⚠️ Required since tool discovery landed. <c>PostgresToolLocator</c> searches <c>PATH</c> and the
+    /// well-known install directories, and both a developer Windows box and GitHub's ubuntu runner have the client
+    /// installed — so « pg_dump is missing » would otherwise be true or false depending on where the suite ran,
+    /// and the refusal test below would be worse than absent. The real filesystem is reached only through this
+    /// seam, so every case here means the same thing everywhere.</para>
+    ///
+    /// <para>⚠️ <b>That intent was right and the seam did not deliver it.</b> It read
+    /// <c>new(File.Exists, _ =&gt; Array.Empty&lt;string&gt;())</c> — the real <c>File.Exists</c> — which blocks
+    /// discovery by <i>directory enumeration</i> and not discovery by <b>probe</b>. The locator walks <c>PATH</c>
+    /// and asks <c>FileExists</c> for each entry, so on Linux <c>/usr/bin/pg_dump</c> resolved straight through
+    /// the seam and <c>Missing_pg_dump_fails_loud</c> reached the dump and failed on the wrong message. It passed
+    /// on Windows for an unrelated reason: the client installs into a <i>versioned</i> directory, which is reached
+    /// by enumeration — the half that was blocked. Restricting existence to this class's own temp directory closes
+    /// the probe path too, and is what makes the docstring above true.</para>
+    /// </summary>
+    private PostgresToolLocator.FileSystem OnlyTheseFiles() =>
+        new(path => path.StartsWith(_dir, StringComparison.Ordinal) && File.Exists(path),
+            _ => Array.Empty<string>());
+
+    private PgDumpBackupService Service(
+        Dictionary<string, string?> settings,
+        DirectoryAclHardener? hardener = null,
+        PostgresToolLocator.FileSystem? toolFileSystem = null)
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+        return new PgDumpBackupService(
+            configuration,
+            NullLogger<PgDumpBackupService>.Instance,
+            hardener ?? RecordingHardener(),
+            toolFileSystem ?? OnlyTheseFiles());
+    }
+
+    /// <summary>
+    /// Config that gets past every pre-check so execution reaches the backup folder. The dummy pg_dump is a
+    /// real file (so the existence check passes) but not a real executable, so the dump itself fails — which
+    /// is fine: the hardening happens before it, and the failure exercises the partial-cleanup path.
+    /// </summary>
+    private Dictionary<string, string?> ReachesBackupFolder()
+    {
+        var dummyPgDump = Path.Combine(_dir, "pg_dump.exe");
+        File.WriteAllText(dummyPgDump, "dummy");
+
+        return new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:DefaultConnection"] = "Host=localhost;Database=clinic;Username=u;Password=p",
+            ["Backup:PgDumpPath"] = dummyPgDump,
+        };
+    }
+
+    private static string? CreatedBackupFolder(string destination) =>
+        Directory.EnumerateDirectories(destination, "clinic-backup-*").FirstOrDefault();
+
+    [Fact]
+    public async Task Missing_connection_string_fails_loud()
+    {
+        var service = Service(new Dictionary<string, string?>());
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateBackupAsync(_dir));
+        Assert.Contains("connexion", ex.Message);
+    }
+
+    /// <summary>
+    /// A server with no PostgreSQL client tools at all fails loud, and the message names what to do about it.
+    ///
+    /// <para>⚠️ The configured path here points at a file that does not exist, which since discovery landed
+    /// <b>falls through</b> rather than refusing on the spot — the packaged-upgrade case, where a bundled
+    /// PostgreSQL moved and a working tool on PATH is a better answer than a refusal quoting a stale key. The
+    /// refusal now means « configured path unusable <i>and</i> nothing discoverable », which is why this class
+    /// injects a filesystem that discovers nothing.</para>
+    /// </summary>
+    [Fact]
+    public async Task Missing_pg_dump_fails_loud()
+    {
+        var service = Service(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:DefaultConnection"] = "Host=localhost;Database=clinic;Username=u;Password=p",
+            ["Backup:PgDumpPath"] = Path.Combine(_dir, "does-not-exist-pg_dump.exe"),
+        });
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateBackupAsync(_dir));
+        Assert.Contains("pg_dump", ex.Message);
+        // The operator has to be able to act on it: the message names the client package AND the override key.
+        Assert.Contains("PostgreSQL", ex.Message);
+        Assert.Contains("Backup:PgDumpPath", ex.Message);
+    }
+
+    /// <summary>
+    /// The case the whole change exists for: with <b>nothing configured</b>, a discoverable pair is used and the
+    /// backup gets past tool resolution.
+    ///
+    /// <para>Before discovery, `Backup:PgDumpPath` was the only route to the tools and it is written by exactly one
+    /// of the four ways this product is deployed — so this configuration (the one that ships in
+    /// <c>appsettings.json</c>) refused every backup, on every Docker deployment, for the life of the product.</para>
+    /// </summary>
+    [Fact]
+    public async Task Discovered_tools_are_used_when_nothing_is_configured()
+    {
+        // A "PATH" directory holding both tools, as `api/Dockerfile`'s postgresql-client-16 produces.
+        var binDirectory = Path.Combine(_dir, "bin");
+        Directory.CreateDirectory(binDirectory);
+        var suffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
+        var pgDump = Path.Combine(binDirectory, $"pg_dump{suffix}");
+        var pgRestore = Path.Combine(binDirectory, $"pg_restore{suffix}");
+        File.WriteAllText(pgDump, "dummy");
+        File.WriteAllText(pgRestore, "dummy");
+
+        var service = Service(
+            new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = "Host=localhost;Database=clinic;Username=u;Password=p",
+            },
+            toolFileSystem: new PostgresToolLocator.FileSystem(
+                File.Exists,
+                // Stand in for a PATH entry: the locator asks for directory children only when walking the
+                // versioned install roots, so pointing those at our bin directory is what puts it in the search.
+                path => path.Contains("postgres", StringComparison.OrdinalIgnoreCase)
+                    ? new[] { _dir }
+                    : Array.Empty<string>()));
+
+        // It gets PAST tool resolution — the dummies are not executables, so it fails at launching pg_dump, which
+        // is precisely what proves the tools were found rather than refused.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateBackupAsync(_dir));
+        Assert.DoesNotContain("est introuvable", ex.Message);
+    }
+
+    /// <summary>
+    /// L4b — a missing destination is <b>resolved</b>, not refused, and this test is the inversion of the one it
+    /// replaces.
+    ///
+    /// <para>It used to assert that <c>CreateBackupAsync(null)</c> threw « Aucun dossier de destination » with no
+    /// argument and no <c>Backup:DefaultDestination</c>. That threw for a configuration the <b>installer itself
+    /// produced</b> — it wrote the key as <c>""</c> — while <c>backup-settings.tsx</c> promised « Laissez le champ
+    /// vide pour utiliser le dossier par défaut du serveur ». So the documented default path failed on every
+    /// fresh install, and a test was pinning it in place.</para>
+    ///
+    /// <para>The resolution order is now argument → config → install-relative <c>Backups/</c>. The assertion is
+    /// therefore about <c>ResolveDestinationRoot</c> returning a real path, and about the backup getting past the
+    /// destination stage — it still fails later here, because the dummy <c>pg_dump</c> is not an executable, which
+    /// is exactly what proves the destination check no longer refuses it.</para>
+    /// </summary>
+    [Fact]
+    public async Task No_Destination_Falls_Back_To_The_Install_Folder_Instead_Of_Refusing()
+    {
+        // A real (dummy) pg_dump file so the pg_dump check passes and we reach the destination stage.
+        var service = Service(ReachesBackupFolder());
+
+        var resolved = service.ResolveDestinationRoot(null);
+
+        Assert.False(string.IsNullOrWhiteSpace(resolved));
+        Assert.EndsWith("Backups", resolved);
+
+        // And the backup itself gets past the destination check: the failure it does hit names pg_dump, not the
+        // destination — which is the whole difference this test exists to pin.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateBackupAsync(null));
+        Assert.DoesNotContain("Aucun dossier de destination", ex.Message);
+    }
+
+    /// <summary>An explicit folder still wins over the configured default and over the fallback.</summary>
+    [Fact]
+    public void An_Explicit_Destination_Wins()
+    {
+        var service = Service(ReachesBackupFolder());
+
+        Assert.Equal(_dir, service.ResolveDestinationRoot(_dir));
+    }
+
+    [Fact]
+    public async Task Backup_folder_is_restricted_before_the_dump_is_written() // [AC-14.1] [AC-14.2]
+    {
+        var service = Service(ReachesBackupFolder());
+
+        // The dummy pg_dump is not a real executable, so the dump fails — but the hardening runs first, so
+        // recording it here IS the proof of ordering. If it ran after the dump it would never be recorded.
+        await Assert.ThrowsAnyAsync<Exception>(() => service.CreateBackupAsync(_dir));
+
+        Assert.NotEmpty(_aclInvocations);
+
+        // Same policy as the install directories: grant, drop inheritance, remove Users/Everyone.
+        Assert.Contains("/grant:r", _aclInvocations[0]);
+        Assert.Contains("/inheritance:r", _aclInvocations[1]);
+        Assert.Contains(DirectoryAclHardener.SidUsers, _aclInvocations[2]);
+        Assert.Contains(DirectoryAclHardener.SidEveryone, _aclInvocations[2]);
+
+        // Applied to the timestamped backup folder, not the destination root the admin chose.
+        var target = _aclInvocations[0][0];
+        Assert.StartsWith(_dir, target, StringComparison.Ordinal);
+        Assert.Contains("clinic-backup-", target, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_acl_failure_on_a_fixed_disk_fails_loud_and_leaves_no_partial_backup() // [AC-14.4]
+    {
+        var service = Service(ReachesBackupFolder(), RecordingHardener(exitCode: 5));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateBackupAsync(_dir));
+
+        // The operator sees why, and no half-written folder is left to be mistaken for a usable backup.
+        Assert.Contains("Accès refusé.", ex.Message);
+        Assert.Null(CreatedBackupFolder(_dir));
+    }
+
+    [Fact]
+    public async Task An_acl_failure_does_not_fall_back_to_an_unprotected_backup() // [AC-14.4]
+    {
+        var service = Service(ReachesBackupFolder(), RecordingHardener(exitCode: 5));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateBackupAsync(_dir));
+
+        // Only the failing grant was attempted — the service must not proceed to dump into a folder it
+        // could not secure on a disk where it should have been able to.
+        Assert.Single(_aclInvocations);
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            if (Directory.Exists(_dir))
+            {
+                Directory.Delete(_dir, recursive: true);
+            }
+        }
+        catch
+        {
+            // best-effort temp cleanup
+        }
+    }
+}

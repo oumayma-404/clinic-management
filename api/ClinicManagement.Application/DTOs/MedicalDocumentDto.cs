@@ -18,6 +18,11 @@ public class MedicalDocumentDto
     public string DoctorSpecialty { get; set; } = string.Empty;
     public bool IsDraft { get; set; }
     public Guid? FileId { get; set; }
+    public Guid? AppointmentId { get; set; }
+
+    /// <summary>Round-tripped by the editor so a concurrent change is a 409 rather than a silent overwrite.</summary>
+    public uint Version { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }

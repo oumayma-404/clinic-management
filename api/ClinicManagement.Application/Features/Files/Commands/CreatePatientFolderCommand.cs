@@ -1,5 +1,6 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
@@ -19,15 +20,18 @@ public class CreatePatientFolderCommandHandler : IRequestHandler<CreatePatientFo
     private readonly IPatientRepository _patientRepository;
     private readonly IPatientFolderRepository _folderRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ICurrentClinicResolver _clinicResolver;
 
     public CreatePatientFolderCommandHandler(
         IPatientRepository patientRepository,
         IPatientFolderRepository folderRepository,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ICurrentClinicResolver clinicResolver)
     {
         _patientRepository = patientRepository;
         _folderRepository = folderRepository;
         _unitOfWork = unitOfWork;
+        _clinicResolver = clinicResolver;
     }
 
     public async Task<Result<PatientFolderDto>> Handle(CreatePatientFolderCommand request, CancellationToken cancellationToken)
@@ -36,13 +40,22 @@ public class CreatePatientFolderCommandHandler : IRequestHandler<CreatePatientFo
         {
             if (string.IsNullOrWhiteSpace(request.Name))
             {
-                return Result<PatientFolderDto>.Failure("Folder name is required");
+                return Result<PatientFolderDto>.Failure("Le nom du dossier est requis.");
+            }
+
+            // Authoritative tenant guard: resolve the caller's clinic from the DB and verify the patient
+            // belongs to it before creating a folder (defense-in-depth, independent of the fail-open global
+            // filter — cloud-security-and-tenant-isolation #6).
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<PatientFolderDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
             }
 
             var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
-            if (patient == null)
+            if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<PatientFolderDto>.Failure("Patient not found");
+                return Result<PatientFolderDto>.Failure("Patient introuvable.");
             }
 
             // Validate parent folder if provided
@@ -51,7 +64,7 @@ public class CreatePatientFolderCommandHandler : IRequestHandler<CreatePatientFo
                 var parentFolder = await _folderRepository.GetByIdAsync(request.ParentFolderId.Value, cancellationToken);
                 if (parentFolder == null || parentFolder.PatientId != request.PatientId)
                 {
-                    return Result<PatientFolderDto>.Failure("Parent folder not found or does not belong to the patient");
+                    return Result<PatientFolderDto>.Failure("Dossier parent introuvable ou n'appartenant pas à ce patient.");
                 }
             }
 
@@ -63,12 +76,13 @@ public class CreatePatientFolderCommandHandler : IRequestHandler<CreatePatientFo
             
             if (folderExists)
             {
-                return Result<PatientFolderDto>.Failure("A folder with this name already exists in this location");
+                return Result<PatientFolderDto>.Failure("Un dossier portant ce nom existe déjà à cet emplacement.");
             }
 
             var folder = new PatientFolder(
                 Guid.NewGuid(),
                 request.PatientId,
+                patient.ClinicId,
                 request.Name.Trim(),
                 request.ParentFolderId);
 
@@ -89,7 +103,7 @@ public class CreatePatientFolderCommandHandler : IRequestHandler<CreatePatientFo
 
             return Result<PatientFolderDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<PatientFolderDto>.Failure($"Error creating folder: {ex.Message}");
         }

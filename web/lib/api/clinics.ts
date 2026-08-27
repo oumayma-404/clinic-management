@@ -1,29 +1,20 @@
-import { apiGet, apiPost, apiPostFormData, apiPut, apiPutFormData } from './client';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-
-// Get Auth0 access token from client-side
-async function getAccessToken(): Promise<string | null> {
-  try {
-    const response = await fetch('/api/auth/token', {
-      credentials: 'include',
-    });
-    if (response.ok) {
-      const data = await response.json();
-      return data.accessToken || null;
-    }
-  } catch {
-    // Token endpoint not available or error
-  }
-  return null;
-}
+import { apiGet, apiGetBlob, apiPost, apiPostFormData, apiPut, apiPutFormData } from './client';
+import type { WorkingDay } from '@/lib/working-hours';
 
 export interface DoctorDto {
   id?: string;
+  // Auth0 sub / local user id this doctor is linked to (Doctor.LinkToUser). Lets the client resolve the
+  // current user's own doctor authoritatively, regardless of their role (e.g. single-dentist admin).
+  userId?: string;
   name: string;
   specialty: string;
   phone?: string;
   email?: string;
+  codeProfessionnelSante?: string | null;
+  // Part B/C: CNOMDT ordre + cachet presence, projected by GetUserStatusQuery. Used to pre-fill the
+  // certificat ordre (FR-2.5) from the current doctor's profile.
+  ordreNumberCnomdt?: string | null;
+  hasCachet?: boolean;
 }
 
 export interface UserStatusDto {
@@ -47,11 +38,25 @@ export interface ClinicDto {
   id: string;
   name: string;
   address?: string;
+  city?: string;
   phone?: string;
   email?: string;
   code?: string;
   logoUrl?: string;
+  // Billing / note-d'honoraires settings.
+  matriculeFiscal?: string | null;
+  vatApplicable?: boolean;
+  vatRate?: number;
+  stampDutyEnabled?: boolean;
+  stampDutyAmount?: number;
+  // Working hours (AC-7). Null/absent = no saved hours (the UI falls back to a default).
+  workingHours?: WorkingDay[] | null;
   createdAt: string;
+  /**
+   * Optimistic-concurrency token. Sent back as a FORM field on update (this endpoint is multipart because
+   * of the logo), so a peer's settings change during editing is a 409 rather than a silent overwrite.
+   */
+  version: number;
 }
 
 export interface DoctorPersonalInfo {
@@ -64,6 +69,7 @@ export interface DoctorPersonalInfo {
 export interface CreateClinicRequest {
   name: string;
   address?: string;
+  city?: string;
   phone?: string;
   email?: string;
   generateCode?: boolean;
@@ -75,6 +81,7 @@ export interface CreateClinicRequest {
     phone?: string;
     email?: string;
   }>; // Legacy: additional doctors (not the creator)
+  workingHoursJson?: string; // Optional onboarding working hours (finding #16)
 }
 
 export interface JoinClinicRequest {
@@ -106,11 +113,13 @@ export const clinicsApi = {
       const formData = new FormData();
       formData.append('name', data.name);
       if (data.address) formData.append('address', data.address);
+      if (data.city) formData.append('city', data.city);
       if (data.phone) formData.append('phone', data.phone);
       if (data.email) formData.append('email', data.email);
       formData.append('generateCode', data.generateCode?.toString() || 'true');
       formData.append('role', data.role);
       if (data.logoFile) formData.append('logo', data.logoFile);
+      if (data.workingHoursJson) formData.append('workingHoursJson', data.workingHoursJson);
       if (data.doctorInfo) {
         formData.append('doctorInfoJson', JSON.stringify(data.doctorInfo));
       }
@@ -129,10 +138,59 @@ export const clinicsApi = {
     }
   },
 
+  // Local (offline) first-run: create the clinic + first admin (email+password).
+  // Anonymous + must hit the .NET API directly from the browser so the server's
+  // localhost gate (AC-1.2a) sees the real client IP. `null` token skips auth.
+  setup: async (data: {
+    clinicName: string;
+    email: string;
+    password: string;
+    fullName: string;
+    phone?: string;
+    address?: string;
+    city?: string;
+    // When set, the first admin is also the cabinet practitioner: a linked Doctor is created so their
+    // document identity (cachet / CNOMDT ordre) and "Mon profil" work.
+    doctorInfo?: DoctorPersonalInfo;
+    workingHoursJson?: string; // Optional onboarding working hours (finding #16)
+  }): Promise<ClinicDto> => {
+    const result = await apiPost<Result<ClinicDto>>('/auth/setup', data, null);
+    if (!result.isSuccess || !result.value) {
+      throw new Error(result.error || 'Failed to complete setup');
+    }
+    return result.value;
+  },
+
+  // Local (offline) staff self-registration: join a clinic by code with credentials.
+  // Anonymous (no session yet) — the clinic code is the gate. `null` token skips auth.
+  register: async (data: {
+    code: string;
+    email: string;
+    password: string;
+    fullName: string;
+    role: "doctor" | "secretary";
+    doctorInfo?: DoctorPersonalInfo;
+  }): Promise<ClinicDto> => {
+    const result = await apiPost<Result<ClinicDto>>('/auth/register', data, null);
+    if (!result.isSuccess || !result.value) {
+      throw new Error(result.error || 'Failed to register');
+    }
+    return result.value;
+  },
+
   join: async (data: JoinClinicRequest): Promise<ClinicDto> => {
     const result = await apiPost<Result<ClinicDto>>('/clinics/join', data);
     if (!result.isSuccess || !result.value) {
       throw new Error(result.error || 'Failed to join clinic');
+    }
+    return result.value;
+  },
+
+  // AC-4.5: regenerate the clinic's self-registration code (admin-only), invalidating the old one.
+  regenerateCode: async (): Promise<ClinicDto> => {
+    const result = await apiPost<Result<ClinicDto>>('/clinics/regenerate-code', {});
+    if (!result.isSuccess || !result.value) {
+      throw new Error(result.error || 'Failed to regenerate clinic code');
     }
     return result.value;
   },
@@ -146,13 +204,50 @@ export const clinicsApi = {
     return result.value;
   },
 
-  update: async (data: { name: string; address?: string; phone?: string; email?: string; logoFile?: File }): Promise<ClinicDto> => {
+  update: async (data: {
+    name: string;
+    address?: string;
+    city?: string;
+    phone?: string;
+    email?: string;
+    logoFile?: File;
+    matriculeFiscal?: string;
+    vatApplicable?: boolean;
+    vatRate?: number;
+    stampDutyEnabled?: boolean;
+    stampDutyAmount?: number;
+    // Working hours serialized as a JSON array (AC-7). Omit to leave the stored hours unchanged.
+    workingHoursJson?: string;
+    /**
+     * Concurrency token. Travels as a FORM field, not JSON — this endpoint is multipart because it carries
+     * the clinic logo. Omit to skip the check.
+     */
+    version?: number;
+  }): Promise<ClinicDto> => {
     const formData = new FormData();
     formData.append('name', data.name);
-    if (data.address) formData.append('address', data.address);
-    if (data.phone) formData.append('phone', data.phone);
-    if (data.email) formData.append('email', data.email);
+    // The concurrency token. Blank on the very first save from a screen that never read one — the server
+    // treats 0/absent as "no check", which keeps every non-form writer working.
+    if (data.version !== undefined) formData.append('version', String(data.version));
+    /*
+     * ⚠️ Band A — `!== undefined`, never truthiness. `if (data.address)` omitted the key for an EMPTY address, and
+     * an omitted key means « leave unchanged » on the server, so clearing the address, the phone or the email
+     * reported success and the old value came back on reload. An empty STRING is what clears; only `undefined`
+     * means « this save is not about that field ».
+     */
+    if (data.address !== undefined) formData.append('address', data.address);
+    if (data.city !== undefined) formData.append('city', data.city);
+    if (data.phone !== undefined) formData.append('phone', data.phone);
+    if (data.email !== undefined) formData.append('email', data.email);
     if (data.logoFile) formData.append('logo', data.logoFile);
+    // Billing settings (optional). Send the matricule even when blank so it can be cleared.
+    if (data.matriculeFiscal !== undefined) formData.append('matriculeFiscal', data.matriculeFiscal);
+    if (data.vatApplicable !== undefined) formData.append('vatApplicable', String(data.vatApplicable));
+    if (data.vatRate !== undefined) formData.append('vatRate', String(data.vatRate));
+    if (data.stampDutyEnabled !== undefined) formData.append('stampDutyEnabled', String(data.stampDutyEnabled));
+    if (data.stampDutyAmount !== undefined) formData.append('stampDutyAmount', String(data.stampDutyAmount));
+    // Working hours JSON (optional).
+    if (data.workingHoursJson !== undefined) formData.append('workingHoursJson', data.workingHoursJson);
 
     const result = await apiPutFormData<Result<ClinicDto>>('/clinics', formData);
     if (!result.isSuccess || !result.value) {
@@ -161,24 +256,6 @@ export const clinicsApi = {
     return result.value;
   },
 
-  getLogo: async (): Promise<Blob> => {
-    const token = await getAccessToken();
-    const headers: HeadersInit = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(`${API_BASE_URL}/clinics/logo`, {
-      method: 'GET',
-      headers,
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to get clinic logo');
-    }
-
-    return response.blob();
-  },
+  getLogo: async (): Promise<Blob> => apiGetBlob('/clinics/logo'),
 };
 

@@ -14,6 +14,14 @@ public class CreateMedicalDocumentRequest
     public string DoctorName { get; set; } = string.Empty;
     public string DoctorSpecialty { get; set; } = string.Empty;
     public IFormFile? PdfFile { get; set; }
+    public Guid? AppointmentId { get; set; }
+
+    /// <summary>
+    /// The practitioner the document is issued in the name of — the id behind <see cref="DoctorName"/>. Resolves
+    /// the cachet + n° d'ordre CNOMDT server-side; see
+    /// <c>CreateMedicalDocumentCommand.IssuingDoctorId</c>.
+    /// </summary>
+    public Guid? IssuingDoctorId { get; set; }
 }
 
 

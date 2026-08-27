@@ -1,0 +1,1125 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quatre temps</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   « QUATRE TEMPS » — hero scene, 14 s seamless loop, 4 acts of 3.5 s.
+
+   ONE master duration. Every animated element runs `--T` (14s) infinite, with
+   keyframes expressed in % of the whole loop, so nothing can drift and 100%
+   is authored identical to 0%. Sibling stagger is done with NEGATIVE delays
+   only (`--d` = "starts this many ms earlier"): a positive delay would leave
+   an element mid-cycle at the seam.
+
+   Only transform / opacity / clip-path are animated. Nothing here touches
+   layout on a frame.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --ink:      #1e3a5f;
+  --ink-2:    #254768;
+  --ink-3:    #2d5478;
+  --rule-ink: #3b587c;
+
+  --on-ink:       #ffffff;
+  --on-ink-muted: #a9b6c4;
+  --on-ink-faint: #7c8b9b;
+
+  --paper:      #ffffff;
+  --text:       #09090b;
+  --text-muted: #52525b;
+  --rule:       #e4e4e3;
+
+  --accent:     #2a9d8f;
+  --accent-lit: #6fd8c6;
+  --on-accent:  #04231f;
+
+  --azure:  #0284c7;  --azure-lit:  #7dd0fb;
+  --violet: #7c3aed;  --violet-lit: #c4aeff;
+  --amber:  #b45309;  --amber-lit:  #fbc76a;
+  --green:  #047857;  --green-lit:  #6ee7b7;
+
+  --sans: "Geist", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+
+  --ease-out:    cubic-bezier(.23, 1, .32, 1);
+  --ease-in-out: cubic-bezier(.77, 0, .175, 1);
+
+  --T: 14s;
+  --r-card: 20px;
+  --r-med:  12px;
+  --r-sm:   10px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+/* ── The card the whole film lives in ──────────────────────────────────── */
+.film {
+  position: relative;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--rule-ink);
+  border-radius: var(--r-card);
+  background: var(--ink);
+  container: film / inline-size;
+  font-family: var(--sans);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── The stage: a fixed-proportion box that IS the container query root.
+   Everything inside is sized in `em`, and the stage sets 1em ≈ 10 design px
+   at the reference width, so a 14 px label stays a 14 px label on a phone
+   instead of shrinking to 7 px with the box. ───────────────────────────── */
+.stage {
+  position: relative;
+  container: stage / inline-size;
+  aspect-ratio: 64 / 44;
+  overflow: hidden;
+}
+.world {
+  position: absolute;
+  inset: 0;
+  font-size: calc(100cqw / 64);   /* 640 design px wide → 1em = 10px */
+  line-height: 1.25;
+  color: var(--on-ink);
+}
+
+/* ── Four glows, one per act, cross-faded. The ground changes temperature
+   with the chapter without any colour being animated. ──────────────────── */
+.glow {
+  position: absolute;
+  inset: -20% -10% auto -10%;
+  height: 90%;
+  opacity: 0;
+  animation: glowLife var(--T) linear infinite both;
+}
+.glow-1 { background: radial-gradient(58% 62% at 74% 8%, color-mix(in oklab, var(--azure)  46%, transparent), transparent 72%); }
+.glow-2 { background: radial-gradient(58% 62% at 50% 6%, color-mix(in oklab, var(--violet) 44%, transparent), transparent 72%); }
+.glow-3 { background: radial-gradient(58% 62% at 34% 8%, color-mix(in oklab, var(--amber)  40%, transparent), transparent 72%); }
+.glow-4 { background: radial-gradient(62% 66% at 62% 10%, color-mix(in oklab, var(--accent) 34%, transparent), transparent 72%); }
+.grain {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgb(14 27 42 / 0) 55%, rgb(14 27 42 / .55) 100%);
+  pointer-events: none;
+}
+
+/* ── The HUD. Deliberately NOT scaled with the stage: it is the page's own
+   type, in rem, so the caption is legible at 342 px. ───────────────────── */
+.hud {
+  position: relative;
+  padding: .8125rem clamp(.875rem, 3cqw, 1.375rem) clamp(.875rem, 2.4cqw, 1.125rem);
+  border-top: 1px solid var(--rule-ink);
+  background: var(--ink);
+}
+.caption {
+  position: relative;
+  height: 1.6rem;
+  margin-bottom: .75rem;
+}
+.caption span {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  font-size: clamp(.9375rem, .82rem + .5cqw, 1.0625rem);
+  letter-spacing: -.005em;
+  color: var(--on-ink);
+  white-space: nowrap;
+  opacity: 0;
+  animation: capLife var(--T) var(--ease-out) infinite both;
+}
+.caption i {
+  flex: none;
+  width: .4375rem; height: .4375rem;
+  border-radius: 50%;
+  background: var(--zc, var(--accent));
+}
+.caption b { font-weight: 400; }
+.caption em {
+  font-style: normal;
+  color: var(--on-ink-faint);
+  font-size: .8125em;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  margin-left: .125rem;
+}
+.rail { display: flex; gap: .3125rem; }
+.rail > i {
+  position: relative;
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / .11);
+  overflow: hidden;
+}
+.rail > i::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: 2px;
+  background: var(--zc);
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: railFill var(--T) linear infinite both;
+}
+.rail > i:nth-child(1) { --zc: var(--azure-lit);  }
+.rail > i:nth-child(2) { --zc: var(--violet-lit); }
+.rail > i:nth-child(3) { --zc: var(--amber-lit);  }
+.rail > i:nth-child(4) { --zc: var(--accent-lit); }
+.rail > i:nth-child(1)::after { animation-name: railFill1; }
+.rail > i:nth-child(2)::after { animation-name: railFill2; }
+.rail > i:nth-child(3)::after { animation-name: railFill3; }
+.rail > i:nth-child(4)::after { animation-name: railFill4; }
+
+/* one phrase, two lengths: the long one wraps on a phone and the short one
+   says the same thing. */
+.only-wide { display: inline }
+.only-narrow { display: none }
+
+.sr {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* ── Shared act scaffolding ────────────────────────────────────────────── */
+.act { position: absolute; inset: 0; padding: 2.2em; display: flex; flex-direction: column; }
+.act-2, .act-3, .act-4 { align-items: center; justify-content: center; }
+/* No will-change: Chrome already runs an active transform/opacity animation on
+   the compositor, and promoting ~100 elements by hand costs memory for nothing. */
+.anim { animation-duration: var(--T); animation-iteration-count: infinite; animation-fill-mode: both; animation-delay: calc(var(--d, 0) * -1ms); }
+
+/* ══ ACT 1 · L'agenda ═════════════════════════════════════════════════════ */
+.day {
+  display: flex; align-items: baseline; gap: .8em;
+  margin-bottom: 1.5em;
+  opacity: 0;
+  animation-name: dayIn; animation-timing-function: var(--ease-out);
+}
+.day b { font-weight: 400; font-size: 1.5em; letter-spacing: -.01em; }
+.day s { text-decoration: none; color: var(--on-ink-faint); font-size: 1.15em; }
+.day u {
+  text-decoration: none; margin-left: auto;
+  font-size: 1.05em; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--azure-lit);
+}
+
+.grid { display: flex; flex-direction: column; justify-content: center; flex: 1; gap: .8em; }
+.row { display: grid; grid-template-columns: 4.6em 1fr; align-items: stretch; gap: .9em; }
+
+.hh {
+  display: flex; align-items: center; justify-content: flex-end;
+  font-size: 1.2em; color: var(--on-ink-faint);
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  animation-name: hhIn; animation-timing-function: var(--ease-out);
+}
+
+.blk {
+  position: relative;
+  height: 5em;
+  display: flex; align-items: center; gap: .9em;
+  padding: 0 1.1em 0 1.5em;
+  border: 1px solid var(--rule-ink);
+  border-radius: var(--r-med);
+  background: var(--ink-2);
+  overflow: hidden;
+  opacity: 0;
+  animation-name: blkIn; animation-timing-function: var(--ease-out);
+}
+/* the colour arrives as a tint that sweeps across, not as a repaint */
+.blk::before {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--zt, var(--zc)) 20%, transparent),
+    color-mix(in oklab, var(--zt, var(--zc)) 5%, transparent) 62%,
+    transparent);
+  transform: scaleX(0); transform-origin: left center;
+  animation: tintIn var(--T) var(--ease-out) infinite;
+  animation-delay: calc(var(--d, 0) * -1ms);
+}
+.blk::after {
+  content: "";
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: .34em;
+  background: var(--zc);
+  transform: scaleY(0); transform-origin: center;
+  animation: barIn var(--T) var(--ease-out) infinite;
+  animation-delay: calc(var(--d, 0) * -1ms);
+}
+.blk-t { position: relative; min-width: 0; }
+.blk-t b { display: block; font-weight: 400; font-size: 1.4em; letter-spacing: -.005em; white-space: nowrap; }
+.blk-t s { display: block; text-decoration: none; font-size: 1.1em; color: var(--on-ink-muted); margin-top: .15em; white-space: nowrap; }
+.blk-f {
+  position: relative; margin-left: auto; flex: none;
+  font-size: 1.05em; color: var(--on-ink-faint);
+  padding: .3em .7em;
+  border: 1px solid var(--rule-ink); border-radius: 999px;
+  white-space: nowrap;
+}
+.blk-d {
+  position: relative; flex: none;
+  width: .8em; height: .8em; border-radius: 50%;
+  background: var(--zc);
+  transform: scale(0);
+  animation: dotIn var(--T) var(--ease-out) infinite;
+  animation-delay: calc(var(--d, 0) * -1ms);
+}
+/* the selection ring on the block act 2 opens */
+.pick {
+  position: absolute; inset: -1px;
+  border: 1.5px solid var(--violet-lit);
+  border-radius: var(--r-med);
+  opacity: 0;
+  animation: pickIn var(--T) var(--ease-out) infinite;
+}
+
+/* ══ ACT 2 · La fiche patient ═════════════════════════════════════════════ */
+.card {
+  position: relative;
+  width: 100%;
+  max-width: 50em;
+  padding: 2em 2.2em 2.1em;
+  border-radius: var(--r-card);
+  background: var(--paper);
+  color: var(--text);
+  box-shadow: 0 2px 8px rgb(9 9 11 / .18), 0 30px 70px -30px rgb(0 0 0 / .75);
+  opacity: 0;
+  animation-name: cardIn; animation-timing-function: var(--ease-out);
+}
+/* .fh / .hr / .lbl carry no animation of their own: they arrive with the card,
+   so a white surface is never on screen empty. Only the chart, the line and
+   the stats stagger. Same rule for .sh on the note. */
+.fh { display: flex; align-items: center; gap: 1.1em; }
+.av {
+  flex: none; width: 3.6em; height: 3.6em; border-radius: 50%;
+  display: grid; place-items: center;
+  background: color-mix(in oklab, var(--violet) 12%, #ffffff);
+  color: var(--violet);
+  font-size: 1em; letter-spacing: .04em;
+}
+.av b { font-weight: 400; font-size: 1.35em; }
+.fh-t b { display: block; font-weight: 400; font-size: 1.9em; letter-spacing: -.015em; }
+.fh-t s { display: block; text-decoration: none; font-size: 1.15em; color: var(--text-muted); margin-top: .1em; }
+.zchip {
+  margin-left: auto; flex: none;
+  font-size: 1.05em; letter-spacing: .07em; text-transform: uppercase;
+  padding: .45em .85em; border-radius: 999px;
+  background: color-mix(in oklab, var(--zc) 12%, #ffffff);
+  color: var(--zc);
+}
+.hr { height: 1px; background: var(--rule); margin: 1.5em 0 1.3em; }
+.lbl { font-size: 1em; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); }
+
+.arch { margin-top: .85em; display: flex; flex-direction: column; gap: .4em; }
+.arch-r { display: grid; grid-template-columns: repeat(16, 1fr); gap: .34em; }
+.arch-r i {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  border-radius: .35em .35em .5em .5em;
+  background: #edede9;
+  box-shadow: inset 0 0 0 1px #dededa;
+  transform: translateY(.6em) scale(.86);
+  opacity: 0;
+  animation: toothIn var(--T) var(--ease-out) infinite;
+  animation-delay: calc(var(--d, 0) * -1ms);
+}
+.arch-r > :nth-child(9) { margin-left: .55em }
+.arch-n > :nth-child(9) { margin-left: .55em }
+.arch-r i.old { background: #d4d4ce; box-shadow: inset 0 0 0 1px #c6c6bf; }
+/* the act being recorded: dent 26 */
+.arch-r i.now::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  background: var(--violet);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--violet) 26%, transparent);
+  transform: scale(0);
+  animation: nowIn var(--T) var(--ease-out) infinite;
+}
+.arch-n {
+  display: grid; grid-template-columns: repeat(16, 1fr); gap: .34em;
+  margin-top: -.15em;
+  font-size: .85em; color: #a1a1aa; text-align: center;
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  animation-name: metaIn; animation-timing-function: var(--ease-out);
+}
+
+.fline {
+  display: flex; align-items: center; gap: .7em;
+  margin-top: 1.5em;
+  font-size: 1.25em;
+  opacity: 0;
+  animation-name: metaIn; animation-timing-function: var(--ease-out);
+}
+.fline i { flex: none; width: .7em; height: .7em; border-radius: 50%; background: var(--violet); }
+.fline u { text-decoration: none; margin-left: auto; display: inline-flex; align-items: center; gap: .35em; color: var(--text-muted); font-size: .88em; }
+.tick { flex: none; width: 1.05em; height: 1.05em; }
+.tick path { stroke: var(--accent); stroke-width: 2.6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+.fstats {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1em;
+  margin-top: 1.4em; padding-top: 1.3em; border-top: 1px solid var(--rule);
+}
+.fstats s { display: block; text-decoration: none; font-size: .95em; letter-spacing: .07em; text-transform: uppercase; color: var(--text-muted); }
+.fstats b { display: block; font-weight: 400; font-size: 1.4em; margin-top: .2em; font-variant-numeric: tabular-nums; }
+
+/* ══ ACT 3 · La note d'honoraires ═════════════════════════════════════════ */
+.sheet {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  max-width: 44em;
+  padding: 2em 2.2em 1.9em;
+  border-radius: var(--r-card);
+  background: var(--paper);
+  color: var(--text);
+  box-shadow: 0 2px 8px rgb(9 9 11 / .18), 0 30px 70px -30px rgb(0 0 0 / .75);
+  opacity: 0;
+  animation-name: sheetIn; animation-timing-function: var(--ease-out);
+}
+.sheet::before {
+  content: "";
+  position: absolute; left: 0; right: 0; top: 0; height: 3px;
+  border-radius: var(--r-card) var(--r-card) 0 0;
+  background: var(--amber);
+  transform: scaleX(0); transform-origin: left center;
+  animation: sheetBar var(--T) var(--ease-out) infinite;
+}
+.sh { display: flex; align-items: flex-start; gap: 1em; }
+.sh b { font-weight: 400; font-size: 1.9em; letter-spacing: -.015em; }
+.sh s { display: block; text-decoration: none; font-size: 1.15em; color: var(--text-muted); margin-top: .25em; }
+.sh u {
+  text-decoration: none; margin-left: auto; flex: none; text-align: right;
+  font-size: 1.05em; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+.sh u em { display: block; font-style: normal; font-size: .9em; letter-spacing: .07em; text-transform: uppercase; color: #a1a1aa; }
+
+.lines { margin-top: .3em; }
+.li {
+  display: flex; align-items: baseline; gap: 1em;
+  padding: .95em 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 1.3em;
+  clip-path: inset(0 100% 0 0);
+  opacity: 0;
+  animation-name: lineWrite; animation-timing-function: var(--ease-out);
+}
+.li s { text-decoration: none; }
+.li em { font-style: normal; color: #a1a1aa; font-size: .82em; letter-spacing: .05em; }
+.li b {
+  margin-left: auto; font-weight: 400; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tot {
+  display: flex; align-items: baseline; gap: 1em;
+  margin-top: 1.2em;
+  opacity: 0;
+  animation-name: totIn; animation-timing-function: var(--ease-out);
+}
+.tot s { text-decoration: none; font-size: 1.15em; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); }
+.tot b {
+  margin-left: auto; font-weight: 400; font-size: 2.5em; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.sfoot {
+  display: flex; align-items: center; gap: .55em;
+  margin-top: 1.3em; padding-top: 1.2em; border-top: 1px solid var(--rule);
+  font-size: 1.15em; color: var(--text-muted);
+  opacity: 0;
+  animation-name: sfootIn; animation-timing-function: var(--ease-out);
+}
+
+/* ══ ACT 4 · La caisse ════════════════════════════════════════════════════ */
+.till {
+  position: relative;
+  width: 100%;
+  max-width: 46em;
+  padding: 1.9em 2.1em 1.8em;
+  border: 1px solid var(--rule-ink);
+  border-radius: var(--r-card);
+  background: linear-gradient(180deg, var(--ink-3), var(--ink-2) 62%);
+  box-shadow: 0 30px 70px -34px rgb(0 0 0 / .8);
+  opacity: 0;
+  animation-name: tillIn; animation-timing-function: var(--ease-out);
+}
+.th { display: flex; align-items: flex-end; gap: 1em; }
+.th s { text-decoration: none; font-size: 1.05em; letter-spacing: .08em; text-transform: uppercase; color: var(--accent-lit); }
+.th em { display: block; font-style: normal; font-size: 1.15em; color: var(--on-ink-faint); margin-top: .3em; }
+.th u { text-decoration: none; margin-left: auto; font-size: 1.05em; color: var(--on-ink-faint); }
+
+.sum {
+  display: flex; align-items: baseline; gap: .12em;
+  margin-top: .55em;
+  font-size: 3.4em; letter-spacing: -.025em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  animation-name: sumIn; animation-timing-function: var(--ease-out);
+}
+.sum b { font-weight: 400 }
+.sum .dt { font-size: .42em; letter-spacing: .02em; color: var(--on-ink-muted); margin-left: .5em; }
+/* the odometer: a strip of digits translated, never a repaint */
+.od { display: inline-block; height: 1.12em; overflow: hidden; vertical-align: baseline; }
+.od > span {
+  display: block;
+  transform: translateY(calc(var(--from) * -1.12em));
+  animation: roll var(--T) var(--ease-out) infinite;
+  animation-delay: calc(var(--d, 0) * -1ms);
+}
+.od > span > b { display: block; height: 1.12em; line-height: 1.12em; font-weight: 400; }
+
+.mv { margin-top: 1.5em; padding-top: 1.2em; border-top: 1px solid var(--rule-ink); }
+.mv-h { font-size: 1.02em; letter-spacing: .08em; text-transform: uppercase; color: var(--on-ink-faint); }
+.mv-r {
+  position: relative;
+  display: flex; align-items: center; gap: .8em;
+  margin-top: .85em;
+  padding: .62em .8em;
+  border-radius: var(--r-sm);
+  font-size: 1.2em;
+  opacity: 0;
+  animation-name: mvIn; animation-timing-function: var(--ease-out);
+}
+.mv-r i { flex: none; width: .62em; height: .62em; border-radius: 50%; background: var(--zc, var(--on-ink-faint)); }
+.mv-r s { text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mv-r em { font-style: normal; color: var(--on-ink-faint); font-size: .88em; }
+.mv-r b { margin-left: auto; font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mv-r.hot { background: color-mix(in oklab, var(--amber-lit) 13%, transparent); }
+.mv-r.hot::before {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--amber-lit) 42%, transparent);
+  transform: scaleX(.4); transform-origin: right center;
+  opacity: 0;
+  animation: hotIn var(--T) var(--ease-out) infinite;
+}
+.enc {
+  flex: none; font-size: .8em; letter-spacing: .06em; text-transform: uppercase;
+  padding: .3em .6em; border-radius: 999px;
+  background: var(--accent); color: var(--on-accent);
+  transform: scale(.7); opacity: 0;
+  animation: encIn var(--T) var(--ease-out) infinite;
+}
+
+/* the rappel, which leaves on its own */
+.rap {
+  position: absolute; right: 1.6em; bottom: -1.5em;
+  display: flex; align-items: center; gap: .6em;
+  padding: .7em .95em;
+  border: 1px solid color-mix(in oklab, var(--azure-lit) 34%, transparent);
+  border-radius: 999px;
+  background: #12293f;
+  box-shadow: 0 14px 34px -14px rgb(0 0 0 / .8);
+  font-size: 1.1em; white-space: nowrap;
+  opacity: 0;
+  animation-name: rapFly; animation-timing-function: var(--ease-in-out);
+}
+.rap svg { width: 1.15em; height: 1.15em; flex: none; }
+.rap svg path { fill: var(--azure-lit); }
+.rap em { font-style: normal; color: var(--on-ink-muted); }
+
+.thesis {
+  margin-top: 2.1em;
+  font-size: 1.5em; letter-spacing: -.01em;
+  color: var(--on-ink);
+  text-align: center;
+  opacity: 0;
+  animation-name: thesisIn; animation-timing-function: var(--ease-out);
+}
+.thesis b { font-weight: 400; color: var(--accent-lit); }
+
+/* the amount that crosses from the note into the caisse */
+.fly {
+  position: absolute; left: 50%; top: 50%;
+  z-index: 5;
+  display: flex; align-items: center; gap: .5em;
+  padding: .55em .9em;
+  border-radius: var(--r-sm);
+  background: var(--amber-lit); color: #3a1d02;
+  box-shadow: 0 12px 30px -12px rgb(0 0 0 / .7);
+  font-size: 1.35em; font-variant-numeric: tabular-nums; white-space: nowrap;
+  opacity: 0;
+  animation-name: flyPath; animation-timing-function: var(--ease-in-out);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   KEYFRAMES — every one authored in % of the same 14 s loop.
+   Second → percent: t × 7.142857.  100% is authored identical to 0%.
+
+   The seam is a transition like the other three, not a gap: act 1 begins
+   flying in at 13.3 s, so at t = 0 the agenda is already half-arrived and the
+   caisse is still dissolving behind it. That is why act 1's entry is written
+   across the 97 % → 100 % → 6 % boundary instead of starting at zero.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── ground ─────────────────────────────────────────────────────────────── */
+@keyframes glow1 { 0%,22.86% { opacity: 1 } 27.14%,94% { opacity: 0 } 100% { opacity: 1 } }
+@keyframes glow2 { 0%,22.14% { opacity: 0 } 26.43%,47.86% { opacity: 1 } 52.14%,100% { opacity: 0 } }
+@keyframes glow3 { 0%,46.43% { opacity: 0 } 51.43%,72.86% { opacity: 1 } 77.14%,100% { opacity: 0 } }
+@keyframes glow4 { 0%,71.43% { opacity: 0 } 76.43%,93.57% { opacity: 1 } 98.57%,100% { opacity: 0 } }
+
+/* ── HUD ────────────────────────────────────────────────────────────────── */
+@keyframes cap1 {
+  0%            { opacity: .5; transform: translateY(.2rem) }
+  2.14%,23.93%  { opacity: 1;  transform: translateY(0) }
+  26.07%,97.86% { opacity: 0;  transform: translateY(-.4rem) }
+  100%          { opacity: .5; transform: translateY(.2rem) }
+}
+@keyframes cap2 { 0%,26.79% { opacity: 0; transform: translateY(.45rem) } 29.64%,48.93% { opacity: 1; transform: translateY(0) } 51.07%,100% { opacity: 0; transform: translateY(-.4rem) } }
+@keyframes cap3 { 0%,51.79% { opacity: 0; transform: translateY(.45rem) } 54.64%,73.93% { opacity: 1; transform: translateY(0) } 76.07%,100% { opacity: 0; transform: translateY(-.4rem) } }
+@keyframes cap4 { 0%,76.43% { opacity: 0; transform: translateY(.45rem) } 79.29%,96.07% { opacity: 1; transform: translateY(0) } 98.21%,100% { opacity: 0; transform: translateY(-.4rem) } }
+
+/* the rail unwinds right to left over the last 0.5 s, while act 1 flies in */
+@keyframes railFill1 { 0% { transform: scaleX(0) } 25%,97.5% { transform: scaleX(1); animation-timing-function: cubic-bezier(.23,1,.32,1) } 99.29%,100% { transform: scaleX(0) } }
+@keyframes railFill2 { 0%,25% { transform: scaleX(0) } 50%,97.14% { transform: scaleX(1); animation-timing-function: cubic-bezier(.23,1,.32,1) } 98.93%,100% { transform: scaleX(0) } }
+@keyframes railFill3 { 0%,50% { transform: scaleX(0) } 75%,96.79% { transform: scaleX(1); animation-timing-function: cubic-bezier(.23,1,.32,1) } 98.57%,100% { transform: scaleX(0) } }
+@keyframes railFill4 { 0%,75% { transform: scaleX(0) } 96.43% { transform: scaleX(1); animation-timing-function: cubic-bezier(.23,1,.32,1) } 98.21%,100% { transform: scaleX(0) } }
+
+/* ── act 1 · the agenda, arriving across the seam ───────────────────────── */
+@keyframes dayIn {
+  0%            { opacity: .55; transform: translateX(-.5em) }
+  2.14%,23.21%  { opacity: 1;   transform: translateX(0) }
+  26.43%        { opacity: 0;   transform: translateX(-1.8em) }
+  30%,97.86%    { opacity: 0;   transform: translateX(-1.2em); animation-timing-function: linear }
+  100%          { opacity: .55; transform: translateX(-.5em) }
+}
+@keyframes hhIn {
+  0%           { opacity: .5; transform: translateX(-.7em) }
+  3.21%,22.86% { opacity: 1;  transform: translateX(0) }
+  25.71%       { opacity: 0;  transform: translateX(-2.4em) }
+  30%,97.5%    { opacity: 0;  transform: translateX(-1.4em); animation-timing-function: linear }
+  100%         { opacity: .5; transform: translateX(-.7em) }
+}
+@keyframes blkIn {
+  0%            { opacity: .62; transform: translate(3.6em, 0em) scale(.99) }
+  6.07%,16.07%  { opacity: 1;   transform: translate(0em, 0em) scale(1) }
+  18.57%,23.21% { opacity: .32; transform: translate(0em, 0em) scale(.985) }
+  27.5%         { opacity: 0;   transform: translate(var(--ox, 6em), var(--oy, 0em)) scale(.9) }
+  34%,97.14%    { opacity: 0;   transform: translate(9em, 0em) scale(.97); animation-timing-function: linear }
+  100%          { opacity: .62; transform: translate(3.6em, 0em) scale(.99) }
+}
+@keyframes blkSel {
+  0%            { opacity: .62; transform: translate(3.6em, 0em) scale(.99) }
+  6.07%,16.07%  { opacity: 1;   transform: translate(0em, 0em) scale(1) }
+  18.57%,23.21% { opacity: 1;   transform: translate(0em, 0em) scale(1.03) }
+  25.71%        { opacity: 1;   transform: translate(0em, 7.5em) scale(1.07) }
+  27.86%        { opacity: 0;   transform: translate(0em, 10.5em) scale(1.16) }
+  34%,97.14%    { opacity: 0;   transform: translate(9em, 0em) scale(.97); animation-timing-function: linear }
+  100%          { opacity: .62; transform: translate(3.6em, 0em) scale(.99) }
+}
+@keyframes tintIn { 0%,7.14% { transform: scaleX(0) } 10.71%,25% { transform: scaleX(1) } 30%,100% { transform: scaleX(0) } }
+@keyframes barIn  { 0%,6.43% { transform: scaleY(0) } 9.64%,25%  { transform: scaleY(1) } 30%,100% { transform: scaleY(0) } }
+@keyframes dotIn  { 0%,7.86% { transform: scale(0) }  10.36%,25% { transform: scale(1) }  30%,100% { transform: scale(0) } }
+@keyframes pickIn {
+  0%,16.07%     { opacity: 0; transform: scale(1.07) }
+  18.57%,23.57% { opacity: 1; transform: scale(1) }
+  25.71%        { opacity: 0; transform: scale(1.02) }
+  30%,100%      { opacity: 0; transform: scale(1.07) }
+}
+
+/* ── act 2 · la fiche ───────────────────────────────────────────────────── */
+@keyframes cardIn {
+  0%,24.64%     { opacity: 0; transform: translateY(1.6em) scale(.93) }
+  27.86%        { opacity: 1; transform: translateY(.5em) scale(.977) }
+  31.07%,48.93% { opacity: 1; transform: translateY(0em) scale(1) }
+  51.79%        { opacity: 0; transform: translateY(-3em) scale(.965) }
+  58%,100%      { opacity: 0; transform: translateY(1.6em) scale(.93) }
+}
+@keyframes metaIn {
+  0%,38.93%     { opacity: 0; transform: translateY(1em) }
+  41.43%,48.21% { opacity: 1; transform: translateY(0em) }
+  50.36%        { opacity: 0; transform: translateY(-1em) }
+  56%,100%      { opacity: 0; transform: translateY(1em) }
+}
+/* the tooth numbers land with the last tooth, never before the first */
+@keyframes numIn {
+  0%,31.43%     { opacity: 0; transform: translateY(.5em) }
+  33.57%,48.21% { opacity: 1; transform: translateY(0em) }
+  50.36%        { opacity: 0; transform: translateY(-.6em) }
+  56%,100%      { opacity: 0; transform: translateY(.5em) }
+}
+@keyframes toothIn {
+  0%,29.64%     { opacity: 0; transform: translateY(.6em) scale(.86) }
+  32.14%,48.21% { opacity: 1; transform: translateY(0em) scale(1) }
+  50.36%        { opacity: 0; transform: translateY(1.4em) scale(.8) }
+  56%,100%      { opacity: 0; transform: translateY(.6em) scale(.86) }
+}
+@keyframes nowIn {
+  0%,36.07%     { transform: scale(0) }
+  38.93%        { transform: scale(1.14) }
+  40.36%,50%    { transform: scale(1) }
+  51.5%,100%    { transform: scale(0) }
+}
+
+/* ── act 3 · la note ────────────────────────────────────────────────────── */
+@keyframes sheetIn {
+  0%,50.36%     { opacity: 0; transform: translateY(7em) scale(.98) }
+  54.64%,73.57% { opacity: 1; transform: translateY(0em) scale(1) }
+  78.21%        { opacity: 0; transform: translateY(-2.4em) scale(.965) }
+  82%,100%      { opacity: 0; transform: translateY(7em) scale(.98) }
+}
+@keyframes sheetBar { 0%,52.86% { transform: scaleX(0) } 56.07%,75% { transform: scaleX(1) } 80%,100% { transform: scaleX(0) } }
+@keyframes sh3In {
+  0%,53.57%     { opacity: 0; transform: translateY(1em) }
+  56.79%,73.57% { opacity: 1; transform: translateY(0em) }
+  76.43%        { opacity: 0; transform: translateY(-.8em) }
+  80%,100%      { opacity: 0; transform: translateY(1em) }
+}
+@keyframes lineWrite {
+  0%,56.43%   { opacity: 0; clip-path: inset(0 100% 0 0); transform: translateX(0em) }
+  57.86%      { opacity: 1; clip-path: inset(0 55% 0 0);  transform: translateX(0em) }
+  60%,73.57%  { opacity: 1; clip-path: inset(0 0% 0 0);   transform: translateX(0em) }
+  76.79%      { opacity: 0; clip-path: inset(0 0% 0 0);   transform: translateX(3.5em) }
+  80%,100%    { opacity: 0; clip-path: inset(0 100% 0 0); transform: translateX(0em) }
+}
+@keyframes totIn {
+  0%,61.43%     { opacity: 0; transform: translateY(.9em) scale(.96) }
+  64.64%,73.21% { opacity: 1; transform: translateY(0em) scale(1) }
+  75.36%        { opacity: 0; transform: translateY(-.6em) scale(.98) }
+  80%,100%      { opacity: 0; transform: translateY(.9em) scale(.96) }
+}
+@keyframes sfootIn {
+  0%,65%        { opacity: 0; transform: translateY(.8em) }
+  67.86%,73.57% { opacity: 1; transform: translateY(0em) }
+  76.43%        { opacity: 0; transform: translateY(-.6em) }
+  80%,100%      { opacity: 0; transform: translateY(.8em) }
+}
+
+/* the amount crossing from the note into the caisse total */
+@keyframes flyPath {
+  0%,73.57%   { opacity: 0; transform: translate(calc(-50% + var(--fx0)), calc(-50% + var(--fy0))) scale(.92) }
+  75.71%      { opacity: 1; transform: translate(calc(-50% + var(--fx0)), calc(-50% + var(--fy0))) scale(1) }
+  78.21%      { opacity: 1; transform: translate(calc(-50% + var(--fxm)), calc(-50% + var(--fym))) scale(1.04) }
+  81.07%      { opacity: 1; transform: translate(calc(-50% + var(--fx1)), calc(-50% + var(--fy1))) scale(1) }
+  82.86%,100% { opacity: 0; transform: translate(calc(-50% + var(--fx1)), calc(-50% + var(--fy1))) scale(.9) }
+}
+
+/* ── act 4 · la caisse ──────────────────────────────────────────────────── */
+@keyframes tillIn {
+  0%,74.29%     { opacity: 0; transform: translateY(3em) scale(.96) }
+  79.29%,94.64% { opacity: 1; transform: translateY(0em) scale(1) }
+  98.57%        { opacity: 0; transform: translateY(-2.6em) scale(.97) }
+  99.9%,100%    { opacity: 0; transform: translateY(3em) scale(.96) }
+}
+@keyframes sumIn {
+  0%,77.14%     { opacity: 0; transform: translateY(.9em) }
+  80.71%,94.29% { opacity: 1; transform: translateY(0em) }
+  97.5%         { opacity: 0; transform: translateY(-.7em) }
+  99.9%,100%    { opacity: 0; transform: translateY(.9em) }
+}
+@keyframes roll {
+  0%,82.5%     { transform: translateY(calc(var(--from) * -1.12em)) }
+  87.5%,99.5%  { transform: translateY(calc(var(--to) * -1.12em)) }
+  99.9%,100%   { transform: translateY(calc(var(--from) * -1.12em)) }
+}
+@keyframes mvIn {
+  0%,78.21%     { opacity: 0; transform: translateX(-1.4em) }
+  81.79%,94.29% { opacity: 1; transform: translateX(0em) }
+  97.86%        { opacity: 0; transform: translateX(1.4em) }
+  99.9%,100%    { opacity: 0; transform: translateX(-1.4em) }
+}
+@keyframes hotIn {
+  0%,82.14%   { opacity: 0; transform: scaleX(.4) }
+  85%,94.29%  { opacity: 1; transform: scaleX(1) }
+  96.43%,100% { opacity: 0; transform: scaleX(1) }
+}
+@keyframes encIn {
+  0%,85%      { opacity: 0; transform: scale(.7) }
+  87.14%,94.29% { opacity: 1; transform: scale(1) }
+  96.43%,100% { opacity: 0; transform: scale(.9) }
+}
+@keyframes rapFly {
+  0%,86.43%     { opacity: 0; transform: translate(0em, 1.2em) rotate(0deg) scale(.92) }
+  89.29%,92.14% { opacity: 1; transform: translate(0em, 0em) rotate(0deg) scale(1) }
+  97.5%         { opacity: 0; transform: translate(9em, -7.5em) rotate(-7deg) scale(.84) }
+  99.9%,100%    { opacity: 0; transform: translate(0em, 1.2em) rotate(0deg) scale(.92) }
+}
+@keyframes thesisIn {
+  0%,90.71%     { opacity: 0; transform: translateY(.9em) }
+  94.29%,96.43% { opacity: 1; transform: translateY(0em) }
+  98.57%        { opacity: 0; transform: translateY(-.6em) }
+  99.9%,100%    { opacity: 0; transform: translateY(.9em) }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WIRING — which element runs which keyframe track
+   ═══════════════════════════════════════════════════════════════════════════ */
+.glow-1 { animation-name: glow1 }
+.glow-2 { animation-name: glow2 }
+.glow-3 { animation-name: glow3 }
+.glow-4 { animation-name: glow4 }
+
+.caption span:nth-child(1) { animation-name: cap1 }
+.caption span:nth-child(2) { animation-name: cap2 }
+.caption span:nth-child(3) { animation-name: cap3 }
+.caption span:nth-child(4) { animation-name: cap4 }
+
+.blk     { animation-name: blkIn }
+.blk.sel { animation-name: blkSel }
+.pick    { animation-duration: var(--T); animation-iteration-count: infinite; animation-fill-mode: both; animation-name: pickIn; animation-timing-function: var(--ease-out) }
+
+/* the travelling amount: start / arc / land, in world em, per branch */
+.fly { --fx0: 10.3em; --fy0: 5.15em; --fxm: 4.5em; --fym: 6.8em; --fx1: -3.1em; --fy1: -6.05em }
+
+/* utility tracks used from the markup */
+.m  { animation-name: metaIn;  animation-timing-function: var(--ease-out) }
+.arch-n { animation-name: numIn; animation-timing-function: var(--ease-out) }
+.s3 { animation-name: sh3In;   animation-timing-function: var(--ease-out) }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE PHONE BRANCH — the world keeps ~10 px per em, so labels stay labels.
+   Only the proportions of the stage and the density of the scene change.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@container film (max-width: 30rem) {
+  .stage { aspect-ratio: 342 / 372 }
+}
+@container stage (max-width: 30rem) {
+  .world { font-size: calc(100cqw / 34.2) }   /* 342 design px wide */
+
+  .only-wide { display: none }
+  .only-narrow { display: inline }
+
+  .act { padding: 1.4em }
+
+  .day { margin-bottom: 1.1em }
+  .day b { font-size: 1.35em }
+  .day s, .day u { font-size: 1.02em }
+  .row { grid-template-columns: 4.2em 1fr; gap: .7em }
+  .grid { gap: .65em }
+  .blk { height: 4.6em; padding: 0 .9em 0 1.3em; gap: .7em }
+  .blk-t s { font-size: 1.05em }
+  .blk-f { display: none }
+  .row:nth-child(6) { display: none }
+
+  .card, .sheet, .till { padding: 1.5em 1.4em 1.4em }
+  .fh { gap: .8em }
+  .av { width: 3em; height: 3em }
+  .fh-t b { font-size: 1.5em }
+  .fh-t s { font-size: 1.02em }
+  .zchip { font-size: .92em; padding: .38em .7em }
+  .hr { margin: 1.1em 0 1em }
+  .arch-n { display: none }
+  .arch-r { gap: .22em }
+  .fline { font-size: 1.1em; margin-top: 1.1em }
+  .fstats { margin-top: 1em; padding-top: 1em; gap: .6em }
+  .fstats s { font-size: .82em }
+
+  .sh b { font-size: 1.5em }
+  .sh s, .sh u { font-size: 1em }
+  .li { padding: .72em 0 }
+  .li em { display: none }
+  .tot { margin-top: .9em }
+  .tot b { font-size: 2em }
+  .tot s { font-size: 1em }
+  .sfoot { font-size: 1em; margin-top: 1em; padding-top: .9em }
+
+  .th s, .th em, .th u { font-size: .98em }
+  .sum { font-size: 2.6em }
+  .mv { margin-top: 1.1em; padding-top: .9em }
+  .mv-r em { display: none }
+  .rap { font-size: .98em; right: .9em; bottom: -1.3em; padding: .55em .8em }
+  .thesis { margin-top: 1.5em }
+
+  .fly { --fx0: 8.35em; --fy0: 4.8em; --fxm: 3.5em; --fym: 6.2em; --fx1: -2.5em; --fy1: -5.05em }
+
+  /* Legibility floor. The world scales with the slot, so every secondary label
+     eventually falls under 11 px. max() lets each one keep its proportion until
+     it would cross the floor, then holds. Nothing here changes a box. */
+  .lbl            { font-size: max(11px, 1em) }
+  .hh             { font-size: max(11px, 1.2em) }
+  .day s, .day u  { font-size: max(11px, 1.02em) }
+  .blk-t s        { font-size: max(11px, 1.05em) }
+  .zchip          { font-size: max(11px, .92em) }
+  .fh-t s         { font-size: max(11px, 1.02em) }
+  .fline u        { font-size: max(11px, .88em) }
+  .fstats s       { font-size: max(11px, .82em) }
+  .sh s, .sh u    { font-size: max(11px, 1em) }
+  .sh u em        { font-size: max(11px, .9em) }
+  .tot s          { font-size: max(11px, 1em) }
+  .sfoot          { font-size: max(11px, 1em) }
+  .th s, .th em, .th u { font-size: max(11px, .98em) }
+  .sum .dt        { font-size: max(11px, .42em) }
+  .mv-h           { font-size: max(11px, 1.02em) }
+  .mv-r           { font-size: max(11px, 1.05em); margin-top: .6em; padding: .5em .6em }
+  .enc            { font-size: max(11px, .8em) }
+  .rap            { font-size: max(11px, .98em) }
+  .fstats b       { font-size: max(11px, 1.15em) }
+  .blk-t b        { font-size: max(11px, 1.3em) }
+  .li             { font-size: max(11px, 1.15em) }
+  .thesis         { font-size: max(11px, 1.2em) }
+  .fly            { font-size: max(11px, 1.15em) }
+  /* At the floor the badge pushes the patient's name into an ellipsis, and the
+     name is the point of the row. The amber tint already says which one it is. */
+  .mv-r .enc      { display: none }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REDUCED MOTION — not a frozen frame and not an empty box: a composed still
+   that carries the whole argument at once. The day, coloured; the fiche with
+   the act recorded on 26; the note it produced; the money already in; the
+   recall already gone. The rail reads as finished, the caption is the claim.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.still { display: none }
+.cap-still { display: none !important }
+
+@media (prefers-reduced-motion: reduce) {
+  .film *, .film *::before, .film *::after { animation: none !important; transition: none !important }
+
+  .act, .fly { display: none !important }
+  .caption span { display: none !important }
+  .caption span.cap-still { display: flex !important; opacity: 1 !important; transform: none !important }
+  .rail > i::after { transform: scaleX(1) !important }
+
+  .glow-1 { opacity: .55 !important }
+  .glow-4 { opacity: .5 !important }
+
+  .still { display: grid !important }
+  .still .blk, .still .arch-r i, .still .mv-r, .still .rap,
+  .still .card, .still .enc, .still .fline, .still .fstats div,
+  .still .day, .still .hh { opacity: 1 !important; transform: none !important }
+  .still .blk::before { transform: scaleX(1) !important }
+  .still .blk::after  { transform: scaleY(1) !important }
+  .still .blk-d       { transform: scale(1) !important }
+  .still .now::after  { transform: scale(1) !important }
+}
+
+.still {
+  position: absolute; inset: 0;
+  padding: 2.2em;
+  grid-template-columns: 21em 1fr;
+  align-items: center;
+  gap: 1.7em;
+}
+.still .grid { gap: .7em }
+.still .row { grid-template-columns: 4.2em 1fr; gap: .7em }
+.still .blk { height: 4.4em }
+.still .blk-f { display: none }
+.still .card { max-width: none }
+.still .note-strip {
+  display: flex; align-items: center; gap: .7em;
+  margin-top: 1.3em; padding-top: 1.2em; border-top: 1px solid var(--rule);
+  font-size: 1.2em;
+}
+.still .note-strip i { flex: none; width: .7em; height: .7em; border-radius: 50%; background: var(--amber) }
+.still .note-strip b { font-weight: 400; margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap }
+.still .rap { position: static; margin-top: 1.1em; align-self: start; width: fit-content }
+
+@container stage (max-width: 30rem) {
+  .still { grid-template-columns: 1fr; align-content: center; gap: .85em; padding: 1.4em }
+  .still .row:nth-child(4) { display: none }
+  .still .grid { gap: .6em }
+  .still .day { margin-bottom: .8em }
+  .still .blk { height: 3.5em }
+  .still .note-strip { margin-top: 1em; padding-top: .9em; font-size: 1.1em }
+  .still .arch-r:nth-child(2) { display: none }
+  .still .fstats { display: none }
+  .still .rap { display: none }
+}
+
+/* ── PREVIEW ONLY — delete these two rules when the figure is dropped into
+   the hero. They only stand in for the slot the scene will live in. ───── */
+html, body { margin: 0; background: #1e3a5f; }
+body { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }
+.host { width: min(636px, 100%); }
+
+</style>
+</head>
+<body>
+
+<!-- PREVIEW ONLY: the hero slot. Keep only the <figure> and the <p class="sr">. -->
+<div class="host">
+
+<figure class="film" aria-hidden="true">
+  <div class="stage">
+    <div class="world">
+      <div class="glow glow-1"></div>
+      <div class="glow glow-2"></div>
+      <div class="glow glow-3"></div>
+      <div class="glow glow-4"></div>
+      <div class="grain"></div>
+
+      <div class="act act-1">
+        <div class="day anim"><b>Lundi 14 septembre</b><s>2 fauteuils</s><u>Quotidien</u></div>
+        <div class="grid">
+          <div class="row">
+            <div class="hh anim" style="--d:250">08:00</div>
+            <div class="blk anim" style="--zc:var(--azure); --zt:var(--azure-lit); --d:300; --ox:-6em; --oy:-3.5em">
+              <i class="blk-d"></i>
+              <div class="blk-t"><b>Détartrage</b><s>Nadia Trabelsi</s></div>
+              <span class="blk-f">Fauteuil 1</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="hh anim" style="--d:200">08:45</div>
+            <div class="blk anim sel" style="--zc:var(--violet); --zt:var(--violet-lit); --d:240; --ox:0em; --oy:0em">
+              <i class="blk-d"></i>
+              <div class="blk-t"><b>Composite · 26</b><s>Sonia Ben Amor</s></div>
+              <span class="blk-f">Fauteuil 2</span>
+              <span class="pick"></span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="hh anim" style="--d:150">09:30</div>
+            <div class="blk anim" style="--zc:var(--azure); --zt:var(--azure-lit); --d:180; --ox:7em; --oy:-1.2em">
+              <i class="blk-d"></i>
+              <div class="blk-t"><b>Contrôle</b><s>Youssef Gharbi</s></div>
+              <span class="blk-f">Fauteuil 1</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="hh anim" style="--d:100">10:15</div>
+            <div class="blk anim" style="--zc:var(--violet); --zt:var(--violet-lit); --d:120; --ox:-7em; --oy:1.8em">
+              <i class="blk-d"></i>
+              <div class="blk-t"><b>Couronne · essayage</b><s>Amine Khelifi</s></div>
+              <span class="blk-f">Fauteuil 2</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="hh anim" style="--d:50">11:00</div>
+            <div class="blk anim" style="--zc:var(--amber); --zt:var(--amber-lit); --d:60; --ox:7em; --oy:3.4em">
+              <i class="blk-d"></i>
+              <div class="blk-t"><b>Devis à remettre</b><s>Leïla Mansour</s></div>
+              <span class="blk-f">Accueil</span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="hh anim" style="--d:0">11:45</div>
+            <div class="blk anim" style="--zc:var(--green); --zt:var(--green-lit); --d:0; --ox:-5.5em; --oy:5em">
+              <i class="blk-d"></i>
+              <div class="blk-t"><b>Livraison labo</b><s>Dentaplus</s></div>
+              <span class="blk-f">Accueil</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="act act-2">
+        <div class="card anim">
+          <div class="fh">
+            <div class="av"><b>SB</b></div>
+            <div class="fh-t"><b>Sonia Ben Amor</b><s>34 ans · dossier n° 1042 · fauteuil 2</s></div>
+            <span class="zchip" style="--zc:var(--violet)">Clinique</span>
+          </div>
+          <div class="hr"></div>
+          <div class="lbl">Odontogramme</div>
+          <div class="arch">
+            <div class="arch-r"><i style="--d:372"></i><i style="--d:360"></i><i class="old" style="--d:348"></i><i style="--d:336"></i><i style="--d:324"></i><i style="--d:312"></i><i style="--d:300"></i><i style="--d:288"></i><i style="--d:276"></i><i style="--d:264"></i><i style="--d:252"></i><i style="--d:240"></i><i style="--d:228"></i><i class="now" style="--d:216"></i><i style="--d:204"></i><i style="--d:192"></i></div>
+            <div class="arch-n anim" style="--d:80"><span>18</span><span>17</span><span>16</span><span>15</span><span>14</span><span>13</span><span>12</span><span>11</span><span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span><span>28</span></div>
+            <div class="arch-r"><i style="--d:180"></i><i class="old" style="--d:168"></i><i style="--d:156"></i><i style="--d:144"></i><i style="--d:132"></i><i style="--d:120"></i><i style="--d:108"></i><i style="--d:96"></i><i style="--d:84"></i><i style="--d:72"></i><i style="--d:60"></i><i style="--d:48"></i><i style="--d:36"></i><i class="old" style="--d:24"></i><i style="--d:12"></i><i style="--d:0"></i></div>
+            <div class="arch-n anim" style="--d:60"><span>48</span><span>47</span><span>46</span><span>45</span><span>44</span><span>43</span><span>42</span><span>41</span><span>31</span><span>32</span><span>33</span><span>34</span><span>35</span><span>36</span><span>37</span><span>38</span></div>
+          </div>
+          <div class="fline anim m" style="--d:30"><i></i>Composite occlusal · dent 26<u><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg> <span class="only-wide">Acte enregistré dans la fiche</span><span class="only-narrow">Enregistré</span></u></div>
+          <div class="fstats">
+            <div><s>Dernière séance</s><b>12 mars</b></div>
+            <div><s>Actes au dossier</s><b>14</b></div>
+            <div><s>Solde</s><b>0,000 DT</b></div>
+          </div>
+        </div>
+      </div>
+      <div class="act act-3">
+        <div class="sheet anim">
+          <div class="sh">
+            <div><b>Note d’honoraires</b><s>Sonia Ben Amor · séance du 14 septembre</s></div>
+            <u><em>Numéro</em>n° 2026-0184</u>
+          </div>
+          <div class="lines">
+            <div class="li anim" style="--d:220"><s>Composite occlusal</s><em>dent 26</em><b>120,000 DT</b></div>
+            <div class="li anim" style="--d:110"><s>Détartrage</s><em>deux arcades</em><b>80,000 DT</b></div>
+            <div class="li anim" style="--d:0"><s>Radiographie</s><em>rétro-alvéolaire</em><b>40,000 DT</b></div>
+          </div>
+          <div class="tot anim"><s>Total · 3 actes</s><b>240,000 DT</b></div>
+          <div class="sfoot anim"><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg> Établie depuis la séance, sans ressaisie</div>
+        </div>
+      </div>
+      <div class="act act-4">
+        <div class="till anim">
+          <div class="th"><div><s>Caisse du jour</s><em>Lundi 14 septembre</em></div><u>22 mouvements</u></div>
+          <div class="sum anim"><b>4</b> <span class="od"><span style="--from:2;--to:5;--d:90"><b>0</b><b>1</b><b>2</b><b>3</b><b>4</b><b>5</b></span></span><span class="od"><span style="--from:7;--to:11;--d:0"><b>0</b><b>1</b><b>2</b><b>3</b><b>4</b><b>5</b><b>6</b><b>7</b><b>8</b><b>9</b><b>0</b><b>1</b></span></span><b>0</b><b>,000</b><span class="dt">DT</span></div>
+          <div class="mv">
+            <div class="mv-h">Derniers mouvements</div>
+            <div class="mv-r anim" style="--zc:var(--azure-lit); --d:220">
+              <i></i><s>Chèque n° 4471</s><em>échéance 30 sept.</em><b>1 400,000 DT</b>
+            </div>
+            <div class="mv-r anim" style="--zc:var(--green-lit); --d:110">
+              <i></i><s>Espèces · comptoir</s><em>11:20</em><b>620,000 DT</b>
+            </div>
+            <div class="mv-r anim hot" style="--zc:var(--amber-lit); --d:0">
+              <i></i><s>Sonia Ben Amor</s><em>note 2026-0184</em><b>240,000 DT</b><span class="enc">encaissé</span>
+            </div>
+          </div>
+          <div class="rap anim"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.4 20.6 21 12 3.4 3.4v6.8L15.6 12 3.4 13.8z"/></svg> Rappel · contrôle dans 6 mois <em>· SMS</em></div>
+        </div>
+        <div class="thesis anim">Une seule saisie, <b>tout le reste suit.</b></div>
+      </div>
+      <div class="fly anim">240,000 DT</div>
+      <div class="still">
+        <div>
+          <div class="day"><b>Lundi 14 septembre</b><u>Quotidien</u></div>
+          <div class="grid">
+            <div class="row">
+              <div class="hh">08:00</div>
+              <div class="blk" style="--zc:var(--azure); --zt:var(--azure-lit)">
+                <i class="blk-d"></i><div class="blk-t"><b>Détartrage</b><s>Nadia Trabelsi</s></div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="hh">08:45</div>
+              <div class="blk" style="--zc:var(--violet); --zt:var(--violet-lit)">
+                <i class="blk-d"></i><div class="blk-t"><b>Composite · 26</b><s>Sonia Ben Amor</s></div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="hh">11:00</div>
+              <div class="blk" style="--zc:var(--amber); --zt:var(--amber-lit)">
+                <i class="blk-d"></i><div class="blk-t"><b>Devis à remettre</b><s>Leïla Mansour</s></div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="hh">11:45</div>
+              <div class="blk" style="--zc:var(--green); --zt:var(--green-lit)">
+                <i class="blk-d"></i><div class="blk-t"><b>Livraison labo</b><s>Dentaplus</s></div>
+              </div>
+            </div>
+          </div>
+          <div class="rap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.4 20.6 21 12 3.4 3.4v6.8L15.6 12 3.4 13.8z"/></svg> Rappel · contrôle dans 6 mois <em>· SMS</em></div>
+        </div>
+        <div class="card">
+          <div class="fh">
+            <div class="av"><b>SB</b></div>
+            <div class="fh-t"><b>Sonia Ben Amor</b><s>34 ans · dossier n° 1042</s></div>
+            <span class="zchip" style="--zc:var(--violet)">Clinique</span>
+          </div>
+          <div class="hr"></div>
+          <div class="lbl">Odontogramme</div>
+          <div class="arch"><div class="arch-r"><i></i><i></i><i class="old"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="now"></i><i></i><i></i></div><div class="arch-r"><i></i><i class="old"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="old"></i><i></i><i></i></div></div>
+          <div class="fline"><i></i>Composite occlusal · dent 26<u><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg> Enregistré</u></div>
+          <div class="note-strip"><i></i><span class="only-wide">Note d’honoraires n° 2026-0184</span><span class="only-narrow">Note n° 2026-0184</span><b>240,000 DT</b><span class="enc">encaissé</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hud">
+    <div class="caption">
+        <span style="--zc: var(--azure-lit)"><i></i><b>La journée s’organise</b></span>
+        <span style="--zc: var(--violet-lit)"><i></i><b>Le dossier s’ouvre</b></span>
+        <span style="--zc: var(--amber-lit)"><i></i><b>La note se crée</b></span>
+        <span style="--zc: var(--accent-lit)"><i></i><b>La caisse suit</b></span>
+      <span class="cap-still" style="--zc: var(--accent-lit)"><i></i><b>Une seule saisie, tout le reste suit.</b></span>
+    </div>
+    <div class="rail"><i></i><i></i><i></i><i></i></div>
+  </div>
+</figure>
+
+<p class="sr">Animation : une séance notée au fauteuil colore l’agenda de la journée, ouvre la fiche du patient et son odontogramme, crée la note d’honoraires de 240,000 DT, alimente la caisse du jour et fait partir le rappel de contrôle.</p>
+
+</div>
+</body>
+</html>

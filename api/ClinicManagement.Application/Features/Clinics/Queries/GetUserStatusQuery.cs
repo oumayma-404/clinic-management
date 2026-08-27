@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 
@@ -36,7 +37,7 @@ public class GetUserStatusQueryHandler : IRequestHandler<GetUserStatusQuery, Res
             var userId = _clinicContext.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
-                return Result<UserStatusDto>.Failure("User ID not found in token");
+                return Result<UserStatusDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
             var user = await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
@@ -59,12 +60,16 @@ public class GetUserStatusQueryHandler : IRequestHandler<GetUserStatusQuery, Res
             var doctorDtos = doctors.Select(d => new DoctorDto
             {
                 Id = d.Id,
+                UserId = d.UserId, // authoritative link so the client can resolve the current user's doctor by id
                 Name = d.FullName, // Map FullName to Name for backward compatibility
                 FirstName = d.FirstName,
                 LastName = d.LastName,
                 Specialty = d.Specialty,
                 Phone = d.Phone,
-                Email = d.Email
+                Email = d.Email,
+                CodeProfessionnelSante = d.CodeProfessionnelSante,
+                OrdreNumberCnomdt = d.OrdreNumberCnomdt,
+                HasCachet = d.CachetStorageKey != null
             }).ToList();
             
             var dto = new UserStatusDto
@@ -87,18 +92,26 @@ public class GetUserStatusQueryHandler : IRequestHandler<GetUserStatusQuery, Res
                     Id = clinic.Id,
                     Name = clinic.Name,
                     Address = clinic.Address,
+                    City = clinic.City,
                     Phone = clinic.Phone,
                     Email = clinic.Email,
                     Code = clinic.Code,
                     LogoUrl = clinic.LogoUrl,
-                    CreatedAt = clinic.CreatedAt
+                    MatriculeFiscal = clinic.MatriculeFiscal,
+                    VatApplicable = clinic.VatApplicable,
+                    VatRate = clinic.VatRate,
+                    StampDutyEnabled = clinic.StampDutyEnabled,
+                    StampDutyAmount = clinic.StampDutyAmount,
+                    WorkingHours = WorkingHoursSerializer.Parse(clinic.WorkingHoursJson),
+                    CreatedAt = clinic.CreatedAt,
+                    Version = clinic.Version,
                 } : null,
                 Doctors = doctorDtos
             };
 
             return Result<UserStatusDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<UserStatusDto>.Failure($"Error getting user status: {ex.Message}");
         }

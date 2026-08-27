@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The tooth mark, copied path-for-path out of `web/branding/icon.svg` — the same authority the seven web icons are
+  generated from, so the installed app's tile and the browser's favicon are the same mark.
+
+  The viewport is the master's own 0 0 512 512, which maps the whole canvas onto the 108 dp adaptive-icon square.
+  The glyph spans x 152…360 and y 128…404, i.e. 41 % of the width and 54 % of the height, so it sits inside the
+  66 % safe zone with room to spare and no launcher's mask can crop it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <path
+        android:fillColor="@color/brand_on_primary"
+        android:pathData="M256,128C196,128 152,162 152,214C152,252 160,286 168,322C174,350 180,380 190,392C200,404 214,400 218,382C226,344 234,316 244,300C248,292 264,292 268,300C278,316 286,344 294,382C298,400 312,404 322,392C332,380 338,350 344,322C352,286 360,252 360,214C360,162 316,128 256,128Z" />
+</vector>

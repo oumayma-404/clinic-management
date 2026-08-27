@@ -1,4 +1,6 @@
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
@@ -14,13 +16,16 @@ public class GetProcedureTypeQuery : IRequest<Result<ProcedureTypeDto>>
 public class GetProcedureTypeQueryHandler : IRequestHandler<GetProcedureTypeQuery, Result<ProcedureTypeDto>>
 {
     private readonly IProcedureTypeRepository _procedureTypeRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly ILogger<GetProcedureTypeQueryHandler> _logger;
 
     public GetProcedureTypeQueryHandler(
         IProcedureTypeRepository procedureTypeRepository,
+        ICurrentClinicResolver clinicResolver,
         ILogger<GetProcedureTypeQueryHandler> logger)
     {
         _procedureTypeRepository = procedureTypeRepository;
+        _clinicResolver = clinicResolver;
         _logger = logger;
     }
 
@@ -28,28 +33,23 @@ public class GetProcedureTypeQueryHandler : IRequestHandler<GetProcedureTypeQuer
     {
         try
         {
-            var procedureType = await _procedureTypeRepository.GetByIdAsync(request.Id, cancellationToken);
-            if (procedureType == null)
+            // Verify the procedure type belongs to the caller's clinic (explicit scope, not just the
+            // fail-open global filter). Return generic "not found" on mismatch — mirrors the siblings (AC-1).
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
             {
-                return Result<ProcedureTypeDto>.Failure("Procedure type not found");
+                return Result<ProcedureTypeDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
             }
 
-            var dto = new ProcedureTypeDto
+            var procedureType = await _procedureTypeRepository.GetByIdAsync(request.Id, cancellationToken);
+            if (procedureType == null || procedureType.ClinicId != clinicResult.Value)
             {
-                Id = procedureType.Id,
-                Name = procedureType.Name,
-                DefaultDurationMinutes = procedureType.DefaultDurationMinutes,
-                DefaultCost = procedureType.DefaultCost,
-                ColorHex = procedureType.Color.Value,
-                Description = procedureType.Description,
-                IsActive = procedureType.IsActive,
-                CreatedAt = procedureType.CreatedAt,
-                UpdatedAt = procedureType.UpdatedAt
-            };
+                return Result<ProcedureTypeDto>.Failure("Type de procédure introuvable.");
+            }
 
-            return Result<ProcedureTypeDto>.Success(dto);
+            return Result<ProcedureTypeDto>.Success(procedureType.ToDto());
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error retrieving procedure type {ProcedureTypeId}", request.Id);
             return Result<ProcedureTypeDto>.Failure($"Error retrieving procedure type: {ex.Message}");

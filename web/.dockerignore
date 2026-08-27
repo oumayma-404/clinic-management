@@ -1,0 +1,21 @@
+# The Dockerfile installs dependencies and builds from scratch, so anything below is discarded work shipped into
+# the build context — `node_modules` and `.next` alone are the bulk of this folder.
+#
+# ⚠️ `.env*.local` is the load-bearing line: it holds this deployment's own secrets, and `COPY . .` would bake them into
+# an image layer. Runtime configuration comes from the compose file's `environment:`, never from a copied file.
+
+node_modules/
+.next/
+out/
+build/
+
+.env
+.env.local
+.env.*.local
+
+.git/
+.vscode/
+.idea/
+npm-debug.log*
+*.tsbuildinfo
+.DS_Store

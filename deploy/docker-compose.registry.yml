@@ -1,0 +1,40 @@
+# Registry overlay — the three EXPENSIVE images come from a registry instead of being built on the server.
+#
+#   docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml pull api web console
+#   docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml up -d --no-build
+#
+# ⚠️ **This file adds no configuration and changes no behaviour.** It sets `image:` on `api`, `web` and
+# `console` and nothing else, so every decision about how the deployment runs stays in
+# `docker-compose.hosted.yml` — the one place they are documented. An overlay that also carried an environment
+# key would become a second source of truth for it, and the two would drift the first time somebody edited only
+# one of them.
+#
+# ⚠️ **Why only three services.** `certs`, `postgres`, `backup` and `pitr` build from directories *inside*
+# `deploy/` (`./certs`, `./postgres`, `./backup`) and are cheap — alpine plus `apk add`, or `postgres:16` plus a
+# wal-g tarball. They stay local builds: they need those file contexts on the server anyway, they change rarely,
+# and they cost seconds after the first boot. What is worth moving off the server is `api` (a full
+# `dotnet publish`) and `web` + `console` (a Next production build each) — the three that want gigabytes of RAM
+# and minutes of CPU, on the box that is meanwhile serving clinics.
+#
+# ⚠️ **`build:` is still inherited from the base file, and Compose merge cannot remove a key** — so a plain
+# `up -d` would still build these three if the image were missing locally. Always deploy with `--no-build`: it
+# turns "the registry did not have what we asked for" into a refusal instead of a silent 20-minute rebuild of a
+# commit nobody chose. `deploy/README.md` § « Déploiement depuis GitHub » spells the sequence out.
+#
+# ⚠️ **`web` is domain-agnostic and that is what makes one prebuilt image reusable.** Its
+# `NEXT_PUBLIC_API_URL` build arg is the relative `/api`, so the browser calls whatever host served the page.
+# An image built once answers on any `DOMAIN`. Do not "improve" that into an absolute URL: it would bake one
+# deployment's hostname into the bundle and every other deployment would call the wrong origin.
+#
+# The defaults make the file usable with no exports at all; override the prefix to push somewhere else.
+name: clinic-management
+
+services:
+  api:
+    image: ${CLINIC_IMAGE_PREFIX:-ghcr.io/oumayma-404/clinic}-api:${CLINIC_IMAGE_TAG:-latest}
+
+  web:
+    image: ${CLINIC_IMAGE_PREFIX:-ghcr.io/oumayma-404/clinic}-web:${CLINIC_IMAGE_TAG:-latest}
+
+  console:
+    image: ${CLINIC_IMAGE_PREFIX:-ghcr.io/oumayma-404/clinic}-console:${CLINIC_IMAGE_TAG:-latest}

@@ -1,5 +1,6 @@
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
@@ -18,11 +19,16 @@ public class UpdatePatientFamilyHistoryCommand : IRequest<Result<PatientFamilyHi
 public class UpdatePatientFamilyHistoryCommandHandler : IRequestHandler<UpdatePatientFamilyHistoryCommand, Result<PatientFamilyHistoryDto>>
 {
     private readonly IPatientRepository _patientRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
-    public UpdatePatientFamilyHistoryCommandHandler(IPatientRepository patientRepository, IUnitOfWork unitOfWork)
+    public UpdatePatientFamilyHistoryCommandHandler(
+        IPatientRepository patientRepository,
+        ICurrentClinicResolver clinicResolver,
+        IUnitOfWork unitOfWork)
     {
         _patientRepository = patientRepository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
     }
 
@@ -30,16 +36,22 @@ public class UpdatePatientFamilyHistoryCommandHandler : IRequestHandler<UpdatePa
     {
         try
         {
-            var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
-            if (patient == null)
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
             {
-                return Result<PatientFamilyHistoryDto>.Failure("Patient not found");
+                return Result<PatientFamilyHistoryDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+
+            var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
+            if (patient == null || patient.ClinicId != clinicResult.Value)
+            {
+                return Result<PatientFamilyHistoryDto>.Failure("Patient introuvable.");
             }
 
             var entry = patient.FamilyHistoryEntries.FirstOrDefault(e => e.Id == request.Id);
             if (entry == null)
             {
-                return Result<PatientFamilyHistoryDto>.Failure("Family history entry not found");
+                return Result<PatientFamilyHistoryDto>.Failure("Antécédent familial introuvable.");
             }
 
             var relationship = request.Relationship ?? entry.Relationship;
@@ -47,8 +59,8 @@ public class UpdatePatientFamilyHistoryCommandHandler : IRequestHandler<UpdatePa
             var notes = request.Notes ?? entry.Notes;
 
             entry.Update(relationship, condition, notes);
-            // Update only the patient's UpdatedAt property (entry changes are automatically tracked)
-            await _patientRepository.UpdateAsync(patient, cancellationToken);
+            // No write to the patient row. A history entry is a child, and on this entity `UpdatedAt` shares
+            // its row with the concurrency token — stamping it here refused the user’s own next save.
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var dto = new PatientFamilyHistoryDto
@@ -63,7 +75,7 @@ public class UpdatePatientFamilyHistoryCommandHandler : IRequestHandler<UpdatePa
 
             return Result<PatientFamilyHistoryDto>.Success(dto);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<PatientFamilyHistoryDto>.Failure($"Error updating family history entry: {ex.Message}");
         }

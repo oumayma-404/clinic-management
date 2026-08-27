@@ -18,6 +18,7 @@ public class DentalRecordRepository : IDentalRecordRepository
     {
         return await _context.DentalRecords
             .Include(dr => dr.Teeth)
+            .Include(dr => dr.Acts)
             .FirstOrDefaultAsync(dr => dr.Id == id, cancellationToken);
     }
 
@@ -25,10 +26,33 @@ public class DentalRecordRepository : IDentalRecordRepository
     {
         return await _context.DentalRecords
             .Include(dr => dr.Teeth)
+            .Include(dr => dr.Acts)
             .Where(dr => dr.PatientId == patientId)
             .OrderByDescending(dr => dr.InterventionDate)
             .ThenByDescending(dr => dr.CreatedAt)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<(Guid AppointmentId, Guid DentalRecordId, decimal Cost)>> GetAppointmentLinksAsync(
+        Guid clinicId,
+        IReadOnlyCollection<Guid> appointmentIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (appointmentIds.Count == 0)
+        {
+            return Array.Empty<(Guid, Guid, decimal)>();
+        }
+
+        // A light projection: no Teeth, no Acts. The caller needs « is there a fiche, and what was it worth »,
+        // and loading the graph to answer that is the over-fetch IInvoiceRepository's sibling exists to avoid.
+        var rows = await _context.DentalRecords
+            .Where(dr => dr.ClinicId == clinicId
+                         && dr.AppointmentId != null
+                         && appointmentIds.Contains(dr.AppointmentId.Value))
+            .Select(dr => new { AppointmentId = dr.AppointmentId!.Value, DentalRecordId = dr.Id, dr.Cost })
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(r => (r.AppointmentId, r.DentalRecordId, r.Cost)).ToList();
     }
 
     public async Task<DentalRecord> AddAsync(DentalRecord dentalRecord, CancellationToken cancellationToken = default)

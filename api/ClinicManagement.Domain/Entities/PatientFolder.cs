@@ -5,6 +5,10 @@ namespace ClinicManagement.Domain.Entities;
 public class PatientFolder : Entity<Guid>
 {
     public Guid PatientId { get; private set; }
+
+    /// <summary>The owning clinic, denormalised from <see cref="Patient"/>. See <see cref="PatientMedicalHistory.ClinicId"/>.</summary>
+    public Guid ClinicId { get; private set; }
+
     public string Name { get; private set; }
     public Guid? ParentFolderId { get; private set; } // For nested folders support
     public DateTime CreatedAt { get; private set; }
@@ -23,6 +27,7 @@ public class PatientFolder : Entity<Guid>
     public PatientFolder(
         Guid id,
         Guid patientId,
+        Guid clinicId,
         string name,
         Guid? parentFolderId = null)
     {
@@ -31,6 +36,7 @@ public class PatientFolder : Entity<Guid>
 
         Id = id;
         PatientId = patientId;
+        ClinicId = clinicId;
         Name = name.Trim();
         ParentFolderId = parentFolderId;
         CreatedAt = DateTime.UtcNow;

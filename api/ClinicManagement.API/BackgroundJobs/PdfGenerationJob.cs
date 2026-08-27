@@ -1,11 +1,11 @@
 using ClinicManagement.Application.Common.Interfaces;
-using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.Documents;
 using ClinicManagement.Application.Features.Documents.Commands;
 using ClinicManagement.Application.Features.Documents.Queries;
+using ClinicManagement.Domain.Repositories;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using Hangfire;
-using System.Text.Json;
 
 namespace ClinicManagement.API.BackgroundJobs;
 
@@ -13,21 +13,46 @@ public class PdfGenerationJob
 {
     private readonly IPdfGenerationService _pdfService;
     private readonly IMediator _mediator;
+    private readonly IAuditActorProvider _auditActor;
+    private readonly ITenantScope _tenantScope;
+    private readonly IMedicalDocumentRepository _documents;
     private readonly ILogger<PdfGenerationJob> _logger;
 
     public PdfGenerationJob(
         IPdfGenerationService pdfService,
         IMediator mediator,
+        IAuditActorProvider auditActor,
+        ITenantScope tenantScope,
+        IMedicalDocumentRepository documents,
         ILogger<PdfGenerationJob> logger)
     {
         _pdfService = pdfService;
         _mediator = mediator;
+        _auditActor = auditActor;
+        _tenantScope = tenantScope;
+        _documents = documents;
         _logger = logger;
     }
 
     [AutomaticRetry(Attempts = 3)]
     public async Task GenerateAndAttachPdfAsync(Guid documentId, CancellationToken cancellationToken = default)
     {
+        // I6: a job has no token, so without naming itself every row it writes would read « Tâche automatique »
+        // with no clue which one. The declaration happens before anything is saved — see IAuditActorProvider.RunAs.
+        _auditActor.RunAs(nameof(PdfGenerationJob));
+
+        // US-2: this renders ONE document, so it scopes to that document's clinic rather than declaring itself
+        // cross-clinic — SystemWide would switch the backstop off for the whole scope to render a single PDF.
+        // Resolving the owner is the one read that must precede the scope, hence the scope-independent lookup.
+        var owningClinicId = await _documents.GetOwningClinicIdAsync(documentId, cancellationToken);
+        if (owningClinicId is null)
+        {
+            _logger.LogError("Document {DocumentId} has no resolvable clinic; not rendering.", documentId);
+            throw new InvalidOperationException($"Document {documentId} has no resolvable clinic.");
+        }
+
+        _tenantScope.UseClinic(owningClinicId.Value);
+
         try
         {
             _logger.LogInformation("Starting PDF generation for document {DocumentId}", documentId);
@@ -44,30 +69,9 @@ public class PdfGenerationJob
 
             var document = documentResult.Value;
 
-            // Parse content JSON
-            var content = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(document.ContentJson) 
-                ?? new Dictionary<string, JsonElement>();
-
-            // Build PDF data from document
-            var pdfData = new MedicalDocumentPdfData
-            {
-                DocumentType = document.DocumentType,
-                DocumentDate = document.DocumentDate,
-                PatientName = document.PatientName,
-                PatientAge = document.PatientAge,
-                ClinicName = document.ClinicName,
-                ClinicAddress = document.ClinicAddress,
-                ClinicPhone = document.ClinicPhone,
-                DoctorName = document.DoctorName,
-                DoctorSpecialty = document.DoctorSpecialty,
-                RecipientDoctorName = document.RecipientDoctorName,
-                RecipientDoctorSpecialty = document.RecipientDoctorSpecialty,
-                Content = content.ToDictionary(
-                    kvp => kvp.Key,
-                    kvp => kvp.Value.ValueKind == JsonValueKind.String 
-                        ? kvp.Value.GetString() ?? "" 
-                        : JsonSerializer.Serialize(kvp.Value)) // Properly serialize JSON arrays/objects to string
-            };
+            // Shared with the document-email queue command so both render the same bytes for a given document
+            // (Part C snapshot fields included) — see MedicalDocumentPdfMapping.
+            var pdfData = MedicalDocumentPdfMapping.ToPdfData(document);
 
             // Generate PDF from structured data
             var pdfBytes = await _pdfService.GeneratePdfFromDocumentDataAsync(pdfData, cancellationToken);

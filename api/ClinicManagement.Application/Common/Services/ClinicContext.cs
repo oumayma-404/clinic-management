@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using ClinicManagement.Application.Common.Interfaces;
-using ClinicManagement.Application.Common.Exceptions;
 using Microsoft.AspNetCore.Http;
 
 namespace ClinicManagement.Application.Common.Services;
@@ -68,20 +67,6 @@ public class ClinicContext : IClinicContext
         }
 
         return email;
-    }
-
-    public bool BelongsToClinic(Guid clinicId)
-    {
-        var userClinicId = GetClinicId();
-        return userClinicId.HasValue && userClinicId.Value == clinicId;
-    }
-
-    public void EnsureClinicAccess(Guid clinicId)
-    {
-        if (!BelongsToClinic(clinicId))
-        {
-            throw new ForbiddenAccessException("Access denied. You do not have permission to access this clinic's data.");
-        }
     }
 }
 

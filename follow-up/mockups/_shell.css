@@ -1,0 +1,96 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   Design tokens copied VERBATIM from web/app/globals.css (:root, light mode).
+   The app is always light mode — next-themes is installed but never imported,
+   so nothing ever adds .dark to the DOM.
+   ────────────────────────────────────────────────────────────────────────── */
+:root {
+  --background: oklch(0.99 0 0);
+  --foreground: oklch(0.18 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0 0);
+  --primary: oklch(0.52 0.14 245);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.97 0.005 250);
+  --secondary-foreground: oklch(0.18 0 0);
+  --muted: oklch(0.97 0.005 250);
+  --muted-foreground: oklch(0.48 0.01 250);
+  --accent: oklch(0.965 0.01 245);
+  --accent-foreground: oklch(0.35 0.12 245);
+  --destructive: oklch(0.58 0.2 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.93 0.005 250);
+  --input: oklch(0.93 0.005 250);
+  --ring: oklch(0.52 0.14 245);
+  --radius: 0.5rem;
+  --sidebar: oklch(1 0 0);
+}
+
+@theme inline {
+  --font-sans: "Geist", "Geist Fallback";
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* mirrors globals.css @layer base */
+* { border-color: var(--border); }
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Mockup-only annotation chrome (NOT part of the app) ───────────────── */
+.mk-note {
+  font-size: 11px;
+  line-height: 1.5;
+  border-left: 3px solid oklch(0.52 0.14 245);
+  background: oklch(0.965 0.01 245);
+  color: oklch(0.35 0.12 245);
+  padding: 8px 10px;
+  border-radius: 0 6px 6px 0;
+  margin: 8px 0;
+}
+.mk-note b { font-weight: 600; }
+.mk-bar {
+  background: oklch(0.18 0 0);
+  color: oklch(0.99 0 0);
+  font-size: 12px;
+  padding: 8px 16px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.mk-bar button {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: oklch(0.30 0.01 250);
+  color: oklch(0.99 0 0);
+  cursor: pointer;
+}
+.mk-bar button[aria-pressed="true"] { background: oklch(0.52 0.14 245); }

@@ -24,16 +24,6 @@ public interface IClinicContext
     /// Gets the current user's email from JWT claims
     /// </summary>
     string? GetUserEmail();
-
-    /// <summary>
-    /// Checks if the current user belongs to the specified clinic
-    /// </summary>
-    bool BelongsToClinic(Guid clinicId);
-
-    /// <summary>
-    /// Throws ForbiddenAccessException if user doesn't belong to the clinic
-    /// </summary>
-    void EnsureClinicAccess(Guid clinicId);
 }
 
 

@@ -1,0 +1,493 @@
+# Production compose for the HOSTED MULTI-TENANT deployment (multi-tenant-cloud US-6).
+#
+#   docker compose -f docker-compose.hosted.yml up -d --build
+#
+# Many clinics, one hosted backend, each clinic running the existing Windows desktop client and
+# logging in with the product's OWN accounts — never Auth0. This is docker-compose.prod.yml's
+# infrastructure with the LAN install's authentication, which is why only `api` and `web` are
+# written out below: postgres, minio, caddy, backup and pitr `extends` their prod definitions so
+# there is one place to change a backup schedule or a WAL-G prefix.
+#
+# ⚠️ `extends` deliberately does NOT carry `depends_on` (Compose excludes it), so every dependency
+# an extended service had is restated here. A silently-dropped `depends_on` starts the API against a
+# database that is not accepting connections yet — R-6's failure shape exactly: it works on a warm
+# machine and fails on a cold boot.
+#
+# Every secret comes from the gitignored `.env` beside this file (see .env.hosted.example).
+# Only `caddy` publishes ports; everything else is reachable on the internal network alone.
+name: clinic-management
+
+services:
+  # The deployment's internal certificate authority (hosted-security-hardening Part 2). One definition, in the
+  # prod file, because both hosted kinds run the identical one-shot — see ./certs/issue.sh.
+  certs:
+    extends:
+      file: docker-compose.prod.yml
+      service: certs
+
+  postgres:
+    extends:
+      file: docker-compose.prod.yml
+      service: postgres
+    # Restated: `extends` does not carry depends_on, and without this postgres starts before the certificates
+    # exist — then fails on a missing ssl_cert_file, in a message about a file rather than about ordering.
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+
+  minio:
+    extends:
+      file: docker-compose.prod.yml
+      service: minio
+    # Restated for the same reason: MinIO with `--certs-dir` and no certificate serves plain HTTP, and the API
+    # then refuses to start against it — correct, and diagnosed two containers away from the cause.
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+
+  api:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    container_name: clinic-api-prod
+    restart: unless-stopped
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5000
+      # THE key of this file. Absent, the profile is derived from Auth:Mode → CloudBrowser → Auth0 —
+      # and no Auth0__* is set here, so JWT bearer is never configured and every request is
+      # anonymous-or-401. Named explicitly, which is also why Auth__Mode is deliberately absent: the
+      # derivation exists for installs that predate this key, not as a second place to state the answer.
+      Deployment__Profile: HostedMultiTenant
+      # The console's second Kestrel listener (platform-console). Absent or 0 ⇒ the console is ABSENT: no
+      # listener, no reachable route, 404 on every /api/platform path — never present-and-refusing (AC-1.8).
+      # ⚠️ Program.cs binds this port and the public one in ONE ConfigureKestrel call. It has to: nothing here
+      # calls ConfigureKestrel today, ASPNETCORE_URLS above is the only thing binding 5000, and an explicit
+      # Kestrel endpoint overrides that configuration wholesale — so binding the console alone would unbind 5000
+      # and take the entire product down while the console itself worked.
+      Console__Port: ${CONSOLE_PORT:-5443}
+      # ⚠️ NEVER the clinic's Auth__Local__SigningKey. Distinct issuer, audience and key are what make a console
+      # token and a clinic token fail each other's validation — AC-1.4's « refused as unauthenticated » is a
+      # property of the signature, not of a policy. Startup FAILS LOUD if this is absent while Console__Port > 0.
+      Console__SigningKey_FILE: /run/secrets/console_signing_key
+      # ⚠️ `SSL Mode=VerifyFull` + `Root Certificate=`, and startup FAILS LOUD without both (FR-2.1/FR-2.5 —
+      # Startup/TransportAssurance.cs). `Require` would encrypt and accept any certificate, which stops a
+      # packet capture and not an impostor on this bridge network; only verify-full checks identity. The host
+      # must stay `postgres`: that is the name in the internal leaf's SAN and what verify-full compares.
+      # ⚠️ FR-3.10 deliberately stops here, and the reason is worth stating: this string and MinIO__SecretKey
+      # below carry secrets SHARED with containers that are not .NET — postgres, minio, and both backup
+      # sidecars, each of which needs its own *_FILE convention. Moving only the API's copy would leave the same
+      # password in three other containers' environments while the compose file implied it had left, which is
+      # worse than not moving it. They move with their sidecars — see follow-up/hosted-secrets-to-files.md.
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=VerifyFull;Root Certificate=/certs/ca.crt"
+      # This profile owns its accounts, so THIS is what signs and validates every bearer token and every 12-hour
+      # refresh cookie. Absent, LocalAuthConfig generates a key into /app/.local/ — on the container's ephemeral
+      # layer, silently — so every `up -d --build` mints a new one and signs the whole fleet out mid-shift with
+      # nothing in any log naming the cause, and scaling `api` past one replica breaks authentication outright
+      # (a token minted by one replica fails signature validation on the other). Same defect the key ring below
+      # required a volume for; this is the other per-install secret in the container.
+      Auth__Local__SigningKey_FILE: /run/secrets/auth_local_signing_key
+      # Whose X-Forwarded-For may be believed. Caddy and the web container are the only hops in front of the API,
+      # and both reach it over this bridge network — without this every address-keyed partition (the auth
+      # limiter's ceiling, the API limiter's fall-back, the per-source login lockout) collapses into ONE bucket
+      # for the whole service, so ordinary load 429s and one caller can lock every clinic out of logging in.
+      Security__TrustedProxies__0: ${INTERNAL_SUBNET:-172.20.0.0/16}
+      # OAuth success redirect + primary CORS origin (same-origin, so CORS is not exercised by the browser).
+      FrontendUrl: "https://${DOMAIN}"
+      # Required in this profile — startup fails loud when it is unset (US-4/US-6 step 17). The named
+      # volume below is the other half: a path with no volume behind it works until the first redeploy,
+      # after which every clinic's reminder channel reports « non configuré » because the ring that
+      # encrypted its credentials is gone.
+      DataProtection__KeyRingPath: /keys
+      # FR-3.1 — the certificate the key ring is ENCRYPTED WITH. Startup FAILS LOUD without it outside
+      # Development, and that is deliberate: supplying a custom key repository (the volume above) disables the
+      # framework's own key encryption, so before this the ring sat in CLEARTEXT on that volume — the master
+      # keys that decrypt every cabinet's reminder credentials and every administrator's second factor, readable
+      # from a copy of the disk with no key at all.
+      #
+      # ⚠️ Configuring this protects keys the ring writes FROM THEN ON and re-wraps nothing already there. Run
+      # `docker exec clinic-api-prod dotnet ClinicManagement.API.dll reprotect-secrets --rotate`, confirm
+      # `verify-schema` reports secrets-protected-under-current-ring at zero, and ONLY THEN remove the old
+      # plaintext key files. The reverse order destroys every second factor at once (R-2). deploy/KEY-CUSTODY.md.
+      #
+      # ⚠️ Back up the CERTIFICATE separately from postgres_data — it is now the thing that must travel apart,
+      # not the ring (FR-3.11).
+      DataProtection__CertificatePath: /run/secrets/keyring_certificate
+      DataProtection__CertificatePassword_FILE: /run/secrets/keyring_certificate_password
+      # Superseded generations kept so ciphertext written under them still opens (FR-3.2). Two is what
+      # KEY-CUSTODY.md tells operators to keep; leave these unset until the first rotation.
+      # DataProtection__PreviousCertificates__0__Path: /run/secrets/keyring_certificate_previous
+      # DataProtection__PreviousCertificates__0__Password_FILE: /run/secrets/keyring_certificate_previous_password
+      # FR-3.9 — which generations this deployment can read, stamped beside each dump by the backup sidecar.
+      DataProtection__GenerationMarkerPath: /keyring-marker/generation
+      GoogleCalendar__ClientId: ${GOOGLE_CLIENT_ID}
+      GoogleCalendar__ClientSecret_FILE: /run/secrets/google_client_secret
+      GoogleCalendar__RedirectUri: "https://${DOMAIN}/api/googlecalendar/callback"
+      # No GoogleCalendar__RefreshToken / __CalendarId: each clinic connects its own calendar and the
+      # token is stored per-clinic on the Clinic row. A shared one here would sync every clinic's
+      # appointments into one operator calendar.
+      MinIO__Endpoint: "minio:9000"
+      MinIO__AccessKey: ${MINIO_ROOT_USER}
+      MinIO__SecretKey: ${MINIO_ROOT_PASSWORD}
+      # FR-2.2. The root below is what the Minio client verifies MinIO's leaf against; the container's system
+      # trust store knows nothing about a CA minted for this deployment, so without it TLS fails closed.
+      MinIO__UseSSL: "true"
+      MinIO__RootCertificate: /certs/ca.crt
+      # ── Résidence des données ────────────────────────────────────────────────────────────────────
+      # Where this deployment's data may physically end up. `DataResidencyAssurance` REFUSES TO START if a
+      # destination it can see is not on this list; empty means undeclared, which boots but warns every time.
+      #
+      # ⚠️ The two backup variables below are passed to the API **for verification only** — it neither reads
+      # nor writes those destinations, the `backup` and `pitr` sidecars do. They are here because a value no
+      # process can check is a value nobody checks: the sidecars have no startup guard of their own, and the
+      # one that shipped as a Backblaze-Oregon default was invisible at every layer until somebody read the
+      # template. `Backup__Remote` is still only *reported* — it names an rclone remote whose host lives in
+      # rclone.conf, which no container but `backup` can read.
+      Residency__AllowedEgressHosts__0: ${RESIDENCY_ALLOWED_EGRESS_HOSTS_0:-}
+      Residency__AllowedEgressHosts__1: ${RESIDENCY_ALLOWED_EGRESS_HOSTS_1:-}
+      Backup__PitrEndpoint: ${WALG_S3_ENDPOINT:-}
+      Backup__Remote: ${BACKUP_REMOTE:-}
+      # ── Abonnements (clinic-subscription) ────────────────────────────────────────────────────────
+      # ⚠️ **This is the ONLY deployment kind where the subscription gate exists, and « Abonnement » is where a
+      # refused save sends the cabinet.** Left unset, `appsettings.json` ships every price at 0 — which that file's
+      # own comment says reads as « tarif non publié » — so the screen renders « Aucun tarif n'est publié », « Les
+      # modalités de paiement ne sont pas publiées… » and « Aucune coordonnée n'est publiée », to a practice that
+      # has just been made read-only. « Paying is never blocked on not knowing what to do » (US-2) needs these four.
+      #
+      # ⚠️ There is deliberately **no `Subscription__Enabled`** to find: enforcement follows `Deployment__Profile`
+      # above and nothing an operator can set (AC-7.3). A price left blank reads as « sur devis », not as 0,000 DT.
+      Subscription__TrialDays: ${SUBSCRIPTION_TRIAL_DAYS:-30}
+      Subscription__Plans__Cabinet__PriceMonthlyDt: ${SUBSCRIPTION_CABINET_MONTHLY_DT:-}
+      Subscription__Plans__Cabinet__PriceAnnualDt: ${SUBSCRIPTION_CABINET_ANNUAL_DT:-}
+      Subscription__Plans__Clinique__PriceMonthlyDt: ${SUBSCRIPTION_CLINIQUE_MONTHLY_DT:-}
+      Subscription__Plans__Clinique__PriceAnnualDt: ${SUBSCRIPTION_CLINIQUE_ANNUAL_DT:-}
+      Subscription__Plans__SurMesure__PriceMonthlyDt: ${SUBSCRIPTION_SURMESURE_MONTHLY_DT:-}
+      Subscription__Plans__SurMesure__PriceAnnualDt: ${SUBSCRIPTION_SURMESURE_ANNUAL_DT:-}
+      Subscription__PaymentInstructions: ${SUBSCRIPTION_PAYMENT_INSTRUCTIONS:-}
+      Subscription__ContactEmail: ${SUBSCRIPTION_CONTACT_EMAIL:-}
+      Subscription__ContactPhone: ${SUBSCRIPTION_CONTACT_PHONE:-}
+      # FR-4.4 / OQ-5 — 30 days of retention, one file a day. Stated here rather than left at appsettings'
+      # default of 7, because the volume below is what makes retention mean anything at all.
+      Serilog__WriteTo__1__Args__retainedFileCountLimit: "30"
+      # FR-4.5 — the policy is ENFORCING here. It has existed and been unset for the life of this deployment,
+      # which is the failure mode AC-5 exists to prevent: a security control that is present and inert reads as
+      # present. `UnitTests/Deploy/TransportConfigurationTests` asserts this file carries it.
+      Security__EnforceCsp: "true"
+      # FR-4.1 — the audit chain's key, and the deployment REFUSES TO START without it (AuditChainKeyProvider).
+      # ⚠️ Deliberately NOT the Data Protection ring: Part 3 re-protects that ring and FR-3.9 makes it the thing
+      # a restore may fail to read, so chain verification has to stay independently checkable.
+      # ⚠️ Losing it does not lose data — it makes every entry written under it unverifiable, which reads exactly
+      # like tampering. Back it up with the key-ring certificate; deploy/KEY-CUSTODY.md.
+      Audit__ChainKey_FILE: /run/secrets/audit_chain_key
+
+      # ── Courrier sortant (SMTP) ────────────────────────────────────────────────────────────────────────────
+      # ⚠️ **Five flows are dead without this, and every one of them fails at the moment somebody is locked out
+      # or trying to get in.** `ITransactionalEmailSender` reads these per-install keys — never
+      # `ResolvedReminderSettings`, because a clinic self-signup has no clinic to resolve against (the interface's
+      # own remarks say why). It gates:
+      #   POST /api/auth/signup           — the verification link; NOTHING is written until it is answered
+      #   POST /api/auth/password-reset   — « mot de passe oublié », the only way back a person can take alone
+      #   PUT  …/users/{id}/reset-password — an administrator re-credentialling a member of staff
+      #   platform-account --reset-password / --reset-second-factor — the vendor's two recovery verbs
+      # and it is the per-install fallback under `IDocumentEmailSender` for a clinic that has named no host itself.
+      #
+      # ⚠️ **`Notification:Smtp:Server` ships EMPTY in appsettings.json and was wired into no deployment template
+      # at all** — the failure shape this file documents everywhere else, and it reached go-live. `SmtpConfig.Host`
+      # trims empty to null, `IsConfigured` reads false, and `SignUpClinicCommand` answers a French refusal
+      # **before writing anything**: the deployment comes up Healthy, serves every screen, and cannot let one new
+      # cabinet in — with nothing in any log tying that to a value nobody had been asked for.
+      #
+      # ⚠️ **This block belongs to THIS profile and not to the LAN file**, and that is a capability decision, not
+      # an oversight: `AllowsPublicClinicSignup` and `AllowsPasswordResetByEmail` are true here and false on
+      # `SelfHostedLan`, where a surgery PC has no mailbox and the login screen deliberately offers no « mot de
+      # passe oublié » (`reset-admin-password` on the console is that install's answer). Unset *here* is not a
+      # degraded reminder — it is a closed front door.
+      #
+      # ⚠️ The link inside those emails comes from `FrontendUrl` above, not from a key of its own. Unset, every
+      # verification link would point at the RECIPIENT's own machine — which is why both are asked before a
+      # signup is accepted, and why they must not drift onto different hosts.
+      Notification__Smtp__Server: ${SMTP_SERVER:-}
+      Notification__Smtp__Port: ${SMTP_PORT:-587}
+      Notification__Smtp__UseTls: ${SMTP_USE_TLS:-true}
+      Notification__Smtp__Username: ${SMTP_USERNAME:-}
+      # ⚠️ A literal, deliberately — the one credential in this file that is not a `*_FILE` secret, same treatment
+      # as `Meta__AppSecret` below and for a mechanical reason: a `*_FILE` variable naming a file that does not
+      # exist is a **startup REFUSAL** (`FileBackedSecretsProvider`), and compose validates a secret's source the
+      # moment a service lists it. Wiring it unconditionally would take every deployment that has not yet set up
+      # email off the air on the next `up -d`. To move it out of the environment once a mailbox exists, add a
+      # `smtp_password:` entry to the `secrets:` block at the foot of this file, list it under this service's
+      # `secrets:`, set `Notification__Smtp__Password_FILE: /run/secrets/smtp_password`, and only then drop the
+      # literal — the file wins over a literal of the same name, so that order is safe at every step.
+      Notification__Smtp__Password: ${SMTP_PASSWORD:-}
+      # The envelope sender. `SmtpConfig.FromAddress` falls back to the username when THAT is itself an address,
+      # which is the commonest mailbox-provider setup — so these two are only needed when they differ.
+      Notification__Smtp__FromAddress: ${SMTP_FROM_ADDRESS:-}
+      Notification__Smtp__FromName: ${SMTP_FROM_NAME:-}
+
+      # ── Meta / WhatsApp ────────────────────────────────────────────────────────────────────────────────────
+      # ⚠️ **The Graph version is read from the SAME key as the web image's build arg below**, and that is the
+      # whole point of it being here. It was pinned in two independent places — `MetaConfig.DefaultGraphApiVersion`
+      # (server) and a hard-coded constant in `components/reminder-settings.tsx` (browser SDK) — so setting
+      # `Meta__GraphApiVersion` moved the server's Graph calls and silently left the browser a version behind.
+      # One key, both consumers.
+      Meta__GraphApiVersion: ${META_GRAPH_API_VERSION:-v21.0}
+      # The platform app behind Embedded Signup. `vendor-whatsapp-messaging-quota` is what makes this flow
+      # load-bearing: a cabinet connects WhatsApp through it and never touches Meta itself (US-1).
+      #
+      # ⚠️ Unset ⇒ `IVendorMessagingAvailability.CanOnboardCabinets` is false, so « Connecter WhatsApp » is
+      #    **absent** rather than present-and-failing. The forfait section, its figures and the console stay —
+      #    an allowance a cabinet cannot yet spend is still a real allowance.
+      Meta__AppId: ${META_APP_ID:-}
+      Meta__AppSecret: ${META_APP_SECRET:-}
+      # What Meta echoes back once, in the template-status webhook's subscription handshake. A secret of OUR
+      # choosing and deliberately NOT the app secret, which signs every payload and is pasted nowhere.
+      #
+      # ⚠️ Unset ⇒ the handshake **refuses**, never « accept anything »: the one request it gates decides whether
+      #    Meta delivers to us at all, so an absent value must fail the subscription loudly rather than register an
+      #    endpoint anybody can subscribe. The webhook's POST refuses on an absent `Meta__AppSecret` for the same
+      #    reason — and without it a cabinet sits at « en attente de validation » until the daily poll catches up.
+      Meta__WebhookVerifyToken: ${META_WEBHOOK_VERIFY_TOKEN:-}
+
+      # ── Forfait de rappels WhatsApp (HostedMultiTenant only) ───────────────────────────────────────────────
+      # The vendor buys the WhatsApp messages; a cabinet spends them. Enforcement follows `Deployment__Profile`
+      # and, exactly as with subscriptions, there is deliberately NO `Messaging__Enabled` — a key able to flip it
+      # would put a clinic's own PC one config edit away from holding its own reminders.
+      #
+      # What every NEW cabinet is provisioned with. Read *while a clinic is being created*, so anything
+      # unreadable, absent or out of range falls back to 200 rather than throwing and aborting the creation.
+      # Changing it moves no existing cabinet — that is `messaging-grant --per-month`'s job.
+      Messaging__DefaultMessagesPerMonth: ${MESSAGING_DEFAULT_MESSAGES_PER_MONTH:-200}
+      # How a practice that has run out reaches the vendor. Rendered VERBATIM on the cabinet's own « Rappels »
+      # screen beside « forfait épuisé », so unset means the screen states the exhaustion with no route out of
+      # it — absent reads as absent, never as an invented address.
+      Messaging__ContactEmail: ${MESSAGING_CONTACT_EMAIL:-}
+      Messaging__ContactPhone: ${MESSAGING_CONTACT_PHONE:-}
+    volumes:
+      - dataprotection_keys:/keys
+      # The internal root the connection string and the Minio client above both name. Read-only: this
+      # container verifies against the CA and never issues anything.
+      - internal_certs:/certs:ro
+      # Read-WRITE — the API is the only writer of the FR-3.9 marker. Every other consumer mounts it `:ro`.
+      - keyring_marker:/keyring-marker
+      # FR-4.4 — logs survive the container. Until this they lived on the container's ephemeral layer plus
+      # stdout, so every restart erased the record of what the deployment had just done, which is the opposite
+      # of what an audit needs from the one file nobody can edit through the application.
+      #
+      # ⚠️ It lands in the SAME change as the PHI scrub above it, and FR-4.4 says so out loud: making logs
+      # durable persists what was previously ephemeral, so a patient's name written to a file that now survives
+      # is strictly worse than one written to a file that vanished.
+      - api_logs:/app/logs
+    secrets:
+      - keyring_certificate
+      - keyring_certificate_password
+      - audit_chain_key
+      - console_signing_key
+      - auth_local_signing_key
+      - google_client_secret
+    networks: [internal]
+    # No `ports:` — Caddy proxies /api/*, /hub/* and /health to this service over the internal network.
+    #
+    # ⚠️ No container-level `healthcheck:` here, deliberately. The endpoint exists — GET /health reports the
+    # database round trip and the storage probe — but `mcr.microsoft.com/dotnet/aspnet:8.0` ships no HTTP client
+    # (no curl, no wget), so a CMD-SHELL test would need one installed into the image the Cloud profile also
+    # builds from. Poll it from outside instead: `https://${DOMAIN}/health` (Caddy routes it) answers 200 for
+    # Healthy AND Degraded, 503 only when the database is unreachable.
+    #
+    # ⚠️ `restore-backup` deliberately REFUSES in this profile: its safety interlock is « no restore while the
+    # application is listening », and it looks for a listener on its own machine — here the API listens in this
+    # container, so from a one-off container the check would pass and pg_restore --clean would drop tables under
+    # a live application. The three read-only/recovery verbs do run:
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll verify-schema
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll reconcile-money
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll provision-clinic --name … --admin-email … --admin-name …
+    #
+    # ⚠️ So do the five vendor subscription verbs — and on this profile they are the ONLY way to extend a cabinet's
+    # entitlement (FR-6: no HTTP endpoint grants one, deliberately). See deploy/README.md for the arguments:
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll subscription-report [--within 7] [--clinic <id|email>]
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll subscription-grant --clinic <id|email> --months 12 …
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll subscription-cancel --clinic <id|email> --entry <id> --reason "…"
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll subscription-suspend --clinic <id|email> --reason "…"
+    #   docker exec clinic-api-prod dotnet ClinicManagement.API.dll subscription-unsuspend --clinic <id|email>
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        # Relative => same-origin: the browser calls whatever host it loaded from, so one image works
+        # on any domain and the SignalR hub URL resolves to https://${DOMAIN}/hub/clinic.
+        NEXT_PUBLIC_API_URL: /api
+        # ⚠️ **This is the fix for a defect that made the whole profile unusable.** `AUTH_MODE` below is a
+        # *runtime* variable, and the comment beside it correctly says that at `cloud` « there is no way to log
+        # in at all » — but `/login` is **statically prerendered** and `app/layout.tsx` chooses the session
+        # provider server-side, so the mode is baked by `npm run build`, when `AUTH_MODE` was unset. Every image
+        # built from this file shipped `CloudSessionProvider`: the Auth0 landing page, on a deployment with no
+        # Auth0, and a « Se connecter » button that goes nowhere. Both the build arg and the runtime variable
+        # are required — `middleware.ts` and the `/bff/auth/*` handlers read the latter per request.
+        AUTH_MODE: local
+        # ⚠️ A build ARG, not a runtime variable: `NEXT_PUBLIC_*` is substituted into the bundle by
+        # `npm run build`, so a runtime value never reaches the browser (the same trap `NEXT_PUBLIC_API_URL`
+        # above documents). It reads the **same** `META_GRAPH_API_VERSION` key the api service's
+        # `Meta__GraphApiVersion` does, so the browser SDK and the server's Graph calls cannot drift apart.
+        NEXT_PUBLIC_META_GRAPH_VERSION: ${META_GRAPH_API_VERSION:-v21.0}
+        # The two PUBLIC ids the browser SDK needs (an app id and an Embedded-Signup configuration id — neither is
+        # a secret). ⚠️ Baked at BUILD time like the version above, so changing them needs `up -d --build`.
+        NEXT_PUBLIC_META_APP_ID: ${META_APP_ID:-}
+        NEXT_PUBLIC_META_CONFIG_ID: ${META_CONFIG_ID:-}
+    container_name: clinic-web-prod
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      # Mounts LocalSessionProvider and un-gates the /bff/auth/* routes. Left at `cloud` the app expects
+      # Auth0 and there is no way to log in at all.
+      AUTH_MODE: local
+      # The BFF handlers fetch server-side, where a relative /api has no origin — their default is
+      # http://localhost:5000/api, which inside this container is Next itself. Omitted, login, refresh
+      # and change-password all 500, and only those.
+      API_INTERNAL_URL: http://api:5000/api
+      # Caddy terminates TLS and speaks plain HTTP to this container, so the handler would derive a
+      # non-secure scheme from its own hop and drop `Secure` from an internet-facing session cookie.
+      AUTH_COOKIE_SECURE: "true"
+    networks: [internal]
+    # No `ports:` — Caddy proxies everything except /api/* and /hub/* to this service.
+
+  # The vendor's back-office (platform-console FR-2) — its OWN image, containing none of the clinic bundle.
+  # That separation is the requirement rather than a packaging preference: the public front door proxies
+  # everything outside /api to `web`, so a console screen shipped in that bundle would be publicly reachable by
+  # default and a proxy rule would be the only thing hiding it.
+  console:
+    build:
+      context: ../console
+      dockerfile: Dockerfile
+    container_name: clinic-console-prod
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      # Straight to the API's SECOND listener over the internal network. It bypasses Caddy deliberately: this is
+      # a server-to-server hop inside the compose network, and routing it back out through the proxy would make
+      # the console depend on its own public site being up to reach an API it can already see.
+      CONSOLE_API_URL: http://api:5443/api
+    networks:
+      - internal
+    # No `ports:` — only Caddy's loopback-published 9443 reaches it.
+
+  caddy:
+    extends:
+      file: docker-compose.prod.yml
+      service: caddy
+    # Restated: `extends` does not carry depends_on.
+    depends_on:
+      - api
+      - web
+      - console
+    ports:
+      # ⚠️ 127.0.0.1: — the console's address is NOT published to the internet (FR-2). Binding this to 0.0.0.0
+      # would put the highest-privilege surface in the product on a public port behind nothing but a password,
+      # and the two-way port gate inside the API would not save it: the gate decides WHICH routes answer on this
+      # port, not who may reach it. Reaching it is meant to require `ssh -L 9443:127.0.0.1:9443 <host>`.
+      #
+      # `extends` does not merge lists, so the two public ports the prod file declares are restated here.
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:9443:9443"
+
+  backup:
+    extends:
+      file: docker-compose.prod.yml
+      service: backup
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
+  pitr:
+    extends:
+      file: docker-compose.prod.yml
+      service: pitr
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
+networks:
+  internal:
+    driver: bridge
+    # Pinned, because Security__TrustedProxies above names it. Docker otherwise picks a range from its own pool and
+    # a proxy-trust CIDR guessed against that would either be wrong (every partition collapses again) or too wide.
+    ipam:
+      config:
+        - subnet: ${INTERNAL_SUBNET:-172.20.0.0/16}
+
+# FR-3.10 — secrets reach the process as FILES, not as environment variables.
+#
+# ⚠️ Why this is not cosmetic: an environment variable is visible to `docker inspect`, to
+# /proc/<pid>/environ, to every child process the app spawns and to any crash dump — and it is what an ops
+# tool prints by accident. A file is read by the process and merely NAMED everywhere else.
+#
+# ⚠️ Each entry points at a path on the HOST, kept out of git. `docker compose` mounts them read-only under
+# /run/secrets/<name>. The application reads a `*_FILE` variable's file through the configuration layer
+# added in InstallConfiguration.AddInstallLayers — which the host and every console verb share, so a verb
+# cannot resolve a different connection string from the app it is maintaining.
+#
+# ⚠️ A `*_FILE` variable WINS over a literal of the same name, and startup REFUSES a named file that is
+# missing or empty rather than yielding "". Moving a secret is two edits (set the file, drop the literal); if
+# the literal won, the state between them would keep reading the old value while appearing to have moved.
+secrets:
+  keyring_certificate:
+    file: ${KEYRING_CERTIFICATE_FILE:-./secrets/keyring-certificate.pfx}
+  keyring_certificate_password:
+    file: ${KEYRING_CERTIFICATE_PASSWORD_FILE:-./secrets/keyring-certificate-password}
+  # FR-4.1 — at least 32 bytes, base64. Generate once and keep it: `openssl rand -base64 48`.
+  # ⚠️ Replacing it does not lose data; it makes every entry written under the old one read as tampering.
+  audit_chain_key:
+    file: ${AUDIT_CHAIN_KEY_FILE:-./secrets/audit-chain-key}
+  console_signing_key:
+    file: ${CONSOLE_SIGNING_KEY_FILE:-./secrets/console-signing-key}
+  auth_local_signing_key:
+    file: ${AUTH_LOCAL_SIGNING_KEY_FILE:-./secrets/auth-local-signing-key}
+  google_client_secret:
+    file: ${GOOGLE_CLIENT_SECRET_FILE:-./secrets/google-client-secret}
+
+volumes:
+  # FR-4.4 — the API's rolling log files, 30 days of them. On the container layer they vanished on every
+  # restart; a log an audit can rely on has to outlive the process that wrote it.
+  api_logs:
+  postgres_data:
+  minio_data:
+  caddy_data:
+  caddy_config:
+  backups:
+  # The Data Protection key ring. Everything encrypted at rest — each clinic's reminder credentials, and from US-4
+  # its TTN secrets — is unreadable without it, so it must be backed up.
+  #
+  # ⚠️ Since Part 3 the ring is ENCRYPTED by DataProtection__CertificatePath, so it may travel with postgres_data —
+  # and what must now travel apart is that CERTIFICATE (FR-3.11). This comment used to say the opposite, which was
+  # true only while the ring sat in cleartext; deploy/KEY-CUSTODY.md is the one voice on it.
+  dataprotection_keys:
+  # The internal CA + the postgres and minio leaves (hosted-security-hardening Part 2). Written once by the
+  # `certs` one-shot above, mounted read-only by everything else.
+  #
+  # ⚠️ Back it up SEPARATELY from postgres_data too, and for a sharper reason than the ring above: this volume
+  # holds the CA's PRIVATE KEY, so one archive with both means whoever holds it can impersonate the database
+  # and the object store to any container that trusts this root.
+  #
+  # ⚠️ Losing the volume is recoverable — the one-shot mints a fresh set and every consumer reads the new root
+  # from the same place, so they move together. Recreating it while containers are already running against the
+  # old root is not: those keep verifying against a CA that no longer signs anything they can reach.
+  internal_certs:
+  # Which key-ring generations this deployment can read (FR-3.9) — key IDs only, no key material, which is what
+  # makes mounting it into the backup sidecar safe where dataprotection_keys must never go.
+  keyring_marker:

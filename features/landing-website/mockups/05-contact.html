@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestion Clinique — Contact | Maquette v3</title>
+<link rel="stylesheet" href="shared-styles.css">
+<style>
+  .f { display: grid; gap: 7px; }
+  .f label { font-size: 13.5px; color: var(--ink-2); letter-spacing: 0; }
+  .f input, .f textarea, .f select {
+    font-family: inherit; font-size: 16px; color: var(--ink); letter-spacing: -0.008em;
+    background: var(--bg); border: 1px solid var(--hair); border-radius: 12px;
+    padding: 11px 13px; width: 100%;
+    transition: border-color 220ms var(--ease), box-shadow 220ms var(--ease);
+  }
+  .f textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
+  .f input:focus, .f textarea:focus, .f select:focus {
+    outline: none; border-color: var(--teal);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--teal) 16%, transparent);
+  }
+  .f input:focus-visible, .f textarea:focus-visible, .f select:focus-visible { outline: none; }
+  .f input::placeholder, .f textarea::placeholder { color: var(--ink-2); opacity: 0.6; }
+
+  .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+
+  /* Mode de déploiement : pastilles. Le choix décide du prix et de l'installation,
+     donc il est posé en clair et non enfoui dans une liste déroulante. */
+  .modes { display: flex; gap: 8px; flex-wrap: wrap; }
+  .modes label {
+    padding: 9px 16px; border-radius: 999px; border: 1px solid var(--hair);
+    font-size: 14.5px; cursor: pointer; color: var(--ink-2); letter-spacing: -0.004em;
+    transition: border-color 220ms var(--ease), color 220ms var(--ease), background-color 220ms var(--ease), transform 120ms var(--ease);
+  }
+  .modes label:hover { border-color: var(--ink-2); }
+  .modes label:active { transform: scale(0.97); }
+  .modes input { position: absolute; opacity: 0; pointer-events: none; }
+  .modes label:has(input:checked) {
+    border-color: var(--teal); color: var(--teal);
+    background: color-mix(in srgb, var(--teal) 8%, transparent);
+  }
+  .modes label:has(input:focus-visible) { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+  .consent { display: flex; gap: 11px; align-items: flex-start; font-size: 13.5px; color: var(--ink-2); letter-spacing: 0; }
+  .consent input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--teal); flex: none; }
+
+  .side { display: grid; gap: 16px; }
+  .side a { display: flex; align-items: center; gap: 11px; font-size: 16px; letter-spacing: -0.008em; }
+  .side a .ico { color: var(--teal); }
+  .side a:hover { color: var(--teal); }
+
+  .stepn { display: flex; gap: 14px; align-items: flex-start; }
+  .stepn .n {
+    width: 26px; height: 26px; border-radius: 999px; flex: none;
+    background: color-mix(in srgb, var(--teal) 12%, transparent); color: var(--teal);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .stepn b { font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; }
+  .stepn p { font-size: 14.5px; color: var(--ink-2); margin-top: 3px; letter-spacing: -0.004em; }
+
+  @media (max-width: 700px) { .pair { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+
+<div class="flag"><span>MAQUETTE v3 — Contact</span><span>5/5</span></div>
+
+<nav class="nav" aria-label="Navigation principale">
+  <div class="row">
+    <a class="brand" href="01-accueil.html">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>
+      Gestion Clinique
+    </a>
+    <div class="menu">
+      <a href="02-fonctionnalites.html">Fonctionnalités</a>
+      <a href="04-cloud-vs-local.html">Cloud ou Local</a>
+      <a href="03-tarifs.html">Tarifs</a>
+      <a href="05-contact.html" aria-current="page">Contact</a>
+    </div>
+    <div class="end">
+      <button class="tog" data-theme-toggle aria-label="Basculer le thème sombre">
+        <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+      </button>
+    </div>
+    <button class="burger" aria-label="Ouvrir le menu">
+      <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- ============================ HÉRO ============================ -->
+<section class="tight">
+  <div class="wrap center rise">
+    <p class="eyebrow">Contact</p>
+    <h1 class="display" style="margin: 14px 0 0; font-size: clamp(34px, 5vw, 60px);">
+      Voyons-le sur votre cabinet.
+    </h1>
+    <p class="lede wide center" style="margin-top: 20px;">
+      Trente minutes, en visioconférence ou sur place. On prépare la démonstration avec
+      vos actes et vos tarifs — pas un jeu de données générique.
+    </p>
+  </div>
+</section>
+
+<!-- ============================ FORMULAIRE ============================ -->
+<section class="pt-0">
+  <div class="wrap-wide">
+    <div class="split rise" style="align-items: start; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);">
+
+      <!-- Formulaire -->
+      <div class="card" style="padding: clamp(26px, 3vw, 40px);">
+        <form data-demo-form novalidate style="display: grid; gap: 22px;">
+          <div class="pair">
+            <div class="f"><label for="nom">Nom</label>
+              <input id="nom" type="text" placeholder="Dr Amel Ben Salah" required></div>
+            <div class="f"><label for="cab">Cabinet</label>
+              <input id="cab" type="text" placeholder="Cabinet Ben Salah" required></div>
+          </div>
+          <div class="pair">
+            <div class="f"><label for="tel">Téléphone</label>
+              <input id="tel" type="tel" placeholder="+216 98 000 000" required></div>
+            <div class="f"><label for="mail">E-mail</label>
+              <input id="mail" type="email" placeholder="a.bensalah@exemple.tn" required></div>
+          </div>
+          <div class="pair">
+            <div class="f"><label for="gouv">Gouvernorat</label>
+              <select id="gouv">
+                <option selected>Tunis</option><option>Ariana</option><option>Ben Arous</option>
+                <option>La Manouba</option><option>Bizerte</option><option>Nabeul</option>
+                <option>Sousse</option><option>Monastir</option><option>Mahdia</option>
+                <option>Sfax</option><option>Gabès</option><option>Médenine</option>
+                <option>Kairouan</option><option>Autre gouvernorat</option>
+              </select></div>
+            <div class="f"><label for="prat">Praticiens</label>
+              <select id="prat">
+                <option>1 praticien</option><option selected>2 à 3</option>
+                <option>4 à 8</option><option>Plus de 8</option>
+              </select></div>
+          </div>
+
+          <div class="f">
+            <label id="mlab">Cloud ou installé au cabinet ?</label>
+            <div class="modes" role="radiogroup" aria-labelledby="mlab">
+              <label><input type="radio" name="mode" checked> Cloud</label>
+              <label><input type="radio" name="mode"> Au cabinet</label>
+              <label><input type="radio" name="mode"> Je ne sais pas encore</label>
+            </div>
+          </div>
+
+          <div class="f">
+            <label for="msg">Ce que vous cherchez à régler <span style="opacity: 0.7;">— facultatif</span></label>
+            <textarea id="msg" placeholder="Je perds du temps sur les devis et je n'ai aucune visibilité sur ce qui reste dû par patient."></textarea>
+          </div>
+
+          <label class="consent">
+            <input type="checkbox" required>
+            <span>J'accepte d'être contacté à ce sujet. Aucune donnée de patient n'est demandée
+              dans ce formulaire.</span>
+          </label>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-fill">Envoyer la demande</button>
+            <span class="small">Réponse sous un jour ouvré · sans engagement</span>
+          </div>
+        </form>
+
+        <!-- État envoyé -->
+        <div data-demo-done hidden style="display: grid; gap: 26px;">
+          <div class="stack">
+            <p class="eyebrow">Demande envoyée</p>
+            <h2 class="title" style="font-size: clamp(26px, 3vw, 36px);">Merci — on vous rappelle.</h2>
+            <p class="body">Sous un jour ouvré, au numéro que vous avez laissé, pour fixer le créneau.
+              Une copie du récapitulatif part sur votre adresse e-mail.</p>
+          </div>
+          <hr class="hair">
+          <div style="display: grid; gap: 18px;">
+            <div class="stepn"><span class="n">1</span><div><b>Appel de cadrage — 10 min</b>
+              <p>Vos actes, vos tarifs, le nombre de praticiens, votre connexion.</p></div></div>
+            <div class="stepn"><span class="n">2</span><div><b>Démonstration — 30 min</b>
+              <p>Sur un jeu de données préparé à partir de votre cabinet.</p></div></div>
+            <div class="stepn"><span class="n">3</span><div><b>Essai accompagné — 2 semaines</b>
+              <p>Installation, reprise de vos patients, formation de l'équipe.</p></div></div>
+          </div>
+          <div><button class="btn btn-ghost" data-demo-back>Revenir au formulaire</button></div>
+        </div>
+      </div>
+
+      <!-- Colonne latérale -->
+      <div style="display: grid; gap: 20px;">
+        <div class="card">
+          <div class="side">
+            <a href="#">
+              <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.6a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.5-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.6 2.6.7a2 2 0 0 1 1.7 2Z"/></svg>
+              <span class="nums">+216 71 000 000</span>
+            </a>
+            <a href="#">
+              <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+              contact@gestion-clinique.tn
+            </a>
+            <a href="#">
+              <svg class="ico ico-s" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/></svg>
+              WhatsApp — même numéro
+            </a>
+            <hr class="hair">
+            <span class="small">Lundi – vendredi, 8 h – 18 h · Tunis, Sfax et Sousse sur place</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="stack-s">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--teal);"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+            <b style="font-size: 16px; font-weight: 600; letter-spacing: -0.012em;">Vos dossiers restent les vôtres</b>
+            <p class="small">En mode Local, les données ne quittent pas le cabinet. Dans les deux
+              modes, la sauvegarde produit un fichier que vous gardez, et l'export reste possible
+              si vous partez.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="stack-s">
+            <b style="font-size: 16px; font-weight: 600; letter-spacing: -0.012em;">Déjà décidé ?</b>
+            <p class="small">Si vous savez ce que vous voulez, nous planifions directement
+              l'installation et la reprise de vos données.</p>
+            <a class="link" href="03-tarifs.html" style="margin-top: 4px;">
+              Voir les tarifs
+              <svg class="ico ico-s chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ FAQ COURTE ============================ -->
+<section class="night tight">
+  <div class="wrap-wide">
+    <div class="center rise" style="max-width: 520px;">
+      <h2 class="title">Avant d'écrire.</h2>
+    </div>
+    <div class="g3 rise-g" style="margin-top: clamp(32px, 4vw, 50px);">
+      <div class="stack-s">
+        <b style="font-size: 16.5px; font-weight: 600; letter-spacing: -0.012em;">Faut-il internet ?</b>
+        <p class="small" style="color: var(--night-ink-2);">Non, en mode Local. Seuls l'agenda Google et
+          l'assistant en ont besoin, et ils se désactivent proprement hors ligne.</p>
+      </div>
+      <div class="stack-s">
+        <b style="font-size: 16.5px; font-weight: 600; letter-spacing: -0.012em;">Et mes patients déjà saisis ?</b>
+        <p class="small" style="color: var(--night-ink-2);">La reprise se fait pendant l'installation, à
+          partir d'un export ou d'un fichier Excel. Nous vérifions les doublons avec vous.</p>
+      </div>
+      <div class="stack-s">
+        <b style="font-size: 16.5px; font-weight: 600; letter-spacing: -0.012em;">Combien de temps ?</b>
+        <p class="small" style="color: var(--night-ink-2);">Une demi-journée suffit pour l'agenda, les
+          dossiers et la facturation. Le catalogue d'actes est préparé en amont.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap-wide">
+    <div class="foot-cols">
+      <div><h4>Produit</h4><ul>
+        <li><a href="01-accueil.html">Accueil</a></li>
+        <li><a href="02-fonctionnalites.html">Fonctionnalités</a></li>
+        <li><a href="03-tarifs.html">Tarifs</a></li>
+      </ul></div>
+      <div><h4>Installation</h4><ul>
+        <li><a href="04-cloud-vs-local.html">Cloud ou Local</a></li>
+        <li><a href="#">Sauvegarde</a></li>
+      </ul></div>
+      <div><h4>Contact</h4><ul>
+        <li><a href="#">contact@gestion-clinique.tn</a></li>
+        <li><a href="#" class="nums">+216 71 000 000</a></li>
+      </ul></div>
+      <div><h4>Légal</h4><ul>
+        <li><a href="#">Conditions</a></li>
+        <li><a href="#">Confidentialité</a></li>
+      </ul></div>
+    </div>
+    <div class="foot-end">
+      <span>© 2026 Gestion Clinique — Tunis, Tunisie</span>
+      <span>Maquette de site vitrine</span>
+    </div>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

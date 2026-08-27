@@ -1,0 +1,762 @@
+<title>Fiche médicale — 3 modèles d'interaction</title>
+<style>
+  /* ══════════════════════════════════════════════════════════════════════
+     TWO SCOPED TOKEN SETS, deliberately kept apart so they cannot collide:
+       :root   → review chrome (neutral, never blue)
+       .stage  → the clinic app's OWN tokens, copied verbatim from
+                 web/app/globals.css, so the mockup canvas is the app
+     ══════════════════════════════════════════════════════════════════════ */
+  :root{
+    --paper:#F7F8FA; --panel:#FFFFFF; --ink:#10151C; --muted:#5B6673;
+    --rule:#D8DDE4; --rule-soft:#E8ECF1; --flag:#B4472C; --ok:#2F6B4F;
+    --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --paper:#0B0F14; --panel:#131920; --ink:#EEF1F5; --muted:#8E9AA8;
+      --rule:#262E38; --rule-soft:#1B222B; --flag:#E08A6E; --ok:#6FBF95;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#0B0F14; --panel:#131920; --ink:#EEF1F5; --muted:#8E9AA8;
+    --rule:#262E38; --rule-soft:#1B222B; --flag:#E08A6E; --ok:#6FBF95;
+  }
+
+  .stage{
+    --background:oklch(0.99 0 0); --foreground:oklch(0.18 0 0); --card:oklch(1 0 0);
+    --muted-bg:oklch(0.97 0.005 250); --muted-fg:oklch(0.48 0.01 250);
+    --primary:oklch(0.52 0.14 245); --primary-fg:oklch(0.99 0 0);
+    --accent:oklch(0.965 0.01 245); --accent-fg:oklch(0.35 0.12 245);
+    --destructive:oklch(0.58 0.2 25); --border:oklch(0.93 0.005 250);
+    --secondary:oklch(0.97 0.005 250); --radius:0.5rem;
+    --app-sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; /* stands in for Geist */
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]) .stage{
+      --background:oklch(0.12 0.005 250); --foreground:oklch(0.97 0.005 250); --card:oklch(0.16 0.008 250);
+      --muted-bg:oklch(0.22 0.01 250); --muted-fg:oklch(0.58 0.01 250);
+      --primary:oklch(0.6 0.16 245); --accent:oklch(0.22 0.015 245); --accent-fg:oklch(0.75 0.12 245);
+      --destructive:oklch(0.52 0.2 25); --border:oklch(0.24 0.01 250); --secondary:oklch(0.22 0.01 250);
+    }
+  }
+  :root[data-theme="dark"] .stage{
+    --background:oklch(0.12 0.005 250); --foreground:oklch(0.97 0.005 250); --card:oklch(0.16 0.008 250);
+    --muted-bg:oklch(0.22 0.01 250); --muted-fg:oklch(0.58 0.01 250);
+    --primary:oklch(0.6 0.16 245); --accent:oklch(0.22 0.015 245); --accent-fg:oklch(0.75 0.12 245);
+    --destructive:oklch(0.52 0.2 25); --border:oklch(0.24 0.01 250); --secondary:oklch(0.22 0.01 250);
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){ html{scroll-behavior:auto} *{transition:none!important;animation:none!important} }
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  :focus-visible{outline:2px solid var(--ink);outline-offset:2px;border-radius:3px}
+
+  /* ── page frame ───────────────────────────────────────────────── */
+  .shell{max-width:1220px;margin:0 auto;padding:0 20px 72px;display:grid;gap:22px;grid-template-columns:1fr}
+
+  .masthead{padding:26px 0 18px;display:grid;gap:9px}
+  .eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
+  h1{font-size:24px;font-weight:600;letter-spacing:-.018em;margin:0;text-wrap:balance}
+  .standfirst{margin:0;color:var(--muted);font-size:13.5px;max-width:66ch}
+  .standfirst b{color:var(--ink);font-weight:600}
+  .standfirst code{font-family:var(--mono);font-size:12px}
+
+  /* ── option bar: sticky so the four choices are always reachable ── */
+  .rail{
+    position:sticky;top:0;z-index:20;margin:0 -20px;padding:9px 20px;
+    background:var(--paper);border-bottom:1px solid var(--rule);
+    display:grid;gap:8px;grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  @media(min-width:760px){ .rail{grid-template-columns:repeat(4,minmax(0,1fr))} }
+  .opt{
+    display:grid;gap:2px;border:1px solid var(--rule);border-radius:4px;background:var(--panel);color:var(--ink);
+    font:inherit;text-align:left;padding:9px 11px;cursor:pointer;position:relative;overflow:hidden;
+  }
+  .opt:hover{border-color:var(--muted)}
+  .opt[aria-selected="true"]{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+  .opt .key{font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;color:var(--muted)}
+  .opt[aria-selected="true"] .key{color:var(--paper);opacity:.62}
+  .opt .nm{font-size:13px;font-weight:600;letter-spacing:-.01em}
+  .opt .sub{display:none}
+  .opt .mark{font-family:var(--mono);font-size:9.5px;margin-top:2px}
+  @media(min-width:900px){ .opt .sub{display:block;font-size:11px;color:var(--muted);line-height:1.3} }
+  .opt[aria-selected="true"] .sub{color:var(--paper);opacity:.66}
+  .mark.rec{color:var(--ok)} .mark.warn{color:var(--flag)} .mark.neu{color:var(--muted)}
+  .opt[aria-selected="true"] .mark{color:var(--paper);opacity:.8}
+
+  .panel[hidden]{display:none}
+  .panelhead{display:grid;gap:7px;margin-bottom:14px}
+  .panelhead h2{margin:0;font-size:17px;font-weight:600;letter-spacing:-.015em;text-wrap:balance}
+  .thesis{margin:0;font-size:13px;color:var(--muted);max-width:74ch}
+  .thesis b{color:var(--ink)}
+
+  /* ── the canvas: app chrome + modal ──────────────────────────── */
+  .stage{
+    position:relative;border:1px solid var(--rule);border-radius:6px;overflow:hidden;
+    background:var(--background);color:var(--foreground);font-family:var(--app-sans);
+    box-shadow:0 1px 2px rgba(16,21,28,.05),0 8px 24px rgba(16,21,28,.06);
+  }
+  .appbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--card)}
+  .crumb{font-size:12px;color:var(--muted-fg)}
+  .crumb b{color:var(--foreground);font-weight:600}
+  /* The modal sits in NORMAL FLOW so the stage grows to fit it — an absolutely
+     positioned overlay collapsed the stage and trapped the modal in a scrollbox. */
+  .overlay{background:rgba(15,20,27,.55);display:flex;justify-content:center;padding:18px}
+
+  .dialog{
+    position:relative;width:100%;max-width:1010px;background:var(--card);border:1px solid var(--border);
+    border-radius:var(--radius);box-shadow:0 10px 30px rgba(0,0,0,.2);padding:22px;display:grid;gap:14px;
+  }
+  .dialog.narrow{max-width:740px}
+  .x{position:absolute;top:14px;right:14px;opacity:.6;border:0;background:transparent;cursor:pointer;font-size:15px;color:var(--foreground);line-height:1}
+  .dtitle{font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .ddesc{font-size:13px;color:var(--muted-fg);margin-top:4px}
+
+  .alert{border:1px solid #fcd34d;background:#fffbeb;border-radius:var(--radius);padding:9px 12px;font-size:12px;color:#92400e}
+  .alert b{font-weight:600}
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .alert{border-color:#78350f;background:rgba(69,26,3,.5);color:#fcd34d} }
+  :root[data-theme="dark"] .alert{border-color:#78350f;background:rgba(69,26,3,.5);color:#fcd34d}
+
+  .row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+  .field{display:grid;gap:5px}
+  .lbl{font-size:12px;font-weight:500}
+  .inp{height:36px;border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);background:var(--background);color:var(--foreground);font:inherit;font-size:13px;padding:0 10px;min-width:0}
+  .inp[readonly]{font-weight:500}
+  .seg{display:inline-flex;gap:4px;background:var(--muted-bg);padding:4px;border-radius:calc(var(--radius) - 1px)}
+  .seg button{border:0;background:transparent;color:var(--muted-fg);font:inherit;font-size:12px;padding:5px 14px;border-radius:5px;cursor:pointer}
+  .seg button[aria-pressed="true"]{background:var(--primary);color:var(--primary-fg);font-weight:500}
+
+  /* ── tooth chart: real FDI layout + real glyph paths ─────────── */
+  .chartcard{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);padding:12px;overflow-x:auto}
+  .jawlabel{text-align:center;font-size:10px;font-weight:500;color:var(--muted-fg);margin:0 0 5px}
+  .arch{display:flex;justify-content:center;gap:8px}
+  .quad{display:flex;gap:2px}
+  .mid{width:1px;background:var(--border)}
+  .hr{height:1px;background:var(--border);margin:9px 0}
+  .tooth{display:flex;flex-direction:column;align-items:center;border:0;background:transparent;padding:0;cursor:pointer}
+  .glyphwrap{position:relative;border-radius:6px;padding:2px;transition:transform .1s}
+  .tooth:hover .glyphwrap{transform:scale(1.08)}
+  .tooth[data-sel="1"] .glyphwrap{box-shadow:0 0 0 2px var(--primary)}
+  .tooth .num{font-family:var(--mono);font-size:9px;color:var(--muted-fg);margin-top:2px;font-variant-numeric:tabular-nums}
+  .tooth[data-sel="1"] .num{color:var(--primary)}
+  .tooth svg path{fill:#fff;stroke:#9ca3af;stroke-width:2}
+  .badge-n{position:absolute;top:-3px;right:-4px;min-width:14px;height:14px;border-radius:99px;background:var(--primary);color:var(--primary-fg);font-family:var(--mono);font-size:8px;display:flex;align-items:center;justify-content:center;padding:0 3px}
+  .legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:var(--muted-fg);margin-top:10px}
+  .legend span{display:flex;align-items:center;gap:5px}
+  .dot{width:10px;height:10px;border-radius:99px;display:inline-block;flex:0 0 auto}
+  .quick{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px;font-size:11px;color:var(--muted-fg)}
+
+  .btn{border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:12px;height:28px;padding:0 10px;border-radius:calc(var(--radius) - 2px);cursor:pointer}
+  .btn:hover{background:var(--muted-bg)}
+  .btn.primary{background:var(--primary);color:var(--primary-fg);border-color:transparent;height:36px;padding:0 18px;font-size:13px;font-weight:500}
+  .btn.ghost{border-color:transparent;background:transparent}
+  .btn.lg{height:36px;padding:0 14px;font-size:13px}
+
+  /* ── act palette ─────────────────────────────────────────────── */
+  .selbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12.5px;min-height:26px}
+  .chipnum{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:99px;background:var(--secondary);font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums}
+  .hint{color:var(--muted-fg);font-style:italic;font-size:12px}
+  .palettewrap{border:1px solid var(--border);border-radius:var(--radius);padding:11px;background:var(--card)}
+  .palettehead{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:12px;font-weight:600;margin-bottom:9px}
+  .palettehead em{font-style:normal;font-weight:400;color:var(--muted-fg);font-size:11px}
+  .palette{display:grid;grid-template-columns:repeat(auto-fill,minmax(194px,1fr));gap:6px}
+  .act{display:flex;align-items:center;gap:8px;border:1px solid var(--border);background:var(--background);border-radius:calc(var(--radius) - 2px);padding:8px 10px;cursor:pointer;font:inherit;text-align:left;color:var(--foreground)}
+  .act:hover{border-color:var(--primary);background:var(--accent)}
+  .act .swatch{width:8px;height:22px;border-radius:3px;flex:0 0 auto;background:var(--border)}
+  .act .nm{flex:1;font-size:12.5px;line-height:1.25}
+  .act .pr{font-family:var(--mono);font-size:11px;color:var(--muted-fg);font-variant-numeric:tabular-nums;flex:0 0 auto}
+
+  /* ── session list ────────────────────────────────────────────── */
+  .sessionhead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12px}
+  .sessionhead .t{font-weight:600;font-size:13px}
+  .sessionhead .m{color:var(--muted-fg);font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums}
+  .group{margin-top:9px}
+  .grouphead{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;margin-bottom:4px}
+  .grouphead .line{flex:1;height:1px;background:var(--border)}
+  .grouphead .c{font-family:var(--mono);font-size:10px;font-weight:400;color:var(--muted-fg)}
+  .actrow{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);padding:6px 9px;font-size:12.5px;margin-bottom:4px;background:var(--background)}
+  .actrow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+  .actrow .price{font-family:var(--mono);font-size:11.5px;font-variant-numeric:tabular-nums;flex:0 0 auto}
+  .actrow .ic{border:0;background:transparent;cursor:pointer;color:var(--muted-fg);font-size:12px;padding:2px 3px;line-height:1}
+  .actrow .ic:hover{color:var(--destructive)}
+  .shared{display:inline-flex;align-items:center;gap:3px;font-family:var(--mono);font-size:10px;color:var(--muted-fg);flex:0 0 auto}
+  .empty{border:1px dashed var(--border);border-radius:var(--radius);padding:22px;text-align:center}
+  .empty b{display:block;font-size:13px;margin-bottom:3px}
+  .empty span{font-size:12px;color:var(--muted-fg)}
+
+  .footer{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;border-top:1px solid var(--border);padding-top:13px}
+  .totals{display:flex;flex-wrap:wrap;gap:18px;align-items:center;font-size:12.5px}
+  .totals b{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+  .totals .k{color:var(--muted-fg)}
+  .footer .acts{display:flex;gap:8px}
+  .cols{display:grid;gap:16px;grid-template-columns:1fr}
+  @media(min-width:980px){ .cols{grid-template-columns:minmax(398px,430px) minmax(0,1fr)} }
+
+  .modebar{display:flex;flex-wrap:wrap;gap:14px;align-items:center;border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--card)}
+  .radio{display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer}
+  .radio i{width:13px;height:13px;border-radius:99px;border:2px solid var(--muted-fg);display:inline-block;flex:0 0 auto}
+  .radio[data-on="1"] i{border-color:var(--primary);box-shadow:inset 0 0 0 2.5px var(--primary)}
+  .radio[data-on="1"]{font-weight:600}
+  .savedpill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted-fg)}
+
+  /* ── annotations: steps ARE a sequence (numbered);
+        risks are NOT (marked, not numbered) ───────────────────── */
+  .annot{display:grid;gap:18px;margin-top:20px;grid-template-columns:1fr}
+  @media(min-width:820px){ .annot{grid-template-columns:1fr 1fr} }
+  .annot h3{margin:0 0 9px;font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);font-weight:400}
+  ol.steps{list-style:none;margin:0;padding:0;display:grid;gap:1px;background:var(--rule-soft);border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+  ol.steps li{display:flex;gap:10px;background:var(--panel);padding:11px 13px;font-size:12.5px;color:var(--muted)}
+  ol.steps b{color:var(--ink)}
+  ol.steps .n{flex:0 0 auto;font-family:var(--mono);font-size:11px;color:var(--ink);padding-top:1px;font-variant-numeric:tabular-nums}
+  ul.risks{list-style:none;margin:0;padding:0;display:grid;gap:1px;background:var(--rule-soft);border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+  ul.risks li{display:flex;gap:10px;background:var(--panel);padding:11px 13px;font-size:12.5px;color:var(--muted)}
+  ul.risks b{color:var(--ink)}
+  ul.risks code{font-family:var(--mono);font-size:11.5px}
+  ul.risks .m{flex:0 0 auto;color:var(--flag);font-family:var(--mono);font-size:12px;line-height:1.35}
+
+  /* ── comparison table ────────────────────────────────────────── */
+  .tablewrap{overflow-x:auto;margin-top:22px;border:1px solid var(--rule);border-radius:4px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--panel);min-width:660px}
+  caption{text-align:left;padding:12px 13px 0;font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
+  th,td{padding:9px 13px;text-align:left;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+  thead th{font-size:11px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--rule)}
+  tbody th{font-weight:400;color:var(--muted)}
+  td{font-variant-numeric:tabular-nums}
+  td b{color:var(--ink)}
+  tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}
+  td.num,th.num{font-family:var(--mono)}
+</style>
+
+<div class="shell">
+  <header class="masthead">
+    <div class="eyebrow">Clinic Management · revue de conception · 26.07.2026</div>
+    <h1>Fiche médicale — trois modèles d'interaction</h1>
+    <p class="standfirst">
+      Rendus avec les <b>jetons de design réels</b> de l'app, les <b>vraies formes de dents</b> de
+      <code>record-tooth-chart.tsx</code>, la numérotation FDI réelle et les <b>19 actes réellement pré-remplis</b>
+      avec leurs tarifs. Les schémas sont cliquables : sélectionnez des dents, puis touchez un acte.
+    </p>
+  </header>
+
+  <nav class="rail" role="tablist" aria-label="Modèles d'interaction">
+    <button class="opt" role="tab" aria-selected="true" data-p="A" aria-controls="pA">
+      <span class="key">MODÈLE A</span><span class="nm">Palette d'actes</span>
+      <span class="sub">Sélectionner les dents, toucher l'acte</span><span class="mark rec">▲ recommandé</span>
+    </button>
+    <button class="opt" role="tab" aria-selected="false" data-p="B" aria-controls="pB">
+      <span class="key">MODÈLE B</span><span class="nm">Odontogramme direct</span>
+      <span class="sub">Pas de modale : on marque le schéma</span><span class="mark warn">◆ risqué</span>
+    </button>
+    <button class="opt" role="tab" aria-selected="false" data-p="C" aria-controls="pC">
+      <span class="key">MODÈLE C</span><span class="nm">Confirmer le prévu</span>
+      <span class="sub">L'app propose, le dentiste confirme</span><span class="mark warn">◆ en surcouche</span>
+    </button>
+    <button class="opt" role="tab" aria-selected="false" data-p="X" aria-controls="pX">
+      <span class="key">ACTUEL</span><span class="nm">Ce qui est en place</span>
+      <span class="sub">Dix contrôles avant le premier acte</span><span class="mark neu">— référence</span>
+    </button>
+  </nav>
+
+  <div>
+    <!-- ══════════════════════ A ══════════════════════ -->
+    <section class="panel" id="pA" role="tabpanel">
+      <div class="panelhead">
+        <h2>A · Sélectionner les dents, toucher l'acte</h2>
+        <p class="thesis"><b>Zéro champ obligatoire.</b> Une dent + un acte = enregistré, au tarif du catalogue,
+          avec sa couleur et son état résultant. Faces, note et tarif s'ajustent après coup, au crayon.</p>
+      </div>
+
+      <div class="stage">
+        <div class="appbar"><span class="crumb">Patients › <b>oumayma benkhalifa</b> › Dossier dentaire</span></div>
+        <div class="overlay">
+          <div class="dialog">
+            <button class="x" aria-label="Fermer">✕</button>
+            <div>
+              <div class="dtitle">Ajouter une fiche médicale</div>
+              <div class="ddesc">Sélectionnez une ou plusieurs dents, puis touchez l'acte réalisé.</div>
+            </div>
+            <div class="alert"><b>⚠ Allergies :</b> Pénicilline · <b>Antécédents :</b> HTA traitée</div>
+
+            <div class="row">
+              <div class="field" style="flex:1 1 190px"><span class="lbl">Patient</span><input class="inp" readonly value="oumayma benkhalifa"></div>
+              <div class="field" style="flex:0 0 146px"><span class="lbl">Date</span><input class="inp" readonly value="26/07/2026"></div>
+              <div class="field"><span class="lbl">Schéma affiché</span>
+                <div class="seg"><button aria-pressed="true">Adulte</button><button aria-pressed="false">Enfant</button></div>
+              </div>
+            </div>
+
+            <div class="cols">
+              <div>
+                <div class="chartcard">
+                  <div class="jawlabel">Maxillaire (haut)</div>
+                  <div class="arch" data-arch="upper" data-ctx="A"></div>
+                  <div class="hr"></div>
+                  <div class="arch" data-arch="lower" data-ctx="A"></div>
+                  <div class="jawlabel" style="margin:5px 0 0">Mandibule (bas)</div>
+                </div>
+                <div class="quick">Sélection rapide :
+                  <button class="btn" data-quick="upper" data-ctx="A">Haut</button>
+                  <button class="btn" data-quick="lower" data-ctx="A">Bas</button>
+                  <button class="btn" data-quick="all" data-ctx="A">Toute la bouche</button>
+                  <button class="btn" data-quick="none" data-ctx="A">Vider</button>
+                </div>
+                <div class="legend" id="legendA"></div>
+              </div>
+
+              <div style="display:grid;gap:11px;align-content:start">
+                <div class="selbar" id="selbarA"></div>
+                <div class="palettewrap">
+                  <div class="palettehead"><span>Qu'avez-vous fait ?</span><em>un seul clic · <span id="paletteModeA">actes fréquents</span></em></div>
+                  <div class="palette" id="paletteA"></div>
+                  <div style="margin-top:8px"><button class="btn" id="togglePaletteA">Tout le catalogue (19 actes)</button></div>
+                </div>
+                <div>
+                  <div class="sessionhead"><span class="t">Séance</span><span class="m"><span id="countA">0 acte</span> · <span id="totalA">0,000 DT</span></span></div>
+                  <div id="listA"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="footer">
+              <div class="totals">
+                <span><span class="k">Total</span> <b id="footTotalA">0,000 DT</b></span>
+                <span><span class="k">Payé</span> <b id="footPaidA">0,000 DT</b></span>
+                <span><span class="k">Reste</span> <b>0,000 DT</b></span>
+                <button class="btn ghost">Notes de séance ▾</button>
+              </div>
+              <div class="acts"><button class="btn lg">Annuler</button><button class="btn primary">Créer la fiche</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="annot">
+        <div>
+          <h3>Essayez, dans cet ordre</h3>
+          <ol class="steps">
+            <li><span class="n">01</span><span><b>Touchez 16, puis « Traitement de canal », puis « Couronne ».</b> Deux actes sur la même dent, deux gestes — la sélection reste en place.</span></li>
+            <li><span class="n">02</span><span><b>Touchez 22 et 24, puis « Soin de carie ».</b> Un acte partagé : le tarif est imprimé une fois, « inclus » sur l'autre dent.</span></li>
+            <li><span class="n">03</span><span><b>Ne sélectionnez rien, touchez « Détartrage ».</b> Il tombe dans « Actes généraux » — aucune dent touchée.</span></li>
+            <li><span class="n">04</span><span><b>Touchez « Haut », puis « Détartrage ».</b> Le tarif de la pastille suit la sélection : ×16 quand c'est un acte par dent.</span></li>
+          </ol>
+        </div>
+        <div>
+          <h3>Ce que ça coûte</h3>
+          <ul class="risks">
+            <li><span class="m">◆</span><span><b>Un acte qui a vraiment besoin de faces</b> (composite MO vs MOD) devient « toucher + crayon » — plus lent qu'aujourd'hui pour <em>cet</em> acte. Le coût se déplace du cas fréquent vers le cas rare.</span></li>
+            <li><span class="m">◆</span><span><b>Pas d'étape de confirmation :</b> un faux contact enregistre. Atténué par la ligne qui apparaît immédiatement avec sa croix, et rien n'est persisté avant « Créer la fiche ».</span></li>
+            <li><span class="m">◆</span><span><b>19 pastilles, c'est beaucoup</b> — d'où les fréquents d'abord et le catalogue derrière un bouton. Reste à décider comment « fréquent » est défini.</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ B ══════════════════════ -->
+    <section class="panel" id="pB" role="tabpanel" hidden>
+      <div class="panelhead">
+        <h2>B · L'odontogramme devient le dossier</h2>
+        <p class="thesis"><b>Plus de modale du tout.</b> On choisit l'acte actif, on clique les dents, ça s'ajoute
+          à la séance du jour. C'est exactement le geste du papier — et c'est là que sont les risques.</p>
+      </div>
+
+      <div class="stage">
+        <div class="appbar"><span class="crumb">Patients › <b>oumayma benkhalifa</b> › <b>Odontogramme</b></span></div>
+        <div style="padding:16px;display:grid;gap:12px">
+          <div class="modebar">
+            <span class="radio" data-on="0" tabindex="0"><i></i> Diagnostic (à traiter)</span>
+            <span class="radio" data-on="1" tabindex="0"><i></i> Acte réalisé</span>
+            <span style="flex:1"></span>
+            <span class="lbl" style="font-weight:400;color:var(--muted-fg)">Acte actif</span>
+            <select class="inp" style="max-width:250px" aria-label="Acte actif">
+              <option>Soin de carie / obturation — 90,000 DT</option>
+              <option>Traitement de canal — 150,000 DT</option>
+              <option>Extraction simple — 60,000 DT</option>
+            </select>
+          </div>
+
+          <div class="chartcard">
+            <div class="jawlabel">Maxillaire (haut)</div>
+            <div class="arch" data-arch="upper" data-ctx="B"></div>
+            <div class="hr"></div>
+            <div class="arch" data-arch="lower" data-ctx="B"></div>
+            <div class="jawlabel" style="margin:5px 0 0">Mandibule (bas)</div>
+            <div class="legend" id="legendB"></div>
+          </div>
+          <p style="font-size:12px;color:var(--muted-fg);margin:0">Cliquer une dent applique l'acte actif et l'ajoute à la séance du jour.</p>
+
+          <div>
+            <div class="sessionhead"><span class="t">Séance du 26/07/2026</span><span class="savedpill">✓ enregistré automatiquement</span></div>
+            <div id="listB" style="margin-top:8px"></div>
+            <div class="footer" style="margin-top:10px">
+              <div class="totals"><span><span class="k">Total</span> <b id="totalB">0,000 DT</b></span></div>
+              <div class="acts"><button class="btn lg">Clôturer la séance</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="annot">
+        <div>
+          <h3>Essayez, dans cet ordre</h3>
+          <ol class="steps">
+            <li><span class="n">01</span><span><b>Cliquez 26, puis 36.</b> L'acte actif se dépose sur chaque dent — aucune modale, aucun bouton d'enregistrement.</span></li>
+            <li><span class="n">02</span><span><b>Basculez sur « Diagnostic ».</b> Le même clic veut maintenant dire autre chose : c'est le mode qui décide.</span></li>
+          </ol>
+        </div>
+        <div>
+          <h3>Pourquoi c'est risqué</h3>
+          <ul class="risks">
+            <li><span class="m">◆</span><span><b>Un clic veut dire deux choses.</b> Cette page sert déjà à noter des diagnostics ; y ajouter les actes réalisés impose un mode — l'ambiguïté que A évite.</span></li>
+            <li><span class="m">◆</span><span><b>Enregistrement implicite de données cliniques.</b> Un dentiste veut voir « enregistré » ; l'auto-save d'un acte médical est inconfortable médico-légalement.</span></li>
+            <li><span class="m">◆</span><span><b>Casse deux entrées existantes</b> — le bouton de la fiche patient et le lien de relance post-visite <code>?addRecord=1</code> — et la clôture du rendez-vous n'a plus où se rattacher.</span></li>
+            <li><span class="m">◆</span><span><b>Nouvelle commande serveur</b> « trouver-ou-créer la séance du jour », avec deux questions ouvertes : deux visites le même jour ? séance déjà facturée ?</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ C ══════════════════════ -->
+    <section class="panel" id="pC" role="tabpanel" hidden>
+      <div class="panelhead">
+        <h2>C · L'app propose ce qui était prévu</h2>
+        <p class="thesis"><b>Le rendez-vous porte déjà un type de procédure.</b> L'app propose, le dentiste tape
+          les dents et confirme. Le minimum de gestes possible — quand il y a un rendez-vous.</p>
+      </div>
+
+      <div class="stage">
+        <div class="appbar"><span class="crumb">Rendez-vous de 14:30 › <b>oumayma benkhalifa</b></span></div>
+        <div class="overlay">
+          <div class="dialog narrow">
+            <button class="x" aria-label="Fermer">✕</button>
+            <div><div class="dtitle">Visite terminée</div>
+              <div class="ddesc">Confirmez ce qui a été réalisé pour clôturer le rendez-vous.</div></div>
+            <div class="alert"><b>⚠ Allergies :</b> Pénicilline</div>
+
+            <div style="border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;gap:11px;align-items:center;background:var(--accent)">
+              <span class="dot" style="width:12px;height:12px;background:#3b82f6"></span>
+              <div style="flex:1">
+                <div style="font-size:12px;color:var(--muted-fg)">Acte prévu au rendez-vous</div>
+                <div style="font-weight:600;font-size:14px">Soin de carie / obturation</div>
+              </div>
+              <b style="font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums">90,000 DT</b>
+            </div>
+
+            <div>
+              <div class="lbl" style="margin-bottom:7px">Sur quelle(s) dent(s) ?</div>
+              <div class="chartcard">
+                <div class="jawlabel">Maxillaire (haut)</div>
+                <div class="arch" data-arch="upper" data-ctx="C"></div>
+                <div class="hr"></div>
+                <div class="arch" data-arch="lower" data-ctx="C"></div>
+                <div class="jawlabel" style="margin:5px 0 0">Mandibule (bas)</div>
+              </div>
+              <div class="selbar" id="selbarC" style="margin-top:9px"></div>
+            </div>
+
+            <button class="btn lg" style="justify-self:start">Ce n'est pas cet acte → choisir au catalogue</button>
+
+            <div class="footer">
+              <div class="totals"><span><span class="k">Total</span> <b id="totalC">0,000 DT</b></span></div>
+              <div class="acts"><button class="btn lg">Annuler</button><button class="btn primary">Confirmer la séance</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="annot">
+        <div>
+          <h3>Essayez</h3>
+          <ol class="steps">
+            <li><span class="n">01</span><span><b>Touchez 16, puis « Confirmer la séance ».</b> Deux gestes pour la visite type : rien à chercher, rien à saisir.</span></li>
+            <li><span class="n">02</span><span><b>Touchez 16 et 26.</b> Le total suit le nombre de dents, comme dans A.</span></li>
+          </ol>
+        </div>
+        <div>
+          <h3>Pourquoi ça ne tient pas seul</h3>
+          <ul class="risks">
+            <li><span class="m">◆</span><span><code>Appointment.ProcedureTypeId</code> <b>est optionnel</b> et le calendrier autorise des rendez-vous en texte libre : souvent il n'y a rien à proposer.</span></li>
+            <li><span class="m">◆</span><span><b>Rien depuis la fiche patient</b> — l'entrée principale — puisqu'il n'y a aucun rendez-vous d'où déduire l'acte.</span></li>
+            <li><span class="m">◆</span><span><b>Les créneaux sont souvent génériques</b> (« Consultation ») : l'acte prévu n'est fréquemment pas celui réalisé. Excellent <em>en surcouche de A</em> — pré-sélectionner la pastille prévue — pas comme modèle unique.</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ ACTUEL ══════════════════════ -->
+    <section class="panel" id="pX" role="tabpanel" hidden>
+      <div class="panelhead">
+        <h2>Ce qui est en place aujourd'hui</h2>
+        <p class="thesis">Le reproche était « des champs sous le schéma ». Il y en a <b>dix</b> à traverser avant
+          qu'un seul acte existe — et il faut « cibler » la ligne <em>avant</em> de cliquer les dents.</p>
+      </div>
+
+      <div class="stage">
+        <div class="appbar"><span class="crumb">Patients › <b>oumayma benkhalifa</b> › Dossier dentaire</span></div>
+        <div class="overlay">
+          <div class="dialog narrow">
+            <button class="x" aria-label="Fermer">✕</button>
+            <div><div class="dtitle">Ajouter une fiche médicale</div>
+              <div class="ddesc">Détaillez les actes réalisés.</div></div>
+            <div class="chartcard">
+              <div class="jawlabel">Maxillaire (haut)</div>
+              <div class="arch" data-arch="upper" data-ctx="X"></div>
+              <div class="hr"></div>
+              <div class="arch" data-arch="lower" data-ctx="X"></div>
+              <div class="jawlabel" style="margin:5px 0 0">Mandibule (bas)</div>
+            </div>
+            <div style="border:2px solid var(--primary);border-radius:var(--radius);padding:11px;display:grid;gap:9px">
+              <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:500">
+                <span>● Acte 1 <span class="chipnum" style="margin-left:5px">Ciblé</span></span><span style="color:var(--muted-fg)">🗑</span>
+              </div>
+              <div style="display:flex;gap:7px"><input class="inp" style="flex:1" placeholder="Désignation de l'acte (ou choisir au catalogue)"><button class="btn lg">Catalogue</button></div>
+              <div style="font-size:12px;color:var(--muted-fg)">Dents : <i>cliquez une dent sur le schéma</i></div>
+              <div style="display:flex;gap:7px;align-items:center;font-size:12px;color:var(--muted-fg)">Coût (DT) <input class="inp" style="width:110px"></div>
+              <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--muted-fg)">État résultant
+                <span class="chipnum">Aucun</span><select class="inp" style="width:165px" aria-label="État résultant"><option>Aucun</option></select></div>
+              <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--muted-fg)">Faces
+                <button class="btn">M</button><button class="btn">O</button><button class="btn">D</button><button class="btn">V</button><button class="btn">L</button>
+                <input class="inp" style="flex:1;min-width:110px" placeholder="Note (optionnel)"></div>
+            </div>
+            <button class="btn lg" style="justify-self:start">+ Ajouter un acte</button>
+            <div class="footer"><div class="totals"><span><span class="k">Total</span> <b>0,000 DT</b></span></div>
+              <div class="acts"><button class="btn lg">Annuler</button><button class="btn primary">Créer la fiche</button></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <caption>Enregistrer « composite sur 26 »</caption>
+          <thead><tr><th scope="col">Critère</th><th scope="col" class="num">Actuel</th><th scope="col" class="num">A · Palette</th><th scope="col" class="num">B · Odontogramme</th><th scope="col" class="num">C · Confirmer</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Gestes</th><td class="num">≈ 8</td><td class="num"><b>2</b></td><td class="num">2 (+ acte actif)</td><td class="num"><b>2</b> si RDV</td></tr>
+            <tr><th scope="row">Champs à remplir</th><td class="num">3–4</td><td class="num"><b>0</b></td><td class="num">0</td><td class="num">0</td></tr>
+            <tr><th scope="row">Deux actes sur une dent</th><td>Nouvelle ligne + re-cibler</td><td><b>1 geste de plus</b></td><td>1 geste de plus</td><td>Non prévu</td></tr>
+            <tr><th scope="row">Acte sans dent (détartrage)</th><td>Ligne sans dents</td><td>Touche sans sélection</td><td>Ambigu (mode)</td><td>Non prévu</td></tr>
+            <tr><th scope="row">Changement serveur</th><td>—</td><td><b>Aucun</b></td><td>Commande + migration</td><td>Aucun</td></tr>
+            <tr><th scope="row">Depuis la fiche patient (sans RDV)</th><td>oui</td><td><b>oui</b></td><td>oui</td><td><b>non</b></td></tr>
+            <tr><th scope="row">Dentition mixte (36 + 75)</th><td>Impossible</td><td><b>oui</b></td><td>oui</td><td>oui</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+  // real FDI layout, mirroring record-tooth-chart.tsx
+  const UP = [[18,17,16,15,14,13,12,11],[21,22,23,24,25,26,27,28]];
+  const LO = [[48,47,46,45,44,43,42,41],[31,32,33,34,35,36,37,38]];
+
+  // real glyph paths + viewBoxes lifted from record-tooth-chart.tsx
+  const SHAPES = {
+    incisor:{w:18,h:30,vb:"0 0 32 56",d:"M16 2C12 2 9 4 7 7C5 10 4 14 4 18C4 28 4 38 6 44C8 50 11 54 16 54C21 54 24 50 26 44C28 38 28 28 28 18C28 14 27 10 25 7C23 4 20 2 16 2Z"},
+    canine:{w:18,h:30,vb:"0 0 36 58",d:"M18 2C15 2 12 3 10 5C8 7 6 10 5 14C4 18 4 24 4 28C4 36 5 44 7 48C9 52 13 56 18 56C23 56 27 52 29 48C31 44 32 36 32 28C32 24 32 18 31 14C30 10 28 7 26 5C24 3 21 2 18 2Z"},
+    premolar:{w:20,h:30,vb:"0 0 42 60",d:"M21 4C17 4 13 6 11 9C9 12 7 16 6 20C5 24 4 30 4 34C4 40 5 46 7 50C9 54 13 60 21 60C29 60 33 54 35 50C37 46 38 40 38 34C38 30 37 24 36 20C35 16 33 12 31 9C29 6 25 4 21 4Z"},
+    molar:{w:22,h:30,vb:"0 0 48 62",d:"M24 4C19 4 15 6 12 9C9 12 7 16 6 20C5 24 4 30 4 34C4 40 5 46 7 50C9 54 14 60 24 60C34 60 39 54 41 50C43 46 44 40 44 34C44 30 43 24 42 20C41 16 39 12 36 9C33 6 29 4 24 4Z"}
+  };
+  const kind = n => { const l = n % 10; return (l===1||l===2) ? "incisor" : l===3 ? "canine" : (l===4||l===5) ? "premolar" : "molar"; };
+
+  // real ToothCondition colours from odontogram-conditions.ts
+  const COND = {
+    Carie:["Carie","#ef4444"], Obturation:["Obturation","#3b82f6"], Couronne:["Couronne","#f59e0b"],
+    TraitementDeCanal:["Traitement de canal","#a855f7"], Bridge:["Bridge","#14b8a6"], Implant:["Implant","#475569"],
+    ExtraitAbsent:["Extrait / Absent","#9ca3af"], ATraiter:["À traiter","#fb923c"]
+  };
+
+  // the 19 procedures actually seeded by ProcedureTypeCatalogSeed, real prices
+  const CATALOG = [
+    ["Consultation / examen bucco-dentaire",40,null], ["Contrôle / suivi",0,null],
+    ["Radiographie rétro-alvéolaire",20,null], ["Radiographie panoramique",40,null],
+    ["Soin de carie / obturation",90,"Obturation"], ["Traitement de canal (dévitalisation)",150,"TraitementDeCanal"],
+    ["Détartrage",60,null], ["Traitement parodontal (surfaçage / curetage)",120,null],
+    ["Extraction simple",60,"ExtraitAbsent"], ["Extraction chirurgicale (sagesse / incluse)",200,"ExtraitAbsent"],
+    ["Couronne / bridge (par élément)",500,"Couronne"], ["Prothèse amovible (partielle / complète)",800,null],
+    ["Réparation / rebasage de prothèse",120,null], ["Implant dentaire",1500,"Implant"],
+    ["Traitement orthodontique (multi-attaches)",3500,null], ["Séance orthodontique (contrôle / activation)",80,null],
+    ["Blanchiment dentaire",400,null], ["Facette",700,null], ["Soin dentaire enfant (dent de lait)",60,null]
+  ];
+  const FREQUENT = [4,5,8,10,6,13];
+
+  // fr-TN millimes — same as formatDT in lib/format.ts
+  const dt = v => new Intl.NumberFormat("fr-TN",{minimumFractionDigits:3,maximumFractionDigits:3}).format(v)+" DT";
+
+  const state = { A:{sel:new Set(),acts:[],full:false}, B:{acts:[]}, C:{sel:new Set()}, X:{sel:new Set()} };
+  let nextKey = 1;
+
+  function toothEl(n, ctx){
+    const s = SHAPES[kind(n)];
+    const b = document.createElement("button");
+    b.className = "tooth"; b.dataset.n = n; b.dataset.ctx = ctx;
+    b.setAttribute("aria-label", "Dent " + n);
+    b.innerHTML = '<span class="glyphwrap"><svg width="'+s.w+'" height="'+s.h+'" viewBox="'+s.vb+'" fill="none" aria-hidden="true"><path d="'+s.d+'"/></svg></span><span class="num">'+n+'</span>';
+    b.addEventListener("click", () => onTooth(n, ctx));
+    return b;
+  }
+  function buildCharts(){
+    document.querySelectorAll(".arch").forEach(arch => {
+      const ctx = arch.dataset.ctx;
+      const quads = arch.dataset.arch === "upper" ? UP : LO;
+      arch.textContent = "";
+      quads.forEach((q,i) => {
+        if(i===1){ const m=document.createElement("div"); m.className="mid"; arch.appendChild(m); }
+        const d=document.createElement("div"); d.className="quad";
+        q.forEach(n => d.appendChild(toothEl(n,ctx)));
+        arch.appendChild(d);
+      });
+    });
+  }
+  function onTooth(n, ctx){
+    if(ctx === "B"){
+      const [name,price,cond] = CATALOG[4];
+      state.B.acts.push({key:nextKey++,name,price,cond,teeth:[n],total:price});
+      render(); return;
+    }
+    const st = state[ctx]; if(!st.sel) return;
+    st.sel.has(n) ? st.sel.delete(n) : st.sel.add(n);
+    render();
+  }
+  function addActA(idx){
+    const [name,price,cond] = CATALOG[idx];
+    const teeth = [...state.A.sel].sort((a,b)=>a-b);
+    const perTooth = cond !== null && teeth.length > 0;
+    state.A.acts.push({key:nextKey++,name,price,cond,teeth,perTooth,total:perTooth?price*teeth.length:price});
+    render(); // the selection is deliberately KEPT
+  }
+  function paint(){
+    document.querySelectorAll(".tooth").forEach(t => {
+      const n = +t.dataset.n, ctx = t.dataset.ctx;
+      const path = t.querySelector("path"), wrap = t.querySelector(".glyphwrap"), svg = t.querySelector("svg");
+      const old = wrap.querySelector(".badge-n"); if(old) old.remove();
+      let fill = null, count = 0;
+      if(ctx === "A" || ctx === "B"){
+        const acts = state[ctx].acts.filter(a => a.teeth.includes(n));
+        count = acts.length;
+        const withCond = acts.filter(a => a.cond).pop();
+        if(withCond) fill = COND[withCond.cond][1];
+      }
+      const sel = state[ctx].sel ? state[ctx].sel.has(n) : false;
+      t.dataset.sel = sel ? "1" : "0";
+      path.style.fill = fill || (sel ? "#cbd5e1" : "#fff");
+      svg.style.opacity = (count > 0 && !sel) ? .62 : 1;
+      if(count > 1){ const b=document.createElement("span"); b.className="badge-n"; b.textContent=count; wrap.appendChild(b); }
+    });
+  }
+  function selbar(ctx, el){
+    if(!el) return;
+    const teeth = [...state[ctx].sel].sort((a,b)=>a-b);
+    if(!teeth.length){
+      el.innerHTML = ctx === "A"
+        ? '<span class="hint">Aucune dent — un acte touché maintenant devient un acte général (détartrage, panoramique…)</span>'
+        : '<span class="hint">Touchez la ou les dents concernées sur le schéma.</span>';
+      return;
+    }
+    el.innerHTML = '<span style="font-weight:500">Sélection :</span>' +
+      teeth.map(t => '<span class="chipnum">'+t+'</span>').join("") +
+      (ctx === "A" ? ' <span class="hint">— conservée après l\'ajout</span>' : "");
+  }
+  function actRow(a, tooth){
+    const shared = a.teeth.length > 1;
+    const showPrice = tooth === null || !shared || tooth === a.teeth[0];
+    const c = a.cond ? COND[a.cond][1] : null;
+    return '<div class="actrow">'+
+      '<span class="dot" style="background:'+(c||"transparent")+';border:1px solid '+(c||"var(--border)")+'"></span>'+
+      '<span class="nm">'+a.name+'</span>'+
+      (shared ? '<span class="shared">'+a.teeth.join(", ")+'</span>' : "")+
+      '<span class="price">'+(showPrice
+        ? dt(a.total) + (a.perTooth && shared ? ' <span style="color:var(--muted-fg);font-size:10px">('+dt(a.price)+"/dent)</span>" : "")
+        : '<span style="font-size:10px;font-style:italic;color:var(--muted-fg)">inclus</span>')+'</span>'+
+      '<button class="ic" aria-label="Modifier faces, note, tarif">✎</button>'+
+      '<button class="ic" data-del="'+a.key+'" aria-label="Supprimer l\'acte">✕</button></div>';
+  }
+  function listHTML(acts){
+    if(!acts.length) return '<div class="empty"><b>Aucun acte pour cette séance</b><span>Cliquez une ou plusieurs dents, puis touchez l\'acte réalisé.</span></div>';
+    const byTooth = new Map();
+    acts.forEach(a => a.teeth.forEach(t => { if(!byTooth.has(t)) byTooth.set(t,[]); byTooth.get(t).push(a); }));
+    let html = "";
+    [...byTooth.keys()].sort((a,b)=>a-b).forEach(t => {
+      const rows = byTooth.get(t);
+      html += '<div class="group"><div class="grouphead"><span>Dent '+t+'</span><span class="line"></span>'+
+        '<span class="c">'+rows.length+" acte"+(rows.length>1?"s":"")+'</span></div>'+
+        rows.map(a => actRow(a,t)).join("")+"</div>";
+    });
+    const general = acts.filter(a => a.teeth.length === 0);
+    if(general.length) html += '<div class="group"><div class="grouphead"><span>Actes généraux</span><span class="line"></span><span class="c">sans dent</span></div>'+
+      general.map(a => actRow(a,null)).join("")+"</div>";
+    return html;
+  }
+  function palette(){
+    const st = state.A;
+    const idxs = st.full ? CATALOG.map((_,i)=>i) : FREQUENT;
+    document.getElementById("paletteModeA").textContent = st.full ? "tout le catalogue" : "actes fréquents";
+    document.getElementById("togglePaletteA").textContent = st.full ? "Revenir aux actes fréquents" : "Tout le catalogue (19 actes)";
+    const n = st.sel.size;
+    document.getElementById("paletteA").innerHTML = idxs.map(i => {
+      const [name,price,cond] = CATALOG[i];
+      const c = cond ? COND[cond][1] : "var(--border)";
+      const per = cond !== null && n > 0;
+      return '<button class="act" data-add="'+i+'"><span class="swatch" style="background:'+c+'"></span>'+
+        '<span class="nm">'+name+'</span><span class="pr">'+
+        (per && n>1 ? dt(price*n)+" <span style=\"opacity:.65\">×"+n+"</span>" : dt(price))+"</span></button>";
+    }).join("");
+  }
+  function render(){
+    paint();
+    selbar("A", document.getElementById("selbarA"));
+    selbar("C", document.getElementById("selbarC"));
+    palette();
+
+    const tA = state.A.acts.reduce((s,a)=>s+a.total,0);
+    document.getElementById("listA").innerHTML = listHTML(state.A.acts);
+    document.getElementById("countA").textContent = state.A.acts.length + " acte" + (state.A.acts.length!==1?"s":"");
+    document.getElementById("totalA").textContent = dt(tA);
+    document.getElementById("footTotalA").textContent = dt(tA);
+    document.getElementById("footPaidA").textContent = dt(tA);
+
+    const tB = state.B.acts.reduce((s,a)=>s+a.total,0);
+    document.getElementById("listB").innerHTML = listHTML(state.B.acts);
+    document.getElementById("totalB").textContent = dt(tB);
+
+    document.getElementById("totalC").textContent = dt(90 * state.C.sel.size);
+
+    ["legendA","legendB"].forEach(id => {
+      const el = document.getElementById(id); if(!el) return;
+      el.innerHTML = Object.keys(COND).map(k =>
+        '<span><span class="dot" style="background:'+COND[k][1]+'"></span>'+COND[k][0]+"</span>").join("");
+    });
+  }
+
+  document.addEventListener("click", e => {
+    const add = e.target.closest("[data-add]");
+    if(add){ addActA(+add.dataset.add); return; }
+    const del = e.target.closest("[data-del]");
+    if(del){ const k = +del.dataset.del;
+      state.A.acts = state.A.acts.filter(a=>a.key!==k);
+      state.B.acts = state.B.acts.filter(a=>a.key!==k);
+      render(); return; }
+    const q = e.target.closest("[data-quick]");
+    if(q){ const st = state[q.dataset.ctx];
+      if(q.dataset.quick === "none") st.sel.clear();
+      else if(q.dataset.quick === "all") [...UP.flat(),...LO.flat()].forEach(n=>st.sel.add(n));
+      else (q.dataset.quick === "upper" ? UP : LO).flat().forEach(n=>st.sel.add(n));
+      render(); return; }
+    if(e.target.id === "togglePaletteA"){ state.A.full = !state.A.full; render(); return; }
+    const seg = e.target.closest(".seg button");
+    if(seg){ seg.parentElement.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b===seg?"true":"false")); return; }
+    const radio = e.target.closest(".radio");
+    if(radio){ radio.parentElement.querySelectorAll(".radio").forEach(r => r.dataset.on = r===radio?"1":"0"); return; }
+  });
+
+  document.querySelectorAll(".opt").forEach(opt => {
+    opt.addEventListener("click", () => {
+      document.querySelectorAll(".opt").forEach(o => o.setAttribute("aria-selected", o===opt?"true":"false"));
+      ["A","B","C","X"].forEach(p => document.getElementById("p"+p).hidden = p !== opt.dataset.p);
+      window.scrollTo({top:0});
+    });
+  });
+
+  buildCharts();
+  render();
+</script>

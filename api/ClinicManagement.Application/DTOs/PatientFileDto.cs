@@ -12,6 +12,9 @@ public class PatientFileDto
     public string? Description { get; set; }
     public DateTime UploadedAt { get; set; }
     public string? UploadedBy { get; set; }
+
+    /// <summary>Round-tripped by the rename/move form so a concurrent change is a 409, not a silent overwrite.</summary>
+    public uint Version { get; set; }
 }
 
 public class PatientFolderDto

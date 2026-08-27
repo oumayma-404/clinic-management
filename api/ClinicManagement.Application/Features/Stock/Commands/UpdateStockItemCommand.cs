@@ -1,7 +1,12 @@
+using System.Text.Json.Serialization;
 using MediatR;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Suppliers;
+using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Stock.Commands;
@@ -17,23 +22,64 @@ public class UpdateStockItemCommand : IRequest<Result<StockItemDto>>
     public int? MaximumStockLevel { get; set; }
     public string? Description { get; set; }
     public decimal? UnitPrice { get; set; }
-    public string? Supplier { get; set; }
+
+    private Guid? _supplierId;
+
+    /// <summary>
+    /// The fournisseur this article is ordered from.
+    /// <para>
+    /// ⚠️ <b>Tri-state on the wire</b> (AC-5): omit the key to leave the link alone, send <c>null</c> to clear it.
+    /// Conflating the two makes « clearing » unexpressible — the defect the <c>ProcedureTypeId</c> and
+    /// <c>Procedures</c> tri-states already fixed twice in this codebase — and a caller that omits the key
+    /// (a status-only save) would silently unlink every article it touched.
+    /// </para>
+    /// </summary>
+    public Guid? SupplierId
+    {
+        get => _supplierId;
+        set { _supplierId = value; SupplierIdSpecified = true; }
+    }
+
+    [JsonIgnore] public bool SupplierIdSpecified { get; private set; }
+
+    /// <summary>
+    /// Why on-hand was corrected. Recorded on the <c>StockMovement</c> this command now writes (AC-P4.17) —
+    /// an adjustment with no reason is indistinguishable from a data-entry error a month later.
+    /// </summary>
+    public string? StockChangeReason { get; set; }
+
+    /// <summary>
+    /// The <c>Version</c> the client read (AC-P4.18). Round-tripped so the save is validated against the copy
+    /// the user was editing, which is what stops a concurrent consume being silently overwritten. `0` means
+    /// "not supplied" and skips the check, so server-internal writers keep working — the same mechanism the six
+    /// other round-tripped aggregates use; see <c>IUnitOfWork.SetExpectedVersion</c>.
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class UpdateStockItemCommandHandler : IRequestHandler<UpdateStockItemCommand, Result<StockItemDto>>
 {
     private readonly IStockItemRepository _stockItemRepository;
+    private readonly IStockMovementRepository _stockMovementRepository;
+    private readonly ISupplierRepository _supplierRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly INotificationGenerator _notificationGenerator;
 
     public UpdateStockItemCommandHandler(
         IStockItemRepository stockItemRepository,
+        IStockMovementRepository stockMovementRepository,
+        ISupplierRepository supplierRepository,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        INotificationGenerator notificationGenerator)
     {
         _stockItemRepository = stockItemRepository;
+        _stockMovementRepository = stockMovementRepository;
+        _supplierRepository = supplierRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _notificationGenerator = notificationGenerator;
     }
 
     public async Task<Result<StockItemDto>> Handle(UpdateStockItemCommand request, CancellationToken cancellationToken)
@@ -41,17 +87,17 @@ public class UpdateStockItemCommandHandler : IRequestHandler<UpdateStockItemComm
         try
         {
             if (string.IsNullOrWhiteSpace(request.Name))
-                return Result<StockItemDto>.Failure("Name is required");
+                return Result<StockItemDto>.Failure("Le nom est requis.");
             if (string.IsNullOrWhiteSpace(request.Category))
-                return Result<StockItemDto>.Failure("Category is required");
+                return Result<StockItemDto>.Failure("La catégorie est requise.");
             if (string.IsNullOrWhiteSpace(request.Unit))
-                return Result<StockItemDto>.Failure("Unit is required");
+                return Result<StockItemDto>.Failure("L'unité est requise.");
             if (request.MinimumStockLevel < 0)
-                return Result<StockItemDto>.Failure("Minimum stock level cannot be negative");
+                return Result<StockItemDto>.Failure("Le stock minimum ne peut pas être négatif.");
             if (request.CurrentStock < 0)
-                return Result<StockItemDto>.Failure("Quantity cannot be negative");
+                return Result<StockItemDto>.Failure("La quantité ne peut pas être négative.");
             if (request.UnitPrice.HasValue && request.UnitPrice.Value < 0)
-                return Result<StockItemDto>.Failure("Unit price cannot be negative");
+                return Result<StockItemDto>.Failure("Le prix unitaire ne peut pas être négatif.");
 
             var clinic = await _clinicResolver.GetClinicIdAsync(cancellationToken);
             if (clinic.IsFailure)
@@ -59,24 +105,75 @@ public class UpdateStockItemCommandHandler : IRequestHandler<UpdateStockItemComm
 
             var item = await _stockItemRepository.GetByIdAsync(request.Id, cancellationToken);
             if (item == null || item.ClinicId != clinic.Value)
-                return Result<StockItemDto>.Failure("Stock item not found");
+                return Result<StockItemDto>.Failure("Article de stock introuvable.");
+
+            // Tri-state: an absent key leaves the article's own link standing, an explicit null clears it.
+            var supplierId = request.SupplierIdSpecified ? request.SupplierId : item.SupplierId;
+            var supplier = await SupplierLink.ResolveAsync(
+                _supplierRepository, clinic.Value, supplierId, cancellationToken);
+            if (supplier.IsFailure)
+            {
+                return Result<StockItemDto>.FailureFrom(supplier);
+            }
 
             var maximum = request.MaximumStockLevel.HasValue && request.MaximumStockLevel.Value >= request.MinimumStockLevel
                 ? request.MaximumStockLevel.Value
                 : request.MinimumStockLevel;
 
-            item.UpdateInfo(request.Name, request.Description, request.Category, request.Unit, request.UnitPrice, request.Supplier);
+            // Capture the low-stock state before the mutations so we can detect a not-low → low crossing
+            // (covers both a quantity drop and a MinimumStockLevel raise — spec US-5).
+            var wasLow = item.IsLowStock();
+
+            item.UpdateInfo(
+                request.Name, request.Description, request.Category, request.Unit, request.UnitPrice,
+                supplier.Value?.Id);
             item.UpdateStockLevels(request.MinimumStockLevel, maximum);
-            item.SetCurrentStock(request.CurrentStock);
+
+            // AC-P4.15 — a manual stock-take correction is a real movement and must be in the ledger. This
+            // command used to call SetCurrentStock and write nothing, which is exactly why Σ movements stopped
+            // reconciling with on-hand: the absolute overwrite left no trace of what changed or why.
+            var delta = item.SetCurrentStock(request.CurrentStock);
+            if (delta != 0)
+            {
+                await _stockMovementRepository.AddAsync(
+                    new StockMovement(
+                        Guid.NewGuid(),
+                        clinic.Value,
+                        item.Id,
+                        // AC-P4.16 — Adjustment, not Consume/Restock: an inventory count that disagreed with the
+                        // books is a different fact from stock actually leaving or arriving.
+                        StockMovementType.Adjustment,
+                        Math.Abs(delta),
+                        item.CurrentStock,
+                        request.StockChangeReason ?? "Correction manuelle de l'inventaire"),
+                    cancellationToken);
+            }
+
+            // AC-P4.18 — validate against the version the USER was editing, not the one just loaded (which
+            // always matches and would detect nothing). A concurrent consume now raises a 409.
+            _unitOfWork.SetExpectedVersion(item, request.Version);
 
             await _stockItemRepository.UpdateAsync(item, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return Result<StockItemDto>.Success(item.ToDto());
+            // Edge-triggered low-stock notification (best-effort, never fails this command): fire only on
+            // the not-low → low crossing. Staying low, or being created already low, generates nothing.
+            if (!wasLow && item.IsLowStock())
+            {
+                await _notificationGenerator.LowStockAsync(
+                    clinic.Value, item.Id, item.Name, item.CurrentStock, item.MinimumStockLevel, cancellationToken);
+            }
+
+            return Result<StockItemDto>.Success(item.ToDto(supplier: supplier.Value));
         }
-        catch (Exception ex)
+        catch (ArgumentException ex)
         {
-            return Result<StockItemDto>.Failure($"Error updating stock item: {ex.Message}");
+            return Result<StockItemDto>.Failure(ex.Message);
+        }
+        catch (Exception ex) when (ex is not ConflictException)
+        {
+            // French, and without the raw exception text — the A-8 class the P1/P2 sweep closed elsewhere.
+            return Result<StockItemDto>.Failure("Erreur lors de la mise à jour de l'article de stock.");
         }
     }
 }

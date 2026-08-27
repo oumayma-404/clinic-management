@@ -17,21 +17,65 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { CategoryCombobox } from "@/components/ui/category-combobox"
+import { SupplierPicker } from "@/components/suppliers/supplier-picker"
+import { SupplierFormDialog } from "@/components/suppliers/supplier-form-dialog"
+import { FormErrorBanner } from "@/components/ui/form-error-banner"
+import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
 import { stockApi } from "@/lib/api/stock"
 import { ApiError } from "@/lib/api/client"
+import { formatAmount, parseAmountInput } from "@/lib/format"
 import type { StockItemDto } from "@/lib/api/types"
 
-const CATEGORIES = ["Medical Supplies", "Medical Equipment", "PPE", "Medications", "Lab Supplies", "Office Supplies"]
+/**
+ * ⚠️ `STOCK_CATEGORIES` and `STOCK_CATEGORY_LABELS_FR` used to live here — six English storage keys and a French
+ * display map, this repo's standing convention for a **closed** value set. The set stopped being closed:
+ * `GET /api/stock` already served the clinic's own distinct categories as a filter facet, and nothing ever
+ * refused a category typed straight into the database — so a clinic-authored one rendered raw beside six
+ * translated ones. The storage key is the French label now (`Domain/Services/StockCategories`), the suppliers
+ * migration rewrote the six existing keys, and the options come from the server like every other open set.
+ */
+
 const UNITS = ["Unit", "Box", "Bag", "Roll", "Bottle", "Pack", "Liter"]
+
+/** The unit is still a CLOSED set persisted in English and read in French — unlike the category,
+ * which became an open set served by the server. */
+const UNIT_LABELS_FR: Record<string, string> = {
+  Unit: "Unité",
+  Box: "Boîte",
+  Bag: "Sachet",
+  Roll: "Rouleau",
+  Bottle: "Flacon",
+  Pack: "Paquet",
+  Liter: "Litre",
+}
+
+export function stockUnitLabel(unit: string | null | undefined): string {
+  if (!unit) return ""
+  const trimmed = unit.trim()
+  return UNIT_LABELS_FR[trimmed] ?? trimmed
+}
 
 interface StockItemFormModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   editingItem?: StockItemDto | null
   onSaved: () => void
+  /**
+   * The catégorie options — the canonical suggestions unioned with the clinic's own, as `GET /api/stock`
+   * already returns them. Passed in rather than fetched here: the stock page has them for its own filter, and a
+   * second read would be a second answer to what this clinic files articles under.
+   */
+  categories?: string[]
 }
 
-export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }: StockItemFormModalProps) {
+export function StockItemFormModal({
+  open,
+  onOpenChange,
+  editingItem,
+  onSaved,
+  categories = [],
+}: StockItemFormModalProps) {
   const [name, setName] = useState("")
   const [category, setCategory] = useState("")
   const [unit, setUnit] = useState("")
@@ -39,8 +83,23 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
   const [minimumStockLevel, setMinimumStockLevel] = useState("")
   const [description, setDescription] = useState("")
   const [unitPrice, setUnitPrice] = useState("")
-  const [supplier, setSupplier] = useState("")
+  const [supplierId, setSupplierId] = useState<string | null>(null)
+  const [supplierCreateOpen, setSupplierCreateOpen] = useState(false)
+  const [supplierReloadKey, setSupplierReloadKey] = useState(0)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [banner, setBanner] = useState<string | null>(null)
+  const [isConflict, setIsConflict] = useState(false)
+  /*
+   * Band B — `UpdateStockItemCommand.Version` and `SetExpectedVersion` were fully wired on the server and this
+   * form simply did not send the token, so the protection was inert. ⚠️ The VERSION only: the read lands after
+   * the fields hydrate below, so its values would replace what the user typed.
+   */
+  const { source: freshItem, resync } = useFreshVersion(
+    open,
+    editingItem?.id,
+    editingItem,
+    async () => (await stockApi.list()).find((i) => i.id === editingItem!.id) ?? null,
+  )
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -51,8 +110,8 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
       setQuantity(String(editingItem.currentStock))
       setMinimumStockLevel(String(editingItem.minimumStockLevel))
       setDescription(editingItem.description ?? "")
-      setUnitPrice(editingItem.unitPrice != null ? String(editingItem.unitPrice) : "")
-      setSupplier(editingItem.supplier ?? "")
+      setUnitPrice(editingItem.unitPrice != null ? formatAmount(editingItem.unitPrice) : "")
+      setSupplierId(editingItem.supplierId ?? null)
     } else {
       setName("")
       setCategory("")
@@ -61,19 +120,23 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
       setMinimumStockLevel("")
       setDescription("")
       setUnitPrice("")
-      setSupplier("")
+      setSupplierId(null)
     }
     setErrors({})
   }, [editingItem, open])
 
   const validate = (): boolean => {
     const next: Record<string, string> = {}
-    if (!name.trim()) next.name = "Name is required"
-    if (!category) next.category = "Category is required"
-    if (!unit) next.unit = "Unit is required"
-    if (quantity === "" || Number(quantity) < 0) next.quantity = "Enter a quantity of 0 or more"
-    if (minimumStockLevel === "" || Number(minimumStockLevel) < 0) next.minimumStockLevel = "Enter a minimum of 0 or more"
-    if (unitPrice !== "" && Number(unitPrice) < 0) next.unitPrice = "Price cannot be negative"
+    if (!name.trim()) next.name = "Le nom est requis"
+    if (!category) next.category = "La catégorie est requise"
+    if (!unit) next.unit = "L'unité est requise"
+    if (quantity === "" || Number(quantity) < 0) next.quantity = "Saisissez une quantité de 0 ou plus"
+    if (minimumStockLevel === "" || Number(minimumStockLevel) < 0) next.minimumStockLevel = "Saisissez un minimum de 0 ou plus"
+    // NaN as well as negative: the field is `type="text"` now, so the browser no longer refuses a malformed
+    // value and an unchecked NaN would be sent as a null price — silently unpricing the item.
+    if (unitPrice.trim() !== "" && !(parseAmountInput(unitPrice) >= 0)) {
+      next.unitPrice = "Saisissez un prix valide, par exemple 12,500"
+    }
     setErrors(next)
     return Object.keys(next).length === 0
   }
@@ -92,23 +155,34 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
       // on create, let the backend default it to the minimum.
       maximumStockLevel: editingItem ? editingItem.maximumStockLevel : null,
       description: description.trim() || null,
-      unitPrice: unitPrice !== "" ? Number(unitPrice) : null,
-      supplier: supplier.trim() || null,
+      unitPrice: unitPrice.trim() !== "" ? parseAmountInput(unitPrice) : null,
+      // Always present, never omitted: the update command reads an ABSENT key as « unchanged », so
+      // `|| undefined` here would make clearing a fournisseur silently succeed and do nothing (AC-5).
+      supplierId: supplierId,
     }
 
     try {
       setSaving(true)
+      setBanner(null)
+      setIsConflict(false)
       if (editingItem) {
-        await stockApi.update(editingItem.id, payload)
-        toast.success("Stock item updated")
+        await stockApi.update(editingItem.id, {
+          ...payload,
+          version: freshItem?.version ?? editingItem.version,
+        })
+        toast.success("Article mis à jour")
       } else {
         await stockApi.create(payload)
-        toast.success("Stock item added")
+        toast.success("Article ajouté")
       }
       onOpenChange(false)
       onSaved()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Failed to save stock item")
+      // In the form, not a toast: a 409 is not transient and the typed values have to stay on screen.
+      const conflict = err instanceof ApiError && err.status === 409
+      setIsConflict(conflict)
+      setBanner(err instanceof ApiError ? err.message : "Échec de l'enregistrement de l'article")
+      if (!conflict) await resync()
     } finally {
       setSaving(false)
     }
@@ -116,27 +190,33 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="md:max-w-md">
         <DialogHeader>
-          <DialogTitle>{editingItem ? "Edit Stock Item" : "Add New Stock Item"}</DialogTitle>
+          <DialogTitle>{editingItem ? "Modifier l'article" : "Ajouter un article"}</DialogTitle>
           <DialogDescription>
-            {editingItem ? "Update the details of the stock item" : "Enter the details of the new stock item"}
+            {editingItem ? "Mettez à jour les détails de l'article" : "Saisissez les détails du nouvel article"}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">
-              Item Name <span className="text-destructive">*</span>
+              Nom de l'article <span className="text-destructive">*</span>
             </Label>
-            <Input id="name" placeholder="e.g., Surgical Gloves" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input id="name" placeholder="ex. : gants chirurgicaux" value={name} onChange={(e) => setName(e.target.value)} />
             {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
           </div>
+          <div>
+            <FormErrorBanner
+              message={banner}
+              action={isConflict ? { label: "Recharger", onClick: onSaved, disabled: saving } : undefined}
+            />
+          </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="quantity">
-                Quantity <span className="text-destructive">*</span>
+                Quantité <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="quantity"
@@ -151,16 +231,18 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
 
             <div className="space-y-2">
               <Label htmlFor="unit">
-                Unit <span className="text-destructive">*</span>
+                Unité <span className="text-destructive">*</span>
               </Label>
+              {/* `w-full`: `ui/select.tsx`'s trigger ships `w-fit`, so without this the control renders narrower
+                  than the sibling « Quantité » input it shares a grid row with. */}
               <Select value={unit} onValueChange={setUnit}>
-                <SelectTrigger id="unit">
-                  <SelectValue placeholder="Select unit" />
+                <SelectTrigger id="unit" className="w-full">
+                  <SelectValue placeholder="Sélectionner une unité" />
                 </SelectTrigger>
                 <SelectContent>
                   {UNITS.map((u) => (
                     <SelectItem key={u} value={u}>
-                      {u}
+                      {stockUnitLabel(u)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -169,10 +251,10 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="minimumStockLevel">
-                Min. Stock Level <span className="text-destructive">*</span>
+                Stock minimum <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="minimumStockLevel"
@@ -187,33 +269,35 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
 
             <div className="space-y-2">
               <Label htmlFor="category">
-                Category <span className="text-destructive">*</span>
+                Catégorie <span className="text-destructive">*</span>
               </Label>
-              <Select value={category} onValueChange={setCategory}>
-                <SelectTrigger id="category">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* A combobox, not a Select (AC-2): the categories are *suggestions* and a practice may file an
+                  article under one of its own. The list already includes the clinic's own, which is what makes an
+                  open set converge — and typing a variant is safe, since the server folds « prothese » back onto
+                  the canonical spelling on save. */}
+              <CategoryCombobox
+                id="category"
+                value={category}
+                onChange={setCategory}
+                options={categories}
+                placeholder="Sélectionner une catégorie"
+                emptyLabel="Sans catégorie"
+              />
               {errors.category && <p className="text-xs text-destructive">{errors.category}</p>}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="unitPrice">Unit Price</Label>
+              <Label htmlFor="unitPrice">Prix unitaire</Label>
+              {/* `text` + `inputMode="decimal"`, never `type="number"` (J8): a dinar amount, so `step="0.01"`
+                  put the millime out of reach and the comma the app prints with was refused outright. The three
+                  fields above it stay real number inputs — a quantity and a stock threshold are integers. */}
               <Input
                 id="unitPrice"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="Optional"
+                type="text"
+                inputMode="decimal"
+                placeholder="Facultatif"
                 value={unitPrice}
                 onChange={(e) => setUnitPrice(e.target.value)}
               />
@@ -221,12 +305,20 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="supplier">Supplier</Label>
-              <Input
+              <Label htmlFor="supplier">Fournisseur</Label>
+              {/* Was a free-text input, which is how the same dépôt ended up under three spellings with no
+                  number behind any of them. « Aucun » is the common case and stays one tap away (AC-5). */}
+              <SupplierPicker
                 id="supplier"
-                placeholder="Optional"
-                value={supplier}
-                onChange={(e) => setSupplier(e.target.value)}
+                value={supplierId}
+                onChange={setSupplierId}
+                selectedFallback={
+                  editingItem?.supplierId && editingItem.supplierName
+                    ? { id: editingItem.supplierId, name: editingItem.supplierName }
+                    : null
+                }
+                onCreateNew={() => setSupplierCreateOpen(true)}
+                reloadKey={supplierReloadKey}
               />
             </div>
           </div>
@@ -235,7 +327,7 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
             <Label htmlFor="description">Description</Label>
             <Textarea
               id="description"
-              placeholder="Optional"
+              placeholder="Facultatif"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
@@ -244,14 +336,28 @@ export function StockItemFormModal({ open, onOpenChange, editingItem, onSaved }:
 
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-              Cancel
+              Annuler
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Saving..." : editingItem ? "Update Item" : "Add Item"}
+              {saving ? "Enregistrement…" : editingItem ? "Mettre à jour" : "Ajouter"}
             </Button>
           </DialogFooter>
         </form>
       </DialogContent>
+
+      {/* « + Créer un fournisseur » from inside the picker. It selects the new supplier straight away, which is
+          the whole reason the inline path exists — sending the user to /fournisseurs and back would lose
+          everything already typed into this form. */}
+      <SupplierFormDialog
+        open={supplierCreateOpen}
+        onOpenChange={setSupplierCreateOpen}
+        editing={null}
+        categories={[]}
+        onSaved={(created) => {
+          setSupplierId(created.id)
+          setSupplierReloadKey((k) => k + 1)
+        }}
+      />
     </Dialog>
   )
 }

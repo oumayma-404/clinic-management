@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lettre de liaison — éditeur restructuré</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme: { extend: { colors: {
+  background:'#fcfcfc', foreground:'#1f1f1f', card:'#ffffff',
+  primary:'#2f6ac9', 'primary-foreground':'#fcfcfc',
+  muted:'#f3f4f6', 'muted-foreground':'#6b7280',
+  accent:'#eef2f9', 'accent-foreground':'#1e4585',
+  destructive:'#dc4b3e', border:'#e5e7eb'
+}, borderRadius:{ lg:'8px', xl:'12px', md:'6px' } } } }
+</script>
+<style> body{font-family:'Geist','Inter',system-ui,sans-serif} </style>
+</head>
+<body class="bg-background text-foreground">
+<div class="flex h-screen">
+  <!-- LEFT: structured form -->
+  <div class="w-[420px] border-r border-border bg-white/90 overflow-y-auto shrink-0">
+    <div class="p-8 space-y-6">
+      <button class="text-sm text-muted-foreground">← Retour aux modèles</button>
+      <div class="flex items-center gap-3">
+        <div class="h-12 w-12 rounded-lg bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center text-white">✉️</div>
+        <div><h2 class="text-lg font-semibold">Lettre de liaison</h2><p class="text-sm text-muted-foreground">Adressée à un confrère externe</p></div>
+      </div>
+      <hr class="border-border" />
+
+      <div class="space-y-2">
+        <label class="text-sm font-semibold">Patient</label>
+        <button class="w-full h-11 rounded-md border border-input bg-transparent px-3 flex items-center justify-between text-sm"><span>Salma Trabelsi</span><span class="opacity-50">⌄</span></button>
+      </div>
+
+      <!-- FR-4.1 external recipient block (free text, NOT a clinic-doctor select) -->
+      <div class="rounded-lg border border-border p-3 space-y-3">
+        <div class="text-sm font-semibold flex items-center gap-2"><span class="w-1 h-5 bg-green-500 rounded-full"></span> Confrère destinataire</div>
+        <div class="space-y-1.5">
+          <label class="text-sm">Nom <span class="text-destructive">*</span></label>
+          <input placeholder="Dr Leïla Ben Amor" class="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm" />
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-sm">Spécialité</label>
+          <input placeholder="Ex : Chirurgie maxillo-faciale" class="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm" />
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-sm">Adresse</label>
+          <textarea rows="2" placeholder="Clinique El Manar, Tunis" class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm resize-none"></textarea>
+        </div>
+      </div>
+
+      <!-- FR-4.2 guided clinical fields (all optional; empty ones omitted from the letter) -->
+      <div class="space-y-2"><label class="text-sm font-semibold">Motif</label>
+        <textarea rows="2" placeholder="Motif de l'adressage…" class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm resize-none">Avis chirurgical pour extraction de la 38 incluse.</textarea></div>
+      <div class="space-y-2"><label class="text-sm font-semibold">Examen clinique</label>
+        <textarea rows="2" placeholder="Constatations cliniques…" class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm resize-none"></textarea></div>
+      <div class="space-y-2"><label class="text-sm font-semibold">Examen radiologique</label>
+        <textarea rows="2" placeholder="Résultats radiologiques…" class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm resize-none">Panoramique : 38 en désinclusion, proximité du canal mandibulaire.</textarea></div>
+      <div class="space-y-2"><label class="text-sm font-semibold">Actes réalisés</label>
+        <textarea rows="2" placeholder="Actes déjà effectués…" class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm resize-none"></textarea></div>
+      <div class="space-y-2"><label class="text-sm font-semibold">Prescriptions (posologie / durée)</label>
+        <textarea rows="2" placeholder="Traitement prescrit…" class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm resize-none"></textarea></div>
+
+      <div class="space-y-2 pt-2">
+        <button class="w-full h-11 rounded-md bg-primary text-primary-foreground font-medium">Sauvegarder le document</button>
+        <div class="grid grid-cols-2 gap-2">
+          <button class="h-10 rounded-md border border-green-500 text-green-700 text-sm">⬇ PDF</button>
+          <button class="h-10 rounded-md border border-primary text-primary text-sm">⬇ Word</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: preview (non-editable) — empty guided fields are omitted -->
+  <div class="flex-1 overflow-y-auto bg-gradient-to-br from-slate-100 to-blue-50 p-12">
+    <div class="max-w-3xl mx-auto">
+      <div class="flex items-center justify-between mb-3 text-sm">
+        <div><div class="font-medium">Aperçu du document</div><div class="text-muted-foreground text-xs">Aperçu en lecture seule — les champs vides sont omis</div></div>
+        <span class="text-xs text-muted-foreground">Format A4</span>
+      </div>
+      <div class="bg-white shadow-2xl p-16 min-h-[900px] flex flex-col" style="font-family:Helvetica,Arial,sans-serif;font-size:11pt;line-height:1.6">
+        <div class="pb-4 space-y-0.5">
+          <h1 class="font-bold text-primary" style="font-size:14pt">Cabinet Dentaire Dr Khelifi</h1>
+          <p>15 Avenue Habib Bourguiba, 1000 Tunis</p>
+          <p>Tél : +216 71 000 000</p>
+          <p class="font-bold">Dr Amine Khelifi — Chirurgien-dentiste</p>
+        </div>
+        <!-- external recipient block -->
+        <div class="text-right my-2">
+          <p class="font-semibold">Dr Leïla Ben Amor</p>
+          <p>Chirurgie maxillo-faciale</p>
+          <p>Clinique El Manar, Tunis</p>
+        </div>
+        <p class="text-right">Tunis, le 20/07/2026</p>
+        <h2 class="text-center font-bold uppercase tracking-wide my-4" style="font-size:13pt">Lettre de liaison</h2>
+        <p>Chère consœur,</p>
+        <p class="mt-2">Concernant la patiente <b>Salma Trabelsi</b>, née le 12/03/2011 :</p>
+
+        <!-- only filled sections render (Motif + Examen radiologique here) -->
+        <div class="mt-3 space-y-3">
+          <div><div class="font-semibold underline">Motif</div><p>Avis chirurgical pour extraction de la 38 incluse.</p></div>
+          <div><div class="font-semibold underline">Examen radiologique</div><p>Panoramique : 38 en désinclusion, proximité du canal mandibulaire.</p></div>
+          <p class="text-slate-400 italic text-sm">[Examen clinique / Actes réalisés / Prescriptions : vides → non affichés]</p>
+        </div>
+
+        <p class="mt-4">Confraternellement,</p>
+        <div class="mt-auto flex justify-end pt-10">
+          <div class="text-center">
+            <div class="w-40 h-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-slate-500 text-xs italic">[ cachet du praticien ]</div>
+            <div class="text-xs text-slate-500 mt-1">Dr Amine Khelifi</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

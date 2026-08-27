@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
@@ -17,6 +18,7 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
     private readonly IPatientRepository _patientRepository;
     private readonly IPatientFolderRepository _folderRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ICurrentClinicResolver _clinicResolver;
 
     private static readonly string[] DefaultFolderNames = new[]
     {
@@ -29,21 +31,32 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
     public InitializeDefaultFoldersCommandHandler(
         IPatientRepository patientRepository,
         IPatientFolderRepository folderRepository,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ICurrentClinicResolver clinicResolver)
     {
         _patientRepository = patientRepository;
         _folderRepository = folderRepository;
         _unitOfWork = unitOfWork;
+        _clinicResolver = clinicResolver;
     }
 
     public async Task<Result<IEnumerable<PatientFolderDto>>> Handle(InitializeDefaultFoldersCommand request, CancellationToken cancellationToken)
     {
         try
         {
-            var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
-            if (patient == null)
+            // Authoritative tenant guard: resolve the caller's clinic from the DB and verify the patient
+            // belongs to it before creating folders (defense-in-depth, independent of the fail-open global
+            // filter — cloud-security-and-tenant-isolation #6).
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
             {
-                return Result<IEnumerable<PatientFolderDto>>.Failure("Patient not found");
+                return Result<IEnumerable<PatientFolderDto>>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+
+            var patient = await _patientRepository.GetByIdAsync(request.PatientId, cancellationToken);
+            if (patient == null || patient.ClinicId != clinicResult.Value)
+            {
+                return Result<IEnumerable<PatientFolderDto>>.Failure("Patient introuvable.");
             }
 
             var existingFolders = await _folderRepository.GetRootFoldersByPatientIdAsync(request.PatientId, cancellationToken);
@@ -57,7 +70,7 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
                 {
                     // Generate a consistent ID based on folder name for default folders
                     var folderId = GenerateDefaultFolderId(request.PatientId, folderName);
-                    var folder = new PatientFolder(folderId, request.PatientId, folderName);
+                    var folder = new PatientFolder(folderId, request.PatientId, patient.ClinicId, folderName);
                     await _folderRepository.AddAsync(folder, cancellationToken);
                     createdFolders.Add(folder);
                 }
@@ -84,7 +97,7 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
 
             return Result<IEnumerable<PatientFolderDto>>.Success(dtos);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<IEnumerable<PatientFolderDto>>.Failure($"Error initializing default folders: {ex.Message}");
         }

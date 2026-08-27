@@ -1,0 +1,656 @@
+<title>Bandeau « Plans de traitement » — revue de conception</title>
+
+<style>
+  /* ──────────────────────────────────────────────────────────────────────────
+     Two palettes, kept strictly apart.
+
+     SPECIMEN tokens (--s-*) are copied verbatim from web/app/globals.css and
+     components/treatment-plans/treatment-plan-labels.ts. They are the product.
+     Nothing here may "improve" them or the specimen stops being a specimen.
+
+     FRAME tokens are this review page's own. The annotation accent is clay,
+     deliberately NOT the app's blue: a critique mark must never be mistakable
+     for a piece of app UI sitting inside a plate.
+     ────────────────────────────────────────────────────────────────────────── */
+  :root {
+    color-scheme: light;
+
+    /* frame */
+    --ink: #14171c;
+    --ink-soft: #5b6472;
+    --paper: #f6f7f9;
+    --plate: #ffffff;
+    --rule: #dee2e9;
+    --rule-soft: #eaedf2;
+    --annot: #a65b2a;
+    --annot-wash: #f6ece4;
+
+    /* specimen — light (globals.css :root) */
+    --s-bg: oklch(0.99 0 0);
+    --s-fg: oklch(0.18 0 0);
+    --s-card: oklch(1 0 0);
+    --s-primary: oklch(0.52 0.14 245);
+    --s-primary-fg: oklch(0.99 0 0);
+    --s-muted: oklch(0.97 0.005 250);
+    --s-muted-fg: oklch(0.48 0.01 250);
+    --s-accent: oklch(0.965 0.01 245);
+    --s-border: oklch(0.93 0.005 250);
+    --s-destructive: oklch(0.58 0.2 25);
+
+    /* specimen — status badges (Tailwind pairs used by treatment-plan-labels.ts) */
+    --s-blue-bg: #dbeafe;   --s-blue-fg: #1e40af;
+    --s-amber-bg: #fef3c7;  --s-amber-fg: #92400e;
+    --s-green-bg: #dcfce7;  --s-green-fg: #166534;
+    --s-red-bg: #fee2e2;    --s-red-fg: #991b1b;
+    --s-overdue: oklch(0.70 0.16 70);
+
+    --ease: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --ink: #e7eaef;
+      --ink-soft: #98a2b1;
+      --paper: #0e1116;
+      --plate: #161a20;
+      --rule: #262c35;
+      --rule-soft: #1d222a;
+      --annot: #d59366;
+      --annot-wash: #2a1d14;
+
+      /* specimen — dark (globals.css .dark) */
+      --s-bg: oklch(0.12 0.005 250);
+      --s-fg: oklch(0.97 0.005 250);
+      --s-card: oklch(0.16 0.008 250);
+      --s-primary: oklch(0.6 0.16 245);
+      --s-muted: oklch(0.22 0.01 250);
+      --s-muted-fg: oklch(0.58 0.01 250);
+      --s-accent: oklch(0.22 0.015 245);
+      --s-border: oklch(0.24 0.01 250);
+      --s-destructive: oklch(0.52 0.2 25);
+
+      --s-blue-bg: #172554;   --s-blue-fg: #bfdbfe;
+      --s-amber-bg: #451a03;  --s-amber-fg: #fde68a;
+      --s-green-bg: #052e16;  --s-green-fg: #bbf7d0;
+      --s-red-bg: #450a0a;    --s-red-fg: #fecaca;
+    }
+  }
+
+  /* The viewer's toggle must beat the OS preference in both directions. */
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ink: #e7eaef; --ink-soft: #98a2b1; --paper: #0e1116; --plate: #161a20;
+    --rule: #262c35; --rule-soft: #1d222a; --annot: #d59366; --annot-wash: #2a1d14;
+    --s-bg: oklch(0.12 0.005 250); --s-fg: oklch(0.97 0.005 250); --s-card: oklch(0.16 0.008 250);
+    --s-primary: oklch(0.6 0.16 245); --s-muted: oklch(0.22 0.01 250);
+    --s-muted-fg: oklch(0.58 0.01 250); --s-accent: oklch(0.22 0.015 245);
+    --s-border: oklch(0.24 0.01 250); --s-destructive: oklch(0.52 0.2 25);
+    --s-blue-bg: #172554; --s-blue-fg: #bfdbfe; --s-amber-bg: #451a03; --s-amber-fg: #fde68a;
+    --s-green-bg: #052e16; --s-green-fg: #bbf7d0; --s-red-bg: #450a0a; --s-red-fg: #fecaca;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --ink: #14171c; --ink-soft: #5b6472; --paper: #f6f7f9; --plate: #ffffff;
+    --rule: #dee2e9; --rule-soft: #eaedf2; --annot: #a65b2a; --annot-wash: #f6ece4;
+    --s-bg: oklch(0.99 0 0); --s-fg: oklch(0.18 0 0); --s-card: oklch(1 0 0);
+    --s-primary: oklch(0.52 0.14 245); --s-muted: oklch(0.97 0.005 250);
+    --s-muted-fg: oklch(0.48 0.01 250); --s-accent: oklch(0.965 0.01 245);
+    --s-border: oklch(0.93 0.005 250); --s-destructive: oklch(0.58 0.2 25);
+    --s-blue-bg: #dbeafe; --s-blue-fg: #1e40af; --s-amber-bg: #fef3c7; --s-amber-fg: #92400e;
+    --s-green-bg: #dcfce7; --s-green-fg: #166534; --s-red-bg: #fee2e2; --s-red-fg: #991b1b;
+  }
+
+  /* ── frame ──────────────────────────────────────────────────────────────── */
+  .sheet {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    padding: clamp(20px, 5vw, 56px) clamp(16px, 4vw, 40px) 96px;
+  }
+  .wrap { max-width: 68rem; margin-inline: auto; display: flex; flex-direction: column; gap: 56px; }
+
+  .mono {
+    font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  .masthead { display: flex; flex-direction: column; gap: 14px; }
+  .masthead h1 {
+    margin: 0;
+    font-size: clamp(1.6rem, 3.4vw, 2.3rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    font-weight: 620;
+    text-wrap: balance;
+  }
+  .lede { margin: 0; max-width: 62ch; color: var(--ink-soft); }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px 28px; padding-top: 6px; border-top: 1px solid var(--rule); }
+  .fact { display: flex; flex-direction: column; gap: 1px; }
+  .fact b { font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--ink); font-family: inherit; }
+
+  .band { display: flex; flex-direction: column; gap: 20px; }
+  .band > h2 {
+    margin: 0; font-size: 12px; letter-spacing: 0.11em; text-transform: uppercase;
+    font-weight: 640; color: var(--ink-soft);
+    padding-bottom: 8px; border-bottom: 1px solid var(--rule);
+    font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+
+  /* ── the measurement rail ────────────────────────────────────────────────
+     The page's argument is vertical space, so the gutter draws it: a bar whose
+     height matches the specimen, labelled in mono. Structural, not asserted. */
+  .rig { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 18px; align-items: stretch; }
+  .rail { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding-top: 2px; }
+  .rail-bar { width: 3px; border-radius: 2px; background: var(--annot); opacity: 0.55; }
+  .rail-bar.is-lean { background: var(--s-primary); opacity: 1; }
+  .rail-n { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; letter-spacing: 0.04em; color: var(--ink-soft); text-align: right; }
+  .rail-n b { display: block; font-size: 15px; letter-spacing: -0.01em; color: var(--ink); }
+
+  @media (max-width: 700px) {
+    .rig { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .rail { flex-direction: row; align-items: baseline; gap: 10px; }
+    .rail-bar { display: none; }
+  }
+
+  /* A plate is a window onto the real app: it takes the SPECIMEN background. */
+  .plate {
+    background: var(--s-bg);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 18px;
+    overflow-x: auto;
+  }
+  .plate.is-faded { opacity: 0.62; }
+
+  .note { margin: 0; display: flex; gap: 9px; color: var(--ink-soft); font-size: 13.5px; line-height: 1.55; }
+  .note::before { content: ""; flex: 0 0 auto; width: 2px; margin-top: 4px; margin-bottom: 4px; border-radius: 2px; background: var(--annot); }
+  .caption { margin: 0; color: var(--ink-soft); font-size: 13px; }
+
+  .defects { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .defect { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; }
+  .defect-tag {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; font-weight: 600;
+    letter-spacing: 0.04em; color: var(--annot);
+    background: var(--annot-wash); border-radius: 4px; padding: 2px 6px; white-space: nowrap;
+  }
+  .defect p { margin: 0; font-size: 14px; line-height: 1.55; }
+  .defect p b { font-weight: 620; color: var(--ink); }
+
+  .grid2 { display: grid; gap: 22px; }
+  @media (min-width: 900px) { .grid2 { grid-template-columns: 1fr 1fr; } }
+
+  .card {
+    background: var(--plate); border: 1px solid var(--rule); border-radius: 10px;
+    padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .card h3 { margin: 0; font-size: 14px; font-weight: 640; letter-spacing: -0.005em; }
+  .card ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13.5px; color: var(--ink-soft); }
+  .card ul b { color: var(--ink); font-weight: 600; }
+
+  .decisions { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .decisions th, .decisions td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+  .decisions th {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 10.5px;
+    letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-soft); font-weight: 600;
+    border-bottom: 1px solid var(--rule);
+  }
+  .decisions td:first-child { font-weight: 600; white-space: nowrap; }
+  .decisions td:nth-child(2) { color: var(--ink); }
+  .decisions td:last-child { color: var(--ink-soft); }
+  .table-scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 10px; background: var(--plate); }
+
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.88em;
+    background: var(--rule-soft); padding: 1px 4px; border-radius: 3px;
+  }
+
+  .ask { background: var(--annot-wash); border: 1px solid color-mix(in oklab, var(--annot) 32%, transparent); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; }
+  .ask h3 { margin: 0; font-size: 14px; font-weight: 660; color: var(--annot); }
+  .ask p { margin: 0; font-size: 14px; line-height: 1.6; }
+
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--s-primary); outline-offset: 2px; border-radius: 4px; }
+
+  /* ── specimen internals: mirrors the real components ────────────────────── */
+  .sp { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--s-fg); }
+  .strip { border-top: 1px solid var(--s-border); border-bottom: 1px solid var(--s-border); padding: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .grow { margin-left: auto; }
+  .title { font-size: 14px; font-weight: 620; }
+  .quiet { color: var(--s-muted-fg); font-size: 14px; }
+  .strong { font-weight: 620; color: var(--s-fg); font-variant-numeric: tabular-nums; }
+  .lead { font-size: 15px; font-weight: 640; }
+  .vsep { width: 1px; align-self: stretch; min-height: 16px; background: var(--s-border); }
+  .nums { font-variant-numeric: tabular-nums; }
+
+  .badge { border-radius: 6px; padding: 2px 6px; font-size: 11px; font-weight: 600; line-height: 1.45; white-space: nowrap; }
+  .b-blue { background: var(--s-blue-bg); color: var(--s-blue-fg); }
+  .b-amber { background: var(--s-amber-bg); color: var(--s-amber-fg); }
+  .b-green { background: var(--s-green-bg); color: var(--s-green-fg); }
+  .b-red { background: var(--s-red-bg); color: var(--s-red-fg); }
+  .b-muted { background: var(--s-muted); color: var(--s-muted-fg); }
+  .b-out { background: transparent; color: var(--s-muted-fg); border: 1px solid var(--s-border); }
+
+  .chip { text-decoration: none; transition: background-color 160ms var(--ease); }
+  .chip:hover { filter: brightness(0.97); }
+
+  .btn {
+    border: 0; border-radius: 6px; padding: 6px 12px; font-size: 14px; font-weight: 560;
+    font-family: inherit; cursor: pointer;
+    background: var(--s-primary); color: var(--s-primary-fg);
+    transition: transform 160ms var(--ease);
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-2 { background: transparent; color: var(--s-fg); border: 1px solid var(--s-border); }
+  .btn-2:hover { background: var(--s-accent); }
+
+  .link { color: var(--s-muted-fg); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
+
+  /* Act pips — one per act. Four states, in less room than a bar needs for one. */
+  .pips { display: flex; align-items: center; gap: 4px; }
+  .pip { width: 9px; height: 9px; border-radius: 999px; flex: 0 0 auto; }
+  .p-done { background: var(--s-primary); }
+  .p-sched { box-shadow: inset 0 0 0 2px var(--s-primary); }
+  .p-late { box-shadow: inset 0 0 0 2px var(--s-overdue); }
+  .p-todo { box-shadow: inset 0 0 0 1.5px var(--s-border); }
+  .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--s-overdue); flex: 0 0 auto; }
+
+  .bar { width: 96px; height: 3px; border-radius: 999px; background: var(--s-border); overflow: hidden; }
+  .bar > span { display: block; height: 100%; border-radius: 999px; background: var(--s-primary); }
+  .slab { height: 8px; border-radius: 999px; background: var(--s-muted); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 20px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-soft); }
+
+  .narrow { width: 375px; max-width: 100%; border: 1px solid var(--rule); border-radius: 10px; padding: 12px; background: var(--s-bg); }
+  .full { width: 100%; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; }
+  }
+</style>
+
+<div class="sheet">
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="mono">Revue de conception · page patient</p>
+    <h1>Bandeau « Plans de traitement »</h1>
+    <p class="lede">
+      Remplace la carte actuelle par un bandeau de deux lignes : le plan en cours, ce qu'il reste à faire,
+      l'argent dû, et l'existence des autres plans — y compris ceux qui sont terminés.
+    </p>
+    <div class="facts">
+      <span class="fact mono">Remplace<b>patient-plan-card.tsx</b></span>
+      <span class="fact mono">Données<b>TreatmentPlanDto, telle quelle</b></span>
+      <span class="fact mono">API<b>aucun changement</b></span>
+      <span class="fact mono">Migration<b>aucune</b></span>
+    </div>
+  </header>
+
+  <!-- ══ the comparison, measured ═══════════════════════════════════════════ -->
+  <section class="band">
+    <h2>Avant / après, à l'échelle</h2>
+
+    <div class="rig">
+      <div class="rail">
+        <span class="rail-n"><b>250</b>px</span>
+        <span class="rail-bar" style="height: 190px"></span>
+      </div>
+      <div class="plate is-faded">
+        <div class="sp">
+          <div style="display:flex;flex-direction:column;gap:12px;border:1px solid var(--s-border);border-radius:10px;background:var(--s-card);padding:20px">
+            <div class="row">
+              <span style="font-size:16px;font-weight:620">Plan de traitement 2026-0045</span>
+              <span class="badge b-blue">Accepté</span>
+            </div>
+            <div class="slab" style="margin-top:10px"></div>
+            <span class="quiet">0/2 actes réalisé · 0,000 DT / 120,000 DT</span>
+            <span style="font-size:14px">Prochaine séance : 31 juil. 2026</span>
+            <div class="row" style="margin-top:4px">
+              <button class="btn" type="button">Enregistrer la fiche →</button>
+              <button class="btn btn-2" type="button">Voir le plan</button>
+              <span class="link">+2 autres</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rig">
+      <div class="rail">
+        <span class="rail-n"><b>76</b>px</span>
+        <span class="rail-bar is-lean" style="height: 58px"></span>
+      </div>
+      <div class="plate">
+        <div class="sp">
+          <div class="strip">
+            <div class="row">
+              <span class="title">Plan 2026-0045</span>
+              <span class="badge b-blue">Accepté</span>
+              <a class="badge b-out chip" href="#f">Facturé — F2026-0112</a>
+              <span class="grow row" style="gap:8px">
+                <span class="dot"></span>
+                <span class="lead">1 acte à enregistrer</span>
+              </span>
+              <button class="btn" type="button">Enregistrer la fiche →</button>
+            </div>
+            <div class="row">
+              <span class="row" style="gap:7px">
+                <span class="pips"><i class="pip p-done"></i><i class="pip p-late"></i></span>
+                <span class="quiet nums">1/2 actes</span>
+              </span>
+              <span class="vsep"></span>
+              <span class="quiet">Reste <b class="strong">120,000 DT</b></span>
+              <span class="vsep"></span>
+              <span class="quiet">Prochaine séance <b class="strong">31 juil.</b></span>
+              <span class="vsep"></span>
+              <span class="row" style="gap:4px">
+                <a class="badge b-green chip" href="#t">2 terminés</a>
+                <a class="badge b-muted chip" href="#d">1 brouillon</a>
+              </span>
+              <a class="link grow" href="#all">Tous les plans</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><i class="pip p-done"></i> réalisé</span>
+      <span><i class="pip p-sched"></i> séance planifiée</span>
+      <span><i class="pip p-late"></i> séance passée, fiche à saisir</span>
+      <span><i class="pip p-todo"></i> à planifier</span>
+    </div>
+  </section>
+
+  <!-- ══ defects ════════════════════════════════════════════════════════════ -->
+  <section class="band">
+    <h2>Ce que corrige le bandeau</h2>
+    <div class="grid2">
+      <div class="card">
+        <h3>Défauts présents dans la carte actuelle</h3>
+        <ul class="defects">
+          <li class="defect">
+            <span class="defect-tag">accord</span>
+            <p>« 0/2 actes <b>réalisé</b> » — le code accorde sur <code>itemsDone</code> ; en français l'accord se fait sur <em>actes</em>.</p>
+          </li>
+          <li class="defect">
+            <span class="defect-tag">bande grise</span>
+            <p><code>PlanProgressBar</code> ne s'efface qu'à <b>zéro acte</b>, pas à zéro réalisé : un plan à 0 % affiche une bande pleine largeur qui n'informe de rien.</p>
+          </li>
+          <li class="defect">
+            <span class="defect-tag">argent</span>
+            <p>« Reste » n'est jamais affiché. On lit <code>0,000 / 120,000</code> sans savoir ce qui est dû.</p>
+          </li>
+          <li class="defect">
+            <span class="defect-tag">plans finis</span>
+            <p><code>otherCount</code> exclut <b>Terminé</b> et <b>Annulé</b> : les plans finis ne sont pas seulement discrets, ils sont <b>impossibles à représenter</b>.</p>
+          </li>
+          <li class="defect">
+            <span class="defect-tag">actions</span>
+            <p>Deux boutons et un lien pour une seule décision.</p>
+          </li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>Pourquoi des pastilles plutôt qu'une barre</h3>
+        <ul>
+          <li>Une pastille par acte encode <b>quatre</b> états — réalisé, séance planifiée, séance passée sans fiche, à planifier — dans moins de place qu'une barre n'en prend pour un seul.</li>
+          <li>À zéro réalisé elles montrent encore la <b>forme</b> du plan : combien d'actes, tous à planifier. C'est exactement là que la barre dégénérait en bande grise.</li>
+          <li>Au-delà de douze actes les pastilles s'agglutinent : repli automatique sur une barre de 3 px + fraction.</li>
+          <li>Les pastilles sont décoratives (<code>aria-hidden</code>) ; la fraction « 1/2 actes » porte la valeur accessible. Cela remplace un <code>role="progressbar"</code> dont l'<code>aria-valuemax</code> pouvait valoir 0.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ states ═════════════════════════════════════════════════════════════ -->
+  <section class="band">
+    <h2>Tous les états</h2>
+
+    <div class="rig">
+      <span class="rail mono">Brouillon</span>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <p class="note">Un devis non accepté n'est pas une dette — il compte pour 0 dans « Solde patient ». Donc ni pastilles ni « Reste » : l'acceptation est la seule étape.</p>
+        <div class="plate">
+          <div class="sp"><div class="strip">
+            <div class="row">
+              <span class="title">Devis — brouillon</span>
+              <span class="badge b-muted">Brouillon</span>
+              <span class="lead grow">À accepter</span>
+              <button class="btn" type="button">Accepter le devis</button>
+            </div>
+            <div class="row">
+              <span class="quiet nums">3 actes</span>
+              <span class="vsep"></span>
+              <span class="quiet">Total <b class="strong">340,000 DT</b></span>
+              <a class="link grow" href="#all">Tous les plans</a>
+            </div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rig">
+      <span class="rail mono">Rien planifié</span>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <p class="note">À zéro réalisé, les pastilles montrent toujours quatre actes à planifier — là où la barre ne montrait rien.</p>
+        <div class="plate">
+          <div class="sp"><div class="strip">
+            <div class="row">
+              <span class="title">Plan 2026-0051</span>
+              <span class="badge b-amber">En cours</span>
+              <span class="lead grow">4 actes à planifier</span>
+              <button class="btn" type="button">Planifier la suite →</button>
+            </div>
+            <div class="row">
+              <span class="row" style="gap:7px">
+                <span class="pips"><i class="pip p-todo"></i><i class="pip p-todo"></i><i class="pip p-todo"></i><i class="pip p-todo"></i></span>
+                <span class="quiet nums">0/4 actes</span>
+              </span>
+              <span class="vsep"></span>
+              <span class="quiet">Reste <b class="strong">480,000 DT</b></span>
+              <span class="vsep"></span>
+              <span class="quiet">Aucune séance planifiée</span>
+              <a class="link grow" href="#all">Tous les plans</a>
+            </div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rig">
+      <span class="rail mono">Reste dû</span>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <p class="note">Actes terminés, argent non : l'action suivante devient l'encaissement, et « Reste » passe en rouge.</p>
+        <div class="plate">
+          <div class="sp"><div class="strip">
+            <div class="row">
+              <span class="title">Plan 2026-0032</span>
+              <span class="badge b-green">Terminé</span>
+              <span class="lead grow">Reste à encaisser</span>
+              <button class="btn" type="button">Encaisser</button>
+            </div>
+            <div class="row">
+              <span class="row" style="gap:7px">
+                <span class="pips"><i class="pip p-done"></i><i class="pip p-done"></i><i class="pip p-done"></i></span>
+                <span class="quiet nums">3/3 actes</span>
+              </span>
+              <span class="vsep"></span>
+              <span class="quiet">Reste <b class="strong" style="color:var(--s-destructive)">90,000 DT</b></span>
+              <span class="vsep"></span>
+              <span class="quiet">Encaissé <b class="strong">250,000 DT</b></span>
+              <a class="link grow" href="#all">Tous les plans</a>
+            </div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rig">
+      <span class="rail mono">Plan long</span>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <p class="note">Au-delà de douze actes, repli sur une barre fine + fraction.</p>
+        <div class="plate">
+          <div class="sp"><div class="strip">
+            <div class="row">
+              <span class="title">Plan 2026-0018</span>
+              <span class="badge b-amber">En cours</span>
+              <span class="lead grow">2 actes à planifier</span>
+              <button class="btn" type="button">Planifier la suite →</button>
+            </div>
+            <div class="row">
+              <span class="row" style="gap:8px">
+                <span class="bar"><span style="width:61%"></span></span>
+                <span class="quiet nums">11/18 actes</span>
+              </span>
+              <span class="vsep"></span>
+              <span class="quiet">Reste <b class="strong">640,000 DT</b></span>
+              <span class="vsep"></span>
+              <span class="quiet">Prochaine séance <b class="strong">4 août</b></span>
+              <a class="link grow" href="#all">Tous les plans</a>
+            </div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rig">
+      <span class="rail mono">Historique seul</span>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <p class="note">Aucun plan actif mais un historique : le bandeau reste. « Ce patient a été traité, c'est terminé » est une information — la carte actuelle n'affiche rien du tout dans ce cas.</p>
+        <div class="plate">
+          <div class="sp"><div class="strip">
+            <div class="row">
+              <span class="title" style="color:var(--s-muted-fg)">Aucun plan en cours</span>
+              <span class="grow row" style="gap:4px">
+                <a class="badge b-green chip" href="#t">3 terminés</a>
+                <a class="badge b-red chip" href="#c">1 annulé</a>
+              </span>
+              <button class="btn btn-2" type="button">Nouveau devis</button>
+            </div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rig">
+      <span class="rail mono">Un seul plan</span>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <p class="note">Les chips et « Tous les plans » disparaissent au lieu d'afficher « 0 autre ».</p>
+        <div class="plate">
+          <div class="sp"><div class="strip">
+            <div class="row">
+              <span class="title">Plan 2026-0060</span>
+              <span class="badge b-blue">Accepté</span>
+              <span class="lead grow">1 acte à planifier</span>
+              <button class="btn" type="button">Planifier la suite →</button>
+            </div>
+            <div class="row">
+              <span class="row" style="gap:7px">
+                <span class="pips"><i class="pip p-done"></i><i class="pip p-sched"></i><i class="pip p-todo"></i></span>
+                <span class="quiet nums">1/3 actes</span>
+              </span>
+              <span class="vsep"></span>
+              <span class="quiet">Reste <b class="strong">160,000 DT</b></span>
+              <span class="vsep"></span>
+              <span class="quiet">Prochaine séance <b class="strong">2 août</b></span>
+            </div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rig">
+      <span class="rail mono">375 px</span>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <p class="note">Étroit : le bandeau se replie au lieu de tronquer. Rien n'est perdu, il grandit.</p>
+        <div class="narrow">
+          <div class="sp"><div class="strip">
+            <div class="row">
+              <span class="title">Plan 2026-0045</span>
+              <span class="badge b-blue">Accepté</span>
+              <span class="lead full">1 acte à enregistrer</span>
+              <button class="btn full" type="button">Enregistrer la fiche →</button>
+            </div>
+            <div class="row">
+              <span class="row" style="gap:7px">
+                <span class="pips"><i class="pip p-done"></i><i class="pip p-late"></i></span>
+                <span class="quiet nums">1/2 actes</span>
+              </span>
+              <span class="vsep"></span>
+              <span class="quiet">Reste <b class="strong">120,000 DT</b></span>
+              <span class="quiet full">Prochaine séance <b class="strong">31 juil.</b></span>
+              <span class="row" style="gap:4px">
+                <a class="badge b-green chip" href="#t">2 terminés</a>
+                <a class="badge b-muted chip" href="#d">1 brouillon</a>
+              </span>
+            </div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ decisions ══════════════════════════════════════════════════════════ -->
+  <section class="band">
+    <h2>Décisions</h2>
+    <div class="table-scroll">
+      <table class="decisions">
+        <thead>
+          <tr><th scope="col">Point</th><th scope="col">Choix</th><th scope="col">Raison</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Densité</td>
+            <td>Bandeau deux lignes, <code>border-y</code>, sans carte</td>
+            <td>76 px contre 250. Une bande dans le flux de la page plutôt qu'un objet posé dessus — cohérent avec le dégraissage du tableau de bord.</td>
+          </tr>
+          <tr>
+            <td>Ce qui domine</td>
+            <td>L'action suivante, en plus gros</td>
+            <td>La seule ligne qui dit quoi <em>faire</em>, et qui se recalcule quand l'heure d'une séance passe (<code>planItemState</code>). L'argent et l'avancement l'entourent.</td>
+          </tr>
+          <tr>
+            <td>Avancement</td>
+            <td>Pastilles par acte, barre au-delà de 12</td>
+            <td>Quatre états dans moins de place qu'une barre n'en prend pour un ; garde du sens à zéro réalisé.</td>
+          </tr>
+          <tr>
+            <td>Autres plans</td>
+            <td>Chips par statut, tous statuts</td>
+            <td>Répond à « et ceux qui sont finis ? » en une ligne courte ; chaque chip ouvre l'onglet filtré.</td>
+          </tr>
+          <tr>
+            <td>Actions</td>
+            <td>Une seule primaire, via <code>planNextAction</code></td>
+            <td>Remplace Accepter / Voir / +N. « Tous les plans » devient un lien discret.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="ask">
+    <h3>Une question avant de coder</h3>
+    <p>
+      Le bandeau abandonne l'icône presse-papier et les mots « Plan de traitement », gardant « Plan 2026-0045 » :
+      c'est là que se gagne l'essentiel de la première ligne. Si la section doit s'identifier d'un coup d'œil,
+      le correctif le moins coûteux est une petite légende « Plans de traitement » au-dessus du bandeau — pour environ 18 px.
+    </p>
+  </section>
+
+  <footer class="mono" style="border-top:1px solid var(--rule); padding-top:14px">
+    Spécimens reproduits avec les jetons réels de <b>globals.css</b> et les classes de <b>treatment-plan-labels.ts</b>, en thème clair et sombre.
+    La police est la pile système : Geist ne peut pas être chargée ici, et un repli silencieux donnerait une fausse idée du rendu.
+  </footer>
+
+</div>
+</div>

@@ -1,7 +1,10 @@
+using System.Text.Json.Serialization;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
@@ -13,26 +16,60 @@ public class UpdateProcedureTypeCommand : IRequest<Result<ProcedureTypeDto>>
     public Guid Id { get; set; }
     public string? Name { get; set; }
     public int? DefaultDurationMinutes { get; set; }
-    public decimal? DefaultCost { get; set; }
+
+    /// <summary>
+    /// Band A — <b>tri-state, and it has to be, because a price has no empty string.</b> Omit the key to leave the
+    /// tarif alone; send an explicit <c>null</c> to un-price the act; send a figure to set it.
+    ///
+    /// <para>⚠️ It used to be a plain <c>decimal?</c> tested with <c>HasValue</c>, which conflated « not supplied »
+    /// with « clear it » — so <b>an act could never be un-priced anywhere in the product</b>: clearing the field
+    /// reported success and the old tarif came back on reload. The nullable text fields beside it get the same
+    /// distinction for free from <c>""</c>; a number needs <see cref="DefaultCostSpecified"/> to say it.</para>
+    /// </summary>
+    public decimal? DefaultCost
+    {
+        get => _defaultCost;
+        set { _defaultCost = value; DefaultCostSpecified = true; }
+    }
+    private decimal? _defaultCost;
+
+    /// <summary>True once the body carried a <c>defaultCost</c> key at all — including an explicit null.</summary>
+    [JsonIgnore]
+    public bool DefaultCostSpecified { get; private set; }
     public string? ColorHex { get; set; }
     public string? Description { get; set; }
+    /// <summary>
+    /// Clinical discipline. <b>Tri-state, like every other field here</b>: omit to leave it alone, <c>""</c> to
+    /// unfile the act, a label to file it. Canonicalised by the entity, so an unknown label is a new category.
+    /// </summary>
+    public string? Category { get; set; }
+    /// <summary>When provided, sets the resulting odontogram state ("" clears it).</summary>
+    public string? ResultingCondition { get; set; }
+    /// <summary>
+    /// The <c>Version</c> the client read. Round-tripped so the save is validated against the copy the user was
+    /// editing; <c>0</c> means « not supplied » and skips the check (see <c>IUnitOfWork.SetExpectedVersion</c>).
+    /// </summary>
+    public uint Version { get; set; }
 }
 
 public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedureTypeCommand, Result<ProcedureTypeDto>>
 {
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly IAppointmentRepository _appointmentRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<UpdateProcedureTypeCommandHandler> _logger;
 
     public UpdateProcedureTypeCommandHandler(
         IProcedureTypeRepository procedureTypeRepository,
         IAppointmentRepository appointmentRepository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<UpdateProcedureTypeCommandHandler> logger)
     {
         _procedureTypeRepository = procedureTypeRepository;
         _appointmentRepository = appointmentRepository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -44,7 +81,19 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
             var procedureType = await _procedureTypeRepository.GetByIdAsync(request.Id, cancellationToken);
             if (procedureType == null)
             {
-                return Result<ProcedureTypeDto>.Failure("Procedure type not found");
+                return Result<ProcedureTypeDto>.Failure("Type de procédure introuvable.");
+            }
+
+            // Explicit tenant check (defense-in-depth alongside the global query filter): a procedure
+            // type from another clinic reads as "not found".
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                return Result<ProcedureTypeDto>.Failure(clinicResult.Error ?? "Unable to resolve current clinic");
+            }
+            if (procedureType.ClinicId != clinicResult.Value)
+            {
+                return Result<ProcedureTypeDto>.Failure("Type de procédure introuvable.");
             }
 
             // Update name if provided
@@ -53,14 +102,14 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
             {
                 if (string.IsNullOrWhiteSpace(request.Name))
                 {
-                    return Result<ProcedureTypeDto>.Failure("Name cannot be empty");
+                    return Result<ProcedureTypeDto>.Failure("Le nom ne peut pas être vide.");
                 }
 
                 // Check if name already exists (excluding current)
                 var nameExists = await _procedureTypeRepository.ExistsByNameAsync(request.Name, request.Id, cancellationToken);
                 if (nameExists)
                 {
-                    return Result<ProcedureTypeDto>.Failure($"A procedure type with the name '{request.Name}' already exists");
+                    return Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.DuplicateName(request.Name));
                 }
 
                 oldName = procedureType.Name;
@@ -72,12 +121,12 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
             {
                 if (request.DefaultDurationMinutes.Value <= 0)
                 {
-                    return Result<ProcedureTypeDto>.Failure("Default duration must be greater than 0");
+                    return Result<ProcedureTypeDto>.Failure("La durée par défaut doit être supérieure à 0.");
                 }
 
                 if (request.DefaultDurationMinutes.Value >= 480)
                 {
-                    return Result<ProcedureTypeDto>.Failure("Default duration must be less than 480 minutes (8 hours)");
+                    return Result<ProcedureTypeDto>.Failure("La durée par défaut doit être inférieure à 480 minutes (8 heures).");
                 }
 
                 procedureType.UpdateDefaultDuration(request.DefaultDurationMinutes.Value);
@@ -99,31 +148,49 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 }
             }
 
-            // Update default cost if provided in request
-            _logger.LogInformation("UpdateProcedureType - DefaultCost in request: HasValue={HasValue}, Value={Value}", 
-                request.DefaultCost.HasValue, request.DefaultCost.HasValue ? request.DefaultCost.Value : (decimal?)null);
-            
-            if (request.DefaultCost.HasValue)
+            // Band A — keyed on Specified, not on HasValue, so an explicit null un-prices the act instead of
+            // meaning « leave it alone ». See the property's own note.
+            if (request.DefaultCostSpecified)
             {
-                if (request.DefaultCost.Value < 0)
+                if (request.DefaultCost is < 0)
                 {
-                    return Result<ProcedureTypeDto>.Failure("Default cost cannot be negative");
+                    return Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.CostNegative);
                 }
-                
-                var oldCost = procedureType.DefaultCost;
+
+                if (request.DefaultCost > ProcedureTypeRefusals.MaxCost)
+                {
+                    return Result<ProcedureTypeDto>.Failure(ProcedureTypeRefusals.CostTooLarge);
+                }
+
                 procedureType.UpdateDefaultCost(request.DefaultCost);
-                _logger.LogInformation("UpdateProcedureType - Updated DefaultCost from {OldCost} to {NewCost}", 
-                    oldCost, request.DefaultCost.Value);
-            }
-            else
-            {
-                _logger.LogInformation("UpdateProcedureType - DefaultCost not provided in request (HasValue=false)");
             }
 
             // Update description if provided
             if (request.Description != null)
             {
                 procedureType.UpdateDescription(request.Description);
+            }
+
+            // Update the discipline if provided ("" unfiles the act) — the same null-means-unchanged /
+            // empty-means-clear tri-state every other field of this command uses.
+            if (request.Category != null)
+            {
+                procedureType.UpdateCategory(request.Category);
+            }
+
+            // Update resulting odontogram state if provided ("" clears it).
+            if (request.ResultingCondition != null)
+            {
+                ToothCondition? rc = null;
+                if (!string.IsNullOrWhiteSpace(request.ResultingCondition))
+                {
+                    if (!Enum.TryParse<ToothCondition>(request.ResultingCondition, ignoreCase: true, out var parsedRc))
+                    {
+                        return Result<ProcedureTypeDto>.Failure("État résultant invalide.");
+                    }
+                    rc = parsedRc;
+                }
+                procedureType.UpdateResultingCondition(rc);
             }
 
             // Update all appointments that use this procedure type if name or color changed
@@ -139,9 +206,12 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 {
                     foreach (var appointment in appointmentList)
                     {
-                        appointment.SetProcedureType(
+                        // Re-snapshot, never re-set: SetProcedureType now means "this visit has exactly this one
+                        // act", so calling it here would delete the other acts of every multi-act séance that
+                        // happens to use the renamed procedure.
+                        appointment.RefreshProcedureSnapshot(
                             procedureType.Id,
-                            appointment.ProcedureDurationMinutes,
+                            procedureType.Name,
                             procedureType.Color.Value);
                         await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
                     }
@@ -157,30 +227,21 @@ public class UpdateProcedureTypeCommandHandler : IRequestHandler<UpdateProcedure
                 }
             }
 
+            // Band B — validated against the copy the USER was editing, not the row this handler just read.
+            _unitOfWork.SetExpectedVersion(procedureType, request.Version);
+
             await _procedureTypeRepository.UpdateAsync(procedureType, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation("Updated procedure type {ProcedureTypeId}", procedureType.Id);
 
-            var dto = new ProcedureTypeDto
-            {
-                Id = procedureType.Id,
-                Name = procedureType.Name,
-                DefaultDurationMinutes = procedureType.DefaultDurationMinutes,
-                DefaultCost = procedureType.DefaultCost,
-                ColorHex = procedureType.Color.Value,
-                Description = procedureType.Description,
-                IsActive = procedureType.IsActive,
-                CreatedAt = procedureType.CreatedAt,
-                UpdatedAt = procedureType.UpdatedAt
-            };
-
-            return Result<ProcedureTypeDto>.Success(dto);
+            return Result<ProcedureTypeDto>.Success(procedureType.ToDto());
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error updating procedure type {ProcedureTypeId}", request.Id);
-            return Result<ProcedureTypeDto>.Failure($"Error updating procedure type: {ex.Message}");
+            // No `ex.Message`: an EF/Npgsql sentence is English machine text and this string is rendered verbatim.
+            return Result<ProcedureTypeDto>.Failure("Erreur lors de la mise à jour de l'acte.");
         }
     }
 }

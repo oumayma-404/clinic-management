@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Where `saveFile` writes and where a camera capture lands. Both are app-private and cleared with the app. -->
+    <cache-path name="shell-files" path="shell-files/" />
+</paths>

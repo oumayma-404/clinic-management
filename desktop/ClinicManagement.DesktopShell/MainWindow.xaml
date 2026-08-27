@@ -1,0 +1,127 @@
+<Window x:Class="ClinicManagement.DesktopShell.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="Gestion Clinique" Height="820" Width="1280"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource ShellBackground}"
+        SourceInitialized="Window_SourceInitialized"
+        Loaded="Window_Loaded">
+    <!--
+      ⚠️ **There is no Menu, and its absence is the design.** A WPF `Menu` renders as a system-grey strip that
+      cannot follow the web app's theme, so « Serveur » sat as a second band of foreign chrome between the title
+      bar and an app the user had put in dark mode. Its two commands moved to where they cost no permanent pixels:
+      the WebView's own right-click menu (`MainWindow.xaml.cs` → `ContextMenuRequested`), F5/Ctrl+R for reload, and
+      — for the case that matters most, a server that cannot be reached — the button that was already on the
+      unreachable screen. The window is now the title bar and the app, nothing between.
+    -->
+    <DockPanel>
+        <!-- A newer client exists but this one still works: a dismissible strip, never a wall. Docked above the
+             WebView rather than drawn over it, so it can never cover a patient record. -->
+        <Border x:Name="UpdateNoticeBar" DockPanel.Dock="Top"
+                Background="{DynamicResource ShellNoticeBackground}"
+                BorderBrush="{DynamicResource ShellNoticeBorder}"
+                BorderThickness="0,0,0,1" Padding="12,8" Visibility="Collapsed">
+            <DockPanel>
+                <Button x:Name="UpdateNoticeDismissButton" DockPanel.Dock="Right" Content="✕"
+                        Style="{StaticResource ShellGhostButton}"
+                        ToolTip="Masquer" Click="DismissUpdateNotice_Click"/>
+                <Button x:Name="UpdateNoticeDownloadButton" DockPanel.Dock="Right" Content="Télécharger"
+                        Style="{StaticResource ShellButton}" Padding="12,4" Margin="12,0,0,0"
+                        Click="DownloadUpdate_Click"/>
+                <TextBlock x:Name="UpdateNoticeText" VerticalAlignment="Center"
+                           Foreground="{DynamicResource ShellNoticeInk}" TextWrapping="Wrap"/>
+            </DockPanel>
+        </Border>
+
+        <Grid>
+            <!-- The hosted clinic app. Hidden until a navigation succeeds so a failed load never
+                 shows a raw browser error page (AC-2.4). -->
+            <wv2:WebView2 x:Name="WebView"
+                          Visibility="Collapsed"
+                          DefaultBackgroundColor="Transparent"
+                          NavigationCompleted="WebView_NavigationCompleted"/>
+
+            <!-- This build is below the server's floor: every API call would be refused with 426, so the app is
+                 never loaded at all. The desktop twin of the mobile shells' « Mise à jour requise » state. -->
+            <Grid x:Name="UpdateRequiredPanel" Background="{DynamicResource ShellBackground}" Visibility="Collapsed">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="520">
+                    <TextBlock Text="Mise à jour requise" FontSize="22" FontWeight="SemiBold"
+                               Foreground="{DynamicResource ShellInk}" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="UpdateRequiredDetail" Margin="0,12,0,0" FontSize="14"
+                               Foreground="{DynamicResource ShellInkMuted}" TextWrapping="Wrap" TextAlignment="Center"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,28,0,0">
+                        <Button x:Name="UpdateRequiredDownloadButton" Content="Télécharger la mise à jour"
+                                Style="{StaticResource ShellPrimaryButton}" Click="DownloadUpdate_Click"/>
+                        <Button Content="Réessayer" Style="{StaticResource ShellButton}" Margin="12,0,0,0"
+                                Click="Retry_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+
+            <!-- Shown while the initial page is loading so a failed load never flashes the raw
+                 browser error page before our friendly screen (AC-2.4). -->
+            <Grid x:Name="ConnectingPanel" Background="{DynamicResource ShellBackground}" Visibility="Collapsed">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock Text="Connexion au serveur du cabinet…"
+                               FontSize="16" Foreground="{DynamicResource ShellInkMuted}" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="ConnectingTarget"
+                               FontSize="12" Foreground="{DynamicResource ShellInkMuted}" Opacity="0.75"
+                               Margin="0,6,0,0" HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Server-address entry: first run (AC-2.2) and "change server" (AC-2.3). -->
+            <Grid x:Name="ServerConfigPanel" Background="{DynamicResource ShellBackground}" Visibility="Collapsed">
+                <Border Width="480" VerticalAlignment="Center" HorizontalAlignment="Center"
+                        Background="{DynamicResource ShellCard}" CornerRadius="10" Padding="32"
+                        BorderBrush="{DynamicResource ShellBorder}" BorderThickness="1">
+                    <StackPanel>
+                        <TextBlock Text="Gestion Clinique" FontSize="22" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource ShellInk}"/>
+                        <TextBlock Text="Adresse du serveur du cabinet"
+                                   FontSize="14" Foreground="{DynamicResource ShellInkMuted}"
+                                   Margin="0,4,0,20" TextWrapping="Wrap"/>
+                        <TextBlock Text="Saisissez l'adresse IP ou le nom du serveur (par ex. 192.168.1.10 ou clinic-server). Sur le PC serveur, utilisez « localhost »."
+                                   FontSize="12" Foreground="{DynamicResource ShellInkMuted}" Opacity="0.85"
+                                   Margin="0,0,0,12" TextWrapping="Wrap"/>
+                        <TextBox x:Name="ServerAddressTextBox" Style="{StaticResource ShellTextBox}"
+                                 KeyDown="ServerAddressTextBox_KeyDown"/>
+                        <TextBlock x:Name="ServerConfigError"
+                                   Foreground="{DynamicResource ShellDanger}" FontSize="12" Margin="0,8,0,0"
+                                   Visibility="Collapsed" TextWrapping="Wrap"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
+                            <Button x:Name="ServerConfigCancelButton" Content="Annuler"
+                                    Style="{StaticResource ShellButton}" Margin="0,0,10,0"
+                                    Click="ServerConfigCancel_Click"/>
+                            <Button x:Name="ServerConfigSaveButton" Content="Se connecter"
+                                    Style="{StaticResource ShellPrimaryButton}"
+                                    Click="ServerConfigSave_Click"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- Friendly, recoverable "cannot reach server" screen — never a blank page or raw
+                 browser error (AC-2.4). -->
+            <Grid x:Name="UnreachablePanel" Background="{DynamicResource ShellBackground}" Visibility="Collapsed">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="520">
+                    <TextBlock Text="⚠" FontSize="48" HorizontalAlignment="Center"
+                               Foreground="#FFE67E22" Margin="0,0,0,12"/>
+                    <TextBlock Text="Impossible de joindre le serveur du cabinet"
+                               FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource ShellInk}"
+                               HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="UnreachableDetail"
+                               FontSize="13" Foreground="{DynamicResource ShellInkMuted}" Margin="0,12,0,0"
+                               HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,28,0,0">
+                        <Button Content="Réessayer" Style="{StaticResource ShellPrimaryButton}"
+                                Padding="20,10" Margin="0,0,10,0" Click="Retry_Click"/>
+                        <Button Content="Changer de serveur" Style="{StaticResource ShellButton}"
+                                Padding="20,10" Click="ChangeServer_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>

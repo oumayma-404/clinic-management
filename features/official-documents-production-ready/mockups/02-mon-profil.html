@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mon profil — Cachet & ordre CNOMDT</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme: { extend: { colors: {
+  background:'#fcfcfc', foreground:'#1f1f1f', card:'#ffffff',
+  primary:'#2f6ac9', 'primary-foreground':'#fcfcfc',
+  muted:'#f3f4f6', 'muted-foreground':'#6b7280',
+  accent:'#eef2f9', 'accent-foreground':'#1e4585',
+  destructive:'#dc4b3e', border:'#e5e7eb'
+}, borderRadius:{ lg:'8px', xl:'12px', md:'6px' } } } }
+</script>
+<style> body{font-family:'Geist','Inter',system-ui,sans-serif} </style>
+</head>
+<body class="bg-background text-foreground">
+<div class="flex h-screen">
+  <aside class="w-64 flex flex-col border-r border-border bg-card shrink-0">
+    <div class="flex h-16 items-center border-b border-border px-4 gap-3">
+      <div class="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-white text-sm">🦷</div>
+      <span class="text-lg font-semibold">MediCare Clinic</span>
+    </div>
+    <nav class="flex-1 space-y-1 p-4 text-sm">
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted-foreground hover:bg-accent/50">Tableau de bord</a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted-foreground hover:bg-accent/50">Documents</a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted-foreground hover:bg-accent/50">Paramètres</a>
+      <!-- NEW self-service entry (visible to the logged-in practitioner) -->
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 bg-accent text-accent-foreground font-medium"><span>👤</span> Mon profil</a>
+    </nav>
+  </aside>
+
+  <div class="flex flex-1 flex-col overflow-hidden">
+    <header class="h-16 border-b border-border bg-card flex items-center px-6">
+      <div class="ml-auto flex items-center gap-4 text-muted-foreground">🔔 <div class="h-8 w-8 rounded-full bg-accent"></div></div>
+    </header>
+    <main class="flex-1 overflow-y-auto p-6">
+      <div class="mx-auto max-w-3xl space-y-6">
+        <div>
+          <h1 class="text-3xl font-semibold">Mon profil</h1>
+          <p class="text-sm text-muted-foreground mt-1">Vos informations professionnelles et votre cachet apparaissent sur les documents que vous générez.</p>
+        </div>
+
+        <!-- Identity card (read-only snapshot from the doctor record) -->
+        <div class="bg-card rounded-xl border border-border shadow-sm p-6">
+          <div class="flex items-center gap-2 font-semibold mb-4"><span>👤</span> Identité</div>
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div><div class="text-muted-foreground text-xs">Nom complet</div><div class="mt-1 font-medium">Dr Amine Khelifi</div></div>
+            <div><div class="text-muted-foreground text-xs">Spécialité</div><div class="mt-1 font-medium">Chirurgien-dentiste</div></div>
+          </div>
+          <p class="text-xs text-muted-foreground mt-3">Ces champs sont gérés dans Paramètres → Médecins.</p>
+        </div>
+
+        <!-- Ordre + cachet card (editable, own record) -->
+        <div class="bg-card rounded-xl border border-border shadow-sm p-6 space-y-5">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 font-semibold"><span>🩺</span> Informations pour les documents</div>
+            <span class="text-xs text-muted-foreground">Modifiable par vous-même</span>
+          </div>
+
+          <!-- FR-2.5 CNOMDT ordre number -->
+          <div class="space-y-1.5 max-w-sm">
+            <label class="text-sm font-medium">Numéro d'ordre — Ordre National des Médecins Dentistes (CNOMDT)</label>
+            <input value="D-04-1287" class="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm" />
+            <p class="text-xs text-muted-foreground">Pré-rempli automatiquement sur vos certificats et courriers.</p>
+          </div>
+
+          <!-- FR-3.1 cachet upload (mirrors the clinic-logo dropzone) -->
+          <div class="space-y-2">
+            <label class="text-sm font-medium">Cachet / signature</label>
+            <div class="flex items-center gap-4">
+              <!-- state A: preview thumbnail with hover-remove -->
+              <div class="relative w-32 h-20 rounded-lg border-2 border-primary/30 overflow-hidden shadow-sm group bg-white flex items-center justify-center">
+                <div class="text-center text-[10px] leading-tight text-slate-600">
+                  <div class="font-serif italic text-sm text-slate-800">Dr A. Khelifi</div>
+                  <div>Chirurgien-dentiste</div>
+                  <div>CNOMDT D-04-1287</div>
+                </div>
+                <button class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                  <span class="bg-white rounded-full p-1.5 text-destructive text-sm">🗑️</span>
+                </button>
+              </div>
+              <!-- state B: dashed dropzone (shown when no cachet) -->
+              <label class="w-32 h-20 flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-primary hover:bg-accent transition text-slate-400 hover:text-primary">
+                <span class="text-xl">⬆</span>
+                <span class="text-[11px] font-medium mt-1">Remplacer</span>
+                <input type="file" accept="image/*" class="hidden" />
+              </label>
+            </div>
+            <p class="text-xs text-muted-foreground">PNG ou JPEG. Le type de fichier est conservé pour un rendu fidèle. Si aucun cachet n'est chargé, le document affiche une simple ligne de signature.</p>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-2 border-t border-border">
+            <button class="h-9 px-4 rounded-md border border-border bg-card text-sm font-medium hover:bg-accent">Annuler</button>
+            <button class="h-9 px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90">Enregistrer</button>
+          </div>
+        </div>
+
+        <!-- Note: admin-managing-others path -->
+        <div class="rounded-lg border border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
+          <span class="font-medium text-foreground">Administrateur :</span> un admin peut définir le cachet et le numéro d'ordre d'un autre praticien depuis <span class="font-medium">Paramètres → Médecins</span> (les mêmes deux champs y sont ajoutés à chaque fiche médecin).
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</body>
+</html>

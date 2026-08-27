@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -12,21 +13,75 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
     private readonly IGoogleCalendarService _googleCalendarService;
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IClinicRepository _clinicRepository;
+    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+
+    /// <summary>
+    /// L3b — <b>this class is a real write path for appointments and had no reminder wiring at all.</b> It called
+    /// <c>Reschedule(...)</c> and committed straight through the repository, so a visit moved in Google kept its
+    /// reminder frozen at the old day and the patient was told the wrong date; an appointment *created* in Google
+    /// got no reminder whatsoever. Every other writer goes through the appointment handlers, which is why the
+    /// omission was invisible.
+    /// </summary>
+    private readonly IReminderScheduler _reminderScheduler;
+    private readonly IGoogleTokenProtector _googleTokenProtector;
     private readonly ILogger<GoogleCalendarSyncService> _logger;
 
     public GoogleCalendarSyncService(
         IGoogleCalendarService googleCalendarService,
         IAppointmentRepository appointmentRepository,
         IPatientRepository patientRepository,
+        IClinicRepository clinicRepository,
+        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
+        IReminderScheduler reminderScheduler,
+        IGoogleTokenProtector googleTokenProtector,
         ILogger<GoogleCalendarSyncService> logger)
     {
+        _googleTokenProtector = googleTokenProtector;
         _googleCalendarService = googleCalendarService;
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
+        _clinicRepository = clinicRepository;
+        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _reminderScheduler = reminderScheduler;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Loads a clinic's own Google connection (refresh token + calendar id). Returns null when the clinic has
+    /// not connected Google — callers then skip silently (no cross-clinic shared account any more, #4).
+    ///
+    /// <para>⚠️ <b>An undecryptable token is a THROW, not a null</b> (FR-3.3). Null means « this practice never
+    /// connected Google », which is a normal state every caller is written to skip quietly — so returning it for
+    /// a broken key ring would stop every connected clinic's calendar syncing with nothing anywhere saying why,
+    /// and the screen would go on reporting « Connecté ». Refusing loudly is the whole of « refuse rather than
+    /// degrade »: the exception names the recovery, and the calling handler already logs and swallows it, so a
+    /// booking is never lost over a calendar hop.</para>
+    ///
+    /// <para>⚠️ It reads the <b>ciphertext column only</b>. Falling back to the legacy plaintext one would be the
+    /// same degradation wearing a different hat — the credential stays usable off a stolen disk indefinitely, and
+    /// the FR-3.4 backfill's own progress figure would never reach zero because nothing would push it there.</para>
+    /// </summary>
+    private async Task<GoogleCalendarConnection?> ResolveConnectionAsync(Guid clinicId, CancellationToken cancellationToken)
+    {
+        var clinic = await _clinicRepository.GetByIdAsync(clinicId, cancellationToken);
+        if (clinic == null || string.IsNullOrEmpty(clinic.GoogleRefreshTokenProtected))
+        {
+            return null;
+        }
+
+        if (!_googleTokenProtector.TryUnprotect(clinic.GoogleRefreshTokenProtected, out var refreshToken))
+        {
+            throw new InvalidOperationException(
+                $"Le jeton Google Agenda du cabinet « {clinic.Name} » est illisible : la clé de protection des "
+                + "données a changé ou est absente. La synchronisation est refusée plutôt que silencieusement "
+                + "désactivée. Le cabinet doit reconnecter son agenda depuis « Paramètres → Google Agenda ».");
+        }
+
+        return new GoogleCalendarConnection(refreshToken, clinic.GoogleCalendarId);
     }
 
     public async Task SyncAppointmentToGoogleCalendarAsync(
@@ -44,8 +99,20 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 return;
             }
             
-            _logger.LogDebug("Appointment found: Patient={PatientName}, DateTime={DateTime}, Status={Status}, GoogleEventId={GoogleEventId}",
-                appointment.Patient?.GetFullName() ?? "Occupé", appointment.AppointmentDateTime, appointment.Status, appointment.GoogleCalendarEventId);
+            // FR-4.4 — the appointment's own id, never its patient. A reader chasing a sync problem needs to find
+            // the row; the name only told them who it belonged to.
+            _logger.LogDebug("Appointment found: {AppointmentId}, HasPatient={HasPatient}, DateTime={DateTime}, Status={Status}, GoogleEventId={GoogleEventId}",
+                appointment.Id, appointment.PatientId is not null, appointment.AppointmentDateTime, appointment.Status, appointment.GoogleCalendarEventId);
+
+            // Resolve THIS appointment's clinic connection (#4). No global/shared account any more — if the
+            // owning clinic has not connected Google, skip silently (nothing to sync, no cross-clinic leak).
+            var connection = await ResolveConnectionAsync(appointment.ClinicId, cancellationToken);
+            if (connection == null)
+            {
+                _logger.LogInformation("Clinic {ClinicId} has not connected Google Calendar; skipping sync for appointment {AppointmentId}",
+                    appointment.ClinicId, appointmentId);
+                return;
+            }
 
             // Handle cancelled and completed appointments - delete from Google Calendar
             if (appointment.Status == AppointmentStatus.Cancelled || appointment.Status == AppointmentStatus.Completed)
@@ -61,7 +128,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                         _logger.LogInformation("Deleting Google Calendar event {EventId} for {Status} appointment {AppointmentId}", 
                             appointment.GoogleCalendarEventId, appointment.Status, appointmentId);
                         
-                        await _googleCalendarService.DeleteEventAsync(appointment.GoogleCalendarEventId, cancellationToken);
+                        await _googleCalendarService.DeleteEventAsync(connection, appointment.GoogleCalendarEventId, cancellationToken);
                         
                         _logger.LogInformation("Successfully deleted Google Calendar event {EventId} for appointment {AppointmentId}", 
                             appointment.GoogleCalendarEventId, appointmentId);
@@ -152,6 +219,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 // Create new event
                 _logger.LogInformation("Creating new Google Calendar event for appointment {AppointmentId}", appointmentId);
                 var eventId = await _googleCalendarService.CreateEventAsync(
+                    connection,
                     summary,
                     description,
                     startDateTime,
@@ -176,6 +244,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 // Update existing event
                 _logger.LogInformation("Updating existing Google Calendar event {EventId} for appointment {AppointmentId}", appointment.GoogleCalendarEventId, appointmentId);
                 await _googleCalendarService.UpdateEventAsync(
+                    connection,
                     appointment.GoogleCalendarEventId,
                     summary,
                     description,
@@ -203,12 +272,31 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         try
         {
             _logger.LogInformation("Starting sync from Google Calendar to appointments");
-            
+
+            // Google → App is a manual, authenticated action: resolve the CALLER's clinic and use ITS own
+            // connection, and scope every read/write below to that clinic (no cross-clinic writes, #4). The
+            // disabled recurring job runs with no clinic in scope → resolve fails → skip.
+            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
+            if (clinicResult.IsFailure)
+            {
+                _logger.LogWarning("No clinic in scope for the Google→App sync; skipping.");
+                return;
+            }
+            var clinicId = clinicResult.Value;
+
+            var connection = await ResolveConnectionAsync(clinicId, cancellationToken);
+            if (connection == null)
+            {
+                _logger.LogInformation("Clinic {ClinicId} has not connected Google Calendar; skipping Google→App sync.", clinicId);
+                return;
+            }
+
             var startDate = DateTime.UtcNow.AddDays(-7);
             var endDate = DateTime.UtcNow.AddDays(90);
             _logger.LogInformation("Fetching events from {StartDate} to {EndDate}", startDate, endDate);
-            
+
             var googleEvents = await _googleCalendarService.GetEventsAsync(
+                connection,
                 startDate: startDate,
                 endDate: endDate,
                 cancellationToken);
@@ -222,8 +310,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                     string.Join(", ", eventList.Take(3).Select(e => $"'{e.Summary}' ({e.StartDateTime:yyyy-MM-dd HH:mm})")));
             }
 
-            var allAppointments = await _appointmentRepository.GetAllAsync(cancellationToken);
-            _logger.LogInformation("Retrieved {Count} appointments from database", allAppointments.Count());
+            var allAppointments = (await _appointmentRepository.GetAllAsync(cancellationToken))
+                .Where(a => a.ClinicId == clinicId)
+                .ToList();
+            _logger.LogInformation("Retrieved {Count} appointments for clinic {ClinicId}", allAppointments.Count, clinicId);
             
             var appointmentsByGoogleId = allAppointments
                 .Where(a => !string.IsNullOrEmpty(a.GoogleCalendarEventId))
@@ -263,7 +353,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 var patientName = ExtractPatientNameFromSummary(googleEvent.Summary);
                 if (!string.IsNullOrEmpty(patientName))
                 {
-                    _logger.LogDebug("Extracted patient name from event: {PatientName}", patientName);
+                    _logger.LogDebug("Extracted a patient name from the event: {PatientName}", LogMask.Name(patientName));
                     
                     var matchingAppointment = allAppointments
                         .FirstOrDefault(a => 
@@ -289,7 +379,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 if (IsClinicAppointment(googleEvent))
                 {
                     _logger.LogDebug("Event looks like a clinic appointment, creating new appointment");
-                    var created = await CreateAppointmentFromGoogleEventAsync(googleEvent, cancellationToken);
+                    var created = await CreateAppointmentFromGoogleEventAsync(googleEvent, clinicId, cancellationToken);
                     if (created)
                     {
                         createdCount++;
@@ -315,10 +405,16 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         }
     }
 
+    // Field labels emitted into the Google event Description by BuildAppointmentDescription and parsed
+    // back out by ExtractNotesFromDescription. Shared so the writer and reader can never drift apart
+    // (a silent AC-6 regression risk if one side's literal were changed independently).
+    private const string NotesLabel = "Notes: ";
+    private const string StatusLabel = "Status: ";
+
     private string BuildAppointmentDescription(Appointment appointment)
     {
         var parts = new List<string>();
-        
+
         if (!string.IsNullOrEmpty(appointment.DoctorName))
         {
             parts.Add($"Doctor: {appointment.DoctorName}");
@@ -326,10 +422,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
 
         if (!string.IsNullOrEmpty(appointment.Notes))
         {
-            parts.Add($"Notes: {appointment.Notes}");
+            parts.Add($"{NotesLabel}{appointment.Notes}");
         }
 
-        parts.Add($"Status: {appointment.Status}");
+        parts.Add($"{StatusLabel}{appointment.Status}");
         if (appointment.PatientId.HasValue)
         {
             parts.Add($"Patient ID: {appointment.PatientId.Value}");
@@ -340,6 +436,34 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         }
 
         return string.Join("\n", parts);
+    }
+
+    /// <summary>
+    /// Extracts just the user's notes from a description built by <see cref="BuildAppointmentDescription"/>
+    /// (the "Notes: ..." line). Returns null when there is no "Notes:" marker, signalling the caller to
+    /// leave the existing notes untouched (prevents the metadata block from being swallowed into Notes).
+    /// The notes value runs until the "Status:" field that BuildAppointmentDescription always appends after it.
+    /// </summary>
+    private static string? ExtractNotesFromDescription(string? description)
+    {
+        if (string.IsNullOrEmpty(description))
+        {
+            return null;
+        }
+
+        var markerIndex = description.IndexOf(NotesLabel, StringComparison.Ordinal);
+        if (markerIndex < 0)
+        {
+            return null;
+        }
+
+        var start = markerIndex + NotesLabel.Length;
+        var statusIndex = description.IndexOf("\n" + StatusLabel, start, StringComparison.Ordinal);
+        var value = statusIndex >= 0
+            ? description.Substring(start, statusIndex - start)
+            : description.Substring(start);
+
+        return value.Trim();
     }
 
     private string? ExtractPatientNameFromSummary(string summary)
@@ -429,12 +553,14 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         try
         {
             var updated = false;
+            var moved = false;
 
             // Update appointment time if changed
             if (appointment.AppointmentDateTime != googleEvent.StartDateTime)
             {
                 appointment.Reschedule(googleEvent.StartDateTime);
                 updated = true;
+                moved = true;
             }
 
             // Update duration if changed
@@ -445,10 +571,14 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 updated = true;
             }
 
-            // Update notes if changed
-            if (appointment.Notes != googleEvent.Description)
+            // Update notes if changed. Parse back ONLY the user's notes from the composite description
+            // block that BuildAppointmentDescription writes (Doctor:/Notes:/Status:/Patient ID:). Assigning
+            // the whole Description here made the metadata block accumulate and nest on every sync. When the
+            // description carries no "Notes:" line, leave the appointment's notes unchanged.
+            var parsedNotes = ExtractNotesFromDescription(googleEvent.Description);
+            if (parsedNotes != null && appointment.Notes != parsedNotes)
             {
-                appointment.UpdateNotes(googleEvent.Description);
+                appointment.UpdateNotes(parsedNotes);
                 updated = true;
             }
 
@@ -457,6 +587,14 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
                 _logger.LogInformation("Updated appointment {AppointmentId} from Google Calendar event {EventId}", appointment.Id, googleEvent.Id);
+
+                // L3b — void-and-re-enqueue the reminder, post-commit, exactly as the appointment handlers do.
+                // Only on a MOVE: a notes-only edit leaves the queued reminder correct, and re-enqueuing it would
+                // reset a tier that has already been reached.
+                if (moved)
+                {
+                    await RescheduleRemindersAsync(appointment, cancellationToken);
+                }
             }
         }
         catch (Exception ex)
@@ -465,8 +603,34 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         }
     }
 
+    /// <summary>
+    /// Re-queues the outbound reminders for an appointment whose time changed on the Google side.
+    ///
+    /// <para>Post-commit and best-effort, the same contract the appointment handlers use — <c>IReminderScheduler</c>
+    /// swallows its own failures, and a reminder must never roll back a sync that has already written the new
+    /// time. A busy slot (no patient) has nobody to remind, so it is skipped rather than passed a null id.</para>
+    /// </summary>
+    private async Task RescheduleRemindersAsync(Appointment appointment, CancellationToken cancellationToken)
+    {
+        if (appointment.PatientId is not Guid patientId)
+        {
+            return;
+        }
+
+        var patient = appointment.Patient ?? await _patientRepository.GetByIdAsync(patientId, cancellationToken);
+        if (patient == null)
+        {
+            return;
+        }
+
+        await _reminderScheduler.RescheduleForAppointmentAsync(
+            appointment.ClinicId, appointment.Id, patientId, patient.GetFullName(),
+            appointment.AppointmentDateTime, cancellationToken);
+    }
+
     private async Task<bool> CreateAppointmentFromGoogleEventAsync(
         GoogleCalendarEvent googleEvent,
+        Guid clinicId,
         CancellationToken cancellationToken)
     {
         try
@@ -485,10 +649,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 if (patientIdMatch.Success && Guid.TryParse(patientIdMatch.Groups[1].Value, out var patientId))
                 {
                     var patientById = await _patientRepository.GetByIdAsync(patientId, cancellationToken);
-                    if (patientById != null)
+                    if (patientById != null && patientById.ClinicId == clinicId)
                     {
                         patientName = patientById.GetFullName();
-                        _logger.LogInformation("Found patient by ID from Google Calendar event description: {PatientName}", patientName);
+                        _logger.LogInformation("Found patient {PatientId} by id in the Google Calendar event description.", patientById.Id);
                     }
                 }
             }
@@ -503,8 +667,11 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             // Normalize patient name (trim, normalize spaces)
             patientName = System.Text.RegularExpressions.Regex.Replace(patientName.Trim(), @"\s+", " ");
 
-            // Try to find existing patient by name (more flexible matching)
-            var patients = await _patientRepository.GetAllAsync(cancellationToken);
+            // Try to find existing patient by name (more flexible matching) — scoped to THIS clinic only (#4).
+            // includeArchived: matching must see archived patients. Hiding them here would not protect anything —
+            // the very next line auto-creates a placeholder patient, so excluding them would silently produce a
+            // DUPLICATE record for someone the clinic already has.
+            var patients = (await _patientRepository.GetByClinicIdAsync(clinicId, includeArchived: true, cancellationToken: cancellationToken)).Items;
             
             // Try exact match first (case-insensitive)
             var patient = patients.FirstOrDefault(p => 
@@ -536,8 +703,8 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             if (patient == null)
             {
                 // Patient not found - create it automatically
-                _logger.LogInformation("Patient '{PatientName}' not found. Creating new patient automatically from Google Calendar event {EventId}", 
-                    patientName, googleEvent.Id);
+                _logger.LogInformation("Patient {PatientName} not found. Creating one automatically from Google Calendar event {EventId}",
+                    LogMask.Name(patientName), googleEvent.Id);
                 
                 var nameParts = patientName.Split(new[] { ' ', '-' }, StringSplitOptions.RemoveEmptyEntries);
                 string firstName;
@@ -556,8 +723,8 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 }
                 else
                 {
-                    _logger.LogWarning("Cannot extract patient name from '{PatientName}' for Google Calendar event {EventId}", 
-                        patientName, googleEvent.Id);
+                    _logger.LogWarning("Cannot extract a patient name from {PatientName} for Google Calendar event {EventId}",
+                        LogMask.Name(patientName), googleEvent.Id);
                     return false;
                 }
 
@@ -569,37 +736,32 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                     dateOfBirth = DateTime.SpecifyKind(dateOfBirth, DateTimeKind.Utc);
                 }
                 
-                // Get clinic ID from first existing patient, or skip if no patients exist
-                var existingPatients = await _patientRepository.GetAllAsync(cancellationToken);
-                var firstPatient = existingPatients.FirstOrDefault();
-                if (firstPatient == null)
-                {
-                    _logger.LogWarning("Cannot create patient from Google Calendar sync: No existing patients found to determine clinic ID");
-                    return false;
-                }
-                var clinicId = firstPatient.ClinicId;
-                
+                // No contact details: a patient conjured from a calendar event title genuinely has none.
+                // This was the second, undocumented sentinel source — unknown@example.com / 000-000-0000 —
+                // and unlike the create form nobody ever saw the form that "filled it in".
+                // Dentition is deliberately left at the entity's Adult default and NOT derived from dateOfBirth:
+                // that value is DateTime.UtcNow, a placeholder standing in for "unknown", so the age rule would
+                // compute age 0 and chart an adult conjured from a calendar title on baby teeth. Whoever opens this
+                // patient sets the real dentition in patient info.
                 var newPatient = new Patient(
                     Guid.NewGuid(),
                     clinicId,
                     firstName,
                     lastName,
                     dateOfBirth,
-                    "Unknown", // Default gender
-                    new Email("unknown@example.com"), // Default email
-                    new PhoneNumber("000-000-0000")); // Default phone
+                    "Unknown"); // Default gender
 
                 await _patientRepository.AddAsync(newPatient, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
                 
                 patient = newPatient;
-                _logger.LogInformation("Created new patient: '{PatientName}' (ID: {PatientId}) from Google Calendar event {EventId}", 
-                    patient.GetFullName(), patient.Id, googleEvent.Id);
+                _logger.LogInformation("Created patient {PatientId} from Google Calendar event {EventId}",
+                    patient.Id, googleEvent.Id);
             }
             else
             {
-                _logger.LogInformation("Found matching patient: '{PatientName}' (ID: {PatientId}) for Google Calendar event {EventId}", 
-                    patient.GetFullName(), patient.Id, googleEvent.Id);
+                _logger.LogInformation("Found matching patient {PatientId} for Google Calendar event {EventId}",
+                    patient.Id, googleEvent.Id);
             }
 
             var duration = googleEvent.EndDateTime - googleEvent.StartDateTime;
@@ -630,13 +792,40 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 ExtractDoctorNameFromLocation(googleEvent.Location),
                 googleEvent.Description);
 
+            // AC-P1.29 — the stated rule for this writer: **import-with-override-flag, never skip.**
+            //
+            // This service writes appointments straight through the repository, bypassing both MediatR handlers
+            // and therefore the working-hours guard. Two options were available and one is clearly wrong:
+            // refusing an out-of-hours Google event would SILENTLY DROP the Sunday appointment the dentist
+            // typed into their own calendar — the inner catch here only logs — which is worse than importing
+            // it, because the clinic would believe Google and the app agreed when they did not.
+            //
+            // So the event is always imported, and an out-of-hours one is logged rather than refused.
+            // `doctorId` is null on this path, so only the clinic-wide hours can ever apply.
+            var clinic = await _clinicRepository.GetByIdAsync(patient.ClinicId, cancellationToken);
+            var hours = WorkingHoursResolver.Resolve(null, clinic?.WorkingHoursJson);
+            if (!WorkingHoursResolver.IsWithin(hours, appointmentDateTime, duration, out var outsideReason))
+            {
+                // The log is now the whole record: the column this also used to stamp was read by nothing (AC-25).
+                _logger.LogWarning(
+                    "Google event {EventId} imported outside working hours for clinic {ClinicId}: {Reason}",
+                    googleEvent.Id, patient.ClinicId, outsideReason);
+            }
+
             appointment.SetGoogleCalendarEventId(googleEvent.Id);
             await _appointmentRepository.AddAsync(appointment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            _logger.LogInformation("Created appointment {AppointmentId} from Google Calendar event {EventId} for patient {PatientName}", 
-                appointment.Id, googleEvent.Id, patientName);
-            
+            _logger.LogInformation("Created appointment {AppointmentId} from Google Calendar event {EventId}",
+                appointment.Id, googleEvent.Id);
+
+            // L3b — an appointment created in Google is an appointment, and it used to enqueue no reminder at
+            // all: the dentist who types a visit into their own calendar got a silently reminder-less booking.
+            // Post-commit and best-effort, like every other reminder call in the product.
+            await _reminderScheduler.ScheduleForAppointmentAsync(
+                patient.ClinicId, appointment.Id, patient.Id, patient.GetFullName(),
+                appointmentDateTime, cancellationToken);
+
             return true;
         }
         catch (Exception ex)

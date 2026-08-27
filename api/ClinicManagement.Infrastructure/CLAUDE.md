@@ -1,84 +1,734 @@
 # ClinicManagement.Infrastructure
 
-Infrastructure layer (Clean Architecture). Implements the persistence + external-integration concerns declared as interfaces in the Domain and Application layers: EF Core/PostgreSQL data access, repository implementations, file storage (MinIO + local), Google Calendar two-way sync, AI services (HuggingFace, Google AI, AI action dispatch), notifications, PDF generation, and Auth0 management. All wiring lives in `Extensions.cs` (`AddInfrastructure`).
+Infrastructure layer (Clean Architecture). Implements the outbound interfaces declared in Domain
+(`Domain/Repositories`) and Application (`Application/Common/Interfaces`): EF Core/PostgreSQL data access +
+multi-tenant query filters, repository implementations, mode-branched file storage (MinIO vs local disk),
+per-clinic Google Calendar two-way sync, SMS/WhatsApp reminders
+(+ per-clinic settings, encrypted secrets), CNAM BS1 bulletin + French PDF
+rendering, local JWT auth (every deployment — Auth0 management is retired with the `CloudBrowser` profile), and — for offline installs — `pg_dump` backup,
+self-generated HTTPS trust material, and per-clinic reference-catalog seeding. All wiring lives in
+`Extensions.cs` (`AddInfrastructure`).
 
-## EF Core Persistence
+> **18 capabilities now** — the newest is **`SellsVendorMessaging`** (`HostedMultiTenant` only): does the *vendor*
+> buy this deployment's WhatsApp messages and meter them per cabinet? Where false the whole
+> `vendor-whatsapp-messaging-quota` feature is **absent** rather than present-and-refusing — no `/rappels` section,
+> no threshold warnings, no enforcement in the outbox, no daily `MessagingAllowanceJob`, no template submission,
+> and the two clinic reads 404 before the mediator. ⚠️ It is the **kind** half only; the seam clinics actually ask
+> is `IVendorMessagingAvailability`, whose second member `CanOnboardCabinets` ANDs in the deployment's own **Meta
+> credentials** — kept out of `DeploymentProfile` for `IOsPushAvailability`'s reason, so no operator setting can
+> flip a capability. Splitting them matters: an allowance a cabinet cannot yet spend is still a real allowance, so
+> a missing `Meta:AppId` removes the *connect* offer and leaves the counting, the section and the console intact.
+>
+> Before it, **`BacksUpItsOwnData`** (`SelfHostedLan` only): does the *application*
+> back its own database up, or does its **host**? Where false the hourly `BackupJob` is not registered and the two
+> write endpoints 404, because `deploy/`'s `backup` sidecar already dumps the database and the object store
+> off-server on a schedule **and** one database holds every cabinet — so an in-app `pg_dump`, which has no tenant
+> predicate, would hand one practice every other practice's patients. Reads are untouched: a clinic still takes its
+> own data out through the per-clinic **CSV exports** and PDFs, which go through the tenant filter.
+>
+> Before it, `clinic-subscription` Part A added **`RequiresSubscription`** (`HostedMultiTenant`
+> only), which decides whether a cabinet's right to record new work is a dated entitlement. ⚠️ It reads **no
+> configuration key at all** (AC-7.3): `SubscriptionPolicy.RequiresSubscription` returns `_profile.RequiresSubscription`
+> and there is deliberately no `Subscription:Enabled` to find, because a key able to flip it would put a clinic's own
+> Windows PC one config edit away from refusing its own patient records. `TrialDays` and the prices *are* operator
+> config and live beside it on `ISubscriptionPolicy`/`ISubscriptionPricing` — the same split as
+> `PermitsOsPush` vs `IOsPushAvailability`, and for the same reason.
+>
+> Behavior is gated by the resolved **deployment profile**, not by an auth-mode boolean:
+> `Deployment/DeploymentProfile.Resolve(config)` → `SelfHostedLan` (offline LAN, self-issued JWT, local-disk
+> storage) | `HostedMultiTenant` (MinIO), each exposing **a capability per question**
+> (`UsesLocalAccounts`, `UsesDiskStorage`, `RunsAsWindowsService`, `SelfSignsCertificate`,
+> **`AllowsSelfRegistration`**, …). ⚠️ That last one (US-3) is the only capability where `HostedMultiTenant`
+> parts company with `SelfHostedLan` while sharing its login provider — which is precisely why joining by clinic
+> code could not stay gated on `UsesLocalAccounts`. `Deployment:Profile`
+> names it; **absent, it derives `SelfHostedLan` from `Auth:Mode=Local`** — and **throws** for anything else, the
+> `CloudBrowser` it used to name having been retired with Auth0. ⚠️ `LocalAuthConfig.IsLocalMode` survives only as that
+> derivation — a branch anywhere else asking it fails `DeploymentProfileCoverageTests`.
 
-- **`Persistence/ApplicationDbContext.cs`** — single `DbContext`. `DbSet`s: Clinics, Users, Doctors, Patients, Appointments, Notifications, PatientFiles, PatientFlags, RecurringAppointments, StockItems, ProcedureTypes, PatientMedicalHistories, PatientFamilyHistories, DentalRecords, DentalRecordTeeth, PatientFolders, MedicalDocuments.
-  - `OnModelCreating` calls `ApplyConfigurationsFromAssembly` (auto-discovers all `IEntityTypeConfiguration`s), then installs a **global value converter** forcing every `DateTime`/`DateTime?` to UTC (PostgreSQL `timestamp with time zone` requires UTC).
-  - `SaveChanges`/`SaveChangesAsync` are overridden to run `ConvertDateTimesToUtc()` on Added/Modified entries — belt-and-suspenders UTC normalization. **Convention: all dates are UTC everywhere.**
-- **`Persistence/ApplicationDbContextFactory.cs`** — `IDesignTimeDbContextFactory` for `dotnet ef` CLI. Reads connection string from the API project's `appsettings.json` (path `../ClinicManagement.API`).
-- **`Persistence/UnitOfWork.cs`** — implements `IUnitOfWork` (Application layer). Wraps `SaveChangesAsync` + `BeginTransaction/Commit/Rollback`. Repositories do NOT call `SaveChanges`; callers (handlers/services) commit via the UoW.
+## EF Core Persistence (`Persistence/`)
+
+- **`AuditSaveChangesInterceptor.cs`** — writes the audit ledger (`adoption-qa-i-access-control-and-audit` I6).
+  One row per mutated **aggregate root**, carrying the actor (`IAuditActorProvider`), the clinic, the entity, the
+  action, and for updates/deletes a compact changed-field summary.
+  **Why an interceptor and not the handlers:** attribution wired into commands is attribution a new command can
+  forget, and the ledger's whole value is that a missing row is indistinguishable from a mutation that never
+  happened. Every write funnels through `SaveChangesAsync`, so this sees them all by construction.
+  ⚠️ **The two-phase shape is forced, not stylistic.** Rows are *collected* in `SavingChangesAsync` — a `Deleted`
+  entry is **gone from the change tracker** afterwards, so its id and identifying values only exist then — and
+  *written* in `SavedChangesAsync` through a **separate** `ApplicationDbContext` from its own scope, because an
+  audit failure must never roll back a clinical or money operation (the same contract as `INotificationGenerator`)
+  and rows added to the caller's context would ride the caller's transaction. A separate context is also why it is
+  **not a nested save**: it never re-enters the context it observes, which would recurse.
+  ⚠️ **Known imprecision, stated rather than hidden:** `SavedChangesAsync` fires when `SaveChanges` returns, which
+  for the few handlers opening an explicit `IUnitOfWork.BeginTransactionAsync` is *before* the commit — so a
+  rolled-back transaction leaves its audit row behind. That is the deliberate direction of the error:
+  over-recording an attempt is a reading problem, under-recording a real change is the failure the ledger exists to
+  prevent.
+  **Aggregate roots only**, derived from `AggregateRoot<>` rather than a name list (so a new aggregate is audited
+  the day it is written) — saving one invoice touches its lines and payments, and a row per tracked entity would
+  answer « qui a annulé cette facture ? » with eleven rows for one action. Two exclusions, both structural:
+  `AuditEntry` itself (it would audit its own writes forever) and `Notification`, the outbound reminder outbox
+  whose **minutely** dispatcher would bury a clinic's real history in machine noise within a day (it already has a
+  visible delivery log on « Rappels »).
+
+- **`ApplicationDbContext.cs`** — the single `DbContext`. Injects an optional `ICurrentClinicProvider?` (null
+  at design-time / in manual construction → filters inactive). Key mechanisms:
+  - **Multi-tenant global query filters** — the second isolation layer, not the authoritative check (handlers
+    still verify the DB-resolved `User.ClinicId`, which remains the *only* layer for the seven `ClinicId`-less
+    clinical tables). ⚠️ **They were fail-open, and therefore inert, until `multi-tenant-cloud` US-2**: no clinic
+    in scope meant no filter, so every path that failed to establish one read every clinic and nothing said so.
+    The two instance properties are now `IsSystemWide`/`ScopedClinicId` (read through the instance so EF treats
+    them as per-query parameters, never baked into the cached model), fed by `ICurrentClinicProvider` →
+    **`ITenantScope`**, and the shape is `IsSystemWide || ClinicId == ScopedClinicId`. **Only a scope that
+    declared `UseSystemWide(reason)` returns everything**; an `Unset` scope compares against `Guid.Empty` and
+    returns **nothing**, which is what makes a forgotten scope loud instead of a silent cross-clinic read.
+    `ITenantScope` + a **floor** `ICurrentClinicProvider` are registered in `Extensions.cs` (not `AddApplication`)
+    precisely so the console verbs, which build their container from `AddInfrastructure` alone, resolve both and
+    have to declare themselves — before US-2 they had no provider at all and read everything by accident. A
+    context constructed with **no** provider (the design-time factory, hand-built contexts in tests) still reads
+    everything: that is a different case from `Unset`, and `TenantScopeFilterTests` pins both.
+    `HasQueryFilter` scopes the directly-clinic-owned
+    aggregate roots: `Patient`, `Appointment`, `ProcedureType`, `StaffNotification`, `Invoice`,
+    `TreatmentPlan`, `ClinicReminderSettings` (by `Id` = clinic id), `CnamNomenclatureEntry`,
+    `CnamLetterValue`, `Medication`, `DentalActCode`, `Expense`, `WaitingListEntry`, `LabWorkOrder`,
+    `RecurringAppointment`, **`Doctor`**, **`StockItem`** (the last two were the only clinic-owned roots left unfiltered - and `StockItem`'s own child `StockMovement` was filtered while its *parent* was not). **`User`/`Clinic` are deliberately unfiltered** (auth/join flows resolve them
+    before a clinic context exists). Child entities (`InvoiceLine`, `Payment`, `Installment`,
+    `TreatmentPlanItem`, `MedicationActiveIngredient`, `DentalRecordTooth/Act`, `ToothState`,
+    `NotificationRead`, **`StockBatch`**, **`ProcedureTypeMaterial`**) carry no filter — reached only through a filtered parent / scoped by `UserId`.
+    ⚠️ **`AuditEntries` carries no filter either, and that one is not an omission**: its `ClinicId` is
+    *nullable* (a job or console verb can mutate a row with no clinic derivable from it), so a filter comparing it
+    to the scoped id would silently hide exactly the unattributed rows an owner most needs — and the interceptor
+    writes on a context whose clinic scope belongs to the request being audited, not to the row.
+    `GetAuditEntriesQuery` filters by the caller's DB-resolved clinic explicitly, which is the authoritative check
+    everywhere in this codebase anyway.
+    Cross-clinic paths either call `IgnoreQueryFilters()` (the per-clinic seeder does, on every read — it is
+    structurally immune to the scope rather than dependent on it) or **declare `UseSystemWide(reason)`** (the five
+    recurring jobs, the startup scope, the three DB-touching verbs). « Runs with no clinic in scope » is no longer
+    a way to read across clinics — it is how a read returns nothing.
+  - **Money precision by convention** - `ConfigureConventions` sets `HavePrecision(18, 3)` for every `decimal`, and the **26 redundant `HasColumnType("decimal(18,3)")` calls across 17 configuration files were deleted** (AC-P4.37). The deletions are load-bearing: `GetColumnType()` returns an explicit annotation verbatim and bypasses facet-derived store types, so with them in place the convention emits **zero** `AlterColumn`s and `StockItem.UnitPrice` stays at 2 decimals - the exact bug it looks like it fixes. `Clinic.VatRate` and `Invoice.VatRate` keep `(5,2)` via a retained annotation with the reason at each site: they are rates, not money (AC-P4.38). `verify-schema` asserts both halves.
+  - **UTC everywhere**: `OnModelCreating` installs a global value converter forcing every `DateTime`/`DateTime?`
+    to UTC (PostgreSQL `timestamp with time zone`), and `SaveChanges`/`SaveChangesAsync` re-run
+    `ConvertDateTimesToUtc()` on Added/Modified entries (belt-and-suspenders). `Unspecified` is assumed UTC.
+  - `OnConfiguring` ignores `PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning` (expected
+    noise from filtering roots but not their children).
+- **`ApplicationDbContextFactory.cs`** — `IDesignTimeDbContextFactory` for `dotnet ef` (reads the API project's
+  connection string).
+- **`ClinicArchiveScope.cs`** / **`ClinicArchiveStore.cs`** (`clinic-data-archive-and-restore`) — the per-clinic
+  archive's row access: read a cabinet's tables out to JSON, put the **missing** ones back. The one part of the
+  feature that knows about EF, which is why it is here and not in Application.
+  ⚠️ **Nothing goes through a domain constructor, and it cannot.** Every PK is a GUID minted *inside* the
+  constructor and many timestamps are stamped there from `DateTime.UtcNow`, so building entities the ordinary way
+  would give every restored row a **new identity and today's date** — the opposite of a restore, and it breaks the
+  one property the feature rests on (a row still present is recognisable as the same row). Rows are materialised
+  onto the model's own properties instead, through the **private parameterless ctor** — not
+  `GetUninitializedObject`, which leaves the `List<T>` fields backing collection navigations null and NREs inside
+  EF's own fix-up the moment the entry is marked `Added`.
+  ⚠️ **The entity set is derived from the model, never listed**: every non-owned type with a path to a clinic,
+  minus `ClinicArchiveScope.Excluded`. Three scopes and no fourth — `Self` (the `Clinic` row, matched on its PK: it
+  has no `ClinicId` because it *is* the clinic), `Direct` (its own `ClinicId`), `Child` (through the parent's ids,
+  over **required, single-column** FKs — an optional FK is a reference, not ownership). A table with no path is
+  *reported*, never silently dropped.
+  ⚠️ **Scoping and ordering are two questions, and conflating them cost a total-loss restore.** Which rows belong
+  to a cabinet is decided by *required* FKs; what order the tables are *applied* in is decided by **every** FK,
+  optional ones included — `Appointment.PatientId` is nullable and still enforced when set. The directly-owned
+  tables used to be appended in `GetEntityTypes()`' own order with no regard for the keys between them, so on a
+  full restore `DentalRecord` reached the database before `Patient` and the operation died part way. One fixpoint
+  walk now settles both, with a second relaxed pass breaking a cycle and *saying so* rather than dropping the
+  tables. `ClinicArchiveScopeTests.Every_Foreign_Key_Points_At_A_Table_Already_Planned` is the derived guard; its
+  predecessor asserted only `Scope == Child` and was vacuous exactly where the defect was.
+  ⚠️ **`Redacted` is completeness-checked, not remembered.** Inclusion is derived and exclusion is hand-written, so
+  the archive was fail-open for every secret added from now on — a credential-bearing column would travel into a
+  deliberately **unencrypted** zip with no compile error and no failing test. A derived guard reflects over every
+  *planned* entity for a secret-shaped property name and fails unless the entity is excluded or the property
+  redacted, asserted in both directions. `Clinic.Code` joined the set: it is the six characters
+  `POST /api/auth/register` accepts, i.e. a credential rather than a record on the one profile where that door is
+  open — and that is the profile whose archive travels on a USB stick. A property bag rather than ~35 DTOs for the same reason: a new column is
+  archived the day it is written, where a DTO per entity is a second definition that rots.
+  ⚠️ **Every export branch states its clinic predicate explicitly** rather than leaning on the global query filter —
+  the filter is a backstop, `Clinic` carries none at all, and this is the read whose miss puts another cabinet's
+  patients in a file the practice keeps on a laptop. The `RestoreTableAsync` existence check, by contrast,
+  **`IgnoreQueryFilters()` deliberately**: on the console path the cabinet is being re-created and no clinic is in
+  scope, so a filtered read would report every existing row as missing and turn « déjà présent » into a
+  duplicate-key crash.
+  ⚠️ `Entity<T>.Version` is **not archived** — it maps onto PostgreSQL's `xmin`, so writing one back would assert a
+  transaction id from another database.
+  ⚠️ **« Store-generated » is not « has a database default », and reading it as one cost the feature its two worst
+  defects.** `ArchivedProperties` excluded `ValueGenerated.OnAdd` wholesale — but EF marks *every* property
+  configured with `HasDefaultValue(…)` that way, and so is a single `Guid` key on a configuration that omits
+  `ValueGeneratedNever()`. So `Payment.IsVoided` and `InstallmentPayment.IsVoided` were neither archived, restored
+  nor compared (**a voided payment restored as live money**, inflating every money read), along with
+  `Patient.IsArchived`, the clinic's whole billing block, `TreatmentPlanItem.SequenceNumber` and both `IsActive`
+  flags — and, for `MedicalDocument`, `PatientMedicalHistory` and `PatientFamilyHistory`, the **primary key**, which
+  made every ordonnance, certificat and antécédent médical silently unrestorable while the manifest declared their
+  row counts. Only the concurrency token, `OnAddOrUpdate`/`OnUpdate` and computed columns are genuinely the
+  database's. ⚠️ **The other half is in `ApplicationDbContext.AlignSentinelsWithDatabaseDefaults`**: EF omits a
+  store-generated column whose value equals the property's *sentinel*, so an archived `false` on a column
+  defaulting to `true` still reached PostgreSQL as `true`. Each sentinel is now the column's own default —
+  derived over the model, no migration, and it fixes the same trap for every ordinary insert in the product.
+  ⚠️ **Restoring a row is a tenancy decision, not just a lookup.** `Self` refuses any row whose key is not the
+  target cabinet (`Clinic` has no `ClinicId` for the re-stamp to reach — its identity *is* the trusted column, so
+  a hand-edited `data/Clinic.json` inserted a new practice per row); `Child` refuses a row whose parent is not one
+  of this cabinet's, which is the **only** guard the twelve `ClinicId`-less child tables have; a primary key held
+  by another cabinet is refused rather than met as a duplicate-key crash; and a row colliding on a **unique index**
+  (`Invoices(ClinicId, Number)` and its siblings) is counted a conflict and *named*, never inserted. The existence
+  read is scoped by the export's own predicate, so « déjà présent » vs « conflit » can no longer be used as a
+  confirm-or-deny oracle over another practice's column values.
+- **`MoneyReconciliationReader.cs`** / **`SchemaVerificationReader.cs`** — the read sides of the two console
+  report verbs (`reconcile-money`, `verify-schema`). Both are read-only and cross-clinic: their verbs build a
+  container from `AddInfrastructure` alone, so no `ICurrentClinicProvider` exists, the context's optional provider
+  is null and every global clinic filter is inactive — no `IgnoreQueryFilters()` needed. `SchemaVerificationReader`
+  is the only class here that queries **PostgreSQL's own catalog** (`pg_extension`, `pg_constraint`, `pg_index`,
+  `information_schema.columns`) over raw ADO, because those views are not in the EF model at all; it also projects
+  the **model's** declared indexes/FKs/precisions so the service can diff the two sides. Note it excludes owned-type
+  and table-splitting identity "foreign keys" (`Patients(Id) -> Patients`) — PostgreSQL has no such constraint and
+  reporting them produced 7 false positives on the first run.
+- **`UnitOfWork.cs`** — `IUnitOfWork`: wraps `SaveChangesAsync` + `BeginTransaction/Commit/Rollback`.
+  Repositories only stage changes; callers commit via the UoW.
+- **Reference-catalog seeds + seeder** — `CnamCatalogSeed`, `MedicationCatalogSeed`, `DentalActCatalogSeed`
+  (shared single-source-of-truth defaults) + **`ClinicCatalogSeeder`** (`IClinicCatalogSeeder`): clones the
+  defaults into each clinic on creation and a startup backfill (`SeedAllClinicsAsync`, called from the API's
+  `DeferredStartupService`/`Program.cs`). Uses the `DbContext` directly with no clinic in scope; idempotent
+  per catalog; deterministic per-clinic GUIDs.
+  ⚠️ **Seeding an empty catalog is no longer the whole job** (`adoption-qa-k`): a clinic seeded before a shipped
+  default was found to be *wrong* still holds the wrong value in its own rows, and « the catalog already has rows,
+  skip it » would leave it there forever. **`CorrectSupersededDefaultsAsync`** therefore runs after the four
+  seed-if-empty blocks, on every clinic, every startup — today for the CNAM **valeurs de la lettre clé** (the seed
+  shipped `Cd 7` / `Cds 10` / `D 1,200` against the convention in force since 01/01/2021, which fixes 30,000 /
+  45,000 / 3,000, so **every** reimbursement figure shown to a patient was understated by 60–75 %) and the
+  **Prothèse accord-préalable** flag (cleared since April 2019).
+  ⚠️ **The predicate is what makes it safe, and `IsProvisional` alone is the wrong one.** All three terms are
+  required: `UpdatedAt == null` (untouched since seeding), still provisional, **and** the row still holding the
+  exact superseded figure (`CnamCatalogSeed.SupersededLetterValue` / `DentalActCatalogSeed.
+  SupersededAccordPrealable`, both derived from the seed table so there is no second hand-written copy of the old
+  numbers). `CnamLetterValue.SetValue` stamps `UpdatedAt` but does **not** clear the provisional flag — only
+  `Confirm()` does — so an admin who typed their own valeur and never pressed « Confirmer » still reads
+  `IsProvisional = true`, and correcting on that flag would overwrite the one entry that must never be touched.
+  Divergence that survives the predicate is *offered* on `/cnam-nomenclature` instead
+  (`CnamLetterValueDto.ConventionValue`), never applied silently. Self-terminating: both mutators stamp
+  `UpdatedAt`, so a corrected row fails the predicate on every later startup.
+  The convention's own table lives in **Domain** (`Services/CnamConventionTariffs`) because the seed
+  (Infrastructure) and the letter-values read (Application) both need it; `ValueFor` returns **null** for a lettre
+  clé the convention text did not settle (`Vd`/`Rd`), which is what keeps those out of the correction entirely.
 
 ### Entity Configurations (`Persistence/Configurations/`)
-One `IEntityTypeConfiguration<T>` per aggregate. Common conventions: `Id` uses `ValueGeneratedNever()` (Guids assigned in domain ctors); enums stored via `HasConversion<int>()`; value objects (Email, PhoneNumber) mapped as owned/converted columns. Notable: `AppointmentConfiguration` stores `Duration` as ticks (`HasConversion`), makes `PatientId` nullable (busy slots) with `OnDelete(SetNull)`, and `ProcedureTypeId` FK `SetNull`. Files: `AppointmentConfiguration`, `PatientConfiguration`, `PatientFlagConfiguration`, `PatientFileConfiguration`, `PatientFolderConfiguration`, `PatientMedicalHistoryConfiguration`, `PatientFamilyHistoryConfiguration`, `NotificationConfiguration`, `StockItemConfiguration`, `ProcedureTypeConfiguration`, `DentalRecordConfiguration`, `DentalRecordToothConfiguration`, `MedicalDocumentConfiguration`, `ClinicConfiguration`, `UserConfiguration`, `DoctorConfiguration`.
+One `IEntityTypeConfiguration<T>` per aggregate, auto-discovered via `ApplyConfigurationsFromAssembly`.
+Conventions: `Id` `ValueGeneratedNever()` (GUIDs from domain ctors); enums `HasConversion<int>()`; value
+objects (Email, PhoneNumber) owned/converted. `AppointmentConfiguration` stores `Duration` as ticks, makes
+`PatientId` nullable (busy slots, `SetNull`), `ProcedureTypeId`/`DoctorId` FKs `SetNull`. Files: Appointment,
+Patient, PatientFlag, PatientFile, PatientFolder, PatientMedicalHistory, PatientFamilyHistory, Notification,
+StaffNotification (indexes `(ClinicId, EffectiveFeedTime)` + `AppointmentId`), NotificationRead (PK
+`(NotificationId, UserId)`), StockItem, ProcedureType, RecurringAppointment, DentalRecord, DentalRecordTooth,
+DentalRecordAct, ToothState, MedicalDocument, Clinic, User, Doctor, Invoice, InvoiceLine, Payment,
+Installment, TreatmentPlan, TreatmentPlanItem, ClinicReminderSettings, CnamNomenclatureEntry, CnamLetterValue,
+DentalActCode, Medication, MedicationActiveIngredient, Expense, WaitingListEntry, LabWorkOrder.
 
 ### Migrations (`Migrations/`)
-Migrations exist and are applied automatically at startup (`context.Database.Migrate()` in API `Program.cs`). Schema evolution in order:
-- `InitialCreate` — base schema (patients, appointments, notifications, files, flags, recurring appts, stock items).
-- `AddGoogleCalendarEventId` — `Appointment.GoogleCalendarEventId` column (link to a Google event).
-- `AddProcedures` / `AddProcedureDefaultCost` — `ProcedureType` table + appointment procedure fields + default cost.
-- `AddMedicalHistory`, `AddMedicalrecords` — patient medical/family history + dental records/teeth.
-- `AddNotes` / `AddNotesConfig` — notes columns.
-- `AddstorageFolders` — `PatientFolder` table.
-- `AddMedicalDocuments` / `AddMedicalDocumentsFiles` — `MedicalDocument` table + PDF/file fields.
-- `MakeAppointmentPatientIdNullable` — patient-less "busy slot" appointments.
-- `addclinics`, `addUsers`, `addDoctors`, `addLogoUrl`, `updateDoctorConfig` — multi-tenant clinic/user/doctor model (Clinic, User, Doctor entities; logo URL).
+46 migrations, applied automatically at startup (`context.Database.Migrate()` in API `Program.cs`). Early ones
+build the base schema, Google-event id, procedures, medical/dental records, notes, storage folders, medical
+documents, nullable-patient appointments, and the multi-tenant clinic/user/doctor model. Notable later ones:
+`AddLocalAuthUserFields` (Local-auth `User` columns + partial unique index on lowercased email filtered to
+`PasswordHash IS NOT NULL`), `AddStaffNotifications`, `AddPostVisitReview`, `AddCnamBulletinFields`,
+`AddInvoicesAndClinicBilling`, `AddEInvoicing`, `AddPerClinicReminderSettings` + `AddPerClinicReminderOverrides`,
+`AddDoctorCachetAndOrdre`, `AddCnamCatalog`, `AddMedicationCatalog`, `AddWhatsAppConnectionFields`,
+`AddDentalCore` / `ToothStateRecordLink` / `DentalRecordActsAndProcedureResultingCondition` /
+`BackfillDentalResultingConditions` / `AddClinicalLoopLinks` (clinical-workflow-depth), `AddInvoiceLineCnamActCode`,
+`AddClinicWorkingHours`, `AddClinicGoogleCalendarConnection` (per-clinic Google refresh token/calendar id),
+`AddPerClinicCatalogs`.
+- **`20260723120623_MergeSnapshotReconcile`** (latest) — a snapshot-reconcile catch-up: `RecurringAppointment`
+  gains `ClinicId` (FK cascade + index), `DoctorId`, `OccurrenceCount`, `ProcedureTypeId`, tightens
+  `RecurrencePattern`/`DoctorName` lengths, and converts `Duration` `interval`→`bigint` ticks via raw SQL
+  (`EXTRACT(EPOCH…) * 10_000_000`); `Appointment.DoctorId` `text`→`uuid` FK to `Doctors` (`SetNull`) via a
+  guarded regex SQL cast (non-GUID legacy values → null); adds `Patient` recall fields (`LastRecallContactedAt`,
+  `RecallReason`, `RecallSnoozedUntil`), `Doctor.WorkingHoursJson`, `Clinic.RecallIntervalMonths` (default 6);
+  creates the `Expenses`, `LabWorkOrders`, `WaitingListEntries` tables.
+- **`20260731235500_AddProcedureTypeCategory`** — gives `ProcedureType` a real `Category` column (100 chars,
+  nullable) + a `(ClinicId, Category, Name)` index, and **moves** into it the disciplines that had been living in
+  `Description` — clearing the description it copies from, because « Endodontie » was never a *description* of
+  « Traitement de canal » and leaving it would preserve the original mistake behind the column added to fix it.
+  Only descriptions exactly matching a canonical label are touched, so real prose survives. **Hand-written**, not
+  scaffolded: `dotnet ef` cannot load a freshly-built assembly on the dev machine (Smart App Control,
+  `0x800711C7`), so the model snapshot and the paired Designer were updated by hand — the shape is checked against
+  PostgreSQL's catalog by `verify-schema`, which matches indexes on table + ordered columns rather than by name.
+- **`20260804120000_AddChequeDetailsToPayments`** (L8) — `Payments` and `InstallmentPayments` each gain
+  `ChequeNumber` (50), `ChequeBankName` (200) and `ChequeDueDate`, plus a **partial** index on the due date.
+  Purely additive: six nullable columns, no backfill, no row rewritten — a cheque recorded before today
+  legitimately has no number, which is different from « we have no cheques » and is why they are nullable rather
+  than defaulted to `''`. ⚠️ **No CHECK constraint**: « cheque details only on a cheque » lives in
+  `ChequeDetails.For`, and a second copy here would surface as a 500 instead of the French refusal — so
+  `verify-schema` gained `cheque-details-only-on-cheques` to *verify* it instead, over both ledgers.
+  ⚠️ Both index filters key on `"ChequeDueDate" IS NOT NULL`, **not** `"Method" = 1`: equally selective by that
+  invariant, and the enum form would bake an ordinal into SQL where no compiler checks it. **Hand-written** for the
+  same WDAC reason as the migration above; the delta is six columns and two indexes, small enough to verify by eye.
+- **`20260807102000_AddClinicSignups`** (`clinic-self-signup`) — one new table for the pending signups: fourteen
+  columns, a unique index on `Email` (« one row per address » held by the database, not by a handler winning a
+  race), a unique index on `TokenHash` (the verification lookup), and a `(ConsumedAtUtc, ExpiresAtUtc)` index for
+  the purge. Purely additive; nothing existing is touched. ⚠️ **No `ClinicId` and therefore no FK** — that is the
+  table's whole point — so nothing in the schema cascades these rows away and only the opportunistic purge on the
+  signup path deletes one; `verify-schema`'s `clinic-signup-has-no-orphans` is what makes a deployment that
+  stopped trimming visible. **Hand-written** (migration + `.Designer.cs` + snapshot) for the same reason as the
+  two above, here because the running API held `ClinicManagement.API/bin`; the Designer was derived mechanically
+  from the updated snapshot rather than retyped.
+- **`20260810175512_AddClinicSubscriptions`** (`clinic-subscription` Part A) — the two entitlement tables
+  (`ClinicSubscriptions`, unique on `ClinicId`; `SubscriptionPeriods`, indexed `(ClinicId, RecordedAtUtc)`; both FK
+  cascade to `Clinics`), the three nullable columns Parts E and G write to
+  (`StaffNotifications.SubscriptionThresholdDays`, `Notifications.BlockedReason`, `PushDeliveries.BlockedReason`),
+  and the **grandfathering backfill**. Purely additive — nothing altered, narrowed or dropped — so the
+  destructive-before-backfill hazard has nothing to bite on, though the backfill still sits below every DDL
+  statement so a future edit inherits that order.
+  ⚠️ **`dotnet ef` DID scaffold here** (unlike the three above) and got one thing wrong that PostgreSQL refuses:
+  it emitted an **`xmin` column** in both `CreateTable` blocks. EF maps `Entity<T>.Version` onto the *system*
+  column, so the differ writes it out as a real one and the migration fails with
+  `column name "xmin" conflicts with a system column name` — the same rejection that makes `AddConcurrencyToken`'s
+  `Up()` deliberately empty. Both lines were removed by hand; every row still gets its token from the system column.
+  ⚠️ **Both backfill inserts are gated on « this cabinet has no entitlement row »**, which makes `Up()` re-runnable
+  and, more to the point, **safe** to re-run on a populated database: a cabinet created *after* this migration
+  already has its own `Trial` entry, so gating on « no `Grandfathered` row » instead would hand a paying cabinet's
+  trial an open-ended entry and it would never expire again. `EndsOn` is left `NULL` rather than computed — which is
+  exactly what folding one open-ended entry yields, so `subscription-end-date-matches-ledger` reads clean the moment
+  it finishes. Verified end to end: applied to a live database, `verify-schema` went exit 2 → **exit 0**, and
+  `4 clinics = 4 entitlements = 4 grandfathered = 4 open-ended`.
+- **`20260810223151_AddPlatformConsoleWrites`** (`platform-console` Part 4) — three columns, one index and one
+  backfill. `ClinicSubscriptions.LatestCoverKind` (the clock-free denormalisation the console's « en essai » filter
+  reads) plus `PlatformAccessEntries.IdempotencyKey` and `.SubscriptionPeriodId`. Purely additive — nothing altered,
+  narrowed or dropped — and the backfill sits **below every DDL statement** so a later edit inherits that order.
+  ⚠️ **`LatestCoverKind` is nullable and stays null for a cabinet whose every entry has been cancelled**: that is a
+  real state, not a missing value, and a scaffolded `defaultValue` of `Paid` would put an unentitled cabinet in the
+  portfolio's paid bucket — the class of bug the backup-schedule zeros already cost this repo once.
+  ⚠️ The index on `IdempotencyKey` is **unique and partial** (`IS NOT NULL`), and it — not the handler's read-first
+  check — is what makes « a double-click produces one entry » true: two simultaneous submissions both read « rien
+  encore enregistré ». Verified end to end against a throwaway database seeded with two cabinets: the backfill wrote
+  `Paid` for a trial→paid ledger and **`Trial`** for one whose paid entry was cancelled, so the « last non-cancelled
+  entry » rule is what ran; `verify-schema` went 1 DRIFT → clean on those two checks, and corrupting one row turned
+  the new `subscription-cover-kind-matches-ledger` red.
+
+- **`20260820153508_AddPlatformAccessTargetAndReason`** — three nullable columns on `PlatformAccessEntries`
+  (`TargetUserId` 128, `TargetEmail` 256, `Reason` 500) so the console's journal can record a **second-factor
+  reset**: whose factor, and why. ⚠️ **The motif is on this row because it has nowhere else to be** — a suspension
+  writes its reason onto the entitlement and a cancellation onto the entry it strikes through, but
+  `User.DisableTotp` keeps no trace at all, so without these columns « qui a désarmé le compte de qui, et
+  pourquoi ? » is unanswerable. Purely additive; no `defaultValue` on any of the three (NULL is right for every
+  existing row and for the other eight actions, which act on a cabinet rather than a person); no index (the journal
+  is read by cabinet and by console account, both already indexed). Drift set identical before and after.
+- **`20260820145745_AddTotpReplacementGrant`** — one nullable `Users.TotpReplacementAllowedUntil`: until when an
+  account may replace its own second factor without a code from it, which is the window a redeemed **recovery
+  code** opens. It exists because a cabinet with a **single administrator** had no way back from a lost phone —
+  `DisableTotpCommand` and `RegenerateRecoveryCodesCommand` both demand a code from the lost device and
+  `EnrolTotpCommand` refused an account already enrolled, so eight codes bought eight sign-ins and no repair.
+  ⚠️ **No `defaultValue`, deliberately**: NULL is the right reading for every existing row, and a default of any
+  instant would hand every account on the deployment a standing right to replace its factor. ⚠️ Purely additive,
+  so no backfill and nothing for the destructive-before-backfill hazard to bite on; EF emitted no `xmin` because
+  an `AddColumn` creates no table. Verified against the live database: the drift set before and after is
+  **identical** (4 pre-existing, none touching `Users`).
+- **`20260815110947_AddSuppliers`** (`stock-fournisseurs`) — one new `Suppliers` table, `SupplierId` on
+  `StockItems` **and** `LabWorkOrders`, four backfills, and the drop of the free-text `StockItems.Supplier`.
+  ⚠️ **The statement order is the design, not the scaffolder's.** EF emitted `DropColumn("Supplier")` as the
+  **first** statement — it cannot know the backfill three blocks below reads that column — which would have created
+  zero suppliers and linked zero articles on every existing database while reporting a clean migration. Every
+  backfill now sits below the DDL that creates what it writes into and **above** the drop of what it reads.
+  ⚠️ EF's differ also emitted an **`xmin`** column in the `CreateTable` block (`Entity<T>.Version` maps onto the
+  *system* column), which PostgreSQL rejects — removed by hand, the same fix `AddClinicSubscriptions` needed.
+  ⚠️ Rows are folded on `lower(btrim(…))`, so « Dentalex » / « dentalex  » become **one** supplier (EC-2), and the
+  **lab pass runs after the stock pass** with a `NOT EXISTS` against what that one created, so a dépôt that is both
+  reuses the single row instead of producing a second differing only in case — which the case-sensitive unique index
+  would accept and the link would then match ambiguously. Every backfill is gated on « this row does not exist yet »,
+  so `Up()` is safe to re-run. The category rewrite mirrors `Domain/Services/StockCategories.LegacyKeys`, which is
+  the authority and still folds an English key at runtime.
+- **The `vendor-whatsapp-messaging-quota` batch — four migrations, one per part** (DEV-5/9/12; the plan's own
+  « before and after the migration **batch** » wording anticipated more than one). `AddClinicMessagingAllowances`
+  (the two tables, three indexes, two FKs, **plus the rollout backfill**), `AddMessagingAllowanceWarningColumns`
+  (two nullable `StaffNotifications` columns), `AddMessagingAllowanceAccessLedgerLink` (one nullable
+  `PlatformAccessEntries.MessagingAllowanceEntryId`) and `AddWhatsAppTemplateState` (four nullable
+  `ClinicReminderSettings` columns + one **partial** index).
+  ⚠️ **EF's differ emitted `xmin` in both `CreateTable` blocks** — the same rejection that makes
+  `AddConcurrencyToken`'s `Up()` deliberately empty — removed by hand.
+  ⚠️ **The rollout backfill sits below every DDL statement and is gated on « this cabinet has no *standing*
+  entry »** (R-13), which is what makes it safe to re-run on a populated database: a cabinet provisioned *after* it
+  already has its own entry, and gating on the table being empty instead would double-allocate. Proven by
+  re-executing both statements against the populated database — `INSERT 0 0` twice.
+  ⚠️ **All four columns of `AddWhatsAppTemplateState` carry no default**, deliberately: a scaffolded
+  `defaultValue: 0` *is* `NotSubmitted`, and the gate reads a null status as « pass » — a default would have held
+  every WhatsApp reminder on the deployment the day it shipped, for a template Meta approved long ago.
+  Verified end to end at Part 5 against a throwaway database rehearsing the whole batch: `verify-schema` went
+  **6 DRIFT → 0**, the diff naming only the three indexes, two FKs and the `(18,3)` amount, and the three new
+  checks moving « not applicable » → green over two real cabinets.
 
 ## Repositories (`Repositories/`)
-Concrete EF Core implementations of Domain repo interfaces. Pattern: ctor-inject `ApplicationDbContext`, `GetById*` uses `.Include(...)` for needed graphs, mutations (`AddAsync`/`UpdateAsync`/`DeleteAsync`) only stage changes (no `SaveChanges` — UoW commits).
+Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `ApplicationDbContext`; `GetById*` uses
+`.Include(...)` for needed graphs; mutations only stage (UoW commits). All registered Scoped.
 
 | Domain interface | Implementation |
 |---|---|
-| `IPatientRepository` | `PatientRepository` |
+| `IPatientRepository` | `PatientRepository` (careful tracked-vs-detached `UpdateAsync` to avoid full-column updates) |
 | `IAppointmentRepository` | `AppointmentRepository` |
-| `INotificationRepository` | `NotificationRepository` |
+| `INotificationRepository` | `NotificationRepository` (reminder outbox rows) |
+| `IStaffNotificationRepository` | `StaffNotificationRepository` (in-app feed: newest-first/actor-excluded/50-cap, unread gated on viewer join time, read-marker existence+insert, reminder-by-appointment lookup) |
+| `ISupplierRepository` | `SupplierRepository` (`stock-fournisseurs`). Its search covers nom / catégorie / téléphone / adresse; `GetUsageAsync` is one `GROUP BY` per referencing table over the page, never a count per row. ⚠️ `StockItemRepository`'s own search term became a correlated **`EXISTS`** over `Suppliers` once the column was an FK rather than a name — a join was the other option and is wrong here, since an article may have no supplier and an inner join would drop exactly the rows a search for « composite » must still return |
 | `IStockItemRepository` | `StockItemRepository` |
-| `IProcedureTypeRepository` | `ProcedureTypeRepository` |
+| `IProcedureTypeRepository` | `ProcedureTypeRepository` (`GetFilteredAsync` gained a `category` argument — compared on the **canonical** spelling so a stale « endodontie » link still matches — and orders by category then name with `Category == null` **first in the predicate** so unfiled acts land at the *end*, a decision this read makes rather than inheriting from PostgreSQL's NULLS-LAST default; `GetCategoriesAsync` returns the clinic's distinct categories, **including those of deactivated acts**, since a discipline the practice files work under does not stop being one because one act in it was archived) |
 | `IDentalRecordRepository` | `DentalRecordRepository` |
+| `IToothStateRepository` | `ToothStateRepository` (persistent odontogram) |
 | `IPatientFolderRepository` | `PatientFolderRepository` |
 | `IPatientFileRepository` | `PatientFileRepository` |
 | `IMedicalDocumentRepository` | `MedicalDocumentRepository` |
-| `IUserRepository` | `UserRepository` |
+| `IUserRepository` | `UserRepository`. ⚠️ `GetByAuth0SubAsync` and `GetByEmailAsync` **include `RecoveryCodes`**, and every second-factor path depends on it. `User.RecoveryCodes` projects a private backing list, so an unloaded collection is not stale — it is **empty**, and every question asked of it answers as if the account held no codes: « Sécurité » reported « 0 code inutilisé » over eight live rows, `ReplaceRecoveryCodes`' `Clear()` revoked nothing so a regeneration *added* eight instead of replacing, `DisableTotp` left spendable rows behind an un-enrolled factor, and `ConsumeRecoveryCode` matched nothing — so the one way back a user can take alone refused every code they owned. Nothing threw in any of the four. `GetByIdAsync` deliberately does **not** include them (the per-request enforcement middleware reads it); `RecoveryCodeLoadingCoverageTests` derives which reads must, from which files touch the collection |
 | `IClinicRepository` | `ClinicRepository` |
 | `IDoctorRepository` | `DoctorRepository` |
+| `IInvoiceRepository` | `InvoiceRepository` (billing) |
+| `ITreatmentPlanRepository` | `TreatmentPlanRepository` (devis + installments) |
+| `IClinicReminderSettingsRepository` | `ClinicReminderSettingsRepository` |
+| `ICnamCatalogRepository` | `CnamCatalogRepository` (nomenclature + lettre-clé values) |
+| `IMedicationCatalogRepository` | `MedicationCatalogRepository` |
+| `IDentalActCodeRepository` | `DentalActCodeRepository` |
+| `IExpenseRepository` | `ExpenseRepository` (caisse). ⚠️ Its date bound is **inclusive on both ends** (`adoption-gaps-remediation` Part 2, AC-7): it was `ExpenseDate < to` while the three sibling money ledgers are `<=`, so an expense dated on the window's own last tick fell out of the extrait while the payments beside it stayed in — and `Σ movements == cashIn − refunds − cashOut` stopped holding at a period boundary. Every caller now passes `ClinicClock.LastTickOfLocalDayUtc` through `CaissePeriod`, so inclusive is what the value means. |
+| `IWaitingListRepository` | `WaitingListRepository` (salle d'attente) |
+| `ILabWorkOrderRepository` | `LabWorkOrderRepository` (dental-lab) |
+| `IRecurringAppointmentRepository` | `RecurringAppointmentRepository` |
+| `IDeviceRegistrationRepository` | `DeviceRegistrationRepository` (P6). Its `GetByTokenAcrossClinicsAsync` is the only deliberately `IgnoreQueryFilters()` read here besides the seeder's — see the Domain guide for why that is *required* rather than lax |
+| `IClinicSubscriptionRepository` | `ClinicSubscriptionRepository` (`clinic-subscription`). Both its tables carry a non-nullable `ClinicId` and are filtered, so there is **no `IgnoreQueryFilters()` anywhere in it** and none is needed: a caller with no clinic in scope has to declare `UseSystemWide` rather than have this class quietly read across cabinets. Guarded `UpdateAsync` (the detached-`xmin`-0 trap `ClinicSignupRepository` documents) |
+| `IClinicSignupRepository` | `ClinicSignupRepository` (`clinic-self-signup`). The one repository with **no** `IgnoreQueryFilters()` and no need of one: `ClinicSignup` carries no `ClinicId`, so no filter is configured for it. Its `PurgeSpentAsync` **stages** removals rather than `ExecuteDelete`, so the trim rides the caller's single `SaveChangesAsync` instead of committing even when the signup it accompanies is refused |
+| `IClinicActivityRepository` | `ClinicActivityRepository` (`platform-console` Part 2). The vendor console's counter tables and the one bounded portfolio JOIN. ⚠️ A **LEFT** join from `Clinics` onto the snapshot, so a cabinet the pass has never reached still appears with its counters stated as unknown rather than as zeros (EC-8/EC-15) — an inner join would hide exactly the cabinets whose absence is the thing worth seeing. ⚠️ The administrators'-address half of the search is an `EXISTS`, not a join: a cabinet with two admins must appear **once**, and joining would duplicate its row and corrupt every page boundary after it. ⚠️ `.ThenBy(clinic.Id)` on every sort branch, or `OFFSET` shows one cabinet twice and skips another. ⚠️ Since Part 3 the list and the **detail** (`GetClinicRowAsync`) pass the **same** projection expression over a named `PortfolioJoin` — AC-3.1 is « the same figures », and two expressions would drift into a cabinet reading one way in the portfolio and another when opened, the hardest kind of discrepancy to notice because both screens look right alone |
+| `IPlatformAccessEntryRepository` | `PlatformAccessEntryRepository` (`platform-console` Part 3). Add and one paged read; **no update and no delete**, which is the contract rather than an omission. `GetRecordedActorsAsync` is a plain `SELECT DISTINCT` over `(PlatformAccountId, AccountEmail)` and not a `GroupBy` picking one address per account: nothing renames a console account today, so it yields one row each — and if that changes, showing both addresses an account has acted under is the honest answer where `Max` would have chosen one by alphabet |
+| `IMessagingAllowanceRepository` | `MessagingAllowanceRepository` (`vendor-whatsapp-messaging-quota`). The forfait's ledger + counting rows; no `IgnoreQueryFilters()` and none needed — see the Domain guide |
+| `IPushDeliveryRepository` | `PushDeliveryRepository` (P6). The due scan mirrors `NotificationRepository`'s per-clinic fairness bound predicate for predicate |
+| `IClinicRecoveryPointRepository` | `ClinicRecoveryPointRepository` (`clinic-recovery-points`). No `IgnoreQueryFilters()` and none needed — the table carries a non-nullable `ClinicId` and is filtered, so a caller with no clinic in scope has to declare `UseSystemWide` (the daily pass does). Every ordered read ends on `Id`: a nightly pass can write two rows in the same tick (a failure and its retry), so ordering on `StartedAt` alone would leave their order to whatever PostgreSQL returns and the list would reshuffle between renders. Guarded `UpdateAsync` (the detached-`xmin`-0 trap `ClinicSignupRepository` documents) |
 
-Note: `PatientRepository.UpdateAsync` is careful with tracked vs detached entities (only marks `UpdatedAt` modified when already tracked to avoid full-column updates).
+## External Services (`Services/`, `Storage/`, `Security/`, `Auth/`)
 
-## External Services (`Services/`, `Storage/`)
+### Google Calendar (per-clinic two-way sync)
+- **`GoogleCalendarService`** (`IGoogleCalendarService`, scoped) — low-level Google Calendar v3 client. Every
+  method takes a `GoogleCalendarConnection` (refresh token + calendar id). Client id/secret come from
+  `GoogleCalendar:ClientId`/`ClientSecret` config; the access token is refreshed per connection
+  (`GoogleAuthUtils.RefreshAccessTokenAsync` → `oauth2.googleapis.com/token`); the built `CalendarService` is
+  cached keyed on the refresh token. Times forced to UTC. Missing creds/token → `InvalidOperationException("…not
+  configured")` (callers skip silently). Methods: Create/Update/Delete/GetEvents.
+- **`GoogleCalendarSyncService`** (`IGoogleCalendarSyncService`, scoped) — business orchestration.
+  `ResolveConnectionAsync(clinicId)` loads a clinic's own `Clinic.GoogleRefreshToken`/`GoogleCalendarId`
+  (returns null → skip; **no shared cross-clinic account**).
+  - **App → Google** (`SyncAppointmentToGoogleCalendarAsync`) — create/update/delete a Google event using the
+    appointment's own clinic connection; persists/clears `Appointment.GoogleCalendarEventId`; skips busy slots;
+    failures logged not thrown. This is the actively-used direction (inline on appointment create/update).
+  - **Google → App** (`SyncGoogleCalendarToAppointmentsAsync`) — resolves the **caller's** clinic via
+    `ICurrentClinicResolver` and scopes all reads/writes to it; pulls a -7..+90-day window; updates/links/creates
+    appointments (may auto-create a placeholder patient). **No scheduled job** — reachable only via the manual
+    `GoogleCalendarController` endpoint (runs with a clinic in scope).
 
-### Google Calendar (two-way sync)
-- **`GoogleCalendarService`** (`IGoogleCalendarService`) — low-level Google Calendar v3 client. Lazily builds a `CalendarService` by refreshing an OAuth access token from configured `ClientId`/`ClientSecret`/`RefreshToken` (helper `GoogleAuthUtils.RefreshAccessTokenAsync` POSTs to `oauth2.googleapis.com/token`). Methods: `CreateEventAsync`, `UpdateEventAsync`, `DeleteEventAsync`, `GetEventsAsync`. All times forced to UTC. Throws `InvalidOperationException("...not configured")` when creds/refresh token missing (callers treat this as "skip silently").
-- **`GoogleCalendarSyncService`** (`IGoogleCalendarSyncService`) — business orchestration over the low-level client + repos + UoW:
-  - **App → Google** (`SyncAppointmentToGoogleCalendarAsync(appointmentId)`): creates/updates a Google event for an appointment, persisting the returned event id onto `Appointment.GoogleCalendarEventId`. Cancelled/Completed appointments → delete the Google event and clear the id. Patient-less "busy slots" are skipped. Failures are logged, not thrown (don't break the appointment flow). This is the actively-used direction, triggered on appointment create/update.
-  - **Google → App** (`SyncGoogleCalendarToAppointmentsAsync()`): pulls events in a -7..+90 day window, then for each event: updates the linked appointment if the Google event is newer, OR links an unlinked matching appointment (by patient name + time within 30 min), OR creates a new appointment (and even auto-creates a Patient with placeholder email/phone if `IsClinicAppointment` heuristics match). Patient name parsing uses `ExtractPatientNameFromSummary` (formats like `"Appointment: John Doe"`). **Currently disabled** as a recurring job (see API `Program.cs`); only reachable via the manual `GoogleCalendarController` endpoint.
+### AI — removed
+There is **no AI in this product any more.** `HuggingFaceAIService`, `AIActionService` and their two interfaces
+were deleted whole, along with `AIController`, `Features/AI/` and the browser's floating assistant (~2 400 lines).
 
-### AI
-- **`HuggingFaceAIService`** (`IHuggingFaceAIService`) — chat completions via HuggingFace router (`router.huggingface.co/v1/chat/completions`, OpenAI-compatible). Model from `HuggingFace:Model`. Injects a clinic-context system prompt; retries once if model is loading.
-- **`GoogleAIService`** (`IGoogleAIService`) — Gemini (`generativelanguage.googleapis.com`). Tries a fallback list of models. **Note: not registered in `Extensions.cs`** (HuggingFace is the wired chat backend).
-- **`AIActionService`** (`IAIActionService`) — agentic layer: asks the AI to classify intent + extract params (JSON), with regex fallback, then dispatches to MediatR commands/repos for `create_appointment`, `search_patient`, `view_patient`, `list_appointments`, `cancel_appointment`. Scopes everything to the current user's clinic via `IClinicContext` + `IUserRepository`.
-- **`PatientSummaryService`** (`Domain.Services.IPatientSummaryService`) — generates a textual patient/appointment summary. **Placeholder** (string template, no real AI call yet; `// TODO` to integrate OpenAI/Azure).
+⚠️ **It went for a data-residency reason, not a cost one.** The agentic layer posted a clinic's own prompts — and
+whatever the user typed about a patient — to `router.huggingface.co`, a US-hosted third party, on every message.
+Under Tunisian law (loi organique **2004-63**, art. 51–52) that is a transfer abroad requiring **prior INPDP
+authorization**, and health data is separately sensitive; the practice, not the vendor, is the
+*responsable du traitement* carrying the art. 90 exposure. Deleting the caller removes the transfer outright,
+which no configuration flag can do.
+⚠️ **Do not reintroduce a hosted model without reading `follow-up/render-free-tier-transit-relaxation.md`.** The
+same argument applies to any inference endpoint outside Tunisia, and the earlier `GET /api/patients/{id}/ai-summary`
+— deleted by `adoption-qa-i` I4 — was the same defect one layer worse: it shipped a patient's *whole record*, with
+no consent flag and no audit of which patient was sent.
+*(The Gemini `GoogleAIService` and the placeholder `PatientSummaryService` had already been removed as dead code.)*
 
-### Notifications
-- **`NotificationService`** (`INotificationService`) — email + SMS dispatch. **Placeholder/stub**: logs instead of actually sending (commented MailKit/HTTP examples). Returns false when SMTP/SMS config absent. Constructed with explicit config args in `Extensions.cs`.
+### OS push notifications (`mobile-native-shells` P6)
+- **`OsPushAvailability`** (`IOsPushAvailability`, **Singleton**) — the one « can this install push to this
+  platform? »: `DeploymentProfile.PermitsOsPush(platform)` (kind only) **AND** `PushConfig`'s credentials. It also
+  owns the French *reason* a platform is unavailable, so the registration refusal, the parked row's message and the
+  settings sentence are one wording rather than three.
+- **`PushConfig`** + **`ResolvedPushCredentials`** — static accessors over the `Push` section, on
+  `RemindersConfig`'s pattern. **Per install, not per clinic**: one mobile app means one Firebase
+  project and one Apple team. Secrets expected from env (`Push__Fcm__ServiceAccountKey`,
+  `Push__Apns__PrivateKey`); `IsConfigured` is the single sendability predicate every layer reads.
+- **`IPushSender`** + `FcmPushSender`/`ApnsPushSender` over a shared **`HttpPushSender`** (15 s-bounded, never
+  throws). Four outcomes, and **`TokenInvalid` is load-bearing**: FCM's `UNREGISTERED` / APNs' `410 Gone` is
+  terminal *per device*, so the dispatcher fails the row **and** deactivates the registration — as a transient
+  failure it would burn every future notification's retry budget for an app that no longer exists. Recognising it
+  is the one genuinely per-platform thing, hence the abstract `IsTokenInvalid` hook. APNs carries its topic and
+  priority as **headers**, which is why the base takes an extra-headers argument.
+- **`PushNotificationGeneratorDecorator`** (`INotificationGenerator`) — queues push alongside the in-app feed by
+  **decorating** the generator: one hook reaches every category the feed has or will have, so a notification added
+  later cannot be the one that silently never pushes (`fixes-dont-propagate`). The inner generator is awaited
+  **first** and the fan-out runs inside a swallow-and-log — the whole chain is a post-commit side effect of an
+  operation that already committed, so a push failure must cost neither the operation nor the feed row (AC-55).
+  ⚠️ It lives **here rather than beside `NotificationGenerator`** because it reads the operator's quiet-hours
+  window from configuration — the same reason `ReminderScheduler`, the other post-commit best-effort writer
+  implementing an Application interface, is here. ⚠️ Its audience is the feed's rule (actor excluded, a targeted row
+  only its target, else the clinic) with **one deliberate departure**: inactive accounts are dropped. The feed's SQL
+  does not test `IsActive` because it does not need to — a deactivated account is refused on every request and can
+  never read the feed — but its *device* stays registered, because somebody who was switched off does not sign out,
+  and a banner on a former employee's phone is the difference that would be visible.
+- **`ReminderSchedule.DeferPastQuietHours`** — the push floor, sharing this file's wrapping-window arithmetic.
+  ⚠️ **Later only, the opposite of `ApplyQuietHours` beside it**, which prefers earlier: that one places a reminder
+  about a *future* visit, so 21:00 the previous evening still reaches the patient; a push announces something that
+  has *just happened*, so the only choices are 08:00 or a banner at 03:00.
 
-### File Storage
-- **`Storage/MinioFileStorage`** (`IFileStorage`) — primary blob store. Upload/Download/Delete against MinIO; auto-creates bucket; buffers non-seekable streams to learn size. Storage key = custom path or `{guid}-{timestamp}`.
-- **`LocalFileStorageService`** (`IFileStorageService`) — local-disk fallback storage (sanitizes filenames, ensures uniqueness). Registered as singleton.
+### Connectivity (Local-mode offline UX)
+- **`InternetProbe`** (`IInternetProbe`, **Singleton**) — judges the **server's** internet egress (LAN clients
+  can't). `GET` to `Connectivity:ProbeUrl` with a linked timeout; 2xx/3xx ⇒ reachable. A shared `IMemoryCache`
+  + `SemaphoreSlim` double-checked lock collapses a burst of pollers to one probe per TTL. Uses
+  `IHttpClientFactory` (safe in a singleton). Registered unconditionally (harmless in Cloud).
+- **`ConnectivityConfig`** — static accessors: `ProbeUrl` (default `https://www.google.com/generate_204`),
+  `ProbeTimeoutSeconds` (3), `ProbeCacheSeconds` (5).
 
-### Other
-- **`PdfGenerationService`** (`IPdfGenerationService`) — QuestPDF (Community license). Renders French medical documents: `prescription` (ORDONNANCE), `liaison`, `honoraires`, `certificat`. Parses `MedicalDocumentPdfData.Content` (handles both JSON-array and legacy string formats).
-- **`Auth0ManagementService`** (`IAuth0ManagementService`) — calls Auth0 Management API to set user `app_metadata` (`clinic_id`, `role`). Non-critical: failures are logged and swallowed (user already exists in DB).
+### Reminders — SMS/WhatsApp + recall (live outbound)
+- **`IReminderChannelSender`** + `HttpSmsSender` (config-driven HTTP gateway, alphanumeric sender id) and
+  `WhatsAppSender` (WhatsApp Business Graph API, pre-approved utility template — never free-text) over a shared
+  **`HttpReminderChannelSender`** base (15s-bounded JSON POST → `Sent`/`TransientFailure`/`NotConfigured`).
+  ⚠️ **The gateway's response body never reaches the result** — it used to, truncated to 200 bytes, and that string
+  is persisted on the outbox row and served back by `reminder-status` (`AdminOnly`) **and `reminder-log`
+  (`AnyClinicRole`)**. Since the endpoint URL is tenant-supplied, that turned a settings field into a read
+  primitive. Status code to the tenant, body to the log.
+  Senders read endpoint/identity/secret/template from the resolved settings, never config directly. All scoped;
+  the API `NotificationJob` matches each due row to the sender whose `Channel` == the row's `NotificationType`.
+- **`ReminderScheduler`** (`IReminderScheduler`, scoped) — enqueues/voids `Notification` outbox rows best-effort
+  **post-commit** from the appointment handlers (swallow-and-log; never fails the core op). Also
+  `ScheduleRecallAsync` (patient recall nudge — `Notification` with null appointmentId, distinct subject). French
+  wording, Tunisia-local time formatting, per-clinic message template placeholders (`{patient}/{date}/{clinic}`).
+- **`ReminderSettingsProvider`** (`IReminderSettingsProvider`, scoped) — resolves effective per-clinic settings
+  (`ClinicReminderSettings` override ?? per-install `RemindersConfig`): channel toggles (`bool?` = inherit),
+  identity, endpoint URLs, lead-time tiers, wording. Secrets decrypted in-process; a broken/rotated key ⇒
+  channel treated as **not configured** (logged once per scope, never thrown). Memoized per-clinic per scope.
+  ⚠️ **Resolution is per CHANNEL, not per field** (`SECURITY_REVIEW_2026-08`, finding A). It used to coalesce
+  field by field, so a clinic could supply only the endpoint URL and inherit the **install's** credential — which
+  the dispatcher then presented to that clinic-chosen endpoint as a bearer token or SMTP AUTH. On a hosted backend
+  anyone who signs up is an admin of their own clinic, so that was remote theft of an install-wide secret by a
+  stranger. `ClaimsItsOwn{Sms,WhatsApp,Smtp}` now decide ownership: supply *any* of a channel's endpoint, identity
+  or secret and you own **all** of it, inheriting nothing further for it. Only wording and transport details
+  (template name/language, SMTP port, TLS flag, display name) still inherit — they carry no credential and address
+  no host. Pinned by `ReminderSettingsChannelIsolationTests`.
+- **`OutboundEndpointPolicy`** (`IOutboundEndpointPolicy`, **Singleton**) — whether a clinic may aim an integration
+  endpoint at a **private** address. True on `SelfHostedLan` alone, where the private range is the practice's own
+  network; both hosted kinds refuse, because there it is the *operator's* infrastructure (the database, the object
+  store, the loopback the Hangfire dashboard trusts). The rule it feeds lives in `Domain/Common/OutboundEndpoint`
+  and is applied in `ClinicReminderSettings`' two write methods, so every caller is covered.
+- **`ReminderSecretProtector`** (`IReminderSecretProtector`, **Singleton**) — purpose-scoped `IDataProtector`
+  encrypts/decrypts per-clinic reminder secrets at rest.
+- **`RemindersConfig`** — static accessors over the `Reminders` section (channels, lead times, min-lead,
+  max-retries, SMS/WhatsApp URLs + template flags). Secrets (`Sms:ApiKey`, `WhatsApp:AccessToken`) expected from
+  env, not committed config.
+- **`ReminderSchedule`** (pure tiered send-time calc), **`ReminderPhone`** (+216 E.164 normalization + PII
+  masking).
+- **`WhatsAppOnboardingService`** (`IWhatsAppOnboardingService`, scoped, Cloud) — Meta Embedded-Signup: code→token
+  exchange + app-subscribe + phone-register via Graph API, using `MetaConfig` (`Meta:AppId`/`AppSecret`,
+  `Meta:GraphApiVersion`). Failures thrown as categorized `WhatsAppOnboardingException`.
+- **`WhatsAppTemplateService`** (`IWhatsAppTemplateService`, scoped) — submits the reminder template to Meta after
+  the token exchange and reads its status back, over `MetaConfig`'s one Graph-version authority.
+  **`WhatsAppReminderTemplate`** beside it is the single definition of the template's name, language, category and
+  body. ⚠️ **The body carries exactly ONE variable** (« Bonjour, {{1}} À bientôt, votre cabinet dentaire. »), and
+  that is forced rather than stylistic: `WhatsAppSender` sends **one** body parameter holding the whole
+  pre-rendered French sentence, so a two-variable template is « #132000 number of params does not match » on every
+  send — and formatting inside the sender instead would move the wording away from `ReminderScheduler`, which is
+  where `ReminderMessage.AnnouncesStaleMoment` reads it to catch an appointment moved under a queued row.
+  ⚠️ **Submission is gated on `SellsVendorMessaging`**: a stored template state is what makes the outbox gate hold
+  a cabinet's reminders, and on the other two kinds *neither writer that could clear it exists* — the webhook 404s
+  and the daily pass is not registered — so submitting there would have held a working cabinet's reminders for ever.
+- ⚠️ **`WhatsAppSender.Classify` (§ 37) reads Meta's refusal off the FULL response body**, not a truncated prefix:
+  the JSON envelope puts `code` after a long `message`, so a 200-byte cut loses the one field that tells a
+  **throttle** (retry later, keep the retry budget) from a **stopped number** (park it). The classification hook
+  lives on `HttpReminderChannelSender` and is overridden here only; the gateway's body still never reaches the
+  persisted result (D-8).
+
+### QR rendering
+- **`QrCodeGenerator`** (`IQrCodeGenerator`, **Singleton**) — renders a payload to a PNG QR. Its only live
+  caller is `TrustController`, which puts the LAN trust page's URL on screen for a phone to scan. It is what
+  survived the electronic-invoicing removal (`adoption-gaps-remediation` Part 1); everything else in that
+  subsystem — the XML generator, the signer, the two national-platform clients, the identity provider, its
+  secret protector and the dispatch orchestrator — was deleted.
+
+### File Storage (`IFileStorage`, scoped, mode-branched)
+- **`Storage/ClinicStorageKey`** (`multi-tenant-cloud` US-5) — **the single composer of a new blob's key**, used by
+  both backends: `clinics/{clinicId}/` then the caller's clinic-relative path or a unique `{guid}-{timestamp}` leaf.
+  Before US-5 « which clinic owns this blob » had **two** answers — four upload sites prefixed a path of their own
+  with a bare `{clinicId}/` (logo, cachet, and the two artifacts of the electronic-invoicing subsystem of the
+  day) while four wrote a flat guid with no clinic in it at
+  all — and a third was one new upload away. Both `IFileStorage.UploadAsync` overloads therefore **require** a
+  `Guid clinicId`, so an unprefixed key is not something a caller can write; `ClinicStorageKeyTests` derives that
+  assertion off the interface rather than listing today's overloads.
+  ⚠️ **The clinic is a parameter, not read off the ambient `ITenantScope`** — an outbox job uploads under
+  `UseSystemWide` (no clinic in scope at all) and would have written an unattributed key, silently.
+  ⚠️ **Reading is deliberately not symmetrical**: `DownloadAsync`/`DeleteAsync` pass the stored key through
+  **verbatim**, so a row written before US-5 keeps resolving with **no backfill** (amendment M2). Composing on the
+  read side would strand every one of them.
+  ⚠️ **`RestoreAtKeyAsync` (+ `ExistsAsync`) joined that verbatim side** for the per-clinic archive
+  (`clinic-data-archive-and-restore` AC-5/EC-4), and its **name is load-bearing**: `ClinicStorageKeyTests` reflects
+  over every `UploadAsync` for a `Guid`, so a third *upload* overload without one would silently restore the defect
+  US-5 closed. This is not an upload — it mints no key, it names the key a row **already holds**, and that key may
+  legitimately be a flat pre-US-5 one that composing would move out from under its own row. It writes only where
+  nothing exists, the blob half of the restore's additive rule. A path that would climb out of its clinic is refused *in the composer*,
+  so MinIO — which has no traversal semantics and would have stored the literal name — refuses it too.
+- **`Storage/MinioFileStorage`** (Cloud + hosted) — MinIO blob store; auto-creates bucket. Uses a singleton
+  `IMinioClient`.
+- **`Storage/LocalDiskFileStorage`** (Local) — blobs under `FileStorage:BasePath` (resolved install-relative via
+  `LocalInstallPaths`); opaque relative keys; mirrors MinIO semantics (the same composed keys, deterministic
+  overwrite at a given path, seekable download, idempotent delete, path-traversal-safe).
+- **`ProbeAsync` (both, multi-tenant-cloud US-6)** — the reachability check behind `/health`. MinIO asks whether the
+  bucket exists (one call exercising DNS, endpoint, TLS and credentials, storing nothing); ⚠️ a **missing** bucket is
+  reported as reachable-but-unusable rather than unreachable, because the two have different operator answers and
+  `UploadAsync` creates it on demand anyway. Local disk creates the base folder and then **writes** a per-attempt probe
+  file, deleting it in a `finally` — the write half is the point: an unmounted volume, a full disk and a folder the
+  service account cannot write to all present as an existing directory, and every one of them breaks the first upload
+  rather than an existence check.
+
+### PDF & CNAM
+- **`PdfGenerationService`** (`IPdfGenerationService`, scoped) — QuestPDF (Community license). Renders French
+  documents: `prescription` (ORDONNANCE), `liaison`, `certificat` (+ optional practitioner-cachet image loaded
+  from storage, falling back to a plain signature line). **`honoraires` is rejected** (retired — issue an Invoice
+  instead). **`bulletin-cnam` branches out** to the BS1 overlay renderer. Helpers: `CertificatTextBuilder`,
+  `LiaisonContent`.
+- **`CnamBs1BulletinRenderer`** (internal) — stamps `bulletin-cnam` data onto the genuine CNAM **BS1** form
+  (`Assets/BS1.pdf`) at calibrated coordinates (2-page A4-landscape) using **PdfSharp**; fills only the
+  dentist-relevant regions (IDU comb, régime/lien ticks, assuré/malade identity, the 6-row dental acts table incl.
+  per-row `Doctor.CodeProfessionnelSante`, page-2 Cadre-de-soins ticks); >6 acts append extra pages; a
+  missing/unreadable asset **fails fast** (French message). **`Bs1FontResolver`** (internal,
+  `PdfSharp.Fonts.IFontResolver`) — process-wide sans-serif resolver installed idempotently before first render;
+  fails fast if no OS font found.
+
+### Auth
+- **`Auth/LocalAuthService`** (`ILocalAuthService`, Local) — PBKDF2 hash/verify via `PasswordHasher<User>`; HS256
+  JWT issuance (claims `sub`/`clinic_id`/`role`/`jti` + optional `email`/`name`, 12h default); CSPRNG
+  temp-password (unambiguous 12-char alphabet).
+- **`Auth/LocalAuthConfig`** — resolves issuer/audience/lifetime and the per-install signing key: explicit
+  `Auth:Local:SigningKey` (≥256-bit) else a generated 512-bit key persisted to `.local/signing-key`
+  (`Auth:Local:SigningKeyPath` override); cached. `IsLocalMode(config)`. Same path used by issuer and the
+  `Program.cs` validator so they can't drift.
+
+### LAN hosting / install helpers (root namespace)
+Static, unit-testable (referenced from API `Program.cs`/controllers; in the root namespace so `UnitTests` can
+exercise them without the API):
+- **`LocalRequest.IsLoopback(HttpContext)`** — "did this request come from the server machine?" (null
+  `RemoteIpAddress` ⇒ true). Gates the first-run `setup` endpoint and the loopback-only Hangfire dashboard.
+- **`CorsOrigins.Assemble/FromConfiguration`** — builds the credentialed CORS origin list (deduped,
+  order-preserving). Cloud = single `FrontendUrl`; Local unions in `Cors:AllowedOrigins`.
+- **`LocalInstallPaths`** — resolves `.local/`, `Files/`, `logs/` against the **install dir**
+  (`AppContext.BaseDirectory`), not the CWD (a Windows service's CWD is `System32`). `Resolve`, `LocalDir`,
+  `LocalFile(name)`.
+
+### Certificate provisioning (`Security/CertificateProvisioner`) — Local, Phase 5
+Self-generates LAN HTTPS trust material on first boot: a self-signed CA (10y) + a server leaf it signs (5y) whose
+SANs cover the hostname, `localhost`, `127.0.0.1`, and every non-loopback IPv4. `EnsureServerCertificate()` is
+**idempotent** (an existing loadable set is reused so the trusted CA is stable). Writes `.local/server.pfx`
+(random password in `.local/server-cert-password`) for Kestrel + `.local/ca.crt` for the client installer.
+**Not DI-registered** — constructed manually pre-`builder.Build()` in `Program.cs` (Kestrel needs the cert before
+the container exists) and by the `ProvisionCertCommand` CLI.
+
+### Backup (`Services/PgDumpBackupService`, `IBackupService`, scoped) — where `BacksUpItsOwnData`
+One-click "Backup now": `pg_dump` custom-format (`-Fc`, `pg_restore`-able) then a recursive file-storage copy,
+both into a **unique** timestamped `clinic-backup-<yyyyMMdd-HHmmss>[-N]` folder (DB first). The codebase's only
+`Process` shell-out: argument **list** (no injection), password via `PGPASSWORD` env (never on the cmdline/logs),
+bounded timeout that kills the process tree. **Fails loud** (no `pg_dump` on the machine, unwritable dest,
+insufficient free space — pre-check factors the live DB size via `pg_database_size` — or a non-zero exit →
+`InvalidOperationException` with a French operator message); a partial folder is deleted before rethrow.
+
+- **`LegacyBackupRelocation`** (root namespace, called from `Program.cs` right after the startup banner) — moves a
+  pre-existing `Backups/` folder **out** of the install directory. ⚠️ **`LocalInstallPaths.DefaultBackupRoot` only
+  fixed where NEW backups go; an install that already had one kept a dead PDF renderer.** QuestPDF's `FontManager`
+  static constructor walks `AppContext.BaseDirectory` **recursively** for fonts, the backup folders are ACL-hardened
+  by `DirectoryAclHardener` so the app's own account cannot enumerate them, and the resulting
+  `TypeInitializationException` is **CLR-cached for the life of the process** — so every ordonnance, every
+  background PDF and every emailed attachment fails until a restart that changes nothing. Measured: three such
+  folders on a dev machine → `generate-pdf-download` **400** on every call; folder moved out → **200, 49 627 bytes,
+  `%PDF-`**. Any clinic that ran a backup before upgrading is in the first state.
+  ⚠️ **Renaming is not enough** — the scan is of the whole tree, not of a folder called `Backups`: a rename to
+  `Backups.disabled` left the failure identical, the exception simply naming the new spelling.
+  ⚠️ **The folder is moved whole and never enumerated** — its *children* are the unreadable part, so
+  `Directory.GetDirectories` on it throws the very exception this exists to avoid; a directory move needs write
+  access on the **parent**, which the app has. Destination `<DefaultBackupRoot>/legacy-install-dir` (`-2`, `-3`… so a
+  second upgrade cannot overwrite the first), logged as a French warning, and it **never throws**: a clinic that
+  cannot move the folder must still start — it then loses PDFs, which is what it already had, not its server.
+- **`Services/PostgresToolLocator`** is the **single** answer to « where are `pg_dump`/`pg_restore`? », shared with
+  the API's `restore-backup` verb: explicit config → beside the app (the installer's bundled `postgres\bin`) →
+  **`PATH`** → the well-known per-version install roots, **newest first**. ⚠️ **Nothing needs configuring any
+  more, and that was the whole defect**: both tools were reached through `Backup:PgDumpPath` alone, which is
+  written by exactly **one** of the four ways this product is deployed (the Windows installer). Everywhere else it
+  is the `""` that ships in `appsettings.json`, so « Sauvegarder maintenant », the hourly `BackupJob`, the
+  pre-migration safety dump **and** the restore verb answered « L'outil pg_dump est introuvable » for the life of
+  the product while every other layer reported the feature present. `api/Dockerfile` now installs
+  `postgresql-client-16`, so the containers resolve it off `PATH`. ⚠️ `RestoreBackupCommand` held a **copy** of the
+  rule under a docstring claiming to be « one rule » — the `fixes-dont-propagate` shape — and now calls this.
+  ⚠️ Newest-first matters: `pg_dump` refuses a server whose major version is *newer* than its own while the reverse
+  works, and the version is compared as an **integer** (`9` outranks `16` lexicographically). ⚠️ A directory holding
+  only `pg_dump` is **not** a candidate — a dump this product cannot verify is a failed backup.
+  ⚠️ It takes a **`FileSystem` seam**, and `PgDumpBackupService` has a second constructor for it, because discovery
+  made « this machine has no `pg_dump` » untestable through configuration: a developer Windows box *and* GitHub's
+  ubuntu runner both have the client installed, so the refusal test would pass or fail by machine.
+- ⚠️ **Registered unconditionally, but the *job* and the two write endpoints are gated** on the 17th capability
+  `DeploymentProfile.BacksUpItsOwnData` (`SelfHostedLan` only) — see that property's own note for the two reasons
+  the hosted kinds are ✗ (an off-server sidecar already runs there; one database holds every cabinet, so an in-app
+  `pg_dump` would be a cross-tenant read). `GET /api/backup/history` deliberately still answers, reporting
+  `managedByHost`, because it is the read that *explains* why there is no button.
+
+⚠️ **`Security/DirectoryAclHardener` also grants the account the process runs as**, and that fixed two stacked
+defects rather than tidying one. Step 2 (`/inheritance:r`) removes the inherited ACEs — the point of the method —
+and an inherited ACE is *also* where the running account's access comes from unless it is one of the three
+well-known SIDs. Under an unelevated or de-privileged account a **successful** hardening therefore broke the dump
+that writes into the folder immediately afterwards, **and** `TryDeleteDirectory`'s AC-14.4 cleanup was refused for
+the same reason — leaving an unreadable, undeletable `clinic-backup-*` folder behind with only a logged warning
+(three were found in a real destination). Those orphans then permanently consumed `PruneOldBackupsAsync`'s
+oldest-first deletion budget, so **retention had silently stopped pruning anything**. `Users`/`Everyone` are
+excluded from that grant explicitly, so « this method never grants either » is true by construction rather than by
+an argument about which SIDs a token can hold; `ComposeGrantArguments` is public so the rule is assertable on the
+ubuntu runner, where `Harden` itself short-circuits.
 
 ## DI Registration (`Extensions.cs` — `AddInfrastructure(services, configuration)`)
-- `ApplicationDbContext` via `UseNpgsql("DefaultConnection")`; `IUnitOfWork` scoped.
-- All repositories scoped (table above).
-- `AddHttpClient()` (used by HuggingFace/GoogleAI/Auth0).
-- `IFileStorageService` → `LocalFileStorageService` (**singleton**, base path `FileStorage:BasePath`).
-- `IFileStorage` → `MinioFileStorage` (**scoped**) only if `MinIO:Endpoint/AccessKey/SecretKey` present; otherwise a stub that throws on use. `IMinioClient` registered as singleton when configured.
-- `INotificationService` → `NotificationService` (scoped, config injected explicitly).
-- `IPatientSummaryService`, `IGoogleCalendarService`, `IGoogleCalendarSyncService`, `IPdfGenerationService`, `IHuggingFaceAIService`, `IAIActionService`, `IAuth0ManagementService` — all scoped.
-- **Not registered here:** `GoogleAIService` (dead/optional).
+- `ApplicationDbContext` via `UseNpgsql("DefaultConnection")` **+ `AddInterceptors(AuditSaveChangesInterceptor)`**;
+  `IUnitOfWork` scoped; all repositories scoped.
+  ⚠️ The interceptor is **scoped** and resolved through the `AddDbContext((provider, options) => …)` overload, not
+  registered as an instance: it holds per-request state (the actor, and the rows collected between the two save
+  phases), so a singleton would leak one request's actor into another's rows. It is built by an explicit factory so
+  its *optional* `ICurrentClinicProvider` is resolved with `GetService`, not `GetRequiredService` — a console verb
+  has none by design, and relying on the container's handling of a defaulted constructor parameter would make that
+  work by accident.
+- **`IAuditActorProvider` floor** — `TryAddScoped<IAuditActorProvider, ProcessAuditActorProvider>()`. A no-op in
+  the API (`AddApplication` runs first in `Program.cs` and registers the real claims-reading `AuditActorProvider`);
+  it exists for the console verbs, which build their container from `AddInfrastructure` alone and would otherwise
+  fail to resolve a `DbContext` at all.
+- `AddHttpClient()`; `AddMemoryCache()`; `IInternetProbe → InternetProbe` (**Singleton**).
+- **`IFileStorage` (scoped), mode-branched**: Local → `LocalDiskFileStorage` (base path via
+  `LocalInstallPaths.Resolve(FileStorage:BasePath ?? "Files")`); Cloud → `MinioFileStorage` if `MinIO:*` present
+  (with a singleton `IMinioClient`), else a stub that throws on use.
+- **`ILocalAuthService`/`LocalAuthService`**, registered unconditionally. ⚠️ The `IAuth0ManagementService` pair that used to sit beside it — the real client and its no-op twin — is **deleted**: with Auth0 retired the only implementation left was the no-op, and its three call sites were best-effort `try/catch` blocks pushing metadata nowhere.
+- **Data Protection** — `AddDataProtection().SetApplicationName("ClinicManagement")`, key ring persisted to a
+  mode-resolved dir (Local → `.local/dataprotection-keys`, DPAPI machine-scoped on Windows; Cloud →
+  `DataProtection:KeyRingPath` if set, else framework default) + `IReminderSecretProtector` (**Singleton**).
+- **Reminders** — `IReminderSettingsProvider`, `IReminderScheduler` (scoped); `IReminderChannelSender` ×2
+  (`HttpSmsSender`, `WhatsAppSender`, scoped); `IWhatsAppOnboardingService` (scoped).
+  `ITtnClient` ×2 (Sandbox + Http) scoped; `IQrCodeGenerator` + **`ITtnSecretProtector`** Singleton.
+- `IGoogleCalendarService`, `IGoogleCalendarSyncService`, `IPdfGenerationService`, `IClinicCatalogSeeder`,
+  `IBackupService` — all scoped.
+- **Not registered here:** `CertificateProvisioner` (constructed manually pre-Build in `Program.cs`);
+  `AdminPasswordRecoveryService` (console-only). **Retired:** `IGoogleTokenStore`/`FileGoogleTokenStore` — Google
+  refresh tokens now live per-clinic on the `Clinic` entity.
+- **Cabinet entitlements (`clinic-subscription`)** — `IClinicSubscriptionRepository` (scoped) plus
+  `ISubscriptionPolicy`/`ISubscriptionPricing` (**Singletons**, same lifetime reasoning as the profile they read:
+  immutable and derived from startup configuration). ⚠️ **Registered here and not in `AddApplication`, and that is
+  load-bearing**: `provision-clinic` builds its container from *this* method alone and it creates a cabinet — which
+  must not come into existence without an entitlement (FR-4) — so it has to resolve all three.
+- **Tenant scope (US-2)** — `AddScoped<ITenantScope, TenantScope>()` plus a `TryAddScoped` **floor** for
+  `ICurrentClinicProvider`, both here rather than in `AddApplication` so the seven console verbs (container from
+  this method alone) can declare their scope and have it honoured. `AuditSaveChangesInterceptor` now resolves the
+  provider with `GetRequiredService`, since the floor means a missing registration is a bug rather than the
+  console verbs' normal state.
+- **Depends on (registered in the API layer):** `ICurrentClinicResolver`, `IClinicContext`, and the
+  `TenantScopeMiddleware` that sets the per-request scope.
 
 ## Config keys consumed (names only)
-`ConnectionStrings:DefaultConnection`, `FileStorage:BasePath`, `MinIO:{Endpoint,AccessKey,SecretKey,BucketName,UseSSL}`, `Notification:Smtp:{Server,Port,Username,Password}`, `Notification:Sms:{ApiKey,ApiUrl}`, `GoogleCalendar:{ClientId,ClientSecret,RefreshToken,CalendarId,RedirectUri}`, `HuggingFace:{ApiKey,Model}`, `GoogleAI:{ApiKey,Model,ApiVersion}`, `Auth0:{Domain,ManagementApi:ClientId,ManagementApi:ClientSecret}`.
+**`Subscription:{TrialDays, Plans:<Cabinet|Clinique|SurMesure>:{PriceMonthlyDt,PriceAnnualDt}, PaymentInstructions,
+ContactEmail, ContactPhone}`** — ⚠️ there is deliberately **no `Subscription:Enabled`**; enforcement follows the
+deployment *kind*. Every value is parsed by hand rather than through `GetValue<T>`, which **throws** on a value it
+cannot convert: `TrialDays` is read while a cabinet is being provisioned (a typo would abort clinic creation) and a
+price feeds the one screen an expired cabinet opens. Anything unreadable, absent or out of range falls back —
+`TrialDays` to 30, a price to « non publié » rather than to 0,000 DT. Prices parse with **`InvariantCulture`**: a
+config file is not localised, and on an fr-TN host `"120.5"` would otherwise read as 1205. No secret-bearing key.
+`ConnectionStrings:DefaultConnection`; `FileStorage:BasePath`; `MinIO:{Endpoint,AccessKey,SecretKey,BucketName,
+UseSSL}`; `GoogleCalendar:{ClientId,ClientSecret}` (per-clinic refresh token/calendar id live on `Clinic`);
+**`Deployment:Profile`** (`SelfHostedLan`|`HostedMultiTenant`; absent ⇒ `SelfHostedLan` from `Auth:Mode=Local`,
+anything else **fails startup loud**); `Auth:Mode` (`Local` — one value since Auth0 was retired);
+`Auth:Local:{SigningKey,SigningKeyPath,Issuer,Audience,TokenLifetimeMinutes}`
+(all optional; key else generated `.local/signing-key`); `Connectivity:{ProbeUrl,ProbeTimeoutSeconds,
+ProbeCacheSeconds}`; `Cors:AllowedOrigins` (Local); `Reminders:{Channels,LeadTimesHours,MinLeadHours,MaxRetries,
+Sms:{ApiUrl,SenderId,ApiKey},WhatsApp:{ApiUrl,PhoneNumberId,TemplateName,AccessToken,TemplateLanguage,
+TemplateHasBodyParam}}`; `Meta:{AppId,AppSecret,
+GraphApiVersion}`; `DataProtection:KeyRingPath` (Cloud); `Backup:{PgDumpPath,DefaultDestination,TimeoutSeconds}`.
+Secrets are expected from env, not committed config (e.g. `Reminders__Sms__ApiKey`, `Reminders__WhatsApp__
+AccessToken`, `Meta__AppSecret`). *(HTTPS/Kestrel hosting keys —
+`Https:*`, `Hosting:*` — are read in API `Program.cs`, not here.)*
+
+> When code changes, update this file so the map stays accurate.
