@@ -30,9 +30,8 @@ public class RegenerateRecoveryCodesCommand : IRequest<Result<RecoveryCodesDto>>
 ///
 /// <para>⚠️ <b>The administrator refusal is gated on the capability, not on the role alone.</b> An unconditional
 /// « un administrateur ne peut pas désactiver » would strand an admin who enrolled <i>voluntarily</i> on
-/// `SelfHostedLan` or `CloudBrowser` — permanently unable to remove a control their deployment never required.
-/// That is a control with no way out, on precisely the two profiles the capability's own documentation says must
-/// not have one.</para>
+/// `SelfHostedLan` — permanently unable to remove a control their deployment never required. That is a control
+/// with no way out, on precisely the profile the capability's own documentation says must not have one.</para>
 /// </summary>
 public class DisableTotpCommand : IRequest<Result>
 {

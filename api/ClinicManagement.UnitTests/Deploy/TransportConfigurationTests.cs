@@ -35,8 +35,18 @@ namespace ClinicManagement.UnitTests.Deploy;
 public class TransportConfigurationTests
 {
     private const string HostedFile = "deploy/docker-compose.hosted.yml";
+    /// <summary>
+    /// The shared infrastructure base — certs, postgres, minio, caddy and the two backup sidecars.
+    ///
+    /// <para>⚠️ It used to carry its own <c>api</c> and <c>web</c> services (the <c>CloudBrowser</c> deployment),
+    /// which is why several theories below ran over it as well. That deployment kind is retired with Auth0 and
+    /// those two services are gone from the file, so every assertion about an <c>api</c> service's environment
+    /// now has exactly one subject: <see cref="HostedFile"/>. What this constant is still used for is the
+    /// infrastructure the hosted file <c>extends</c> — the certificate mounts and the two sidecars.</para>
+    /// </summary>
     private const string ProdFile = "deploy/docker-compose.prod.yml";
     private const string HbaFile = "deploy/postgres/pg_hba.conf";
+    private const string EnvTemplateFile = "deploy/.env.hosted.example";
 
     private const string ConnectionStringVariable = "ConnectionStrings__DefaultConnection";
     private const string MinioUseSslVariable = "MinIO__UseSSL";
@@ -52,7 +62,6 @@ public class TransportConfigurationTests
     /// </summary>
     [Theory]
     [InlineData(HostedFile, DeploymentKind.HostedMultiTenant)]
-    [InlineData(ProdFile, DeploymentKind.CloudBrowser)]
     public void The_Shipped_Configuration_Satisfies_The_Startup_Check(string composeFile, DeploymentKind kind)
     {
         var api = Services(composeFile)["api"];
@@ -78,7 +87,6 @@ public class TransportConfigurationTests
     // as much as the mode: verify-full with no root cannot verify anything and refuses every connection.
     [Theory]
     [InlineData(HostedFile)]
-    [InlineData(ProdFile)]
     public void The_Database_Connection_Is_Verified_Tls(string composeFile)
     {
         var connectionString = Services(composeFile)["api"].Environment[ConnectionStringVariable];
@@ -95,7 +103,6 @@ public class TransportConfigurationTests
 
     [Theory]
     [InlineData(HostedFile)]
-    [InlineData(ProdFile)]
     public void The_Object_Store_Connection_Is_Tls_Against_The_Internal_Root(string composeFile)
     {
         var environment = Services(composeFile)["api"].Environment;
@@ -247,7 +254,6 @@ public class TransportConfigurationTests
     /// </summary>
     [Theory]
     [InlineData(HostedFile)]
-    [InlineData(ProdFile)]
     public void The_Content_Security_Policy_Is_Enforced(string composeFile)
     {
         var environment = Services(composeFile)["api"].Environment;
@@ -268,7 +274,6 @@ public class TransportConfigurationTests
     /// </summary>
     [Theory]
     [InlineData(HostedFile)]
-    [InlineData(ProdFile)]
     public void The_Audit_Chain_Key_Is_Supplied(string composeFile)
     {
         var environment = Services(composeFile)["api"].Environment;
@@ -290,13 +295,104 @@ public class TransportConfigurationTests
     /// </summary>
     [Theory]
     [InlineData(HostedFile)]
-    [InlineData(ProdFile)]
     public void The_Api_Logs_To_A_Durable_Volume(string composeFile)
     {
         var volumes = Services(composeFile)["api"].Volumes;
 
         Assert.Contains(volumes, v => v.EndsWith(":/app/logs", StringComparison.Ordinal));
     }
+    /// <summary>
+    /// Outbound email reaches the API on the one profile whose front door depends on it (<c>clinic-self-signup</c>
+    /// AC-15, <c>password-recovery-gaps</c>).
+    ///
+    /// <para><b>This is the guard for a defect that shipped and reached go-live planning.</b>
+    /// <c>Notification:Smtp:Server</c> ships as an empty string in <c>appsettings.json</c> and was wired into
+    /// <b>no</b> deployment template at all — so <c>SmtpConfig.Host</c> trimmed empty to null,
+    /// <c>ITransactionalEmailSender.IsConfigured</c> read false, and five flows were dead on a deployment that
+    /// reported <c>Healthy</c> and served every screen: clinic self-signup (nothing is written until the
+    /// verification email is answered), « mot de passe oublié », an administrator resetting a member of staff's
+    /// password, and the vendor's two console recovery verbs.</para>
+    ///
+    /// <para>⚠️ It asserts the <b>delivery path</b>, never a value. What an operator puts in <c>.env</c> is their
+    /// business and is not in this repository; whether the key is plumbed through to the container at all is this
+    /// file's business, and that is precisely the half that was missing.</para>
+    ///
+    /// <para>⚠️ <b>Hosted only, deliberately.</b> <see cref="DeploymentKind.SelfHostedLan"/> has
+    /// <c>AllowsPublicClinicSignup</c> and <c>AllowsPasswordResetByEmail</c> false — a surgery PC has no mailbox
+    /// and <c>reset-admin-password</c> on the console is its answer — so asserting this against the LAN file would
+    /// demand configuration that profile is designed not to need.</para>
+    /// </summary>
+    [Fact]
+    public void The_Hosted_Deployment_Wires_Outbound_Email()
+    {
+        var environment = Services(HostedFile)["api"].Environment;
+
+        var supplied = environment.ContainsKey("Notification__Smtp__Server")
+                       || environment.ContainsKey("Notification__Smtp__Server_FILE");
+
+        Assert.True(
+            supplied,
+            $"{HostedFile} supplies no Notification__Smtp__Server, so ITransactionalEmailSender.IsConfigured "
+            + "reads false: clinic self-signup, password reset and both console recovery verbs are dead on a "
+            + "deployment that otherwise reports Healthy.");
+    }
+
+    /// <summary>
+    /// Every SMTP variable the compose file interpolates is named in the <c>.env</c> template an operator copies.
+    ///
+    /// <para><b>Derived rather than a list of today's seven keys</b>, on this class's own precedent
+    /// (<see cref="Every_Consumer_Mounts_The_Certificates_Read_Only"/>): it reads whichever
+    /// <c>Notification__Smtp__*</c> entries the file happens to carry and follows each one back to its variable.
+    /// So an eighth key added later is covered the day it lands — and the failure it prevents is the quieter half
+    /// of the same defect: a variable that exists in compose, is absent from the template, and is therefore never
+    /// set by anybody who configured this deployment by copying the file they were told to copy.</para>
+    /// </summary>
+    [Fact]
+    public void Every_Smtp_Variable_The_Compose_File_Names_Is_In_The_Env_Template()
+    {
+        var interpolated = Services(HostedFile)["api"].Environment
+            .Where(e => e.Key.StartsWith("Notification__Smtp__", StringComparison.Ordinal))
+            .Select(e => VariableName(e.Value))
+            .Where(name => name != null)
+            .Select(name => name!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.NotEmpty(interpolated);
+
+        var template = File.ReadAllLines(Locate(EnvTemplateFile))
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0 && !line.StartsWith('#') && line.Contains('=', StringComparison.Ordinal))
+            .Select(line => line[..line.IndexOf('=', StringComparison.Ordinal)].Trim())
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.NotEmpty(template);
+
+        var undocumented = interpolated.Where(name => !template.Contains(name)).ToList();
+
+        Assert.True(
+            undocumented.Count == 0,
+            $"{HostedFile} interpolates {string.Join(", ", undocumented)}, which {EnvTemplateFile} never names — "
+            + "so an operator who configured this deployment by copying that template has no way to learn the "
+            + "value exists.");
+    }
+
+    /// <summary>
+    /// <c>${SMTP_PORT:-587}</c> → <c>SMTP_PORT</c>; a literal with no interpolation → <c>null</c>.
+    /// </summary>
+    private static string? VariableName(string composeValue)
+    {
+        var open = composeValue.IndexOf("${", StringComparison.Ordinal);
+        if (open < 0)
+        {
+            return null;
+        }
+
+        var name = composeValue[(open + 2)..];
+        var end = name.IndexOfAny(new[] { ':', '}', '-' });
+        return end > 0 ? name[..end] : null;
+    }
+
 
     // ---- the reader ---------------------------------------------------------------------------------
 

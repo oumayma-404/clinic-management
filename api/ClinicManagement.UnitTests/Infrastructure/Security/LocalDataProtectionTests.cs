@@ -40,33 +40,33 @@ public class LocalDataProtectionTests
     }
 
     [Fact]
-    public void Cloud_mode_honours_a_configured_key_ring_path()
+    public void A_hosted_deployment_honours_a_configured_key_ring_path()
     {
-        var configured = Path.Combine(Path.GetTempPath(), "cloud-key-ring");
+        var configured = Path.Combine(Path.GetTempPath(), "hosted-key-ring");
 
         var path = LocalDataProtection.ResolveKeyRingPath(Configuration(
-            ("Auth:Mode", "Cloud"),
+            (DeploymentProfile.ProfileKey, nameof(DeploymentKind.HostedMultiTenant)),
             ("DataProtection:KeyRingPath", configured)));
 
         Assert.Equal(configured, path);
     }
 
-    [Fact]
-    public void Cloud_mode_without_a_configured_path_falls_back_to_the_framework_default()
-    {
-        var path = LocalDataProtection.ResolveKeyRingPath(Configuration(("Auth:Mode", "Cloud")));
-
-        // null ⇒ the caller skips PersistKeysToFileSystem, leaving the framework default location.
-        Assert.Null(path);
-    }
-
-    [Fact]
-    public void Cloud_is_the_default_when_no_mode_is_configured() // matches LocalAuthConfig / appsettings.json
-    {
-        var path = LocalDataProtection.ResolveKeyRingPath(Configuration(("DataProtection:KeyRingPath", null)));
-
-        Assert.Null(path);
-    }
+    /*
+     * ⚠️ Two tests stood here and are deliberately gone rather than ported:
+     * « Cloud mode without a configured path falls back to the framework default » and « Cloud is the default
+     * when no mode is configured ». Both asserted a NULL return, i.e. « skip PersistKeysToFileSystem and let the
+     * framework pick a location » — and both reached it through the CloudBrowser profile, which is retired.
+     *
+     * That path is now unreachable by configuration, and saying so is the point: of the two surviving kinds,
+     * SelfHostedLan returns its install-relative directory and HostedMultiTenant **throws** without an explicit
+     * path (US-6 — the framework's per-instance ring is ephemeral, so the first redeploy makes every clinic's
+     * encrypted reminder credentials undecryptable). Porting them to a profile key would have meant asserting
+     * the opposite of what the code does, and re-pointing them at HostedMultiTenant would have duplicated the
+     * refusal test below.
+     *
+     * A null return is still reachable — but only through `DataProtection:PersistToDatabase`, which has its own
+     * coverage and is a different statement entirely.
+     */
 
     [Fact]
     public void The_application_name_is_stable() // changing it silently invalidates every existing ciphertext
@@ -109,7 +109,6 @@ public class LocalDataProtectionTests
 
     [Theory]
     [InlineData(nameof(DeploymentKind.SelfHostedLan))]
-    [InlineData(nameof(DeploymentKind.CloudBrowser))]
     public void The_two_shipped_profiles_are_unchanged_by_the_new_requirement(string profile)
     {
         // R-2: SelfHostedLan resolves its own install-relative path and never reads the key; CloudBrowser keeps the

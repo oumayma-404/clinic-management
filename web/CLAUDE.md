@@ -1,6 +1,6 @@
 # web/ — Clinic Management Frontend
 
-Next.js 16 (App Router) frontend for the dental/medical clinic management system. Talks to a separate .NET API. **Auth is pluggable** (`AUTH_MODE`): **cloud** = Auth0; **local** = email+password backed by an HttpOnly session cookie (offline LAN installs). Consumers read a unified `useSession()` seam, not Auth0 directly. **French UI** (`<html lang="fr">`), Tunisia-targeted.
+Next.js 16 (App Router) frontend for the dental/medical clinic management system. Talks to a separate .NET API. **Auth** is email+password backed by an HttpOnly session cookie, on every deployment. Consumers read a unified `useSession()` seam. ⚠️ Auth0 (`AUTH_MODE=cloud`) is **retired** with the `CloudBrowser` deployment kind — the dependency, `CloudSessionProvider` and `lib/auth0.ts` are deleted, and `AuthMode` is a one-member union so a stale `mode === "cloud"` is a compile error. **French UI** (`<html lang="fr">`), Tunisia-targeted.
 
 ## Tech Stack
 
@@ -11,7 +11,6 @@ Next.js 16 (App Router) frontend for the dental/medical clinic management system
   an `eslint` key (see the `npm run lint` row below).
 - **Tailwind CSS v4** (`app/globals.css`, oklch design tokens, `@tailwindcss/postcss`). No `tailwind.config` file — config is CSS-based. **next-themes** for light/dark.
 - **shadcn/ui** (style "new-york", RSC enabled) on top of Radix UI primitives. See `components/ui/`.
-- **Auth0** via `@auth0/nextjs-auth0` v4 (`Auth0Provider`, middleware, `/auth/*` routes) — cloud mode only.
 - **@microsoft/signalr** v8 — realtime client (`lib/realtime/`, hub at `/hub/clinic` on the API host root).
 - **sonner** toasts, **lucide-react** icons, **date-fns** dates (fr locale), **react-hook-form** + **zod** forms, **recharts** charts (first real usage is the dashboard's `collected-trend-chart.tsx`), **docx** + **file-saver** for client-side document export. ⚠️ **`@vercel/analytics` was removed** by `hosted-security-hardening` FR-4.5 and must not come back: it loads a script from a third-party **origin**, which breaks the now-enforcing `script-src 'self'` before any other work, and it sent page views from a medical-records application to a third party — and this app's URLs contain patient identifiers, which is what makes a page view here PHI.
 - Data layer is plain `fetch` wrapped in `lib/api/` — **no React Query / SWR / Redux**. State is local `useState` + custom hooks + React Contexts (session, connectivity, sidebar) + the SignalR realtime seam.
@@ -34,15 +33,14 @@ Dockerized via `web/Dockerfile`.
 | Var | Purpose |
 |-----|---------|
 | `NEXT_PUBLIC_API_URL` | Base URL of the .NET API (default fallback `http://localhost:5000/api`). Read in `lib/api/client.ts`. **In the Local same-origin front-door build (Phase 5) set this to the relative `/api`** — the browser hits the Kestrel front door on whatever server IP it loaded from; `client.ts` resolves the relative base against `window.location.origin`. The SignalR hub URL derives from this too (`lib/realtime/clinic-hub.ts`), targeting the API host root, not the `/api` base. |
-| `AUTH_MODE` | `cloud` (default) or `local`. Read server-side (`lib/auth/local-auth.ts`); selects the session provider and gates the Local-only **`/bff/auth/*`** routes and middleware behavior. Delivered to the browser via SSR (`useSession().mode`). |
+| `AUTH_MODE` | Historically `cloud`|`local`; **now one value**. `resolveAuthMode()` returns `'local'` unconditionally — the Auth0 provider it used to select is retired. Still set by both compose files and the installer, and still a build ARG in `web/Dockerfile` because `/login` is statically prerendered, so anything `layout.tsx` reads from the env is baked in at build time. |
 | `API_INTERNAL_URL` | **Local, server-only (Phase 5).** Absolute API URL the `local-login` / `change-password` BFF route handlers call server-side (a relative `/api` has no origin server-side). Default `http://localhost:5000/api` (the API's loopback HTTP hop). |
 | `AUTH_COOKIE_SECURE` | **Local, server-only (Phase 5).** `true` forces the `Secure` flag on the auth session cookie. Needed because the Node server sits behind the HTTPS front door on a plain-HTTP loopback hop, so the BFF handler would otherwise derive a non-Secure scheme and drop `Secure` even though the browser transport is HTTPS. |
-| `AUTH0_SECRET`, `AUTH0_DOMAIN`, `AUTH0_ISSUER_BASE_URL`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_AUDIENCE`, `AUTH0_BASE_URL`, `APP_BASE_URL` | Auth0 config (server-side, cloud mode). `AUTH0_AUDIENCE` enables API access tokens. |
 
 ## How the frontend talks to the .NET API
 
 - All requests go through helpers in **`lib/api/client.ts`** (`apiGet/apiPost/apiPut/apiDelete`, plus `apiPostFormData/apiPutFormData` for uploads). Base URL = `NEXT_PUBLIC_API_URL`.
-- **Auth token**: client.ts auto-fetches the token from the local route **`app/bff/auth/token/route.ts`** (Phase 5 relocated `/api/auth/*` → `/bff/auth/*` so the front-door proxy forwards them to Next instead of colliding with the API's `/api/*`; mode-aware: Auth0 access token in cloud, the local JWT from the cookie in local) and attaches it via **`apiHeaders(token, contentType)`**. Requests also send `credentials: 'include'` for the session cookie.
+- **Auth token**: client.ts auto-fetches the token from the local route **`app/bff/auth/token/route.ts`** (Phase 5 relocated `/api/auth/*` → `/bff/auth/*` so the front-door proxy forwards them to Next instead of colliding with the API's `/api/*`; it exchanges the cookie's refresh token for a short-lived access token server-side) and attaches it via **`apiHeaders(token, contentType)`**. Requests also send `credentials: 'include'` for the session cookie.
 - **Request headers have one writer** (`mobile-native-shells` Part 3): `apiHeaders` in `client.ts`, which adds the bearer *and* **`X-Client-Version`** from `window.__clinicShell?.version` — the header the backend's `ClientVersionMiddleware` refuses a stale native build on (426). It replaced the private `createHeaders`/`formDataHeaders` pair **and** the hand-written object at all 14 raw-`fetch` sites (`billing`, `clinics`, `doctors`, `export`, `invoices`, `medical-documents`, `patient-files`, `treatment-plans`), because a site that keeps its own object sends the token and omits the version — invisible until the release where it matters. The `api-headers` check fails on any `Authorization: … Bearer` outside `client.ts`; `app/**/route.ts` is out of scope as a **role** (a server-side BFF hop has no bridge to read and is exempt from the floor by design). `<ClientVersionGate>` (mounted in `layout.tsx`, outside the session provider) listens on `onClientTooOld` and takes the screen — a 426 is **never** rendered as a sign-out.
 - **Errors**: non-OK responses throw `ApiError(status, message)`; validation errors from the .NET ProblemDetails (`title`/`errors`) are flattened into the message. Network failures throw `ApiError(0, ...)`.
 - **Realtime**: `lib/realtime/clinic-hub.ts` opens a SignalR connection to `/hub/clinic` (auth via `/bff/auth/token`) and listens for the `entityChanged` event carrying a `RealtimeResource` key (appointments, patients, proceduretypes, documents, files, clinics, users, stock, notifications, invoices, cnamnomenclature, medications, dentalacts, treatmentplans, expenses, **doctors, laborders, recall, waitinglist**). Pages subscribe via `useClinicRealtime(RealtimeResource.X, refetch)` to refetch only their own views on a peer's mutation. **The map is not free-form**: `RealtimeResourceResolverTests` reflects over every backend `IRequest`, parses this file, and asserts the two key sets are **equal in both directions** — a key added on one side alone fails the build, which is how the five orphans of audit § 9.1 went unnoticed for so long. Its two allow-lists (emit-only / listen-only) are asserted empty on purpose.
@@ -50,12 +48,9 @@ Dockerized via `web/Dockerfile`.
 
 ## Auth & route protection
 
-- **`middleware.ts`** is mode-branched (`resolveAuthMode()`):
-  - **cloud**: routes `/auth/*` to Auth0; allows public `/login`, `/setup`, `/join`; else requires an Auth0 session or redirects to `/auth/login?returnTo=...`.
-  - **local**: gates protected routes on the `local_session` HttpOnly cookie (redirect to `/login`), skips Auth0 entirely, and forces users with the `local_must_change_password` cookie onto `/change-password`. Redirects go through `frontDoorRedirect()` (Phase 5): behind the YARP proxy Next's own request host is the internal `localhost:<WebPort>` (HTTP), so it builds an **absolute** URL from the `x-forwarded-host`/`x-forwarded-proto` headers YARP adds — sending the browser to the HTTPS front door, not the internal port. Public/skip paths include `/_next/*` and `/bff/auth/*`.
-- **The session seam** (`lib/auth/session.tsx`): a single `useSession()` context — `{ user, mode, isLoading, logout }` — backed by `CloudSessionProvider` or `LocalSessionProvider`. SSR-tolerant (returns a loading default when no provider is in scope).
-  - **Cloud**: `CloudSessionProvider` → `Auth0Provider` + `CloudBridge` (bridges Auth0's `useUser`). Auth0's profile carries no clinic role, so `CloudBridge` additionally calls `clinicsApi.getUserStatus()` and folds the DB-resolved `role` into the session — without this the admin-gated UI (reminder settings, CNAM nomenclature, medication & dental-act catalogs) is unreachable in Cloud.
-  - **Local**: `LocalSessionProvider` reads `/bff/auth/session` from the cookie; 30-min inactivity auto-logout; a 401 clears the stale cookie.
+- **`middleware.ts`** has one path now (the Auth0 branch went with the provider): it gates protected routes on the `local_session` HttpOnly cookie (redirect to `/login`) and forces users with the `local_must_change_password` cookie onto `/change-password`. Redirects go through `frontDoorRedirect()` (Phase 5): behind the YARP proxy Next's own request host is the internal `localhost:<WebPort>` (HTTP), so it builds an **absolute** URL from the `x-forwarded-host`/`x-forwarded-proto` headers YARP adds — sending the browser to the HTTPS front door, not the internal port. Public/skip paths include `/_next/*` and `/bff/auth/*`.
+- **The session seam** (`lib/auth/session.tsx`): a single `useSession()` context — `{ user, mode, isLoading, logout }` — backed by `LocalSessionProvider`. SSR-tolerant (returns a loading default when no provider is in scope). ⚠️ `CloudSessionProvider`/`CloudBridge` are **deleted** with Auth0; the role they had to fetch separately (Auth0's profile carried none) now arrives on the session cookie's own read.
+  - `LocalSessionProvider` reads `/bff/auth/session` from the cookie; 30-min inactivity auto-logout; a 401 clears the stale cookie.
 - **Clinic-membership** is enforced client-side, not in middleware: pages wrap content in **`<ClinicGuard>`** (`components/clinic-guard.tsx`), which uses `useClinicAccess` to verify the user belongs to a clinic (else shows `unauthorized-page` / redirects to `/setup`).
 - **Role gating is client-side and presentation-only — the server is authoritative.** Two shapes:
   - **Admin**: the catalog pages (`/cnam-nomenclature`, `/dental-acts`, `/medications`) and `/users` check
@@ -110,7 +105,6 @@ web/
                        « the next clinic day » is a fact about Tunis the browser cannot know.
     realtime/          clinic-hub.ts (SignalR /hub/clinic + RealtimeResource) + use-clinic-realtime.ts
     hooks/             data-fetching / auth hooks
-    auth0.ts           Auth0Client (server) config
     brand.ts           PRODUCT_NAME + branding constants
     format.ts          fr-TN locale date/number/currency formatting (formatDT, formatDate, ...)
     download.ts, errors.ts, phone.ts, working-hours.ts, utils.ts (cn())
@@ -119,7 +113,7 @@ web/
                        below-`md:` drawer state, which is deliberately NOT persisted so a phone
                        session never overwrites the desktop rail preference. Closes on navigation.)
   types/               ambient .d.ts (speech-recognition)
-  middleware.ts        dual-mode (Auth0 / local cookie) route gate
+  middleware.ts        the cookie route gate (single mode)
 ```
 
 ## Routing / Pages
@@ -156,7 +150,7 @@ All app pages are client components (`"use client"`) that render `DashboardSideb
 | `/mon-profil` | `app/mon-profil/page.tsx` | "Mon profil": practitioner info + cachet/signature (`MonProfilContent`) |
 | `/settings` | `app/settings/page.tsx` | Clinic settings (`ClinicSettings` — billing, reminders, backup, **OS notifications**). The last is `push-availability-card.tsx` (admin): what this installation can push, **per platform**, over `GET /api/push-devices/availability` — see `components/CLAUDE.md`  | ⚠️ The « Sauvegarde » card now leads with **« Points de restauration »** (`clinic-recovery-points`, `components/backup/recovery-points-list.tsx`): the copies the server keeps of this cabinet's records and the one action that puts one back, above the archive download/upload block. It also states whether an archive has actually **left the building** — recovery points die with the deployment, so a cabinet whose points are healthy is still warned |
 | `/users` | `app/users/page.tsx` | **Local, admin-only**: user management + clinic-code regenerate (`UserManagement`) |
-| `/login` | `app/login/page.tsx` | Mode-aware: Auth0 sign-in landing (cloud) **or** a local email+password form (local) |
+| `/login` | `app/login/page.tsx` | The email+password form (+ the second factor where the deployment requires one) |
 | `/setup` | `app/setup/page.tsx` | First-run wizard: create a clinic (`SetupWizard`); local mode also collects the admin account |
 | `/join` | `app/join/page.tsx` | Join existing clinic via code (`JoinWizard`); local mode skips the session gate (self-registration). Since US-3 it first asks `authApi.getMode()` whether this deployment still *has* self-registration and, when it does not, renders **`join-unavailable.tsx`** — never a 404 (§ 0: name the alternative). A failed probe falls through to the form on purpose (on a LAN this page is the normal way in, and refusing on a network hiccup is the worse error); `JoinWizard` turns the register endpoint's own 404 into the same explanation as the backstop |
 | `/signup` | `app/signup/page.tsx` | **Hosted only**: a visitor creates their own cabinet + admin account (`clinic-self-signup`). Single-column at every width — this is the product's first impression and as likely to be met on a phone as at a desk — with the optional practitioner block **collapsed**, so the submit button is not pushed below a second scroll for the majority it does not apply to. Probes `authApi.getMode().publicSignupEnabled` first and renders a « non disponible ici » card when the door is shut; a **failed** probe falls through to the form (the `/join` precedent — refusing on a network hiccup is the worse error). On success it renders the server's own neutral sentence **verbatim**: rewording it is how a page grows the « adresse déjà utilisée » difference the API took care not to send |

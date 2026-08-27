@@ -122,8 +122,10 @@ public sealed class ProvisionClinicCommandTests
             var (exitCode, error) = await RunCapturingError(ValidArgs());
 
             Assert.Equal(1, exitCode);
-            // `nameof` so a rename cannot leave this asserting a string that no longer exists.
-            Assert.Contains(nameof(DeploymentKind.CloudBrowser), error);
+            // ⚠️ See ProvisionCertCommandTests for the full note: `Auth:Mode = Cloud` with no
+            // `Deployment:Profile` no longer resolves at all, so the refusal comes from `Resolve` rather than
+            // from this verb's own `UsesLocalAccounts` guard — which both surviving profiles now satisfy.
+            Assert.Contains(DeploymentProfile.ProfileKey, error);
         }
         finally
         {

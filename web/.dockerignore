@@ -1,7 +1,7 @@
 # The Dockerfile installs dependencies and builds from scratch, so anything below is discarded work shipped into
 # the build context — `node_modules` and `.next` alone are the bulk of this folder.
 #
-# ⚠️ `.env*.local` is the load-bearing line: it holds the Auth0 client secret, and `COPY . .` would bake it into
+# ⚠️ `.env*.local` is the load-bearing line: it holds this deployment's own secrets, and `COPY . .` would bake them into
 # an image layer. Runtime configuration comes from the compose file's `environment:`, never from a copied file.
 
 node_modules/

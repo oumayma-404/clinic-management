@@ -54,7 +54,8 @@ public class LocalAuthEnforcementMiddleware
             }
 
             // The active-account check moved to AccountStateMiddleware, which runs unconditionally in every
-            // profile — it was skipped entirely on CloudBrowser from here, so deactivating a user did nothing.
+            // profile — from here it was skipped entirely on the Auth0-backed kind (since retired), so
+            // deactivating a user there did nothing at all.
 
             if (account.MustChangePassword && !IsChangePasswordRequest(context.Request))
             {

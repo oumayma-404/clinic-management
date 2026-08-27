@@ -49,10 +49,12 @@ public sealed class ProvisionCertCommandTests
             var exitCode = ProvisionCertCommand.Run(new[] { ProvisionCertCommand.CommandName });
 
             Assert.Equal(1, exitCode);
-            // Part A replaced « Local mode » with the resolved profile, so the refusal now names the profile it
-            // resolved — which is the more useful message and the one to hold. `nameof` so a rename cannot leave
-            // this asserting a string that no longer exists.
-            Assert.Contains(nameof(DeploymentKind.CloudBrowser), capturedError.ToString());
+            // ⚠️ `Auth:Mode = Cloud` with no `Deployment:Profile` used to resolve to CloudBrowser, and this
+            // asserted the refusal named that kind. The kind is retired with Auth0, so the same input is now
+            // refused one step earlier — by `Resolve` itself, which has no second answer to fall back to — and
+            // the verb surfaces it as exit 1 with the resolver's own operator sentence. Asserted on the
+            // configuration key rather than on prose, so a reworded message cannot leave this vacuous.
+            Assert.Contains(DeploymentProfile.ProfileKey, capturedError.ToString());
         }
         finally
         {

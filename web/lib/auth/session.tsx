@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-import { Auth0Provider, useUser } from "@auth0/nextjs-auth0/client"
 import { toast } from "sonner"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { clinicsApi } from "@/lib/api/clinics"
@@ -13,7 +12,15 @@ import {
 } from "@/lib/api/client"
 import { canConfirmIdentityInShell, SessionLockGate } from "@/components/session-lock-gate"
 
-export type AuthMode = "cloud" | "local"
+/**
+ * ⚠️ One member, and that is the point.
+ *
+ * The seam is kept — the server still publishes AUTH_MODE and consumers still read `useSession().mode` — but
+ * Auth0 ("cloud") is retired along with the CloudBrowser deployment kind, so exactly one thing issues tokens
+ * now: this product. Narrowing the union rather than leaving a member nothing can produce is what turns a
+ * stale `mode === "cloud"` into a compile error instead of a branch that silently never runs.
+ */
+export type AuthMode = "local"
 
 export interface SessionUser {
   name?: string
@@ -26,7 +33,7 @@ export interface SessionState {
   user: SessionUser | null
   isLoading: boolean
   mode: AuthMode
-  /** Logs the user out (Auth0 redirect in Cloud; clears the local cookie in Local). */
+  /** Logs the user out — clears the local session cookie and returns to the login screen. */
   logout: () => void
 }
 
@@ -35,77 +42,17 @@ const SessionContext = createContext<SessionState | null>(null)
 const DEFAULT_SESSION: SessionState = {
   user: null,
   isLoading: true,
-  mode: "cloud",
+  mode: "local",
   logout: () => {},
 }
 
 /**
- * Unified session hook — works in both Cloud (Auth0) and Local (offline) modes.
+ * The session hook.
  * Returns a safe "loading" default when no provider is in scope (e.g. during the
  * static prerender pass, before client hydration), rather than throwing.
  */
 export function useSession(): SessionState {
   return useContext(SessionContext) ?? DEFAULT_SESSION
-}
-
-// ---------------------------------------------------------------------------
-// Cloud (Auth0) — bridges Auth0's useUser into the unified SessionContext.
-// ---------------------------------------------------------------------------
-function CloudBridge({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useUser()
-
-  // Auth0's profile does not carry the clinic role, so resolve it server-side once the user is known:
-  // GET /api/clinics/user-status returns the DB-resolved role. Without this, role-gated admin UI —
-  // reminder settings, CNAM nomenclature, medication & dental-act catalogs — was unreachable in Cloud
-  // because `role` stayed unset here (feature cloud-security-and-tenant-isolation, AC-1).
-  const [role, setRole] = useState<string | undefined>(undefined)
-
-  useEffect(() => {
-    if (!user) {
-      setRole(undefined)
-      return
-    }
-    let active = true
-    clinicsApi
-      .getUserStatus()
-      .then((status) => {
-        if (active) setRole(status.role ?? status.user?.role ?? undefined)
-      })
-      .catch(() => {
-        // A membership/token hiccup must not break the session; role stays unset (non-admin UI).
-        if (active) setRole(undefined)
-      })
-    return () => {
-      active = false
-    }
-  }, [user?.email])
-
-  // Memoize so the context value (and the mapped user object) keep a stable identity across
-  // re-renders; otherwise every CloudBridge render hands consumers a new `user`, needlessly
-  // retriggering effects like useAuthToken's token fetch.
-  const value = useMemo<SessionState>(
-    () => ({
-      user: user
-        ? { name: user.name ?? undefined, email: user.email ?? undefined, picture: user.picture ?? undefined, role }
-        : null,
-      isLoading: Boolean(isLoading),
-      mode: "cloud",
-      logout: () => {
-        window.location.href = "/auth/logout"
-      },
-    }),
-    [user?.name, user?.email, user?.picture, isLoading, role],
-  )
-
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
-}
-
-export function CloudSessionProvider({ children }: { children: React.ReactNode }) {
-  return (
-    <Auth0Provider>
-      <CloudBridge>{children}</CloudBridge>
-    </Auth0Provider>
-  )
 }
 
 // ---------------------------------------------------------------------------
@@ -251,8 +198,8 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
    * assuming. A timer that fires late or not at all can then only *delay* the logout to the next wake-up,
    * never skip it.
    *
-   * ⚠️ Local-only, deliberately: Cloud has **no** inactivity timer at all (Auth0 owns session lifetime
-   * there), so this provider is the only place the rule exists.
+   * ⚠️ This is the only place the rule exists — there is no second session implementation left for it
+   * to drift from, the Auth0-backed one having been retired.
    */
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastActivityAtMs = useRef(Date.now())

@@ -14,13 +14,13 @@ namespace ClinicManagement.API.Startup;
 /// that switches itself off when its subject is missing is not a guard. Absent, unreadable and not-yet-valid
 /// certificates are three separate refusals, each naming the file <i>and</i> the setting.</para>
 ///
-/// <para>⚠️ <b><c>!SelfHostsFrontDoor</c> — BOTH hosted kinds, not <c>HostedMultiTenant</c> alone</b>, because
-/// the configuration reaches both: <c>docker-compose.hosted.yml</c> <c>extends</c>
-/// <c>docker-compose.prod.yml</c>'s infrastructure and <c>deploy/postgres/Dockerfile</c> is shared, so the
-/// internal CA, <c>ssl=on</c> and the hostssl-only <c>pg_hba.conf</c> land on <c>CloudBrowser</c> too. A check
-/// gated one kind narrower than its own configuration means a CloudBrowser deployment whose connection string
-/// was missed fails at the <i>first query</i> instead of at startup — transit failing open. Transit is
-/// therefore the fifth of this feature's global changes. <c>SelfHostedLan</c> is untouched: it serves its own
+/// <para>⚠️ <b>Gated on <c>!SelfHostsFrontDoor</c>, deliberately, and not on <c>HostedMultiTenant</c>.</b> The
+/// two are the same set today — <c>CloudBrowser</c> was the other hosted kind and is retired — but the gate
+/// states the reason rather than the roster: what this check needs is a deployment whose PostgreSQL it reaches
+/// over a network it does not own, and that is what <c>SelfHostsFrontDoor</c> answers. It was written this way
+/// after a narrower gate let a hosted deployment whose connection string was missed fail at the <i>first
+/// query</i> instead of at startup — transit failing open — and naming the kind now would re-introduce exactly
+/// that coupling for whatever hosted kind comes next. <c>SelfHostedLan</c> is untouched: it serves its own
 /// in-process front door and reaches PostgreSQL on the same machine.</para>
 ///
 /// <para>⚠️ <b>Every problem is reported, not the first.</b> An operator restarting a container once per

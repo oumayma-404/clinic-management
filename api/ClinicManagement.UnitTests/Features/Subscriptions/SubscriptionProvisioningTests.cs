@@ -114,7 +114,6 @@ public class SubscriptionProvisioningTests
     [Theory]
     [InlineData(DeploymentKind.HostedMultiTenant, true)]
     [InlineData(DeploymentKind.SelfHostedLan, false)]
-    [InlineData(DeploymentKind.CloudBrowser, false)]
     public void Enforcement_Follows_The_Deployment_Kind(DeploymentKind kind, bool expected)
     {
         var policy = new SubscriptionPolicy(DeploymentProfile.For(kind), Configuration());

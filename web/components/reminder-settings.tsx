@@ -24,7 +24,6 @@ import {
   RefreshCw,
   Mail,
 } from "lucide-react"
-import { useSession } from "@/lib/auth/session"
 import {
   useWhatsAppEmbeddedSignup,
   type EmbeddedSignupOutcome,
@@ -94,9 +93,7 @@ export function ReminderSettings() {
   const [deliveryLoading, setDeliveryLoading] = useState(true)
   const [deliveryError, setDeliveryError] = useState<string | null>(null)
 
-  // WhatsApp Embedded-Signup connection (Cloud only).
-  const { mode } = useSession()
-  const isCloud = mode === "cloud"
+  // WhatsApp Embedded-Signup connection — vendor-provisioned only; see the note in the JSX below.
   const [waStatus, setWaStatus] = useState<WhatsAppConnectionStatus>("NotConnected")
   const [waConnectedNumber, setWaConnectedNumber] = useState<string | null>(null)
   const [waLastError, setWaLastError] = useState<string | null>(null)
@@ -233,7 +230,7 @@ export function ReminderSettings() {
   }
 
   const embeddedSignup = useWhatsAppEmbeddedSignup({
-    enabled: isCloud || vendorManagedWhatsApp,
+    enabled: vendorManagedWhatsApp,
     onOutcome: (outcome) => void finishConnect(outcome),
   })
 
@@ -490,82 +487,13 @@ export function ReminderSettings() {
                 {readinessBadge(whatsAppEnabled, whatsAppEffectiveStatus)}
               </div>
 
-              {isCloud && !vendorManagedWhatsApp && (
-                <div className="space-y-2 rounded-lg border border-success/25 bg-success-wash/40 p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium">Connexion (Embedded Signup)</span>
-                    {waStatus === "Connected" && whatsAppEffectiveStatus === "configured" ? (
-                      <Badge variant="secondary" className="text-2xs gap-1">
-                        <CheckCircle2 className="w-3 h-3 text-success" /> Connecté
-                      </Badge>
-                    ) : waStatus === "Connected" ? (
-                      // AC-2: OAuth is done but the resolved settings still can't send — warn instead of green.
-                      <Badge variant="outline" className="text-2xs gap-1 text-warning-ink border-warning/40">
-                        <AlertTriangle className="w-3 h-3" /> Connexion incomplète
-                      </Badge>
-                    ) : waStatus === "Error" ? (
-                      <Badge variant="outline" className="text-2xs gap-1 text-destructive border-destructive/40">
-                        <AlertCircle className="w-3 h-3" /> Erreur
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-2xs">
-                        Non connecté
-                      </Badge>
-                    )}
-                  </div>
-
-                  {waStatus === "Connected" ? (
-                    <>
-                      <p className="text-xs text-muted-foreground">
-                        Numéro connecté : <span className="font-mono">{maskId(waConnectedNumber)}</span>
-                      </p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleDisconnect}
-                        disabled={waBusy}
-                        className="h-8 text-xs"
-                      >
-                        {waBusy ? (
-                          <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-                        ) : (
-                          <Unlink className="w-3.5 h-3.5 mr-1" />
-                        )}
-                        Déconnecter
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-xs text-muted-foreground">
-                        Connectez le compte WhatsApp Business de la clinique en un clic via Meta.
-                      </p>
-                      {waLastError && <p className="text-xs text-destructive">{waLastError}</p>}
-                      <Button
-                        size="sm"
-                        onClick={handleConnect}
-                        disabled={waBusy || !embeddedSignup.sdkReady}
-                        /*
-                          The default (primary) fill, not `bg-green-600`. There is no solid-success token to
-                          convert to: `--success` is an ink for `--success-wash`, and white type on it at the
-                          dark-mode step (L 0.70) lands near 2.6:1. The panel around this button already
-                          carries the green wash, so the WhatsApp association is not lost.
-                        */
-                        className="h-8 text-xs"
-                      >
-                        {waBusy ? (
-                          <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-                        ) : (
-                          <Link2 className="w-3.5 h-3.5 mr-1" />
-                        )}
-                        Connecter WhatsApp
-                      </Button>
-                    </>
-                  )}
-                  <p className="text-2xs text-muted-foreground">
-                    Les champs ci-dessous restent disponibles comme méthode manuelle avancée.
-                  </p>
-                </div>
-              )}
+              {/* ⚠️ The manual « Connexion (Embedded Signup) » panel that stood here is gone with the Auth0
+                  deployment kind. It was gated on `mode === "cloud"`, which had ALREADY been false on every
+                  shipped deployment — both compose files set AUTH_MODE=local — so it was dead UI before this
+                  change rather than because of it. Neither remaining profile wants it: SelfHostedLan answers
+                  `ExposesMetaOnboarding` false and 404s the two endpoints, and on HostedMultiTenant the vendor
+                  owns the connection through `whatsapp-connect-card` on « Rappels ». The manual credential
+                  fields below remain the advanced path. */}
 
               <div className="space-y-1">
                 {/* Same fix as the SMS channel above. */}

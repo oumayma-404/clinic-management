@@ -55,7 +55,6 @@ public class MaintenanceDatabaseTests
     [Theory]
     [InlineData(nameof(DeploymentKind.SelfHostedLan))]
     [InlineData(nameof(DeploymentKind.HostedMultiTenant))]
-    [InlineData(nameof(DeploymentKind.CloudBrowser))]
     public void The_answer_does_not_depend_on_the_deployment_profile(string profile)
     {
         // The point of M3. Before it, HostedMultiTenant refused — taking the product's only schema gate away from

@@ -1,7 +1,5 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { auth0 } from './lib/auth0';
-import { resolveAuthMode } from './lib/auth/local-auth';
 import { readSessionCookie, readMustChangeCookie } from './lib/auth/session-cookie';
 
 // ⚠️ Matched by EXACT path (`includes`), so a route with a child needs both entries — `/signup/verifier` is
@@ -35,59 +33,33 @@ function frontDoorRedirect(request: NextRequest, location: string) {
   return NextResponse.redirect(new URL(location, `${proto}://${host}`));
 }
 
-// Dual-mode middleware: Local (offline cookie session) or Cloud (Auth0), by AUTH_MODE.
+// The route gate: an offline-capable cookie session, the only kind this product has since the Auth0-backed
+// deployment was retired. AUTH_MODE is no longer branched on here — there is one mode.
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // ---- Local (offline) mode: gate on the session cookie, redirect to /login ----
-  if (resolveAuthMode() === 'local') {
-    if (
-      pathname.startsWith('/_next/') ||
-      pathname.startsWith('/bff/auth/') ||
-      PUBLIC_ROUTES.includes(pathname)
-    ) {
-      return NextResponse.next();
-    }
-
-    const token = readSessionCookie((name) => request.cookies.get(name)?.value);
-    if (!token) {
-      return frontDoorRedirect(request, `/login?returnTo=${encodeURIComponent(pathname)}`);
-    }
-
-    // AC-5.2: a user whose password was reset must change it before using the app. While the
-    // flag cookie is set, force them onto /change-password (the route clears it on success).
-    const mustChange = readMustChangeCookie((name) => request.cookies.get(name)?.value) === '1';
-    if (mustChange && pathname !== CHANGE_PASSWORD_ROUTE) {
-      return frontDoorRedirect(request, CHANGE_PASSWORD_ROUTE);
-    }
-
+  // Gate on the session cookie, redirect to /login.
+  if (
+    pathname.startsWith('/_next/') ||
+    pathname.startsWith('/bff/auth/') ||
+    PUBLIC_ROUTES.includes(pathname)
+  ) {
     return NextResponse.next();
   }
 
-  // ---- Cloud (Auth0) mode: unchanged ----
-  // Let Auth0 handle auth routes (/auth/*)
-  if (pathname.startsWith('/auth/')) {
-    return await auth0.middleware(request);
+  const token = readSessionCookie((name) => request.cookies.get(name)?.value);
+  if (!token) {
+    return frontDoorRedirect(request, `/login?returnTo=${encodeURIComponent(pathname)}`);
   }
 
-  // Allow public routes (setup and join don't require clinic membership)
-  if (PUBLIC_ROUTES.includes(pathname) || pathname.startsWith('/_next/') || pathname.startsWith('/bff/auth/')) {
-    return NextResponse.next();
+  // AC-5.2: a user whose password was reset must change it before using the app. While the
+  // flag cookie is set, force them onto /change-password (the route clears it on success).
+  const mustChange = readMustChangeCookie((name) => request.cookies.get(name)?.value) === '1';
+  if (mustChange && pathname !== CHANGE_PASSWORD_ROUTE) {
+    return frontDoorRedirect(request, CHANGE_PASSWORD_ROUTE);
   }
 
-  // Check if user is authenticated
-  const session = await auth0.getSession(request);
-
-  // If not authenticated, redirect to login
-  if (!session) {
-    const loginUrl = new URL('/auth/login', request.url);
-    loginUrl.searchParams.set('returnTo', pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  // User is authenticated, continue
-  // Note: Clinic membership check is done client-side via ClinicGuard component
-  // This ensures better UX and allows setup/join pages to work
+  // Clinic membership is checked client-side by <ClinicGuard>, which is what lets /setup and /join work.
   return NextResponse.next();
 }
 

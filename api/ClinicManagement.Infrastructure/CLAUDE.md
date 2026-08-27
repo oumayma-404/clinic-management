@@ -5,7 +5,7 @@ Infrastructure layer (Clean Architecture). Implements the outbound interfaces de
 multi-tenant query filters, repository implementations, mode-branched file storage (MinIO vs local disk),
 per-clinic Google Calendar two-way sync, SMS/WhatsApp reminders
 (+ per-clinic settings, encrypted secrets), CNAM BS1 bulletin + French PDF
-rendering, Auth0 management (Cloud) / local JWT auth (Local), and — for offline installs — `pg_dump` backup,
+rendering, local JWT auth (every deployment — Auth0 management is retired with the `CloudBrowser` profile), and — for offline installs — `pg_dump` backup,
 self-generated HTTPS trust material, and per-clinic reference-catalog seeding. All wiring lives in
 `Extensions.cs` (`AddInfrastructure`).
 
@@ -36,13 +36,13 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
 >
 > Behavior is gated by the resolved **deployment profile**, not by an auth-mode boolean:
 > `Deployment/DeploymentProfile.Resolve(config)` → `SelfHostedLan` (offline LAN, self-issued JWT, local-disk
-> storage) | `HostedMultiTenant` | `CloudBrowser` (Auth0, MinIO), each exposing **a capability per question**
+> storage) | `HostedMultiTenant` (MinIO), each exposing **a capability per question**
 > (`UsesLocalAccounts`, `UsesDiskStorage`, `RunsAsWindowsService`, `SelfSignsCertificate`,
 > **`AllowsSelfRegistration`**, …). ⚠️ That last one (US-3) is the only capability where `HostedMultiTenant`
 > parts company with `SelfHostedLan` while sharing its login provider — which is precisely why joining by clinic
 > code could not stay gated on `UsesLocalAccounts`. `Deployment:Profile`
-> names it; **absent, it derives from `Auth:Mode`** exactly as the old boolean did (`Local` → `SelfHostedLan`, else
-> `CloudBrowser`), so existing installs need no config edit. ⚠️ `LocalAuthConfig.IsLocalMode` survives only as that
+> names it; **absent, it derives `SelfHostedLan` from `Auth:Mode=Local`** — and **throws** for anything else, the
+> `CloudBrowser` it used to name having been retired with Auth0. ⚠️ `LocalAuthConfig.IsLocalMode` survives only as that
 > derivation — a branch anywhere else asking it fails `DeploymentProfileCoverageTests`.
 
 ## EF Core Persistence (`Persistence/`)
@@ -582,8 +582,6 @@ no consent flag and no audit of which patient was sent.
   fails fast if no OS font found.
 
 ### Auth
-- **`Auth0ManagementService`** (`IAuth0ManagementService`, Cloud) — sets user `app_metadata` (`clinic_id`,
-  `role`) via the Auth0 Management API; failures logged + swallowed.
 - **`Auth/LocalAuthService`** (`ILocalAuthService`, Local) — PBKDF2 hash/verify via `PasswordHasher<User>`; HS256
   JWT issuance (claims `sub`/`clinic_id`/`role`/`jti` + optional `email`/`name`, 12h default); CSPRNG
   temp-password (unambiguous 12-char alphabet).
@@ -591,7 +589,6 @@ no consent flag and no audit of which patient was sent.
   `Auth:Local:SigningKey` (≥256-bit) else a generated 512-bit key persisted to `.local/signing-key`
   (`Auth:Local:SigningKeyPath` override); cached. `IsLocalMode(config)`. Same path used by issuer and the
   `Program.cs` validator so they can't drift.
-- **`Auth/NoOpAuth0ManagementService`** (Local) — no-op `IAuth0ManagementService`.
 
 ### LAN hosting / install helpers (root namespace)
 Static, unit-testable (referenced from API `Program.cs`/controllers; in the root namespace so `UnitTests` can
@@ -687,8 +684,7 @@ ubuntu runner, where `Harden` itself short-circuits.
 - **`IFileStorage` (scoped), mode-branched**: Local → `LocalDiskFileStorage` (base path via
   `LocalInstallPaths.Resolve(FileStorage:BasePath ?? "Files")`); Cloud → `MinioFileStorage` if `MinIO:*` present
   (with a singleton `IMinioClient`), else a stub that throws on use.
-- **Auth-mode-branched**: Local → `ILocalAuthService`/`LocalAuthService` + `IAuth0ManagementService`/`NoOp…`;
-  Cloud → real `Auth0ManagementService`. (`ILocalAuthService` is registered in both modes.)
+- **`ILocalAuthService`/`LocalAuthService`**, registered unconditionally. ⚠️ The `IAuth0ManagementService` pair that used to sit beside it — the real client and its no-op twin — is **deleted**: with Auth0 retired the only implementation left was the no-op, and its three call sites were best-effort `try/catch` blocks pushing metadata nowhere.
 - **Data Protection** — `AddDataProtection().SetApplicationName("ClinicManagement")`, key ring persisted to a
   mode-resolved dir (Local → `.local/dataprotection-keys`, DPAPI machine-scoped on Windows; Cloud →
   `DataProtection:KeyRingPath` if set, else framework default) + `IReminderSecretProtector` (**Singleton**).
@@ -723,9 +719,8 @@ price feeds the one screen an expired cabinet opens. Anything unreadable, absent
 config file is not localised, and on an fr-TN host `"120.5"` would otherwise read as 1205. No secret-bearing key.
 `ConnectionStrings:DefaultConnection`; `FileStorage:BasePath`; `MinIO:{Endpoint,AccessKey,SecretKey,BucketName,
 UseSSL}`; `GoogleCalendar:{ClientId,ClientSecret}` (per-clinic refresh token/calendar id live on `Clinic`);
-`Auth0:{Domain,ManagementApi:ClientId,ManagementApi:ClientSecret}`;
-**`Deployment:Profile`** (`SelfHostedLan`|`HostedMultiTenant`|`CloudBrowser`; absent ⇒ derived from `Auth:Mode`, an
-unrecognised value **fails startup loud**); `Auth:Mode` (`Cloud`|`Local`);
+**`Deployment:Profile`** (`SelfHostedLan`|`HostedMultiTenant`; absent ⇒ `SelfHostedLan` from `Auth:Mode=Local`,
+anything else **fails startup loud**); `Auth:Mode` (`Local` — one value since Auth0 was retired);
 `Auth:Local:{SigningKey,SigningKeyPath,Issuer,Audience,TokenLifetimeMinutes}`
 (all optional; key else generated `.local/signing-key`); `Connectivity:{ProbeUrl,ProbeTimeoutSeconds,
 ProbeCacheSeconds}`; `Cors:AllowedOrigins` (Local); `Reminders:{Channels,LeadTimesHours,MinLeadHours,MaxRetries,

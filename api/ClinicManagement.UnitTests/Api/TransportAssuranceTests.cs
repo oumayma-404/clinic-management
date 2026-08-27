@@ -47,7 +47,6 @@ public class TransportAssuranceTests
     // CloudBrowser too. A check one kind narrower than its own configuration lets transit fail open there.
     [Theory]
     [InlineData(DeploymentKind.HostedMultiTenant)]
-    [InlineData(DeploymentKind.CloudBrowser)]
     public void It_Applies_To_Every_Hosted_Kind(DeploymentKind kind)
     {
         var result = Inspect(DeploymentProfile.For(kind), new Dictionary<string, string?>());
@@ -58,7 +57,6 @@ public class TransportAssuranceTests
 
     [Theory]
     [InlineData(DeploymentKind.HostedMultiTenant)]
-    [InlineData(DeploymentKind.CloudBrowser)]
     public void A_Fully_Configured_Deployment_Starts(DeploymentKind kind)
     {
         var result = Inspect(DeploymentProfile.For(kind), Configured());

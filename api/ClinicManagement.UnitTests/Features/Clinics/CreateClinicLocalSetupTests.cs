@@ -32,7 +32,6 @@ public class CreateClinicLocalSetupTests
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IDoctorRepository> _doctors = new();
     private readonly Mock<IClinicContext> _clinicContext = new();
-    private readonly Mock<IAuth0ManagementService> _auth0 = new();
     private readonly Mock<IFileStorage> _fileStorage = new();
     private readonly Mock<ILocalAuthService> _localAuth = new();
     private readonly Mock<IClinicCatalogSeeder> _catalogSeeder = new();
@@ -47,7 +46,7 @@ public class CreateClinicLocalSetupTests
 
     private CreateClinicCommandHandler Handler() => new(
         _clinics.Object, _procedureTypes.Object, _users.Object, _doctors.Object, _clinicContext.Object,
-        _auth0.Object, _fileStorage.Object, _localAuth.Object, _catalogSeeder.Object, _subscriptions.Object,
+        _fileStorage.Object, _localAuth.Object, _catalogSeeder.Object, _subscriptions.Object,
         _subscriptionPolicy.Object, _messagingAllowances.Object, _messagingPolicy.Object, _uow.Object,
         NullLogger<CreateClinicCommandHandler>.Instance);
 
@@ -102,8 +101,6 @@ public class CreateClinicLocalSetupTests
         Assert.StartsWith("local|", _capturedUser.Id);
         _localAuth.Verify(a => a.HashPassword(ValidPassword), Times.Once);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
-        // First-run must not touch Auth0 (no-op in Local mode anyway).
-        _auth0.Verify(a => a.UpdateUserMetadataAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // [AC-1.2a] Setup is closed once an admin already exists.

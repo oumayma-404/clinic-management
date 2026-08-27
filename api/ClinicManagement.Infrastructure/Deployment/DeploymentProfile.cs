@@ -5,7 +5,7 @@ using Microsoft.Extensions.Configuration;
 namespace ClinicManagement.Infrastructure.Deployment;
 
 /// <summary>
-/// The three topologies this product can be deployed as. Two questions distinguish them — where the front door
+/// The two topologies this product can be deployed as. Two questions distinguish them — where the front door
 /// and the data live, and who issues the tokens — and every other difference follows from those.
 /// </summary>
 public enum DeploymentKind
@@ -14,10 +14,18 @@ public enum DeploymentKind
     SelfHostedLan,
 
     /// <summary>One hosted backend serving many clinics, each running the desktop client, on the product's own accounts.</summary>
-    HostedMultiTenant,
+    HostedMultiTenant
 
-    /// <summary>One hosted backend reached by a browser, with Auth0 as the identity provider.</summary>
-    CloudBrowser
+    // ⚠️ There was a third kind, `CloudBrowser` — one hosted backend reached by a browser with Auth0 as the
+    // identity provider — and it is **retired**, not merely unused. The product ships on its own accounts in both
+    // remaining topologies, so an identity provider we neither own nor bill for had no deployment left to serve,
+    // and every capability below had to keep answering for it: a third column in the matrix that no operator
+    // could ever select. Auth0 went with it — the package, the providers, the management API and its no-op twin.
+    //
+    // What that leaves behind on purpose: `User.Auth0Sub` keeps its name. It is the *token subject*, written and
+    // read by the local login path on every authenticated request, so the name is a legacy of where the column
+    // came from and not a live dependency. Renaming it is 95 files and a column migration, which is a separate
+    // decision from retiring a deployment kind.
 }
 
 /// <summary>
@@ -144,12 +152,10 @@ public sealed class DeploymentProfile
     /// A visitor may create their own clinic and admin account from the public internet
     /// (<c>POST /api/auth/signup</c> + <c>/signup/verify</c>), with no operator action at all.
     ///
-    /// <para><b>True only for <see cref="DeploymentKind.HostedMultiTenant"/></b>, and each of the other two is a
-    /// ✗ for its own reason rather than by default. <see cref="DeploymentKind.SelfHostedLan"/> serves <b>one</b>
-    /// clinic from a PC in that clinic's own surgery: a second clinic on it is not a topology, and first-run
-    /// <c>setup</c> — loopback-gated, once — is how the one clinic gets created.
-    /// <see cref="DeploymentKind.CloudBrowser"/> is multi-clinic but Auth0 owns its identities, so a signup here
-    /// would mint a password-backed local account its login path cannot authenticate.</para>
+    /// <para><b>True only for <see cref="DeploymentKind.HostedMultiTenant"/></b>, and the ✗ is its own reason
+    /// rather than a default. <see cref="DeploymentKind.SelfHostedLan"/> serves <b>one</b> clinic from a PC in
+    /// that clinic's own surgery: a second clinic on it is not a topology, and first-run <c>setup</c> —
+    /// loopback-gated, once — is how the one clinic gets created.</para>
     ///
     /// <para>⚠️ <b>This does not reopen what US-3 closed, and it is not
     /// <see cref="AllowsSelfRegistration"/>.</b> That capability is about <i>joining an existing clinic</i> with
@@ -165,10 +171,8 @@ public sealed class DeploymentProfile
     /// A person who has forgotten their password may replace it themselves, behind a single-use token mailed to
     /// the address their account is registered under (<c>POST /api/auth/password-reset</c> + <c>/complete</c>).
     ///
-    /// <para><b>True only for <see cref="DeploymentKind.HostedMultiTenant"/></b>, and each ✗ is its own reason.
-    /// <see cref="DeploymentKind.CloudBrowser"/> does not own its identities at all — Auth0's own reset flow is
-    /// the answer there, and a local token would replace a <c>PasswordHash</c> that profile's login path never
-    /// reads. <see cref="DeploymentKind.SelfHostedLan"/> is the interesting ✗: it owns its accounts, but it is a
+    /// <para><b>True only for <see cref="DeploymentKind.HostedMultiTenant"/></b>, and the ✗ is an interesting
+    /// one: <see cref="DeploymentKind.SelfHostedLan"/> owns its accounts, but it is a
     /// PC in a surgery with no SMTP credentials and frequently no internet at all, so the capability would be
     /// present-and-broken — a « Mot de passe oublié ? » link that always answers « impossible d'envoyer
     /// l'e-mail ». There the ways back are an administrator's reset and <c>reset-admin-password</c> on the machine
@@ -192,11 +196,9 @@ public sealed class DeploymentProfile
     /// The vendor's private back-office exists on this deployment — a second identity population, a second Kestrel
     /// listener and exactly one cross-cabinet read (<c>platform-console</c> FR-2).
     ///
-    /// <para><b>True for <see cref="DeploymentKind.HostedMultiTenant"/> alone</b>, and each ✗ is its own reason
+    /// <para><b>True for <see cref="DeploymentKind.HostedMultiTenant"/> alone</b>, and the ✗ is its own reason
     /// rather than a default. <see cref="DeploymentKind.SelfHostedLan"/> serves <b>one</b> cabinet from a PC in that
-    /// cabinet's own surgery: there is no portfolio to run, and the vendor is not on that network.
-    /// <see cref="DeploymentKind.CloudBrowser"/> is multi-clinic, but Auth0 owns its identities and its clinics are
-    /// not on the subscription arrangement this console administers.</para>
+    /// cabinet's own surgery: there is no portfolio to run, and the vendor is not on that network.</para>
     ///
     /// <para>⚠️ <b>This decides whether the console <i>may</i> exist; <c>Console:Port</c> decides whether it is
     /// bound.</b> Off means <b>absent</b> — no listener, no reachable route, 404 — never present-and-refusing
@@ -211,8 +213,7 @@ public sealed class DeploymentProfile
     ///
     /// <para><b>True only for <see cref="DeploymentKind.HostedMultiTenant"/></b> — the one topology we host, bill
     /// and can be owed money for. On <see cref="DeploymentKind.SelfHostedLan"/> the data is on the clinic's own PC
-    /// and refusing writes would hold their patient records hostage on hardware we do not own;
-    /// <see cref="DeploymentKind.CloudBrowser"/> predates this arrangement and its clinics are not on it.</para>
+    /// and refusing writes would hold their patient records hostage on hardware we do not own.</para>
     ///
     /// <para>⚠️ <b>Decided by the kind and by nothing an operator can set</b> (AC-7.3), which is why it is a
     /// capability here rather than a <c>Subscription:Enabled</c> key. <c>TrialDays</c> and the prices <i>are</i>
@@ -221,7 +222,7 @@ public sealed class DeploymentProfile
     /// <c>httpsConfigured</c> trap the class note above says every capability here avoids.</para>
     ///
     /// <para>Where this is false the entitlement still <i>exists</i> — created <b>open-ended</b>, so FR-13's « no
-    /// cabinet without one » holds in all three topologies while nothing can ever expire in two of them.</para>
+    /// cabinet without one » holds in both topologies while nothing can ever expire in one of them.</para>
     /// </summary>
     public bool RequiresSubscription { get; }
 
@@ -261,12 +262,10 @@ public sealed class DeploymentProfile
     /// The <b>vendor</b> buys this deployment's WhatsApp messaging capacity centrally and allocates each cabinet a
     /// monthly allowance of reminder messages (<c>vendor-whatsapp-messaging-quota</c> FR-9).
     ///
-    /// <para><b>True only for <see cref="DeploymentKind.HostedMultiTenant"/></b>, and each ✗ is its own reason
+    /// <para><b>True only for <see cref="DeploymentKind.HostedMultiTenant"/></b>, and the ✗ is its own reason
     /// rather than a default. On <see cref="DeploymentKind.SelfHostedLan"/> the practice owns the machine, the
     /// Meta account and the bill: metering somebody else's WhatsApp spend from their own PC is not a service, and
-    /// there is no vendor credit line behind it to meter.
-    /// <see cref="DeploymentKind.CloudBrowser"/> predates the arrangement, and its clinics supply their own
-    /// WhatsApp credentials through the manual fields this feature closes.</para>
+    /// there is no vendor credit line behind it to meter.</para>
     ///
     /// <para>⚠️ <b>Derived from the kind and from nothing an operator can set</b> (FR-9), like every capability
     /// here. Whether the deployment's own <b>Meta credentials</b> are present is a separate question with a
@@ -294,11 +293,6 @@ public sealed class DeploymentProfile
     /// second administrator, or the vendor running a console verb — and on a single-dentist LAN install neither
     /// exists. AC-7 (« no practice is ever locked out of its own records by a control introduced here ») is
     /// therefore unsatisfiable there, which is what decides it.</para>
-    ///
-    /// <para><b><see cref="DeploymentKind.CloudBrowser"/> ✗ — Auth0 owns those identities.</b> The password is
-    /// not ours to gate and the second factor belongs in the identity provider's own policy, where that tenant
-    /// already configures it. Enforcing one here would be a second, weaker factor bolted onto a login this
-    /// product does not perform.</para>
     ///
     /// <para>⚠️ <b>This is the requirement, not the capability to enrol.</b> A doctor or secretary on any
     /// deployment may enrol voluntarily from « Sécurité » — that surface is unconditional. What this decides is
@@ -329,19 +323,23 @@ public sealed class DeploymentProfile
     {
         DeploymentKind.SelfHostedLan => false,
         DeploymentKind.HostedMultiTenant => true,
-        DeploymentKind.CloudBrowser => true,
         _ => throw new ArgumentOutOfRangeException(nameof(platform), Kind, "Unhandled deployment kind.")
     };
 
     /// <summary>
     /// Resolves the profile from configuration.
     ///
-    /// <para><c>Deployment:Profile</c> names it explicitly. When the key is <b>absent</b> the profile is derived
-    /// from <c>Auth:Mode</c> exactly as the old boolean was (<c>Local</c> → <see cref="DeploymentKind.SelfHostedLan"/>,
-    /// anything else → <see cref="DeploymentKind.CloudBrowser"/>), so every existing install and all seven console
-    /// verbs keep working with no config edit. A value that is present but unrecognised <b>throws</b>: falling back
-    /// would hand a hosted deployment Auth0 login and no local accounts, silently, which is the failure this key
-    /// exists to make impossible.</para>
+    /// <para><c>Deployment:Profile</c> names it explicitly, and <see cref="DeploymentKind.HostedMultiTenant"/>
+    /// always must — <c>deploy/docker-compose.hosted.yml</c> sets it. When the key is <b>absent</b> the profile
+    /// falls back to <see cref="DeploymentKind.SelfHostedLan"/>, but <b>only for <c>Auth:Mode = Local</c></b>,
+    /// which is what a clinic's own PC has always run.</para>
+    ///
+    /// <para>⚠️ <b>Any other <c>Auth:Mode</c> with no profile named now throws</b>, where it used to resolve to
+    /// <c>CloudBrowser</c>. That kind is retired, so the old fallback has no answer left — and inventing one
+    /// would be the exact failure this key exists to prevent: the two surviving profiles disagree about local
+    /// accounts, storage, the authorization fallback, subscriptions and the second factor, so guessing between
+    /// them is not a default, it is a coin flip over a clinic's records. An operator who reaches this message is
+    /// carrying a config written for a deployment kind that no longer exists, and the message says so.</para>
     /// </summary>
     public static DeploymentProfile Resolve(IConfiguration configuration)
     {
@@ -349,9 +347,16 @@ public sealed class DeploymentProfile
 
         if (string.IsNullOrWhiteSpace(configured))
         {
-            return For(LocalAuthConfig.IsLocalMode(configuration)
-                ? DeploymentKind.SelfHostedLan
-                : DeploymentKind.CloudBrowser);
+            if (LocalAuthConfig.IsLocalMode(configuration))
+            {
+                return For(DeploymentKind.SelfHostedLan);
+            }
+
+            throw new InvalidOperationException(
+                $"{ProfileKey} is not set and Auth:Mode is not 'Local', which used to resolve to the retired "
+                + "CloudBrowser (Auth0) profile. Auth0 is no longer part of this product. Set "
+                + $"{ProfileKey} to one of: " + string.Join(", ", Enum.GetNames<DeploymentKind>())
+                + " — or set Auth:Mode=Local for a clinic's own LAN install.");
         }
 
         if (!Enum.TryParse<DeploymentKind>(configured.Trim(), ignoreCase: true, out var kind))
@@ -359,7 +364,7 @@ public sealed class DeploymentProfile
             throw new InvalidOperationException(
                 $"{ProfileKey} = '{configured}' is not a known deployment profile. Use one of: "
                 + string.Join(", ", Enum.GetNames<DeploymentKind>())
-                + $". Remove the key to derive the profile from Auth:Mode as before.");
+                + ". (CloudBrowser was retired along with Auth0.)");
         }
 
         return For(kind);
@@ -450,43 +455,6 @@ public sealed class DeploymentProfile
             // Reached over the internet, holding every cabinet's records, with a vendor on call: the one
             // topology where a stolen admin password is the whole attack and a way back genuinely exists.
             requiresAdminSecondFactor: true),
-
-        DeploymentKind.CloudBrowser => new DeploymentProfile(
-            kind,
-            usesLocalAccounts: false,
-            failClosedAuthz: false,
-            enforcesTokenState: false,
-            usesDiskStorage: false,
-            selfHostsFrontDoor: false,
-            selfSignsCertificate: false,
-            runsAsWindowsService: false,
-            defersMigrations: false,
-            runsStartupBackfills: true,
-            exposesTrustEndpoints: false,
-            hasLocalDbTooling: false,
-            exposesMetaOnboarding: true,
-            allowsSelfRegistration: false,
-            // Multi-clinic, but Auth0 issues its identities: a signup here would mint a password-backed local
-            // account that this profile's login path cannot authenticate.
-            allowsPublicClinicSignup: false,
-            // Auth0 issues these identities and owns their reset flow. A local token here would replace a
-            // `PasswordHash` this profile's login path never reads — a reset that appears to succeed and changes
-            // nothing anybody can sign in with.
-            allowsPasswordResetByEmail: false,
-            // Multi-clinic, but Auth0 owns the identities and these clinics are not on the arrangement the
-            // console administers.
-            servesPlatformConsole: false,
-            // Predates the arrangement; its clinics are not on it.
-            requiresSubscription: false,
-            // Same hosted infrastructure and the same shared database as above: the sidecar backs it up, and an
-            // in-app dump would cross tenants.
-            backsUpItsOwnData: false,
-            // Predates the arrangement: these clinics supply their own WhatsApp credentials through the manual
-            // fields the feature closes on the kind above.
-            sellsVendorMessaging: false,
-            // Auth0 issues these identities and performs the login: a second factor belongs in that tenant's
-            // own policy, not bolted on here over a password this product never checks.
-            requiresAdminSecondFactor: false),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled deployment kind.")
     };

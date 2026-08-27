@@ -1,17 +1,21 @@
 # `deploy/` — hosted deployments, operator guide
 
-Two hosted topologies live here, sharing all their infrastructure and differing only in **who issues tokens**:
+**One** hosted topology lives here, over a shared infrastructure base:
 
-| File | Deployment profile | Login | Who it is for |
-|---|---|---|---|
-| `docker-compose.prod.yml` | `CloudBrowser` | Auth0 | one backend reached by a browser |
-| `docker-compose.hosted.yml` | **`HostedMultiTenant`** | the product's **own** accounts | **many clinics, one backend** — each clinic runs the Windows desktop client and reaches it over the internet |
+| File | What it is |
+|---|---|
+| `docker-compose.hosted.yml` | **`HostedMultiTenant`** — the deployment. The product's **own** accounts; many clinics, one backend, each clinic running the Windows desktop client and reaching it over the internet. **This is the file you bring up.** |
+| `docker-compose.prod.yml` | The shared **infrastructure base**: certs, postgres, minio, caddy, backup, pitr. Not runnable on its own. |
 
-`postgres`, `minio`, `caddy`, `backup` and `pitr` are defined **once**, in `docker-compose.prod.yml`, and the hosted
-file `extends` them — so a backup schedule or a WAL-G prefix has one home. Only `api` and `web` are written out
-twice, because only they differ.
+⚠️ `docker-compose.prod.yml` used to be a deployment in its own right — `CloudBrowser`, logging in through Auth0.
+That kind is **retired** with Auth0, and its `api`/`web` services are gone from the file. What remains is the
+infrastructure the hosted file `extends`, which is why the file is still here and must not be deleted.
 
-> The clinic's own Windows PC is a third topology (`SelfHostedLan`) and is **not** deployed from here — see
+`certs`, `postgres`, `minio`, `caddy`, `backup` and `pitr` are defined **once**, in `docker-compose.prod.yml`, and
+the hosted file `extends` them — so a backup schedule or a WAL-G prefix has one home. `api` and `web` are written
+only in the hosted file now.
+
+> The clinic's own Windows PC is the other topology (`SelfHostedLan`) and is **not** deployed from here — see
 > [`packaging/README.md`](../packaging/README.md).
 
 ---
@@ -50,9 +54,9 @@ every one of them fails **quietly** if wrong. Each is commented in place; in sho
 
 | Key | Omitting it |
 |---|---|
-| `Deployment__Profile=HostedMultiTenant` | the profile is derived from `Auth:Mode` → `CloudBrowser` → Auth0, and no `Auth0__*` is set, so **every request is anonymous-or-401** |
+| `Deployment__Profile=HostedMultiTenant` | **startup throws.** The fallback used to derive `CloudBrowser` from a non-`Local` `Auth:Mode`; that kind is retired, and the two survivors disagree about accounts, storage, subscriptions and the second factor — so guessing between them is refused rather than silently wrong |
 | `DataProtection__KeyRingPath=/keys` **+ the `dataprotection_keys` volume** | **startup fails loud** without the key (by design). With the key but **no volume** it works — until the first redeploy, after which every clinic's reminder credentials are undecryptable and each channel reports « non configuré » with nothing in any log tying that to a deployment |
-| `AUTH_MODE=local` (web) | the app expects Auth0 and there is **no way to log in at all** |
+| `AUTH_MODE=local` (web) | nothing, now — `resolveAuthMode()` returns `'local'` whatever the env says. Kept as a literal because it is still a **build** ARG (`/login` is statically prerendered) and because an env var that silently stopped mattering is worth stating rather than deleting |
 | `API_INTERNAL_URL=http://api:5000/api` (web) | login, refresh and change-password 500 — and only those, because only the BFF fetches server-side |
 | `AUTH_COOKIE_SECURE=true` (web) | Caddy speaks plain HTTP to the container, so the handler drops `Secure` from an **internet-facing** session cookie |
 
@@ -70,6 +74,64 @@ also covers what to do when each key is lost.
 volume. The migration order (`reprotect-secrets --rotate` → `verify-schema` reads zero → *only then* delete the
 old key files) is in KEY-CUSTODY.md § 1; doing it the other way round destroys every administrator's second
 factor at once.
+
+---
+
+## Courrier sortant (SMTP) — the go-live value with no guard behind it
+
+**Set this before you open the front door.** `Notification:Smtp:*` gates five flows, and every one of them
+fails at the moment somebody is locked out or trying to get in:
+
+| Flow | What happens with no SMTP host |
+|---|---|
+| `POST /api/auth/signup` (clinic self-signup) | a French refusal **before anything is written** — no cabinet can join |
+| `POST /api/auth/password-reset` | « mot de passe oublié » is a dead end; the only route back a person can take alone |
+| an administrator resetting a member of staff's password | the new password never reaches its owner |
+| `platform-account --reset-password` | the vendor cannot re-credential a locked-out account |
+| `platform-account --reset-second-factor` | the vendor cannot put a lost authenticator right |
+
+```
+SMTP_SERVER=smtp.example.tn      # submission relay; empty = every flow above refuses
+SMTP_PORT=587                    # STARTTLS submission. Port 25 egress is blocked by most hosts
+SMTP_USE_TLS=true
+SMTP_USERNAME=no-reply@example.tn
+SMTP_PASSWORD=…
+SMTP_FROM_ADDRESS=               # only when it differs from SMTP_USERNAME
+SMTP_FROM_NAME=
+```
+
+⚠️ **It shipped wired into nothing, and that is why this section exists.** `Notification:Smtp:Server` is an
+empty string in `appsettings.json` and appeared in **no** compose file and **no** `.env` template, so
+`SmtpConfig.Host` trimmed empty to null, `ITransactionalEmailSender.IsConfigured` read `false`, and a hosted
+deployment came up `Healthy`, served every screen, and could not admit one new cabinet — with nothing in any
+log tying that to a value nobody had ever been asked for.
+`TransportConfigurationTests.The_Hosted_Deployment_Wires_Outbound_Email` is the derived guard, and its
+sibling checks that every `Notification__Smtp__*` variable the compose file interpolates is actually named in
+`.env.hosted.example` — the quieter half of the same defect.
+
+⚠️ **Empty is honest; a placeholder is not.** Leave `SMTP_SERVER` blank until you have a mailbox: the screens
+then say « non configuré » and refuse cleanly. A `CHANGE_ME` hostname reads as *configured* and fails at
+connect time, which reaches the visitor as a **retryable** error over something that will never work.
+
+⚠️ **Nothing refuses to start over this** — unlike transit, residency, the audit chain key and the key ring.
+It is the one go-live value with no boot-time guard, which is the whole reason it is written down here.
+
+⚠️ **The link inside those emails comes from `FrontendUrl`** (`https://${DOMAIN}`, already set in
+`docker-compose.hosted.yml`), never from a key of its own — the same key the Google OAuth callback uses, so the
+two cannot point at different hosts. Both are asked *before* a signup is accepted: with the host unset every
+verification link would point at the **recipient's own machine**.
+
+⚠️ **`SMTP_PASSWORD` is a literal in the environment, unlike this deployment's other credentials**, and
+deliberately: a `*_FILE` secret naming a file that does not exist is a **startup refusal**, and Compose
+validates a secret's source the moment a service lists it — so wiring one unconditionally would take every
+deployment without email off the air on the next `up -d`. To move it into `./secrets/` once a mailbox exists,
+follow the four-step recipe in the compose file's own comment (add the `secrets:` entry → list it on `api` →
+set `Notification__Smtp__Password_FILE` → **then** drop the literal; the file wins over a literal of the same
+name, so every intermediate state is safe).
+
+> **Not on `SelfHostedLan`.** `AllowsPublicClinicSignup` and `AllowsPasswordResetByEmail` are both **false**
+> there — a surgery PC has no mailbox, its login screen offers no « mot de passe oublié », and
+> `reset-admin-password` on the console is that install's answer. See [`packaging/README.md`](../packaging/README.md).
 
 ---
 

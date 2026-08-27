@@ -31,58 +31,57 @@ public class DeploymentProfileTests
 
     /// <summary>
     /// The matrix, as data. Each entry is the capability's expected value per kind, in the order
-    /// <c>SelfHostedLan</c>, <c>HostedMultiTenant</c>, <c>CloudBrowser</c>.
+    /// <c>SelfHostedLan</c>, <c>HostedMultiTenant</c>.
     /// </summary>
-    private static readonly Dictionary<string, (bool SelfHostedLan, bool HostedMultiTenant, bool CloudBrowser)>
+    private static readonly Dictionary<string, (bool SelfHostedLan, bool HostedMultiTenant)>
         ExpectedMatrix = new()
         {
-            [nameof(DeploymentProfile.UsesLocalAccounts)] = (true, true, false),
-            [nameof(DeploymentProfile.FailClosedAuthz)] = (true, true, false),
-            [nameof(DeploymentProfile.EnforcesTokenState)] = (true, true, false),
-            [nameof(DeploymentProfile.UsesDiskStorage)] = (true, false, false),
-            [nameof(DeploymentProfile.SelfHostsFrontDoor)] = (true, false, false),
-            [nameof(DeploymentProfile.SelfSignsCertificate)] = (true, false, false),
-            [nameof(DeploymentProfile.RunsAsWindowsService)] = (true, false, false),
-            [nameof(DeploymentProfile.DefersMigrations)] = (true, false, false),
-            [nameof(DeploymentProfile.RunsStartupBackfills)] = (false, true, true),
-            [nameof(DeploymentProfile.ExposesTrustEndpoints)] = (true, false, false),
-            [nameof(DeploymentProfile.HasLocalDbTooling)] = (true, false, false),
-            [nameof(DeploymentProfile.ExposesMetaOnboarding)] = (false, true, true),
+            [nameof(DeploymentProfile.UsesLocalAccounts)] = (true, true),
+            [nameof(DeploymentProfile.FailClosedAuthz)] = (true, true),
+            [nameof(DeploymentProfile.EnforcesTokenState)] = (true, true),
+            [nameof(DeploymentProfile.UsesDiskStorage)] = (true, false),
+            [nameof(DeploymentProfile.SelfHostsFrontDoor)] = (true, false),
+            [nameof(DeploymentProfile.SelfSignsCertificate)] = (true, false),
+            [nameof(DeploymentProfile.RunsAsWindowsService)] = (true, false),
+            [nameof(DeploymentProfile.DefersMigrations)] = (true, false),
+            [nameof(DeploymentProfile.RunsStartupBackfills)] = (false, true),
+            [nameof(DeploymentProfile.ExposesTrustEndpoints)] = (true, false),
+            [nameof(DeploymentProfile.HasLocalDbTooling)] = (true, false),
+            [nameof(DeploymentProfile.ExposesMetaOnboarding)] = (false, true),
             // US-3. ⚠️ The one capability where HostedMultiTenant parts company with SelfHostedLan while sharing
             // its login provider — so it is also the one the old `UsesLocalAccounts` guard on `register` got
             // wrong. R-2 still holds: the two shipped kinds answer exactly as IsLocalMode did.
-            [nameof(DeploymentProfile.AllowsSelfRegistration)] = (true, false, false),
+            [nameof(DeploymentProfile.AllowsSelfRegistration)] = (true, false),
             // US-4, added by the multi-tenant-cloud author in parallel with Part 6. The row is here because
             // `DeploymentProfile.cs` could not be staged without their capability (their addition and Part 6's
             // `PermitsOsPush` land in one diff hunk), and a capability with no row fails the drift guard below.
             // The three values are read off `For(kind)` itself, not chosen here.
             // clinic-self-signup. The first capability true of HostedMultiTenant ALONE, which is what forced the
             // `hostedOnlyCapabilities` set in the R-2 test below — see the comment there.
-            [nameof(DeploymentProfile.AllowsPublicClinicSignup)] = (false, true, false),
+            [nameof(DeploymentProfile.AllowsPublicClinicSignup)] = (false, true),
             // platform-console. The SECOND capability true of HostedMultiTenant alone, so it joins the
             // `hostedOnlyCapabilities` set below for the same reason AllowsPublicClinicSignup did.
-            [nameof(DeploymentProfile.ServesPlatformConsole)] = (false, true, false),
-            // Self-service password reset. Hosted-only, and each ✗ is its own reason rather than a default:
-            // CloudBrowser does not own its identities at all (Auth0's reset flow is the answer there), while
-            // SelfHostedLan owns them but is a surgery PC with no SMTP credentials — so the capability would be
-            // present-and-broken. It joins `hostedOnlyCapabilities` below for AllowsPublicClinicSignup's reason.
-            [nameof(DeploymentProfile.AllowsPasswordResetByEmail)] = (false, true, false),
+            [nameof(DeploymentProfile.ServesPlatformConsole)] = (false, true),
+            // Self-service password reset. Hosted-only: SelfHostedLan owns its accounts but is a surgery PC
+            // with no SMTP credentials, so the capability would be present-and-broken. It joins
+            // `hostedOnlyCapabilities` below for AllowsPublicClinicSignup's reason.
+            [nameof(DeploymentProfile.AllowsPasswordResetByEmail)] = (false, true),
             // clinic-subscription AC-7.1–7.3. The THIRD hosted-only capability: the two other kinds are ✗ for
             // their own reasons (the clinic's own disk; a topology that predates the arrangement), not by default.
-            [nameof(DeploymentProfile.RequiresSubscription)] = (false, true, false),
+            [nameof(DeploymentProfile.RequiresSubscription)] = (false, true),
             // Backup ownership. ⚠️ NOT a hosted-only capability and NOT inverted — it answers exactly as
             // `IsLocalMode` did, which is why it needs no entry in either set in the R-2 test below: the
             // application backs itself up on a clinic's own PC and nowhere else. Both ✗ are decisions with
             // reasons (an off-server sidecar already runs there, and one database holds every cabinet, so an
             // in-app `pg_dump` would be a cross-tenant read) — see the capability's own doc comment.
-            [nameof(DeploymentProfile.BacksUpItsOwnData)] = (true, false, false),
+            [nameof(DeploymentProfile.BacksUpItsOwnData)] = (true, false),
             // vendor-whatsapp-messaging-quota FR-9. The FOURTH hosted-only capability, so it joins the
             // `hostedOnlyCapabilities` set below for the same reason the three before it did.
-            [nameof(DeploymentProfile.SellsVendorMessaging)] = (false, true, false),
+            [nameof(DeploymentProfile.SellsVendorMessaging)] = (false, true),
             // hosted-security-hardening FR-1.1. The FIFTH hosted-only capability, so it joins the
             // `hostedOnlyCapabilities` set below. Both ✗ are decisions: a LAN admin locked out has nobody to
-            // call (AC-7 is unsatisfiable there), and Auth0 owns CloudBrowser's identities and its MFA policy.
-            [nameof(DeploymentProfile.RequiresAdminSecondFactor)] = (false, true, false)
+            // call (AC-7 is unsatisfiable there).
+            [nameof(DeploymentProfile.RequiresAdminSecondFactor)] = (false, true)
         };
 
     private static IEnumerable<PropertyInfo> Capabilities() =>
@@ -101,9 +100,17 @@ public class DeploymentProfileTests
     /// against the live boolean is the point: a table of expected values here would be a second copy of the
     /// answer and could agree with a mistake.
     /// </summary>
+    /// <remarks>
+    /// ⚠️ This was a <c>[Theory]</c> over <c>"Local"</c> and <c>"Cloud"</c> — the two kinds that predated
+    /// <c>HostedMultiTenant</c>. The Cloud half asserted that <c>CloudBrowser</c> answered every capability as
+    /// the old <c>IsLocalMode</c> boolean's negation, and it is gone because the kind is: with Auth0 retired,
+    /// <c>Auth:Mode = Cloud</c> no longer resolves to anything. What survives is the half that still has a
+    /// subject, kept rather than deleted because <c>LocalAuthConfig.IsLocalMode</c> is still the derivation an
+    /// absent <c>Deployment:Profile</c> uses, so « the LAN profile answers exactly as that boolean did » remains
+    /// a real statement about live code.
+    /// </remarks>
     [Theory]
     [InlineData("Local")]
-    [InlineData("Cloud")]
     public void Both_pre_existing_kinds_reproduce_the_old_IsLocalMode_truth_table(string authMode)
     {
         var configuration = Configuration(("Auth:Mode", authMode));
@@ -154,9 +161,6 @@ public class DeploymentProfileTests
     [Theory]
     [InlineData("Local", DeploymentKind.SelfHostedLan)]
     [InlineData("local", DeploymentKind.SelfHostedLan)]
-    [InlineData("Cloud", DeploymentKind.CloudBrowser)]
-    [InlineData("", DeploymentKind.CloudBrowser)]
-    [InlineData(null, DeploymentKind.CloudBrowser)]
     public void An_absent_profile_key_derives_the_kind_from_Auth_Mode(string? authMode, DeploymentKind expected)
     {
         var profile = DeploymentProfile.Resolve(Configuration(("Auth:Mode", authMode)));
@@ -164,12 +168,30 @@ public class DeploymentProfileTests
         Assert.Equal(expected, profile.Kind);
     }
 
+    /// <summary>
+    /// ⚠️ The other half of that derivation used to answer <c>CloudBrowser</c> — for <c>Auth:Mode = Cloud</c>,
+    /// for an empty value and for an absent one. That kind is retired with Auth0, so there is no longer a
+    /// second answer to fall back TO, and the two surviving profiles disagree about local accounts, storage,
+    /// the authorization fallback, subscriptions and the second factor. Guessing between them is not a default,
+    /// it is a coin flip over a clinic's records — so it throws, and the message says the kind is gone.
+    /// </summary>
+    [Theory]
+    [InlineData("Cloud")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void An_absent_profile_key_with_a_non_local_auth_mode_refuses_rather_than_guessing(string? authMode)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => DeploymentProfile.Resolve(Configuration(("Auth:Mode", authMode))));
+
+        Assert.Contains(DeploymentProfile.ProfileKey, ex.Message);
+    }
+
     // ---- The matrix, including the kind that is new ------------------------------------------------
 
     [Theory]
     [InlineData(DeploymentKind.SelfHostedLan)]
     [InlineData(DeploymentKind.HostedMultiTenant)]
-    [InlineData(DeploymentKind.CloudBrowser)]
     public void Each_kind_answers_every_capability_as_the_matrix_says(DeploymentKind kind)
     {
         var profile = DeploymentProfile.For(kind);
@@ -182,7 +204,6 @@ public class DeploymentProfileTests
             {
                 DeploymentKind.SelfHostedLan => expected.SelfHostedLan,
                 DeploymentKind.HostedMultiTenant => expected.HostedMultiTenant,
-                DeploymentKind.CloudBrowser => expected.CloudBrowser,
                 _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
             };
 
@@ -211,7 +232,6 @@ public class DeploymentProfileTests
     [InlineData("HostedMultiTenant", DeploymentKind.HostedMultiTenant)]
     [InlineData("hostedmultitenant", DeploymentKind.HostedMultiTenant)]
     [InlineData("  HostedMultiTenant  ", DeploymentKind.HostedMultiTenant)]
-    [InlineData("CloudBrowser", DeploymentKind.CloudBrowser)]
     public void An_explicit_profile_key_wins(string configured, DeploymentKind expected)
     {
         // Auth:Mode says the opposite on purpose: the explicit key is the authority once it is present.
@@ -253,8 +273,6 @@ public class DeploymentProfileTests
     [InlineData(DeploymentKind.SelfHostedLan, DevicePlatform.Ios, false)]
     [InlineData(DeploymentKind.HostedMultiTenant, DevicePlatform.Android, true)]
     [InlineData(DeploymentKind.HostedMultiTenant, DevicePlatform.Ios, true)]
-    [InlineData(DeploymentKind.CloudBrowser, DevicePlatform.Android, true)]
-    [InlineData(DeploymentKind.CloudBrowser, DevicePlatform.Ios, true)]
     public void Each_kind_answers_whether_it_permits_os_push_per_platform(
         DeploymentKind kind, DevicePlatform platform, bool expected)
     {
@@ -297,7 +315,6 @@ public class DeploymentProfileTests
     /// </summary>
     [Theory]
     [InlineData(nameof(DeploymentKind.SelfHostedLan))]
-    [InlineData(nameof(DeploymentKind.CloudBrowser))]
     public void A_deployment_that_does_not_sell_messaging_still_does_not_however_it_is_configured(string kind)
     {
         var profile = DeploymentProfile.Resolve(Configuration(

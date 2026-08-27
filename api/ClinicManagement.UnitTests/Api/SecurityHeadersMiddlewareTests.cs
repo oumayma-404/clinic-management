@@ -107,7 +107,6 @@ public class SecurityHeadersMiddlewareTests
 
     [Theory]
     [InlineData(nameof(DeploymentKind.SelfHostedLan))]
-    [InlineData(nameof(DeploymentKind.CloudBrowser))]
     public async Task Report_only_is_the_default_in_every_profile(string profile)
     {
         // Not derived from the topology — see the class summary. A hosted profile serving only JSON through this
@@ -120,9 +119,9 @@ public class SecurityHeadersMiddlewareTests
     [Fact]
     public async Task The_policy_is_the_same_string_either_way()
     {
-        var reportOnly = await HeadersFor(Config((DeploymentProfile.ProfileKey, nameof(DeploymentKind.CloudBrowser))));
+        var reportOnly = await HeadersFor(Config((DeploymentProfile.ProfileKey, nameof(DeploymentKind.HostedMultiTenant))));
         var enforced = await HeadersFor(Config(
-            (DeploymentProfile.ProfileKey, nameof(DeploymentKind.CloudBrowser)),
+            (DeploymentProfile.ProfileKey, nameof(DeploymentKind.HostedMultiTenant)),
             (SecurityHeadersMiddleware.EnforceCspKey, "true")));
 
         // The flag changes only the header NAME. A second policy string for the enforcing case would mean the
@@ -140,7 +139,7 @@ public class SecurityHeadersMiddlewareTests
 
         var middleware = new SecurityHeadersMiddleware(
             _ => Task.CompletedTask,
-            Config((DeploymentProfile.ProfileKey, nameof(DeploymentKind.CloudBrowser))));
+            Config((DeploymentProfile.ProfileKey, nameof(DeploymentKind.HostedMultiTenant))));
 
         await middleware.InvokeAsync(context);
         await response.FireStartingAsync();
@@ -152,7 +151,7 @@ public class SecurityHeadersMiddlewareTests
     [Fact]
     public async Task The_baseline_headers_are_always_present()
     {
-        var headers = await HeadersFor(Config((DeploymentProfile.ProfileKey, nameof(DeploymentKind.CloudBrowser))));
+        var headers = await HeadersFor(Config((DeploymentProfile.ProfileKey, nameof(DeploymentKind.HostedMultiTenant))));
 
         Assert.Equal("nosniff", headers["X-Content-Type-Options"].ToString());
         Assert.Equal("DENY", headers["X-Frame-Options"].ToString());
@@ -165,7 +164,7 @@ public class SecurityHeadersMiddlewareTests
         // The Next BFF's loopback hop is plain HTTP; HSTS is meaningless there and would be recorded against
         // localhost.
         var headers = await HeadersFor(
-            Config((DeploymentProfile.ProfileKey, nameof(DeploymentKind.CloudBrowser))), https: false);
+            Config((DeploymentProfile.ProfileKey, nameof(DeploymentKind.HostedMultiTenant))), https: false);
 
         Assert.False(headers.ContainsKey("Strict-Transport-Security"));
     }
@@ -179,7 +178,6 @@ public class SecurityHeadersMiddlewareTests
     /// </summary>
     [Theory]
     [InlineData(nameof(DeploymentKind.HostedMultiTenant))]
-    [InlineData(nameof(DeploymentKind.CloudBrowser))]
     public async Task Hsts_Is_Left_To_The_Reverse_Proxy_On_Every_Hosted_Kind(string kind)
     {
         // Even over HTTPS — which is what a forwarded X-Forwarded-Proto now makes a proxied request look like —

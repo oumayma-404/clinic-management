@@ -1,8 +1,7 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
-import { resolveAuthMode } from "@/lib/auth/local-auth"
-import { CloudSessionProvider, LocalSessionProvider } from "@/lib/auth/session"
+import { LocalSessionProvider } from "@/lib/auth/session"
 import { ConnectivityProvider } from "@/lib/connectivity/connectivity"
 import { SubscriptionProvider } from "@/lib/subscription/subscription-context"
 import { SidebarProvider } from "@/contexts/sidebar-context"
@@ -99,9 +98,9 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  // Mount the session provider that matches the configured auth mode.
-  // Cloud mounts Auth0Provider; Local mounts a lightweight cookie-backed context.
-  const SessionProvider = resolveAuthMode() === "local" ? LocalSessionProvider : CloudSessionProvider
+  // One session provider: a lightweight cookie-backed context. The Auth0-backed alternative went with the
+  // CloudBrowser deployment kind, so there is nothing left to branch on here.
+  const SessionProvider = LocalSessionProvider
 
   return (
     /*
@@ -118,7 +117,7 @@ export default function RootLayout({
             {/* Inside the session provider: every read it makes is authenticated, and it fetches nothing until a
                 user exists. It renders no UI of its own — `AppShell` mounts the banner, because a strip above a
                 `h-dvh` shell would make the document taller than the viewport. Where `requiresSubscription` is not
-                `true` it never fetches at all, which is what keeps the other two deployment kinds unchanged. */}
+                `true` it never fetches at all, which is what keeps the other deployment kind unchanged. */}
             <SubscriptionProvider>
               <ConnectivityProvider>
                 <SidebarProvider>

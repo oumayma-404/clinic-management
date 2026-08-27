@@ -57,7 +57,6 @@ public class SelfRegistrationGateTests
     [Theory]
     [InlineData(DeploymentKind.SelfHostedLan, false)]
     [InlineData(DeploymentKind.HostedMultiTenant, true)]
-    [InlineData(DeploymentKind.CloudBrowser, true)]
     public async Task Register_404s_exactly_where_self_registration_is_closed(DeploymentKind kind, bool expect404)
     {
         var mediator = new Mock<IMediator>();
@@ -90,7 +89,6 @@ public class SelfRegistrationGateTests
     [Theory]
     [InlineData(DeploymentKind.SelfHostedLan, LocalAuthConfig.LocalMode, true)]
     [InlineData(DeploymentKind.HostedMultiTenant, LocalAuthConfig.LocalMode, false)]
-    [InlineData(DeploymentKind.CloudBrowser, LocalAuthConfig.CloudMode, false)]
     public void GetMode_reports_the_mode_and_whether_self_registration_is_open(
         DeploymentKind kind, string expectedMode, bool expectedSelfRegistration)
     {
@@ -129,7 +127,6 @@ public class SelfRegistrationGateTests
     [Theory]
     [InlineData(DeploymentKind.SelfHostedLan, null)]
     [InlineData(DeploymentKind.HostedMultiTenant, SubscriptionPolicy.DefaultTrialDays)]
-    [InlineData(DeploymentKind.CloudBrowser, null)]
     public void GetMode_reports_the_trial_length_exactly_where_a_trial_exists(DeploymentKind kind, int? expected)
     {
         var payload = Assert.IsType<OkObjectResult>(Controller(new Mock<IMediator>(), kind).GetMode()).Value!;

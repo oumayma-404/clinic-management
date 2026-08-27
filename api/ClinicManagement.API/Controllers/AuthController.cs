@@ -510,8 +510,10 @@ public class AuthController : ApiControllerBase
     ///
     /// <para>⚠️ Gated on <c>AllowsSelfRegistration</c> since US-3, <b>not</b> on <c>UsesLocalAccounts</c> — which
     /// is true in the hosted profile too, so the old guard would have exposed a six-character clinic code as the
-    /// only barrier between the internet and an account that reads every patient record. Unchanged in both shipped
-    /// profiles: <c>SelfHostedLan</c> still allows it, <c>CloudBrowser</c> still 404s.</para>
+    /// only barrier between the internet and an account that reads every patient record. So:
+    /// <c>SelfHostedLan</c> allows it, <c>HostedMultiTenant</c> 404s — and there an admin creates the account
+    /// instead (<c>CreateClinicUserCommand</c>), which is why the clinic-code card is absent from that
+    /// deployment's « Utilisateurs » screen rather than shown with a caption explaining that it does nothing.</para>
     /// </summary>
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]

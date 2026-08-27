@@ -22,9 +22,9 @@ public static class Extensions
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        // ⚠️ **The console verbs have no host builder, so nothing else registers this.** Five Infrastructure
+        // ⚠️ **The console verbs have no host builder, so nothing else registers this.** Several Infrastructure
         // types take `IConfiguration` in their constructor (`LocalAuthService`, `LocalAuthConfig`,
-        // `ConnectivityConfig`, `Auth0ManagementService`), and a verb that builds a bare
+        // `ConnectivityConfig`), and a verb that builds a bare
         // `new ServiceCollection()` + `AddInfrastructure(configuration)` could not activate any of them:
         // `provision-clinic` died on « Unable to resolve service for type
         // 'Microsoft.Extensions.Configuration.IConfiguration' while attempting to activate 'LocalAuthService' ».
@@ -159,12 +159,14 @@ public static class Extensions
         // this method alone, and a cabinet must not exist without an allowance (FR-3).
         services.AddScoped<IMessagingAllowanceRepository, MessagingAllowanceRepository>();
 
-        // HttpClient for Auth0 Management API
+        // The shared IHttpClientFactory — every outbound integration resolves its client from here
+        // (reminders, WhatsApp, Google Calendar, the internet probe, push).
         services.AddHttpClient();
 
-        // Connectivity probe (Local-mode offline UX). Registered unconditionally — harmless in Cloud
-        // (the ConnectivityController 404s there and the frontend never polls). Singleton + shared
-        // IMemoryCache so N polling clients collapse to one outbound probe per TTL window (R-1).
+        // Connectivity probe (offline UX on a clinic's own box). Registered unconditionally — harmless where
+        // the capability is off (the ConnectivityController 404s there and the frontend reads that as
+        // « no signal », never as « offline »). Singleton + shared IMemoryCache so N polling clients collapse
+        // to one outbound probe per TTL window (R-1).
         services.AddMemoryCache();
         services.AddSingleton<IInternetProbe, InternetProbe>();
 
@@ -215,16 +217,6 @@ public static class Extensions
         // controllers are unreachable without the listener, and a ledger registered behind a capability would fail
         // to resolve on precisely the deployment where somebody switched the console on.
         services.AddScoped<IPlatformAccessEntryRepository, PlatformAccessEntryRepository>();
-
-        // Auth0 Management Service — real where Auth0 owns identity, no-op where the product does (no Auth0 tenant).
-        if (profile.UsesLocalAccounts)
-        {
-            services.AddScoped<IAuth0ManagementService, NoOpAuth0ManagementService>();
-        }
-        else
-        {
-            services.AddScoped<IAuth0ManagementService, Auth0ManagementService>();
-        }
 
         // File storage backend: the clinic's own disk (no MinIO) where the deployment stores blobs locally,
         // MinIO everywhere else (unchanged).

@@ -51,8 +51,11 @@ public static class ProvisionClinicCommand
 
             var configuration = InstallConfiguration.BuildForConsoleVerb();
 
-            // Only the profiles whose accounts this product owns. In CloudBrowser the identity provider is Auth0,
-            // so a password-backed admin created here would be an account nobody could ever log into.
+            // Only the profiles whose accounts this product owns — which, since CloudBrowser was retired with
+            // Auth0, is both of them. The guard stays: it is what makes « a password-backed admin created here
+            // must be an account somebody can actually log into » a property of the code rather than of the
+            // current profile list, and a third kind that outsourced identity would land on it rather than
+            // silently minting an unusable account.
             // ⚠️ Deliberately NOT gated on HasLocalDbTooling, unlike the backup and report verbs: that capability
             // is about pg_dump/pg_restore being on the box, and this verb needs only the connection string —
             // which is precisely the profile (HostedMultiTenant) it exists for.
@@ -61,7 +64,8 @@ public static class ProvisionClinicCommand
             {
                 Console.Error.WriteLine(
                     $"This deployment does not own its accounts (deployment profile: {profile.Kind}). "
-                    + "An Auth0 deployment creates users through Auth0.");
+                    + "There is no other identity provider in this product, so an account created here would be "
+                    + "one nobody could sign in with.");
                 return 1;
             }
 

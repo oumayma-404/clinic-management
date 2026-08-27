@@ -29,7 +29,6 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
     private readonly IUserRepository _userRepository;
     private readonly IDoctorRepository _doctorRepository;
     private readonly IClinicContext _clinicContext;
-    private readonly IAuth0ManagementService _auth0ManagementService;
     private readonly ILocalAuthService _localAuthService;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<JoinClinicCommandHandler> _logger;
@@ -39,7 +38,6 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
         IUserRepository userRepository,
         IDoctorRepository doctorRepository,
         IClinicContext clinicContext,
-        IAuth0ManagementService auth0ManagementService,
         ILocalAuthService localAuthService,
         IUnitOfWork unitOfWork,
         ILogger<JoinClinicCommandHandler> logger)
@@ -48,7 +46,6 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
         _userRepository = userRepository;
         _doctorRepository = doctorRepository;
         _clinicContext = clinicContext;
-        _auth0ManagementService = auth0ManagementService;
         _localAuthService = localAuthService;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -147,18 +144,6 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-            // Update Auth0 app_metadata
-            try
-            {
-                await _auth0ManagementService.UpdateUserMetadataAsync(userId, clinic.Id, role, cancellationToken);
-            }
-            catch (Exception)
-            {
-                // Log but don't fail the operation if Auth0 update fails
-                // The user is already created in the database
-                // TODO: Add proper logging
-            }
 
             var dto = new ClinicDto
             {

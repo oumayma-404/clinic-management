@@ -1,6 +1,4 @@
-import { auth0 } from '@/lib/auth0';
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveAuthMode } from '@/lib/auth/local-auth';
 import { readSessionCookie } from '@/lib/auth/session-cookie';
 import { clearSessionCookies, writeSessionCookies } from '@/lib/auth/session-cookie';
 import { forwardedForHeader } from '@/lib/auth/forwarded-for';
@@ -14,14 +12,13 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
-  // Local mode: EXCHANGE the cookie's durable refresh token for a fresh short-lived access token
+  // EXCHANGE the cookie's durable refresh token for a fresh short-lived access token
   // (security-hardening US-5). It used to return the cookie value verbatim, which is why the cookie's
   // HttpOnly flag bought no protection — the browser held the same 12-hour API credential the cookie did.
   //
   // The exchange runs server-side, so the refresh token itself never reaches browser JavaScript, and the API
   // re-checks live account state on every call: a password change, admin reset or deactivation stops renewal
   // immediately (AC-5.6).
-  if (resolveAuthMode() === 'local') {
     const sessionCredential = readSessionCookie((name) => request.cookies.get(name)?.value);
     if (!sessionCredential) {
       // French like every other `{ error }` in this file. The body is not currently read by `client.ts`'s
@@ -110,40 +107,4 @@ export async function GET(request: NextRequest) {
         { status: 503 }
       );
     }
-  }
-
-  // Cloud mode: return the Auth0 access token.
-  //
-  // The three refusals below were the file's remaining English strings — « Not authenticated », « No access
-  // token available », « Failed to get access token ». They sit on the auth path, which is the one path a user
-  // hits *before* anything else works, so an English sentence here is the first thing a French clinic reads
-  // when their session lapses. The wording also has to say what to DO: « Failed to get access token » names an
-  // internal step and leaves the user with no next move, where « Reconnectez-vous » is the actual remedy.
-  try {
-    const session = await auth0.getSession(request);
-    if (!session) {
-      return NextResponse.json({ error: 'Session absente. Reconnectez-vous.' }, { status: 401 });
-    }
-
-    // Get access token - In Auth0 v4 App Router, getAccessToken() can be called without parameters
-    // It automatically uses the request context (cookies/headers) from the route handler
-    // GetAccessTokenOptions only supports: refresh, scope, audience
-    const tokenResult = await auth0.getAccessToken();
-
-    if (!tokenResult || !tokenResult.token) {
-      return NextResponse.json(
-        { error: 'Votre session a expiré. Reconnectez-vous.' },
-        { status: 401 }
-      );
-    }
-
-    return NextResponse.json({ accessToken: tokenResult.token });
-  } catch (error) {
-    console.error('Error getting access token:', error);
-    return NextResponse.json(
-      { error: 'Impossible de renouveler votre session. Reconnectez-vous.' },
-      { status: 500 }
-    );
-  }
 }
-

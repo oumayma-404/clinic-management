@@ -85,7 +85,6 @@ public class MessagingCapabilityRegistrationTests
     /// </summary>
     [Theory]
     [InlineData(DeploymentKind.SelfHostedLan)]
-    [InlineData(DeploymentKind.CloudBrowser)]
     public async Task Where_The_Deployment_Does_Not_Sell_Messaging_Both_Clinic_Reads_Are_Absent(DeploymentKind kind)
     {
         var mediator = new Mock<IMediator>(MockBehavior.Strict);

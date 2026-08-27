@@ -41,7 +41,6 @@ public class SubscriptionControllerTests
     // would be a refusal invented by a config file.
     [Theory]
     [InlineData(DeploymentKind.SelfHostedLan)]
-    [InlineData(DeploymentKind.CloudBrowser)]
     public async Task Both_Reads_Are_Absent_Where_Subscriptions_Are_Not_Enforced(DeploymentKind kind)
     {
         var (controller, mediator) = For(kind);

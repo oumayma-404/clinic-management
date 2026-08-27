@@ -49,16 +49,12 @@ export default function SetupPage() {
     }
   }, [user, userLoading, accessToken, authLoading, mode])
 
-  if (mode !== "local" && (userLoading || authLoading || isChecking)) {
-    return (
-      <div className="min-h-dvh flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Vérification du statut de votre clinique…</p>
-        </div>
-      </div>
-    )
-  }
-
+  /*
+   * ⚠️ A « Vérification du statut de votre clinique… » spinner stood here, gated on `mode !== "local"` — i.e. it
+   * rendered only on the Auth0-backed deployment, while that provider resolved an existing session before
+   * first-run setup could decide whether to redirect. That kind is retired, every deployment is now "local", and
+   * the branch was already unreachable on both compose files (which set AUTH_MODE=local). First-run setup has no
+   * session to wait for, so rendering the wizard straight away is what it already did in practice.
+   */
   return <SetupWizard onComplete={() => {}} />
 }

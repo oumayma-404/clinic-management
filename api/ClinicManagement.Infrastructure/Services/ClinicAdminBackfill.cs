@@ -14,16 +14,13 @@ namespace ClinicManagement.Infrastructure.Services;
 public class ClinicAdminBackfill : IClinicAdminBackfill
 {
     private readonly ApplicationDbContext _context;
-    private readonly IAuth0ManagementService _auth0ManagementService;
     private readonly ILogger<ClinicAdminBackfill> _logger;
 
     public ClinicAdminBackfill(
         ApplicationDbContext context,
-        IAuth0ManagementService auth0ManagementService,
         ILogger<ClinicAdminBackfill> logger)
     {
         _context = context;
-        _auth0ManagementService = auth0ManagementService;
         _logger = logger;
     }
 
@@ -53,16 +50,6 @@ public class ClinicAdminBackfill : IClinicAdminBackfill
             promote.PromoteToAdmin();
             await _context.SaveChangesAsync(cancellationToken);
             repaired++;
-
-            try
-            {
-                await _auth0ManagementService.UpdateUserMetadataAsync(promote.Id, clinicId, "admin", cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                // Best-effort, matching the app's Auth0-metadata convention — never fail the backfill.
-                _logger.LogWarning(ex, "Auth0 metadata push failed promoting {UserId} in clinic {ClinicId}", promote.Id, clinicId);
-            }
         }
 
         if (repaired > 0)

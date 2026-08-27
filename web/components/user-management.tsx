@@ -71,17 +71,20 @@ type PendingAction =
 export function UserManagement() {
   const { user: currentUser, mode } = useSession()
   /**
-   * AC-P2.29: « Réinitialiser le mot de passe » only exists for local (password-backed) accounts —
-   * `ResetUserPasswordCommand` correctly refuses anything else with « Ce compte n'utilise pas de mot de passe
-   * local. ». Now that this screen is reachable in Cloud (AC-P2.28), offering the button there would be a
-   * guaranteed dead end: Cloud identities are managed in Auth0.
+   * AC-P2.29: « Réinitialiser le mot de passe » only exists for password-backed accounts —
+   * `ResetUserPasswordCommand` refuses anything else with « Ce compte n'utilise pas de mot de passe local. »
+   *
+   * ⚠️ Was `mode === "local"` and is unconditionally true now: the deployment kind that outsourced identity
+   * (Auth0) is retired, and the « les mots de passe sont gérés par le fournisseur d'identité » note that used to
+   * sit above this table went with it. Kept as a named constant rather than inlined, because it is a real
+   * question a third deployment kind could answer differently — and if one ever does, it has one place to change.
    */
-  const canResetPasswords = mode === "local"
+  const canResetPasswords = true
   /**
    * US-3: same underlying question as `canResetPasswords` — does this product own its accounts — asked
-   * separately because the two are genuinely independent of the *third* one below. `POST /api/users` 404s in
-   * Cloud (Auth0 owns identities) but stays open in both local-account profiles, since it is precisely what a
-   * deployment with self-registration closed uses instead.
+   * separately because the two are genuinely independent of the *third* one below. `POST /api/users` stays open
+   * on both surviving profiles, since it is precisely what a deployment with self-registration closed uses
+   * instead. (It 404s where `UsesLocalAccounts` is false, which no shipped profile now is.)
    */
   const canCreateAccounts = mode === "local"
   /**
@@ -322,7 +325,23 @@ export function UserManagement() {
           page chip. `p-4` went with it — `AppShell` owns the gutter. */}
       <div className="mx-auto max-w-5xl space-y-4">
 
-        {/* Clinic code + regenerate (AC-4.5) */}
+        {/*
+          Clinic code + regenerate (AC-4.5) — and ONLY where the code still does something.
+
+          ⚠️ US-3 originally kept this card on a hosted deployment and re-captioned it, on the reasoning that
+          « the code is still the clinic's ». It is not: nothing in the product reads `ClinicCode` except the
+          join path, so where self-registration is closed the card was a badge nobody can use, under a paragraph
+          explaining why it does not work, beside a « Régénérer » button that rotates a value with no consumer.
+          Three pieces of UI whose combined message is « ignore this » — which is more confusing than an absent
+          card, not less, and it invites an admin to go hunting for the door it describes.
+
+          Where the code IS live (SelfHostedLan) nothing changes: it is the normal way staff get an account.
+
+          ⚠️ Gated on the enabled flag, never on its negation, because `selfRegistrationEnabled` defaults to
+          **true** and a failed probe leaves it there (see its declaration). Hiding on failure would let a
+          network blip silently remove the only way into the product on a LAN install.
+        */}
+        {selfRegistrationEnabled && (
         <Card>
           <CardHeader className="pb-3">
             {/*
@@ -347,22 +366,10 @@ export function UserManagement() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {/* US-3 — the caption used to instruct an admin to hand out a code that, on a hosted deployment, no
-                longer creates anything. Left alone it would be a control that lies, which is worse than a
-                missing one; the card stays (the code is still the clinic's) and says what changed instead. */}
-            {!selfRegistrationEnabled && (
-              <p className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                L&apos;inscription avec le code du cabinet est désactivée sur cette installation : sur Internet, ce
-                code est connu de toute personne ayant travaillé au cabinet. Créez les comptes du personnel avec
-                « Créer un compte » ci-dessous.
-              </p>
-            )}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <Label className="text-xs text-muted-foreground">
-                  {selfRegistrationEnabled
-                    ? "À communiquer au personnel pour créer un compte"
-                    : "Identifiant du cabinet — il ne permet plus de créer un compte"}
+                  À communiquer au personnel pour créer un compte
                 </Label>
                 <div className="mt-1.5">
                   {clinicCode ? (
@@ -394,6 +401,7 @@ export function UserManagement() {
             </div>
           </CardContent>
         </Card>
+        )}
 
         {/* Users list (AC-5.1) */}
         <Card>
@@ -472,14 +480,6 @@ export function UserManagement() {
                   ? "1 compte attend votre activation : cette personne s'est inscrite avec le code du cabinet mais ne peut pas encore se connecter."
                   : `${pendingCount} comptes attendent votre activation : ces personnes se sont inscrites avec le code du cabinet mais ne peuvent pas encore se connecter.`}{" "}
                 Utilisez « Réactiver » sur la ligne concernée pour lui donner accès.
-              </p>
-            )}
-            {/* AC-P2.29 — this screen now also opens in Cloud, where password resets are not ours to do. */}
-            {!canResetPasswords && (
-              <p className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                Les mots de passe sont gérés par le fournisseur d&apos;identité (Auth0) : la réinitialisation
-                depuis cet écran n&apos;est disponible que sur une installation locale. Les rôles et l&apos;accès
-                se modifient ici dans les deux modes.
               </p>
             )}
             <div className="mb-4">

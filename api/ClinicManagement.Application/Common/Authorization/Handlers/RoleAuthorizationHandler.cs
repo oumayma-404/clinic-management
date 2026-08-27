@@ -11,13 +11,14 @@ namespace ClinicManagement.Application.Common.Authorization.Handlers;
 /// <para>
 /// ⚠️ <b>The database wins over the token.</b> The request pipeline publishes the role from the caller's own
 /// <c>User</c> row (see <see cref="EffectiveRole"/>); the JWT claim is consulted only when no row exists. That
-/// ordering is the fix for a real defect: in <c>CloudBrowser</c> the claim comes from Auth0 <c>app_metadata</c>
-/// written by an Action outside this repository, and demoting a user updates the row without updating Auth0 — so
-/// a demoted admin passed <c>AdminOnly</c> for ever, on new tokens as well as old.
+/// ordering is the fix for a real defect, on a deployment kind since retired: the claim came from a third-party
+/// identity provider's metadata, written outside this repository, and demoting a user updated the row without
+/// updating the provider — so a demoted admin passed <c>AdminOnly</c> for ever, on new tokens as well as old.
+/// The ordering is kept because a claim is a copy taken at sign-in and the row is the fact, whoever mints it.
 /// </para>
 ///
 /// <para>
-/// ⚠️ <b>The claim fall-back is required, not lenient.</b> Cloud onboarding — <c>POST /clinics</c>,
+/// ⚠️ <b>The claim fall-back is required, not lenient.</b> Onboarding — <c>POST /clinics</c>,
 /// <c>POST /clinics/join</c>, <c>user-status</c> — is reached by a principal who has no <c>User</c> row yet, and
 /// is precisely why the role-less <c>Authenticated</c> policy exists. Those endpoints require no role, so the
 /// fall-back grants nothing on its own; removing it would break signing up without closing anything.

@@ -8,12 +8,13 @@ namespace ClinicManagement.API.Middleware;
 /// active</b>, and <b>what role does it actually hold</b> — on every deployment profile and every account type.
 ///
 /// <para>
-/// ⚠️ <b>This exists because offboarding did not work on <c>CloudBrowser</c>.</b> The only per-request reader of
-/// live account state was <see cref="LocalAuthEnforcementMiddleware"/>, which is registered only where
-/// <c>EnforcesTokenState</c> holds and which skips non-local accounts anyway. So on the Auth0 profile
-/// <c>PUT /api/users/{id}/status</c> succeeded, bumped <c>TokenVersion</c>, showed « Désactivé » in the UI — and
-/// the ex-employee's token kept working, while a fresh Auth0 login minted more. Nothing in any log said so, which
-/// is what made it dangerous: the admin had every reason to believe access was revoked.
+/// ⚠️ <b>This exists because offboarding once did not work at all on one deployment kind</b> — the Auth0-backed
+/// one, since retired. The only per-request reader of live account state was
+/// <see cref="LocalAuthEnforcementMiddleware"/>, which is registered only where <c>EnforcesTokenState</c> holds
+/// and which skips non-local accounts anyway. So there <c>PUT /api/users/{id}/status</c> succeeded, bumped
+/// <c>TokenVersion</c>, showed « Désactivé » in the UI — and the ex-employee's token kept working, while a fresh
+/// third-party login minted more. Nothing in any log said so, which is what made it dangerous: the admin had
+/// every reason to believe access was revoked.
 /// </para>
 ///
 /// <para>

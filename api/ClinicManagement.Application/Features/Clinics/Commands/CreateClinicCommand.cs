@@ -41,7 +41,6 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
     private readonly IUserRepository _userRepository;
     private readonly IDoctorRepository _doctorRepository;
     private readonly IClinicContext _clinicContext;
-    private readonly IAuth0ManagementService _auth0ManagementService;
     private readonly IFileStorage _fileStorage;
     private readonly ILocalAuthService _localAuthService;
     private readonly IClinicCatalogSeeder _clinicCatalogSeeder;
@@ -58,7 +57,6 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         IUserRepository userRepository,
         IDoctorRepository doctorRepository,
         IClinicContext clinicContext,
-        IAuth0ManagementService auth0ManagementService,
         IFileStorage fileStorage,
         ILocalAuthService localAuthService,
         IClinicCatalogSeeder clinicCatalogSeeder,
@@ -74,7 +72,6 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
         _userRepository = userRepository;
         _doctorRepository = doctorRepository;
         _clinicContext = clinicContext;
-        _auth0ManagementService = auth0ManagementService;
         _fileStorage = fileStorage;
         _localAuthService = localAuthService;
         _clinicCatalogSeeder = clinicCatalogSeeder;
@@ -277,14 +274,14 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
 
             // ⚠️ Construction door 2 of 2, and the one AC-1.2a exists to name. This branch builds its own Clinic
             // and never reaches LocalClinicProvisioning.ProvisionAsync, so the entitlement has to be staged here
-            // too — which is exactly why it is the door easiest to forget. On CloudBrowser the policy answers
+            // too — which is exactly why it is the door easiest to forget. On SelfHostedLan the policy answers
             // « not enforced », so what lands is an OPEN-ENDED entitlement: FR-13 holds and nothing can expire.
             await LocalClinicProvisioning.StageEntitlementAsync(
                 clinic.Id, _subscriptionRepository, _subscriptionPolicy, cancellationToken);
 
-            // The same door again, for the WhatsApp reminder forfait (FR-3). On CloudBrowser the capability answers
+            // The same door again, for the WhatsApp reminder forfait (FR-3). On SelfHostedLan the capability answers
             // « does not sell vendor messaging », so what lands is an allowance nothing meters against — which is
-            // what keeps « no cabinet without one » true in all three topologies while EC-16 still holds.
+            // what keeps « no cabinet without one » true in both topologies while EC-16 still holds.
             await LocalClinicProvisioning.StageMessagingAllowanceAsync(
                 clinic.Id, _messagingAllowanceRepository, _messagingAllowancePolicy, cancellationToken);
 
@@ -292,18 +289,6 @@ public class CreateClinicCommandHandler : IRequestHandler<CreateClinicCommand, R
 
             await LocalClinicProvisioning.TrySeedCatalogsAsync(
                 clinic.Id, _clinicCatalogSeeder, _logger, cancellationToken);
-
-            // Update Auth0 app_metadata
-            try
-            {
-                await _auth0ManagementService.UpdateUserMetadataAsync(userId, clinic.Id, userRole, cancellationToken);
-            }
-            catch (Exception)
-            {
-                // Log but don't fail the operation if Auth0 update fails
-                // The user is already created in the database
-                // TODO: Add proper logging
-            }
 
             var dto = new ClinicDto
             {

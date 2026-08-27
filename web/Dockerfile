@@ -63,28 +63,22 @@ ENV NEXT_PUBLIC_META_CONFIG_ID=${NEXT_PUBLIC_META_CONFIG_ID}
 ARG NEXT_PUBLIC_SIGNALR_LOG_LEVEL=
 ENV NEXT_PUBLIC_SIGNALR_LOG_LEVEL=${NEXT_PUBLIC_SIGNALR_LOG_LEVEL}
 
-# ⚠️ **`AUTH_MODE` must be set at BUILD time, not only at runtime, and this was a live defect.**
-# `app/layout.tsx` is a server component that calls `resolveAuthMode()` to choose between `CloudSessionProvider`
-# and `LocalSessionProvider`, and `/login` is **statically prerendered** — `.next/server/app/login.html` is
-# emitted by `npm run build`. So the provider is baked into the static output using whatever `AUTH_MODE` held
-# *during the build*, and a runtime `AUTH_MODE: local` never reaches it.
+# `AUTH_MODE` is kept as a build ARG as well as a runtime variable, and the reason is worth keeping even though
+# there is only one mode left to select.
 #
-# `deploy/docker-compose.hosted.yml` sets it only at runtime, with a comment stating « Left at `cloud` the app
-# expects Auth0 and there is no way to log in at all » — which is precisely the symptom it then shipped: the
-# hosted multi-tenant deployment renders the Auth0 landing page and its « Se connecter » button goes nowhere.
-# It still has to be a runtime variable too, because `middleware.ts` and the `/bff/auth/*` handlers read it per
-# request; this ARG is in addition to that, not instead of it.
-ARG AUTH_MODE=cloud
+# `app/layout.tsx` is a server component and `/login` is **statically prerendered** — `.next/server/app/login.html`
+# is emitted by `npm run build` — so anything that file reads from the environment is baked in at build time and a
+# runtime value never reaches it. That is what once shipped the hosted deployment a login page rendered for the
+# retired Auth0 provider, with a « Se connecter » button that went nowhere. The Auth0 branch is gone, so the
+# variable can no longer select a provider; it is declared here so a future value that IS read during prerender
+# has a build-time home already, rather than reproducing that defect.
+#
+# It stays a runtime variable too: the `/bff/auth/*` handlers read it per request.
+ARG AUTH_MODE=local
 ENV AUTH_MODE=${AUTH_MODE}
 
-# Set dummy Auth0 env vars for build (real values loaded at runtime from .env.local)
-# Auth0 v4 uses different variable names
-ENV AUTH0_SECRET=build-time-placeholder-build-time-placeholder-build-time-placeholder-build-time-placeholder
-ENV APP_BASE_URL=http://localhost:3000
-ENV AUTH0_DOMAIN=build-time-placeholder.auth0.com
-ENV AUTH0_CLIENT_ID=build-time-placeholder
-ENV AUTH0_CLIENT_SECRET=build-time-placeholder
-ENV AUTH0_AUDIENCE=https://clinic-management-api
+# ⚠️ The five AUTH0_* build placeholders that used to sit here are gone with the dependency. Do not restore
+# them: nothing reads them, and a placeholder secret in an image layer is a secret-shaped string in a registry.
 
 # Disable telemetry during the build
 ENV NEXT_TELEMETRY_DISABLED 1

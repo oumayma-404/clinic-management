@@ -17,18 +17,25 @@ medical/dental documents, file storage, billing and CNAM.
 | Backend API | .NET 8, Clean Architecture, ASP.NET Core, MediatR (CQRS), Hangfire | `api/` |
 | Database | PostgreSQL 16 (EF Core) | docker-compose `postgres` |
 | Object storage | MinIO (S3-compatible) | docker-compose `minio` |
-| Auth | **Pluggable** by `Auth:Mode`: **Cloud** = Auth0 (JWT bearer); **Local** = self-issued email+password accounts (an offline LAN install **and** the hosted multi-tenant backend). Clinic membership resolved server-side. ⚠️ `Auth:Mode` answers *who issues tokens* only — every other deployment difference is a named capability on `Deployment:Profile`. | both |
+| Auth | **Self-issued** email+password accounts, HS256 JWTs signed with a per-install key — on the offline LAN install **and** the hosted multi-tenant backend alike. Clinic membership resolved server-side. ⚠️ Auth0 (`Auth:Mode=Cloud`) is **retired** along with the `CloudBrowser` deployment kind; `Auth:Mode` has one value and every deployment difference is a named capability on `Deployment:Profile`. | both |
 | External | Google Calendar (two-way sync), SMS/WhatsApp reminders, Meta WhatsApp onboarding | `api/...Infrastructure/Services` |
 
 ⚠️ **There is no AI subsystem.** No code in this product reaches an inference endpoint: the chat, the patient
 AI summary and every service behind them were deleted. See
 [`features/adoption-qa-i-access-control-and-audit/notes.md`](features/adoption-qa-i-access-control-and-audit/notes.md).
 
-⚠️ **Three deployment kinds, and almost every design decision turns on one of them**: `SelfHostedLan` (a
-clinic's own Windows PC serving its LAN), `HostedMultiTenant` (one hosted backend, many clinics, the product's
-own accounts) and `CloudBrowser` (one hosted backend, Auth0). They are a `DeploymentProfile` of ~18 **named
-capabilities** — never a boolean. See
+⚠️ **Two deployment kinds, and almost every design decision turns on one of them**: `SelfHostedLan` (a
+clinic's own Windows PC serving its LAN) and `HostedMultiTenant` (one hosted backend, many clinics, the
+product's own accounts). They are a `DeploymentProfile` of ~18 **named capabilities** — never a boolean. See
 [`features/multi-tenant-cloud/notes.md`](features/multi-tenant-cloud/notes.md).
+
+⚠️ There was a third, `CloudBrowser` (one hosted backend, Auth0), and it is **retired** — the profile, the
+`@auth0/nextjs-auth0` dependency, both session providers, the management-API client and its no-op twin are all
+gone. `Auth:Mode` no longer selects anything, and an absent `Deployment:Profile` with a non-`Local` auth mode
+now **throws** rather than guessing between two profiles that disagree about accounts, storage, subscriptions
+and the second factor. What deliberately stayed is the `User.Auth0Sub` **column name** — it is the token
+subject, written and read on every authenticated request, so the name is a legacy of where it came from and
+not a live dependency.
 
 ## Layout
 
@@ -56,7 +63,9 @@ clinic-management/
 │                                   only, served on its own loopback-published Caddy site behind an SSH tunnel.
 │                                   Contains NO clinic surfaces: that is FR-2, not a packaging choice.
 ├── deploy/                       Hosted deployments (Docker + Caddy) → README.md operator guide
-│                                   docker-compose.prod.yml   = CloudBrowser  (Auth0)
+│                                   docker-compose.prod.yml   = the shared INFRA base (certs, postgres, minio,
+│                                                               caddy, backup, pitr) — not runnable alone since
+│                                                               CloudBrowser's own api/web services were removed
 │                                   docker-compose.hosted.yml = HostedMultiTenant (own accounts) — `extends` prod's infra
 ├── backend/                      EMPTY (only .idea/) — ignore
 ├── .github/workflows/            ci.yml = the api · web · desktop · android gate (see below)
@@ -223,7 +232,6 @@ touching the area.
 | File | Topic |
 |------|-------|
 | `README.md` | (minimal) |
-| `AUTH0_SETUP.md` | Auth0 tenant/app configuration |
 | `GOOGLE_CALENDAR_SETUP.md` / `_FR.md` | Google Calendar OAuth setup (EN/FR) |
 | `GOOGLE_CALENDAR_SYNC_ARCHITECTURE.md` | Calendar sync design |
 | `SYNC_TESTING_GUIDE.md` | How to test calendar sync |

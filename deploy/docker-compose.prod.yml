@@ -1,11 +1,22 @@
-# Production compose for the single-VPS Cloud deployment (Cloud mode + Auth0).
+# The shared production INFRASTRUCTURE base: the internal CA, postgres, minio, caddy and the two
+# backup sidecars.
 #
-#   docker compose -f docker-compose.prod.yml up -d --build
+# ⚠️ This file no longer describes a deployment you can bring up on its own, and that is deliberate.
+# It used to be the CloudBrowser (Auth0) deployment — its own `api` and `web` services lived here — and
+# that deployment kind is retired along with Auth0. Its two app services are gone with it.
 #
-# Only `caddy` publishes ports (80/443). postgres, minio, api and web are reachable
-# ONLY on the internal Docker network — never from the LAN/internet (AC-1). Every secret
-# comes from the gitignored `.env` beside this file (see .env.example); nothing sensitive
-# is baked into an image or committed (AC-4/AC-5).
+# What survives is what `docker-compose.hosted.yml` `extends`: certs, postgres, minio, caddy, backup and
+# pitr. Bring the product up through that file:
+#
+#   docker compose -f docker-compose.hosted.yml up -d --build
+#
+# ⚠️ Do NOT delete this file to "tidy up" — the six services above are referenced by path from hosted.yml,
+# so removing it takes the hosted deployment down with it. Merging the two is a real option; it is simply
+# not a change to make on the way to a release.
+#
+# Only `caddy` publishes ports (80/443). Everything else is reachable ONLY on the internal Docker network —
+# never from the LAN/internet (AC-1). Every secret comes from the gitignored `.env` beside this file
+# (see .env.example); nothing sensitive is baked into an image or committed (AC-4/AC-5).
 name: clinic-management
 
 services:
@@ -14,11 +25,9 @@ services:
   # every other service waits on `service_completed_successfully`. Idempotent — a still-chaining set is reused,
   # so `up -d` does not hand postgres a new identity the API does not yet trust. See ./certs/issue.sh.
   #
-  # ⚠️ Shared by BOTH hosted profiles: docker-compose.hosted.yml `extends` this file's infrastructure, so the
-  # internal CA, `ssl=on` and the hostssl-only pg_hba reach `CloudBrowser` too. That is why the API's
-  # fail-loud transit check gates on `!SelfHostsFrontDoor` — both hosted kinds — rather than on
-  # HostedMultiTenant alone: a check narrower than its own configuration lets transit fail open on the
-  # profile that received it. Transit is the fifth of this feature's global changes.
+  # ⚠️ docker-compose.hosted.yml `extends` this file's infrastructure, so the internal CA, `ssl=on` and the
+  # hostssl-only pg_hba are what the hosted deployment actually runs on. The API's fail-loud transit check
+  # gates on `!SelfHostsFrontDoor` rather than naming a kind, for the reason that file's own note gives.
   certs:
     build:
       context: ./certs
@@ -127,107 +136,6 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-
-  api:
-    build:
-      context: ../api
-      dockerfile: Dockerfile
-    container_name: clinic-api-prod
-    restart: unless-stopped
-    depends_on:
-      certs:
-        condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_started
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      ASPNETCORE_URLS: http://+:5000
-      # Cloud mode: host/proxy (Caddy) terminates TLS; the API speaks plain HTTP on the internal net.
-      Auth__Mode: Cloud
-      # ⚠️ `sslmode=verify-full` + `Root Certificate=`, and the API REFUSES TO START without both on either
-      # hosted kind (FR-2.1/FR-2.5 — see Startup/TransportAssurance.cs). `verify-full` is the only mode that
-      # checks the server's identity as well as encrypting: `require` encrypts and accepts any certificate,
-      # so it stops a passive capture and not an impostor on the container network. The host in the string
-      # must stay `postgres` — that is the name in the leaf's SAN, and verify-full compares against it.
-      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=VerifyFull;Root Certificate=/certs/ca.crt"
-      # OAuth success redirect + primary CORS origin (same-origin, so CORS is not exercised by the browser).
-      FrontendUrl: "https://${DOMAIN}"
-      Auth0__Domain: ${AUTH0_DOMAIN}
-      Auth0__Audience: ${AUTH0_AUDIENCE}
-      Auth0__ManagementApi__ClientId: ${AUTH0_MGMT_CLIENT_ID}
-      # FR-3.10 — supplied as FILES, not environment. See the `secrets:` block at the foot of this file for why,
-      # and docker-compose.hosted.yml for the two that deliberately stay in `environment:` (they are shared with
-      # containers that are not .NET and must move with them).
-      Auth0__ManagementApi__ClientSecret_FILE: /run/secrets/auth0_mgmt_client_secret
-      GoogleCalendar__ClientId: ${GOOGLE_CLIENT_ID}
-      GoogleCalendar__ClientSecret_FILE: /run/secrets/google_client_secret
-      GoogleCalendar__RefreshToken: ${GOOGLE_REFRESH_TOKEN}
-      GoogleCalendar__RedirectUri: "https://${DOMAIN}/api/googlecalendar/callback"
-      GoogleCalendar__CalendarId: ${GOOGLE_CALENDAR_ID:-primary}
-      MinIO__Endpoint: "minio:9000"
-      MinIO__AccessKey: ${MINIO_ROOT_USER}
-      MinIO__SecretKey: ${MINIO_ROOT_PASSWORD}
-      # FR-2.2, and the API refuses to start with this false on either hosted kind. The internal root below
-      # is what the Minio client verifies the leaf against — a system trust store knows nothing about it.
-      MinIO__UseSSL: "true"
-      MinIO__RootCertificate: /certs/ca.crt
-      # FR-3.9 — where the API writes which key-ring generations it can read, for the backup sidecar to stamp
-      # beside each dump. Best-effort: an unwritable path warns and never stops the API, because refusing to
-      # serve a whole deployment's clinics over a restore aid is a far larger outage than the risk it guards.
-      DataProtection__GenerationMarkerPath: /keyring-marker/generation
-      # ── hosted-security-hardening Part 4. Three of its five GLOBAL changes reach this profile, and the audit
-      # chain is why the first one is not optional here: `AuditChainKeyProvider` REFUSES TO START on any
-      # deployment that does not host its own front door, which is both hosted kinds. A generated key would work
-      # and then be replaced by the first redeploy, silently making every entry written before it unverifiable —
-      # a failure whose signature is identical to tampering.
-      Audit__ChainKey_FILE: /run/secrets/audit_chain_key
-      # FR-4.4 — 30 days of retention, over the durable volume below.
-      Serilog__WriteTo__1__Args__retainedFileCountLimit: "30"
-      # FR-4.5. Enforcing rather than report-only, now that the third-party analytics script that would have
-      # broken `script-src 'self'` is gone from the web bundle both profiles build.
-      Security__EnforceCsp: "true"
-    volumes:
-      - internal_certs:/certs:ro
-      # Read-WRITE here — the API is the only writer. Every other consumer mounts it `:ro`.
-      - keyring_marker:/keyring-marker
-      # FR-4.4 — logs outlive the container. The scrub that stops a patient's name reaching them lands in the
-      # same change, because durability persists what was previously ephemeral.
-      - api_logs:/app/logs
-    secrets:
-      - audit_chain_key
-      - auth0_mgmt_client_secret
-      - google_client_secret
-    networks: [internal]
-    # No `ports:` — Caddy proxies /api/* to this service over the internal network (AC-1).
-
-  web:
-    build:
-      context: ../web
-      dockerfile: Dockerfile
-      args:
-        # Baked at build time by Next. Relative `/api` => same-origin, no server IP/domain in the
-        # image (AC-3); one image works on any domain (edge case: Next bakes NEXT_PUBLIC_* at build).
-        NEXT_PUBLIC_API_URL: /api
-    container_name: clinic-web-prod
-    restart: unless-stopped
-    depends_on:
-      - api
-    environment:
-      NODE_ENV: production
-      AUTH_MODE: cloud
-      # Auth0 (Regular Web App) — server-side, read at runtime by the Next Auth0 SDK.
-      AUTH0_SECRET: ${AUTH0_SECRET}
-      AUTH0_DOMAIN: "https://${AUTH0_DOMAIN}"
-      AUTH0_ISSUER_BASE_URL: "https://${AUTH0_DOMAIN}"
-      AUTH0_CLIENT_ID: ${AUTH0_CLIENT_ID}
-      AUTH0_CLIENT_SECRET: ${AUTH0_CLIENT_SECRET}
-      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
-      AUTH0_BASE_URL: "https://${DOMAIN}"
-      APP_BASE_URL: "https://${DOMAIN}"
-    networks: [internal]
-    # No `ports:` — Caddy proxies everything except /api/* to this service (AC-1).
 
   caddy:
     image: caddy:2-alpine
@@ -364,8 +272,6 @@ secrets:
   # replacing it makes every entry written under the old one read as tampering.
   audit_chain_key:
     file: ${AUDIT_CHAIN_KEY_FILE:-./secrets/audit-chain-key}
-  auth0_mgmt_client_secret:
-    file: ${AUTH0_MGMT_CLIENT_SECRET_FILE:-./secrets/auth0-mgmt-client-secret}
   google_client_secret:
     file: ${GOOGLE_CLIENT_SECRET_FILE:-./secrets/google-client-secret}
 

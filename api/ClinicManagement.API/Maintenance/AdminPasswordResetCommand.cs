@@ -46,7 +46,7 @@ public static class AdminPasswordResetCommand
             {
                 Console.Error.WriteLine(
                     $"This deployment does not own its accounts (deployment profile: {profile.Kind}). "
-                    + "An Auth0 deployment resets passwords through Auth0.");
+                    + "There is no other identity provider in this product, so there is nothing to reset here.");
                 return 1;
             }
 

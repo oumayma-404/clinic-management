@@ -370,9 +370,10 @@ try
         c.OperationFilter<ClinicManagement.API.Swagger.FileUploadOperationFilter>();
     });
 
-    // JWT Authentication — profile-branched. Auth0-issued tokens when the deployment defers identity to Auth0;
-    // app-issued tokens signed with the per-install key when it owns its own accounts. Authorization policies
-    // are the same either way.
+    // JWT Authentication. Every deployment this product still ships owns its own accounts, so the tokens are
+    // app-issued and signed with the per-install key. The `UsesLocalAccounts` branch is kept rather than
+    // collapsed because it is the capability that says so, and a deployment kind that answered otherwise must
+    // fail loudly here (see the else) rather than boot with no authentication at all.
     // Resolved from builder.Configuration rather than reused from startupProfile: CreateBuilder(args) adds
     // command-line arguments, so this is the host's authoritative view of the same key.
     var profile = DeploymentProfile.Resolve(builder.Configuration);
@@ -382,9 +383,6 @@ try
     var consolePort = profile.ServesPlatformConsole
         ? ClinicManagement.Infrastructure.Auth.PlatformAuthConfig.Port(builder.Configuration)
         : 0;
-
-    var auth0Domain = builder.Configuration["Auth0:Domain"];
-    var auth0Audience = builder.Configuration["Auth0:Audience"];
 
     var authConfigured = false;
 
@@ -412,28 +410,16 @@ try
         });
         authConfigured = true;
     }
-    else if (!string.IsNullOrEmpty(auth0Domain) && !string.IsNullOrEmpty(auth0Audience))
+    else
     {
-        builder.Services.AddAuthentication(options =>
-        {
-            options.DefaultAuthenticateScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
-            options.DefaultChallengeScheme = Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
-        })
-        .AddJwtBearer(options =>
-        {
-            options.Authority = $"https://{auth0Domain}";
-            options.Audience = auth0Audience;
-            options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateLifetime = true,
-                ValidateIssuerSigningKey = true,
-                ClockSkew = TimeSpan.Zero
-            };
-            options.Events = CreateHubJwtEvents();
-        });
-        authConfigured = true;
+        // No other identity provider exists in this product. Auth0 was the one deployment kind that deferred
+        // identity elsewhere and it is retired, so a profile answering « I do not own my accounts » has nothing
+        // left to authenticate with — and carrying on with `authConfigured` false would leave every endpoint
+        // reachable with no token at all. Refuse at startup instead: an operator sees this, a silent open door
+        // is what nobody sees.
+        throw new InvalidOperationException(
+            $"Deployment profile {profile.Kind} declares UsesLocalAccounts = false, but this product no longer "
+            + "has an external identity provider. Use SelfHostedLan or HostedMultiTenant.");
     }
 
     // The console's own bearer scheme, added to the SAME authentication builder as the clinic's. Its issuer,
@@ -800,8 +786,8 @@ try
             }
             else
             {
-                // Console off ⇒ touch none of this, so CloudBrowser and a console-less hosted deployment keep
-                // their current UseUrls/ASPNETCORE_URLS behaviour byte for byte.
+                // Console off ⇒ touch none of this, so a console-less deployment keeps its current
+                // UseUrls/ASPNETCORE_URLS behaviour byte for byte.
                 var hostingUrls = builder.Configuration["Hosting:Urls"];
                 if (!string.IsNullOrWhiteSpace(hostingUrls))
                 {
@@ -1239,8 +1225,8 @@ try
     }
 
     // Subscription-expiry warnings (clinic-subscription FR-5) — daily, and registered ONLY where a cabinet's right
-    // to record work is a dated entitlement (AC-7.1/7.2): on a clinic's own PC and on the Auth0 deployment every
-    // entitlement is open-ended, so the pass could only ever loop over cabinets it must not warn. Not
+    // to record work is a dated entitlement (AC-7.1/7.2): on a clinic's own PC every entitlement is open-ended,
+    // so the pass could only ever loop over cabinets it must not warn. Not
     // connectivity-gated — the warning is in-app. 07:00 UTC, after the expiry scan and before the clinic opens, so
     // the row is already in the feed when the first person looks at the bell.
     if (profile.RequiresSubscription)

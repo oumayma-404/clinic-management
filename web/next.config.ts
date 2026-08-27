@@ -9,7 +9,6 @@ const nextConfig: NextConfig = {
   },
   // Skip static optimization for API routes
   skipTrailingSlashRedirect: true,
-  // Exclude Auth0 routes from static analysis
   pageExtensions: ['tsx', 'ts', 'jsx', 'js'],
   // ⚠️ There is no `eslint` key here any more, and its absence is not a regression. Next 16 removed the built-in
   // ESLint integration outright (`next lint` is gone), so `eslint.ignoreDuringBuilds` is no longer a valid

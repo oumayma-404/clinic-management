@@ -31,7 +31,6 @@ public class JoinClinicLocalRegisterTests
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IDoctorRepository> _doctors = new();
     private readonly Mock<IClinicContext> _clinicContext = new();
-    private readonly Mock<IAuth0ManagementService> _auth0 = new();
     private readonly Mock<ILocalAuthService> _localAuth = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
@@ -40,7 +39,7 @@ public class JoinClinicLocalRegisterTests
 
     private JoinClinicCommandHandler Handler() => new(
         _clinics.Object, _users.Object, _doctors.Object, _clinicContext.Object,
-        _auth0.Object, _localAuth.Object, _uow.Object,
+        _localAuth.Object, _uow.Object,
         NullLogger<JoinClinicCommandHandler>.Instance);
 
     private void ValidClinicAndFreshEmail()

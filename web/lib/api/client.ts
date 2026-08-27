@@ -303,7 +303,7 @@ export function lastAccessTokenFailureStatus(): number | null {
 
 /** Renew this long before the reported expiry, so a token can't lapse mid-request. */
 const TOKEN_RENEW_SKEW_MS = 60_000;
-/** Cache window when the server reports no expiry (Cloud — the Auth0 SDK caches on its own side). */
+/** Cache window when the server reports no expiry. */
 const TOKEN_FALLBACK_TTL_MS = 30_000;
 
 /**

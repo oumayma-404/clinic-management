@@ -48,9 +48,8 @@ public static class LocalDataProtection
 
     /// <summary>
     /// Whether this deployment must supply a certificate to encrypt the key ring with (FR-3.1). True on
-    /// <see cref="DeploymentKind.HostedMultiTenant"/> and false everywhere else — a Windows install protects the
-    /// same ring with machine-scoped DPAPI, and <see cref="DeploymentKind.CloudBrowser"/> may still opt in by
-    /// setting <see cref="KeyRingProtectionCertificates.CertificatePathKey"/>.
+    /// <see cref="DeploymentKind.HostedMultiTenant"/> and false on <see cref="DeploymentKind.SelfHostedLan"/>,
+    /// which protects the same ring with machine-scoped DPAPI on the clinic's own Windows box.
     /// </summary>
     public static bool RequiresProtectingCertificate(DeploymentProfile profile) =>
         profile.Kind == DeploymentKind.HostedMultiTenant;
