@@ -1,68 +1,82 @@
 # ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# Builds the Windows client installer that « Mettre à jour maintenant » in the desktop shell downloads.
+# Releases the Windows desktop shell: builds it, packs a Velopack feed, and publishes that feed to the hosted
+# deployment. After this runs, every clinic PC updates itself silently — no download to find, no UAC, no clicks.
 #
-# ⚠️ WHY THIS EXISTS. Shipping a shell update used to require finding a Windows machine with the .NET SDK, Node,
-# PostgreSQL binaries and Inno Setup 6 on it, and hand-editing a version literal in three files. `packaging/`'s
-# own header says the installers are « committed-but-not-executed » — and the cost of that was measured: both
-# `.iss` files went months without a compile and the SERVER one had stopped building outright, so no clinic could
-# have been sent an update at all and nothing anywhere said so. A release is now a tag.
+# ⚠️ WHY THIS EXISTS. Shipping a shell update used to mean finding a Windows machine with the .NET SDK, Node,
+# PostgreSQL binaries and Inno Setup on it, hand-editing a version literal in three files, hosting a 49 MB
+# installer somewhere, and asking a dentist to run it and answer a UAC prompt. `packaging/`'s own header says the
+# installers are « committed-but-not-executed », and the cost of that was measured: both `.iss` files went months
+# without a compile and the SERVER one had stopped building outright — so no clinic could have been sent an
+# update at all, and nothing anywhere said so.
 #
-# ⚠️ THIS BUILDS THE CLIENT INSTALLER ONLY, and that is a deliberate scope rather than a shortcut. The server
-# installer bundles PostgreSQL 16 and a Node runtime — third-party payloads this workflow will not fabricate
-# (`publish-server.ps1` takes `-PostgresDir`/`-NodeDir` for exactly that reason) — and it is ~112 MB. The client
-# installer needs only the shell.
-#
-# ⚠️ WHAT THIS ARTIFACT IS FIT FOR: **updating a PC that already runs the shell**, which is what the shell's own
-# updater fetches. It bundles neither the WebView2 offline runtime nor the server's `ca.crt` (both are
-# `skipifsourcedoesntexist` in the `.iss`), because a machine being updated already has them from its first
-# install. A **first** install on a fresh PC still wants the operator build — see
-# `packaging/README.md` § « Shipping an update to installed clients ».
+# ⚠️ VELOPACK, NOT INNO. The shell installs per-user (`%LocalAppData%`) and updates through delta packages —
+# measured at **160 KB** against a 49 MB full installer, because a shell release changes one file out of 474.
+# Per-user is what removes the UAC prompt: elevation was never the updater's choice, it was `%ProgramFiles%`'s.
+# `packaging/client/clinic-client.iss` is kept for one job only — a FIRST install on an offline LAN, where the
+# certificate authority must be imported into the machine store and the WebView2 runtime bootstrapped, neither
+# of which a per-user setup can do.
 # ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-name: Client installer
+name: Client release
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (N.N.N). Overrides the tag. Leave empty on a tag push to use the tag's own version."
+        description: "Release version (N.N.N). Overrides everything else."
         required: false
         type: string
   push:
-    # A tag, never a branch: an installer per commit to `desktop/**` would be noise, and the version is a
-    # deliberate act (it is what the server's client floor is compared against).
+    # ⚠️ **A shell change landing on `main` IS a release.** This was tag-only, on the reasoning that a version is
+    # a deliberate act — but the act it was deliberate about was one nobody performed: the shell changed, no tag
+    # was pushed, and the update reached nobody. The version is derived and the tag written back by this workflow,
+    # so « deliberate » now means « merged to main », which is a decision somebody really does make.
+    #
+    # Path-filtered: only the shell and its release plumbing produce a client release. A change to `api/` or
+    # `web/` is delivered by `deploy-hosted.yml` and needs no new client — that is the point of a thin shell.
+    branches:
+      - main
+    paths:
+      - "desktop/**"
+      - ".github/workflows/client-installer.yml"
     tags:
       - "client-v*"
 
 permissions:
-  contents: read
+  # `write` because the job pushes the `client-v<version>` tag it just built, which is what makes the next
+  # version derivable. Nothing else here needs more than read.
+  contents: write
+
+# ⚠️ Two releases at once would derive the same next version, both tag it, and one would fail having already
+# published its feed. Serialised, and never cancelled mid-flight: a half-published feed is one whose manifest
+# names packages that are not there, which every client then fails against.
+concurrency:
+  group: client-release
+  cancel-in-progress: false
 
 jobs:
-  installer:
-    name: Build ClinicManagementClientSetup
-    # ⚠️ Windows is not a preference here: ISCC.exe is Windows-only, and the shell is `net8.0-windows` + WPF.
+  release:
+    name: Build + publish the client feed
+    # ⚠️ Windows is not a preference: `vpk` builds Windows setup bundles, and the shell is `net8.0-windows` + WPF.
     runs-on: windows-latest
 
     steps:
+      # `fetch-depth: 0` because the next version is derived from the newest existing `client-v*` tag, and a
+      # shallow clone carries none of them — the derivation would fall back to the .csproj on every run.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
 
-      # ⚠️ **THE TAG IS THE RELEASE.** `client-v1.1.0` builds 1.1.0 — the number is stamped into the shell
-      # assembly (`/p:Version`), into both installer filenames (`/DAppVersion`) and into the artifact name from
-      # that one place. Precedence is: a dispatch input, else the tag, else the shell .csproj.
+      # ⚠️ **THE RELEASE ACT CARRIES THE VERSION.** Precedence: a dispatch input, else the tag, else the newest
+      # `client-v*` tag with its patch bumped, else the shell `.csproj`.
       #
-      # Why the tag and not the .csproj, having started the other way round: the assembly version is what the
-      # server's client floor is compared against, so shipping new code under the version already installed is
-      # invisible — every PC compares equal, no strip appears, and the conclusion is « the updater is broken »
-      # rather than « nobody bumped a file ». Making the release act *be* the version removes the step there was
-      # to forget.
-      #
-      # ⚠️ The .csproj is still **rewritten in the workspace** (never committed) so the compiler, the installer
-      # and the artifact cannot disagree — and a mismatch is reported, because after this the .csproj value is a
-      # development default rather than a statement about any release, and a stale one should be visible.
-      # `Resolve-Version` still validates the shape: an unparseable floor value silently disables the floor.
+      # Why not the `.csproj` first, having started there: the *assembly* version is what a client reports and
+      # what the server's floor is compared against, so shipping new code under the version already installed is
+      # **invisible** — every PC compares equal, no update is offered, and the conclusion is « the updater is
+      # broken » rather than « nobody bumped a file ».
       - name: Resolve the version
         id: version
         shell: pwsh
@@ -74,31 +88,43 @@ jobs:
           $end = $src.IndexOf('$Version = Resolve-Version')
           Invoke-Expression $src.Substring($start, $end - $start)
 
-          # What the .csproj currently claims, for the mismatch note below.
           $declared = Resolve-Version '' $csproj
 
           $explicit = '${{ inputs.version }}'
           $origin = 'the dispatch input'
+
           if (-not $explicit -and '${{ github.ref_type }}' -eq 'tag') {
-            # client-v1.1.0 -> 1.1.0
             $explicit = '${{ github.ref_name }}' -replace '^client-v', ''
             $origin = "the tag ${{ github.ref_name }}"
           }
-          if (-not $explicit) {
-            $origin = 'the shell .csproj'
+
+          if (-not $explicit -and '${{ github.ref_type }}' -eq 'branch') {
+            # ⚠️ Patch and never minor/major: this runs unattended and must not invent a claim about the size of
+            # a change. A human bumps the minor by pushing `client-v1.3.0` by hand and the derivation continues
+            # from there. All that matters for an update to be SEEN is that the number is higher.
+            $tags = git tag --list 'client-v*' |
+                    ForEach-Object { $_ -replace '^client-v', '' } |
+                    Where-Object { $_ -match '^\d+\.\d+\.\d+$' } |
+                    ForEach-Object { [version]$_ } | Sort-Object
+            $latest = $tags | Select-Object -Last 1
+            if ($latest) {
+              $explicit = "$($latest.Major).$($latest.Minor).$($latest.Build + 1)"
+              $origin = "the newest tag client-v$latest, bumped"
+            }
+            else {
+              # No release has ever been tagged. Start from the .csproj rather than 0.0.1, so the first automatic
+              # release cannot come out BELOW a build somebody already installed by hand.
+              $explicit = $declared
+              $origin = "the shell .csproj (no client-v tag exists yet)"
+            }
           }
 
           $resolved = Resolve-Version $explicit $csproj
           "version=$resolved" >> $env:GITHUB_OUTPUT
-          Write-Host "Building version $resolved (from $origin)"
+          Write-Host "Releasing $resolved (from $origin)"
 
           if ($resolved -ne $declared) {
             "note=The shell .csproj declares $declared; this release is $resolved (from $origin)." >> $env:GITHUB_OUTPUT
-            Write-Warning "The shell .csproj declares <Version>$declared</Version> but this release is $resolved. Stamping $resolved."
-            # Rewritten in the workspace only, so `dotnet publish` and ISCC agree with the artifact's name.
-            $xml = Get-Content $csproj -Raw
-            $xml = $xml -replace '<Version>[^<]*</Version>', "<Version>$resolved</Version>"
-            Set-Content -LiteralPath $csproj -Value $xml -Encoding utf8
           }
           else {
             "note=" >> $env:GITHUB_OUTPUT
@@ -109,66 +135,152 @@ jobs:
         run: |
           dotnet publish desktop/ClinicManagement.DesktopShell/ClinicManagement.DesktopShell.csproj `
             -c Release -r win-x64 --self-contained true `
-            /p:UseAppHost=true `
-            /p:Version=${{ steps.version.outputs.version }} `
-            -o packaging/build-output/client/shell
+            -p:UseAppHost=true `
+            -p:Version=${{ steps.version.outputs.version }} `
+            -o build/shell
           if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
-      # The `.iss` comment traps this repo has already paid for twice — cheap, and it fails before the 4-minute
-      # compile rather than after it.
-      - name: Lint the .iss comments
-        shell: pwsh
-        run: node packaging/lint-iss.mjs
-
-      - name: Install Inno Setup 6
-        shell: pwsh
-        run: choco install innosetup --no-progress -y
-
-      - name: Compile the installer
+      # ⚠️ **The previous release is fetched before packing, and that is what makes deltas exist at all.** `vpk`
+      # builds a delta by diffing against the releases already in its output directory; with an empty directory
+      # every release is a full 71 MB package, which is the behaviour this whole change removed. The feed on the
+      # server is the only copy of that history, so it is pulled back here.
+      #
+      # Absent (the very first release, or an unreachable server) is fine: pack then produces a full package, and
+      # this step is `continue-on-error` so a network blip degrades the release rather than failing it.
+      - name: Fetch the current feed, so this release can be a delta
+        if: ${{ vars.DEPLOY_DOMAIN != '' }}
+        continue-on-error: true
         shell: pwsh
         run: |
-          $iscc = @(
-            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
-          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $iscc) { throw "ISCC.exe not found after installing Inno Setup" }
+          New-Item -ItemType Directory -Force -Path build/releases | Out-Null
+          $base = "https://${{ vars.DEPLOY_DOMAIN }}/api/meta/client-feed"
 
-          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" "packaging/client/clinic-client.iss"
-          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+          try {
+            $manifest = Invoke-RestMethod -Uri "$base/releases.win.json" -TimeoutSec 30
+          }
+          catch {
+            Write-Host "No feed published yet - this release will be a full package."
+            exit 0
+          }
 
-      # ⚠️ The SHA-256 is printed and attached, because the shell verifies the download against the hash the
-      # server publishes and an operator hosting this file themselves has to be able to state it. Where the
-      # clinic server serves its own bundled copy the hash is computed from the bytes instead — see
-      # `ClientUpdatePackage`.
+          # Only the FULL packages are delta bases; pulling old deltas back would be wasted bandwidth.
+          $names = $manifest.Assets | Where-Object { $_.Type -eq 'Full' } |
+                   Select-Object -ExpandProperty FileName -Unique
+          foreach ($name in $names) {
+            Write-Host "fetching $name"
+            Invoke-WebRequest -Uri "$base/$name" -OutFile "build/releases/$name" -TimeoutSec 900
+          }
+
+      - name: Install vpk
+        shell: pwsh
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      - name: Pack the Velopack release
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/releases | Out-Null
+          vpk pack `
+            --packId APEXA `
+            --packTitle APEXA `
+            --packVersion ${{ steps.version.outputs.version }} `
+            --packDir build/shell `
+            --mainExe ClinicManagement.DesktopShell.exe `
+            --outputDir build/releases
+          if ($LASTEXITCODE -ne 0) { throw "vpk pack failed" }
+
       - name: Report what was built
         id: report
         shell: pwsh
         run: |
-          $exe = Get-ChildItem packaging/build-output/ClinicManagementClientSetup-*.exe |
-                 Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if (-not $exe) { throw "No installer was produced" }
+          $files = Get-ChildItem build/releases | Sort-Object Name
+          $delta = $files | Where-Object { $_.Name -like "*-${{ steps.version.outputs.version }}-delta.nupkg" }
 
-          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash
-          $mb = [math]::Round($exe.Length / 1MB, 1)
-
-          "## Client installer $($exe.Name)"                       >> $env:GITHUB_STEP_SUMMARY
-          ""                                                        >> $env:GITHUB_STEP_SUMMARY
-          "| | |"                                                   >> $env:GITHUB_STEP_SUMMARY
-          "|---|---|"                                               >> $env:GITHUB_STEP_SUMMARY
-          "| Version | ``${{ steps.version.outputs.version }}`` |"  >> $env:GITHUB_STEP_SUMMARY
-          "| Size | $mb MB |"                                       >> $env:GITHUB_STEP_SUMMARY
-          "| SHA-256 | ``$hash`` |"                                 >> $env:GITHUB_STEP_SUMMARY
-          ""                                                        >> $env:GITHUB_STEP_SUMMARY
-          if ('${{ steps.version.outputs.note }}') {
-            "> [!NOTE]"                                             >> $env:GITHUB_STEP_SUMMARY
-            "> ${{ steps.version.outputs.note }}"                    >> $env:GITHUB_STEP_SUMMARY
-            ""                                                      >> $env:GITHUB_STEP_SUMMARY
+          "## APEXA ${{ steps.version.outputs.version }}" >> $env:GITHUB_STEP_SUMMARY
+          ""                                              >> $env:GITHUB_STEP_SUMMARY
+          if ($delta) {
+            "Clients download **$([math]::Round($delta.Length/1KB,0)) KB** (delta)." >> $env:GITHUB_STEP_SUMMARY
           }
-          "Fit for **updating** an existing install. A first install on a fresh PC wants the operator build (no WebView2 runtime or ``ca.crt`` is bundled here)." >> $env:GITHUB_STEP_SUMMARY
+          else {
+            "No delta for this release - clients download the full package." >> $env:GITHUB_STEP_SUMMARY
+          }
+          ""                                              >> $env:GITHUB_STEP_SUMMARY
+          "| File | Size |"                               >> $env:GITHUB_STEP_SUMMARY
+          "|---|---|"                                     >> $env:GITHUB_STEP_SUMMARY
+          foreach ($f in $files) {
+            "| ``$($f.Name)`` | $([math]::Round($f.Length/1MB,2)) MB |" >> $env:GITHUB_STEP_SUMMARY
+          }
+          if ('${{ steps.version.outputs.note }}') {
+            ""                                            >> $env:GITHUB_STEP_SUMMARY
+            "> [!NOTE]"                                   >> $env:GITHUB_STEP_SUMMARY
+            "> ${{ steps.version.outputs.note }}"          >> $env:GITHUB_STEP_SUMMARY
+          }
+
+      # ⚠️ **The publish is what makes any of this reach a clinic.** A built feed nobody can fetch updates nothing,
+      # and that is exactly where the pipeline used to stop.
+      #
+      # ⚠️ It copies files and does NOT touch the running stack: the API reads that folder per request, so no
+      # restart is needed — and a release workflow able to `docker compose up` against production is a blast
+      # radius this does not need.
+      #
+      # ⚠️ **Order matters: packages first, manifests LAST.** A client reading a manifest that names a package
+      # still in flight fails the update; the reverse — packages present, manifest not yet replaced — is simply
+      # « no update yet », which is safe. That is the only reason this is a loop rather than one `scp` of a folder.
+      - name: Publish the feed to the hosted deployment
+        if: ${{ vars.VPS_HOST != '' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ~/.ssh | Out-Null
+          '${{ secrets.VPS_SSH_KEY }}'         | Set-Content ~/.ssh/id_deploy
+          '${{ secrets.VPS_SSH_KNOWN_HOSTS }}' | Set-Content ~/.ssh/known_hosts
+          if ((Get-Item ~/.ssh/known_hosts).Length -eq 0) {
+            throw "VPS_SSH_KNOWN_HOSTS is empty - refusing to publish without a pinned host key."
+          }
+
+          # StrictHostKeyChecking stays ON: this publishes code a clinic's PCs will execute.
+          $opts = @(
+            '-i', "$HOME/.ssh/id_deploy",
+            '-o', 'IdentitiesOnly=yes',
+            '-o', 'StrictHostKeyChecking=yes',
+            '-o', 'BatchMode=yes'
+          )
+          $dest = "${{ vars.VPS_USER }}@${{ vars.VPS_HOST }}:${{ vars.VPS_DEPLOY_DIR }}/updates/"
+
+          $manifests = @('RELEASES', 'releases.win.json', 'assets.win.json')
+          $packages = Get-ChildItem build/releases | Where-Object { $manifests -notcontains $_.Name }
+
+          foreach ($f in $packages) {
+            Write-Host "uploading $($f.Name)"
+            & scp @opts $f.FullName $dest
+            if ($LASTEXITCODE -ne 0) { throw "scp failed for $($f.Name)" }
+          }
+
+          foreach ($name in $manifests) {
+            $p = "build/releases/$name"
+            if (Test-Path $p) {
+              Write-Host "uploading $name (last, deliberately)"
+              & scp @opts $p $dest
+              if ($LASTEXITCODE -ne 0) { throw "scp failed for $name" }
+            }
+          }
+
+      # ⚠️ Written LAST, and only on the branch path: the tag is what the next run derives from, so writing it
+      # before the feed was published would burn a version on a failed release and leave a permanent gap.
+      - name: Tag this release
+        if: ${{ github.ref_type == 'branch' && github.ref_name == 'main' }}
+        shell: pwsh
+        run: |
+          $tag = "client-v${{ steps.version.outputs.version }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # An existing tag means this version was released before. Fail rather than move it: a moved release tag
+          # makes the derivation lie about what is installed out in the field.
+          if (git tag --list $tag) { throw "$tag already exists. Push a higher client-v tag by hand to re-release." }
+          git tag $tag
+          git push origin $tag
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ClinicManagementClientSetup-${{ steps.version.outputs.version }}
-          path: packaging/build-output/ClinicManagementClientSetup-*.exe
+          name: APEXA-${{ steps.version.outputs.version }}
+          path: build/releases/*
           if-no-files-found: error
           retention-days: 90

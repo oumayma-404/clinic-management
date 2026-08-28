@@ -102,6 +102,17 @@ public class ControllerAuthorizationCoverageTests
                                      // {app}\updates, matched by name and version. It takes no path, no id and
                                      // no query, so it cannot be steered at anything else, and it is the same
                                      // installer the clinic already ran to get the shell it is using.
+        "Meta.ClientFeed",           // one file out of the Velopack update feed — how the desktop shell updates
+                                     // itself per-user, silently, with delta packages and no elevation.
+                                     // Anonymous and floor-exempt for the same reason as its two neighbours, and
+                                     // this is the one a below-floor shell RECOVERS through: refusing it with the
+                                     // same 426 that sent the shell here would make the instruction unfollowable.
+                                     // ⚠️ It serves files out of a folder by a name taken from the URL, and the
+                                     // file is EXECUTED on a clinic PC — so the name is validated, never
+                                     // sanitised, and the combined path is re-checked to be inside that folder.
+                                     // `MetaClientUpdateTests` holds it, including the one assertion that goes
+                                     // red when the defences are removed (and which found that the load-bearing
+                                     // one is `GetInvalidFileNameChars`, not the `..` check).
         "GoogleCalendar.Callback",   // OAuth browser redirect back from Google — cannot carry a bearer
 
         // --- Meta's template-status webhook (vendor-whatsapp-messaging-quota FR-7a). ---

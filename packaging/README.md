@@ -418,6 +418,16 @@ the shell in place (auto-update is out of scope).
 
 ## Shipping an update to installed clients
 
+⚠️ **Read this section's first three paragraphs and then stop, unless you are doing a FIRST install on an
+offline LAN.** Updates are automatic now: a `desktop/**` change merged to `main` is built, packed as a
+**Velopack** feed and published to the hosted deployment by `.github/workflows/client-installer.yml`, and
+every PC applies a ~160 KB delta silently on its next launch. `deploy/README.md` §
+« Mettre à jour l'application Windows » is the operator page for that. What follows is the **Inno** path,
+which now serves exactly one purpose: the first install on a clinic's own LAN, where the certificate
+authority must be imported into the machine store and the WebView2 runtime bootstrapped — both need
+elevation, and neither is something a per-user setup can do.
+
+
 **Most updates never touch a staff PC.** The shell is a thin WebView2 viewer pointed at the clinic server's
 front door: the UI and the API live on the server. Re-run the **server** installer on the clinic's server
 machine and every desk gets the new app on its next load. You rebuild the *client* installer only when the
@@ -469,8 +479,11 @@ cd packaging
 .\publish-server.ps1 -PostgresDir <...> -NodeDir <...>     # prints « Building version x.y.z »
 ```
 
-⚠️ It now compiles the **client installer first** and stages it into the server payload, so the server installer
-carries the matching client setup into `{app}\updates` — see step 3.
+⚠️ It compiles the **client installer first** and stages it into the server payload, then — if `vpk` is on
+the machine (`dotnet tool install -g vpk`) — packs the **Velopack feed** beside it. So `{app}\updates` ends
+up holding both: the Inno setup for a first install, and the feed every update after that comes through.
+A missing `vpk` is a warning rather than a failure; the server is still correct, its clients just do not
+self-update until a feed is published.
 
 Out come `build-output\ClinicManagementServerSetup-<version>.exe` and `…ClientSetup-<version>.exe`.
 

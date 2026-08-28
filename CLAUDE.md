@@ -72,9 +72,11 @@ clinic-management/
 ├── backend/                      EMPTY (only .idea/) — ignore
 ├── .github/workflows/            ci.yml = the api · web · desktop · android gate (see below)
 │                                   ios-shell.yml = the iOS shell's only compiler, path-filtered (billed macOS runner)
-│                                   client-installer.yml = the Windows shell's release build (`windows-latest`, ISCC via
-│                                                       choco), on `client-v*` tags or dispatch. Produces the setup the
-│                                                       shell's own « Mettre à jour maintenant » downloads
+│                                   client-installer.yml = « Client release ». On a `desktop/**` change landing on main
+│                                                       (or a `client-v*` tag): builds the shell, packs a **Velopack**
+│                                                       feed with `vpk`, scp's it to the VPS's `deploy/updates/`, and
+│                                                       tags the release. Clients then self-update silently — per-user,
+│                                                       delta (~160 KB), no UAC. `windows-latest`; `contents: write`
 │                                   deploy-hosted.yml = `workflow_dispatch` deploy to a VPS: build the three heavy
 │                                                       images → GHCR → ssh `pull` + `up -d --no-build` → /health →
 │                                                       verify-schema. Builds THROUGH compose, so `web`'s build args
