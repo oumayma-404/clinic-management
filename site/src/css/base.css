@@ -143,15 +143,15 @@ p { text-wrap: pretty; }
 }
 
 .btn-ghost { background: transparent; color: var(--text); border: 1px solid #d4d4d1; }
-.on-ink .btn-ghost { color: var(--on-ink); border-color: #3a5b7d; }
+.on-ink .btn-ghost { color: var(--on-ink); border-color: #5B7FC0; }
 .btn-dark { background: var(--ink); color: var(--on-ink); }
 
 /* Hover is gated: a touch device fires :hover on tap, and a state that sticks
    after a tap reads as a bug. */
 @media (hover: hover) and (pointer: fine) {
-  .btn-primary:hover { background: var(--accent-hi); box-shadow: 0 6px 20px -6px rgb(45 212 191 / 0.5); }
+  .btn-primary:hover { background: var(--accent-hi); box-shadow: 0 6px 20px -6px rgb(47 198 224 / 0.5); }
   .btn-ghost:hover { background: var(--paper); border-color: #bcbcb8; }
-  .on-ink .btn-ghost:hover { background: #1b3049; border-color: #557eab; }
+  .on-ink .btn-ghost:hover { background: #1F4A8C; border-color: #7A9AD4; }
   .btn-dark:hover { background: var(--ink-2); }
 }
 

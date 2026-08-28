@@ -28,11 +28,17 @@
 
 .topbar-in { display: flex; align-items: center; gap: clamp(0.75rem, 0.1rem + 1.8vw, 2rem); height: 4.5rem; }
 
+/* The lockup is the plate + the word, and BOTH are drawn, not set: `.brand` carries no type at all
+   any more. Its `color` is still what matters, because the word's stroke is `currentColor` — that
+   is the whole mechanism by which `.stuck .brand` below flips the word to dark on a light bar. */
 .brand {
-  display: inline-flex; align-items: center; gap: 0.5625rem; min-width: 0;
-  /* The wordmark's own box is 28px tall; a finger needs 44. */
+  display: inline-flex; align-items: center; gap: 0.42em; min-width: 0;
+  /* The lockup's own box is 28px tall; a finger needs 44. */
   min-height: 2.75rem;
-  font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.035em;
+  /* 0.42em of a 1.0625rem em-box ≈ 7px — the Λ↔A gap in the horizontal lockup measures 0.43× the
+     cap height, and holding that ratio is what makes the plate and the word read as ONE name
+     rather than as an icon standing next to a word. font-size survives only to define that em. */
+  font-size: 1.0625rem;
   color: var(--on-ink); text-decoration: none; white-space: nowrap;
 }
 .brand .mark {
@@ -45,6 +51,10 @@
    viewBox (it spans 50.8% of 512), so sizing the svg below the plate insets it twice and the
    mark renders as a speck in a coloured square. */
 .brand .mark svg { width: 100%; height: 100%; }
+/* The word is sized off its OWN box, not the plate's: at 0.95rem the 70-unit cap height lands at
+   ~13.5px beside a 28px plate, which is the proportion the delivered lockup has. `width: auto`
+   keeps the aspect from the viewBox — never set both, or the letterforms shear. */
+.brand .word { flex: none; height: 0.95rem; width: auto; }
 .stuck .brand, .on-light .brand { color: var(--text); }
 
 .nav { display: none; align-items: center; gap: 0.125rem; margin-inline-start: 0.25rem; }
@@ -68,7 +78,7 @@
 .topbar-cta .btn-ghost { display: none; }
 /* The bar is not inside .on-ink, so its transparent state styles itself —
    otherwise the ghost button renders dark-on-dark and reads as disabled. */
-.topbar:not(.stuck):not(.on-light) .btn-ghost { color: var(--on-ink); border-color: #3a5b7d; }
+.topbar:not(.stuck):not(.on-light) .btn-ghost { color: var(--on-ink); border-color: #5B7FC0; }
 .topbar:not(.stuck):not(.on-light) .btn-ghost:hover { background: #2b4a70; border-color: #6a8fbb; }
 .stuck .btn-ghost, .on-light .btn-ghost { color: var(--text); border-color: #d4d4d1; }
 
@@ -183,7 +193,7 @@
     var(--stage-base, var(--paper));
 }
 .stage--ink {
-  --stage-base: #254768;
+  --stage-base: #3067BC;
   color: var(--on-ink);
   border: 1px solid var(--rule-ink);
 }
@@ -635,7 +645,7 @@
      and they could not be read. */
   background:
     linear-gradient(180deg, rgb(14 27 42 / 0.90) 0%, rgb(14 27 42 / 0.93) 50%, rgb(14 27 42 / 0.97) 100%),
-    linear-gradient(140deg, rgb(45 212 191 / 0.20), transparent 58%);
+    linear-gradient(140deg, rgb(47 198 224 / 0.20), transparent 58%);
 }
 .photo-card h3 { font-weight: 500; margin-bottom: 0.75rem; }
 .photo-card p { color: var(--on-ink-muted); font-size: var(--t-small); }
@@ -647,7 +657,7 @@
   content: ""; position: absolute; inset: 0; z-index: -1;
   background:
     linear-gradient(180deg, rgb(14 27 42 / 0.90), rgb(14 27 42 / 0.96)),
-    linear-gradient(120deg, rgb(45 212 191 / 0.16), transparent 60%);
+    linear-gradient(120deg, rgb(47 198 224 / 0.16), transparent 60%);
 }
 
 /* The hero stage carries a photograph behind the app rather than flat ink.
@@ -666,7 +676,7 @@
   content: ""; position: absolute; inset: 0; z-index: 1;
   background:
     linear-gradient(160deg, rgb(14 27 42 / 0.58) 0%, rgb(14 27 42 / 0.30) 38%, rgb(14 27 42 / 0.86) 100%),
-    linear-gradient(200deg, rgb(45 212 191 / 0.22), transparent 58%);
+    linear-gradient(200deg, rgb(47 198 224 / 0.22), transparent 58%);
 }
 .stage--photo > .stage-shot, .stage--photo > .chip { z-index: 3; }
 .stage--photo > .stage-shot, .stage--photo > .chip, .stage--photo > .stage-copy { position: relative; }
@@ -786,7 +796,7 @@
   border: 1px solid var(--rule-ink);
   background:
     radial-gradient(92% 105% at 88% -10%, color-mix(in oklab, var(--zc, var(--accent)) 34%, transparent), transparent 70%),
-    #254768;
+    #3067BC;
 }
 
 /* ⚠️ WHOLE screens, not fragments. An earlier pass cropped into each shot so
@@ -1169,7 +1179,7 @@
   padding: clamp(1.5rem, 1rem + 2.6vw, 3rem);
   overflow: hidden;
   background:
-    radial-gradient(72% 96% at 3% -10%, rgb(45 212 191 / 0.20), transparent 62%),
+    radial-gradient(72% 96% at 3% -10%, rgb(47 198 224 / 0.20), transparent 62%),
     radial-gradient(78% 108% at 97% 110%, rgb(2 132 199 / 0.18), transparent 64%),
     var(--ink);
 }
@@ -1237,7 +1247,7 @@
   content: ""; position: absolute; left: 50%; bottom: -0.21875rem;
   width: 0.4375rem; height: 0.4375rem; margin-left: -0.21875rem;
   border-radius: 50%; background: var(--accent);
-  box-shadow: 0 0 0 4px rgb(45 212 191 / 0.16);
+  box-shadow: 0 0 0 4px rgb(47 198 224 / 0.16);
 }
 @media (min-width: 48rem) {
   .bc-merge { display: block; }
@@ -1251,7 +1261,7 @@
   border-radius: var(--r-med);
   background: var(--page);
   color: var(--text);
-  box-shadow: 0 2px 8px rgb(9 9 11 / 0.18), 0 26px 60px -28px rgb(45 212 191 / 0.45);
+  box-shadow: 0 2px 8px rgb(9 9 11 / 0.18), 0 26px 60px -28px rgb(47 198 224 / 0.45);
 }
 .bc-one__k {
   display: flex; align-items: center; gap: 0.375rem;
@@ -1290,7 +1300,7 @@
     radial-gradient(58% 128% at 50% 46%,
       rgb(14 27 42 / 0.955) 0%, rgb(14 27 42 / 0.93) 40%,
       rgb(14 27 42 / 0.74) 78%, rgb(14 27 42 / 0.52) 100%),
-    linear-gradient(122deg, rgb(45 212 191 / 0.16), transparent 56%);
+    linear-gradient(122deg, rgb(47 198 224 / 0.16), transparent 56%);
 }
 @media (max-width: 47.99rem) {
   /* Narrow: the measure spans the whole band, so the picture cannot be let
@@ -1301,7 +1311,7 @@
       linear-gradient(180deg,
         rgb(14 27 42 / 0.62) 0%, rgb(14 27 42 / 0.92) 19%,
         rgb(14 27 42 / 0.93) 82%, rgb(14 27 42 / 0.64) 100%),
-      linear-gradient(122deg, rgb(45 212 191 / 0.16), transparent 56%);
+      linear-gradient(122deg, rgb(47 198 224 / 0.16), transparent 56%);
   }
   .bc-close__photo { object-position: 50% 50%; }
 }
@@ -1337,7 +1347,7 @@
 .mob::before {
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
   background:
-    radial-gradient(58% 46% at 50% 78%, rgb(45 212 191 / 0.20), transparent 72%),
+    radial-gradient(58% 46% at 50% 78%, rgb(47 198 224 / 0.20), transparent 72%),
     radial-gradient(46% 38% at 90% 2%, rgb(2 132 199 / 0.20), transparent 74%);
 }
 
@@ -1355,7 +1365,7 @@
   width: min(44rem, 96%); aspect-ratio: 16 / 11;
   transform: translateX(-50%);
   border-radius: 50%;
-  background: radial-gradient(closest-side, rgb(45 212 191 / 0.20), transparent 76%);
+  background: radial-gradient(closest-side, rgb(47 198 224 / 0.20), transparent 76%);
 }
 
 .mob-phone {
@@ -1383,10 +1393,10 @@
    dark: a light bar on a dark band reads as a rendering fault, not a button. */
 .mob-frame::before, .mob-frame::after {
   content: ""; position: absolute; width: 0.1563rem; border-radius: 0.1563rem;
-  background: linear-gradient(#3b587c, #1d3453);
+  background: linear-gradient(#5382CA, #1F4A8C);
 }
 .mob-frame::before { left: -0.0313rem; top: 21%; height: 17%;
-  background: linear-gradient(#3b587c 0 42%, transparent 42% 58%, #3b587c 58% 100%); }
+  background: linear-gradient(#5382CA 0 42%, transparent 42% 58%, #5382CA 58% 100%); }
 .mob-frame::after  { right: -0.0313rem; top: 27%; height: 11%; }
 
 .mob-screen {
@@ -1903,7 +1913,7 @@
   content: ""; position: absolute; inset: 0;
   background:
     linear-gradient(180deg, rgb(14 27 42 / 0) 48%, rgb(14 27 42 / 0.5) 78%, var(--ink) 100%),
-    linear-gradient(115deg, rgb(45 212 191 / 0.16), transparent 62%);
+    linear-gradient(115deg, rgb(47 198 224 / 0.16), transparent 62%);
 }
 .fq-card-body { display: grid; gap: 0.625rem; padding: clamp(1.125rem, 0.8rem + 1.2vw, 1.5rem); }
 .fq-card-k {
@@ -1937,7 +1947,7 @@
 }
 .fq-mail-s { display: block; font-size: 0.8125rem; color: var(--on-ink-muted); }
 @media (hover: hover) and (pointer: fine) {
-  .fq-mail:hover { background: rgb(255 255 255 / 0.1); border-color: #557eab; }
+  .fq-mail:hover { background: rgb(255 255 255 / 0.1); border-color: #7A9AD4; }
   .fq-mail:hover .fq-mail-ico { transform: scale(1.06) rotate(-4deg); }
 }
 .fq-card-s { font-size: 0.9375rem; color: var(--on-ink-muted); }
@@ -2222,7 +2232,7 @@
   color: var(--on-ink);
   background:
     radial-gradient(88% 100% at 92% -8%, color-mix(in oklab, var(--zc, var(--accent)) 32%, transparent), transparent 68%),
-    #254768;
+    #3067BC;
   /* A hairline of light where the two materials meet, so the seam reads as a
      join rather than as two boxes that happen to touch. */
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
@@ -2754,9 +2764,9 @@
 /* The second tab is the answer, so when it is the one showing the whole
    header takes the software's ground and the flip reads as a change of
    world rather than as a tab. */
-.jour-shot--jd[data-flip="1"] .jd-switch { background: #1d3453; border-bottom-color: var(--rule-ink); }
+.jour-shot--jd[data-flip="1"] .jd-switch { background: #1F4A8C; border-bottom-color: var(--rule-ink); }
 .jour-shot--jd[data-flip="1"] .jd-switch button { color: var(--on-ink-faint); }
-.jour-shot--jd[data-flip="1"] .jd-switch button[aria-pressed="true"] { color: var(--on-ink); background: #254768; }
+.jour-shot--jd[data-flip="1"] .jd-switch button[aria-pressed="true"] { color: var(--on-ink); background: #3067BC; }
 
 /* ── 28b · The two chart bodies and the leftovers ─────────────────────────
    `.jd-chart-p` exists so the marks position against the TEETH and not against
@@ -2844,7 +2854,7 @@
   display: grid; gap: 0.5em;
   padding: 1.1em 0.75em 0.9em;
   border-radius: 1.6em;
-  background: #254768;
+  background: #3067BC;
 }
 .jd-ph-top { padding-bottom: 0.5em; }
 .jd-ph-row { padding: 0.15em 0; }
@@ -5690,11 +5700,14 @@
   padding: clamp(0.75rem, 0.55rem + 0.7vw, 1.0625rem);
   border: 1px solid var(--rule-ink);
   border-radius: var(--r-med);
+  /* Three layers, and the order is the point. The zone wash stays ON TOP so
+     azure and violet still tell the two panes apart — the diagonal underneath
+     lights the card without flattening that difference into one blue. */
   background:
     radial-gradient(92% 130% at 90% -12%,
       color-mix(in oklab, var(--zcl, var(--accent-lit)) 15%, transparent),
       transparent 68%),
-    var(--ink-2);
+    var(--ink-lift);
   box-shadow: inset 0 1px 0 color-mix(in oklab, var(--on-ink) 7%, transparent);
   color: var(--on-ink);
   font-size: clamp(0.6875rem, 0.52rem + 1.5cqi, 0.875rem);
