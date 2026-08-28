@@ -51,6 +51,12 @@ public class BackupController : ApiControllerBase
     public const string ArchiveStepUpAction = "download-clinic-archive";
 
     /// <summary>
+    /// Where an unattended copy's device grant travels (<c>clinic-archive-auto-copy</c>). A header for
+    /// <see cref="StepUpHeader"/>'s reason, and more so: this one is long-lived.
+    /// </summary>
+    public const string ArchiveGrantHeader = "X-Archive-Grant";
+
+    /// <summary>
     /// And the restore's — a <b>different</b> action, so one confirmation cannot authorise the other. They are
     /// opposite operations on the same records, and a token good for both would let « je vais télécharger une
     /// copie » become « j'ai écrasé le cabinet » on one click.
@@ -61,6 +67,7 @@ public class BackupController : ApiControllerBase
     private readonly DeploymentProfile _deployment;
     private readonly IConfiguration _configuration;
     private readonly IStepUpConfirmations _stepUp;
+    private readonly IArchiveGrantAuthorizer _grants;
     private readonly IClinicContext _clinicContext;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<BackupController> _logger;
@@ -70,6 +77,7 @@ public class BackupController : ApiControllerBase
         DeploymentProfile deployment,
         IConfiguration configuration,
         IStepUpConfirmations stepUp,
+        IArchiveGrantAuthorizer grants,
         IClinicContext clinicContext,
         IServiceScopeFactory scopeFactory,
         ILogger<BackupController> logger)
@@ -78,6 +86,7 @@ public class BackupController : ApiControllerBase
         _deployment = deployment;
         _configuration = configuration;
         _stepUp = stepUp;
+        _grants = grants;
         _clinicContext = clinicContext;
         _scopeFactory = scopeFactory;
         _logger = logger;
@@ -183,6 +192,80 @@ public class BackupController : ApiControllerBase
         }
 
         return Ok(result.Value);
+    }
+
+    /// <summary>Which machines may pull this cabinet's archive unattended (<c>clinic-archive-auto-copy</c>).</summary>
+    [HttpGet("archive-grants")]
+    public async Task<ActionResult<IReadOnlyList<ArchiveGrantDto>>> ListArchiveGrants(
+        CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new ListArchiveGrantsQuery(), cancellationToken);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Authorises one machine. The response is the only place its secret ever appears (AC-2).
+    ///
+    /// <para>⚠️ <b>No step-up here, deliberately.</b> Issuing a grant is an ordinary admin action taken by somebody
+    /// already signed in and looking at the screen; it is the *unattended* use of the result that the step-up would
+    /// have covered, and that is exactly what this feature is for.</para>
+    /// </summary>
+    [HttpPost("archive-grants")]
+    public async Task<ActionResult<IssuedArchiveGrantDto>> IssueArchiveGrant(
+        [FromBody] IssueArchiveGrantCommand command, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(command, cancellationToken);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Revokes one. Takes effect on the next request (AC-3).</summary>
+    [HttpDelete("archive-grants/{id:guid}")]
+    public async Task<IActionResult> RevokeArchiveGrant(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new RevokeArchiveGrantCommand { GrantId = id }, cancellationToken);
+
+        return result.IsFailure ? HandleFailure(result) : NoContent();
+    }
+
+    /// <summary>
+    /// Exchanges a device grant for an ordinary short-lived access token.
+    ///
+    /// <para>⚠️ <b>Anonymous, and it is the one door this feature opens.</b> A scheduled copy has no session, so
+    /// there is nothing for the <c>AdminOnly</c> policy above to read — which is why the grant buys a *normal*
+    /// token instead of becoming a second way past every downstream check. After this call the shell is
+    /// indistinguishable from the admin who issued the grant, so `IClinicContext`, the tenant filter, the access
+    /// ledger and the `LastArchiveDownloadedAtUtc` stamp all work with no knowledge of this path.</para>
+    ///
+    /// <para>⚠️ One refusal for unknown, revoked, and an issuing account since deactivated or demoted — a caller
+    /// learns nothing about which grants exist (AC-3).</para>
+    /// </summary>
+    [HttpPost("archive-grants/token")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.ArchivePolicy)]
+    [AllowsWithoutSubscription(
+        "A cabinet must always be able to take its own data out (AC-8, the AC-4.2 argument) — and an unattended "
+        + "copy is the one path with nobody present to be told why it stopped.")]
+    public async Task<ActionResult<ArchiveGrantTokenDto>> ExchangeArchiveGrant(
+        [FromHeader(Name = ArchiveGrantHeader)] string? grant,
+        [FromServices] IUserRepository users,
+        [FromServices] ILocalAuthService auth,
+        CancellationToken cancellationToken)
+    {
+        var principal = await _grants.AuthorizeAsync(grant, cancellationToken);
+        if (principal == null)
+        {
+            return Failure("Ce poste n'est pas autorisé.", StatusCodes.Status403Forbidden);
+        }
+
+        var issuer = await users.GetByIdAsync(principal.UserId, cancellationToken);
+        if (issuer == null)
+        {
+            return Failure("Ce poste n'est pas autorisé.", StatusCodes.Status403Forbidden);
+        }
+
+        var token = auth.GenerateToken(issuer);
+        return Ok(new ArchiveGrantTokenDto(token.AccessToken, token.ExpiresAtUtc));
     }
 
     /// <summary>

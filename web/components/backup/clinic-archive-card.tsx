@@ -23,6 +23,7 @@ import {
 import { securityApi } from "@/lib/api/security"
 import { StepUpDialog } from "@/components/security/step-up-dialog"
 import { RecoveryPointsList } from "@/components/backup/recovery-points-list"
+import { ArchiveGrantsCard } from "@/components/backup/archive-grants-card"
 import { downloadBlob } from "@/lib/download"
 import { showErrorToast } from "@/lib/errors"
 import { formatDateTime, todayLocalIso } from "@/lib/format"
@@ -377,6 +378,11 @@ export function ClinicArchiveCard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* `clinic-archive-auto-copy` — LAST, and deliberately below the manual download it automates. Somebody
+          opening this card is usually taking a copy now; authorising a machine to do it on a schedule is the
+          rarer, more deliberate decision, and putting it above would push the button they came for down. */}
+      <ArchiveGrantsCard />
 
       {/* FR-4.3 — the password (or a current code) immediately before either action. One dialog, two actions:
           the token it mints names the action it was minted for, so neither can authorise the other. */}

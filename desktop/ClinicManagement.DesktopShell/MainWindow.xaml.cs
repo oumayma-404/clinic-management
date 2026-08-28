@@ -193,6 +193,7 @@ public partial class MainWindow : Window
         if (e.IsSuccess)
         {
             ShowWebView();
+            RunArchiveCopyIfDue();
         }
         else
         {
@@ -298,12 +299,64 @@ public partial class MainWindow : Window
             "Changer de serveur…", iconStream: null, CoreWebView2ContextMenuItemKind.Command);
         changeServer.CustomItemSelected += (_, _) => ShowServerConfig();
 
+        // clinic-archive-auto-copy. Here rather than in the app's own Paramètres because the folder and the
+        // schedule are facts about THIS machine, which a web page can neither pick nor know.
+        var archiveCopy = environment.CreateContextMenuItem(
+            "Copie automatique de l'archive…", iconStream: null, CoreWebView2ContextMenuItemKind.Command);
+        archiveCopy.CustomItemSelected += (_, _) => ShowArchiveCopySettings();
+
         var separator = environment.CreateContextMenuItem(
             string.Empty, iconStream: null, CoreWebView2ContextMenuItemKind.Separator);
 
         e.MenuItems.Insert(0, reload);
         e.MenuItems.Insert(1, changeServer);
-        e.MenuItems.Insert(2, separator);
+        e.MenuItems.Insert(2, archiveCopy);
+        e.MenuItems.Insert(3, separator);
+    }
+
+    // ---- Automatic archive copy (clinic-archive-auto-copy) --------------------------------------
+
+    private bool _archiveCopyChecked;
+
+    private void ShowArchiveCopySettings()
+    {
+        new ArchiveCopyWindow(_config) { Owner = this }.ShowDialog();
+    }
+
+    /// <summary>
+    /// Takes a copy if one is owed, on the first successful load of this session.
+    ///
+    /// <para>⚠️ <b>Fire-and-forget, and silent on failure by design.</b> It runs behind a clinic's day; a modal
+    /// or a toast about a backup would interrupt a consultation for something nobody asked for right then. A
+    /// failure is surfaced where it can be acted on — « Copie automatique de l'archive… », which shows the
+    /// outcome of a copy run there — and the server keeps nagging through « aucune archive n'est sortie »
+    /// until one actually lands, so a silently failing schedule cannot look healthy.</para>
+    ///
+    /// <para>⚠️ <b>Once per session</b> (`_archiveCopyChecked`): every reload and every in-app navigation raises
+    /// `NavigationCompleted`, and re-entering here would start a second multi-gigabyte download over the first.</para>
+    /// </summary>
+    private void RunArchiveCopyIfDue()
+    {
+        if (_archiveCopyChecked)
+        {
+            return;
+        }
+
+        _archiveCopyChecked = true;
+
+        var settings = ArchiveCopySettingsStore.Load();
+        if (!settings.IsConfigured)
+        {
+            return; // AC-10 — absent, not broken.
+        }
+
+        var newest = ArchiveCopyService.NewestCopyUtc(settings.Folder);
+        if (!settings.IsDue(newest, DateTime.UtcNow))
+        {
+            return;
+        }
+
+        _ = System.Threading.Tasks.Task.Run(() => new ArchiveCopyService(_config, settings).CopyNowAsync());
     }
 
     // ---- View-state switching -------------------------------------------------------------------

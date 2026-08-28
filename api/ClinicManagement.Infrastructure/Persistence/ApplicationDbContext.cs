@@ -128,6 +128,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     // already rely on.
     public DbSet<BackupRun> BackupRuns { get; set; }
     public DbSet<ClinicRecoveryPoint> ClinicRecoveryPoints { get; set; }
+    public DbSet<ClinicArchiveGrant> ClinicArchiveGrants { get; set; }
 
     // OS push (mobile-native-shells Part 6). Both clinic-scoped and filtered; PushDispatchJob declares
     // UseSystemWide to drain every clinic's queue, exactly as the reminder dispatcher does.
@@ -314,6 +315,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         modelBuilder.Entity<BackupRun>().HasQueryFilter(b => IsSystemWide || b.ClinicId == ScopedClinicId);
         modelBuilder.Entity<ClinicRecoveryPoint>()
             .HasQueryFilter(p => IsSystemWide || p.ClinicId == ScopedClinicId);
+        // clinic-archive-auto-copy. Filtered like every clinic-owned table; the one read that must escape it is
+        // the secret lookup, which has no session to put a clinic in scope — see ClinicArchiveGrantRepository.
+        modelBuilder.Entity<ClinicArchiveGrant>()
+            .HasQueryFilter(g => IsSystemWide || g.ClinicId == ScopedClinicId);
         // Part 6 — the push registry and its outbox, both clinic-owned with non-nullable ClinicIds (AC-53).
         // ⚠️ One read deliberately escapes this filter: IDeviceRegistrationRepository.GetByTokenAcrossClinicsAsync,
         // because the token is globally unique and a clinic-scoped lookup would miss another clinic's row and turn
