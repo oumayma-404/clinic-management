@@ -108,10 +108,26 @@ rm k.pem k.crt
 # required even with no Google Calendar — an empty file throws at startup
 echo "unused" > google-client-secret
 
-chmod 600 * && cd ..
+# ⚠️ OWNERSHIP IS NOT COSMETIC — the API container runs as uid 1654 and reads these through
+#    /run/secrets, which preserves the host file's owner and mode. `chmod 600` as `deploy` leaves
+#    them readable by uid 1001 ONLY, and the API then exits at startup on the first one it opens:
+#      « GoogleCalendar__ClientSecret_FILE désigne « /run/secrets/… », illisible … Permission denied »
+#    The container dies with code 139 in a restart loop, /health answers 502, and a deploy fails its
+#    health gate five minutes later — with nothing in the workflow log naming a permission.
+#    `deploy` cannot chown to another uid, so borrow root from the docker group it is already in:
+docker run --rm -v /opt/clinic-management/deploy/secrets:/s alpine \
+  sh -c 'chown 1654:1001 /s/* && chmod 0440 /s/*'
+cd ..
 ```
 
+⚠️ **This applies every time a secret file is REPLACED, not just at bring-up.** A file recreated later
+(`rm` + `nano` to set the real Google client secret, say) comes back owned by `deploy` and takes the
+whole API down on its next restart — which may be hours later, on a deploy nobody connects to the edit.
+Re-run the `chown`/`chmod` above after touching anything in `secrets/`, and check with `ls -ln secrets/`:
+every file must read `1654 1001`. One row that does not match is the outage.
+
 - [ ] `ls secrets/` shows exactly 6 files, none 0 bytes.
+- [ ] `ls -ln secrets/` shows `1654 1001` and mode `-r--r-----` on **all six**.
 - [ ] **Copy `keyring-certificate.pfx`, `keyring-certificate-password` and `audit-chain-key` off the server now.** Store them separately from any database backup — one archive holding both the ciphertext and its key protects nothing. See `KEY-CUSTODY.md`.
 
 ---
@@ -203,6 +219,12 @@ docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml ps
 docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml logs api --tail=80
 ```
 Startup refusals name the exact variable and file. Read them literally.
+
+⚠️ **`Restarting (139)` on `clinic-api-prod` is almost always a secret file's OWNER, not its contents.**
+139 is SIGSEGV's exit code and reads like a crash; the actual line is a few screens up in the log and says
+« illisible … Permission denied ». Check `ls -ln secrets/` for a row that is not `1654 1001` — see § 3.
+Observed once on this deployment, after the real Google client secret was written with `nano` as `deploy`:
+the file was correct, the value was correct, and the API could not open it.
 
 ---
 
