@@ -40,6 +40,17 @@ else
 fi
 
 # Install the crontab and hand off to supercronic in the foreground.
+#
+# ⚠️ **The ABSOLUTE path is load-bearing.** `exec supercronic` resolves through `PATH`, so the process starts with
+# `argv[0]` = `supercronic` — and supercronic, seeing it is PID 1, re-execs `os.Args[0]` to install its process
+# reaper WITHOUT a PATH lookup. That fork exec gets ENOENT and the sidecar dies with
+# « Failed to fork exec: no such file or directory », one second after printing that it was handing off.
+#
+# It then restarts, prints the same three healthy-looking lines, and dies again — for ever. Observed on the
+# hosted VPS: `docker ps` says `Restarting`, the log's last full cycle says « existing base backup(s) found »
+# and « handing off to supercronic », and NO scheduled base backup had ever been taken. WAL kept shipping the
+# whole time (that is postgres's own `archive_command`, in another container), so the off-site prefix looked
+# alive while the base backups every one of those segments has to anchor to had stopped at the first one.
 echo "${CRON_EXPR} /usr/local/bin/pitr-backup.sh" > /etc/pitr.cron
 echo "[pitr] handing off to supercronic"
-exec supercronic /etc/pitr.cron
+exec /usr/local/bin/supercronic /etc/pitr.cron
