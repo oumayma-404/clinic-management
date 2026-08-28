@@ -278,7 +278,10 @@ public class BackupController : ApiControllerBase
     /// </summary>
     [HttpPost("archive-grants/token")]
     [AllowAnonymous]
-    [EnableRateLimiting(RateLimiting.ArchivePolicy)]
+    // ⚠️ Its OWN policy, not the archive's. Minting a token is a cheap auth call; sharing the « three exports in
+    // ten minutes » budget meant one « Copier maintenant » — archive plus file mirror — spent it, and a second
+    // click inside the window was refused in a way the shell showed as « ce poste n'est plus autorisé ».
+    [EnableRateLimiting(RateLimiting.ArchiveGrantTokenPolicy)]
     [AllowsWithoutSubscription(
         "A cabinet must always be able to take its own data out (AC-8, the AC-4.2 argument) — and an unattended "
         + "copy is the one path with nobody present to be told why it stopped.")]

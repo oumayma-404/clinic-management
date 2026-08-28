@@ -33,6 +33,9 @@ public sealed class FileMirrorService
 
     private const string PartSuffix = ".part";
 
+    /// <summary>How many files may fail back-to-back before the run concludes the server has gone away.</summary>
+    private const int MaxConsecutiveFailures = 10;
+
     /// <summary>The HTTP status the manifest read failed with, so the message can name it.</summary>
     private int ManifestFailureCode { get; set; }
 
@@ -120,6 +123,12 @@ public sealed class FileMirrorService
 
             progress?.Report($"{manifest.Count} fichier(s) au cabinet. Vérification de ce qui manque…");
 
+            // ⚠️ Leftovers from a run that was KILLED rather than cancelled — the app force-quit, the machine
+            // shut down mid-download. `FetchAsync` cleans up after itself on every path it survives, so these can
+            // only come from a process that did not survive; without this they sit in a patient's folder for ever,
+            // looking to the doctor like a corrupt radiograph.
+            SweepStalePartFiles(root);
+
             var plan = MirrorPathPlanner.Plan(manifest);
             return await PullAsync(http, token, root, plan, progress, cancellationToken);
         }
@@ -201,7 +210,9 @@ public sealed class FileMirrorService
         var fetched = 0;
         var skipped = 0;
         var missing = 0;
+        var failed = 0;
         var examined = 0;
+        var consecutiveFailures = 0;
 
         // ⚠️ **Time-based, not every-Nth-file.** The report used to fire on `fetched % 10 == 0`, so a run that
         // copied ONE new file never reported at all and the window sat on « Lecture de la liste des fichiers… »
@@ -285,11 +296,33 @@ public sealed class FileMirrorService
                     missing++;
                     break;
 
+                // ⚠️ **One failed file does not end the run**, and this used to return outright — contradicting
+                // the rule stated for `Missing` two cases above. A mirror of forty thousand files over a
+                // cabinet's ADSL line will meet a dropped connection, a timeout or a transient 502 sooner or
+                // later, and aborting on the first one both wasted the pass and reported « le serveur a refusé »
+                // for what was a network blip. The file is counted, the walk continues, and the next run picks
+                // it up because nothing was written at its path.
                 default:
-                    return new ArchiveCopyOutcome(
-                        false,
-                        $"La copie des fichiers s'est arrêtée après {fetched} fichier(s) : le serveur a refusé « "
-                        + $"{item.Entry.FileName} ».");
+                    failed++;
+                    consecutiveFailures++;
+
+                    // A circuit breaker, so a server that has genuinely gone away is not answered by forty
+                    // thousand doomed requests. Consecutive, never cumulative: scattered failures across a long
+                    // run are the case above, an unbroken run of them is a different fact.
+                    if (consecutiveFailures >= MaxConsecutiveFailures)
+                    {
+                        return new ArchiveCopyOutcome(
+                            false,
+                            $"La copie des fichiers s'est arrêtée après {fetched} fichier(s) : "
+                            + $"{MaxConsecutiveFailures} échecs de suite. Vérifiez la connexion au serveur.");
+                    }
+
+                    break;
+            }
+
+            if (outcome != FetchOutcome.Refused)
+            {
+                consecutiveFailures = 0;
             }
         }
 
@@ -299,7 +332,14 @@ public sealed class FileMirrorService
             message += $" {missing} introuvable(s) sur le serveur.";
         }
 
-        return new ArchiveCopyOutcome(true, message, root);
+        if (failed > 0)
+        {
+            message += $" {failed} échec(s) — ils seront repris à la prochaine copie.";
+        }
+
+        // ⚠️ Failures make this a partial success, not a success: reporting `true` would let a run that
+        // copied nothing at all read as « à jour » on the status line.
+        return new ArchiveCopyOutcome(failed == 0, message, root);
     }
 
     private enum FetchOutcome
@@ -370,6 +410,22 @@ public sealed class FileMirrorService
         {
             TryDelete(partPath);
             throw;
+        }
+    }
+
+    /// <summary>Deletes <c>.part</c> files a previous run did not live long enough to clean up.</summary>
+    private static void SweepStalePartFiles(string root)
+    {
+        try
+        {
+            foreach (var stale in Directory.EnumerateFiles(root, "*" + PartSuffix, SearchOption.AllDirectories))
+            {
+                TryDelete(stale);
+            }
+        }
+        catch
+        {
+            // Housekeeping may never be the reason a mirror does not run.
         }
     }
 

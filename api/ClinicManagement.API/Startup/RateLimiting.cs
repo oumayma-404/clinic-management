@@ -55,6 +55,23 @@ public static class RateLimiting
     public const string ArchivePolicy = "clinic-archive";
 
     /// <summary>
+    /// Policy name for the device grant→token exchange (<c>clinic-archive-auto-copy</c>).
+    ///
+    /// <para>⚠️ <b>Separate from <see cref="ArchivePolicy"/>, and it was not — which is what made
+    /// <c>patient-file-mirror</c> unusable.</b> That policy is « three exports in ten minutes », sized for an act
+    /// that builds a whole cabinet into a temp file and streams it. The exchange is neither expensive nor an
+    /// export: it is a cheap auth call that mints an ordinary short-lived token. Sharing one budget meant a single
+    /// « Copier maintenant » — which legitimately takes the archive AND refreshes the file mirror — spent it, so
+    /// clicking twice in ten minutes was answered 429 on the exchange and read to the user as « ce poste n'est
+    /// plus autorisé ».</para>
+    ///
+    /// <para>⚠️ Still tightly bounded, because the endpoint is <c>[AllowAnonymous]</c> and the grant secret is
+    /// the only thing standing in front of it. That secret is <b>32 CSPRNG bytes</b>, so no per-window figure in a
+    /// sane range moves the guessing odds at all; what this bounds is a flood, not a search.</para>
+    /// </summary>
+    public const string ArchiveGrantTokenPolicy = "clinic-archive-grant-token";
+
+    /// <summary>
     /// Policy name for the CSP violation sink (FR-4.5). Anonymous and unauthenticated, so it is bounded per
     /// address — and generously, because one page load can legitimately produce several reports while one
     /// misbehaving browser extension can produce one per navigation for ever. Excess is <b>dropped</b>: a
@@ -82,6 +99,12 @@ public static class RateLimiting
     // sharing one NAT address on the actions of one of them.
     private const int DefaultArchivePermitLimit = 3;
     private const int DefaultArchiveWindowSeconds = 600;
+
+    // Twenty exchanges in ten minutes. Generous next to the three EXPORTS above because this mints a token and
+    // nothing else; it leaves an operator room to set the feature up, click « Copier maintenant » a few times to
+    // verify it, and still have the scheduled copy work.
+    private const int DefaultArchiveGrantTokenPermitLimit = 20;
+    private const int DefaultArchiveGrantTokenWindowSeconds = 600;
 
     private const int DefaultCspReportPermitLimit = 60;
     private const int DefaultCspReportWindowSeconds = 60;
@@ -134,6 +157,11 @@ public static class RateLimiting
             configuration, "RateLimiting:Archive:PermitLimit", DefaultArchivePermitLimit);
         var archiveWindow = TimeSpan.FromSeconds(
             Read(configuration, "RateLimiting:Archive:WindowSeconds", DefaultArchiveWindowSeconds));
+
+        var grantTokenPermitLimit = Read(
+            configuration, "RateLimiting:ArchiveGrantToken:PermitLimit", DefaultArchiveGrantTokenPermitLimit);
+        var grantTokenWindow = TimeSpan.FromSeconds(Read(
+            configuration, "RateLimiting:ArchiveGrantToken:WindowSeconds", DefaultArchiveGrantTokenWindowSeconds));
         var cspReportPermitLimit = Read(
             configuration, "RateLimiting:CspReport:PermitLimit", DefaultCspReportPermitLimit);
         var cspReportWindow = TimeSpan.FromSeconds(
@@ -186,6 +214,19 @@ public static class RateLimiting
                     {
                         PermitLimit = archivePermitLimit,
                         Window = archiveWindow,
+                        SegmentsPerWindow = SegmentsPerWindow,
+                        QueueLimit = 0
+                    }));
+
+            options.AddPolicy(ArchiveGrantTokenPolicy, httpContext =>
+                RateLimitPartition.GetSlidingWindowLimiter(
+                    // The caller is anonymous by construction — the whole point is that it has no session — so
+                    // this partitions on the address. `ArchivePartitionKey` would fall back to the same thing.
+                    $"archive-grant-token:{ClientIp.Resolve(httpContext, trustedProxies)}",
+                    _ => new SlidingWindowRateLimiterOptions
+                    {
+                        PermitLimit = grantTokenPermitLimit,
+                        Window = grantTokenWindow,
                         SegmentsPerWindow = SegmentsPerWindow,
                         QueueLimit = 0
                     }));
