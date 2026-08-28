@@ -9,7 +9,12 @@ import { ResetClinicPasswordDialog } from "@/components/reset-clinic-password-di
 import { ResetSecondFactorDialog } from "@/components/reset-second-factor-dialog";
 import { SuspendDialog } from "@/components/suspend-dialog";
 import { ConsoleApiError } from "@/lib/api/client";
-import { CLINIC_NOT_FOUND_CODE, fetchClinicDetail, type PlatformClinicDetail } from "@/lib/api/platform";
+import {
+  CLINIC_NOT_FOUND_CODE,
+  fetchClinicDetail,
+  redirectIfPasswordChangeRequired,
+  type PlatformClinicDetail,
+} from "@/lib/api/platform";
 import { EM_DASH, formatCount, formatDate, formatDateTime, formatFreshness, formatMoney } from "@/lib/format";
 import { readSessionToken } from "@/lib/session";
 
@@ -44,6 +49,9 @@ export default async function CabinetDetailPage({ params }: PageProps) {
   try {
     detail = await fetchClinicDetail(token, clinicId);
   } catch (error) {
+    // See `redirectIfPasswordChangeRequired`: the one-time-password refusal is a destination, not a message, and
+    // it reaches this fiche too — a bookmarked cabinet is a route a bootstrapped account can arrive on directly.
+    redirectIfPasswordChangeRequired(error);
     // EC-13 and EC-12 are different states and must not share a screen: a cabinet that no longer exists is a
     // normal outcome with a way back, while an unreadable one is a failure that must not read as an empty fiche.
     if (error instanceof ConsoleApiError && error.code === CLINIC_NOT_FOUND_CODE) {
