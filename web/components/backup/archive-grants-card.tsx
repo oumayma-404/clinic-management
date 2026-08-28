@@ -17,9 +17,11 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Laptop, Plus, Copy, Check } from "lucide-react"
 import { toast } from "sonner"
 import { backupApi, type ArchiveGrantDto, type IssuedArchiveGrantDto } from "@/lib/api/backup"
+import { usersApi, type ClinicUserDto } from "@/lib/api/users"
 import { showErrorToast } from "@/lib/errors"
 import { formatDateTime, quoteFr } from "@/lib/format"
 
@@ -49,6 +51,11 @@ export function ArchiveGrantsCard() {
   const [toRevoke, setToRevoke] = useState<ArchiveGrantDto | null>(null)
   const [revoking, setRevoking] = useState(false)
 
+  // The clinic's staff, offered as a way to NAME the machine — nobody should have to invent « Portable du
+  // Dr Ben Salah » from a blank field when the product already knows who works here.
+  const [staff, setStaff] = useState<ClinicUserDto[]>([])
+  const [staffFailed, setStaffFailed] = useState(false)
+
   const load = useCallback(async () => {
     setLoading(true)
     setFailed(false)
@@ -66,6 +73,16 @@ export function ArchiveGrantsCard() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Suggestions only, so a failed read costs the convenience and not the capability: the label stays typeable.
+  // ⚠️ The failure is kept DISTINCT from « this clinic has no staff » — collapsing them would make a dead
+  // endpoint read as an empty roster, and the admin would conclude the picker is missing rather than broken.
+  useEffect(() => {
+    usersApi
+      .list()
+      .then((users) => { setStaff(users); setStaffFailed(false) })
+      .catch(() => setStaffFailed(true))
+  }, [])
 
   const handleIssue = async () => {
     const trimmed = label.trim()
@@ -234,6 +251,45 @@ export function ArchiveGrantsCard() {
 
           <div className="space-y-4">
             <FormErrorBanner message={issueError} />
+
+            {/* ⚠️ This names the MACHINE, and picking somebody here does not make the grant theirs. The token is
+                minted on the identity of the admin who issues it (`CreatedByUserId`) and the download is
+                AdminOnly — a grant re-owned by a secretary would mint a secretary token and 403 on every copy.
+                So the picker fills the label and changes nothing else, which is why the field below stays
+                editable: one dentist may have two machines, and a reception PC belongs to nobody. */}
+            {staffFailed && (
+              <p role="status" className="text-xs text-muted-foreground">
+                La liste du personnel n&apos;a pas pu être lue — saisissez le nom du poste à la main.
+              </p>
+            )}
+
+            {staff.length > 0 && (
+              <div className="space-y-2">
+                <Label htmlFor="grant-owner">Poste de</Label>
+                <Select
+                  disabled={issuing}
+                  onValueChange={(id) => {
+                    const person = staff.find((u) => u.id === id)
+                    if (person) {
+                      setLabel(`Poste de ${person.fullName?.trim() || person.email || "—"}`)
+                      setIssueError(null)
+                    }
+                  }}
+                >
+                  <SelectTrigger id="grant-owner" className="md:text-sm">
+                    <SelectValue placeholder="Choisir une personne…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {staff.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.fullName?.trim() || u.email || "Sans nom"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="grant-label">Nom du poste</Label>
               <Input
@@ -245,6 +301,10 @@ export function ArchiveGrantsCard() {
                 onChange={(e) => setLabel(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") void handleIssue() }}
               />
+              <p className="text-xs text-muted-foreground">
+                Ce nom sert à reconnaître la machine pour la révoquer. Modifiable — un praticien peut avoir deux
+                postes.
+              </p>
             </div>
           </div>
 

@@ -124,6 +124,11 @@ public sealed class ArchiveCopyService
             using var request = new HttpRequestMessage(HttpMethod.Get, $"{_server.BaseUrl}/api/backup/archive");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
+            // Both headers, and both are needed: the bearer satisfies `AdminOnly`, the grant stands in for the
+            // step-up confirmation an unattended copy cannot mint. The server re-checks the grant here, so a
+            // revocation between the exchange and this call stops the download.
+            request.Headers.Add("X-Archive-Grant", _settings.GrantSecret);
+
             using var response = await http.SendAsync(
                 request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
