@@ -389,10 +389,14 @@ public partial class MainWindow : Window
     /// noticed a release published on Tuesday. A practice does not reboot its reception machine to find out about
     /// updates.</para>
     ///
-    /// <para>⚠️ Two hours rather than the mirror's thirty minutes: a release happens a few times a year and the
-    /// check is one HTTP call. Being current within the working day is the whole requirement.</para>
+    /// <para>⚠️ <b>Thirty minutes, matching the file mirror in this same file — and it started at two hours,
+    /// which was wrong for a reason worth recording.</b> The reasoning was « a release happens a few times a year,
+    /// so being current within the working day is enough ». True, and it still made the feature feel broken: a
+    /// release published three minutes after somebody opened the app was then invisible for the rest of the
+    /// morning, which is indistinguishable from an updater that does not work. The check is one small JSON GET
+    /// against the clinic's own server; there is nothing to be stingy with.</para>
     /// </summary>
-    private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(2);
+    private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromMinutes(30);
 
     private System.Windows.Threading.DispatcherTimer? _updateTimer;
 
