@@ -38,7 +38,16 @@ public static class ClientRequirements
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(8);
 
     /// <summary>What the probe learned. Every field is blank when the server said nothing about it.</summary>
-    public sealed record Requirements(string MinimumShellVersion, string CurrentShellVersion, string DownloadUrl);
+    public sealed record Requirements(
+        string MinimumShellVersion,
+        string CurrentShellVersion,
+        string DownloadUrl,
+        /// <summary>
+        /// Uppercase-hex SHA-256 of the setup at <see cref="DownloadUrl"/>, or empty when the server states
+        /// none. Empty means the download cannot be verified — accepted, since a server predating the field
+        /// must still be able to ship an update, but never replaced with a guess. See <c>UpdateInstaller</c>.
+        /// </summary>
+        string DownloadSha256);
 
     /// <summary>
     /// This build's version, from the assembly — so the shell cannot report a version it was not built as.
@@ -73,7 +82,8 @@ public static class ClientRequirements
             return new Requirements(
                 ReadString(root, "minimumShellVersion"),
                 ReadString(root, "currentShellVersion"),
-                root.TryGetProperty("storeUrls", out var stores) ? ReadString(stores, "windows") : string.Empty);
+                root.TryGetProperty("storeUrls", out var stores) ? ReadString(stores, "windows") : string.Empty,
+                ReadString(root, "windowsSetupSha256"));
         }
         catch (Exception)
         {

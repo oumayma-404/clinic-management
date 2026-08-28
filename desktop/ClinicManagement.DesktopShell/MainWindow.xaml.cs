@@ -23,6 +23,16 @@ public partial class MainWindow : Window
     private string _latestKnownVersion = string.Empty;
 
     /// <summary>
+    /// The published SHA-256 of the setup at <see cref="_downloadUrl"/>, when the server states one. Empty means
+    /// the download cannot be verified — accepted, because an offline-LAN server may predate the field, but never
+    /// substituted with a guess. See <see cref="UpdateInstaller"/>.
+    /// </summary>
+    private string _updateSha256 = string.Empty;
+
+    /// <summary>Guards « Mettre à jour maintenant » against a second click during a 50 MB download.</summary>
+    private bool _updateInProgress;
+
+    /// <summary>
     /// The version whose notice the user hid. Per version rather than a bare bool, so dismissing today's notice
     /// does not silently suppress the next release's — and deliberately not persisted: a reminder once per
     /// session is the point.
@@ -148,6 +158,7 @@ public partial class MainWindow : Window
         if (requirements is not null)
         {
             _downloadUrl = requirements.DownloadUrl;
+            _updateSha256 = requirements.DownloadSha256;
 
             if (ClientRequirements.IsOlderThan(ClientRequirements.InstalledVersion, requirements.MinimumShellVersion))
             {
@@ -583,9 +594,73 @@ public partial class MainWindow : Window
         ModeChoicePanel.Visibility = Visibility.Collapsed;
     }
 
-    private void DownloadUpdate_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// « Mettre à jour maintenant » — download the new setup and run it, from both the strip and the wall.
+    ///
+    /// <para>
+    /// ⚠️ This used to call <c>Process.Start(url)</c>, which opened the download in the default browser and left
+    /// a dentist to find the file, run it, answer UAC and click through a wizard. The strip announced the update
+    /// and then handed the work to the person least equipped to do it. Everything below exists to make the button
+    /// mean what it says.
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ <b>Re-entrancy is guarded by a field, not by disabling one button</b> — the same handler serves the
+    /// strip and the wall, and on the wall it is the only control on screen. A second click mid-download would
+    /// start a second 50 MB transfer over the first one's staging file.
+    /// </para>
+    /// </summary>
+    private async void DownloadUpdate_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(_downloadUrl))
+        if (string.IsNullOrWhiteSpace(_downloadUrl) || _updateInProgress)
+        {
+            return;
+        }
+
+        _updateInProgress = true;
+        var originalNotice = UpdateNoticeText.Text;
+        UpdateNoticeDownloadButton.IsEnabled = false;
+        UpdateRequiredDownloadButton.IsEnabled = false;
+
+        // The strip is where progress goes: it is already on screen, already docked, and already the thing the
+        // user just pressed. A separate progress window over a patient record is what the strip exists to avoid.
+        var progress = new Progress<UpdateInstaller.Progress>(p =>
+        {
+            UpdateNoticeText.Text = p.Message;
+            UpdateRequiredDetail.Text = p.Message;
+        });
+
+        var result = await UpdateInstaller.DownloadAndLaunchAsync(
+            _downloadUrl, _latestKnownVersion, _updateSha256, progress);
+
+        if (result.Launched)
+        {
+            // The installer is running and will replace this executable's own files. Close so nothing is locked;
+            // the client installer's [Run] entry brings the shell back up afterwards.
+            Application.Current.Shutdown();
+            return;
+        }
+
+        _updateInProgress = false;
+        UpdateNoticeDownloadButton.IsEnabled = true;
+        UpdateRequiredDownloadButton.IsEnabled = true;
+        UpdateNoticeText.Text = originalNotice;
+
+        if (result.Error is null)
+        {
+            // Cancelled, or UAC declined. A decision, not a fault — say nothing.
+            return;
+        }
+
+        // ⚠️ The fallback is the OLD behaviour, offered rather than performed: if we could not download or launch
+        // it, the browser may still be able to. On the wall this matters most — the app behind it does not work,
+        // so leaving the user with only an error message would leave them with nothing at all.
+        var openBrowser = MessageBox.Show(
+            result.Error + Environment.NewLine + Environment.NewLine +
+            "Voulez-vous ouvrir le lien de téléchargement dans votre navigateur ?",
+            "Mise à jour", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+        if (openBrowser != MessageBoxResult.Yes)
         {
             return;
         }

@@ -1,0 +1,132 @@
+# ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# Builds the Windows client installer that « Mettre à jour maintenant » in the desktop shell downloads.
+#
+# ⚠️ WHY THIS EXISTS. Shipping a shell update used to require finding a Windows machine with the .NET SDK, Node,
+# PostgreSQL binaries and Inno Setup 6 on it, and hand-editing a version literal in three files. `packaging/`'s
+# own header says the installers are « committed-but-not-executed » — and the cost of that was measured: both
+# `.iss` files went months without a compile and the SERVER one had stopped building outright, so no clinic could
+# have been sent an update at all and nothing anywhere said so. A release is now a tag.
+#
+# ⚠️ THIS BUILDS THE CLIENT INSTALLER ONLY, and that is a deliberate scope rather than a shortcut. The server
+# installer bundles PostgreSQL 16 and a Node runtime — third-party payloads this workflow will not fabricate
+# (`publish-server.ps1` takes `-PostgresDir`/`-NodeDir` for exactly that reason) — and it is ~112 MB. The client
+# installer needs only the shell.
+#
+# ⚠️ WHAT THIS ARTIFACT IS FIT FOR: **updating a PC that already runs the shell**, which is what the shell's own
+# updater fetches. It bundles neither the WebView2 offline runtime nor the server's `ca.crt` (both are
+# `skipifsourcedoesntexist` in the `.iss`), because a machine being updated already has them from its first
+# install. A **first** install on a fresh PC still wants the operator build — see
+# `packaging/README.md` § « Shipping an update to installed clients ».
+# ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+name: Client installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (N.N.N). Leave empty to use the shell .csproj's own <Version>."
+        required: false
+        type: string
+  push:
+    # A tag, never a branch: an installer per commit to `desktop/**` would be noise, and the version is a
+    # deliberate act (it is what the server's client floor is compared against).
+    tags:
+      - "client-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    name: Build ClinicManagementClientSetup
+    # ⚠️ Windows is not a preference here: ISCC.exe is Windows-only, and the shell is `net8.0-windows` + WPF.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # ⚠️ The version is resolved by the same function the operator build uses, from the same source (the shell
+      # .csproj), so a CI build and a desk build of the same commit cannot produce different numbers. A tag push
+      # deliberately does NOT take the version from the tag name: the tag would then be a second authority over
+      # the value stamped into the assembly, which is the drift this whole change removed.
+      - name: Resolve the version
+        id: version
+        shell: pwsh
+        run: |
+          $src = Get-Content packaging/publish-server.ps1 -Raw
+          $start = $src.IndexOf('function Resolve-Version')
+          $end = $src.IndexOf('$Version = Resolve-Version')
+          Invoke-Expression $src.Substring($start, $end - $start)
+
+          $explicit = '${{ inputs.version }}'
+          $resolved = Resolve-Version $explicit 'desktop/ClinicManagement.DesktopShell/ClinicManagement.DesktopShell.csproj'
+          "version=$resolved" >> $env:GITHUB_OUTPUT
+          Write-Host "Building version $resolved"
+
+      - name: Publish the shell (self-contained win-x64)
+        shell: pwsh
+        run: |
+          dotnet publish desktop/ClinicManagement.DesktopShell/ClinicManagement.DesktopShell.csproj `
+            -c Release -r win-x64 --self-contained true `
+            /p:UseAppHost=true `
+            /p:Version=${{ steps.version.outputs.version }} `
+            -o packaging/build-output/client/shell
+          if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
+
+      # The `.iss` comment traps this repo has already paid for twice — cheap, and it fails before the 4-minute
+      # compile rather than after it.
+      - name: Lint the .iss comments
+        shell: pwsh
+        run: node packaging/lint-iss.mjs
+
+      - name: Install Inno Setup 6
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile the installer
+        shell: pwsh
+        run: |
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { throw "ISCC.exe not found after installing Inno Setup" }
+
+          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" "packaging/client/clinic-client.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+
+      # ⚠️ The SHA-256 is printed and attached, because the shell verifies the download against the hash the
+      # server publishes and an operator hosting this file themselves has to be able to state it. Where the
+      # clinic server serves its own bundled copy the hash is computed from the bytes instead — see
+      # `ClientUpdatePackage`.
+      - name: Report what was built
+        id: report
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem packaging/build-output/ClinicManagementClientSetup-*.exe |
+                 Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $exe) { throw "No installer was produced" }
+
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash
+          $mb = [math]::Round($exe.Length / 1MB, 1)
+
+          "## Client installer $($exe.Name)"                       >> $env:GITHUB_STEP_SUMMARY
+          ""                                                        >> $env:GITHUB_STEP_SUMMARY
+          "| | |"                                                   >> $env:GITHUB_STEP_SUMMARY
+          "|---|---|"                                               >> $env:GITHUB_STEP_SUMMARY
+          "| Version | ``${{ steps.version.outputs.version }}`` |"  >> $env:GITHUB_STEP_SUMMARY
+          "| Size | $mb MB |"                                       >> $env:GITHUB_STEP_SUMMARY
+          "| SHA-256 | ``$hash`` |"                                 >> $env:GITHUB_STEP_SUMMARY
+          ""                                                        >> $env:GITHUB_STEP_SUMMARY
+          "Fit for **updating** an existing install. A first install on a fresh PC wants the operator build (no WebView2 runtime or ``ca.crt`` is bundled here)." >> $env:GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClinicManagementClientSetup-${{ steps.version.outputs.version }}
+          path: packaging/build-output/ClinicManagementClientSetup-*.exe
+          if-no-files-found: error
+          retention-days: 90

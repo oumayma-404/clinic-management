@@ -72,6 +72,9 @@ clinic-management/
 ├── backend/                      EMPTY (only .idea/) — ignore
 ├── .github/workflows/            ci.yml = the api · web · desktop · android gate (see below)
 │                                   ios-shell.yml = the iOS shell's only compiler, path-filtered (billed macOS runner)
+│                                   client-installer.yml = the Windows shell's release build (`windows-latest`, ISCC via
+│                                                       choco), on `client-v*` tags or dispatch. Produces the setup the
+│                                                       shell's own « Mettre à jour maintenant » downloads
 │                                   deploy-hosted.yml = `workflow_dispatch` deploy to a VPS: build the three heavy
 │                                                       images → GHCR → ssh `pull` + `up -d --no-build` → /health →
 │                                                       verify-schema. Builds THROUGH compose, so `web`'s build args

@@ -26,7 +26,7 @@
                 <Button x:Name="UpdateNoticeDismissButton" DockPanel.Dock="Right" Content="✕"
                         Style="{StaticResource ShellGhostButton}"
                         ToolTip="Masquer" Click="DismissUpdateNotice_Click"/>
-                <Button x:Name="UpdateNoticeDownloadButton" DockPanel.Dock="Right" Content="Télécharger"
+                <Button x:Name="UpdateNoticeDownloadButton" DockPanel.Dock="Right" Content="Mettre à jour maintenant"
                         Style="{StaticResource ShellButton}" Padding="12,4" Margin="12,0,0,0"
                         Click="DownloadUpdate_Click"/>
                 <TextBlock x:Name="UpdateNoticeText" VerticalAlignment="Center"
@@ -51,7 +51,7 @@
                     <TextBlock x:Name="UpdateRequiredDetail" Margin="0,12,0,0" FontSize="14"
                                Foreground="{DynamicResource ShellInkMuted}" TextWrapping="Wrap" TextAlignment="Center"/>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,28,0,0">
-                        <Button x:Name="UpdateRequiredDownloadButton" Content="Télécharger la mise à jour"
+                        <Button x:Name="UpdateRequiredDownloadButton" Content="Mettre à jour maintenant"
                                 Style="{StaticResource ShellPrimaryButton}" Click="DownloadUpdate_Click"/>
                         <Button Content="Réessayer" Style="{StaticResource ShellButton}" Margin="12,0,0,0"
                                 Click="Retry_Click"/>

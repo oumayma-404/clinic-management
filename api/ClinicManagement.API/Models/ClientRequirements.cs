@@ -16,7 +16,18 @@ namespace ClinicManagement.API.Models;
 public sealed record ClientRequirements(
     string MinimumShellVersion,
     string CurrentShellVersion,
-    ClientStoreUrls StoreUrls)
+    ClientStoreUrls StoreUrls,
+    /// <summary>
+    /// SHA-256 of the Windows setup at <c>StoreUrls.Windows</c>, uppercase hex, or empty when the operator has
+    /// not stated one.
+    ///
+    /// <para>⚠️ <b>The desktop shell downloads that file and runs it ELEVATED</b> — « Mettre à jour
+    /// maintenant » is one click and one UAC prompt — so it is the single most dangerous byte stream in this
+    /// product. With a hash published the shell refuses a mismatch and deletes the file; with none it accepts
+    /// what it was served, because an offline-LAN server predating this field must still be able to ship an
+    /// update. Empty therefore means « unverifiable », never « verified ».</para>
+    /// </summary>
+    string WindowsSetupSha256)
 {
     /// <summary>Where an operator states all of this. Read per request, so raising the floor needs no restart.</summary>
     private const string Section = "Clients";
@@ -31,7 +42,8 @@ public sealed record ClientRequirements(
             new ClientStoreUrls(
                 section["StoreUrls:Android"] ?? string.Empty,
                 section["StoreUrls:Ios"] ?? string.Empty,
-                section["StoreUrls:Windows"] ?? string.Empty));
+                section["StoreUrls:Windows"] ?? string.Empty),
+            section["WindowsSetupSha256"] ?? string.Empty);
     }
 
     /// <summary>

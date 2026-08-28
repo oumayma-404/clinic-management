@@ -60,6 +60,13 @@ SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 PrivilegesRequired=admin
+; ⚠️ These two are what make « Mettre à jour maintenant » in the shell work, and they must stay a PAIR.
+; CloseApplications lets Setup use the Restart Manager to close the running shell whose files it is about to
+; replace -- without it a silent update races the shell's own shutdown and can fail mid-copy on a locked .exe.
+; RestartApplications is deliberately NO: the [Run] entry below brings the shell back, gated on /restartapp=1,
+; and letting the Restart Manager do it as well is how the user ends up with two windows.
+CloseApplications=yes
+RestartApplications=no
 ; Admin is required to import the CA into the machine Root store. If a per-user install is preferred,
 ; import into CurrentUser\Root instead (see ImportCa) and drop PrivilegesRequired to lowest.
 
@@ -82,6 +89,11 @@ Name: "desktopicon"; Description: "Créer un raccourci sur le bureau"; GroupDesc
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Lancer {#AppName}"; Flags: nowait postinstall skipifsilent
+; The shell's own updater passes /SILENT (so the entry above is skipped) plus /restartapp=1, and expects to be
+; running again when the install finishes -- the user pressed a button in an app and should get that app back.
+; Gated on the flag rather than on IsSilent so an operator's own scripted silent install stays silent and does
+; not pop a window on a machine nobody is sitting at.
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: WantsRestartApp
 
 [UninstallRun]
 ; Remove the imported CA on uninstall (best-effort — matches by store; leaves other certs untouched).
@@ -91,6 +103,14 @@ Filename: "{app}\{#AppExe}"; Description: "Lancer {#AppName}"; Flags: nowait pos
 Filename: "{sys}\certutil.exe"; Parameters: "-delstore Root ""Clinic Management Local CA"""; Flags: runhidden; RunOnceId: "DelCa"
 
 [Code]
+// True when the caller asked for the app to be restarted after a silent install -- see [Run] above.
+// `//` and not a `{ }` comment because this names {app}: inside a brace comment that constant's own `}`
+// closes the comment early (packaging/CLAUDE.md, and lint-iss.mjs now fails the build on it).
+function WantsRestartApp: Boolean;
+begin
+  Result := ExpandConstant('{param:restartapp|0}') = '1';
+end;
+
 { SW_HIDE is a built-in Inno Setup constant — do not redeclare it (duplicate-identifier compile error). }
 
 { True if the WebView2 Evergreen runtime is already installed (machine-wide or per-user). Detected via the

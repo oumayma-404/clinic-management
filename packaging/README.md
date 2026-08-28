@@ -443,16 +443,43 @@ log line and no screen anywhere naming a version mismatch.
 
 ### 2. Build
 
+**Preferred — push a tag and let CI do it:**
+
+```bash
+git tag client-v1.1.0 && git push origin client-v1.1.0
+```
+
+`.github/workflows/client-installer.yml` builds the **client** installer on `windows-latest` and attaches it as a
+run artifact, with its SHA-256 in the run summary. It reads the version from the same `Resolve-Version` the
+operator build uses, so a CI build and a desk build of one commit cannot disagree. It bundles **no** WebView2
+runtime and no `ca.crt` (both optional in the `.iss`), which is right for *updating* a PC that already has them —
+a **first** install on a fresh machine still wants the operator build below.
+
+**Operator build (both installers, needed for a first install or a server upgrade):**
+
 ```powershell
 cd packaging
 .\publish-server.ps1 -PostgresDir <...> -NodeDir <...>     # prints « Building version x.y.z »
 ```
 
+⚠️ It now compiles the **client installer first** and stages it into the server payload, so the server installer
+carries the matching client setup into `{app}\updates` — see step 3.
+
 Out come `build-output\ClinicManagementServerSetup-<version>.exe` and `…ClientSetup-<version>.exe`.
 
-### 3. Publish the download, then set the three keys
+### 3. Publish the download, then set the keys
 
-Put the client `.exe` somewhere the LAN can reach and set, in the server's `appsettings.Production.json`:
+**On an offline LAN, there is usually nothing to publish and nothing to set.** The server installer bundles the
+matching client setup, and the API serves it at **`GET /api/meta/client-download`** — anonymous and exempt from
+the client-version floor, like the requirements route that points at it. Where `Clients:StoreUrls:Windows` is
+empty the requirements payload is filled from that package: its URL (built from the request the shell actually
+reached the server on), its version, and a SHA-256 **computed from the bytes that will be served**. So upgrading
+the server is the whole act, and every PC offers the update on its next launch.
+
+Set the keys below only to override that — an own mirror, or a release you are announcing before shipping it.
+An explicit value always wins over the bundled package.
+
+In the server's `appsettings.Production.json`:
 
 | Key | Set it to |
 |---|---|

@@ -91,6 +91,17 @@ public class ControllerAuthorizationCoverageTests
                                      // every other route is refusing with 426. Nothing served is a secret — a
                                      // version number and two public store links. ClientVersionMiddleware
                                      // exempts this one route from the floor for the same reason (AC-29).
+        "Meta.ClientDownload",       // the Windows client installer this server shipped with — what « Mettre à
+                                     // jour maintenant » in the desktop shell actually fetches, so an offline
+                                     // LAN can update itself with nothing hosted outside the product.
+                                     // Anonymous, and floor-exempt, for exactly ClientRequirements' reason and
+                                     // as one idea with it: announcing an update to a shell already refused
+                                     // with 426, over a route that same 426 would block, is an instruction
+                                     // that cannot be followed — worse than having given none.
+                                     // ⚠️ It serves ONE file: the setup the server installer staged into
+                                     // {app}\updates, matched by name and version. It takes no path, no id and
+                                     // no query, so it cannot be steered at anything else, and it is the same
+                                     // installer the clinic already ran to get the shell it is using.
         "GoogleCalendar.Callback",   // OAuth browser redirect back from Google — cannot carry a bearer
 
         // --- Meta's template-status webhook (vendor-whatsapp-messaging-quota FR-7a). ---
