@@ -284,6 +284,22 @@ services:
       # durable persists what was previously ephemeral, so a patient's name written to a file that now survives
       # is strictly worse than one written to a file that vanished.
       - api_logs:/app/logs
+      # The Windows client installer this deployment offers its desktop shells, read-only.
+      #
+      # On SelfHostedLan the SERVER INSTALLER stages this file into {app}/updates and there is nothing to
+      # mount. HostedMultiTenant runs from an image and never runs that installer, so the folder would be
+      # empty and GET /api/meta/client-download would 404 - the shells would announce an update they cannot
+      # fetch, which is exactly the situation that endpoint exists to remove. Hence a bind mount: drop the
+      # installer built by .github/workflows/client-installer.yml into deploy/updates/ on the server, then
+      # `up -d api`.
+      #
+      # `:ro` deliberately. The API only ever reads it, and this is a file it hands to a client to execute
+      # with administrator rights - the container has no business being able to rewrite it.
+      #
+      # AppContext.BaseDirectory is /app/ (the Dockerfile's WORKDIR), so this IS the default folder
+      # ClientUpdatePackage looks in and no Clients:UpdateDirectory is needed. Empty or absent stays
+      # correct: the download 404s and the payload falls back to whatever Clients:StoreUrls:Windows says.
+      - ./updates:/app/updates:ro
     secrets:
       - keyring_certificate
       - keyring_certificate_password

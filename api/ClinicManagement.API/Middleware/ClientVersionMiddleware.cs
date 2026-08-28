@@ -58,7 +58,14 @@ public class ClientVersionMiddleware
         await _next(context);
     }
 
+    /// <summary>
+    /// ⚠️ <b>Two exemptions, and they are one idea.</b> A shell below the floor must be able to read where to
+    /// get a newer build <i>and</i> to fetch it — refusing the download with the same 426 that sent it there
+    /// would make the instruction unfollowable, which is worse than having given none. Both paths are stated as
+    /// constants on <c>MetaController</c> so the route and its exemption cannot be renamed apart.
+    /// </summary>
     private static bool Applies(PathString path) =>
         path.StartsWithSegments(ApiPrefix)
-        && !path.StartsWithSegments(MetaController.ClientRequirementsPath);
+        && !path.StartsWithSegments(MetaController.ClientRequirementsPath)
+        && !path.StartsWithSegments(MetaController.ClientDownloadPath);
 }

@@ -277,10 +277,31 @@ if (-not $SkipInstallers) {
     if ($Iscc) {
         # /DAppVersion wins over each .iss's own `#ifndef` fallback, so the setup files are named after the
         # very number stamped into the shell assembly a few steps above.
-        & $Iscc "/DAppVersion=$Version" (Join-Path $PackagingDir 'server\clinic-server.iss')
-        if ($LASTEXITCODE -ne 0) { throw "ISCC (server) failed with exit code $LASTEXITCODE." }
+        #
+        # ⚠️ **THE CLIENT IS COMPILED FIRST, and the order is load-bearing.** The server installer now carries
+        # the client setup into `{app}\updates`, so that a clinic's own server can serve the update to its own
+        # PCs (`ClientUpdatePackage` → `GET /api/meta/client-download`). On an offline LAN that is the difference
+        # between an update the shells can fetch and one they can only announce. Compiling the server first would
+        # bundle whatever stale client setup happened to be left in `build-output` — or nothing at all on a clean
+        # checkout, silently, since the `[Files]` entry is `skipifsourcedoesntexist`.
         & $Iscc "/DAppVersion=$Version" (Join-Path $PackagingDir 'client\clinic-client.iss')
         if ($LASTEXITCODE -ne 0) { throw "ISCC (client) failed with exit code $LASTEXITCODE." }
+
+        $ClientSetup = Join-Path $OutputRoot "ClinicManagementClientSetup-$Version.exe"
+        if (-not (Test-Path $ClientSetup)) {
+            throw "The client installer was compiled but '$ClientSetup' is not there. The server installer would ship no update payload."
+        }
+
+        Write-Step 'Staging the client installer into the server payload (for GET /api/meta/client-download)'
+        $UpdatesStage = Join-Path $ServerOut 'updates'
+        Clear-Dir $UpdatesStage
+        New-Item -ItemType Directory -Path $UpdatesStage -Force | Out-Null
+        Copy-Item $ClientSetup $UpdatesStage
+        $ClientSetupMb = [math]::Round((Get-Item $ClientSetup).Length / 1MB, 1)
+        Write-Host "  staged $(Split-Path $ClientSetup -Leaf) ($ClientSetupMb MB)"
+
+        & $Iscc "/DAppVersion=$Version" (Join-Path $PackagingDir 'server\clinic-server.iss')
+        if ($LASTEXITCODE -ne 0) { throw "ISCC (server) failed with exit code $LASTEXITCODE." }
     } else {
         Write-Warning 'ISCC.exe (Inno Setup 6) not found -- skipping installer compilation. Payloads are staged under build-output/.'
     }

@@ -153,7 +153,8 @@ public partial class ArchiveCopyWindow : Window
 
         CopyNowButton.IsEnabled = false;
         SaveButton.IsEnabled = false;
-        Report("Copie en cours… cela peut prendre plusieurs minutes.");
+        Report("Copie de l'archive en cours… cela peut prendre plusieurs minutes. "
+               + "L'archive est reconstruite en entier à chaque fois, même pour un seul fichier ajouté.");
 
         try
         {

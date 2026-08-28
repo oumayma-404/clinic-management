@@ -427,13 +427,20 @@ bootstrap.
 There is **no auto-updater** (no ClickOnce, Squirrel or MSIX). Delivery is: build a new installer, put it
 where the LAN can reach it, and let the shell tell people to install it.
 
-### 1. Bump the version in one place
+### 1. Decide the version — and the release act *is* the version
 
-`desktop/ClinicManagement.DesktopShell/ClinicManagement.DesktopShell.csproj` → `<Version>`.
+**Through CI (the normal path): the tag decides.** `client-v1.1.0` builds `1.1.0`, stamped into the shell
+assembly, into the installer's filename and into the artifact from that one place. Nothing to edit.
 
-That is the source. `publish-server.ps1` reads it, stamps it into the shell assembly with `/p:Version` and
-passes it to both `.iss` files with `/DAppVersion`, so the setup filename and the version the running shell
-reports can no longer disagree. `-Version 1.1.0` overrides it for a one-off build.
+**Locally:** `publish-server.ps1` reads the shell `.csproj`'s `<Version>`, or takes `-Version 1.1.0`.
+
+⚠️ **Why the tag rather than the file.** The *assembly* version is what the server's client floor is
+compared against, so shipping new code under the version already installed is **invisible**: every PC
+compares equal, no strip appears, and the conclusion is « the updater is broken » rather than « nobody
+bumped a file ». Making the release act carry the number removes the step there was to forget. CI rewrites
+the `.csproj` in its own workspace (never committed) so the compiler, the installer and the artifact cannot
+disagree, and **reports the mismatch** in the run summary — after this the `.csproj` value is a development
+default, not a statement about any release.
 
 ⚠️ **Why one place:** the shell reports its *assembly* version as `X-Client-Version`, and that is what the
 floor is compared against; the `.iss` value only names the setup file. When the two were separate literals,
@@ -443,16 +450,49 @@ log line and no screen anywhere naming a version mismatch.
 
 ### 2. Build
 
+**Preferred — push a tag and let CI do it:**
+
+```bash
+git tag client-v1.1.0 && git push origin client-v1.1.0
+```
+
+`.github/workflows/client-installer.yml` builds the **client** installer on `windows-latest` and attaches it as a
+run artifact, with its size and SHA-256 in the run summary. The version comes from the tag (a dispatch input
+overrides it), validated by the same `Resolve-Version` the operator build uses. It bundles **no** WebView2
+runtime and no `ca.crt` (both optional in the `.iss`), which is right for *updating* a PC that already has them —
+a **first** install on a fresh machine still wants the operator build below.
+
+**Operator build (both installers, needed for a first install or a server upgrade):**
+
 ```powershell
 cd packaging
 .\publish-server.ps1 -PostgresDir <...> -NodeDir <...>     # prints « Building version x.y.z »
 ```
 
+⚠️ It now compiles the **client installer first** and stages it into the server payload, so the server installer
+carries the matching client setup into `{app}\updates` — see step 3.
+
 Out come `build-output\ClinicManagementServerSetup-<version>.exe` and `…ClientSetup-<version>.exe`.
 
-### 3. Publish the download, then set the three keys
+### 3. Publish the download, then set the keys
 
-Put the client `.exe` somewhere the LAN can reach and set, in the server's `appsettings.Production.json`:
+**On an offline LAN, there is usually nothing to publish and nothing to set.** The server installer bundles the
+matching client setup, and the API serves it at **`GET /api/meta/client-download`** — anonymous and exempt from
+the client-version floor, like the requirements route that points at it. Where `Clients:StoreUrls:Windows` is
+empty the requirements payload is filled from that package: its URL (built from the request the shell actually
+reached the server on), its version, and a SHA-256 **computed from the bytes that will be served**. So upgrading
+the server is the whole act, and every PC offers the update on its next launch.
+
+Set the keys below only to override that — an own mirror, or a release you are announcing before shipping it.
+An explicit value always wins over the bundled package.
+
+⚠️ **On `HostedMultiTenant` there is no server installer, so nothing is bundled.** That deployment runs from
+an image and never executes `clinic-server.iss`, so `{app}\updates` would be empty and the download would
+404. `deploy/docker-compose.hosted.yml` therefore bind-mounts **`deploy/updates:/app/updates:ro`**: drop the
+CI artifact in that folder on the server and `up -d api`, and the same endpoint serves it with a hash
+computed from the bytes. See `deploy/README.md` § « Mettre à jour l'application Windows ».
+
+In the server's `appsettings.Production.json`:
 
 | Key | Set it to |
 |---|---|

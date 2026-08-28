@@ -83,6 +83,10 @@ Name: "{app}\api\logs"
 ; screen said "leave the field blank to use the server default folder", so the documented default path
 ; failed on every fresh install. Created here and hardened with the other data directories below.
 Name: "{app}\api\Backups"
+; Where the matching client installer is staged, so a clinic's own server can serve the shell update to its
+; own PCs (ClientUpdatePackage -> GET /api/meta/client-download). On an offline LAN this is what makes
+; « Mettre a jour maintenant » able to FETCH an update rather than only announce one.
+Name: "{app}\updates"
 Name: "{app}\pgdata"
 Name: "{commonappdata}\ClinicManagement"
 
@@ -95,6 +99,12 @@ Source: "{#SourcePath}\..\build-output\server\postgres\*"; DestDir: "{app}\postg
 ; NSSM (Non-Sucking Service Manager) hosts the Node web server as a Windows service (R-8).
 ; Operator drops nssm.exe into packaging\server\tools\ before compiling; optional at compile time.
 Source: "{#SourcePath}\tools\nssm.exe"; DestDir: "{app}\tools"; Flags: ignoreversion skipifsourcedoesntexist
+; The client installer this release was built with, staged by ..\publish-server.ps1 (which compiles the
+; client FIRST for exactly this reason). Served by the API to shells asking for an update.
+; ⚠️ skipifsourcedoesntexist: a -SkipInstallers staging run has no client setup to copy, and a server
+; installer without an update payload is correct-but-reduced (clients then need Clients:StoreUrls:Windows),
+; not broken. The API answers 404 on the download route when the folder is empty.
+Source: "{#SourcePath}\..\build-output\server\updates\*"; DestDir: "{app}\updates"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\APEXA (serveur — localhost)"; Filename: "https://localhost:{#HttpsPort}"
