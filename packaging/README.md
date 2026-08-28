@@ -49,8 +49,8 @@ NEXT_PUBLIC_API_URL=/api AUTH_MODE=local API_INTERNAL_URL=http://localhost:5000/
 | `Hosting:HttpPort` (default `5000`) | HTTP; redirects to HTTPS. |
 | `Hosting:WebPort` (default `3000`) | localhost port the Next server listens on; the front door proxies non-`/api` routes here. |
 | `Https:CertPath` | Leave **empty** to self-generate a CA + server cert into `.local/` (FR-E2). If set, the file must exist or the server refuses to start (no silent HTTP downgrade). |
-| `Clients:MinimumShellVersion` | Oldest **mobile app** build this server still answers. Leave **empty** (the default) and nothing is refused. Set it (e.g. `1.2.0`) and an older app gets « Mise à jour requise » with the store link instead of screen-by-screen failures; it takes effect **without restarting the service**. Browsers and the desktop shell send no version at all and are never affected. |
-| `Clients:CurrentShellVersion` · `Clients:StoreUrls:Android` / `:Ios` | What a refused app is told to install, and where to get it. Published anonymously at `GET /api/meta/client-requirements` — the one route deliberately exempt from the floor, since it is what a refused app reads. |
+| `Clients:MinimumShellVersion` | Oldest **shell** build this server still answers — the mobile apps **and the Windows shell**. Leave **empty** (the default) and nothing is refused. Set it (e.g. `1.2.0`) and an older client says « Mise à jour requise » with a download link instead of failing screen by screen; it takes effect **without restarting the service**. ⚠️ **Two different enforcement points, and the difference matters.** A *mobile* shell sends `X-Client-Version` on every call, so `ClientVersionMiddleware` refuses it with **426**. The *desktop* shell's WebView sends no header (it has no `window.__clinicShell` bridge), so the middleware cannot refuse it — instead `ClientRequirements.cs` reads the floor **natively at launch** and raises the shell's own wall. A plain browser is affected by neither. (This row used to say the desktop shell was « never affected », which was true only before that launch probe existed.) |
+| `Clients:CurrentShellVersion` · `Clients:StoreUrls:Android` / `:Ios` / **`:Windows`** | What a refused client is told to install, and where to get it. Published anonymously at `GET /api/meta/client-requirements` — the one route deliberately exempt from the floor, since it is what a refused client reads. ⚠️ **`:Windows` is the one to set on an offline-LAN install**: it is the URL the desktop shell offers as « Télécharger », so point it at wherever `ClinicManagementClientSetup-<version>.exe` is reachable **from the LAN** — a share, or a path served by the clinic server itself. Left empty, the wall still appears and names the version, with nothing to click. |
 
 Secrets (signing key, cert password, Google refresh token) live in the gitignored per-install `.local/`
 folder, generated on the target machine — never committed (FR-F4). The exported CA is `.local/ca.crt`
@@ -415,6 +415,77 @@ unreachable the shell shows a friendly **"Impossible de joindre le serveur de la
 the shell in place (auto-update is out of scope).
 
 ---
+
+## Shipping an update to installed clients
+
+**Most updates never touch a staff PC.** The shell is a thin WebView2 viewer pointed at the clinic server's
+front door: the UI and the API live on the server. Re-run the **server** installer on the clinic's server
+machine and every desk gets the new app on its next load. You rebuild the *client* installer only when the
+**shell itself** changes — the window, the server-config screen, the archive-copy service, the WebView2
+bootstrap.
+
+There is **no auto-updater** (no ClickOnce, Squirrel or MSIX). Delivery is: build a new installer, put it
+where the LAN can reach it, and let the shell tell people to install it.
+
+### 1. Bump the version in one place
+
+`desktop/ClinicManagement.DesktopShell/ClinicManagement.DesktopShell.csproj` → `<Version>`.
+
+That is the source. `publish-server.ps1` reads it, stamps it into the shell assembly with `/p:Version` and
+passes it to both `.iss` files with `/DAppVersion`, so the setup filename and the version the running shell
+reports can no longer disagree. `-Version 1.1.0` overrides it for a one-off build.
+
+⚠️ **Why one place:** the shell reports its *assembly* version as `X-Client-Version`, and that is what the
+floor is compared against; the `.iss` value only names the setup file. When the two were separate literals,
+bumping the `.iss` alone shipped `…Setup-1.1.0.exe` around a binary still reporting `1.0.0` — the operator
+sees 1.1.0 installed, raises the floor to 1.1.0, and every updated PC is then refused by the wall, with no
+log line and no screen anywhere naming a version mismatch.
+
+### 2. Build
+
+```powershell
+cd packaging
+.\publish-server.ps1 -PostgresDir <...> -NodeDir <...>     # prints « Building version x.y.z »
+```
+
+Out come `build-output\ClinicManagementServerSetup-<version>.exe` and `…ClientSetup-<version>.exe`.
+
+### 3. Publish the download, then set the three keys
+
+Put the client `.exe` somewhere the LAN can reach and set, in the server's `appsettings.Production.json`:
+
+| Key | Set it to |
+|---|---|
+| `Clients:CurrentShellVersion` | the new version |
+| `Clients:StoreUrls:Windows` | the URL of the new `ClientSetup-<version>.exe` |
+| `Clients:MinimumShellVersion` | **leave alone for now** |
+
+With only the first two set, an older shell shows the **dismissible notice strip** — docked above the
+WebView, never over it, so it cannot cover a patient record, and dismissal is remembered per version so
+hiding today's notice cannot suppress the next release's.
+
+### 4. Raise the floor once people have updated
+
+Set `Clients:MinimumShellVersion` to the new version. Older shells now get the **wall** instead of the app,
+because below the floor the loaded page would be a screen where nothing works. It takes effect without
+restarting the service.
+
+⚠️ **Never raise the floor in the same change that publishes the download.** Anyone who has not yet run the
+installer is locked out of the product until they do, and the only route back is a URL they can reach —
+which is `Clients:StoreUrls:Windows`, the key most likely to be forgotten.
+
+⚠️ **Compile the installers before you trust a release.** Both `.iss` files went months without being
+compiled — the payloads were staged and ISCC was never run — and in that window two brace-comment blocks
+acquired an `{app}` constant and a `[Files]` mention, each of which ends an Inno `{ }` comment early and
+made the **server** installer fail to compile at all (« Invalid section tag », « Syntax error » on a line of
+prose). Prefer `//` comments in a `.iss`; a `}` anywhere inside a `{ }` comment closes it.
+
+### 5. Re-running the installer is the upgrade
+
+Both `.iss` files keep a fixed `AppId`, so Inno upgrades in place: same directory, no uninstall first, no
+data loss. The **server** installer is explicitly safe to re-run over an existing install — it reuses the
+existing `pgdata` cluster and its passwords, and `PrepareToInstall` stops the services before any file is
+copied over them.
 
 ## Phones & tablets — the device-trust page (AC-44 / AC-45)
 

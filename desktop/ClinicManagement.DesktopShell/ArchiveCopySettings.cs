@@ -28,6 +28,16 @@ public sealed class ArchiveCopySettings
     /// <summary>How many copies to keep. Older ones are pruned only after a new one has landed (AC-6).</summary>
     public int KeepCopies { get; set; } = 4;
 
+    /// <summary>
+    /// Whether the patient files are also mirrored as browsable folders (<c>patient-file-mirror</c>).
+    ///
+    /// <para>⚠️ <b>Defaults to false, which is what an existing <c>archive-copy.json</c> reads as</b> — the key is
+    /// simply absent there, and <c>System.Text.Json</c> leaves the initializer value. That is deliberate
+    /// (AC-9): a machine already taking archives must not silently start pulling every radiograph the cabinet
+    /// owns onto a disk sized for zip files, because the shell was updated. The window offers the choice.</para>
+    /// </summary>
+    public bool MirrorFiles { get; set; }
+
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(Folder) && !string.IsNullOrWhiteSpace(GrantSecret);
 

@@ -11,6 +11,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.API.Filters;
 using ClinicManagement.API.Models;
 using ClinicManagement.API.Startup;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Deployment;
 using Microsoft.AspNetCore.Authorization;
@@ -215,6 +216,34 @@ public class BackupController : ApiControllerBase
         [FromBody] IssueArchiveGrantCommand command, CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(command, cancellationToken);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Every file this cabinet holds, so a machine keeping a browsable copy can work out what it is missing
+    /// (<c>patient-file-mirror</c>).
+    ///
+    /// <para>⚠️ <b>A manifest, not a download.</b> It names files and never yields a byte or a storage key;
+    /// fetching one goes through <c>GET /api/patients/{patientId}/files/{fileId}/download</c>, which re-checks the
+    /// patient's own clinic. So this endpoint adds a *listing* reach, not a new path to the object store.</para>
+    ///
+    /// <para>⚠️ <b>No step-up, unlike <c>GET archive</c> below.</b> The step-up on the archive guards a single
+    /// action that hands over the entire record in one response; a paged list of file names is the read the
+    /// per-patient list already grants to every role, gathered in one place and gated to admins instead.</para>
+    /// </summary>
+    [HttpGet("file-manifest")]
+    [EnableRateLimiting(RateLimiting.ArchivePolicy)]
+    [AllowsWithoutSubscription(
+        "A cabinet must always be able to take its own data out — and the mirror is the path with nobody "
+        + "present to be told why it stopped (the AC-4.2 argument, as for the archive itself).")]
+    public async Task<ActionResult<PagedResult<ClinicFileManifestEntryDto>>> GetFileManifest(
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
+        CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new GetClinicFileManifestQuery { Page = page, PageSize = pageSize }, cancellationToken);
+
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
 

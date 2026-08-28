@@ -100,6 +100,24 @@ jobs:
   # documented differences (the agenda check deleted, the inherited card-fallback exemptions emptied), and the
   # copy is deliberate: two applications in one repository held to one device contract is the point, and a
   # symlink or a shared script would have to grow a per-app branch at the first divergence.
+  packaging:
+    # ⚠️ This does NOT compile the installers — ISCC needs Windows + Inno Setup 6, so the real compile stays
+    # an operator step (README.md § « Shipping an update to installed clients »). What it catches is the one
+    # failure mode that is invisible without running ISCC: a `{ }` comment whose own `}` closes it early. Both
+    # .iss files went months uncompiled and the SERVER installer had stopped building outright — so a clinic
+    # could not have been sent an update, and nothing anywhere said so.
+    name: Packaging — Inno Setup comment traps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Lint .iss comments
+        run: node packaging/lint-iss.mjs
+
   console:
     name: Console — typecheck + responsive + build
     runs-on: ubuntu-latest
@@ -187,9 +205,11 @@ jobs:
         run: npm audit --audit-level=high
 
   desktop:
-    name: Desktop shell — build
-    # Windows-only by construction: net8.0-windows + WPF. It cannot be *run* here (WebView2 runtime), so this
-    # proves it compiles and nothing more — which is still strictly more than it had.
+    name: Desktop shell — build + test
+    # Windows-only by construction: net8.0-windows + WPF. The *shell* cannot be run here (no WebView2 runtime),
+    # so for it this proves compilation and nothing more. What CAN be run is the pure logic beside it —
+    # `MirrorPathPlanner`, which decides where every mirrored patient file lands and is the one place a silent
+    # mistake would overwrite one patient's radiograph with another's.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -200,6 +220,9 @@ jobs:
 
       - name: Build
         run: dotnet build desktop/ClinicManagement.DesktopShell.sln --configuration Release
+
+      - name: Test
+        run: dotnet test desktop/ClinicManagement.DesktopShell.sln --configuration Release --no-build
 
   android:
     name: Android shell — lint + assemble

@@ -49,6 +49,40 @@ public class PatientFileRepository : IPatientFileRepository
         return new PagedResult<PatientFile>(items, page.Page, page.PageSize, total);
     }
 
+    public async Task<PagedResult<ClinicFileManifestRow>> GetClinicManifestPageAsync(
+        Guid clinicId,
+        PageRequest? paging,
+        CancellationToken cancellationToken = default)
+    {
+        // The join is the point: one query returns the patient's name beside each file, where the caller would
+        // otherwise read the patient table once per file to build a folder tree.
+        var query =
+            from file in _context.PatientFiles
+            join patient in _context.Patients on file.PatientId equals patient.Id
+            where file.ClinicId == clinicId
+            // Ascending, and see the interface note: a caller walks these pages while uploads continue, and
+            // newest-first would push unread rows past the cursor every time somebody scans a document.
+            orderby file.UploadedAt, file.Id
+            select new ClinicFileManifestRow(
+                file.Id,
+                file.PatientId,
+                patient.FirstName + " " + patient.LastName,
+                file.FileName,
+                file.ContentType,
+                file.FileSize,
+                file.UploadedAt);
+
+        var total = await query.CountAsync(cancellationToken);
+
+        if (paging is not { } page)
+        {
+            return PagedResult<ClinicFileManifestRow>.Unpaged(await query.ToListAsync(cancellationToken));
+        }
+
+        var items = await query.Skip(page.Skip).Take(page.Take).ToListAsync(cancellationToken);
+        return new PagedResult<ClinicFileManifestRow>(items, page.Page, page.PageSize, total);
+    }
+
     public async Task<IEnumerable<PatientFile>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default)
     {
         return await _context.PatientFiles

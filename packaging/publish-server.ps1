@@ -43,6 +43,9 @@ param(
     [string]$PostgresDir,
     [string]$NodeDir,
     [string]$Configuration = 'Release',
+    # The release being built. Omit it and the shell project's own <Version> is used, which is the point:
+    # there is ONE source for this number and everything downstream is stamped from it. See Resolve-Version.
+    [string]$Version,
     [switch]$SkipInstallers
 )
 
@@ -60,6 +63,47 @@ $ServerOut    = Join-Path $OutputRoot 'server'
 $ClientOut    = Join-Path $OutputRoot 'client'
 
 $Rid = 'win-x64'
+
+# --- One version number, stamped everywhere -------------------------------------------------------
+#
+# ⚠️ **This exists because the number used to live in three hand-edited literals** — the shell's
+# `<Version>`, `client\clinic-client.iss`'s `#define AppVersion` and the server one — and nothing compared
+# them. The shell reports its ASSEMBLY version as `X-Client-Version` and `ClientRequirements` compares that
+# against `Clients:MinimumShellVersion`, while the `.iss` value only names the setup file. So bumping the
+# `.iss` alone shipped `…Setup-1.1.0.exe` around a binary still reporting `1.0.0`: the operator sees 1.1.0
+# installed, raises the floor to 1.1.0, and every updated PC is refused by the wall — with no log line,
+# no error and no screen anywhere naming a version mismatch. The failure is indistinguishable from the
+# update not having been installed at all.
+#
+# The shell `.csproj` is the source; `-Version` overrides it for a one-off build. Both `.iss` files take
+# it through `/DAppVersion`, which wins over their `#ifndef` fallback.
+function Resolve-Version([string]$Explicit, [string]$Csproj) {
+    if ($Explicit) {
+        $resolved = $Explicit
+        $origin = '-Version'
+    }
+    else {
+        $xml = [xml](Get-Content -LiteralPath $Csproj -Raw)
+        # PropertyGroup may be one node or several, so flatten and take the first non-empty <Version>.
+        $resolved = @($xml.Project.PropertyGroup) |
+            ForEach-Object { $_.Version } |
+            Where-Object { $_ } |
+            Select-Object -First 1
+        $origin = 'the shell .csproj'
+    }
+
+    if (-not $resolved) {
+        throw "No <Version> found in $Csproj and no -Version given. The shell's assembly version is what the server's client floor is compared against, so this build must not guess it."
+    }
+    $resolved = "$resolved".Trim()
+    if ($resolved -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') {
+        throw "Version '$resolved' (from $origin) is not N.N.N or N.N.N.N. Clients:MinimumShellVersion is compared as a version, so a value it cannot parse would silently disable the floor."
+    }
+    return $resolved
+}
+
+$Version = Resolve-Version $Version $ShellProject
+Write-Host "Building version $Version" -ForegroundColor Green
 
 function Write-Step([string]$Message) {
     Write-Host ''
@@ -195,11 +239,14 @@ if ($PostgresDir -and (Test-Path (Join-Path $PostgresDir 'bin\pg_dump.exe'))) {
 # --- 5. Publish the WebView2 desktop shell (client) ---------------------------------------------
 Write-Step 'Publishing ClinicManagement.DesktopShell (self-contained win-x64)'
 $ShellOut = Join-Path $ClientOut 'shell'
+# ⚠️ `/p:Version` is what makes the floor honest: this is the value the running shell reports as
+# `X-Client-Version`, so it MUST be the same number the installers are named after.
 dotnet publish $ShellProject `
     -c $Configuration `
     -r $Rid `
     --self-contained true `
     /p:UseAppHost=true `
+    /p:Version=$Version `
     -o $ShellOut
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish (DesktopShell) failed with exit code $LASTEXITCODE." }
 
@@ -228,9 +275,11 @@ if (-not $SkipInstallers) {
         $Iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
     }
     if ($Iscc) {
-        & $Iscc (Join-Path $PackagingDir 'server\clinic-server.iss')
+        # /DAppVersion wins over each .iss's own `#ifndef` fallback, so the setup files are named after the
+        # very number stamped into the shell assembly a few steps above.
+        & $Iscc "/DAppVersion=$Version" (Join-Path $PackagingDir 'server\clinic-server.iss')
         if ($LASTEXITCODE -ne 0) { throw "ISCC (server) failed with exit code $LASTEXITCODE." }
-        & $Iscc (Join-Path $PackagingDir 'client\clinic-client.iss')
+        & $Iscc "/DAppVersion=$Version" (Join-Path $PackagingDir 'client\clinic-client.iss')
         if ($LASTEXITCODE -ne 0) { throw "ISCC (client) failed with exit code $LASTEXITCODE." }
     } else {
         Write-Warning 'ISCC.exe (Inno Setup 6) not found -- skipping installer compilation. Payloads are staged under build-output/.'

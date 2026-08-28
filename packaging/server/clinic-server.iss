@@ -15,7 +15,15 @@
 ; ============================================================================================
 
 #define AppName        "APEXA — Serveur"
-#define AppVersion     "1.0.0"
+#ifndef AppVersion
+  ; The fallback for a hand-run `ISCC.exe this.iss`. `publish-server.ps1 -Version x.y.z` passes
+  ; /DAppVersion and WINS over this — see ..\README.md § « Publier une mise a jour du shell ».
+  ; It must stay in step with the shell assembly's own <Version>, because that assembly version is what
+  ; the running shell reports as X-Client-Version and what the server's floor is compared against: ship an
+  ; installer named 1.1.0 around a binary reporting 1.0.0 and your own floor refuses the build you just
+  ; shipped, with nothing anywhere naming the mismatch.
+  #define AppVersion   "1.0.0"
+#endif
 #define AppPublisher   "APEXA"
 ; The product mark, shared with the client installer and the shell .exe. Generated from the one master
 ; (web/branding/icon.svg) by web/scripts/generate-icons.mjs.
@@ -219,11 +227,17 @@ begin
     Result := Result + Copy(Chars, (Ord(Buf[I]) mod Length(Chars)) + 1, 1);
 end;
 
-{ Per-install file that persists the generated DB passwords (clinic_user on line 1, postgres superuser on
-  line 2) so a REINSTALL over an existing PostgreSQL cluster reuses them instead of regenerating and then
-  failing authentication against the existing role. Colocated in {app}\api\.local (gitignored, never
-  LAN-facing) — the SAME folder the API writes its other per-install secrets to (signing key, server.pfx,
-  ca.crt, google-refresh-token) via AppContext.BaseDirectory, so one .local backup covers them all. }
+// ⚠️ `//` and not a `{ }` block: this comment names `{app}`, and inside a brace comment that constant's
+//    own `}` CLOSES the comment early — the rest of the sentence then parses as code and ISCC reports
+//    « Syntax error » on a line of prose. Same trap as the `[Files]` block further down, and between them
+//    they broke this installer's compile outright — the last setup that built is dated months before the
+//    comments that broke it, so the two landed with the payloads staged and ISCC never re-run.
+//
+// Per-install file that persists the generated DB passwords (clinic_user on line 1, postgres superuser on
+// line 2) so a REINSTALL over an existing PostgreSQL cluster reuses them instead of regenerating and then
+// failing authentication against the existing role. Colocated in {app}\api\.local (gitignored, never
+// LAN-facing) — the SAME folder the API writes its other per-install secrets to (signing key, server.pfx,
+// ca.crt, google-refresh-token) via AppContext.BaseDirectory, so one .local backup covers them all.
 function DbCredentialsFile: string;
 begin
   Result := ExpandConstant('{app}\api\.local\db-credentials');
@@ -331,31 +345,31 @@ begin
   Result := True;
 end;
 
-{ ============================================================================================
-  L4e -- config is written in TWO files, split by OWNERSHIP, and an upgrade no longer destroys the
-  operator's own values.
-
-  What it used to do: SaveStringToFile(appsettings.Production.json, Cfg, False) -- truncate --
-  unconditionally from ssPostInstall, with no "if not FileExists" guard, ALTHOUGH the author used that
-  exact idiom 25 lines away to gate initdb. So every upgrade silently erased every hand-edited value:
-  Cors:AllowedOrigins, Hosting:TrustPort, Security:EnableHsts, the reminder gateway keys -- all of them
-  documented in ..\README.md as things an operator edits by hand.
-
-  What it does now:
-    - appsettings.Install.json    installer-owned, machine-derived (connection string, bundled tool
-                                  paths, ports). REWRITTEN every install, because those values are about
-                                  THIS machine and a stale one is a broken install.
-    - appsettings.Production.json operator-owned. Written once when absent, with every key the README
-                                  tells operators to edit, and NEVER truncated again. The API loads it
-                                  AFTER the install layer, so an operator's value always wins.
-
-  A structural split rather than a JSON merge in Pascal, for one reason worth stating: a merge has to
-  decide what to do about a key the operator DELIBERATELY REMOVED, and both answers are wrong. Two files
-  make the question disappear. The API side is Startup\InstallConfiguration.cs.
-
-  Any pre-existing Production.json is copied to .bak-<timestamp> before anything else happens, so even a
-  bug in this procedure cannot be the end of an operator's configuration.
-  ============================================================================================ }
+// ============================================================================================
+// L4e -- config is written in TWO files, split by OWNERSHIP, and an upgrade no longer destroys the
+// operator's own values.
+//
+// What it used to do: SaveStringToFile(appsettings.Production.json, Cfg, False) -- truncate --
+// unconditionally from ssPostInstall, with no "if not FileExists" guard, ALTHOUGH the author used that
+// exact idiom 25 lines away to gate initdb. So every upgrade silently erased every hand-edited value:
+// Cors:AllowedOrigins, Hosting:TrustPort, Security:EnableHsts, the reminder gateway keys -- all of them
+// documented in ..\README.md as things an operator edits by hand.
+//
+// What it does now:
+// - appsettings.Install.json    installer-owned, machine-derived (connection string, bundled tool
+// paths, ports). REWRITTEN every install, because those values are about
+// THIS machine and a stale one is a broken install.
+// - appsettings.Production.json operator-owned. Written once when absent, with every key the README
+// tells operators to edit, and NEVER truncated again. The API loads it
+// AFTER the install layer, so an operator's value always wins.
+//
+// A structural split rather than a JSON merge in Pascal, for one reason worth stating: a merge has to
+// decide what to do about a key the operator DELIBERATELY REMOVED, and both answers are wrong. Two files
+// make the question disappear. The API side is Startup\InstallConfiguration.cs.
+//
+// Any pre-existing Production.json is copied to .bak-<timestamp> before anything else happens, so even a
+// bug in this procedure cannot be the end of an operator's configuration.
+// ============================================================================================
 procedure BackupExistingConfig(const CfgPath: string);
 var
   Stamp: string;
@@ -775,20 +789,20 @@ begin
     DeleteFile(InitLog);
 end;
 
-{ ============================================================================================
-  L4f -- stop the running services BEFORE any file is copied over them.
-
-  [Files] copied the whole api\, web\ and node\ trees while the API and Node services were STILL
-  RUNNING: the only teardown in the script lived inside SetupAppServices, which runs from ssPostInstall,
-  i.e. AFTER the copy. Neither .iss had a PrepareToInstall, a CloseApplications or a ServicesStopped of
-  any kind. On Windows a running executable's image is locked, so the outcome was one of two bad ones --
-  the copy fails and the upgrade silently ships a half-updated tree, or it succeeds partially and the
-  service restarts on a mix of old and new assemblies.
-
-  PrepareToInstall is the correct hook: Inno calls it after the wizard and BEFORE the file copy, and a
-  non-empty return value aborts the install with that message. It is deliberately tolerant of "service
-  not found" (a first install has none) -- sc.exe's exit code is ignored for exactly that reason.
-  ============================================================================================ }
+// ============================================================================================
+// L4f -- stop the running services BEFORE any file is copied over them.
+//
+// [Files] copied the whole api\, web\ and node\ trees while the API and Node services were STILL
+// RUNNING: the only teardown in the script lived inside SetupAppServices, which runs from ssPostInstall,
+// i.e. AFTER the copy. Neither .iss had a PrepareToInstall, a CloseApplications or a ServicesStopped of
+// any kind. On Windows a running executable's image is locked, so the outcome was one of two bad ones --
+// the copy fails and the upgrade silently ships a half-updated tree, or it succeeds partially and the
+// service restarts on a mix of old and new assemblies.
+//
+// PrepareToInstall is the correct hook: Inno calls it after the wizard and BEFORE the file copy, and a
+// non-empty return value aborts the install with that message. It is deliberately tolerant of "service
+// not found" (a first install has none) -- sc.exe's exit code is ignored for exactly that reason.
+// ============================================================================================
 procedure StopClinicServices;
 var
   Rc: Integer;

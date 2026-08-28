@@ -27,6 +27,7 @@ public partial class ArchiveCopyWindow : Window
         GrantTextBox.Text = _settings.GrantSecret;
         EveryDaysTextBox.Text = _settings.EveryDays.ToString();
         KeepTextBox.Text = _settings.KeepCopies.ToString();
+        MirrorFilesCheckBox.IsChecked = _settings.MirrorFiles;
 
         // ⚠️ NOT TextChanged. `IsDriveEncrypted` shells out to `manage-bde`, which is a process launch with a
         // multi-second wait, and running it per keystroke froze the whole window — pasting a path fired it once
@@ -60,8 +61,11 @@ public partial class ArchiveCopyWindow : Window
             true => "Ce disque est protégé par BitLocker : en cas de vol, les copies restent illisibles.",
             false => "Ce disque n'est PAS protégé par BitLocker. Quiconque récupère ce poste peut lire les copies. "
                      + "Activez BitLocker sur ce disque.",
+            // ⚠️ « Vérifiez-le vous-même » with nowhere to go is a dead end, and this is the common branch —
+            // `manage-bde` needs elevation, so a cabinet PC answers « je ne sais pas » nearly every time.
             _ => "Le chiffrement de ce disque n'a pas pu être vérifié (BitLocker demande des droits "
-                 + "administrateur). Vérifiez-le vous-même avant de laisser des copies s'accumuler.",
+                 + "administrateur). Pour le voir : ouvrez l'Explorateur, clic droit sur le disque, "
+                 + "« Activer BitLocker » — s'il est déjà chiffré, Windows propose plutôt de le gérer.",
         };
     }
 
@@ -111,6 +115,7 @@ public partial class ArchiveCopyWindow : Window
             GrantSecret = grant,
             EveryDays = days,
             KeepCopies = keep,
+            MirrorFiles = MirrorFilesCheckBox.IsChecked == true,
         };
     }
 
@@ -162,6 +167,20 @@ public partial class ArchiveCopyWindow : Window
             var settings = _settings;
             var outcome = await Task.Run(() => new ArchiveCopyService(_server, settings).CopyNowAsync());
             Report(outcome.Message);
+
+            // patient-file-mirror. One button runs both, deliberately: they share the folder, the key and the
+            // whole point, and a second « Copier les fichiers maintenant » would let a user verify half a setup
+            // and believe they had verified all of it. The archive runs first — it is the restorable copy.
+            if (settings.MirrorFiles)
+            {
+                // `IProgress` marshals back to the UI thread on its own, which is why the report is safe from
+                // inside the `Task.Run` below.
+                var progress = new Progress<string>(Report);
+                var mirrored = await Task.Run(
+                    () => new FileMirrorService(_server, settings).MirrorNowAsync(progress));
+
+                Report($"{outcome.Message} — {mirrored.Message}");
+            }
         }
         catch (Exception ex)
         {
