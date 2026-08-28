@@ -15,7 +15,15 @@
 ; ============================================================================================
 
 #define AppName      "APEXA"
-#define AppVersion   "1.0.0"
+#ifndef AppVersion
+  ; The fallback for a hand-run `ISCC.exe this.iss`. `publish-server.ps1 -Version x.y.z` passes
+  ; /DAppVersion and WINS over this — see ..\README.md § « Publier une mise a jour du shell ».
+  ; It must stay in step with the shell assembly's own <Version>, because that assembly version is what
+  ; the running shell reports as X-Client-Version and what the server's floor is compared against: ship an
+  ; installer named 1.1.0 around a binary reporting 1.0.0 and your own floor refuses the build you just
+  ; shipped, with nothing anywhere naming the mismatch.
+  #define AppVersion   "1.0.0"
+#endif
 #define AppPublisher "APEXA"
 #define AppExe       "ClinicManagement.DesktopShell.exe"
 ; The shell's own icon, read straight out of the repo at compile time. Generated from the one master
