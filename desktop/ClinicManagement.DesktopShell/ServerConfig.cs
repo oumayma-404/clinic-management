@@ -31,6 +31,30 @@ public sealed class ServerConfig
     public const int DefaultPublicHttpsPort = 443;
 
     /// <summary>
+    /// The one `HostedMultiTenant` deployment — the backend every clinic on the hosted plan shares. Chosen by
+    /// the « APEXA Cloud » button on first run so that clinic is never asked for an address it has no way of
+    /// knowing.
+    ///
+    /// ⚠️ THIS IS THE ONE SERVER-SPECIFIC STRING IN THE SHELL, and it is the thing that breaks on the day the
+    /// deployment moves. Installed clients do not re-read it, so a domain change strands every one of them on a
+    /// dead host. Two things keep that recoverable and must stay true: « Changer de serveur » returns to the
+    /// mode chooser, and the LAN branch's field accepts ANY address — so a stranded user can type the new
+    /// domain instead of reinstalling. Do not make the hosted branch the only way to reach a hosted server.
+    ///
+    /// ⚠️ It is an OVH default hostname, not a product domain. When APEXA gets its own (app.apexa.tn or
+    /// similar), change it HERE and ship a new client; nothing else in the shell names a host.
+    /// </summary>
+    public const string HostedHost = "vps-dc7e4229.vps.ovh.net";
+
+    /// <summary>
+    /// The hosted deployment, ready to connect. The port is marked explicit because 443 is not a guess here:
+    /// it is what the deployment runs on, so the probe that exists for a typed address would be a round trip
+    /// spent confirming something already known.
+    /// </summary>
+    public static ServerConfig Hosted() =>
+        new() { Host = HostedHost, Port = DefaultPublicHttpsPort, PortIsExplicit = true };
+
+    /// <summary>
     /// The ports to try, in order, when connecting. One entry when the user typed a port — it is used verbatim
     /// and never probed. Otherwise <see cref="DefaultPublicHttpsPort"/> **before** <see cref="DefaultHttpsPort"/>:
     /// a LAN server refuses 443 instantly, whereas an internet firewall in front of a hosted server usually

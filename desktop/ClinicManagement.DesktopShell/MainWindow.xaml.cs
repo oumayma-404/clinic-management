@@ -64,7 +64,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            ShowServerConfig();
+            ShowModeChoice();
         }
     }
 
@@ -315,6 +315,7 @@ public partial class MainWindow : Window
         ServerConfigPanel.Visibility = Visibility.Collapsed;
         UnreachablePanel.Visibility = Visibility.Collapsed;
         UpdateRequiredPanel.Visibility = Visibility.Collapsed;
+        ModeChoicePanel.Visibility = Visibility.Collapsed;
     }
 
     private void ShowConnecting()
@@ -325,20 +326,39 @@ public partial class MainWindow : Window
         ServerConfigPanel.Visibility = Visibility.Collapsed;
         UnreachablePanel.Visibility = Visibility.Collapsed;
         UpdateRequiredPanel.Visibility = Visibility.Collapsed;
+        ModeChoicePanel.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// The first screen a new install shows, and where « Changer de serveur » returns to. It is a fork, not a
+    /// setting: nothing is written until one of the two branches completes.
+    /// </summary>
+    private void ShowModeChoice()
+    {
+        ModeChoicePanel.Visibility = Visibility.Visible;
+        WebView.Visibility = Visibility.Collapsed;
+        ConnectingPanel.Visibility = Visibility.Collapsed;
+        ServerConfigPanel.Visibility = Visibility.Collapsed;
+        UnreachablePanel.Visibility = Visibility.Collapsed;
+        UpdateRequiredPanel.Visibility = Visibility.Collapsed;
+        ChooseHostedButton.Focus();
     }
 
     private void ShowServerConfig()
     {
         ServerAddressTextBox.Text = _config.IsConfigured ? _config.DisplayAddress : string.Empty;
         ServerConfigError.Visibility = Visibility.Collapsed;
-        // A first-run user has nowhere to cancel back to; only offer cancel once a server is configured.
-        ServerConfigCancelButton.Visibility = _config.IsConfigured ? Visibility.Visible : Visibility.Collapsed;
+        // Always reachable now: the chooser is behind this panel even on a first run, so there IS somewhere to
+        // go back to. Only the word changes -- « Retour » to the fork, « Annuler » to the app already running.
+        ServerConfigCancelButton.Visibility = Visibility.Visible;
+        ServerConfigCancelButton.Content = _config.IsConfigured ? "Annuler" : "Retour";
 
         ServerConfigPanel.Visibility = Visibility.Visible;
         WebView.Visibility = Visibility.Collapsed;
         ConnectingPanel.Visibility = Visibility.Collapsed;
         UnreachablePanel.Visibility = Visibility.Collapsed;
         UpdateRequiredPanel.Visibility = Visibility.Collapsed;
+        ModeChoicePanel.Visibility = Visibility.Collapsed;
         ServerAddressTextBox.Focus();
     }
 
@@ -350,11 +370,25 @@ public partial class MainWindow : Window
         ConnectingPanel.Visibility = Visibility.Collapsed;
         ServerConfigPanel.Visibility = Visibility.Collapsed;
         UpdateRequiredPanel.Visibility = Visibility.Collapsed;
+        ModeChoicePanel.Visibility = Visibility.Collapsed;
     }
 
     // ---- Event handlers -------------------------------------------------------------------------
 
-    private void ChangeServer_Click(object sender, RoutedEventArgs e) => ShowServerConfig();
+    // Back to the fork, not to the address box: a clinic that moves from its own PC to the hosted plan would
+    // otherwise have to be told a hostname to type -- the exact question the chooser exists to avoid.
+    private void ChangeServer_Click(object sender, RoutedEventArgs e) => ShowModeChoice();
+
+    /// <summary>« APEXA Cloud » -- the address is ours to know, so it is not asked for.</summary>
+    private void ChooseHosted_Click(object sender, RoutedEventArgs e)
+    {
+        _config = ServerConfig.Hosted();
+        ServerConfigStore.Save(_config);
+        NavigateToServer();
+    }
+
+    /// <summary>« Serveur du cabinet » -- the clinic's own PC, whose address only the clinic knows.</summary>
+    private void ChooseLocal_Click(object sender, RoutedEventArgs e) => ShowServerConfig();
 
     private async void Retry_Click(object sender, RoutedEventArgs e)
     {
@@ -376,8 +410,14 @@ public partial class MainWindow : Window
 
     private void ServerConfigCancel_Click(object sender, RoutedEventArgs e)
     {
-        // Only reachable when a server is already configured (button hidden on first run).
-        NavigateToServer();
+        if (_config.IsConfigured)
+        {
+            NavigateToServer();
+        }
+        else
+        {
+            ShowModeChoice();
+        }
     }
 
     private void SaveServerAddress()
@@ -415,6 +455,7 @@ public partial class MainWindow : Window
         ConnectingPanel.Visibility = Visibility.Collapsed;
         ServerConfigPanel.Visibility = Visibility.Collapsed;
         UnreachablePanel.Visibility = Visibility.Collapsed;
+        ModeChoicePanel.Visibility = Visibility.Collapsed;
     }
 
     private void DownloadUpdate_Click(object sender, RoutedEventArgs e)

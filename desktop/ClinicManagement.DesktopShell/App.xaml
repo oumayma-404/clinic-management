@@ -44,7 +44,12 @@
                         <Border x:Name="Chrome" CornerRadius="6" Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
                                 Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <!-- Bound, not hardcoded: Button's own default for this property is Center, so every
+                                 existing caller is unchanged, while a button whose content is two stacked lines
+                                 can ask for Left. Hardcoded Center centred each line on its OWN width, which
+                                 left the title and the description starting at different x. -->
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <!-- Hover/press are opacity shifts rather than second and third colours: they then
