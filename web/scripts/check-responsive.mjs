@@ -827,6 +827,47 @@ check(
   },
 );
 
+check(
+  "clinic-code-gated",
+  "N10",
+  "Every surface that shows the clinic's join code gates on `useSelfRegistrationEnabled`",
+  "Nothing in this product reads `ClinicCode` except the join path, so where self-registration is closed " +
+    "(`HostedMultiTenant`) the code creates nothing — and a badge nobody can use, under « Communiquez ce code à " +
+    "vos collègues », invites an admin to go hunting for a door that is not there. `multi-tenant-cloud` US-3 " +
+    "gated the card on `/users` and MISSED the second copy in `clinic-settings.tsx`, which had no capability " +
+    "read of any kind: the hosted deployment printed that sentence for months. Nothing can catch this by type " +
+    "or by eye — the code is a real value and the sentence is grammatical; it is simply false on that profile. " +
+    "Read the shared hook (`lib/hooks/use-password-policy.ts`) and gate on the flag, never on its negation.",
+  () => {
+    /*
+     * Keyed on the ROLE — a file that RENDERS the code as content — rather than on a list of the two files that
+     * do it today, which is what let the second one exist.
+     *
+     * ⚠️ « Renders it » is the whole test, and merely *mentioning* `clinicCode` is not it: `join-wizard.tsx`
+     * carries the identifier four times and displays it never — it is the screen where somebody TYPES a code to
+     * join, so it is the one surface that must keep working when self-registration is open and is gated at the
+     * page level (`/join` renders `JoinUnavailable`). A check that flagged it would be demanding the opposite of
+     * the rule on the one file that already satisfies it, and would have been switched off within a week.
+     *
+     * So the pattern is the JSX-child idiom both display sites use — the hole alone on its line, or between
+     * tags — never `code: clinicCode` or `clinicCode={…}`.
+     */
+    const rendersIt = /(?:^|>)\s*\{(?:clinicCode|clinic\.code)\}\s*(?:<|$)/;
+    const holders = tsx().filter((f) => read(f).split(/\r?\n/).some((l) => rendersIt.test(l)));
+
+    // ⚠️ The "does it call the hook" test is COMMENT-MASKED, and it has to be: the comment beside each call site
+    // names the hook, so a plain `includes` passes on a file whose call has been deleted and whose note about it
+    // stayed — which is exactly how this check first reported green against a deliberate violation.
+    const callsHook = (file) => {
+      const lines = read(file).split(/\r?\n/);
+      const inComment = commentMask(lines);
+      return lines.some((l, i) => !inComment[i] && l.includes("useSelfRegistrationEnabled"));
+    };
+
+    return scanLines(holders.filter((f) => !callsHook(f)), rendersIt);
+  },
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
