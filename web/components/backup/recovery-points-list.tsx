@@ -159,9 +159,14 @@ function ArchiveCopyNotice({
           <>
             Dernière archive téléchargée le{" "}
             <span className="font-medium">{formatDateTime(lastArchiveDownloadedAtUtc)}</span>.
+            {/* ⚠️ It says the archive LEFT, never that it is still kept. All the server has is
+                `LastArchiveDownloadedAtUtc` — that one delivery completed — and it cannot see whether the file
+                still exists, or where. « Une copie est bien conservée hors du serveur » asserted custody
+                nobody here can observe, and it read as reassurance to a cabinet that had downloaded once and
+                deleted the file, or whose scheduled copy fetched it and failed to write. */}
             {stale
               ? " Elle commence à dater : une copie gardée sur votre poste est la seule qui survive à une panne du serveur."
-              : " Une copie est bien conservée hors du serveur."}
+              : " Gardez-la hors du serveur : c'est la seule copie qui survive à une panne."}
           </>
         )}
       </p>
