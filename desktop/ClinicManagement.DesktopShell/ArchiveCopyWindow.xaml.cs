@@ -165,7 +165,8 @@ public partial class ArchiveCopyWindow : Window
             // where an ACL call on a slow or network path freezes the window. Awaiting a method is not the same
             // as getting off the UI thread.
             var settings = _settings;
-            var outcome = await Task.Run(() => new ArchiveCopyService(_server, settings).CopyNowAsync());
+            var archive = new ArchiveCopyService(_server, settings);
+            var outcome = await Task.Run(() => archive.CopyNowAsync());
             Report(outcome.Message);
 
             // patient-file-mirror. One button runs both, deliberately: they share the folder, the key and the
@@ -175,9 +176,14 @@ public partial class ArchiveCopyWindow : Window
             {
                 // `IProgress` marshals back to the UI thread on its own, which is why the report is safe from
                 // inside the `Task.Run` below.
+                // ⚠️ The archive's own token is handed on rather than a second one exchanged. That endpoint is on
+                // the ARCHIVE rate limiter — three requests in ten minutes — so exchanging twice here spent the
+                // whole budget on one click and every manifest read came back 429, which showed up as an empty
+                // « fichiers » folder with nothing anywhere naming a limit.
                 var progress = new Progress<string>(Report);
+                var reuse = archive.LastToken;
                 var mirrored = await Task.Run(
-                    () => new FileMirrorService(_server, settings).MirrorNowAsync(progress));
+                    () => new FileMirrorService(_server, settings).MirrorNowAsync(progress, reuse));
 
                 Report($"{outcome.Message} — {mirrored.Message}");
             }
