@@ -296,12 +296,28 @@ public class BackupController : ApiControllerBase
         "A cabinet must always be able to take its own data out — recovering records that already exist is not "
         + "recording new work (AC-8, the AC-4.2 argument).")]
     public async Task<IActionResult> DownloadArchive(
-        [FromHeader(Name = StepUpHeader)] string? confirmation, CancellationToken cancellationToken)
+        [FromHeader(Name = StepUpHeader)] string? confirmation,
+        [FromHeader(Name = ArchiveGrantHeader)] string? grant,
+        CancellationToken cancellationToken)
     {
-        var refusal = RequireStepUp(confirmation, ArchiveStepUpAction);
-        if (refusal != null)
+        // clinic-archive-auto-copy. A device grant stands in for the step-up, which an unattended copy can never
+        // mint: the confirmation lives five minutes and is spent on use, so a schedule would need somebody at the
+        // keyboard every time. Exchanging the grant for a token is what gets a shell past `AdminOnly`; this is
+        // what gets it past the confirmation.
+        //
+        // ⚠️ The grant is re-checked HERE rather than trusted from the exchange, and that is the point of not
+        // marking the token instead: a grant revoked between the two calls stops this download, and a leaked
+        // token alone carries no step-up power. It must also name the cabinet being served — the authorizer
+        // reads across clinics by necessity (a caller presenting a secret has no session), so the comparison to
+        // the resolved clinic is the tenancy check, stated rather than inherited (AC-4).
+        var authorized = await _grants.AuthorizeAsync(grant, cancellationToken);
+        if (authorized == null || authorized.ClinicId != _clinicContext.GetClinicId())
         {
-            return refusal;
+            var refusal = RequireStepUp(confirmation, ArchiveStepUpAction);
+            if (refusal != null)
+            {
+                return refusal;
+            }
         }
 
         var result = await _mediator.Send(new BuildClinicArchiveQuery(), cancellationToken);

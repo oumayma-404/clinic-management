@@ -119,3 +119,65 @@ worth watching on the shared hosted database once scheduled copies exist.
 - Tests, per this skill's contract — `/test-small-feature`. The ones that matter most: AC-1 (a grant is refused by
   the restore endpoint), AC-4 (cross-clinic refusal asserted directly, not via the ambient filter), and the
   authorizer's deactivated/demoted-issuer path.
+
+---
+
+## End-to-end run — 2026-08-28, local dev stack
+
+**Migration applied and verified.** The API auto-applied it at boot. PostgreSQL now holds exactly the eight
+intended columns and **no `xmin`**, so the hand-removal held; both indexes exist and `SecretHash` is unique.
+`verify-schema` went **7 drifts → 4**: the three that cleared are precisely
+`ClinicArchiveGrants(ClinicId, CreatedAtUtc)`, `(SecretHash)` and `(ClinicId) -> Clinics` moving from
+« MISSING in the database » to « present », and the four that remain (`audit-chain-intact`,
+`key-ring-protection`, `messaging-month-covers-every-clinic`, `overlapping-appointment-pairs`) are byte-identical
+before and after. **No new drift.**
+
+**The flow, against the running API.** Admin login (with a TOTP enrolment and a forced password change on the
+way), then:
+
+| | Result |
+|---|---|
+| list grants, none yet | `[]` |
+| issue a grant | 200 + the secret, once |
+| the secret in the database | 64 hex of SHA-256; a search for the plaintext returns **0 rows** |
+| exchange the grant, **no session at all** | 200 + an access token |
+| a bogus grant | « Ce poste n'est pas autorisé. » |
+| download the archive with bearer + grant | **200, 19 859 bytes** |
+| the file itself | a real zip — 41 entries, `testzip()` clean, 40 tables, **206 rows** |
+| `ClinicArchiveGrant.LastUsedAtUtc` | stamped |
+| `Clinic.LastArchiveDownloadedAtUtc` | stamped ⇒ `ArchiveStale` clears itself |
+| the audit ledger | a delivery row at the same instant |
+| revoke | 204, and the row is **kept** with `RevokedAtUtc` set |
+| the list response | carries no `secret` field at all |
+| **a revoked grant** | **403 « Ce poste n'est pas autorisé. »** — the same sentence an unknown one gets (AC-3) |
+| a second, un-revoked grant | still 200 — so the revocation was targeted, not the endpoint breaking |
+
+All twelve checks pass. ⚠️ The archive rate-limit policy is a **5-minute window** and a retry loop keeps it
+busy — budget for that when re-running this by hand, or the refusals read as failures.
+
+**⚠️ A real defect the end-to-end caught, and it made the feature non-functional.** `DownloadArchive` still
+called `RequireStepUp` unconditionally, so a grant-issued token got past `AdminOnly` and was then refused by the
+step-up gate — which an unattended shell can never satisfy. DEV-1 had moved the grant onto the exchange and left
+the download with no way through. Fixed by having the download accept `X-Archive-Grant` as an alternative to the
+confirmation, which is what the spec's API Contract said in the first place and is the safer shape: **the grant
+is re-checked at the download** rather than trusted from the exchange, so a revocation between the two calls
+stops it and a leaked token alone carries no step-up power. The shell now sends both headers.
+
+**AC-1 (a grant must never restore) — proven structurally.** `RestoreArchive` binds only
+`X-Step-Up-Confirmation`, contains **zero** references to the grant header or the authorizer, and guards on the
+*different* action `restore-clinic-archive`. A grant cannot reach it.
+
+**⚠️ A build trap worth recording**, and it cost a false negative here: `dotnet build -p:BaseOutputPath=<temp>`
+(the Smart-App-Control workaround) writes the assemblies to that temp path and **not** to `bin/Release`, so the
+running API kept serving the old code and the first retest still failed. Build the host project to its own
+`bin/` — after stopping it, or the copy step hits the lock — before believing any end-to-end result.
+
+## Still not done
+
+- **The shell's own file handling is NOT exercised** — `.part`→rename, retention, the free-space refusal and the
+  folder ACL. The HTTP contract it performs is proven identical (same two headers, same order, via curl), but the
+  local half is not. The blocker is mechanical: the shell is HTTPS-only by design and this dev API binds
+  **HTTP 5000 only** — `Program.cs` pins Kestrel, so `ASPNETCORE_URLS` does not add a TLS listener. Driving it
+  needs either the HTTPS front door or the hosted VPS.
+- The web card's eye pass at 320 / 390 / 820 / 1180 / 1440.
+- Tests — `/test-small-feature`.
