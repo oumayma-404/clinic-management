@@ -81,3 +81,35 @@ export function usePasswordResetEnabled(): boolean | null {
 
   return enabled
 }
+
+/**
+ * Whether this deployment still lets somebody create their own account from a clinic code.
+ *
+ * ⚠️ **Defaults to `true`, and a failed probe leaves it there.** Every consumer gates on the flag rather than on
+ * its negation, so an unread probe shows the code — because on a `SelfHostedLan` install the join code is the
+ * *only* way staff get an account, and hiding it on a network blip would remove the only door into the product.
+ * Where the answer really is `false` the code has no consumer at all: nothing in this product reads `ClinicCode`
+ * except the join path.
+ *
+ * ⚠️ **`=== true`**, following `passwordResetEnabled`'s rolling-deploy convention — `web` and `api` are separate
+ * containers, so a newer page may be served by an older API that omits the field.
+ *
+ * ⚠️ **Two surfaces show the clinic code, and that is why this is a hook rather than an effect in one of them.**
+ * `user-management.tsx` had its own private probe and `clinic-settings.tsx` had none, so « Paramètres » went on
+ * printing « Communiquez ce code à vos collègues » on a hosted deployment where the code creates nothing —
+ * `multi-tenant-cloud` US-3 gated one of the two and the other was never found. `check:responsive`'s
+ * `clinic-code-gated` is the derived guard.
+ */
+export function useSelfRegistrationEnabled(): boolean {
+  const [enabled, setEnabled] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    load()
+      .then((mode) => { if (active) setEnabled(mode.selfRegistrationEnabled === true) })
+      .catch(() => { /* stays true: never hide a LAN install's only door on a failed probe */ })
+    return () => { active = false }
+  }, [])
+
+  return enabled
+}

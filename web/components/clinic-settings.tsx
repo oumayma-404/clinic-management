@@ -36,7 +36,7 @@ import { clinicsApi, type ClinicDto } from "@/lib/api/clinics"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
-import { PushAvailabilityCard } from "@/components/push-availability-card"
+import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
 import Link from "next/link"
 import { DoctorDocumentIdentityDialog } from "@/components/doctor-document-identity-dialog"
 import { DoctorWorkingHoursCard } from "@/components/doctor-working-hours-card"
@@ -130,6 +130,8 @@ export default function ClinicSettings() {
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
   const [clinicCode, setClinicCode] = useState("")
+  // Gated on the flag, never its negation — see useSelfRegistrationEnabled.
+  const selfRegistrationEnabled = useSelfRegistrationEnabled()
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
@@ -622,8 +624,16 @@ export default function ClinicSettings() {
         than the shell's `max-w-7xl`, and that is a real decision rather than an accident.
       */}
       <div className="mx-auto max-w-5xl space-y-3">
-        {/* Clinic Code under header */}
-        {clinicCode && (
+        {/*
+          The clinic code — and ONLY where it still does something.
+
+          ⚠️ **This was the second, ungated copy.** `multi-tenant-cloud` US-3 hid the card on `/users` where
+          self-registration is closed, on the reasoning that a badge nobody can use under a paragraph explaining
+          why it does not work invites an admin to hunt for a door that is not there. This strip says the same
+          thing in the same product and was never found: on the hosted deployment « Paramètres » went on telling
+          the owner to hand the code to colleagues, for whom it creates nothing.
+        */}
+        {selfRegistrationEnabled && clinicCode && (
           <div className="bg-accent/20 border border-primary/25 rounded-lg p-3">
             <Label className="text-xs text-primary font-medium">Code du cabinet</Label>
             <div className="flex items-center gap-2 mt-1.5">
@@ -1442,7 +1452,6 @@ export default function ClinicSettings() {
         {/* OS notifications, per platform (Part 6, AC-51/AC-52). Not mode-gated: the card's whole job is to say
             whether this installation can push, and hiding it where it cannot would leave the owner of a
             self-hosted install with no explanation for why the phone app is silent. */}
-        {user?.role === "admin" && <PushAvailabilityCard />}
 
         {/* `bg-accent/20` — the same tinted-info-panel pairing as the clinic-code block at the top of this
             page. The class here was `bg-accent/50/20`, a double opacity modifier Tailwind does not parse. */}

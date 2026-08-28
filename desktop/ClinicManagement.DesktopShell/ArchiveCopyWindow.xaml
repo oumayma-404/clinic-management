@@ -64,16 +64,23 @@
                     </StackPanel>
                 </Border>
 
-                <TextBlock x:Name="StatusText" Margin="0,16,0,0" TextWrapping="Wrap"
-                           Foreground="{DynamicResource ShellInkMuted}" Visibility="Collapsed"/>
             </StackPanel>
         </ScrollViewer>
 
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+        <!-- ⚠️ The status line lives in the FOOTER, outside the ScrollViewer. It used to sit at the bottom of the
+             scrolled content, below four fields and the encryption box, so on a 560 px window every message this
+             window produces — « Enregistré », « Copie en cours… », and every refusal — was rendered below the fold.
+             Pressing Enregistrer looked like it did nothing at all. Feedback has to be where the button is. -->
+        <DockPanel Grid.Row="2" Margin="0,16,0,0">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
             <Button x:Name="CopyNowButton" Content="Copier maintenant" Margin="0,0,10,0" Padding="16,8"
                     Style="{StaticResource ShellButton}" Click="CopyNow_Click"/>
             <Button x:Name="SaveButton" Content="Enregistrer" Padding="16,8"
                     Style="{StaticResource ShellPrimaryButton}" Click="Save_Click"/>
-        </StackPanel>
+            </StackPanel>
+
+            <TextBlock x:Name="StatusText" TextWrapping="Wrap" VerticalAlignment="Center"
+                       Foreground="{DynamicResource ShellInk}" Visibility="Collapsed"/>
+        </DockPanel>
     </Grid>
 </Window>

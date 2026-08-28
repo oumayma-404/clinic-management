@@ -54,6 +54,7 @@ import {
 } from "@/lib/api/users"
 import { clinicsApi } from "@/lib/api/clinics"
 import { authApi } from "@/lib/api/auth"
+import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
@@ -93,7 +94,9 @@ export function UserManagement() {
    * `mode` cannot answer it (US-3). Optimistic default: the LAN install is the common case, and a probe that
    * failed must not make « Code du cabinet » claim the code is dead when it is not.
    */
-  const [selfRegistrationEnabled, setSelfRegistrationEnabled] = useState(true)
+  // The shared capability read — see useSelfRegistrationEnabled. It was a private effect here, which is how
+  // `clinic-settings.tsx`'s copy of the clinic code went ungated on the hosted deployment.
+  const selfRegistrationEnabled = useSelfRegistrationEnabled()
   const [userPage, setUserPage] = useState<ClinicUsersPageDto>(() => ({
     ...emptyPage<ClinicUserDto>(),
     pendingActivationCount: 0,
@@ -177,20 +180,6 @@ export function UserManagement() {
     loadData()
   }, [loadData])
 
-  // A deployment fact, so read once rather than on every page change.
-  useEffect(() => {
-    authApi
-      .getMode()
-      .then(({ selfRegistrationEnabled: enabled }) => {
-        if (mountedRef.current) setSelfRegistrationEnabled(enabled)
-      })
-      .catch((err) => {
-        // Deliberately no user-facing failure state, and this is not the `.catch(() => [])` shape: nothing is
-        // emptied. The only consumer is the clinic-code caption, so an unread probe leaves it at the wording it
-        // has always had — a claim the screen was already making — rather than inventing a new one either way.
-        console.error("Could not read the deployment's auth capabilities:", err)
-      })
-  }, [])
 
   // Real-time: refetch the users table + clinic code when any client of this clinic changes a user
   // (reset password / activate / deactivate) or registers.
