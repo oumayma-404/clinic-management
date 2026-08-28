@@ -33,6 +33,9 @@ public sealed class FileMirrorService
 
     private const string PartSuffix = ".part";
 
+    /// <summary>The HTTP status the manifest read failed with, so the message can name it.</summary>
+    private int ManifestFailureCode { get; set; }
+
     private readonly ServerConfig _server;
     private readonly ArchiveCopySettings _settings;
 
@@ -52,8 +55,16 @@ public sealed class FileMirrorService
     /// minutes to hours and a window that says nothing for that long is one the user force-quits — which is
     /// exactly what happened to this feature's sibling before its status line moved.</para>
     /// </summary>
+    /// <param name="reuseToken">
+    /// A bearer already obtained in this window, if the caller has one. ⚠️ <b>The grant→token endpoint is on
+    /// the ARCHIVE rate limiter — three requests in ten minutes</b> — so a « Copier maintenant » that exchanged
+    /// once for the archive and again for the mirror spent the budget before this pass had read a single page.
+    /// Passing the archive's own token costs nothing and leaves headroom for a retry.
+    /// </param>
     public async Task<ArchiveCopyOutcome> MirrorNowAsync(
-        IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+        IProgress<string>? progress = null,
+        string? reuseToken = null,
+        CancellationToken cancellationToken = default)
     {
         if (!_settings.IsConfigured || !_settings.MirrorFiles)
         {
@@ -75,14 +86,24 @@ public sealed class FileMirrorService
         {
             using var http = new HttpClient { Timeout = Timeout };
 
-            var token = await ArchiveGrant.ExchangeAsync(
-                http, _server, _settings.GrantSecret, cancellationToken);
-
-            if (token == null)
+            string token;
+            if (reuseToken != null)
             {
-                return new ArchiveCopyOutcome(
-                    false,
-                    "Ce poste n'est plus autorisé. Autorisez-le à nouveau depuis « Paramètres » sur le serveur.");
+                token = reuseToken;
+            }
+            else
+            {
+                var exchange = await ArchiveGrant.ExchangeAsync(
+                    http, _server, _settings.GrantSecret, cancellationToken);
+
+                if (!exchange.Succeeded)
+                {
+                    return new ArchiveCopyOutcome(
+                        false,
+                        exchange.Throttled ? ArchiveGrant.ThrottledMessage : ArchiveGrant.RefusedMessage);
+                }
+
+                token = exchange.Token!;
             }
 
             progress?.Report("Lecture de la liste des fichiers…");
@@ -90,7 +111,11 @@ public sealed class FileMirrorService
             var manifest = await ReadManifestAsync(http, token, cancellationToken);
             if (manifest == null)
             {
-                return new ArchiveCopyOutcome(false, "La liste des fichiers n'a pas pu être lue.");
+                return new ArchiveCopyOutcome(
+                    false,
+                    ManifestFailureCode == 429
+                        ? ArchiveGrant.ThrottledMessage
+                        : $"La liste des fichiers n'a pas pu être lue (code {ManifestFailureCode}).");
             }
 
             var plan = MirrorPathPlanner.Plan(manifest);
@@ -131,6 +156,9 @@ public sealed class FileMirrorService
             using var response = await http.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
+                // The code is carried out rather than swallowed: « la liste n'a pas pu être lue » with no reason
+                // is what made a rate limit look like an empty cabinet, and left nothing on screen to act on.
+                ManifestFailureCode = (int)response.StatusCode;
                 return null;
             }
 
@@ -205,14 +233,14 @@ public sealed class FileMirrorService
                 var renewed = await ArchiveGrant.ExchangeAsync(
                     http, _server, _settings.GrantSecret, cancellationToken);
 
-                if (renewed == null)
+                if (!renewed.Succeeded)
                 {
                     return new ArchiveCopyOutcome(
                         false,
-                        "Ce poste n'est plus autorisé. Autorisez-le à nouveau depuis « Paramètres » sur le serveur.");
+                        renewed.Throttled ? ArchiveGrant.ThrottledMessage : ArchiveGrant.RefusedMessage);
                 }
 
-                token = renewed;
+                token = renewed.Token!;
                 outcome = await FetchAsync(http, token, item, destination, cancellationToken);
             }
 

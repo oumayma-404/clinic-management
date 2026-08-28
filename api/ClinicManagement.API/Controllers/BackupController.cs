@@ -230,9 +230,16 @@ public class BackupController : ApiControllerBase
     /// <para>⚠️ <b>No step-up, unlike <c>GET archive</c> below.</b> The step-up on the archive guards a single
     /// action that hands over the entire record in one response; a paged list of file names is the read the
     /// per-patient list already grants to every role, gathered in one place and gated to admins instead.</para>
+    ///
+    /// <para>⚠️ <b>NOT on <c>RateLimiting.ArchivePolicy</c>, and that is a correction rather than an omission.</b>
+    /// It shipped on that policy and the mirror could never work: the archive policy is « three exports in ten
+    /// minutes », sized for an act that hands over the whole record in one response — while one mirror pass is a
+    /// grant exchange plus a page *per two hundred files*, so a single « Copier maintenant » spent all three
+    /// permits before this endpoint was reached and every manifest read was refused with 429. The symptom was an
+    /// empty <c>fichiers/</c> folder and nothing anywhere naming a limit. It belongs on the ordinary API limiter,
+    /// which is what a paged listing is.</para>
     /// </summary>
     [HttpGet("file-manifest")]
-    [EnableRateLimiting(RateLimiting.ArchivePolicy)]
     [AllowsWithoutSubscription(
         "A cabinet must always be able to take its own data out — and the mirror is the path with nobody "
         + "present to be told why it stopped (the AC-4.2 argument, as for the archive itself).")]

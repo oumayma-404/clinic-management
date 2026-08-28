@@ -112,13 +112,20 @@ public sealed class ArchiveCopyService
         {
             using var http = new HttpClient { Timeout = Timeout };
 
-            var token = await ExchangeGrantAsync(http, cancellationToken);
-            if (token == null)
+            var exchange = await ExchangeGrantAsync(http, cancellationToken);
+            if (!exchange.Succeeded)
             {
                 return new ArchiveCopyOutcome(
                     false,
-                    "Ce poste n'est plus autorisé. Autorisez-le à nouveau depuis « Paramètres » sur le serveur.");
+                    exchange.Throttled ? ArchiveGrant.ThrottledMessage : ArchiveGrant.RefusedMessage);
             }
+
+            var token = exchange.Token!;
+
+            // Handed back so a mirror run in the same click can reuse it instead of exchanging again. The token
+            // endpoint is on the archive limiter (three in ten minutes), and a second exchange here is what
+            // pushed a single « Copier maintenant » over that limit.
+            LastToken = token;
 
             using var request = new HttpRequestMessage(HttpMethod.Get, $"{_server.BaseUrl}/api/backup/archive");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -163,8 +170,18 @@ public sealed class ArchiveCopyService
     /// The exchange itself lives on <see cref="ArchiveGrant"/> because the file mirror runs far longer than one
     /// token lives and has to be able to ask again mid-run.
     /// </summary>
-    private Task<string?> ExchangeGrantAsync(HttpClient http, CancellationToken cancellationToken) =>
+    private Task<ArchiveGrant.ExchangeResult> ExchangeGrantAsync(
+        HttpClient http, CancellationToken cancellationToken) =>
         ArchiveGrant.ExchangeAsync(http, _server, _settings.GrantSecret, cancellationToken);
+
+    /// <summary>
+    /// The token this copy obtained, for a caller that is about to do more work in the same window.
+    ///
+    /// <para>⚠️ <b>Not a cache and not a credential store</b> — it lives as long as this instance, which is one
+    /// copy attempt. It exists because the grant→token endpoint is rate-limited as an *archive* action (three in
+    /// ten minutes) and « Copier maintenant » legitimately does two things.</para>
+    /// </summary>
+    public string? LastToken { get; private set; }
 
     /// <summary>
     /// Refuses before writing when the volume cannot plausibly hold another copy (AC-9's disk-full case), sized
