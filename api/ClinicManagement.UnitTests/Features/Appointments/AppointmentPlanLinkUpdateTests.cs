@@ -69,8 +69,8 @@ public class AppointmentPlanLinkUpdateTests
         var plan = new TreatmentPlan(Guid.NewGuid(), clinicId, patientId, "Plan");
         plan.SetItems(new[]
         {
-            ("Couronne", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }),
-            ("Détartrage", 60m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 12 }),
+            ("Couronne", 500m, (IReadOnlyList<int>)new[] { 11 }),
+            ("Détartrage", 60m, (IReadOnlyList<int>)new[] { 12 }),
         });
         plan.Accept("2026-0001");
         _plans.Setup(r => r.GetByIdAsync(plan.Id, It.IsAny<CancellationToken>())).ReturnsAsync(plan);

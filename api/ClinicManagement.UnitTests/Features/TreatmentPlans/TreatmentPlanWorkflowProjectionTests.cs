@@ -31,7 +31,7 @@ public class TreatmentPlanWorkflowProjectionTests
     private static TreatmentPlan PlanWithOneAct(Guid? patientId = null)
     {
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, patientId ?? PatientId, "Plan");
-        plan.SetItems(new[] { ("Couronne", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }) });
+        plan.SetItems(new[] { ("Couronne", 500m, (IReadOnlyList<int>)new[] { 11 }) });
         return plan;
     }
 
@@ -209,8 +209,8 @@ public class TreatmentPlanWorkflowProjectionTests
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Plan");
         plan.SetItems(new[]
         {
-            ("Couronne", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }),
-            ("Détartrage", 60m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 12 }),
+            ("Couronne", 500m, (IReadOnlyList<int>)new[] { 11 }),
+            ("Détartrage", 60m, (IReadOnlyList<int>)new[] { 12 }),
         });
         var acts = plan.Items.ToList();
         LinkedAppointments(

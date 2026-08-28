@@ -24,12 +24,11 @@ import {
   type CreateTreatmentPlanRequest,
   type UpdateTreatmentPlanRequest,
 } from "@/lib/api/treatment-plans"
-import { dentalActsApi } from "@/lib/api/dental-acts"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
 import { patientsApi } from "@/lib/api/patients"
 import { ApiError } from "@/lib/api/client"
 import { useFreshVersion } from "@/lib/hooks/use-fresh-version"
-import type { TreatmentPlanDto, PatientDto, DentalActDto, ProcedureTypeDto } from "@/lib/api/types"
+import type { TreatmentPlanDto, PatientDto, ProcedureTypeDto } from "@/lib/api/types"
 import { formatAmount, formatDT, parseAmountInput, quoteFr, todayLocalIso } from "@/lib/format"
 import { ToothMultiSelect } from "@/components/tooth-multiselect"
 import { conditionStyle } from "@/components/odontogram-conditions"
@@ -43,8 +42,6 @@ interface LineRow {
    * link pointing at those acts (neither has an FK to catch it).
    */
   id: string | null
-  dentalActCodeId: string | null
-  codeActe: string | null
   /**
    * The procedure this act will be performed as, kept when the row was filled from « Mes actes ». Persisted
    * so booking the act preselects it; previously the pick was snapshotted to a name and the id thrown away,
@@ -89,8 +86,6 @@ interface InstallmentRow {
 
 const emptyLine = (): LineRow => ({
   id: null,
-  dentalActCodeId: null,
-  codeActe: null,
   procedureTypeId: null,
   designationFr: "",
   plannedCost: "",
@@ -170,7 +165,6 @@ export function TreatmentPlanFormModal({
   onSuccess,
 }: TreatmentPlanFormModalProps) {
   const [patients, setPatients] = useState<PatientDto[]>([])
-  const [acts, setActs] = useState<DentalActDto[]>([])
   const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
   /** At least one of the three picker reads failed — never conflated with "the catalogue is empty". */
   const [pickersFailed, setPickersFailed] = useState(false)
@@ -225,29 +219,22 @@ export function TreatmentPlanFormModal({
   /*
    * The three lists this editor picks from — and, crucially, **whether each read failed**.
    *
-   * ⚠️ All three used to end in `.catch(() => setX([]))`. On a devis editor that is not a soft degradation: an
-   * empty « Mes actes » / CNAM catalogue leaves the practitioner typing a désignation and a fee by hand, so the
-   * plan is created with no `dentalActCodeId` and no `procedureTypeId` — no CNAM code on the devis PDF, and no
-   * procédure when the act is later booked. An empty patient list on the create path is worse: the form's only
-   * required field has no selectable value, and « aucun patient » in a clinic with three hundred reads as the
-   * software having lost them.
+   * ⚠️ Both used to end in `.catch(() => setX([]))`. On a devis editor that is not a soft degradation: an
+   * empty « Mes actes » leaves the practitioner typing a désignation and a fee by hand, so the plan is created
+   * with no `procedureTypeId` — no procédure when the act is later booked. An empty patient list on the create
+   * path is worse: the form's only required field has no selectable value, and « aucun patient » in a clinic
+   * with three hundred reads as the software having lost them.
    */
   const loadPickers = useCallback(async () => {
-    const [actsResult, proceduresResult, patientsResult] = await Promise.allSettled([
-      dentalActsApi.list(),
+    const [proceduresResult, patientsResult] = await Promise.allSettled([
       procedureTypesApi.list(false),
       presetPatientId ? Promise.resolve(null) : patientsApi.list({ limit: 500 }),
     ])
 
-    if (actsResult.status === "fulfilled") setActs(actsResult.value)
     if (proceduresResult.status === "fulfilled") setProcedureTypes(proceduresResult.value)
     if (patientsResult.status === "fulfilled" && patientsResult.value) setPatients(patientsResult.value)
 
-    setPickersFailed(
-      actsResult.status === "rejected" ||
-        proceduresResult.status === "rejected" ||
-        patientsResult.status === "rejected",
-    )
+    setPickersFailed(proceduresResult.status === "rejected" || patientsResult.status === "rejected")
   }, [presetPatientId])
 
   useEffect(() => {
@@ -263,8 +250,6 @@ export function TreatmentPlanFormModal({
         editingPlan.items.length > 0
           ? editingPlan.items.map((it) => ({
               id: it.id,
-              dentalActCodeId: it.dentalActCodeId,
-              codeActe: it.codeActe,
               procedureTypeId: it.procedureTypeId,
               designationFr: it.designationFr,
               plannedCost: formatAmount(it.plannedCost),
@@ -294,8 +279,6 @@ export function TreatmentPlanFormModal({
           ? seedLines!.map((s) => ({
               // Odontogram seeds are always new lines — there is no existing act to preserve.
               id: null,
-              dentalActCodeId: null,
-              codeActe: null,
               // Carried when the odontogram could tie the charted condition to exactly one procedure.
               procedureTypeId: s.procedureTypeId ?? null,
               designationFr: s.designationFr,
@@ -341,27 +324,7 @@ export function TreatmentPlanFormModal({
     return defaultFee != null && defaultFee > 0 ? formatAmount(defaultFee) : ""
   }
 
-  const selectAct = (index: number, act: DentalActDto) => {
-    setLines((prev) =>
-      prev.map((l, i) =>
-        i === index
-          ? {
-              ...l,
-              dentalActCodeId: act.id,
-              codeActe: act.codeActe,
-              // Clear any procedure kept from a previous pick on this row — its designation is being
-              // replaced, so keeping the link would leave the act claiming a procedure it no longer names.
-              procedureTypeId: null,
-              designationFr: act.designationFr,
-              plannedCost: repricedFor(l, act.defaultFee),
-            }
-          : l,
-      ),
-    )
-    setPickerOpenIndex(null)
-  }
-
-  // A procedure type carries no CNAM code, so the line has no dentalActCodeId — but its `procedureTypeId` IS
+  // The procedure is the ONLY catalog a devis line comes from now, and its `procedureTypeId` IS
   // kept. Snapshotting only the name (as this did) meant booking the act could not preselect the procedure,
   // so a plan-scheduled appointment got no procedure type, no colour and no default duration.
   const selectProcedureType = (index: number, pt: ProcedureTypeDto) => {
@@ -370,8 +333,6 @@ export function TreatmentPlanFormModal({
         i === index
           ? {
               ...l,
-              dentalActCodeId: null,
-              codeActe: null,
               procedureTypeId: pt.id,
               designationFr: pt.name,
               plannedCost: repricedFor(l, pt.defaultCost),
@@ -383,8 +344,7 @@ export function TreatmentPlanFormModal({
   }
 
   // "Detach from the catalogue" makes the line pure free text, so it drops the procedure link too.
-  const detachAct = (index: number) =>
-    updateLine(index, { dentalActCodeId: null, codeActe: null, procedureTypeId: null })
+  const detachAct = (index: number) => updateLine(index, { procedureTypeId: null })
 
   const updateInstallment = (index: number, patch: Partial<InstallmentRow>) => {
     setInstallments((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
@@ -424,8 +384,6 @@ export function TreatmentPlanFormModal({
     const parsedLines: TreatmentPlanItemInput[] = lines
       .map((l) => ({
         id: l.id,
-        dentalActCodeId: l.dentalActCodeId,
-        codeActe: l.codeActe,
         procedureTypeId: l.procedureTypeId,
         designationFr: l.designationFr.trim(),
         plannedCost: parseAmountInput(l.plannedCost),
@@ -516,8 +474,6 @@ export function TreatmentPlanFormModal({
         return (
           l.designationFr.trim() !== before.designationFr.trim() ||
           Math.abs(l.plannedCost - before.plannedCost) > 0.0005 ||
-          (l.codeActe ?? null) !== (before.codeActe ?? null) ||
-          (l.dentalActCodeId ?? null) !== (before.dentalActCodeId ?? null) ||
           (l.procedureTypeId ?? null) !== (before.procedureTypeId ?? null) ||
           l.toothNumbers.join(",") !== before.toothNumbers.join(",")
         )
@@ -767,23 +723,6 @@ export function TreatmentPlanFormModal({
                                     </CommandItem>
                                   ))}
                                 </CommandGroup>
-                                <CommandGroup heading="Nomenclature CNAM">
-                                  {acts.map((act) => (
-                                    <CommandItem
-                                      key={act.id}
-                                      value={`${act.codeActe} ${act.designationFr} ${act.lettreCle}`}
-                                      onSelect={() => selectAct(index, act)}
-                                    >
-                                      <div className="flex flex-col">
-                                        <span className="text-sm font-medium">{act.designationFr}</span>
-                                        <span className="text-xs text-muted-foreground">
-                                          {act.codeActe} · {act.category}
-                                          {act.defaultFee != null ? ` · ${formatDT(act.defaultFee)}` : ""}
-                                        </span>
-                                      </div>
-                                    </CommandItem>
-                                  ))}
-                                </CommandGroup>
                               </CommandList>
                             </Command>
                           </PopoverContent>
@@ -806,9 +745,12 @@ export function TreatmentPlanFormModal({
                           </span>
                         </div>
                       )}
-                      {line.codeActe && (
-                        <Badge variant="secondary" className="gap-1 font-mono text-xs">
-                          {line.codeActe}
+{/* Was the DCH code. A line now names the procedure it is performed as, and this is the only
+                          place that says so — without it, « détacher » would have no control and a line chosen
+                          from the catalog would be indistinguishable from a typed one. */}
+                      {line.procedureTypeId && (
+                        <Badge variant="secondary" className="gap-1 text-xs">
+                          {procedureTypes.find((pt) => pt.id === line.procedureTypeId)?.name ?? "Acte du catalogue"}
                           <button
                             type="button"
                             onClick={() => detachAct(index)}

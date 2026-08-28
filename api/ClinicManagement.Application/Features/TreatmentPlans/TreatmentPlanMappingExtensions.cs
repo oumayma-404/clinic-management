@@ -96,8 +96,6 @@ public static class TreatmentPlanMappingExtensions
         return new TreatmentPlanItemDto
         {
             Id = item.Id,
-            DentalActCodeId = item.DentalActCodeId,
-            CodeActe = item.CodeActe,
             ProcedureTypeId = item.ProcedureTypeId,
             DesignationFr = item.DesignationFr,
             ToothNumbers = item.ToothNumbers.ToList(),

@@ -67,7 +67,7 @@ public class InstallmentOnBilledPlanIsRefusedTests
     private TreatmentPlan AcceptedPlan()
     {
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Réhabilitation");
-        plan.SetItems(new[] { ("Couronne", 1000m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }) });
+        plan.SetItems(new[] { ("Couronne", 1000m, (IReadOnlyList<int>)new[] { 11 }) });
         plan.Accept("2026-0014");
         _plans.Setup(r => r.GetByIdAsync(plan.Id, It.IsAny<CancellationToken>())).ReturnsAsync(plan);
         return plan;
@@ -267,7 +267,7 @@ public class InstallmentOnBilledPlanIsRefusedTests
     public async Task A_Foreign_Plan_Is_Still_NotFound()
     {
         var foreign = new TreatmentPlan(Guid.NewGuid(), OtherClinicId, PatientId, "Plan d'un autre cabinet");
-        foreign.SetItems(new[] { ("Couronne", 1000m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }) });
+        foreign.SetItems(new[] { ("Couronne", 1000m, (IReadOnlyList<int>)new[] { 11 }) });
         foreign.Accept("2026-0001");
         _plans.Setup(r => r.GetByIdAsync(foreign.Id, It.IsAny<CancellationToken>())).ReturnsAsync(foreign);
 

@@ -28,7 +28,7 @@ public class TreatmentPlanCreationAcceptanceTests
 
     private readonly Mock<ITreatmentPlanRepository> _plans = new();
     private readonly Mock<IPatientRepository> _patients = new();
-    private readonly Mock<IDentalActCodeRepository> _dentalActs = new();
+    private readonly Mock<IProcedureTypeRepository> _procedureTypes = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
@@ -61,7 +61,7 @@ public class TreatmentPlanCreationAcceptanceTests
     }
 
     private CreateTreatmentPlanCommandHandler Handler() => new(
-        _plans.Object, _patients.Object, _dentalActs.Object, _clinicResolver.Object, _doctors.Object,
+        _plans.Object, _patients.Object, _procedureTypes.Object, _clinicResolver.Object, _doctors.Object,
         _clinicContext.Object, _uow.Object, NullLogger<CreateTreatmentPlanCommandHandler>.Instance);
 
     private static CreateTreatmentPlanCommand Command(

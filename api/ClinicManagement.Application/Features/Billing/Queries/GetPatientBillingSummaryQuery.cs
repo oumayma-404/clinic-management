@@ -111,7 +111,9 @@ public class GetPatientBillingSummaryQueryHandler
                 .DefaultIfEmpty(null)
                 .Min();
 
-            // Indicative CNAM split over everything billed (invoices at TTC, plans at total planned).
+            // Indicative CNAM split over what is billed. ⚠️ INVOICES ONLY: a devis line carries a
+            // ProcedureType and no DCH code, so there is nothing on a plan for the calculator to read. Plans
+            // still count toward `totalBilled` — leaving them out would understate what the patient owes.
             var reimbursable = 0m;
             var totalBilled = 0m;
             foreach (var invoice in invoices)
@@ -124,10 +126,6 @@ public class GetPatientBillingSummaryQueryHandler
             }
             foreach (var plan in plans)
             {
-                var lines = plan.Items.Select(i => new CnamBillingLine(i.DentalActCodeId, i.PlannedCost)).ToList();
-                var split = await _cnamBillingCalculator.ComputeAsync(
-                    lines, plan.TotalPlanned, patient.DateOfBirth, plan.AcceptedDate ?? plan.CreatedAt, cancellationToken);
-                reimbursable += split.Reimbursable;
                 totalBilled += plan.TotalPlanned;
             }
 

@@ -30,7 +30,7 @@ public class TreatmentPlanItemUnmarkTests
     {
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Plan");
         plan.SetItems(Enumerable.Range(0, actCount).Select(i =>
-            ($"Acte {i + 1}", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 + i })));
+            ($"Acte {i + 1}", 500m, (IReadOnlyList<int>)new[] { 11 + i })));
         plan.Accept("2026-0001");
         return plan;
     }

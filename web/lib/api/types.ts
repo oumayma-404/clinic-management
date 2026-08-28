@@ -1059,9 +1059,10 @@ export interface MedicalDocumentDto {
   updatedAt?: string;
 }
 
-// A dental act catalog entry (DB-backed reference data from GET /api/dental-acts). Used by the treatment
-// plan editor to pick an act (snapshots codeActe + designationFr onto the line and prefills the fee from
-// defaultFee) and by the admin catalog screen. Writes are admin-only.
+// A dental act catalog entry (DB-backed reference data from GET /api/dental-acts). Used by the CNAM BS1
+// bulletin editor (which stamps codeActe + cotation onto a bulletin row) and by the admin catalog screen.
+// ⚠️ NOT by the devis editor any more — a treatment-plan line comes from ProcedureType and nothing else.
+// Writes are admin-only.
 export interface DentalActDto {
   id: string;
   codeActe: string;
@@ -1095,12 +1096,10 @@ export interface ToothStateDto {
   createdAt: string;
 }
 
-// A single act line on a treatment plan / devis. Either a catalog act (dentalActCodeId + codeActe set) or
+// A single act line on a treatment plan / devis. Either a catalog act (procedureTypeId set) or
 // a free-text designation. `status` is Planned | Done.
 export interface TreatmentPlanItemDto {
   id: string;
-  dentalActCodeId: string | null;
-  codeActe: string | null;
   /**
    * The clinic's own procedure this act is performed as, when it was chosen from « Mes actes ». Drives the
    * procedure prefill when the act is booked. Null for CNAM-only lines, hand-typed lines, and any act created

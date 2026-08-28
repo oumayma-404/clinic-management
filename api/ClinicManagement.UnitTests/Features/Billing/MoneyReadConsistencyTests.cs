@@ -80,7 +80,7 @@ public class MoneyReadConsistencyTests
     private static TreatmentPlan AcceptedPlan()
     {
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Réhabilitation");
-        plan.SetItems(new[] { ("Couronne", 1000m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }) });
+        plan.SetItems(new[] { ("Couronne", 1000m, (IReadOnlyList<int>)new[] { 11 }) });
         plan.Accept("2026-0014");
         return plan;
     }
@@ -89,7 +89,7 @@ public class MoneyReadConsistencyTests
     private static TreatmentPlan DraftPlanWithSchedule()
     {
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Devis en attente");
-        plan.SetItems(new[] { ("Implant", 1000m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 21 }) });
+        plan.SetItems(new[] { ("Implant", 1000m, (IReadOnlyList<int>)new[] { 21 }) });
         plan.SetInstallments(new[]
         {
             (new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc), 400m),

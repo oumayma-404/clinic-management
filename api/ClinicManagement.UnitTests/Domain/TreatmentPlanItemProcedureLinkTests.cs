@@ -1,3 +1,4 @@
+using System.Linq;
 using ClinicManagement.Application.Features.TreatmentPlans;
 using ClinicManagement.Domain.Entities;
 using Xunit;
@@ -21,7 +22,6 @@ public class TreatmentPlanItemProcedureLinkTests
     private static readonly Guid PatientId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
     private static readonly Guid CouronneProcedure = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid ImplantProcedure = Guid.Parse("22222222-2222-2222-2222-222222222222");
-    private static readonly Guid DentalActCode = Guid.Parse("33333333-3333-3333-3333-333333333333");
 
     private static TreatmentPlan Plan() => new(Guid.NewGuid(), ClinicId, PatientId, "Plan");
 
@@ -30,10 +30,8 @@ public class TreatmentPlanItemProcedureLinkTests
         decimal cost,
         Guid? procedureTypeId = null,
         Guid? id = null,
-        Guid? dentalActCodeId = null,
-        string? codeActe = null,
         params int[] teeth)
-        => new(id, designation, cost, dentalActCodeId, codeActe, procedureTypeId, teeth);
+        => new(id, designation, cost, procedureTypeId, teeth);
 
     [Fact]
     public void SetItems_Persists_The_Procedure_Link()
@@ -45,36 +43,33 @@ public class TreatmentPlanItemProcedureLinkTests
         Assert.Equal(CouronneProcedure, plan.Items.Single().ProcedureTypeId);
     }
 
-    // A CNAM-only or hand-typed line names no procedure. Null is the correct, meaningful value — it is what
-    // tells the booking screen to fall back rather than preselect something arbitrary.
+    // A hand-typed line names no procedure. Null is the correct, meaningful value — it is what tells the
+    // booking screen to fall back rather than preselect something arbitrary.
     [Fact]
     public void SetItems_Leaves_The_Link_Null_When_No_Procedure_Was_Chosen()
     {
         var plan = Plan();
 
-        plan.SetItems(new[] { Line("Cavité simple", 90m, dentalActCodeId: DentalActCode, codeActe: "DCH010010", teeth: 26) });
+        plan.SetItems(new[] { Line("Cavité simple", 90m, teeth: 26) });
 
-        var item = plan.Items.Single();
-        Assert.Null(item.ProcedureTypeId);
-        Assert.Equal(DentalActCode, item.DentalActCodeId);
+        Assert.Null(plan.Items.Single().ProcedureTypeId);
     }
 
-    // The procedure link and the CNAM code are independent axes: a service you schedule and sell vs. the
-    // regulatory code for one clinical situation. An act may legitimately carry both.
+    /// <summary>
+    /// ⚠️ <b>A devis line has exactly one catalog, and this is the test that says so.</b> Two tests used to live
+    /// here asserting the opposite — that a line could carry a DCH <c>DentalActCode</c> instead of, or as well
+    /// as, a procedure, « independent axes ». That is no longer true: <c>TreatmentPlanItem</c> has no
+    /// <c>DentalActCodeId</c> and no <c>CodeActe</c>, so a devis is built from the services the practice sells
+    /// and nothing else. The DCH catalog stays where it is genuinely used, the bulletin CNAM BS1.
+    /// </summary>
     [Fact]
-    public void An_Act_Can_Carry_Both_A_Procedure_And_A_Dental_Act_Code()
+    public void A_Plan_Item_Carries_No_Catalog_Reference_Other_Than_The_Procedure()
     {
-        var plan = Plan();
+        var properties = typeof(TreatmentPlanItem).GetProperties().Select(p => p.Name).ToList();
 
-        plan.SetItems(new[]
-        {
-            Line("Couronne zircone", 750m, CouronneProcedure, dentalActCodeId: DentalActCode, codeActe: "DCH070010", teeth: 16),
-        });
-
-        var item = plan.Items.Single();
-        Assert.Equal(CouronneProcedure, item.ProcedureTypeId);
-        Assert.Equal(DentalActCode, item.DentalActCodeId);
-        Assert.Equal("DCH070010", item.CodeActe);
+        Assert.Contains("ProcedureTypeId", properties);
+        Assert.DoesNotContain("DentalActCodeId", properties);
+        Assert.DoesNotContain("CodeActe", properties);
     }
 
     /// <summary>
@@ -152,7 +147,7 @@ public class TreatmentPlanItemProcedureLinkTests
     {
         var plan = Plan();
 
-        plan.SetItems(new[] { ("Couronne", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }) });
+        plan.SetItems(new[] { ("Couronne", 500m, (IReadOnlyList<int>)new[] { 11 }) });
 
         Assert.Null(plan.Items.Single().ProcedureTypeId);
     }
@@ -168,7 +163,7 @@ public class TreatmentPlanItemProcedureLinkTests
         plan.SetItems(new[]
         {
             Line("Couronne zircone", 750m, CouronneProcedure, teeth: 16),
-            Line("Cavité simple", 90m, dentalActCodeId: DentalActCode, codeActe: "DCH010010", teeth: 26),
+            Line("Cavité simple", 90m, teeth: 26),
         });
 
         var dto = plan.ToDto("Patient Test");

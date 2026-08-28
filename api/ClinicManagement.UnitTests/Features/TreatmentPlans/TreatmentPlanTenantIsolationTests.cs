@@ -31,7 +31,7 @@ public class TreatmentPlanTenantIsolationTests
 
     private readonly Mock<ITreatmentPlanRepository> _plans = new();
     private readonly Mock<IPatientRepository> _patients = new();
-    private readonly Mock<IDentalActCodeRepository> _dentalActs = new();
+    private readonly Mock<IProcedureTypeRepository> _procedureTypes = new();
     private readonly Mock<IAppointmentRepository> _appointments = new();
     private readonly Mock<IInvoiceRepository> _invoices = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
@@ -45,7 +45,7 @@ public class TreatmentPlanTenantIsolationTests
     private static TreatmentPlan ForeignDraftPlan()
     {
         var plan = new TreatmentPlan(Guid.NewGuid(), OtherClinicId, PatientId, "Plan d'un autre cabinet");
-        plan.SetItems(new[] { ("Couronne", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }) });
+        plan.SetItems(new[] { ("Couronne", 500m, (IReadOnlyList<int>)new[] { 11 }) });
         return plan;
     }
 
@@ -92,7 +92,7 @@ public class TreatmentPlanTenantIsolationTests
         PlanIsLoadable(foreign);
 
         var handler = new UpdateTreatmentPlanCommandHandler(
-            _plans.Object, _patients.Object, _dentalActs.Object, _clinicResolver.Object, _uow.Object,
+            _plans.Object, _patients.Object, _procedureTypes.Object, _clinicResolver.Object, _uow.Object,
             NullLogger<UpdateTreatmentPlanCommandHandler>.Instance);
 
         var result = await handler.Handle(
@@ -240,7 +240,7 @@ public class TreatmentPlanTenantIsolationTests
         PlanIsLoadable(foreign);
 
         var handler = new AmendTreatmentPlanCommandHandler(
-            _plans.Object, _patients.Object, _invoices.Object, _appointments.Object, _dentalActs.Object,
+            _plans.Object, _patients.Object, _invoices.Object, _appointments.Object, _procedureTypes.Object,
             _clinicResolver.Object, _uow.Object, NullLogger<AmendTreatmentPlanCommandHandler>.Instance);
 
         var result = await handler.Handle(new AmendTreatmentPlanCommand

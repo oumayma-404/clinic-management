@@ -32,7 +32,7 @@ public class TreatmentPlanTests
     {
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Plan");
         plan.SetItems(Enumerable.Range(0, actCount).Select(i =>
-            ($"Acte {i + 1}", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 + i })));
+            ($"Acte {i + 1}", 500m, (IReadOnlyList<int>)new[] { 11 + i })));
         return plan;
     }
 
@@ -200,8 +200,8 @@ public class TreatmentPlanTests
 
         plan.SetItems(new[]
         {
-            ((Guid?)keptId, "Acte 1 renommé", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }),
-            ((Guid?)null, "Nouvel acte", 300m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 13 }),
+            ((Guid?)keptId, "Acte 1 renommé", 500m, (IReadOnlyList<int>)new[] { 11 }),
+            ((Guid?)null, "Nouvel acte", 300m, (IReadOnlyList<int>)new[] { 13 }),
         });
 
         Assert.Equal(keptId, plan.Items.First().Id);
@@ -219,7 +219,7 @@ public class TreatmentPlanTests
 
         plan.SetItems(new[]
         {
-            ((Guid?)strangerId, "Acte", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }),
+            ((Guid?)strangerId, "Acte", 500m, (IReadOnlyList<int>)new[] { 11 }),
         });
 
         Assert.Single(plan.Items);
@@ -244,7 +244,7 @@ public class TreatmentPlanTests
         plan.SetInstallments(new[] { (new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc), 500m) });
 
         Assert.Throws<InvalidOperationException>(() => plan.SetItems(
-            new[] { ((Guid?)null, "Acte", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }) },
+            new[] { ((Guid?)null, "Acte", 500m, (IReadOnlyList<int>)new[] { 11 }) },
             scheduleWillBeResent: false));
     }
 
@@ -318,7 +318,7 @@ public class TreatmentPlanTests
     {
         var plan = AcceptedPlan();
 
-        plan.AddItems(new[] { ("Implant", 800m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 21 }) });
+        plan.AddItems(new[] { ("Implant", 800m, (IReadOnlyList<int>)new[] { 21 }) });
 
         Assert.Equal(1300m, plan.TotalPlanned);
     }
@@ -331,7 +331,7 @@ public class TreatmentPlanTests
     {
         var plan = AcceptedPlan();
 
-        plan.AddItems(new[] { ("Implant", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 21 }) });
+        plan.AddItems(new[] { ("Implant", 500m, (IReadOnlyList<int>)new[] { 21 }) });
         plan.ReviseInstallments(new[] { ((Guid?)null, DoneOn, 1000m) });
         plan.RecordAmendment();
 
@@ -438,7 +438,7 @@ public class TreatmentPlanTests
         if (!completed) plan.Cancel("Patient parti");
 
         Assert.Throws<InvalidOperationException>(() =>
-            plan.AddItems(new[] { ("Implant", 800m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 21 }) }));
+            plan.AddItems(new[] { ("Implant", 800m, (IReadOnlyList<int>)new[] { 21 }) }));
     }
 
     // ---- In-place act edits (UpdateItems / TreatmentPlanItem.Revise) ------------------------------------
@@ -449,7 +449,7 @@ public class TreatmentPlanTests
 
     private static IEnumerable<TreatmentPlanItemInput> OneEdit(
         Guid itemId, string designation, decimal cost, params int[] teeth) =>
-        new[] { new TreatmentPlanItemInput(itemId, designation, cost, null, null, null, teeth) };
+        new[] { new TreatmentPlanItemInput(itemId, designation, cost, null, teeth) };
 
     // The point of editing in place rather than remove-then-add: the id survives, so every link to the act does.
     [Fact]
@@ -519,7 +519,7 @@ public class TreatmentPlanTests
         var plan = AcceptedPlan();
 
         Assert.Throws<InvalidOperationException>(() => plan.UpdateItems(
-            new[] { new TreatmentPlanItemInput(null, "Implant", 800m, null, null, null, Array.Empty<int>()) }));
+            new[] { new TreatmentPlanItemInput(null, "Implant", 800m, null, Array.Empty<int>()) }));
     }
 
     // All-or-nothing: a batch whose second line is unknown must not leave the first one applied, or the total
@@ -532,8 +532,8 @@ public class TreatmentPlanTests
 
         Assert.Throws<InvalidOperationException>(() => plan.UpdateItems(new[]
         {
-            new TreatmentPlanItemInput(goodId, "Corrigé", 900m, null, null, null, new[] { 11 }),
-            new TreatmentPlanItemInput(Guid.NewGuid(), "Fantôme", 100m, null, null, null, Array.Empty<int>()),
+            new TreatmentPlanItemInput(goodId, "Corrigé", 900m, null, new[] { 11 }),
+            new TreatmentPlanItemInput(Guid.NewGuid(), "Fantôme", 100m, null, Array.Empty<int>()),
         }));
 
         Assert.Equal("Acte 1", plan.Items.Single(i => i.Id == goodId).DesignationFr);
