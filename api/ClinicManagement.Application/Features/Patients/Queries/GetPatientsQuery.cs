@@ -34,6 +34,19 @@ public class GetPatientsQuery : IRequest<Result<PagedResult<PatientDto>>>
     public bool FlaggedOnly { get; set; }
 
     /// <summary>
+    /// Include patients that have been archived. <b>False everywhere except the patients page's own « Afficher les
+    /// patients archivés »</b>, which is the one screen that exists to find them again.
+    /// <para>⚠️ <b>This parameter existed on <see cref="IPatientRepository"/> from the start and had no caller at
+    /// all</b>, which made archiving a one-way door in practice: an archived patient leaves the list, the header
+    /// search and the fichiers directory, so the « Restaurer » button on their own page could only be reached by
+    /// someone who already knew the UUID and typed the URL. The capability was written, documented and wired to
+    /// nothing.</para>
+    /// <para>⚠️ It stays off for the header lookup and every picker on purpose. Archiving means « stop offering
+    /// this person »; a search that surfaced them again would undo the only thing the feature does.</para>
+    /// </summary>
+    public bool IncludeArchived { get; set; }
+
+    /// <summary>
     /// Optional inclusive bounds on the registration date, pushed into SQL. Added for the dashboard's « Nouveaux
     /// patients » drill-through: the KPI counts patients created in the period, so clicking it has to open the list
     /// filtered by the same window — otherwise the card shows 12 and the page shows every patient the clinic has.
@@ -86,7 +99,8 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
             var paging = PageRequest.From(request.Page, request.PageSize)
                 ?? (request.Limit is > 0 ? PageRequest.Of(1, request.Limit.Value) : null);
 
-            // Archived patients are excluded: this backs both the patients page and the header search.
+            // Archived patients are excluded unless the caller asked for them — see IncludeArchived. This backs
+            // the patients page and the header search, and only the first of those ever asks.
             // Filtering, searching, ordering and paging are all in SQL now. The accent-insensitive match that
             // used to force the search into memory is `unaccent()` on the database side (see SqlSearch) —
             // keeping it here would have meant searching only the page the user is already looking at.
@@ -96,6 +110,7 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
                 createdTo: request.CreatedTo,
                 searchTerm: request.SearchTerm,
                 flaggedOnly: request.FlaggedOnly,
+                includeArchived: request.IncludeArchived,
                 paging: paging,
                 cancellationToken: cancellationToken);
 

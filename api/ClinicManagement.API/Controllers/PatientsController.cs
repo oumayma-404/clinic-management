@@ -237,10 +237,12 @@ public class PatientsController : ApiControllerBase
         [FromQuery] DateTime? createdTo = null,
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null,
-        [FromQuery] bool flaggedOnly = false)
+        [FromQuery] bool flaggedOnly = false,
+        [FromQuery] bool includeArchived = false)
     {
         var query = new GetPatientsQuery
         {
+            IncludeArchived = includeArchived,
             SearchTerm = searchTerm,
             Limit = limit,
             CreatedFrom = createdFrom,

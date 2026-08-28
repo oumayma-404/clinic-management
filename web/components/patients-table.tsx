@@ -10,7 +10,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Users, Flag, FileText, Folder, Trash2, Pencil, MoreHorizontal, Plus, SearchX } from "lucide-react"
+import { Users, Flag, FileText, Folder, Trash2, Pencil, MoreHorizontal, Plus, SearchX, Archive } from "lucide-react"
 import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -40,6 +40,11 @@ import { quoteFr } from "@/lib/format"
 interface PatientsTableProps {
   searchQuery: string
   showFlaggedOnly: boolean
+  /**
+   * Include archived patients in the list. WIDENS the read rather than narrowing it, which is why the row for an
+   * archived patient carries a badge — otherwise the two kinds are indistinguishable once mixed.
+   */
+  showArchived?: boolean
   /**
    * Inclusive registration-date bounds (`yyyy-MM-dd`), applied server-side. Set by the dashboard's « Nouveaux
    * patients » drill-through so the list shows exactly the patients that KPI counted.
@@ -77,6 +82,7 @@ const PATIENT_COLUMN_WIDTHS = ["w-[22%]", "w-[16%]", "w-[16%]", "w-[22%]", "w-[1
 export function PatientsTable({
   searchQuery,
   showFlaggedOnly,
+  showArchived = false,
   createdFrom,
   createdTo,
   onCreatePatient,
@@ -138,6 +144,32 @@ export function PatientsTable({
     }
   }
 
+  /**
+   * The other half of « Archiver ». `patientsApi.unarchive` existed and was called from exactly one place — the
+   * patient's own page — which an archived patient's row could not reach, because the row was not in any list.
+   *
+   * ⚠️ A restored patient does NOT leave this list the way an archived one does: « Avec les archivés » widens the
+   * read, so the row stays and simply loses its badge. Toasting « retiré de la liste » here would be false.
+   */
+  const handleUnarchive = async (patient: PatientDto) => {
+    try {
+      await patientsApi.unarchive(patient.id)
+      toast.success(`Patient ${quoteFr(getPatientName(patient))} restauré`)
+      refreshList()
+    } catch (err) {
+      showErrorToast(err, "Échec de la restauration du patient")
+    }
+  }
+
+  /** The one place an archived row is marked, so the two trees cannot disagree about what archived looks like. */
+  const archivedBadge = (patient: PatientDto) =>
+    patient.isArchived ? (
+      <Badge variant="secondary" className="gap-1">
+        <Archive className="h-3 w-3" />
+        Archivé
+      </Badge>
+    ) : null
+
   const handleArchive = async () => {
     if (!patientToDelete) return
     try {
@@ -165,10 +197,11 @@ export function PatientsTable({
         pageSize,
         search,
         flaggedOnly: showFlaggedOnly || undefined,
+        includeArchived: showArchived || undefined,
         createdFrom,
         createdTo,
       }),
-    [showFlaggedOnly, createdFrom, createdTo],
+    [showFlaggedOnly, showArchived, createdFrom, createdTo],
   )
 
   const {
@@ -184,7 +217,7 @@ export function PatientsTable({
     fetchPage,
     search: searchQuery,
     // Ticking « signalés » or arriving on a date-bounded drill-through returns to page 1 (AC-22).
-    filters: [showFlaggedOnly, createdFrom, createdTo],
+    filters: [showFlaggedOnly, showArchived, createdFrom, createdTo],
     // Both signals in one key: this table's own mutations and the page's realtime nudge. A refetch either way.
     refreshKey: `${reloadKey ?? 0}:${refreshKey}`,
   })
@@ -396,8 +429,9 @@ export function PatientsTable({
               return age !== null ? `${age} ans` : "âge inconnu"
             }}
             status={(p) =>
-              hasActiveFlags(p) ? (
+              hasActiveFlags(p) || p.isArchived ? (
                 <span className="flex flex-wrap gap-1">
+                  {archivedBadge(p)}
                   {p.flags
                     ?.filter((flag) => flag.isActive)
                     .map((flag) => (
@@ -454,6 +488,9 @@ export function PatientsTable({
                     <DropdownMenuItem onSelect={() => router.push(`/patients/${p.id}/files`)}>
                       Fichiers
                     </DropdownMenuItem>
+                    {p.isArchived && (
+                      <DropdownMenuItem onSelect={() => handleUnarchive(p)}>Restaurer</DropdownMenuItem>
+                    )}
                     {isAdmin && (
                       <DropdownMenuItem
                         className="text-destructive focus:text-destructive"
@@ -536,8 +573,9 @@ export function PatientsTable({
                         {patient.email || "Non renseigné"}
                       </TableCell>
                       <TableCell>
-                        {hasFlags ? (
+                        {hasFlags || patient.isArchived ? (
                           <div className="flex flex-wrap gap-1">
+                            {archivedBadge(patient)}
                             {patient.flags?.filter(flag => flag.isActive).map((flag) => (
                               <Badge key={flag.id} variant="destructive" className="gap-1">
                                 <Flag className="h-3 w-3" />

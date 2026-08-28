@@ -23,6 +23,11 @@ export default function PatientsPage() {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false)
+  // « Archiver » had no counterpart: an archived patient leaves this list, the header search AND /fichiers, so
+  // the « Restaurer » control on their own page could only be reached by someone who already knew their UUID.
+  // Off by default — archiving means "stop offering this person", and a list that showed them by default would
+  // undo the only thing the action does.
+  const [showArchived, setShowArchived] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -131,6 +136,13 @@ export default function PatientsPage() {
             active={showFlaggedOnly}
             onToggle={() => setShowFlaggedOnly(!showFlaggedOnly)}
           />
+          {/* This one WIDENS the list rather than narrowing it, which is why its label says so plainly instead
+              of naming a subset: « Archivés » beside « Signalés » would read as "show only the archived ones". */}
+          <FilterChip
+            label="Avec les archivés"
+            active={showArchived}
+            onToggle={() => setShowArchived(!showArchived)}
+          />
         </ListToolbar>
 
         {/* The active date window, stated explicitly and removable. An invisible filter is how a user
@@ -159,12 +171,14 @@ export default function PatientsPage() {
           reloadKey={refreshKey}
           searchQuery={searchQuery}
           showFlaggedOnly={showFlaggedOnly}
+          showArchived={showArchived}
           createdFrom={createdFrom}
           createdTo={createdTo}
           onCreatePatient={() => setCreateDialogOpen(true)}
           onClearFilters={() => {
             setSearchQuery("")
             setShowFlaggedOnly(false)
+            setShowArchived(false)
             clearDateWindow()
           }}
         />

@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { FormErrorBanner } from '@/components/ui/form-error-banner'
@@ -26,9 +25,10 @@ interface StepUpDialogProps {
 /**
  * Re-authenticates for one sensitive action (`hosted-security-hardening` FR-1.8).
  *
- * ⚠️ **A sheet below `md:` and a dialog above it** — § 5. Both are sized in `dvh`, never `vh`: a `vh` cap does
- * not shrink when the on-screen keyboard opens, so the confirm button ends up underneath it, on a surface whose
- * only purpose is to be confirmed.
+ * ⚠️ **A bottom sheet below `md:` and a dialog above it — from ONE `Dialog`** (§ 5). That shape is
+ * `DialogContent`'s `mobile="bottom"` default, not something this component builds; see the note above the
+ * return. It is sized in `dvh`, never `vh`: a `vh` cap does not shrink when the on-screen keyboard opens, so
+ * the confirm button ends up underneath it, on a surface whose only purpose is to be confirmed.
  *
  * ⚠️ **Focus lands on the field and returns to the trigger on close**, and `Escape` closes — Radix gives the
  * last two, and the first is explicit because this surface has exactly one thing to do.
@@ -127,33 +127,29 @@ export function StepUpDialog({
     </form>
   )
 
+  /*
+   * ⚠️ ONE Dialog, and the responsive half is `DialogContent`'s job — not a pair of wrappers.
+   *
+   * This used to render a `Sheet` inside `<div className="md:hidden">` and a `Dialog` inside
+   * `<div className="hidden md:block">`. Both Radix primitives render their content through a PORTAL onto
+   * `document.body`, so the content never sits inside those wrapper divs and the Tailwind visibility classes
+   * reached nothing at all. Both mounted, at every viewport width: a centred dialog AND a bottom sheet on
+   * screen together, asking the same question twice. It read as « double modal » and it was.
+   *
+   * `DialogContent` already owns this decision — `mobile="bottom"` is its DEFAULT and is exactly the shape
+   * that was being hand-rolled: bottom edge, `max-h-[90dvh]`, and the safe-area padding for the home
+   * indicator that the hand-rolled Sheet did not have. So the correct fix removes code rather than adding a
+   * `useMediaQuery`: one Dialog, and the breakpoint lives in the one place the whole app shares.
+   */
   return (
-    <>
-      {/* Below `md:` — a sheet, sized in dvh so the keyboard cannot bury the confirm button. */}
-      <div className="md:hidden">
-        <Sheet open={open} onOpenChange={onOpenChange}>
-          <SheetContent side="bottom" className="max-h-[90dvh] overflow-y-auto">
-            <SheetHeader>
-              <SheetTitle>Confirmer votre identité</SheetTitle>
-              <SheetDescription>{purpose}</SheetDescription>
-            </SheetHeader>
-            <div className="mt-4">{body}</div>
-          </SheetContent>
-        </Sheet>
-      </div>
-
-      {/* From `md:` — the ordinary dialog. */}
-      <div className="hidden md:block">
-        <Dialog open={open} onOpenChange={onOpenChange}>
-          <DialogContent className="max-h-[90dvh] overflow-y-auto md:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Confirmer votre identité</DialogTitle>
-              <DialogDescription>{purpose}</DialogDescription>
-            </DialogHeader>
-            {body}
-          </DialogContent>
-        </Dialog>
-      </div>
-    </>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="md:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Confirmer votre identité</DialogTitle>
+          <DialogDescription>{purpose}</DialogDescription>
+        </DialogHeader>
+        {body}
+      </DialogContent>
+    </Dialog>
   )
 }
