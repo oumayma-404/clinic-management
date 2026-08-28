@@ -152,6 +152,7 @@ export function ArchiveGrantsCard() {
           <h3 className="text-base font-medium">Postes autorisés</h3>
           <p className="text-sm text-muted-foreground">
             Les machines qui peuvent télécharger l&apos;archive du cabinet automatiquement, sans confirmation.
+            Le dossier de destination se choisit sur le poste lui-même, dans l&apos;application APEXA.
           </p>
         </div>
         <Button size="sm" className="min-h-11" onClick={() => { setIssueError(null); setIssueOpen(true) }}>
@@ -340,6 +341,22 @@ export function ArchiveGrantsCard() {
               {copied ? <Check className="mr-1.5 h-4 w-4" /> : <Copy className="mr-1.5 h-4 w-4" />}
               {copied ? "Copiée" : "Copier la clé"}
             </Button>
+
+            {/* ⚠️ The next step is on ANOTHER application, behind a right-click, and nothing on this page could
+                lead there — the folder and the schedule are facts about a machine a web page cannot pick or
+                even see. Somebody holding a key they cannot use is where this feature dies, so the route is
+                spelled out at the one moment they have it in hand. */}
+            <div className="rounded-md border bg-muted/40 p-3">
+              <p className="text-sm font-medium">Ensuite, sur le poste qui gardera les copies :</p>
+              <ol className="mt-2 space-y-1 text-sm text-muted-foreground">
+                <li>1. Ouvrez l&apos;application APEXA installée sur ce poste.</li>
+                <li>
+                  2. <span className="font-medium">Clic droit</span> n&apos;importe où dans la fenêtre →{" "}
+                  <span className="font-medium">« Copie automatique de l&apos;archive… »</span>
+                </li>
+                <li>3. Choisissez le dossier, collez cette clé, puis « Copier maintenant ».</li>
+              </ol>
+            </div>
           </div>
 
           <DialogFooter>

@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using System.Windows;
 
 namespace ClinicManagement.DesktopShell;
@@ -27,12 +28,21 @@ public partial class ArchiveCopyWindow : Window
         EveryDaysTextBox.Text = _settings.EveryDays.ToString();
         KeepTextBox.Text = _settings.KeepCopies.ToString();
 
-        FolderTextBox.TextChanged += (_, _) => ReportEncryption();
-        ReportEncryption();
+        // ⚠️ NOT TextChanged. `IsDriveEncrypted` shells out to `manage-bde`, which is a process launch with a
+        // multi-second wait, and running it per keystroke froze the whole window — pasting a path fired it once
+        // per character. It runs when the field is done being edited, and off the UI thread (see below).
+        FolderTextBox.LostFocus += (_, _) => _ = ReportEncryptionAsync();
+        _ = ReportEncryptionAsync();
     }
 
-    /// <summary>AC-8 — three answers, and « indéterminé » is one of them rather than an assumption.</summary>
-    private void ReportEncryption()
+    /// <summary>
+    /// AC-8 — three answers, and « indéterminé » is one of them rather than an assumption.
+    ///
+    /// <para>⚠️ <b>The probe runs off the UI thread.</b> It launches <c>manage-bde</c> and waits on it, which on
+    /// the dispatcher makes the window stop repainting — Windows then marks the app « ne répond pas » and offers
+    /// to kill it. Nothing about a cosmetic status line may do that.</para>
+    /// </summary>
+    private async Task ReportEncryptionAsync()
     {
         var folder = FolderTextBox.Text?.Trim();
         if (string.IsNullOrWhiteSpace(folder))
@@ -41,7 +51,11 @@ public partial class ArchiveCopyWindow : Window
             return;
         }
 
-        EncryptionText.Text = ArchiveCopyService.IsDriveEncrypted(folder) switch
+        EncryptionText.Text = "Vérification du chiffrement du disque…";
+
+        var encrypted = await Task.Run(() => ArchiveCopyService.IsDriveEncrypted(folder));
+
+        EncryptionText.Text = encrypted switch
         {
             true => "Ce disque est protégé par BitLocker : en cas de vol, les copies restent illisibles.",
             false => "Ce disque n'est PAS protégé par BitLocker. Quiconque récupère ce poste peut lire les copies. "
@@ -63,6 +77,7 @@ public partial class ArchiveCopyWindow : Window
         if (dialog.ShowDialog(this) == true)
         {
             FolderTextBox.Text = dialog.FolderName;
+            _ = ReportEncryptionAsync(); // Picking never blurs the field, so LostFocus would not fire.
         }
     }
 
@@ -140,8 +155,19 @@ public partial class ArchiveCopyWindow : Window
             ArchiveCopySettingsStore.Save(collected);
             _settings = collected;
 
-            var outcome = await new ArchiveCopyService(_server, _settings).CopyNowAsync();
+            // ⚠️ `Task.Run`, not a bare await. `CopyNowAsync` does real work BEFORE its first await — creating
+            // the folder, hardening its ACL, reading free space — and all of it would run on the dispatcher,
+            // where an ACL call on a slow or network path freezes the window. Awaiting a method is not the same
+            // as getting off the UI thread.
+            var settings = _settings;
+            var outcome = await Task.Run(() => new ArchiveCopyService(_server, settings).CopyNowAsync());
             Report(outcome.Message);
+        }
+        catch (Exception ex)
+        {
+            // `CopyNowAsync` never throws, but saving the settings can (a read-only path, a locked file), and an
+            // unhandled exception on a WPF click handler takes the whole shell down rather than saying anything.
+            Report($"La copie n'a pas pu être lancée : {ex.Message}");
         }
         finally
         {
