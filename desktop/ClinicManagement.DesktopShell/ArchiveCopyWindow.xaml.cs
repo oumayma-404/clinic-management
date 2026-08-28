@@ -60,8 +60,11 @@ public partial class ArchiveCopyWindow : Window
             true => "Ce disque est protégé par BitLocker : en cas de vol, les copies restent illisibles.",
             false => "Ce disque n'est PAS protégé par BitLocker. Quiconque récupère ce poste peut lire les copies. "
                      + "Activez BitLocker sur ce disque.",
+            // ⚠️ « Vérifiez-le vous-même » with nowhere to go is a dead end, and this is the common branch —
+            // `manage-bde` needs elevation, so a cabinet PC answers « je ne sais pas » nearly every time.
             _ => "Le chiffrement de ce disque n'a pas pu être vérifié (BitLocker demande des droits "
-                 + "administrateur). Vérifiez-le vous-même avant de laisser des copies s'accumuler.",
+                 + "administrateur). Pour le voir : ouvrez l'Explorateur, clic droit sur le disque, "
+                 + "« Activer BitLocker » — s'il est déjà chiffré, Windows propose plutôt de le gérer.",
         };
     }
 
