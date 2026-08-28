@@ -187,9 +187,11 @@ jobs:
         run: npm audit --audit-level=high
 
   desktop:
-    name: Desktop shell — build
-    # Windows-only by construction: net8.0-windows + WPF. It cannot be *run* here (WebView2 runtime), so this
-    # proves it compiles and nothing more — which is still strictly more than it had.
+    name: Desktop shell — build + test
+    # Windows-only by construction: net8.0-windows + WPF. The *shell* cannot be run here (no WebView2 runtime),
+    # so for it this proves compilation and nothing more. What CAN be run is the pure logic beside it —
+    # `MirrorPathPlanner`, which decides where every mirrored patient file lands and is the one place a silent
+    # mistake would overwrite one patient's radiograph with another's.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -200,6 +202,9 @@ jobs:
 
       - name: Build
         run: dotnet build desktop/ClinicManagement.DesktopShell.sln --configuration Release
+
+      - name: Test
+        run: dotnet test desktop/ClinicManagement.DesktopShell.sln --configuration Release --no-build
 
   android:
     name: Android shell — lint + assemble

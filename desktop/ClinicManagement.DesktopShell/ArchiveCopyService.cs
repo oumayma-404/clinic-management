@@ -7,7 +7,6 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.AccessControl;
 using System.Security.Principal;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -127,7 +126,7 @@ public sealed class ArchiveCopyService
             // Both headers, and both are needed: the bearer satisfies `AdminOnly`, the grant stands in for the
             // step-up confirmation an unattended copy cannot mint. The server re-checks the grant here, so a
             // revocation between the exchange and this call stops the download.
-            request.Headers.Add("X-Archive-Grant", _settings.GrantSecret);
+            request.Headers.Add(ArchiveGrant.Header, _settings.GrantSecret);
 
             using var response = await http.SendAsync(
                 request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -159,23 +158,13 @@ public sealed class ArchiveCopyService
         }
     }
 
-    /// <summary>Trades the grant for a short-lived token, or null for every refusal (AC-3's one wording).</summary>
-    private async Task<string?> ExchangeGrantAsync(HttpClient http, CancellationToken cancellationToken)
-    {
-        using var request = new HttpRequestMessage(
-            HttpMethod.Post, $"{_server.BaseUrl}/api/backup/archive-grants/token");
-        request.Headers.Add("X-Archive-Grant", _settings.GrantSecret);
-        request.Content = new StringContent("", System.Text.Encoding.UTF8, "application/json");
-
-        using var response = await http.SendAsync(request, cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            return null;
-        }
-
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        return body.RootElement.TryGetProperty("accessToken", out var token) ? token.GetString() : null;
-    }
+    /// <summary>
+    /// Trades the grant for a short-lived token, or null for every refusal (AC-3's one wording).
+    /// The exchange itself lives on <see cref="ArchiveGrant"/> because the file mirror runs far longer than one
+    /// token lives and has to be able to ask again mid-run.
+    /// </summary>
+    private Task<string?> ExchangeGrantAsync(HttpClient http, CancellationToken cancellationToken) =>
+        ArchiveGrant.ExchangeAsync(http, _server, _settings.GrantSecret, cancellationToken);
 
     /// <summary>
     /// Refuses before writing when the volume cannot plausibly hold another copy (AC-9's disk-full case), sized

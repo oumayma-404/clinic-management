@@ -194,6 +194,7 @@ public partial class MainWindow : Window
         {
             ShowWebView();
             RunArchiveCopyIfDue();
+            StartFileMirrorIfEnabled();
         }
         else
         {
@@ -357,6 +358,77 @@ public partial class MainWindow : Window
         }
 
         _ = System.Threading.Tasks.Task.Run(() => new ArchiveCopyService(_config, settings).CopyNowAsync());
+    }
+
+    // ---- Browsable file mirror (patient-file-mirror) --------------------------------------------
+
+    /// <summary>
+    /// How often the mirror looks for new files while the app is open.
+    ///
+    /// <para>⚠️ <b>Minutes, where the archive's cadence is days</b>, and the difference is the feature: the
+    /// archive is a full snapshot rebuilt whole, so taking one hourly would be absurd, while the mirror fetches
+    /// only what it does not already have — normally nothing. A doctor who scans a panoramique at 10:00 has it on
+    /// this machine before lunch, which the archive alone could never do.</para>
+    /// </summary>
+    private static readonly TimeSpan MirrorInterval = TimeSpan.FromMinutes(30);
+
+    private System.Windows.Threading.DispatcherTimer? _mirrorTimer;
+
+    /// <summary>Guards against a second run starting while a first is still walking a large cabinet.</summary>
+    private int _mirrorRunning;
+
+    /// <summary>
+    /// Starts the mirror's own schedule, once per session, on the first successful load.
+    ///
+    /// <para>⚠️ <b>A repeating timer rather than a once-per-session run</b>, unlike the archive above: the whole
+    /// point is to be current within the day, and a machine left open from Monday to Friday would otherwise
+    /// mirror once on Monday. It is cheap to repeat — a tick that finds nothing new is one paged read.</para>
+    ///
+    /// <para>⚠️ Silent, and fire-and-forget, for exactly the reason the archive copy is (see above): it runs
+    /// behind a clinic's day. The settings window is where an outcome is shown, on demand.</para>
+    /// </summary>
+    private void StartFileMirrorIfEnabled()
+    {
+        if (_mirrorTimer != null)
+        {
+            return;
+        }
+
+        _mirrorTimer = new System.Windows.Threading.DispatcherTimer { Interval = MirrorInterval };
+        _mirrorTimer.Tick += (_, _) => RunFileMirror();
+        _mirrorTimer.Start();
+
+        RunFileMirror();
+    }
+
+    private void RunFileMirror()
+    {
+        // Re-read every tick rather than capturing at start-up: the user may have ticked the box, changed the
+        // folder or pasted a new key in the settings window since, and a captured copy would ignore all three.
+        var settings = ArchiveCopySettingsStore.Load();
+        if (!settings.IsConfigured || !settings.MirrorFiles)
+        {
+            return; // AC-9 — absent, not idle.
+        }
+
+        // A first mirror of a real cabinet can outlast the interval by hours; letting the timer stack runs would
+        // have several passes fetching the same files into the same `.part` paths.
+        if (System.Threading.Interlocked.Exchange(ref _mirrorRunning, 1) == 1)
+        {
+            return;
+        }
+
+        _ = System.Threading.Tasks.Task.Run(async () =>
+        {
+            try
+            {
+                await new FileMirrorService(_config, settings).MirrorNowAsync();
+            }
+            finally
+            {
+                System.Threading.Interlocked.Exchange(ref _mirrorRunning, 0);
+            }
+        });
     }
 
     // ---- View-state switching -------------------------------------------------------------------
