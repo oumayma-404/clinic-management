@@ -126,6 +126,9 @@ const footSrc = readFileSync(join(SRC, 'partials', 'footer.html'), 'utf8')
    them resolve in the same pass — and the leftover-token check below catches a typo'd one. */
 const markSrc = readFileSync(join(SRC, 'partials', 'mark.html'), 'utf8')
   .replace(/<!--[\s\S]*?-->/g, '').trim()
+/* The word half of the lockup, same story: it sits inside NAV and FOOTER, three times a page. */
+const wordSrc = readFileSync(join(SRC, 'partials', 'wordmark.html'), 'utf8')
+  .replace(/<!--[\s\S]*?-->/g, '').trim()
 
 const pages = walk(join(SRC, 'pages'))
 const built = []
@@ -144,7 +147,7 @@ for (const file of pages) {
 
   for (const [k, v] of Object.entries({
     TITLE: meta.title, DESC: meta.desc, PATH: meta.path,
-    ROOT: meta.root ?? '', BASE, MARK: markSrc,
+    ROOT: meta.root ?? '', BASE, MARK: markSrc, WORD: wordSrc,
     BODYCLASS: meta.bodyClass ?? '', BARCLASS: meta.barClass ?? '',
   })) html = html.replaceAll(`{{${k}}}`, v)
 

@@ -11,11 +11,12 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
-import { Building2, Plus, Trash2, Upload, X, ChevronRight, ChevronLeft, CheckCircle2, ArrowRight } from "lucide-react"
+import { Plus, Trash2, Upload, X, ChevronRight, ChevronLeft, CheckCircle2, ArrowRight } from "lucide-react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { clinicsApi, type CreateClinicRequest } from "@/lib/api/clinics"
 import { authApi } from "@/lib/api/auth"
+import { PRODUCT_NAME } from "@/lib/brand"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { usePasswordMinLength } from "@/lib/hooks/use-password-policy"
 import { useSession } from "@/lib/auth/session"
@@ -417,9 +418,30 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
       <div className="w-full max-w-4xl">
         {/* Header */}
         <div className="text-center space-y-3 mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-accent/20 mb-2">
-            <Building2 className="w-8 h-8 text-primary" />
-          </div>
+          {/*
+            The APEXA lockup, where a generic `Building2` glyph in a grey circle used to sit. This is the first
+            screen a new cabinet ever sees — on `/signup` it is reached from the website, minutes after the
+            visitor read the brand there — and an office-block icon identified no product at all.
+
+            ⚠️ Two files swapped by theme, and the wordmark reads `PEXA` because the tile's `Λ` is the A. Both
+            filenames must stay in `middleware.ts`'s matcher; `check:responsive`'s `public-asset-not-guarded`
+            fails the build if one is missing. See `app/login/page.tsx` for the full reasoning — this is the
+            second consumer of the same lockup, not a second lockup.
+          */}
+          <img
+            src="/apexa-lockup.svg"
+            alt={PRODUCT_NAME}
+            width={199}
+            height={60}
+            className="mx-auto mb-2 h-14 w-auto dark:hidden"
+          />
+          <img
+            src="/apexa-lockup-dark.svg"
+            alt=""
+            width={199}
+            height={60}
+            className="mx-auto mb-2 hidden h-14 w-auto dark:block"
+          />
           <h1 className="text-3xl font-bold text-accent-foreground">
             {isSignup ? "Créez votre cabinet" : "Bienvenue dans la gestion de votre cabinet"}
           </h1>

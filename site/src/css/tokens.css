@@ -14,29 +14,45 @@
    mid navy instead of forest, and the accent is a clinical green instead of
    lime. The app's four zone colours stay meaningful inside the feature card.
 
-   ⚠️ THE DARK IS #1e3a5f AND NOT A NEAR-BLACK, which is the whole point of
-   it. It used to be #0e1b2a, about 10% luminance. A near-black navy under a
-   saturated cyan accent is the palette of a developer tool, and this is a
-   product a dentist buys. At 24% it is still dark enough for a light screen
-   capture to lift off it, and it reads as an institution rather than as a
-   terminal. The accent left #2dd4bf for #2a9d8f, which is not invented: it
-   is the colour the application itself gives to detartrage.
+   ⚠️ THE DARK IS #295AA8 AND IT IS THE LOGO'S OWN BLUE, DEEPENED. This
+   is the third value the token has held: #0e1b2a (near-black, ~10% lum),
+   then #1e3a5f (slate navy, 24%), now #295AA8 (41%). The middle one was
+   right about not being a terminal and wrong about the hue: a desaturated
+   grey-navy beside a #1B54CE→cyan mark reads as TWO brands, and that is what
+   this change fixes. The ladder was walked in the open — #234D90 / #295AA8 /
+   #2F67C1 / #3E76D0, same hue, same saturation, lightness only — and 41% is
+   the last rung where nothing breaks: white stays at 6.7:1, --on-ink-muted
+   is still genuinely muted at 4.9:1, and the plate's own dark corner
+   (#1B54CE) is still deeper than the ground, so the mark keeps its bite.
+   One rung brighter and the muted text stops being muted; two, and the
+   heading itself falls under 4.5:1. Do not "just lighten it a bit" further.
+
+   ⚠️ THE ACCENT IS THE MARK'S LAST STOP. It went #2dd4bf → #2a9d8f →
+   #2FC6E0. The teal was defensible on its own — it is the colour the
+   application gives to detartrage — but it was a THIRD colour family on a
+   page that already had two, and it was the loudest thing on every screen.
+   The cyan is the tail of --brand-grad, so the button and the mark now come
+   from one place. --on-accent is DARK (#04222a) and not white: white on
+   #2FC6E0 is 2.0:1.
 
    ⚠️ THE HUES ARE KEPT ON PURPOSE. Collapsing the four zone colours onto
    the app's nine clinical ones was proposed and REFUSED: the owner wants the
    page to keep its variety. Do not quietly unify them later.
 
-   ⚠️ A LIGHT TEAL BELONGS ON THE DARK GROUND, NOWHERE ELSE. `--accent-lit`
-   measures 1.49:1 on white, which is invisible. Text on white takes
-   `--accent-ink`, which is dark. The two are not interchangeable, and a
-   preview that swapped them is what caught this.
+   ⚠️ A LIGHT CYAN BELONGS ON THE DARK GROUND, NOWHERE ELSE. `--accent-lit`
+   measures 1.3:1 on white, which is invisible; `--accent` itself is only
+   1.7:1 there. Text on white takes `--accent-ink`, which is dark. The three
+   are not interchangeable, and a preview that swapped two of them is what
+   caught this the first time.
 
-   ⚠️ AND THE HEX LIVES IN FOUR OTHER PLACES: `theme-color`, the inline SVG
-   favicon (url-encoded, so `%23` and not `#`), and the three hero scenes,
-   62 occurrences between them. Editing this file alone leaves the browser
-   chrome, the tab icon and every animation on the old navy. `og-card.jpg`
-   is NOT one of them: it is a capture of the application's dashboard, so it
-   wears the app's colours and a palette change never reaches it.
+   ⚠️ AND THE HEX LIVES OUTSIDE THIS FILE: `theme-color` in layout.html and
+   the three hero scenes under src/scenes/, which are standalone documents
+   iframed into the page and therefore inherit NOTHING from these tokens.
+   Editing this file alone leaves the browser chrome and every animation on
+   the old navy. The favicon is url-encoded (`%23`, not `#`) but carries the
+   MARK's gradient, not the ground, so a ground change does not reach it.
+   `og-card.jpg` is not one of them either: it is a capture of the
+   application's dashboard, so it wears the app's colours.
 
    ⚠️ ONE palette on bare :root. No dark-mode block — a marketing page is a
    fixed composition, and a token defined only inside a media query never
@@ -50,40 +66,63 @@
   --page:     #f4f8fd;
   --paper:    #e9f0f8;   /* the warm-grey card, CareStack's signature surface */
   --paper-2:  #dde8f3;
-  --ink:      #1e3a5f;   /* the dark hero, the dark bands, the links panel   */
-  --ink-2:    #254768;
-  --ink-3:    #2d5478;
+  --ink:      #295AA8;   /* the dark hero, the dark bands, the links panel   */
+  --ink-2:    #3067BC;   /* panels and stages sitting ON the ink             */
+  --ink-3:    #3672CB;   /* cards sitting on those panels                    */
+
+  /* ── The ink, lit. ───────────────────────────────────────────────────────
+     A flat --ink-2 panel sitting on --ink is a 1.2:1 step, which is correct
+     as a boundary and dead as a surface — a hand-sized card of one blue reads
+     as unfinished. This is the SAME family walked across the panel on 135°,
+     which is the mark's own axis (its plate runs 0,0 → 1024,1024): dark at the
+     top-left where the eye enters, lit at the bottom-right.
+
+     ⚠️ It is NOT the mark's stops. #1B54CE→#2FC6E0 across a whole card is the
+     "harmonise everything" move tokens.css refuses above; this stays inside
+     the ground's own range so the card is still furniture, not signage.
+
+     ⚠️ The lit end is the constraint, not the dark one: #3A72C8 holds white at
+     4.77:1, and the panes set type as small as 0.6875rem. Lifting that stop
+     any further is what would break them. ─────────────────────────────────── */
+  --ink-lift: linear-gradient(135deg, #22508F 0%, #3067BC 52%, #3A72C8 100%);
 
   /* ── Text ────────────────────────────────────────────────────────────── */
   --text:          #09090b;
   --text-muted:    #52525b;
   --text-faint:    #7b7b85;
   --on-ink:        #ffffff;
-  --on-ink-muted:  #a9b6c4;
-  --on-ink-faint:  #7c8b9b;
+  --on-ink-muted:  #C7D6F0;   /* 4.9:1 on --ink. Was #a9b6c4, now unreadable */
+  --on-ink-faint:  #A8BCE0;
 
   /* ── Rules ───────────────────────────────────────────────────────────── */
   --rule:      #d7e2ee;
   --rule-soft: #e6eef7;
-  --rule-ink:  #3b587c;
+  --rule-ink:  #5382CA;
 
   /* ── The LOGO, which is not the palette. ─────────────────────────────────
      APEXA's mark is a blue→cyan gradient, and it is the same three stops as
      web/branding/icon.svg — the master every app icon is generated from. It
-     colours the mark's plate and NOTHING else on this site: the page stays
-     navy + teal, deliberately. ⚠️ Do not "harmonise" the two by pulling this
-     gradient into buttons or the hero; it is an identity, not a hue we own
-     the rest of the page with. Do not restate the stops anywhere else either
-     — three copies of a logo colour is how a rebrand half-lands. ─────────── */
+     colours the mark's plate and NOTHING else on this site.
+
+     ⚠️ THE GRADIENT ITSELF STILL GOES NOWHERE ELSE, and that is now a choice
+     made against the alternative rather than by default: a gradient button
+     beside the gradient plate puts two gradients three centimetres apart in
+     the top bar, and its left end starts at #1B54CE — the ground's own
+     family — so it needs a rescue hairline just to keep its edge. What the
+     page took from the mark instead is its LAST STOP, as a flat `--accent`.
+     One value travelled, not the whole gradient.
+
+     ⚠️ Do not restate the stops anywhere else — three copies of a logo
+     colour is how a rebrand half-lands. ────────────────────────────────── */
   --brand-grad: linear-gradient(135deg, #1B54CE 0%, #1E86DC 50%, #2FC6E0 100%);
   --on-brand:   #ffffff;
 
   /* ── The accent. Buttons and links, nothing else. ────────────────────── */
-  --accent:      #2a9d8f;   /* fills — sits at lime's luminance on the dark  */
-  --accent-hi:   #35b9a8;
-  --accent-ink:  #1c7d70;   /* the same accent as TEXT on white              */
-  --accent-lit:  #6fd8c6;   /* eyebrows and links on the dark ground         */
-  --on-accent:   #04231f;
+  --accent:      #2FC6E0;   /* fills — the last stop of --brand-grad          */
+  --accent-hi:   #4FD4EA;   /* hover                                          */
+  --accent-ink:  #0C6E85;   /* the same accent as TEXT on white — 5.9:1       */
+  --accent-lit:  #9CE6F6;   /* eyebrows and links on the dark ground — 4.9:1  */
+  --on-accent:   #04222a;   /* DARK. White on #2FC6E0 is 2.0:1                */
 
   /* ── The app's four zones, twice: readable on white, and on ink. ─────── */
   --azure:  #0284c7;  --azure-lit:  #7dd0fb;

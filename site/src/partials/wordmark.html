@@ -1,0 +1,21 @@
+<!--
+  PEXA — the word half of the lockup, injected as {{WORD}} by build.mjs beside {{MARK}}'s plate.
+
+  ⚠️ IT IS "PEXA" AND THAT IS NOT A TYPO. The plate to its left already carries the Λ, which IS the
+  first A of the name. Setting the full word next to it spells the A twice. The accessible name on
+  the surrounding `<a>` still says APEXA — a screen reader must hear the name, not "pexa".
+
+  ⚠️ The path is the letterforms from `APEXA-logo-files/svg/apexa-horizontal.svg`, verbatim, with
+  two mechanical changes and no redrawing:
+    · the file's `translate(213.10, 76.75)` is folded into the coordinates, so there is no <g>;
+    · the file's leading Λ subpath (`M 213.10 146.75 L 244.10 76.75 L 275.10 146.75`) is REMOVED
+      from `d` — removed, not covered, so nothing invisible is left in the box.
+  The `viewBox` is the exact ink bounds of what remains: x 329.80−4.40 … 714.40+4.40, y 76.75−4.40
+  … 146.75+4.40, where 4.40 is half the 8.80 stroke. Widen it and the word floats in empty space and
+  reads too small next to the plate; that is the bug the delivered 754×224 file has.
+
+  ⚠️ `stroke: currentColor`, never a hard white. `.stuck .brand` and `.on-light .brand` recolour the
+  whole lockup to `--text` when the bar goes light on scroll; a hard-coded white word survives that
+  and disappears onto the white bar.
+-->
+<svg class="word" viewBox="325.4 72.35 393.4 78.8" aria-hidden="true"><path d="M 329.80 146.75 L 329.80 76.75 L 353.70 76.75 C 370.90 76.75 381.80 84.75 381.80 97.75 C 381.80 110.75 370.90 118.75 353.70 118.75 L 329.80 118.75 M 482.50 76.75 L 436.50 76.75 L 436.50 146.75 L 482.50 146.75 M 436.50 111.75 L 476.50 111.75 M 537.20 76.75 L 597.70 146.75 M 597.70 76.75 L 537.20 146.75 M 652.40 146.75 L 683.40 76.75 L 714.40 146.75" fill="none" stroke="currentColor" stroke-width="8.80" stroke-linejoin="miter"/></svg>
