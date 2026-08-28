@@ -130,20 +130,4 @@ public static class ShellUpdater
             return false;
         }
     }
-
-    /// <summary>
-    /// Whether this build is running as a Velopack install at all — i.e. whether self-updating is possible.
-    /// A developer build and a legacy <c>%ProgramFiles%</c> install both answer <c>false</c>.
-    /// </summary>
-    public static bool CanSelfUpdate()
-    {
-        try
-        {
-            return new UpdateManager(new SimpleWebSource("http://localhost/unused")).IsInstalled;
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-    }
 }
