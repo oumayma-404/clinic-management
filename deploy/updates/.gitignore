@@ -1,0 +1,5 @@
+# The installer is an artefact, never a committed file: it is ~51 MB, it is rebuilt per release by
+# .github/workflows/client-installer.yml, and deploy-hosted.yml would then ship it to the server on every
+# deploy. The operator drops it here ON THE SERVER; a tar extract adds files and deletes none, so it survives
+# a deploy untouched.
+*.exe

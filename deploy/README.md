@@ -961,6 +961,61 @@ Three notes for whoever sends it:
   the account's **very next request** (401), not at token expiry. If you ever see otherwise, that is the defect
   `PlatformAccountStateMiddleware` exists to prevent — it was real once, and it was silent.
 
+## Mettre à jour l'application Windows
+
+The desktop shell updates itself: it reads `GET /api/meta/client-requirements` at launch, and when the server
+names a newer version it shows a dismissible strip with **« Mettre à jour maintenant »** — one click, one UAC
+prompt, and the shell restarts on the new build. What this deployment has to do is *offer* the installer.
+
+⚠️ **On this profile nothing is bundled, and that is the difference from an offline-LAN install.** There, the
+server installer stages the matching client setup into `{app}\updates`. Here the API runs from an image and that
+installer never executes, so the folder would be empty, `GET /api/meta/client-download` would 404, and every PC
+would announce an update it could not fetch. `docker-compose.hosted.yml` therefore bind-mounts
+**`./updates:/app/updates:ro`**.
+
+### Shipping a shell update
+
+1. **Build it.** Push a tag — `git tag client-v1.1.0 && git push origin client-v1.1.0` — and
+   `.github/workflows/client-installer.yml` builds `ClinicManagementClientSetup-1.1.0.exe` on a Windows runner,
+   attaching it with its size and SHA-256 in the run summary. The **tag** is the version.
+2. **Put it on the server**, from your own machine:
+
+   ```bash
+   scp ClinicManagementClientSetup-1.1.0.exe deploy@<host>:/opt/clinic-management/deploy/updates/
+   ssh deploy@<host> "cd /opt/clinic-management/deploy && \
+     docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml up -d api"
+   ```
+
+   The recreate is only needed the **first** time (the mount has to exist). After that, dropping a newer file in
+   is enough: the API picks the highest version in the folder and re-hashes when the file changes, so no restart
+   and no config edit.
+3. **Check it.** `curl -sI https://<domain>/api/meta/client-download | head -3` → `200`, and
+   `curl -s https://<domain>/api/meta/client-requirements` should now name the new version, the download URL and
+   its `windowsSetupSha256`.
+
+Every shell then offers the update on its next launch. Set nothing: with `Clients:StoreUrls:Windows` empty the
+payload is filled from the file — URL built from the host the shell actually reached, version from the filename,
+and a SHA-256 **computed from the bytes that will be served**, which the shell verifies before running anything.
+
+### If you would rather host it elsewhere
+
+Set `Clients:StoreUrls:Windows` to your own URL. An explicit value always wins over the mounted file — and the
+locally-computed hash then travels with it no longer (pairing our digest with somebody else's bytes would refuse
+every download), so state the hash yourself in `Clients:WindowsSetupSha256`; the CI run summary prints it.
+
+### Two things worth knowing
+
+- **`Clients:MinimumShellVersion` is the wall, and it is not the same act.** Leaving it alone means the update is
+  *offered*; setting it means an older shell is **refused** and shows « Mise à jour requise » instead of the app.
+  Never raise it in the same change that publishes the download — anyone who has not installed yet is locked out
+  until they do, and their only way back is the download URL.
+- **A check happens on connect, not on a clock**: app launch, « Recharger », « Réessayer ». A PC left running for
+  a week never re-checks until somebody reloads or restarts it. Raising the floor mid-day therefore degrades an
+  open shell into failing requests (the floor is enforced per request, server-side) rather than showing the screen
+  that explains why — so raise it out of hours.
+
+---
+
 ## Two things this topology does not solve
 
 - **Per-clinic backup and restore.** `backup`/`pitr` protect the whole cluster; restoring one clinic's data without

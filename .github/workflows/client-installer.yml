@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (N.N.N). Leave empty to use the shell .csproj's own <Version>."
+        description: "Release version (N.N.N). Overrides the tag. Leave empty on a tag push to use the tag's own version."
         required: false
         type: string
   push:
@@ -49,23 +49,60 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      # ⚠️ The version is resolved by the same function the operator build uses, from the same source (the shell
-      # .csproj), so a CI build and a desk build of the same commit cannot produce different numbers. A tag push
-      # deliberately does NOT take the version from the tag name: the tag would then be a second authority over
-      # the value stamped into the assembly, which is the drift this whole change removed.
+      # ⚠️ **THE TAG IS THE RELEASE.** `client-v1.1.0` builds 1.1.0 — the number is stamped into the shell
+      # assembly (`/p:Version`), into both installer filenames (`/DAppVersion`) and into the artifact name from
+      # that one place. Precedence is: a dispatch input, else the tag, else the shell .csproj.
+      #
+      # Why the tag and not the .csproj, having started the other way round: the assembly version is what the
+      # server's client floor is compared against, so shipping new code under the version already installed is
+      # invisible — every PC compares equal, no strip appears, and the conclusion is « the updater is broken »
+      # rather than « nobody bumped a file ». Making the release act *be* the version removes the step there was
+      # to forget.
+      #
+      # ⚠️ The .csproj is still **rewritten in the workspace** (never committed) so the compiler, the installer
+      # and the artifact cannot disagree — and a mismatch is reported, because after this the .csproj value is a
+      # development default rather than a statement about any release, and a stale one should be visible.
+      # `Resolve-Version` still validates the shape: an unparseable floor value silently disables the floor.
       - name: Resolve the version
         id: version
         shell: pwsh
         run: |
+          $csproj = 'desktop/ClinicManagement.DesktopShell/ClinicManagement.DesktopShell.csproj'
+
           $src = Get-Content packaging/publish-server.ps1 -Raw
           $start = $src.IndexOf('function Resolve-Version')
           $end = $src.IndexOf('$Version = Resolve-Version')
           Invoke-Expression $src.Substring($start, $end - $start)
 
+          # What the .csproj currently claims, for the mismatch note below.
+          $declared = Resolve-Version '' $csproj
+
           $explicit = '${{ inputs.version }}'
-          $resolved = Resolve-Version $explicit 'desktop/ClinicManagement.DesktopShell/ClinicManagement.DesktopShell.csproj'
+          $origin = 'the dispatch input'
+          if (-not $explicit -and '${{ github.ref_type }}' -eq 'tag') {
+            # client-v1.1.0 -> 1.1.0
+            $explicit = '${{ github.ref_name }}' -replace '^client-v', ''
+            $origin = "the tag ${{ github.ref_name }}"
+          }
+          if (-not $explicit) {
+            $origin = 'the shell .csproj'
+          }
+
+          $resolved = Resolve-Version $explicit $csproj
           "version=$resolved" >> $env:GITHUB_OUTPUT
-          Write-Host "Building version $resolved"
+          Write-Host "Building version $resolved (from $origin)"
+
+          if ($resolved -ne $declared) {
+            "note=The shell .csproj declares $declared; this release is $resolved (from $origin)." >> $env:GITHUB_OUTPUT
+            Write-Warning "The shell .csproj declares <Version>$declared</Version> but this release is $resolved. Stamping $resolved."
+            # Rewritten in the workspace only, so `dotnet publish` and ISCC agree with the artifact's name.
+            $xml = Get-Content $csproj -Raw
+            $xml = $xml -replace '<Version>[^<]*</Version>', "<Version>$resolved</Version>"
+            Set-Content -LiteralPath $csproj -Value $xml -Encoding utf8
+          }
+          else {
+            "note=" >> $env:GITHUB_OUTPUT
+          }
 
       - name: Publish the shell (self-contained win-x64)
         shell: pwsh
@@ -122,6 +159,11 @@ jobs:
           "| Size | $mb MB |"                                       >> $env:GITHUB_STEP_SUMMARY
           "| SHA-256 | ``$hash`` |"                                 >> $env:GITHUB_STEP_SUMMARY
           ""                                                        >> $env:GITHUB_STEP_SUMMARY
+          if ('${{ steps.version.outputs.note }}') {
+            "> [!NOTE]"                                             >> $env:GITHUB_STEP_SUMMARY
+            "> ${{ steps.version.outputs.note }}"                    >> $env:GITHUB_STEP_SUMMARY
+            ""                                                      >> $env:GITHUB_STEP_SUMMARY
+          }
           "Fit for **updating** an existing install. A first install on a fresh PC wants the operator build (no WebView2 runtime or ``ca.crt`` is bundled here)." >> $env:GITHUB_STEP_SUMMARY
 
       - uses: actions/upload-artifact@v4
