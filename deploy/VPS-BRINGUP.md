@@ -237,8 +237,13 @@ docker exec clinic-postgres-prod psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '
   ```bash
   ssh -L 9443:127.0.0.1:9443 deploy@<host>
   ```
-  Then `https://127.0.0.1:9443`. Certificate warning is expected (internal CA on a loopback address).
+  Then **`https://console.localhost:9443`** — the name, not `127.0.0.1`: a browser sends no SNI for an IP
+  literal, so the bare address fails the TLS handshake outright (`ERR_SSL_PROTOCOL_ERROR`, not a dismissable
+  warning). See `README.md` § « Opening it ». Certificate warning is expected (internal CA on a loopback name).
 - [ ] Sign in → it sends you to enrolment → enter a code → **write down the recovery codes** → change the password.
+- [ ] Changing the password signs you out and **invalidates every session**. Sign in again: the portfolio should
+      now load. Until that change, the API refuses every console read — the console routes you to
+      `/mot-de-passe` for it rather than reporting an unreadable portfolio.
 
 ---
 

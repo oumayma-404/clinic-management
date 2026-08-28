@@ -800,12 +800,24 @@ It is published on **loopback only**, so there is no address to reach from the i
 ```bash
 ssh -L 9443:127.0.0.1:9443 <host>
 # then, on your own machine:
-open https://127.0.0.1:9443
+open https://console.localhost:9443
 ```
 
-Expect a **certificate warning**. That site uses Caddy's internal CA, because `127.0.0.1` has no public name for
-Let's Encrypt to issue a certificate against. A warning on `{DOMAIN}` is a different event entirely and should
-never be dismissed.
+⚠️ **`console.localhost`, not `127.0.0.1` — the bare IP cannot work in a browser, and does not fail like a
+certificate problem.** No browser sends SNI for an IP literal (there is no name to send), so Caddy has nothing to
+match on this port and ends the handshake with `internal_error` — Chrome reports `ERR_SSL_PROTOCOL_ERROR`, which
+is not a warning anybody can click through. `*.localhost` resolves to loopback inside Chrome and Firefox with no
+hosts entry (RFC 6761); on Safari or for a command-line client, add `127.0.0.1 console.localhost` to your hosts
+file. The site still answers on the IP for any client that sends it as SNI, so an existing script keeps working.
+
+Expect a **certificate warning**. That site uses Caddy's internal CA, because a loopback name has no public
+authority for Let's Encrypt to issue a certificate against. A warning on `{DOMAIN}` is a different event entirely
+and should never be dismissed.
+
+> **Verifying it from a shell needs SNI too**, which is what hid this for so long: `curl -k https://127.0.0.1:9443`
+> and `wget --no-check-certificate` both report a healthy console *because* of how they handle the IP, so « the
+> console is up » stayed true of every client except the one it exists for. Test with the name:
+> `curl -k --resolve console.localhost:9443:127.0.0.1 https://console.localhost:9443/login`.
 
 ### Bootstrapping the first account
 

@@ -111,8 +111,24 @@
 #   3. `tls internal` — Caddy's own local CA, because 127.0.0.1 has no public name for ACME to issue against.
 #      The operator's browser will not know that CA; a certificate warning on a tunnelled loopback address is
 #      expected here and is not the same event as one on {$DOMAIN}.
+#
+#   4. **`console.localhost` is the address an operator opens, and the bare IP alone could not be.** A site
+#      addressed ONLY by an IP literal is unreachable from every browser there is: no browser sends SNI for an
+#      IP (there is no name to send), Caddy has no site matching an empty ServerName on this port, and it ends
+#      the handshake with `internal_error` — which Chrome reports as `ERR_SSL_PROTOCOL_ERROR`, not as a
+#      certificate warning somebody could click through. Measured against the hosted VPS, over the tunnel and
+#      on the server's own loopback alike:
+#
+#        openssl s_client -connect 127.0.0.1:9443 -servername 127.0.0.1  → TLSv1.3, TLS_AES_128_GCM_SHA256
+#        openssl s_client -connect 127.0.0.1:9443 -noservername          → tlsv1 alert internal error (80)
+#
+#      Every smoke test this shipped with passes, because `curl` and `wget` both send SNI when given a name and
+#      `--no-check-certificate` hides the rest — so « the console is up » was true of everything except the one
+#      client it exists for. `*.localhost` resolves to loopback inside Chrome and Firefox with no hosts entry
+#      (RFC 6761); Safari and command-line tools need `127.0.0.1 console.localhost` in the hosts file.
+#      The IP stays listed so a client that DOES send it as SNI keeps working unchanged.
 # ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-https://127.0.0.1:9443 {
+https://console.localhost:9443, https://127.0.0.1:9443 {
 	tls internal
 	encode zstd gzip
 
