@@ -95,22 +95,50 @@ function LoginShell({
   return (
     <div className="fixed inset-0 flex h-dvh items-start justify-center overflow-y-auto bg-background p-4">
       <Card className="my-auto w-full max-w-md">
-        <CardHeader className="space-y-1">
+        <CardHeader className="space-y-1 text-center">
           {/*
-            The app mark, on the one screen that has nothing else to identify the product by: no rail, no clinic
-            name, no chrome. `/icon-192.png` is generated from `branding/icon.svg`, so this is the same lockup as
-            the favicon, the sidebar and the installed-app tile with **no second copy of the path** — inlining the
-            `#mark` `d` here is what that master's own comment warns against.
-            `alt=""`, not the product name: every one of this shell's states already puts its own heading directly
-            under the mark, so a described image would announce the brand ahead of — and on the landing state,
-            twice over — the sentence saying what is being asked. It is chrome, and it is marked as chrome.
+            The **horizontal lockup** — mark and name in one asset — on the one screen that has nothing else to
+            identify the product by: no rail, no clinic name, no chrome. This is the vendor's own artwork
+            (`APEXA-logo-files/svg/apexa-horizontal.svg`), not a mark set beside text in CSS: the spacing between
+            the two halves and the wordmark's letterforms are part of the logo, and rebuilding them from an icon
+            plus a `<span>` produces something close to the brand and not the brand.
+
+            ⚠️ **Two files, swapped by theme, and the reason is contrast rather than taste.** The wordmark is
+            *stroked in the brand gradient*, whose dark end is `#1B54CE` — near-invisible on a dark `bg-card`. The
+            vendor's dark variant therefore keeps the gradient on the mark and switches the WORDMARK to white,
+            which is exactly the swap below. The supplied dark file also carries a `#0A1B33` background rectangle
+            for use as a standalone asset; that rectangle is stripped from `public/apexa-horizontal-dark.svg`,
+            because inside a card it would paint its own navy block over the card's surface.
+
+            ⚠️ Both are `.svg`, so there is no generated size set and `scripts/generate-icons.mjs` does not own
+            them — it renders the *app icon* from `branding/icon.svg`, which is the square mark alone and cannot
+            produce a lockup. These are the only hand-placed images in `public/`.
+
+            ⚠️ **Both filenames must be in `middleware.ts`'s matcher**, or they are exactly the 307-to-`/login`
+            defect this screen just had with `/icon-192.png`. `check:responsive`'s `public-asset-not-guarded` is
+            what makes forgetting that a build failure.
+
+            `alt={PRODUCT_NAME}` on the visible one and `alt=""` on the hidden one: the image now carries the
+            product name and nothing else on the screen does, but `hidden` does not remove an element from the
+            accessibility tree in every combination, and announcing the brand twice is the failure to avoid.
+
+            ⚠️ Centred, and `CardHeader` is a **grid** (`items-start`), so `text-center` alone would not move an
+            image: it needs `mx-auto`. A centred lockup over a left-aligned heading reads as a mistake, which is
+            why the title and description are centred with it — the fields below stay left.
           */}
           <img
-            src="/icon-192.png"
+            src="/apexa-horizontal.svg"
+            alt={PRODUCT_NAME}
+            width={188}
+            height={56}
+            className="mx-auto mb-2 h-14 w-auto dark:hidden"
+          />
+          <img
+            src="/apexa-horizontal-dark.svg"
             alt=""
-            width={44}
-            height={44}
-            className="mb-2 size-11 rounded-xl"
+            width={188}
+            height={56}
+            className="mx-auto mb-2 hidden h-14 w-auto dark:block"
           />
           <CardTitle className="text-2xl font-bold">{title}</CardTitle>
           <CardDescription>{description}</CardDescription>
