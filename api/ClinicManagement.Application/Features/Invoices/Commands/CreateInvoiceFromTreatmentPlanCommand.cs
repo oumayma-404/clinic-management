@@ -113,7 +113,9 @@ public class CreateInvoiceFromTreatmentPlanCommandHandler
 
             // Map each planned act to an invoice line (quantity 1, PlannedCost as unit HT, carry the CNAM/DCH link).
             invoice.SetLines(plan.Items.Select(i =>
-                (i.DesignationFr, 1, i.PlannedCost, (Guid?)null, i.DentalActCodeId, i.CodeActe)));
+                // ⚠️ No DCH code travels from a devis any more — a devis line carries only a ProcedureType,
+                // so there is nothing to carry and the invoice's own CNAM split is empty for this path.
+                (i.DesignationFr, 1, i.PlannedCost, (Guid?)null, (Guid?)null, (string?)null)));
 
             await _invoiceRepository.AddAsync(invoice, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

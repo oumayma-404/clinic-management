@@ -35,7 +35,6 @@ public class DevisPdfData
 
 public class DevisPdfLine
 {
-    public string? CodeActe { get; set; }
     public string Designation { get; set; } = string.Empty;
     public string Teeth { get; set; } = string.Empty;
     public decimal PlannedCost { get; set; }

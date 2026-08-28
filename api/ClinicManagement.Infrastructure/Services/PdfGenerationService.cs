@@ -380,17 +380,18 @@ public class PdfGenerationService : IPdfGenerationService
                             // Act lines table
                             column.Item().Table(table =>
                             {
+                                // ⚠️ Three columns, not four. The « Code » column carried the DCH act code,
+                                // which a devis line no longer has — the designation is what identifies the act
+                                // now. Widened the designation rather than leaving a blank column.
                                 table.ColumnsDefinition(cols =>
                                 {
-                                    cols.RelativeColumn(2);
-                                    cols.RelativeColumn(5);
+                                    cols.RelativeColumn(7);
                                     cols.RelativeColumn(2);
                                     cols.RelativeColumn(2);
                                 });
 
                                 table.Header(h =>
                                 {
-                                    h.Cell().Element(HeaderCell).Text("Code");
                                     h.Cell().Element(HeaderCell).Text("Désignation");
                                     h.Cell().Element(HeaderCell).Text("Dents");
                                     h.Cell().Element(HeaderCell).AlignRight().Text("Coût prévu");
@@ -398,7 +399,6 @@ public class PdfGenerationService : IPdfGenerationService
 
                                 foreach (var line in data.Lines)
                                 {
-                                    table.Cell().Element(BodyCell).Text(line.CodeActe ?? string.Empty);
                                     table.Cell().Element(BodyCell).Text(line.Designation);
                                     table.Cell().Element(BodyCell).Text(line.Teeth);
                                     table.Cell().Element(BodyCell).AlignRight().Text(FormatDt(line.PlannedCost));

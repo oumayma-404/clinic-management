@@ -50,7 +50,7 @@ public class InstallmentOverdueBoundaryTests
     private static TreatmentPlan PlanDueOn(DateTime dueDate)
     {
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Plan");
-        plan.SetItems(new[] { ("Couronne", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }) });
+        plan.SetItems(new[] { ("Couronne", 500m, (IReadOnlyList<int>)new[] { 11 }) });
         // The schedule has to be set while the devis is still a Draft; accepting is what turns it into debt,
         // and only a debt-bearing plan reaches the overdue calculation at all.
         plan.SetInstallments(new[] { (dueDate, 500m) });

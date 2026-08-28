@@ -34,12 +34,29 @@ public sealed record ClientUpdatePackage(string Version, string FileName, long L
     private const string DefaultFolder = "updates";
 
     /// <summary>
-    /// What the server installer names it — <c>publish-server.ps1</c> compiles the client setup first and copies
-    /// it in under exactly this shape, so the version can be read back without a manifest file to keep in step.
+    /// The legacy Inno client setup, whose filename carries its own version — so it can be read back without a
+    /// manifest to keep in step. Still recognised because an offline-LAN clinic uses that installer for a FIRST
+    /// install (it imports the LAN certificate authority and bootstraps the WebView2 runtime, neither of which a
+    /// per-user Velopack setup can do without elevation).
     /// </summary>
     private static readonly Regex NamePattern = new(
         @"^ClinicManagementClientSetup-(?<version>\d+\.\d+\.\d+(\.\d+)?)\.exe$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Velopack's own setup, and its version comes from the feed manifest rather than from its name — <c>vpk</c>
+    /// emits a single unversioned <c>&lt;id&gt;-win-Setup.exe</c> that is replaced on every release.
+    /// </summary>
+    private static readonly Regex VelopackSetupPattern = new(
+        @"^[A-Za-z0-9._-]+-win-Setup\.exe$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// The feed manifest <c>vpk</c> writes beside the packages. Read only for the VERSION of the setup above; the
+    /// update mechanism itself never comes through here — the shell talks to <c>client-feed</c> directly and
+    /// Velopack parses this file properly.
+    /// </summary>
+    private const string VelopackManifest = "releases.win.json";
 
     /// <summary>
     /// Hashing 50 MB on every probe would make a launch-time read cost half a second of CPU per client, so the
@@ -51,11 +68,10 @@ public sealed record ClientUpdatePackage(string Version, string FileName, long L
     private static ClientUpdatePackage? _cached;
 
     /// <summary>
-    /// The newest installer present, or <c>null</c>. Never throws: an unreadable folder, a permissions refusal
-    /// and a malformed filename all mean « nothing to offer », because the alternative is a server that will not
-    /// answer <c>client-requirements</c> at all — the one route a refused client depends on.
+    /// The folder both this and the Velopack feed route read, or <c>null</c> when there is none. Shared so the
+    /// installer download and the feed cannot end up looking in two different places.
     /// </summary>
-    public static ClientUpdatePackage? Resolve(IConfiguration configuration, string baseDirectory)
+    public static string? ResolveFolder(IConfiguration configuration, string baseDirectory)
     {
         try
         {
@@ -64,9 +80,36 @@ public sealed record ClientUpdatePackage(string Version, string FileName, long L
                 ? Path.Combine(baseDirectory, DefaultFolder)
                 : configured;
 
-            if (!Directory.Exists(folder))
+            return Directory.Exists(folder) ? folder : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The newest installer present, or <c>null</c>. Never throws: an unreadable folder, a permissions refusal
+    /// and a malformed filename all mean « nothing to offer », because the alternative is a server that will not
+    /// answer <c>client-requirements</c> at all — the one route a refused client depends on.
+    /// </summary>
+    public static ClientUpdatePackage? Resolve(IConfiguration configuration, string baseDirectory)
+    {
+        try
+        {
+            var folder = ResolveFolder(configuration, baseDirectory);
+            if (folder is null)
             {
                 return null;
+            }
+
+            // ⚠️ **A Velopack feed wins over a legacy Inno setup when both are present**, and that ordering is
+            // the migration: a folder holding both is a clinic mid-move, and the answer it should be given is the
+            // self-updating one. The Inno path stays only for a first install on an offline LAN.
+            var velopack = ResolveVelopackSetup(folder);
+            if (velopack is not null)
+            {
+                return velopack;
             }
 
             // Newest by VERSION, not by write time: a re-copied older file must not win, and the operator may
@@ -121,6 +164,83 @@ public sealed record ClientUpdatePackage(string Version, string FileName, long L
             // Stated on the type: nothing here may take down the route a refused client reads.
             return null;
         }
+    }
+
+    /// <summary>
+    /// The Velopack setup in <paramref name="folder"/> plus the version its manifest names, or <c>null</c>.
+    ///
+    /// <para>⚠️ The version is taken from the manifest's <b>highest</b> asset rather than from the first entry:
+    /// the file lists full and delta packages for a release and may retain older ones, and the setup on disk is
+    /// always the newest release's. A wrong version here would be published as <c>currentShellVersion</c> and
+    /// either hide a real update or advertise one that does not exist.</para>
+    /// </summary>
+    private static ClientUpdatePackage? ResolveVelopackSetup(string folder)
+    {
+        var setup = Directory
+            .EnumerateFiles(folder, "*-win-Setup.exe")
+            .FirstOrDefault(path => VelopackSetupPattern.IsMatch(Path.GetFileName(path)));
+
+        if (setup is null)
+        {
+            return null;
+        }
+
+        var manifest = Path.Combine(folder, VelopackManifest);
+        if (!File.Exists(manifest))
+        {
+            return null; // A setup with no manifest is a half-published feed; say nothing rather than guess.
+        }
+
+        System.Version? highest = null;
+        using (var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(manifest)))
+        {
+            if (!document.RootElement.TryGetProperty("Assets", out var assets)
+                || assets.ValueKind != System.Text.Json.JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            foreach (var asset in assets.EnumerateArray())
+            {
+                if (asset.TryGetProperty("Version", out var v)
+                    && System.Version.TryParse(v.GetString(), out var parsed)
+                    && (highest is null || parsed > highest))
+                {
+                    highest = parsed;
+                }
+            }
+        }
+
+        if (highest is null)
+        {
+            return null;
+        }
+
+        var info = new FileInfo(setup);
+        var key = $"{info.FullName}|{info.Length}|{info.LastWriteTimeUtc:O}|{highest}";
+
+        lock (CacheGate)
+        {
+            if (_cacheKey == key && _cached is not null)
+            {
+                return _cached;
+            }
+        }
+
+        var package = new ClientUpdatePackage(
+            $"{highest.Major}.{highest.Minor}.{Math.Max(highest.Build, 0)}",
+            info.Name,
+            info.Length,
+            ComputeSha256(info.FullName),
+            info.FullName);
+
+        lock (CacheGate)
+        {
+            _cacheKey = key;
+            _cached = package;
+        }
+
+        return package;
     }
 
     private static string ComputeSha256(string path)

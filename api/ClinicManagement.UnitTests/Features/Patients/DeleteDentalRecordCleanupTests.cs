@@ -60,7 +60,7 @@ public class DeleteDentalRecordCleanupTests
     private static TreatmentPlan PlanWithActDoneOnRecord()
     {
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Plan");
-        plan.SetItems(new[] { ("Obturation", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 26 }) });
+        plan.SetItems(new[] { ("Obturation", 500m, (IReadOnlyList<int>)new[] { 26 }) });
         plan.Accept("2026-0001");
         plan.MarkItemDone(plan.Items.Single().Id, DoneOn, RecordId);
         return plan;

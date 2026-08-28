@@ -143,20 +143,20 @@ public class TreatmentPlan : AggregateRoot<Guid>
     }
 
     /// <summary>Replace all planned act lines. Draft only. Clears any installment schedule (totals change).</summary>
-    public void SetItems(IEnumerable<(string designationFr, decimal plannedCost, Guid? dentalActCodeId, string? codeActe, IReadOnlyList<int> toothNumbers)> items)
+    public void SetItems(IEnumerable<(string designationFr, decimal plannedCost, IReadOnlyList<int> toothNumbers)> items)
         => SetItems(items.Select(i => new TreatmentPlanItemInput(
-            null, i.designationFr, i.plannedCost, i.dentalActCodeId, i.codeActe, null, i.toothNumbers)));
+            null, i.designationFr, i.plannedCost, null, i.toothNumbers)));
 
     /// <summary>
     /// Tuple adapter kept for callers that predate <see cref="TreatmentPlanItemInput"/>. Lines set no
     /// <c>ProcedureTypeId</c> — correct, since a caller that cannot express one has not chosen a procedure.
     /// </summary>
     public void SetItems(
-        IEnumerable<(Guid? id, string designationFr, decimal plannedCost, Guid? dentalActCodeId, string? codeActe, IReadOnlyList<int> toothNumbers)> items,
+        IEnumerable<(Guid? id, string designationFr, decimal plannedCost, IReadOnlyList<int> toothNumbers)> items,
         bool scheduleWillBeResent = true)
         => SetItems(
             items.Select(i => new TreatmentPlanItemInput(
-                i.id, i.designationFr, i.plannedCost, i.dentalActCodeId, i.codeActe, null, i.toothNumbers)),
+                i.id, i.designationFr, i.plannedCost, null, i.toothNumbers)),
             scheduleWillBeResent);
 
     /// <summary>
@@ -207,8 +207,6 @@ public class TreatmentPlan : AggregateRoot<Guid>
                 Id,
                 item.DesignationFr,
                 item.PlannedCost,
-                item.DentalActCodeId,
-                item.CodeActe,
                 item.ToothNumbers,
                 position,
                 item.ProcedureTypeId));
@@ -450,11 +448,11 @@ public class TreatmentPlan : AggregateRoot<Guid>
     /// Add acts to an accepted or in-progress plan. New acts append after the current last one, so an
     /// amendment never reshuffles the clinical order the dentist already set. Bumps the revision.
     /// </summary>
-    public void AddItems(IEnumerable<(string designationFr, decimal plannedCost, Guid? dentalActCodeId, string? codeActe, IReadOnlyList<int> toothNumbers)> items)
+    public void AddItems(IEnumerable<(string designationFr, decimal plannedCost, IReadOnlyList<int> toothNumbers)> items)
         => AddItems(items.Select(i => new TreatmentPlanItemInput(
-            null, i.designationFr, i.plannedCost, i.dentalActCodeId, i.codeActe, null, i.toothNumbers)));
+            null, i.designationFr, i.plannedCost, null, i.toothNumbers)));
 
-    /// <inheritdoc cref="AddItems(IEnumerable{ValueTuple{string, decimal, Guid?, string, IReadOnlyList{int}}})"/>
+    /// <inheritdoc cref="AddItems(IEnumerable{ValueTuple{string, decimal, IReadOnlyList{int}}})"/>
     /// <remarks>
     /// Each line's <see cref="TreatmentPlanItemInput.Id"/> is ignored — an added act is always new. Its
     /// <see cref="TreatmentPlanItemInput.ProcedureTypeId"/> is kept, so an act appended by an amendment can be
@@ -473,8 +471,6 @@ public class TreatmentPlan : AggregateRoot<Guid>
                 Id,
                 item.DesignationFr,
                 item.PlannedCost,
-                item.DentalActCodeId,
-                item.CodeActe,
                 item.ToothNumbers,
                 next,
                 item.ProcedureTypeId));
@@ -539,8 +535,6 @@ public class TreatmentPlan : AggregateRoot<Guid>
             item.Revise(
                 input.DesignationFr,
                 input.PlannedCost,
-                input.DentalActCodeId,
-                input.CodeActe,
                 input.ProcedureTypeId,
                 input.ToothNumbers);
         }

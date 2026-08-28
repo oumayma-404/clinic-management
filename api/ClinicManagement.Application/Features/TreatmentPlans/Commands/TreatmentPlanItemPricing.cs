@@ -5,19 +5,27 @@ using ClinicManagement.Domain.Repositories;
 namespace ClinicManagement.Application.Features.TreatmentPlans.Commands;
 
 /// <summary>
-/// Seeds a plan line's planned cost from its linked dental act's suggested fee
-/// (<see cref="Domain.Entities.DentalActCode.DefaultFee"/>) when the caller left the cost blank,
-/// so a devis built from the odontogram/catalog does not require re-typing fees the app already knows.
-/// A user-entered positive cost is never overwritten; free-text lines (no act code) are untouched.
+/// Seeds a plan line's planned cost from its chosen procedure's default fee
+/// (<see cref="Domain.Entities.ProcedureType.DefaultCost"/>) when the caller left the cost blank, so a devis
+/// built from the catalog does not require re-typing fees the app already knows. A user-entered positive cost is
+/// never overwritten; free-text lines (no procedure) are untouched.
 /// Shared by <see cref="CreateTreatmentPlanCommandHandler"/> and <see cref="UpdateTreatmentPlanCommandHandler"/>.
+///
+/// <para>⚠️ <b>The source used to be the DCH catalog</b> (<c>DentalActCode.DefaultFee</c>), and a comment here
+/// said <c>ProcedureTypeId</c> was deliberately NOT used to seed a cost — because « reseeding it from the menu's
+/// current default would rewrite what the patient agreed to ». That argument was about *overwriting*, and it
+/// still holds: this only ever fills a cost the caller left at zero, and never touches a positive one. With the
+/// DCH catalog gone from the devis, the procedure's own default is the only fee the app knows, and dropping the
+/// prefill entirely would mean typing a price on every line of every devis.</para>
 /// </summary>
 internal static class TreatmentPlanItemPricing
 {
     /// <summary>
     /// Resolves each request line into the <see cref="TreatmentPlanItemInput"/> that
     /// <see cref="TreatmentPlan.SetItems(IEnumerable{TreatmentPlanItemInput}, bool)"/> expects, filling
-    /// <c>PlannedCost</c> from the linked act's default fee when the caller sent a non-positive cost.
-    /// Only acts belonging to <paramref name="clinicId"/> are trusted (defense-in-depth over the query filter).
+    /// <c>PlannedCost</c> from the chosen procedure's default cost when the caller sent a non-positive cost.
+    /// Only procedures belonging to <paramref name="clinicId"/> are trusted (defense-in-depth over the query
+    /// filter).
     /// <para>
     /// Line ids are dropped, so every line is created fresh — correct on the create path, where there is no
     /// prior identity to preserve. The update path must use <see cref="ResolveWithIdsAsync"/>.
@@ -26,9 +34,9 @@ internal static class TreatmentPlanItemPricing
     public static async Task<List<TreatmentPlanItemInput>> ResolveAsync(
         IEnumerable<TreatmentPlanItemRequest> items,
         Guid clinicId,
-        IDentalActCodeRepository dentalActRepository,
+        IProcedureTypeRepository procedureTypeRepository,
         CancellationToken cancellationToken)
-        => (await ResolveWithIdsAsync(items, clinicId, dentalActRepository, cancellationToken))
+        => (await ResolveWithIdsAsync(items, clinicId, procedureTypeRepository, cancellationToken))
             .Select(i => i with { Id = null })
             .ToList();
 
@@ -40,24 +48,25 @@ internal static class TreatmentPlanItemPricing
     public static async Task<List<TreatmentPlanItemInput>> ResolveWithIdsAsync(
         IEnumerable<TreatmentPlanItemRequest> items,
         Guid clinicId,
-        IDentalActCodeRepository dentalActRepository,
+        IProcedureTypeRepository procedureTypeRepository,
         CancellationToken cancellationToken)
     {
         var resolved = new List<TreatmentPlanItemInput>();
-        // Cache per act code so a plan with several lines of the same act does one lookup.
+
+        // Cache per procedure so a plan with several lines of the same act does one lookup.
         var feeCache = new Dictionary<Guid, decimal?>();
 
         foreach (var item in items)
         {
             var plannedCost = item.PlannedCost;
 
-            if (plannedCost <= 0m && item.DentalActCodeId is Guid actCodeId)
+            if (plannedCost <= 0m && item.ProcedureTypeId is Guid procedureTypeId)
             {
-                if (!feeCache.TryGetValue(actCodeId, out var fee))
+                if (!feeCache.TryGetValue(procedureTypeId, out var fee))
                 {
-                    var act = await dentalActRepository.GetByIdAsync(actCodeId, cancellationToken);
-                    fee = act != null && act.ClinicId == clinicId ? act.DefaultFee : null;
-                    feeCache[actCodeId] = fee;
+                    var procedure = await procedureTypeRepository.GetByIdAsync(procedureTypeId, cancellationToken);
+                    fee = procedure != null && procedure.ClinicId == clinicId ? procedure.DefaultCost : null;
+                    feeCache[procedureTypeId] = fee;
                 }
 
                 if (fee is decimal defaultFee && defaultFee > 0m)
@@ -66,16 +75,10 @@ internal static class TreatmentPlanItemPricing
                 }
             }
 
-            // ProcedureTypeId is carried through verbatim and deliberately NOT used to seed the cost. It says
-            // which service the act is performed as, so booking it can preselect the procedure; the devis fee
-            // is the negotiated number, and reseeding it from the menu's current default would rewrite what
-            // the patient agreed to.
             resolved.Add(new TreatmentPlanItemInput(
                 item.Id,
                 item.DesignationFr,
                 plannedCost,
-                item.DentalActCodeId,
-                item.CodeActe,
                 item.ProcedureTypeId,
                 item.ToothNumbers));
         }

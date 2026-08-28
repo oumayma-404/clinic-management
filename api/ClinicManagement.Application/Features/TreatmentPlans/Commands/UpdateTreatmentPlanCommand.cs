@@ -29,7 +29,7 @@ public class UpdateTreatmentPlanCommandHandler : IRequestHandler<UpdateTreatment
 {
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IPatientRepository _patientRepository;
-    private readonly IDentalActCodeRepository _dentalActRepository;
+    private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<UpdateTreatmentPlanCommandHandler> _logger;
@@ -37,14 +37,14 @@ public class UpdateTreatmentPlanCommandHandler : IRequestHandler<UpdateTreatment
     public UpdateTreatmentPlanCommandHandler(
         ITreatmentPlanRepository planRepository,
         IPatientRepository patientRepository,
-        IDentalActCodeRepository dentalActRepository,
+        IProcedureTypeRepository procedureTypeRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<UpdateTreatmentPlanCommandHandler> logger)
     {
         _planRepository = planRepository;
         _patientRepository = patientRepository;
-        _dentalActRepository = dentalActRepository;
+        _procedureTypeRepository = procedureTypeRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -72,7 +72,7 @@ public class UpdateTreatmentPlanCommandHandler : IRequestHandler<UpdateTreatment
             // Echo the ids through so an unchanged line keeps its identity (AC-19). Without this, editing a
             // draft re-issued every act id and silently orphaned any appointment or dental-record link
             // pointing at those acts — neither of which has an FK to catch it.
-            var items = await TreatmentPlanItemPricing.ResolveWithIdsAsync(request.Items, clinicId, _dentalActRepository, cancellationToken);
+            var items = await TreatmentPlanItemPricing.ResolveWithIdsAsync(request.Items, clinicId, _procedureTypeRepository, cancellationToken);
             plan.SetItems(items, scheduleWillBeResent: true);
             plan.SetInstallments(request.Installments.Select(i => (i.DueDate, i.Amount)));
 

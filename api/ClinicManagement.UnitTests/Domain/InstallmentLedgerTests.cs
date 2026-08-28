@@ -26,7 +26,7 @@ public class InstallmentLedgerTests
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Plan");
         plan.SetItems(new[]
         {
-            ("Couronne", 1000m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }),
+            ("Couronne", 1000m, (IReadOnlyList<int>)new[] { 11 }),
         });
         plan.Accept("2026-0001");
         return plan;

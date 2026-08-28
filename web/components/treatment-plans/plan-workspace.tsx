@@ -826,7 +826,6 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                       items={group.acts}
                       getKey={(a) => a.item.id}
                       title={(a) => a.item.designationFr}
-                      subtitle={(a) => a.item.codeActe}
                       status={(a) => <PlanActStateBadge item={a.item} />}
                       leading={(a) =>
                         canGroup ? (

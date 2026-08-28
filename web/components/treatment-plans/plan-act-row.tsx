@@ -278,9 +278,6 @@ export function PlanActRow({
       )}
       <TableCell>
         <span className="font-medium">{item.designationFr}</span>
-        {item.codeActe && (
-          <span className="ml-2 text-xs text-muted-foreground">{item.codeActe}</span>
-        )}
       </TableCell>
       <TableCell>
         {item.toothNumbers.length > 0 ? (

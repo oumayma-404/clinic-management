@@ -24,6 +24,7 @@ public class MetaController : ApiControllerBase
     private const string RoutePrefix = "api/meta";
     private const string ClientRequirementsRoute = "client-requirements";
     private const string ClientDownloadRoute = "client-download";
+    private const string ClientFeedRoute = "client-feed";
 
     /// <summary>
     /// The absolute path <c>ClientVersionMiddleware</c> exempts from the floor. Stated once, here, because the
@@ -38,6 +39,12 @@ public class MetaController : ApiControllerBase
     /// it being refused. Announcing an update a client cannot then download would be the whole feature undone.
     /// </summary>
     public const string ClientDownloadPath = "/" + RoutePrefix + "/" + ClientDownloadRoute;
+
+    /// <summary>
+    /// The Velopack update feed's path, exempt from the floor for the third time and the same reason: a shell
+    /// below the floor must be able to reach the very bytes that stop it being below the floor.
+    /// </summary>
+    public const string ClientFeedPath = "/" + RoutePrefix + "/" + ClientFeedRoute;
 
     private readonly IConfiguration _configuration;
     private readonly IMediator _mediator;
@@ -111,6 +118,75 @@ public class MetaController : ApiControllerBase
         // ⚠️ `enableRangeProcessing` so an interrupted 50 MB download resumes rather than restarting, on a LAN
         // where the transfer competes with everything else the practice is doing.
         return PhysicalFile(package.FullPath, "application/octet-stream", package.FileName, enableRangeProcessing: true);
+    }
+
+    /// <summary>
+    /// One file out of the Velopack update feed — how the desktop shell updates itself the way every other
+    /// desktop application does: per-user, delta packages, silent, no elevation.
+    ///
+    /// <para>
+    /// ⚠️ <b>This is a plain static-file hop, deliberately dumb.</b> Velopack's <c>SimpleWebSource</c> asks for
+    /// <c>{base}/RELEASES</c> and then for whichever package files that manifest names, and the set of names is
+    /// Velopack's business rather than ours. So this serves <b>any</b> file the folder contains, by name, and
+    /// hard-codes nothing about the feed's shape — a route that guessed the filenames would break on the
+    /// packaging tool's next version, silently, with clients simply never finding an update again.
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ <b>The name is the whole attack surface, so it is validated rather than sanitised.</b> A rejected name
+    /// is a 404, never a cleaned-up one: <c>Path.GetFileName</c> on a traversal attempt would happily serve the
+    /// *file* it resolves to, which is how a « sanitiser » becomes a reader of the whole disk. Only a bare
+    /// filename of the shapes Velopack actually uses is accepted, and it is combined and then re-checked to be
+    /// inside the folder it must not leave.
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ Anonymous and floor-exempt, exactly like the two routes above and for the same reason. This one is the
+    /// most load-bearing of the three: it is the only one a below-floor shell can *recover* through.
+    /// </para>
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet(ClientFeedRoute + "/{fileName}")]
+    [AllowsWithoutSubscription("Not clinic work — the update feed a refused client needs in order to stop being refused.")]
+    public IActionResult ClientFeed(string fileName)
+    {
+        var folder = ClientUpdatePackage.ResolveFolder(_configuration, AppContext.BaseDirectory);
+        if (folder is null)
+        {
+            return NotFound();
+        }
+
+        // A bare filename only: no separators, no drive, no `..`, and one of the extensions a Velopack feed is
+        // made of. `RELEASES` carries no extension at all, which is why it is named rather than pattern-matched.
+        if (string.IsNullOrWhiteSpace(fileName)
+            || fileName.Length > 200
+            || fileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+            || fileName.Contains("..", StringComparison.Ordinal)
+            || fileName != Path.GetFileName(fileName))
+        {
+            return NotFound();
+        }
+
+        var allowed = fileName.Equals("RELEASES", StringComparison.OrdinalIgnoreCase)
+            || fileName.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
+            || fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+            || fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+        if (!allowed)
+        {
+            return NotFound();
+        }
+
+        var full = Path.GetFullPath(Path.Combine(folder, fileName));
+        // Re-checked after combining, which is the check that actually holds: everything above constrains the
+        // INPUT, and this constrains the RESULT — the only thing a caller cannot argue with.
+        if (!full.StartsWith(Path.GetFullPath(folder) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            // `System.IO.File` qualified: inside a controller, bare `File` binds to ControllerBase.File(...).
+            || !System.IO.File.Exists(full))
+        {
+            return NotFound();
+        }
+
+        return PhysicalFile(full, "application/octet-stream", enableRangeProcessing: true);
     }
 
     /// <summary>

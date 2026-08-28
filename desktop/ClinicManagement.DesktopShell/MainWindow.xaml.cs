@@ -16,20 +16,18 @@ public partial class MainWindow : Window
     private ServerConfig _config = new();
     private bool _coreReady;
 
-    /// <summary>Where to get a newer client, as the server reports it. Empty means no link is configured.</summary>
-    private string _downloadUrl = string.Empty;
-
     /// <summary>The newest release the server knows of — what a dismissal is remembered against.</summary>
     private string _latestKnownVersion = string.Empty;
 
     /// <summary>
-    /// The published SHA-256 of the setup at <see cref="_downloadUrl"/>, when the server states one. Empty means
-    /// the download cannot be verified — accepted, because an offline-LAN server may predate the field, but never
-    /// substituted with a guess. See <see cref="UpdateInstaller"/>.
+    /// Guards the update path against re-entry — a timer tick landing on a download already in progress, or a
+    /// second press of the wall's button.
+    ///
+    /// <para>⚠️ There is deliberately no download URL and no expected hash held here any more. Velopack derives
+    /// the feed from the server address the shell is already using and verifies each package's checksum itself,
+    /// so a URL and a digest carried alongside would be a second authority over facts it already owns — and the
+    /// kind that goes stale silently.</para>
     /// </summary>
-    private string _updateSha256 = string.Empty;
-
-    /// <summary>Guards « Mettre à jour maintenant » against a second click during a 50 MB download.</summary>
     private bool _updateInProgress;
 
     /// <summary>
@@ -157,8 +155,6 @@ public partial class MainWindow : Window
         // worse than anything it could prevent.
         if (requirements is not null)
         {
-            _downloadUrl = requirements.DownloadUrl;
-            _updateSha256 = requirements.DownloadSha256;
 
             if (ClientRequirements.IsOlderThan(ClientRequirements.InstalledVersion, requirements.MinimumShellVersion))
             {
@@ -193,9 +189,10 @@ public partial class MainWindow : Window
 
         UpdateNoticeText.Text =
             $"Une nouvelle version ({currentShellVersion}) est disponible. Vous utilisez la version {installed}.";
-        // No link configured means no button, never a button that goes nowhere.
-        UpdateNoticeDownloadButton.Visibility =
-            string.IsNullOrWhiteSpace(_downloadUrl) ? Visibility.Collapsed : Visibility.Visible;
+        // ⚠️ No button: the update is fetched and staged in the background (CheckForUpdate) and applied on the
+        // next launch. A « télécharger » control here would be a second, manual mechanism beside the automatic
+        // one, and the two would disagree about what has already been downloaded.
+        UpdateNoticeDownloadButton.Visibility = Visibility.Collapsed;
         UpdateNoticeBar.Visibility = Visibility.Visible;
     }
 
@@ -206,6 +203,7 @@ public partial class MainWindow : Window
             ShowWebView();
             RunArchiveCopyIfDue();
             StartFileMirrorIfEnabled();
+            StartUpdateChecks();
         }
         else
         {
@@ -382,6 +380,24 @@ public partial class MainWindow : Window
     /// this machine before lunch, which the archive alone could never do.</para>
     /// </summary>
     private static readonly TimeSpan MirrorInterval = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// How often a running shell re-asks the server whether a newer build exists.
+    ///
+    /// <para>⚠️ <b>Because a launch-time probe is not enough for a machine nobody restarts.</b> The check used to
+    /// happen only on connect — launch, « Recharger », « Réessayer » — so a PC left running Monday to Friday never
+    /// noticed a release published on Tuesday. A practice does not reboot its reception machine to find out about
+    /// updates.</para>
+    ///
+    /// <para>⚠️ Two hours rather than the mirror's thirty minutes: a release happens a few times a year and the
+    /// check is one HTTP call. Being current within the working day is the whole requirement.</para>
+    /// </summary>
+    private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(2);
+
+    private System.Windows.Threading.DispatcherTimer? _updateTimer;
+
+    /// <summary>Guards a tick starting while a previous check is still in flight on a slow link.</summary>
+    private int _updateCheckRunning;
 
     private System.Windows.Threading.DispatcherTimer? _mirrorTimer;
 
@@ -583,8 +599,10 @@ public partial class MainWindow : Window
             + $"Le serveur exige au minimum la version {minimumVersion}."
             + Environment.NewLine + Environment.NewLine
             + "Installez la nouvelle version du client pour continuer.";
-        UpdateRequiredDownloadButton.Visibility =
-            string.IsNullOrWhiteSpace(_downloadUrl) ? Visibility.Collapsed : Visibility.Visible;
+        // ⚠️ Always offered now. It used to be hidden unless an operator had configured a download URL — which
+        // meant the one screen a stranded shell can act on could come up with no action at all. The feed is the
+        // server this shell just spoke to, so there is always something to try, and a failure says so in words.
+        UpdateRequiredDownloadButton.Visibility = Visibility.Visible;
 
         UpdateRequiredPanel.Visibility = Visibility.Visible;
         WebView.Visibility = Visibility.Collapsed;
@@ -595,91 +613,129 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// « Mettre à jour maintenant » — download the new setup and run it, from both the strip and the wall.
+    /// The wall's own recovery: a shell below the floor updates itself and comes back — no UAC prompt, nothing to
+    /// install by hand.
     ///
-    /// <para>
-    /// ⚠️ This used to call <c>Process.Start(url)</c>, which opened the download in the default browser and left
-    /// a dentist to find the file, run it, answer UAC and click through a wizard. The strip announced the update
-    /// and then handed the work to the person least equipped to do it. Everything below exists to make the button
-    /// mean what it says.
-    /// </para>
+    /// <para>⚠️ <b>This is the one place a restart is right.</b> Below the floor every <c>/api</c> call returns
+    /// 426, so the app behind this screen does not work: there is no consultation to interrupt, and staging for
+    /// « the next launch » would strand somebody who has just been told to update. Everywhere else the staged
+    /// update waits, silently.</para>
     ///
-    /// <para>
-    /// ⚠️ <b>Re-entrancy is guarded by a field, not by disabling one button</b> — the same handler serves the
-    /// strip and the wall, and on the wall it is the only control on screen. A second click mid-download would
-    /// start a second 50 MB transfer over the first one's staging file.
-    /// </para>
+    /// <para>⚠️ On failure it says so and keeps the button, rather than closing anything: the alternative to a
+    /// retry on this screen is an operator visit.</para>
     /// </summary>
     private async void DownloadUpdate_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(_downloadUrl) || _updateInProgress)
+        if (_updateInProgress)
         {
             return;
         }
 
         _updateInProgress = true;
-        var originalNotice = UpdateNoticeText.Text;
-        UpdateNoticeDownloadButton.IsEnabled = false;
         UpdateRequiredDownloadButton.IsEnabled = false;
+        var original = UpdateRequiredDetail.Text;
 
-        // The strip is where progress goes: it is already on screen, already docked, and already the thing the
-        // user just pressed. A separate progress window over a patient record is what the strip exists to avoid.
-        var progress = new Progress<UpdateInstaller.Progress>(p =>
+        try
         {
-            UpdateNoticeText.Text = p.Message;
-            UpdateRequiredDetail.Text = p.Message;
-        });
+            var progress = new Progress<int>(p => UpdateRequiredDetail.Text = $"Téléchargement… {p} %");
+            if (await ShellUpdater.DownloadAndRestartAsync(_config.BaseUrl, progress))
+            {
+                return; // The process is being replaced; nothing after this runs.
+            }
 
-        var result = await UpdateInstaller.DownloadAndLaunchAsync(
-            _downloadUrl, _latestKnownVersion, _updateSha256, progress);
-
-        if (result.Launched)
+            UpdateRequiredDetail.Text =
+                "La mise à jour n'a pas pu être récupérée depuis le serveur du cabinet. " +
+                "Vérifiez votre connexion, puis réessayez.";
+        }
+        catch (Exception)
         {
-            // The installer is running and will replace this executable's own files. Close so nothing is locked;
-            // the client installer's [Run] entry brings the shell back up afterwards.
-            Application.Current.Shutdown();
+            UpdateRequiredDetail.Text = original;
+        }
+        finally
+        {
+            _updateInProgress = false;
+            UpdateRequiredDownloadButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Starts the periodic « is there a newer build? » check, once per session, and runs one straight away.
+    ///
+    /// <para>⚠️ <b>It only ever raises the strip, never the wall.</b> A shell that was above the floor when it
+    /// started stays running: taking the app away mid-consultation because an operator moved a number is worse
+    /// than anything the floor protects against, and the floor is enforced per request server-side anyway.</para>
+    /// </summary>
+    private void StartUpdateChecks()
+    {
+        if (_updateTimer != null)
+        {
             return;
         }
 
-        _updateInProgress = false;
-        UpdateNoticeDownloadButton.IsEnabled = true;
-        UpdateRequiredDownloadButton.IsEnabled = true;
-        UpdateNoticeText.Text = originalNotice;
+        _updateTimer = new System.Windows.Threading.DispatcherTimer { Interval = UpdateCheckInterval };
+        _updateTimer.Tick += (_, _) => CheckForUpdate();
+        _updateTimer.Start();
 
-        if (result.Error is null)
-        {
-            // Cancelled, or UAC declined. A decision, not a fault — say nothing.
-            return;
-        }
+        CheckForUpdate();
+    }
 
-        // ⚠️ The fallback is the OLD behaviour, offered rather than performed: if we could not download or launch
-        // it, the browser may still be able to. On the wall this matters most — the app behind it does not work,
-        // so leaving the user with only an error message would leave them with nothing at all.
-        var openBrowser = MessageBox.Show(
-            result.Error + Environment.NewLine + Environment.NewLine +
-            "Voulez-vous ouvrir le lien de téléchargement dans votre navigateur ?",
-            "Mise à jour", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-
-        if (openBrowser != MessageBoxResult.Yes)
+    /// <summary>
+    /// Fetches and stages a newer build, silently. The only thing this ever puts on screen is the one line saying
+    /// a new version is ready — and even that has no action, because there is nothing for anybody to do.
+    /// </summary>
+    private async void CheckForUpdate()
+    {
+        if (_updateInProgress || System.Threading.Interlocked.Exchange(ref _updateCheckRunning, 1) == 1)
         {
             return;
         }
 
         try
         {
-            // UseShellExecute so Windows opens it in the default browser rather than trying to execute it.
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(_downloadUrl)
+            _updateInProgress = true;
+
+            var outcome = await ShellUpdater.CheckAndStageAsync(_config.BaseUrl);
+            if (outcome?.StagedVersion is null || !_coreReady)
             {
-                UseShellExecute = true,
-            });
+                return;
+            }
+
+            ShowUpdateStaged(outcome.StagedVersion);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            // A misconfigured URL must not take the shell down — the app behind it still works.
-            MessageBox.Show(
-                "Le lien de téléchargement n'a pas pu être ouvert." + Environment.NewLine + Environment.NewLine + ex.Message,
-                "Mise à jour", MessageBoxButton.OK, MessageBoxImage.Warning);
+            // See ShellUpdater: every failure here means « not today », never a dialog.
         }
+        finally
+        {
+            _updateInProgress = false;
+            System.Threading.Interlocked.Exchange(ref _updateCheckRunning, 0);
+        }
+    }
+
+    /// <summary>
+    /// Says a newer version is downloaded and will be running next time.
+    ///
+    /// <para>⚠️ <b>No action, and that is the point.</b> Velopack applies a staged update on the next launch
+    /// (<c>SetAutoApplyOnStartup</c>, `App.xaml.cs`), so there is nothing to press. A button here would offer to
+    /// restart the app in the middle of an appointment to deliver something the user gets for free by closing it
+    /// at the end of the day.</para>
+    ///
+    /// <para>⚠️ The dismissal stays per version, so hiding this cannot suppress the next release's.</para>
+    /// </summary>
+    private void ShowUpdateStaged(string version)
+    {
+        _latestKnownVersion = version;
+        if (_noticeDismissedForVersion == version)
+        {
+            return;
+        }
+
+        UpdateNoticeText.Text =
+            $"La version {version} est prête. Elle s'installera automatiquement au prochain démarrage " +
+            "d'APEXA — vous n'avez rien à faire.";
+        UpdateNoticeDownloadButton.Visibility = Visibility.Collapsed;
+        UpdateNoticeBar.Visibility = Visibility.Visible;
     }
 
     private void DismissUpdateNotice_Click(object sender, RoutedEventArgs e)

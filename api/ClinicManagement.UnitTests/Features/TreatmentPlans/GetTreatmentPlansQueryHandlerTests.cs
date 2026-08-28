@@ -45,7 +45,7 @@ public class GetTreatmentPlansQueryHandlerTests
     private static TreatmentPlan PlanFixture(Guid patientId)
     {
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, patientId, "Plan");
-        plan.SetItems(new[] { ("Couronne", 500m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }) });
+        plan.SetItems(new[] { ("Couronne", 500m, (IReadOnlyList<int>)new[] { 11 }) });
         return plan;
     }
 

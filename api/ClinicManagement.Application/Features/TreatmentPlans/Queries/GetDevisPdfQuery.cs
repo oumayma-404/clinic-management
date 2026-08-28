@@ -64,15 +64,9 @@ public class GetDevisPdfQueryHandler : IRequestHandler<GetDevisPdfQuery, Result<
 
             var data = BuildPdfData(plan, clinic, patient?.GetFullName() ?? string.Empty);
 
-            // Indicative CNAM split over the coded act lines (reimbursable + out-of-pocket == total planned).
-            var careDate = plan.AcceptedDate ?? plan.CreatedAt;
-            var cnamLines = plan.Items
-                .Select(i => new CnamBillingLine(i.DentalActCodeId, i.PlannedCost))
-                .ToList();
-            var split = await _cnamBillingCalculator.ComputeAsync(
-                cnamLines, plan.TotalPlanned, patient?.DateOfBirth, careDate, cancellationToken);
-            data.CnamReimbursable = split.Reimbursable;
-            data.PatientOutOfPocket = split.OutOfPocket;
+            // ⚠️ No CNAM split on a devis any more. A line carries a ProcedureType and no DCH code, so there
+            // is nothing to compute a reimbursement from — the whole planned total is what the patient owes.
+            data.PatientOutOfPocket = plan.TotalPlanned;
 
             var bytes = await _pdfGenerationService.GenerateDevisPdfAsync(data, cancellationToken);
 
@@ -107,7 +101,6 @@ public class GetDevisPdfQueryHandler : IRequestHandler<GetDevisPdfQuery, Result<
         Lines = plan.Items
             .Select(i => new DevisPdfLine
             {
-                CodeActe = i.CodeActe,
                 Designation = i.DesignationFr,
                 Teeth = i.ToothNumbers.Count > 0 ? string.Join(", ", i.ToothNumbers) : string.Empty,
                 PlannedCost = i.PlannedCost

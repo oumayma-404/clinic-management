@@ -44,7 +44,7 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
 {
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IPatientRepository _patientRepository;
-    private readonly IDentalActCodeRepository _dentalActRepository;
+    private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IDoctorRepository _doctorRepository;
     private readonly IClinicContext _clinicContext;
@@ -54,7 +54,7 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
     public CreateTreatmentPlanCommandHandler(
         ITreatmentPlanRepository planRepository,
         IPatientRepository patientRepository,
-        IDentalActCodeRepository dentalActRepository,
+        IProcedureTypeRepository procedureTypeRepository,
         ICurrentClinicResolver clinicResolver,
         IDoctorRepository doctorRepository,
         IClinicContext clinicContext,
@@ -63,7 +63,7 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
     {
         _planRepository = planRepository;
         _patientRepository = patientRepository;
-        _dentalActRepository = dentalActRepository;
+        _procedureTypeRepository = procedureTypeRepository;
         _clinicResolver = clinicResolver;
         _doctorRepository = doctorRepository;
         _clinicContext = clinicContext;
@@ -93,7 +93,7 @@ public class CreateTreatmentPlanCommandHandler : IRequestHandler<CreateTreatment
             // L9 — who quoted the devis. There is no appointment in scope here (a plan is drawn up with the patient
             // in the chair, not against a booking), so the precedence collapses to « explicit, else the caller ».
             plan.SetDoctor(await ResolveAttributedDoctorAsync(request.DoctorId, null, clinicId, cancellationToken));
-            var items = await TreatmentPlanItemPricing.ResolveAsync(request.Items, clinicId, _dentalActRepository, cancellationToken);
+            var items = await TreatmentPlanItemPricing.ResolveAsync(request.Items, clinicId, _procedureTypeRepository, cancellationToken);
             plan.SetItems(items);
             plan.SetInstallments(request.Installments.Select(i => (i.DueDate, i.Amount)));
 

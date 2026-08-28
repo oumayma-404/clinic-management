@@ -292,13 +292,58 @@ if (-not $SkipInstallers) {
             throw "The client installer was compiled but '$ClientSetup' is not there. The server installer would ship no update payload."
         }
 
-        Write-Step 'Staging the client installer into the server payload (for GET /api/meta/client-download)'
+        Write-Step 'Staging the update payload into the server bundle (served at /api/meta/client-feed)'
         $UpdatesStage = Join-Path $ServerOut 'updates'
         Clear-Dir $UpdatesStage
-        New-Item -ItemType Directory -Path $UpdatesStage -Force | Out-Null
+
+        # The legacy Inno setup, for a FIRST install on a LAN: it is the only thing that imports the clinic's
+        # certificate authority into the machine store and bootstraps the WebView2 runtime, both of which need
+        # elevation and neither of which a per-user Velopack setup can do.
         Copy-Item $ClientSetup $UpdatesStage
         $ClientSetupMb = [math]::Round((Get-Item $ClientSetup).Length / 1MB, 1)
-        Write-Host "  staged $(Split-Path $ClientSetup -Leaf) ($ClientSetupMb MB)"
+        Write-Host "  staged $(Split-Path $ClientSetup -Leaf) ($ClientSetupMb MB) - first installs"
+
+        # Then the Velopack feed, which is what every UPDATE after that comes through.
+        #
+        # Without it an offline-LAN clinic could self-update from nowhere: its own server is the only host its PCs
+        # can reach, and Velopack's SimpleWebSource reads this folder over /api/meta/client-feed. A delta measures
+        # ~160 KB against a 49 MB setup and needs no elevation at all, which is the whole reason the shell moved
+        # off Inno for updates.
+        #
+        # vpk is a dotnet tool and may not be on an operator's machine. Missing is a WARNING, not a failure: the
+        # server installer is still correct without a feed (clients simply do not self-update until one is
+        # published), and refusing to build a server because a client-side tool is absent is the wrong trade on
+        # the day somebody needs the server.
+        if (Get-Command vpk -ErrorAction SilentlyContinue) {
+            Write-Step "Packing the Velopack update feed (APEXA $Version)"
+            $FeedStage = Join-Path $ClientOut 'releases'
+            New-Item -ItemType Directory -Path $FeedStage -Force | Out-Null
+
+            # Deltas are built against whatever full packages are already in the output directory, so an operator
+            # who keeps build-output/client/releases between builds gets small updates and a cleaned tree gets
+            # full ones. Correct either way; only the size differs.
+            vpk pack `
+                --packId APEXA `
+                --packTitle APEXA `
+                --packVersion $Version `
+                --packDir $ShellOut `
+                --mainExe 'ClinicManagement.DesktopShell.exe' `
+                --outputDir $FeedStage
+            if ($LASTEXITCODE -ne 0) { throw "vpk pack failed with exit code $LASTEXITCODE." }
+
+            Copy-Item (Join-Path $FeedStage '*') $UpdatesStage -Force
+            $Delta = Get-ChildItem $FeedStage -Filter "*-$Version-delta.nupkg" -ErrorAction SilentlyContinue
+            if ($Delta) {
+                $DeltaKb = [math]::Round($Delta.Length / 1KB, 0)
+                Write-Host "  staged the feed - clients will download $DeltaKb KB"
+            }
+            else {
+                Write-Host '  staged the feed - no delta this time, clients download the full package'
+            }
+        }
+        else {
+            Write-Warning 'vpk not found (dotnet tool install -g vpk) - no Velopack feed staged, so installed clients will not self-update from this server.'
+        }
 
         & $Iscc "/DAppVersion=$Version" (Join-Path $PackagingDir 'server\clinic-server.iss')
         if ($LASTEXITCODE -ne 0) { throw "ISCC (server) failed with exit code $LASTEXITCODE." }

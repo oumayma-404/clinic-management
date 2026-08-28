@@ -352,7 +352,7 @@ public class ChequeBankedStampTests
         var plan = new TreatmentPlan(PlanId, ClinicId, PatientId, "Traitement");
         plan.SetItems(new[]
         {
-            ("Couronne", 1000m, (Guid?)null, (string?)null, (IReadOnlyList<int>)Array.Empty<int>())
+            ("Couronne", 1000m, (IReadOnlyList<int>)Array.Empty<int>())
         });
         plan.SetInstallments(new[] { (new DateTime(2026, 9, 1), 1000m) });
         plan.Accept("2026-0007");

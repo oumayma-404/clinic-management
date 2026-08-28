@@ -12,14 +12,17 @@ namespace ClinicManagement.Domain.Entities;
 public class TreatmentPlanItem : Entity<Guid>
 {
     public Guid TreatmentPlanId { get; private set; }
-    public Guid? DentalActCodeId { get; private set; }
-    public string? CodeActe { get; private set; }
 
     /// <summary>
     /// The clinic's own <see cref="ProcedureType"/> this act is performed as, when the line was chosen from
-    /// that menu (null for a CNAM-only or hand-typed line). A <b>soft reference</b> — deliberately no FK, like
-    /// <see cref="DentalActCodeId"/> and <see cref="LinkedDentalRecordId"/> — so retiring a procedure from the
-    /// menu can never block or cascade into an existing devis.
+    /// that menu (null for a hand-typed line). A <b>soft reference</b> — deliberately no FK, like
+    /// <see cref="LinkedDentalRecordId"/> — so retiring a procedure from the menu can never block or cascade
+    /// into an existing devis.
+    /// <para>
+    /// ⚠️ <b>It is the only catalog a devis line comes from.</b> A line used to be able to carry a DCH
+    /// (<c>DentalActCode</c>) reference instead, which is what fed the CNAM reimbursement split; that was
+    /// removed deliberately — see <c>TreatmentPlanItemInput</c>.
+    /// </para>
     /// <para>
     /// Carried so booking this act can preselect the procedure, which gives the appointment its colour and
     /// default duration and lets the dental-record modal propose the act when the visit is recorded. Before
@@ -53,8 +56,6 @@ public class TreatmentPlanItem : Entity<Guid>
         Guid treatmentPlanId,
         string designationFr,
         decimal plannedCost,
-        Guid? dentalActCodeId = null,
-        string? codeActe = null,
         IEnumerable<int>? toothNumbers = null,
         int sequenceNumber = 0,
         Guid? procedureTypeId = null)
@@ -66,8 +67,6 @@ public class TreatmentPlanItem : Entity<Guid>
 
         Id = id;
         TreatmentPlanId = treatmentPlanId;
-        DentalActCodeId = dentalActCodeId;
-        CodeActe = string.IsNullOrWhiteSpace(codeActe) ? null : codeActe.Trim();
         ProcedureTypeId = procedureTypeId;
         DesignationFr = designationFr.Trim();
         PlannedCost = InvoiceCalculator.RoundMoney(plannedCost);
@@ -106,8 +105,6 @@ public class TreatmentPlanItem : Entity<Guid>
     public void Revise(
         string designationFr,
         decimal plannedCost,
-        Guid? dentalActCodeId,
-        string? codeActe,
         Guid? procedureTypeId,
         IEnumerable<int>? toothNumbers)
     {
@@ -131,8 +128,6 @@ public class TreatmentPlanItem : Entity<Guid>
 
         DesignationFr = designationFr.Trim();
         PlannedCost = InvoiceCalculator.RoundMoney(plannedCost);
-        DentalActCodeId = dentalActCodeId;
-        CodeActe = string.IsNullOrWhiteSpace(codeActe) ? null : codeActe.Trim();
         ProcedureTypeId = procedureTypeId;
         _toothNumbers.Clear();
         _toothNumbers.AddRange(teeth);

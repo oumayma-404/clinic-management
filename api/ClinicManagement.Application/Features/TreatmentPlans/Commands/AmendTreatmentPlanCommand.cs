@@ -84,7 +84,7 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
     private readonly IPatientRepository _patientRepository;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly IAppointmentRepository _appointmentRepository;
-    private readonly IDentalActCodeRepository _dentalActRepository;
+    private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<AmendTreatmentPlanCommandHandler> _logger;
@@ -94,7 +94,7 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
         IPatientRepository patientRepository,
         IInvoiceRepository invoiceRepository,
         IAppointmentRepository appointmentRepository,
-        IDentalActCodeRepository dentalActRepository,
+        IProcedureTypeRepository procedureTypeRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<AmendTreatmentPlanCommandHandler> logger)
@@ -103,7 +103,7 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
         _patientRepository = patientRepository;
         _invoiceRepository = invoiceRepository;
         _appointmentRepository = appointmentRepository;
-        _dentalActRepository = dentalActRepository;
+        _procedureTypeRepository = procedureTypeRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -161,7 +161,7 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
             if (request.UpdateItems.Count > 0)
             {
                 var edits = await TreatmentPlanItemPricing.ResolveWithIdsAsync(
-                    request.UpdateItems, clinicId, _dentalActRepository, cancellationToken);
+                    request.UpdateItems, clinicId, _procedureTypeRepository, cancellationToken);
                 plan.UpdateItems(edits);
             }
 
@@ -180,7 +180,7 @@ public class AmendTreatmentPlanCommandHandler : IRequestHandler<AmendTreatmentPl
             if (request.AddItems.Count > 0)
             {
                 var items = await TreatmentPlanItemPricing.ResolveAsync(
-                    request.AddItems, clinicId, _dentalActRepository, cancellationToken);
+                    request.AddItems, clinicId, _procedureTypeRepository, cancellationToken);
                 plan.AddItems(items);
             }
 

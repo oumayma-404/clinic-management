@@ -296,8 +296,8 @@ public class AppointmentMultiActTests
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Plan");
         plan.SetItems(new[]
         {
-            new TreatmentPlanItemInput(PlanItemA, "Détartrage", 60m, null, null, Detartrage, Array.Empty<int>()),
-            new TreatmentPlanItemInput(PlanItemB, "Obturation", 90m, null, null, Obturation, Array.Empty<int>()),
+            new TreatmentPlanItemInput(PlanItemA, "Détartrage", 60m, Detartrage, Array.Empty<int>()),
+            new TreatmentPlanItemInput(PlanItemB, "Obturation", 90m, Obturation, Array.Empty<int>()),
         });
 
         var appointment = Appointment(new DateTime(2026, 4, 2, 9, 0, 0, DateTimeKind.Utc));

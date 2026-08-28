@@ -57,7 +57,7 @@ public class BridgeCarryOverTests
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Plan");
         plan.SetItems(new[]
         {
-            ("Couronne", total, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }),
+            ("Couronne", total, (IReadOnlyList<int>)new[] { 11 }),
         });
         plan.Accept("2026-0001");
 
@@ -223,7 +223,7 @@ public class BridgeCarryOverTests
             Guid.NewGuid(), Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"), PatientId, "Plan");
         foreignPlan.SetItems(new[]
         {
-            ("Couronne", 1000m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }),
+            ("Couronne", 1000m, (IReadOnlyList<int>)new[] { 11 }),
         });
         foreignPlan.Accept("2026-0009");
         foreignPlan.RecordInstallmentPayment(

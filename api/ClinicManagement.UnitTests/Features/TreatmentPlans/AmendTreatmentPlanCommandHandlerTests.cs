@@ -31,7 +31,7 @@ public class AmendTreatmentPlanCommandHandlerTests
     private readonly Mock<IPatientRepository> _patients = new();
     private readonly Mock<IInvoiceRepository> _invoices = new();
     private readonly Mock<IAppointmentRepository> _appointments = new();
-    private readonly Mock<IDentalActCodeRepository> _dentalActs = new();
+    private readonly Mock<IProcedureTypeRepository> _procedureTypes = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
@@ -44,7 +44,7 @@ public class AmendTreatmentPlanCommandHandlerTests
     }
 
     private AmendTreatmentPlanCommandHandler CreateHandler() => new(
-        _plans.Object, _patients.Object, _invoices.Object, _appointments.Object, _dentalActs.Object,
+        _plans.Object, _patients.Object, _invoices.Object, _appointments.Object, _procedureTypes.Object,
         _clinicResolver.Object, _uow.Object, NullLogger<AmendTreatmentPlanCommandHandler>.Instance);
 
     private void NoBridgeInvoice() =>
@@ -78,8 +78,8 @@ public class AmendTreatmentPlanCommandHandlerTests
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Réhabilitation");
         plan.SetItems(new[]
         {
-            ("Couronne", 600m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }),
-            ("Détartrage", 400m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 12 }),
+            ("Couronne", 600m, (IReadOnlyList<int>)new[] { 11 }),
+            ("Détartrage", 400m, (IReadOnlyList<int>)new[] { 12 }),
         });
         plan.Accept("2026-0014");
         _plans.Setup(r => r.GetByIdAsync(plan.Id, It.IsAny<CancellationToken>())).ReturnsAsync(plan);
@@ -419,7 +419,7 @@ public class AmendTreatmentPlanCommandHandlerTests
     public async Task Amending_A_Draft_Is_Rejected()
     {
         var plan = new TreatmentPlan(Guid.NewGuid(), ClinicId, PatientId, "Devis");
-        plan.SetItems(new[] { ("Couronne", 600m, (Guid?)null, (string?)null, (IReadOnlyList<int>)new[] { 11 }) });
+        plan.SetItems(new[] { ("Couronne", 600m, (IReadOnlyList<int>)new[] { 11 }) });
         _plans.Setup(r => r.GetByIdAsync(plan.Id, It.IsAny<CancellationToken>())).ReturnsAsync(plan);
 
         var result = await CreateHandler().Handle(new AmendTreatmentPlanCommand
