@@ -965,12 +965,13 @@ Three notes for whoever sends it:
 
 **There is nothing to do.** A `desktop/**` change merged to `main` releases itself: CI builds the shell, packs a
 Velopack feed, uploads it to this server's `deploy/updates/`, and tags the release. Every clinic PC then downloads
-a **delta** in the background — measured at **160 KB**, against 49 MB for the old full installer — and runs the new
-version from its next launch. No UAC prompt, no download to find, nobody clicks anything.
+a **delta** in the background — measured at **160 KB**, against 49 MB for the old full installer — and offers it:
+the strip says the version is ready and « Installer et redémarrer » applies it. No UAC prompt, no download to
+find, nothing to hunt for — but **the moment it is installed is the user's**, not ours.
 
 ```
 merge to main  ->  CI: build + vpk pack + scp to deploy/updates/ + tag client-vX.Y.Z
-                   ->  each PC: silent delta, applied on next start
+                   ->  each PC: silent delta download, then « Installer et redémarrer » when the user is ready
 ```
 
 The version is derived (newest `client-v*` tag, patch bumped) so nothing has to be edited. Push

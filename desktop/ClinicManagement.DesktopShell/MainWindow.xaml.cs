@@ -20,6 +20,12 @@ public partial class MainWindow : Window
     private string _latestKnownVersion = string.Empty;
 
     /// <summary>
+    /// The update that is downloaded and waiting, or <c>null</c>. Held because applying it is a separate act the
+    /// user asks for — see <c>ShellUpdater.ApplyAndRestart</c>.
+    /// </summary>
+    private Velopack.UpdateInfo? _stagedUpdate;
+
+    /// <summary>
     /// Guards the update path against re-entry — a timer tick landing on a download already in progress, or a
     /// second press of the wall's button.
     ///
@@ -704,6 +710,7 @@ public partial class MainWindow : Window
                 return;
             }
 
+            _stagedUpdate = outcome.Info;
             ShowUpdateStaged(outcome.StagedVersion);
         }
         catch (Exception)
@@ -736,10 +743,43 @@ public partial class MainWindow : Window
         }
 
         UpdateNoticeText.Text =
-            $"La version {version} est prête. Elle s'installera automatiquement au prochain démarrage " +
-            "d'APEXA — vous n'avez rien à faire.";
-        UpdateNoticeDownloadButton.Visibility = Visibility.Collapsed;
+            $"La version {version} est prête à être installée. APEXA redémarrera — terminez ce que vous faites, " +
+            "puis installez-la quand cela vous convient.";
+        UpdateNoticeDownloadButton.Visibility = Visibility.Visible;
         UpdateNoticeBar.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// « Installer et redémarrer » — the user's decision, not ours.
+    ///
+    /// <para>⚠️ The download already happened, silently, so this is only the swap-and-restart. It is deliberately
+    /// the ONLY thing that replaces a running APEXA outside the version wall: an update applied on somebody's
+    /// behalf mid-appointment is the interruption this product avoids everywhere else.</para>
+    ///
+    /// <para>⚠️ Nothing after <c>ApplyAndRestart</c> runs when it succeeds — the process is replaced. A failure
+    /// leaves the strip and the button as they were, because a staged update stays staged and retrying costs
+    /// nothing.</para>
+    /// </summary>
+    private void InstallUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_stagedUpdate is null || _updateInProgress)
+        {
+            return;
+        }
+
+        _updateInProgress = true;
+        UpdateNoticeDownloadButton.IsEnabled = false;
+        UpdateNoticeText.Text = "Installation…";
+
+        if (ShellUpdater.ApplyAndRestart(_stagedUpdate))
+        {
+            return; // The process is being replaced.
+        }
+
+        _updateInProgress = false;
+        UpdateNoticeDownloadButton.IsEnabled = true;
+        UpdateNoticeText.Text =
+            "L'installation n'a pas pu démarrer. La mise à jour reste téléchargée — vous pouvez réessayer.";
     }
 
     private void DismissUpdateNotice_Click(object sender, RoutedEventArgs e)
