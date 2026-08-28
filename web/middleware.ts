@@ -102,7 +102,7 @@ export const config = {
      * which a wildcard never does. `check:responsive`'s `public-asset-not-guarded` derives the required list from
      * what the code actually references, so an eighth icon fails the build instead of failing in a browser.
      */
-    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|manifest.webmanifest|apple-icon.png|icon.svg|icon-192.png|icon-512.png|icon-maskable-512.png|icon-light-32x32.png|icon-dark-32x32.png|apexa-horizontal.svg|apexa-horizontal-dark.svg).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|manifest.webmanifest|apple-icon.png|icon.svg|icon-192.png|icon-512.png|icon-maskable-512.png|icon-light-32x32.png|icon-dark-32x32.png|apexa-lockup.svg|apexa-lockup-dark.svg).*)',
   ],
 };
 

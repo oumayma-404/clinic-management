@@ -87,10 +87,21 @@ function LoginShell({
   title,
   description,
   children,
+  hideTitle = false,
 }: {
   title: string
   description: string
   children: React.ReactNode
+  /**
+   * Hides the heading VISUALLY and lets the lockup stand in for it — the sign-in state only, where « Connexion »
+   * under the product's own name said the same thing twice.
+   *
+   * ⚠️ `title` is still required and still rendered, `sr-only`: a card whose heading is a picture has no
+   * accessible name at all, and the five other states of this shell (« Vérification en deux étapes », « Codes de
+   * récupération », …) are asking genuinely different questions that MUST keep a visible heading. So this is a
+   * per-state decision, not a redesign of the shell.
+   */
+  hideTitle?: boolean
 }) {
   return (
     <div className="fixed inset-0 flex h-dvh items-start justify-center overflow-y-auto bg-background p-4">
@@ -125,22 +136,33 @@ function LoginShell({
             ⚠️ Centred, and `CardHeader` is a **grid** (`items-start`), so `text-center` alone would not move an
             image: it needs `mx-auto`. A centred lockup over a left-aligned heading reads as a mistake, which is
             why the title and description are centred with it — the fields below stay left.
+
+            ⚠️ **The wordmark reads `PEXA`, and that is not a typo.** The tile's `Λ` IS the A — the mark and the
+            first letter are one glyph, which is the whole idea of the lockup. Spelling it `APEXA` beside the tile
+            renders the name as « AAPEXA » to anyone who reads the mark as a letter, which is everyone.
           */}
           <img
-            src="/apexa-horizontal.svg"
+            src="/apexa-lockup.svg"
             alt={PRODUCT_NAME}
-            width={188}
-            height={56}
+            width={199}
+            height={60}
             className="mx-auto mb-2 h-14 w-auto dark:hidden"
           />
           <img
-            src="/apexa-horizontal-dark.svg"
+            src="/apexa-lockup-dark.svg"
             alt=""
-            width={188}
-            height={56}
+            width={199}
+            height={60}
             className="mx-auto mb-2 hidden h-14 w-auto dark:block"
           />
-          <CardTitle className="text-2xl font-bold">{title}</CardTitle>
+          {/*
+            ⚠️ `text-accent-foreground`, not the default near-black. Every heading in `setup-wizard.tsx` — the
+            screen a new cabinet meets first — is already this ink; this shell was the one place that used the
+            default and looked, correctly, like it was not part of the same product.
+          */}
+          <CardTitle className={hideTitle ? "sr-only" : "text-2xl font-bold text-accent-foreground"}>
+            {title}
+          </CardTitle>
           <CardDescription>{description}</CardDescription>
         </CardHeader>
         <CardContent>{children}</CardContent>
@@ -654,8 +676,10 @@ function LocalLoginForm() {
   }
 
   // ── Sign in ───────────────────────────────────────────────────────────────────────────────────────────
+  // `hideTitle`: the lockup above IS the heading here — see LoginShell. « Connexion » stays as the card's
+  // accessible name and as the tab title (`app/login/layout.tsx`), it just no longer repeats on screen.
   return (
-    <LoginShell title="Connexion" description="Saisissez les identifiants de votre compte">
+    <LoginShell hideTitle title="Connexion" description="Saisissez les identifiants de votre compte">
       <form onSubmit={handleLogin} className="space-y-4">
         {passwordChanged && !error && (
           <div
