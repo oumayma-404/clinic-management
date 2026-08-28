@@ -328,3 +328,47 @@ is on, so it arrives as the long `ClaimTypes.Email` URI. `GetAccountId()` surviv
 both spellings — the fix is the same two-name lookup one line below it. **Every test in the suite mocked
 `IPlatformSessionContext`**, which is why nothing saw it; `PlatformSessionContextTests` now exercises the real
 class against a principal built the way the handler leaves one, and Part 7's own lesson repeats itself exactly.
+
+## The first person to open the console met three dead ends, and none of them said so (first hosted deployment)
+
+Found on the first real `HostedMultiTenant` bring-up (OVH VPS, 2026-08-27), by an operator following
+`deploy/VPS-BRINGUP.md` § 9 top to bottom. Every part above was verified; each of these three sits in the gap
+between them, and each fails as something other than what it is.
+
+⚠️ **The documented console URL cannot load in any browser.** The Caddy site was addressed *only* as
+`https://127.0.0.1:9443`, and no browser sends SNI for an IP literal — there is no name to send. Caddy has no site
+matching an empty `ServerName` on that port, so it ends the handshake with `internal_error`, which Chrome reports
+as `ERR_SSL_PROTOCOL_ERROR`. Measured, over the tunnel and on the server's own loopback alike:
+
+```
+openssl s_client -connect 127.0.0.1:9443 -servername 127.0.0.1  → TLSv1.3, TLS_AES_128_GCM_SHA256
+openssl s_client -connect 127.0.0.1:9443 -noservername          → tlsv1 alert internal error (80)
+```
+
+The site now lists `https://console.localhost:9443` first and keeps the IP for clients that do send it as SNI.
+**What made this survive review is that every check anyone would run passes**: `curl -k`, `wget
+--no-check-certificate` and a container-internal probe all report a healthy console, and the design's own
+paragraph *predicts* a certificate warning — so an operator who hits a hard TLS failure has already been told to
+expect trouble at exactly that step and reads it as the expected one. A « certificate warning is expected » note
+is a place a real handshake failure can hide.
+
+⚠️ **`must_change_password` is a destination, and all three reading pages rendered it as prose.**
+`PlatformAccountStateMiddleware` refuses every console read while a bootstrapped account still holds the one-time
+password — correctly. But `/cabinets`, `/journal` and `/cabinets/[clinicId]` each caught the `ConsoleApiError` and
+rendered `ReadFailure`, so the first account created on a deployment signs in and is told « Portefeuille
+illisible — la liste n'a pas pu être lue » about a server that read fine and answered precisely. Nothing links to
+`/mot-de-passe`, so the only way forward was typing the URL. `redirectIfPasswordChangeRequired` is the fix and
+`check:responsive`'s `password-change-is-a-destination` is the derived guard — the distinction already existed
+one file away, in `sign-in-form.tsx`'s `totp_enrolment_required` branch ("a destination rather than a message"),
+and was simply never carried to the pages. Three sites, one decision, made once: the shape
+[[fixes-dont-propagate]] describes.
+
+⚠️ **The PITR sidecar had been crash-looping since the deployment came up, printing three healthy lines each
+time round.** `pitr-entrypoint.sh` ended `exec supercronic /etc/pitr.cron` — a PATH-resolved `argv[0]`. supercronic,
+seeing it is PID 1, re-execs `os.Args[0]` to install its process reaper *without* a PATH lookup, gets ENOENT, and
+dies with « Failed to fork exec: no such file or directory » one second after « handing off to supercronic ». The
+absolute path fixes it. What matters is the shape of the failure: WAL kept shipping the whole time — that is
+postgres's own `archive_command`, in a different container — so the off-site prefix went on filling with segments
+while the base backups every one of them has to anchor to had stopped at the very first. A restarting container
+whose log's last full cycle reads « existing base backup(s) found » and « handing off » looks, at a glance, like
+one that is working.
