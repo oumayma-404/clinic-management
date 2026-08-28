@@ -782,6 +782,51 @@ check(
 );
 
 
+check(
+  "public-asset-not-guarded",
+  "N9",
+  "Every root-relative asset the code references is excluded from the auth middleware matcher",
+  "Files under `public/` are served through Next's normal request pipeline, so `middleware.ts`'s matcher runs on " +
+    "them and the auth guard answers **307 → /login** to anyone without a session. Every consumer of one is a " +
+    "browser with no session by definition — the login screen's own mark and the icons the manifest names — so " +
+    "each gets an HTML login page where it asked for an image. `/icon-192.png` shipped that way: a broken-image " +
+    "glyph above « Connexion », on the one screen with nothing else to identify the product by, while the " +
+    "manifest's icons failed identically and invisibly (a degraded installed-app tile). Nothing else can catch " +
+    "it — the file IS in the image, the route answers 307 not 404, and redirecting an unauthenticated request " +
+    "for an unknown path is correct behaviour. Add the filename to the matcher's alternation in `middleware.ts`.",
+  () => {
+    const source = read(join(WEB_ROOT, "middleware.ts"));
+    // The matcher is one quoted string on one line; if that ever stops being true, fail loudly rather than
+    // silently passing every path — a check that cannot find its subject must not report success.
+    const line = source.split(/\r?\n/).find((l) => l.includes("(?!_next/static"));
+    const pattern = line?.match(/'([^']+)'/)?.[1];
+    if (!pattern) {
+      return [{ file: "middleware.ts", line: 0, text: "could not read the matcher — this check cannot run" }];
+    }
+    const guards = new RegExp(`^${pattern}$`);
+
+    // Root-relative asset literals: `src="/x.png"`, `href="/x.svg"`, and the metadata/manifest `"/x.png"` forms.
+    // Only paths with a file extension and no further `/` — a real public/ file, not a route.
+    // Comment lines are masked out, or the note explaining a removed path re-reports the path it removed —
+    // which is how a check starts arguing with its own documentation and gets switched off.
+    const referenced = new Map();
+    for (const file of tsx()) {
+      const lines = read(file).split(/\r?\n/);
+      const inComment = commentMask(lines);
+      lines.forEach((line, i) => {
+        if (inComment[i]) return;
+        for (const m of line.matchAll(/["'](\/[A-Za-z0-9._-]+\.[a-z]{2,5})["']/g)) {
+          if (!referenced.has(m[1])) referenced.set(m[1], `${rel(file)}:${i + 1}`);
+        }
+      });
+    }
+
+    return [...referenced]
+      .filter(([path]) => guards.test(path))
+      .map(([path, where]) => ({ file: where.split(":")[0], line: Number(where.split(":")[1] ?? 0), text: `${path} is intercepted by the middleware` }));
+  },
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
