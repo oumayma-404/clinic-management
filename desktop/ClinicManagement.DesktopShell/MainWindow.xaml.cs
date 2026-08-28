@@ -64,7 +64,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            ShowServerConfig();
+            ShowModeChoice();
         }
     }
 
@@ -193,6 +193,7 @@ public partial class MainWindow : Window
         if (e.IsSuccess)
         {
             ShowWebView();
+            RunArchiveCopyIfDue();
         }
         else
         {
@@ -298,12 +299,64 @@ public partial class MainWindow : Window
             "Changer de serveur…", iconStream: null, CoreWebView2ContextMenuItemKind.Command);
         changeServer.CustomItemSelected += (_, _) => ShowServerConfig();
 
+        // clinic-archive-auto-copy. Here rather than in the app's own Paramètres because the folder and the
+        // schedule are facts about THIS machine, which a web page can neither pick nor know.
+        var archiveCopy = environment.CreateContextMenuItem(
+            "Copie automatique de l'archive…", iconStream: null, CoreWebView2ContextMenuItemKind.Command);
+        archiveCopy.CustomItemSelected += (_, _) => ShowArchiveCopySettings();
+
         var separator = environment.CreateContextMenuItem(
             string.Empty, iconStream: null, CoreWebView2ContextMenuItemKind.Separator);
 
         e.MenuItems.Insert(0, reload);
         e.MenuItems.Insert(1, changeServer);
-        e.MenuItems.Insert(2, separator);
+        e.MenuItems.Insert(2, archiveCopy);
+        e.MenuItems.Insert(3, separator);
+    }
+
+    // ---- Automatic archive copy (clinic-archive-auto-copy) --------------------------------------
+
+    private bool _archiveCopyChecked;
+
+    private void ShowArchiveCopySettings()
+    {
+        new ArchiveCopyWindow(_config) { Owner = this }.ShowDialog();
+    }
+
+    /// <summary>
+    /// Takes a copy if one is owed, on the first successful load of this session.
+    ///
+    /// <para>⚠️ <b>Fire-and-forget, and silent on failure by design.</b> It runs behind a clinic's day; a modal
+    /// or a toast about a backup would interrupt a consultation for something nobody asked for right then. A
+    /// failure is surfaced where it can be acted on — « Copie automatique de l'archive… », which shows the
+    /// outcome of a copy run there — and the server keeps nagging through « aucune archive n'est sortie »
+    /// until one actually lands, so a silently failing schedule cannot look healthy.</para>
+    ///
+    /// <para>⚠️ <b>Once per session</b> (`_archiveCopyChecked`): every reload and every in-app navigation raises
+    /// `NavigationCompleted`, and re-entering here would start a second multi-gigabyte download over the first.</para>
+    /// </summary>
+    private void RunArchiveCopyIfDue()
+    {
+        if (_archiveCopyChecked)
+        {
+            return;
+        }
+
+        _archiveCopyChecked = true;
+
+        var settings = ArchiveCopySettingsStore.Load();
+        if (!settings.IsConfigured)
+        {
+            return; // AC-10 — absent, not broken.
+        }
+
+        var newest = ArchiveCopyService.NewestCopyUtc(settings.Folder);
+        if (!settings.IsDue(newest, DateTime.UtcNow))
+        {
+            return;
+        }
+
+        _ = System.Threading.Tasks.Task.Run(() => new ArchiveCopyService(_config, settings).CopyNowAsync());
     }
 
     // ---- View-state switching -------------------------------------------------------------------
@@ -315,6 +368,7 @@ public partial class MainWindow : Window
         ServerConfigPanel.Visibility = Visibility.Collapsed;
         UnreachablePanel.Visibility = Visibility.Collapsed;
         UpdateRequiredPanel.Visibility = Visibility.Collapsed;
+        ModeChoicePanel.Visibility = Visibility.Collapsed;
     }
 
     private void ShowConnecting()
@@ -325,20 +379,39 @@ public partial class MainWindow : Window
         ServerConfigPanel.Visibility = Visibility.Collapsed;
         UnreachablePanel.Visibility = Visibility.Collapsed;
         UpdateRequiredPanel.Visibility = Visibility.Collapsed;
+        ModeChoicePanel.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// The first screen a new install shows, and where « Changer de serveur » returns to. It is a fork, not a
+    /// setting: nothing is written until one of the two branches completes.
+    /// </summary>
+    private void ShowModeChoice()
+    {
+        ModeChoicePanel.Visibility = Visibility.Visible;
+        WebView.Visibility = Visibility.Collapsed;
+        ConnectingPanel.Visibility = Visibility.Collapsed;
+        ServerConfigPanel.Visibility = Visibility.Collapsed;
+        UnreachablePanel.Visibility = Visibility.Collapsed;
+        UpdateRequiredPanel.Visibility = Visibility.Collapsed;
+        ChooseHostedButton.Focus();
     }
 
     private void ShowServerConfig()
     {
         ServerAddressTextBox.Text = _config.IsConfigured ? _config.DisplayAddress : string.Empty;
         ServerConfigError.Visibility = Visibility.Collapsed;
-        // A first-run user has nowhere to cancel back to; only offer cancel once a server is configured.
-        ServerConfigCancelButton.Visibility = _config.IsConfigured ? Visibility.Visible : Visibility.Collapsed;
+        // Always reachable now: the chooser is behind this panel even on a first run, so there IS somewhere to
+        // go back to. Only the word changes -- « Retour » to the fork, « Annuler » to the app already running.
+        ServerConfigCancelButton.Visibility = Visibility.Visible;
+        ServerConfigCancelButton.Content = _config.IsConfigured ? "Annuler" : "Retour";
 
         ServerConfigPanel.Visibility = Visibility.Visible;
         WebView.Visibility = Visibility.Collapsed;
         ConnectingPanel.Visibility = Visibility.Collapsed;
         UnreachablePanel.Visibility = Visibility.Collapsed;
         UpdateRequiredPanel.Visibility = Visibility.Collapsed;
+        ModeChoicePanel.Visibility = Visibility.Collapsed;
         ServerAddressTextBox.Focus();
     }
 
@@ -350,11 +423,25 @@ public partial class MainWindow : Window
         ConnectingPanel.Visibility = Visibility.Collapsed;
         ServerConfigPanel.Visibility = Visibility.Collapsed;
         UpdateRequiredPanel.Visibility = Visibility.Collapsed;
+        ModeChoicePanel.Visibility = Visibility.Collapsed;
     }
 
     // ---- Event handlers -------------------------------------------------------------------------
 
-    private void ChangeServer_Click(object sender, RoutedEventArgs e) => ShowServerConfig();
+    // Back to the fork, not to the address box: a clinic that moves from its own PC to the hosted plan would
+    // otherwise have to be told a hostname to type -- the exact question the chooser exists to avoid.
+    private void ChangeServer_Click(object sender, RoutedEventArgs e) => ShowModeChoice();
+
+    /// <summary>« APEXA Cloud » -- the address is ours to know, so it is not asked for.</summary>
+    private void ChooseHosted_Click(object sender, RoutedEventArgs e)
+    {
+        _config = ServerConfig.Hosted();
+        ServerConfigStore.Save(_config);
+        NavigateToServer();
+    }
+
+    /// <summary>« Serveur du cabinet » -- the clinic's own PC, whose address only the clinic knows.</summary>
+    private void ChooseLocal_Click(object sender, RoutedEventArgs e) => ShowServerConfig();
 
     private async void Retry_Click(object sender, RoutedEventArgs e)
     {
@@ -376,8 +463,14 @@ public partial class MainWindow : Window
 
     private void ServerConfigCancel_Click(object sender, RoutedEventArgs e)
     {
-        // Only reachable when a server is already configured (button hidden on first run).
-        NavigateToServer();
+        if (_config.IsConfigured)
+        {
+            NavigateToServer();
+        }
+        else
+        {
+            ShowModeChoice();
+        }
     }
 
     private void SaveServerAddress()
@@ -415,6 +508,7 @@ public partial class MainWindow : Window
         ConnectingPanel.Visibility = Visibility.Collapsed;
         ServerConfigPanel.Visibility = Visibility.Collapsed;
         UnreachablePanel.Visibility = Visibility.Collapsed;
+        ModeChoicePanel.Visibility = Visibility.Collapsed;
     }
 
     private void DownloadUpdate_Click(object sender, RoutedEventArgs e)

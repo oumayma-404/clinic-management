@@ -81,6 +81,8 @@ public static class ClinicArchiveScope
         // are also measurements of the deployment rather than records of the practice, exactly like the backup ledger.
         nameof(ClinicRecoveryPoint),
         nameof(AuditEntry),
+        // A credential, on User's terms — and one a restore would silently re-arm after an owner revoked it.
+        nameof(ClinicArchiveGrant),
         nameof(User),
         nameof(UserDashboardPreference),
         nameof(ClinicReminderSettings),

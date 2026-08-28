@@ -30,6 +30,14 @@ export const patientsApi = {
        * page means "the flagged ones among these 25" and hides the flagged patients on every other page.
        */
       flaggedOnly?: boolean;
+      /**
+       * Include archived patients. Only `/patients`' « Afficher les patients archivés » sets this — the header
+       * lookup and every picker leave it off, because archiving means "stop offering this person".
+       *
+       * ⚠️ Without a caller, archiving was a one-way door: the patient leaves this list, the header search and
+       * `/fichiers`, so the « Restaurer » control on their own page was reachable only by typing their UUID.
+       */
+      includeArchived?: boolean;
     },
   ): Promise<PagedResponse<PatientDto>> => {
     const { search, ...rest } = params;

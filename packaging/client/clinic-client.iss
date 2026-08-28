@@ -1,5 +1,5 @@
 ﻿; ============================================================================================
-; Clinic Management — Client Installer (Phase 5 / S7)
+; APEXA — Client Installer (Phase 5 / S7)
 ;
 ; A lightweight installer for staff PCs:
 ;   - places the thin WebView2 desktop shell with a Start-menu/taskbar shortcut (AC-2.1)
@@ -28,10 +28,16 @@ AppId={{9B2E4C71-8A3F-4E15-B6D2-CLINICCLIENT01}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-; ⚠️ DefaultDirName is deliberately NOT renamed with the product. Inno keys an upgrade on AppId and reuses the
-; recorded directory, so this string only ever names the folder of a *fresh* install -- renaming it would split
-; deployed clinics across two paths for no user-visible gain, since nothing shows the operator this folder.
-DefaultDirName={autopf}\Clinic Management Client
+; ⚠️ RENAMED WITH THE PRODUCT, reversing the note that used to sit here. That note argued the folder was never
+; shown to anyone -- but DisableDirPage is not set, so Inno renders the destination page, and the folder appears
+; a second time on the Ready-to-Install summary. A first-time APEXA user read the old product name twice during
+; the wizard, which is the one surface this string was assumed not to have.
+; The other half of that note was right and still applies: Inno keys an upgrade on AppId and reuses the RECORDED
+; directory, so this only ever names a *fresh* install. Machines therefore diverge -- installs from this build
+; land in \APEXA, ones made before it stay in \Clinic Management Client and are never moved. That is accepted:
+; nothing resolves this path at runtime (the shell is self-contained and reads only %AppData%\ClinicManagement),
+; and the uninstaller is registered against the recorded folder, not this constant.
+DefaultDirName={autopf}\APEXA
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir={#SourcePath}\..\build-output
@@ -51,8 +57,8 @@ PrivilegesRequired=admin
 
 [Files]
 Source: "{#SourcePath}\..\build-output\client\shell\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
-; The server's exported CA (build-output\client\ca\ca.crt). Optional at compile time so the shell can
-; still be installed before the CA is available; a warning is shown if it is missing.
+; The server's exported CA (build-output\client\ca\ca.crt). Optional at compile time: a SelfHostedLan build
+; stages it, a HostedMultiTenant build has no CA to stage. Absent is silent -- see ImportCa.
 Source: "{#SourcePath}\..\build-output\client\ca\ca.crt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 ; WebView2 Evergreen runtime — OFFLINE standalone installer, dropped by publish-server.ps1's staging step
 ; into build-output\client\webview2\. Optional at compile time; if bundled it is run silently only when the
@@ -118,7 +124,15 @@ begin
 end;
 
 { Import the server CA into the machine Root store so the WebView2 shell trusts the server's
-  self-signed HTTPS certificate (FR-E2). No-op with a warning if the CA was not bundled. }
+  self-signed HTTPS certificate (FR-E2).
+
+  ⚠️ ABSENT IS A VALID STATE, NOT A WARNING. One installer serves both topologies. A SelfHostedLan build
+  always ships ca.crt (the operator stages it before ISCC runs), so a missing file means this is a
+  HostedMultiTenant install -- where the server holds a publicly trusted certificate and there is nothing
+  to import. The else-branch used to raise a French box telling the user to fetch a CA from « le serveur »,
+  as the LAST screen of the wizard, for a clinic that has no server of its own. Silence is the correct
+  behaviour there; a LAN build that genuinely lost its CA still surfaces as a browser warning on first
+  connect, which is the symptom the operator can act on. }
 procedure ImportCa;
 var
   Rc: Integer;
@@ -133,12 +147,7 @@ begin
              'Le navigateur affichera un avertissement de sécurité. Importez ca.crt manuellement ' +
              'dans « Autorités de certification racines de confiance » (voir README).',
              mbError, MB_OK);
-  end
-  else
-    MsgBox('Aucun certificat CA (ca.crt) n''a été fourni avec cet installateur. ' +
-           'Obtenez-le depuis le serveur (' + #39 + '%ProgramData%\ClinicManagement\ca.crt' + #39 + ') ' +
-           'et importez-le dans le magasin racine, sinon la connexion HTTPS affichera un avertissement (voir README).',
-           mbInformation, MB_OK);
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

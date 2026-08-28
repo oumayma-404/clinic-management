@@ -1,0 +1,79 @@
+<Window x:Class="ClinicManagement.DesktopShell.ArchiveCopyWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Copie automatique de l'archive" Height="560" Width="620"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Background="{DynamicResource ShellBackground}">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="Copie automatique de l'archive" FontSize="18" FontWeight="SemiBold"
+                       Foreground="{DynamicResource ShellInk}"/>
+            <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Foreground="{DynamicResource ShellInkMuted}"
+                       Text="Ce poste déposera une copie complète du dossier du cabinet dans le dossier choisi, sans confirmation."/>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="0,20,0,0" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="Dossier de destination" Foreground="{DynamicResource ShellInk}"/>
+                <DockPanel Margin="0,6,0,0">
+                    <Button x:Name="BrowseButton" DockPanel.Dock="Right" Content="Parcourir…" Margin="8,0,0,0"
+                            Padding="14,6" Style="{StaticResource ShellButton}" Click="Browse_Click"/>
+                    <TextBox x:Name="FolderTextBox" Style="{StaticResource ShellTextBox}"/>
+                </DockPanel>
+
+                <TextBlock Margin="0,18,0,0" Text="Clé du poste" Foreground="{DynamicResource ShellInk}"/>
+                <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" FontSize="12"
+                           Foreground="{DynamicResource ShellInkMuted}"
+                           Text="Créez-la sur le serveur : Paramètres → Sauvegarde → Postes autorisés, puis collez-la ici."/>
+                <TextBox x:Name="GrantTextBox" Margin="0,6,0,0" Style="{StaticResource ShellTextBox}"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                    <StackPanel Width="180">
+                        <TextBlock Text="Une copie tous les" Foreground="{DynamicResource ShellInk}"/>
+                        <TextBox x:Name="EveryDaysTextBox" Margin="0,6,0,0" Style="{StaticResource ShellTextBox}"/>
+                        <TextBlock Text="jours" FontSize="12" Margin="0,4,0,0"
+                                   Foreground="{DynamicResource ShellInkMuted}"/>
+                    </StackPanel>
+                    <StackPanel Width="180" Margin="20,0,0,0">
+                        <TextBlock Text="Copies conservées" Foreground="{DynamicResource ShellInk}"/>
+                        <TextBox x:Name="KeepTextBox" Margin="0,6,0,0" Style="{StaticResource ShellTextBox}"/>
+                        <TextBlock Text="les plus anciennes sont supprimées" FontSize="12" Margin="0,4,0,0"
+                                   TextWrapping="Wrap" Foreground="{DynamicResource ShellInkMuted}"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- AC-8. Stated, never a refusal: the drive's own encryption is the right layer and this window
+                     is not going to reimplement it. `EncryptionText` says « indéterminé » when we could not look,
+                     which is the common case since manage-bde needs elevation. -->
+                <Border Margin="0,20,0,0" Padding="14" CornerRadius="8"
+                        Background="{DynamicResource ShellCard}"
+                        BorderBrush="{DynamicResource ShellBorder}" BorderThickness="1">
+                    <StackPanel>
+                        <TextBlock Text="Ce dossier contiendra tout le dossier médical du cabinet, non chiffré."
+                                   TextWrapping="Wrap" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource ShellInk}"/>
+                        <TextBlock x:Name="EncryptionText" Margin="0,6,0,0" TextWrapping="Wrap" FontSize="12"
+                                   Foreground="{DynamicResource ShellInkMuted}"/>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock x:Name="StatusText" Margin="0,16,0,0" TextWrapping="Wrap"
+                           Foreground="{DynamicResource ShellInkMuted}" Visibility="Collapsed"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button x:Name="CopyNowButton" Content="Copier maintenant" Margin="0,0,10,0" Padding="16,8"
+                    Style="{StaticResource ShellButton}" Click="CopyNow_Click"/>
+            <Button x:Name="SaveButton" Content="Enregistrer" Padding="16,8"
+                    Style="{StaticResource ShellPrimaryButton}" Click="Save_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

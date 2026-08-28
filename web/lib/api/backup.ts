@@ -1,4 +1,4 @@
-import { ARCHIVE_TIMEOUT_MS, apiGet, apiGetFile, apiPost, apiPostFormData, apiPut, type DownloadedFile } from './client';
+import { ARCHIVE_TIMEOUT_MS, apiDelete, apiGet, apiGetFile, apiPost, apiPostFormData, apiPut, type DownloadedFile } from './client';
 import type { PagedResponse } from './paging';
 
 // Mirrors the backend BackupResultDto (US-8 / AC-8.2) — where the backup landed, its size, and when.
@@ -240,4 +240,39 @@ export const backupApi = {
   setSchedule: async (schedule: BackupScheduleDto): Promise<BackupScheduleDto> => {
     return apiPut<BackupScheduleDto>('/backup/schedule', schedule);
   },
+
+  /** `clinic-archive-auto-copy` — which machines may pull this cabinet's archive unattended. Admin-only. */
+  archiveGrants: async (): Promise<ArchiveGrantDto[]> => {
+    return apiGet<ArchiveGrantDto[]>('/backup/archive-grants');
+  },
+
+  /**
+   * Authorises one machine. ⚠️ The response is the **only** place `secret` ever appears — the row stores a
+   * SHA-256 and no read can return it. A lost secret is replaced by revoking and issuing again.
+   */
+  issueArchiveGrant: async (label: string): Promise<IssuedArchiveGrantDto> => {
+    return apiPost<IssuedArchiveGrantDto>('/backup/archive-grants', { label });
+  },
+
+  /** Revokes one. Takes effect on that machine's next request. */
+  revokeArchiveGrant: async (id: string): Promise<void> => {
+    return apiDelete<void>(`/backup/archive-grants/${id}`);
+  },
 };
+
+/** One authorised machine, as the list shows it. The secret is absent by construction. */
+export interface ArchiveGrantDto {
+  id: string;
+  label: string;
+  createdAtUtc: string;
+  lastUsedAtUtc: string | null;
+  revokedAtUtc: string | null;
+}
+
+/** What issuing returns — `secret` exists here and nowhere else, ever. */
+export interface IssuedArchiveGrantDto {
+  id: string;
+  label: string;
+  secret: string;
+  createdAtUtc: string;
+}

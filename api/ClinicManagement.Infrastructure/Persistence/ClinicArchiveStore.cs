@@ -78,11 +78,31 @@ public class ClinicArchiveStore : IClinicArchiveStore
         _plan = ClinicArchiveScope.Resolve(context.Model);
     }
 
+    /// <summary>
+    /// ⚠️ <b>The whole export is ONE <c>RepeatableRead</c> snapshot, and without it an archive can be internally
+    /// inconsistent.</b> This walks ~35 tables in sequence, and PostgreSQL's default <c>ReadCommitted</c> gives
+    /// every statement its <i>own</i> snapshot — so a cabinet working while the archive is built can have a
+    /// patient created between the <c>Patients</c> read and the <c>Appointments</c> read, producing a visit whose
+    /// patient the file does not contain, or a payment captured against an invoice snapshot older than it.
+    /// <see cref="ClinicArchiveScope"/>'s FK-ordered apply sequence is what makes a restore survive that ordering,
+    /// and it assumes the rows were captured <i>together</i>; nothing had been making that true.
+    ///
+    /// <para>It was survivable while an archive was something an administrator clicked deliberately, out of hours.
+    /// <c>clinic-archive-auto-copy</c> takes one on a schedule, unattended, which means mid-consultation — exactly
+    /// when writes land between two table reads.</para>
+    ///
+    /// <para><c>RepeatableRead</c> rather than <c>Serializable</c>: this transaction only ever reads, so the one
+    /// guarantee needed is a stable snapshot, and the stricter level would add serialization-failure retries to a
+    /// read that has nothing to serialize against.</para>
+    /// </summary>
     public async Task<ClinicArchiveExport> ExportAsync(Guid clinicId, CancellationToken cancellationToken = default)
     {
         var tables = new List<ClinicArchiveTableData>();
         var storageKeys = new List<string>();
         var idsByTable = new Dictionary<string, HashSet<Guid>>(StringComparer.Ordinal);
+
+        await using var snapshot = await _context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.RepeatableRead, cancellationToken);
 
         foreach (var table in _plan.Tables)
         {

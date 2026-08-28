@@ -71,7 +71,52 @@
                 </StackPanel>
             </Grid>
 
-            <!-- Server-address entry: first run (AC-2.2) and "change server" (AC-2.3). -->
+            <!--
+              First run starts HERE, not at the address box. The two deployment kinds ask opposite things of the
+              person in front of the screen: a `SelfHostedLan` clinic knows its server because someone in the
+              building installed it, while a `HostedMultiTenant` clinic has no server of its own and no way to
+              know a hostname — asking them for one is asking a question only we can answer. So the hosted branch
+              answers it (ServerConfig.HostedHost) and the LAN branch keeps the field.
+            -->
+            <Grid x:Name="ModeChoicePanel" Background="{DynamicResource ShellBackground}" Visibility="Collapsed">
+                <Border Width="520" VerticalAlignment="Center" HorizontalAlignment="Center"
+                        Background="{DynamicResource ShellCard}" CornerRadius="10" Padding="32"
+                        BorderBrush="{DynamicResource ShellBorder}" BorderThickness="1">
+                    <StackPanel>
+                        <TextBlock Text="APEXA" FontSize="22" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource ShellInk}"/>
+                        <TextBlock Text="Comment votre cabinet utilise-t-il APEXA ?"
+                                   FontSize="14" Foreground="{DynamicResource ShellInkMuted}"
+                                   Margin="0,4,0,20" TextWrapping="Wrap"/>
+
+                        <Button x:Name="ChooseHostedButton" Style="{StaticResource ShellPrimaryButton}"
+                                HorizontalContentAlignment="Left" Padding="18,14"
+                                Click="ChooseHosted_Click">
+                            <StackPanel>
+                                <TextBlock Text="APEXA Cloud" FontSize="15" FontWeight="SemiBold"/>
+                                <TextBlock Text="Par internet, sur nos serveurs. Rien à installer au cabinet."
+                                           FontSize="12" Opacity="0.85" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="ChooseLocalButton" Style="{StaticResource ShellButton}"
+                                HorizontalContentAlignment="Left" Padding="18,14" Margin="0,12,0,0"
+                                Click="ChooseLocal_Click">
+                            <StackPanel>
+                                <TextBlock Text="Serveur du cabinet" FontSize="15" FontWeight="SemiBold"/>
+                                <TextBlock Text="APEXA est installé sur un PC du cabinet, sur votre réseau local."
+                                           FontSize="12" Opacity="0.85" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Button>
+
+                        <TextBlock Text="Vous pourrez changer à tout moment : clic droit dans l'application, « Changer de serveur »."
+                                   FontSize="12" Foreground="{DynamicResource ShellInkMuted}" Opacity="0.8"
+                                   Margin="0,20,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- Server-address entry: the LAN branch of the chooser above (AC-2.2) and "change server" (AC-2.3). -->
             <Grid x:Name="ServerConfigPanel" Background="{DynamicResource ShellBackground}" Visibility="Collapsed">
                 <Border Width="480" VerticalAlignment="Center" HorizontalAlignment="Center"
                         Background="{DynamicResource ShellCard}" CornerRadius="10" Padding="32"
