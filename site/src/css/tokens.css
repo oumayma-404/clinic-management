@@ -67,6 +67,17 @@
   --rule-soft: #e6eef7;
   --rule-ink:  #3b587c;
 
+  /* ── The LOGO, which is not the palette. ─────────────────────────────────
+     APEXA's mark is a blue→cyan gradient, and it is the same three stops as
+     web/branding/icon.svg — the master every app icon is generated from. It
+     colours the mark's plate and NOTHING else on this site: the page stays
+     navy + teal, deliberately. ⚠️ Do not "harmonise" the two by pulling this
+     gradient into buttons or the hero; it is an identity, not a hue we own
+     the rest of the page with. Do not restate the stops anywhere else either
+     — three copies of a logo colour is how a rebrand half-lands. ─────────── */
+  --brand-grad: linear-gradient(135deg, #1B54CE 0%, #1E86DC 50%, #2FC6E0 100%);
+  --on-brand:   #ffffff;
+
   /* ── The accent. Buttons and links, nothing else. ────────────────────── */
   --accent:      #2a9d8f;   /* fills — sits at lime's luminance on the dark  */
   --accent-hi:   #35b9a8;

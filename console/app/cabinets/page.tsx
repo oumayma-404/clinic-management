@@ -6,7 +6,12 @@ import { PortfolioFilters } from "@/components/portfolio-filters";
 import { PortfolioPager } from "@/components/portfolio-pager";
 import { PortfolioSummary } from "@/components/portfolio-summary";
 import { ConsoleApiError } from "@/lib/api/client";
-import { fetchPortfolio, fetchSummary, type PortfolioQuery } from "@/lib/api/platform";
+import {
+  fetchPortfolio,
+  fetchSummary,
+  redirectIfPasswordChangeRequired,
+  type PortfolioQuery,
+} from "@/lib/api/platform";
 import { formatDateTime, formatFreshness } from "@/lib/format";
 import { readSessionToken } from "@/lib/session";
 import { SignOutButton } from "./sign-out-button";
@@ -54,6 +59,10 @@ export default async function CabinetsPage({ searchParams }: PageProps) {
     summary = await fetchSummary(token);
     page = await fetchPortfolio(token, query);
   } catch (error) {
+    // A bootstrapped account is refused every read until it replaces the one-time password, and that refusal is
+    // a destination rather than a message — see `redirectIfPasswordChangeRequired`. Without this, the first
+    // account created on a deployment lands here and is told the portfolio is unreadable.
+    redirectIfPasswordChangeRequired(error);
     return <ReadFailure error={error} />;
   }
 

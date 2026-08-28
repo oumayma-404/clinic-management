@@ -108,7 +108,7 @@ mobile/
   platforms. Release signing reads a git-ignored `keystore.properties`; with it absent the release build still
   produces an *unsigned* APK on purpose, so R8 and the `@JavascriptInterface` keep rule stay exercisable on a
   machine that holds no key. `mobile/STORE-SUBMISSION.md` is the full checklist and carries the dated policy sources.
-- **The name and the identifier are settled**: « Gestion Clinique » on every platform, `com.clinicmanagement.shell`
+- **The name and the identifier are settled**: « APEXA » on every platform, `com.clinicmanagement.shell`
   on both stores. Neither can be changed after the first submission, and the identifier lives in **two** files
   (`android/app/build.gradle.kts`, `ios/project.yml`) that must move together or the stores hold two products.
 - **Do not mark Part 5 done on a simulator** — it does not faithfully exercise persistent cookies, print or

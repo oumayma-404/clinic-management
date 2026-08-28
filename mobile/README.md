@@ -176,16 +176,21 @@ A hosted deployment with a publicly-trusted certificate needs none of this.
 
 ### Avant la première soumission — two things still open
 
-**Settled** — the product is called **« Gestion Clinique »** on every platform (`app_name` in
+**Settled** — the product is called **« APEXA »** on every platform (`app_name` in
 `res/values/strings.xml`, iOS's `CFBundleDisplayName`, the web app's `PRODUCT_NAME`, the Windows shell and both
-installers), and the bundle identifier is **`com.clinicmanagement.shell`** on both stores. Neither can be changed
+installers), and the bundle identifier is **`com.clinicmanagement.shell`** on both stores — ⚠️ deliberately **not** renamed
+with the APEXA rebrand, because it is invisible to users and immutable after the first submission; renaming it
+is a decision to take before that submission, not with a logo change. Neither can be changed
 after the first submission, and the identifier must move on both platforms in one commit or the two stores hold
 two different products.
 
-The launcher icon is the adaptive icon in `res/mipmap-anydpi/ic_launcher.xml` — the same tooth mark as the web
-tile and the iOS `AppIcon`. ⚠️ Its `ic_launcher_foreground.xml` carries the glyph **by hand**, because an Android
+The launcher icon is the adaptive icon in `res/mipmap-anydpi/ic_launcher.xml` — the same APEXA chevron as the
+web tile and the iOS `AppIcon`, on the brand gradient (`res/drawable/ic_launcher_background.xml`, a gradient
+drawable rather than the flat `@color/brand_primary` it pointed at before: the plate is part of the logo). ⚠️ Its `ic_launcher_foreground.xml` carries the glyph **by hand**, because an Android
 vector drawable is the one output `web/scripts/generate-icons.mjs` cannot rasterise; changing the master means
-copying the new `d` across, and the file's own comment says so.
+copying the new `d` across, and the file's own comment says so. ⚠️ It also carries a `<group>` scale of 0.85
+that the old mark did not need — the chevron reaches 176.1 of 512 from centre and the adaptive-icon safe circle
+is 156.2, so unscaled a round launcher mask shaves its feet off.
 
 **`versionCode`** must increase on every upload Play accepts and can never go back down for this
 `applicationId`; 1 and 2 were pre-store builds, so 3 is the first that may leave this machine. `versionName` is

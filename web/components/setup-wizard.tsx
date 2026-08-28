@@ -611,7 +611,11 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
                     {logoPreview ? (
                       <div className="relative w-24 h-24 rounded-lg border-2 border-primary/25 overflow-hidden">
                         <Image
-                          src={logoPreview || "/placeholder.svg"}
+                          // Not `logoPreview || "/placeholder.svg"`: this branch is already inside
+                          // `logoPreview ? …`, so the fallback was unreachable — and it named a file that has
+                          // never existed in `public/`, so had it ever been reached it would have rendered a
+                          // broken image. `clinic-settings.tsx`'s equivalent is plain `src={logoPreview}`.
+                          src={logoPreview}
                           alt="Aperçu du logo"
                           fill
                           className="object-cover"

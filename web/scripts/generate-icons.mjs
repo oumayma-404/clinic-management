@@ -45,9 +45,36 @@ const OUT_DIR = join(WEB_ROOT, "public");
 const DESKTOP_ASSETS = join(REPO_ROOT, "desktop", "ClinicManagement.DesktopShell", "Assets");
 const IOS_APPICON = join(REPO_ROOT, "mobile", "ios", "ClinicShell", "Assets.xcassets", "AppIcon.appiconset");
 
-/** The app's own tokens, converted from the oklch values in `app/globals.css`. */
-const PRIMARY = "#02678f"; //   --primary            oklch(0.485 0.101 234)
-const INK_ON_PRIMARY = "#f9fcff"; // --primary-foreground oklch(0.99 0.005 234)
+/**
+ * APEXA's brand gradient — the same three stops as the logo pack's `svg/apexa-*.svg`, and duplicated in
+ * `branding/icon.svg` for that file's own preview plate.
+ *
+ * ⚠️ This is the LOGO's colour, not the app's UI palette. `app/globals.css` keeps `--primary`
+ * `oklch(0.485 0.101 234)` (azure) and the interface is drawn in it. The two are deliberately different and
+ * neither is derived from the other, so do not "fix" one to match the other.
+ */
+const BRAND_STOPS = ["#1B54CE", "#1E86DC", "#2FC6E0"];
+const INK_ON_BRAND = "#FFFFFF";
+
+/**
+ * The sentinel a variant passes as its `background` or `ink` to ask for the gradient rather than a flat colour.
+ *
+ * A gradient cannot be a `fill="…"` string, so `variantSvg` has to emit a `<defs>` for it; the sentinel is what
+ * tells it to. `userSpaceOnUse` over the full 512 box on both axes, matching the master and the logo pack's app
+ * icon — an `objectBoundingBox` gradient would run across each *shape's* own box instead, so the plate and the
+ * glyph would each get their own full sweep and the mark would stop being a window onto the plate's.
+ */
+const BRAND = Symbol("brand-gradient");
+
+function brandDefs(id) {
+  const stops = BRAND_STOPS.map(
+    (color, i) => `<stop offset="${i / (BRAND_STOPS.length - 1)}" stop-color="${color}"/>`,
+  ).join("");
+  return `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="512" y2="512">${stops}</linearGradient>`;
+}
+
+/** A variant's `background`/`ink` value as an SVG paint string. */
+const paint = (value) => (value === BRAND ? "url(#brand)" : value);
 
 /**
  * Extract the glyph from the master.
@@ -77,11 +104,12 @@ const MARK = readMarkPath();
  */
 function variantSvg({ size, background, radius, ink, scale }) {
   const offset = (512 * (1 - scale)) / 2;
+  const defs = background === BRAND || ink === BRAND ? `<defs>${brandDefs("brand")}</defs>` : "";
   const plate =
     background === null
       ? ""
-      : `<rect width="512" height="512" rx="${radius}" fill="${background}"/>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="${size}" height="${size}">${plate}<g transform="translate(${offset} ${offset}) scale(${scale})"><path fill="${ink}" d="${MARK}"/></g></svg>`;
+      : `<rect width="512" height="512" rx="${radius}" fill="${paint(background)}"/>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="${size}" height="${size}">${defs}${plate}<g transform="translate(${offset} ${offset}) scale(${scale})"><path fill="${paint(ink)}" d="${MARK}"/></g></svg>`;
 }
 
 /**
@@ -94,38 +122,40 @@ const ASSETS = [
   {
     file: "icon-192.png",
     size: 192,
-    background: PRIMARY,
+    background: BRAND,
     radius: 112,
-    ink: INK_ON_PRIMARY,
+    ink: INK_ON_BRAND,
     scale: 1,
     // The ordinary `purpose: "any"` tile: the app draws its own rounded plate, because "any" means the platform
     // will NOT mask it and a square of flat colour reads as an unfinished placeholder.
   },
-  { file: "icon-512.png", size: 512, background: PRIMARY, radius: 112, ink: INK_ON_PRIMARY, scale: 1 },
+  { file: "icon-512.png", size: 512, background: BRAND, radius: 112, ink: INK_ON_BRAND, scale: 1 },
   {
     file: "icon-maskable-512.png",
     size: 512,
-    background: PRIMARY,
+    background: BRAND,
     radius: 0,
-    ink: INK_ON_PRIMARY,
-    scale: 0.78,
+    ink: INK_ON_BRAND,
+    scale: 0.9,
     /*
      * ⚠️ Maskable is the one asset with a hard geometric contract, and both halves of it matter.
      *
      *   • `radius: 0` — FULL BLEED. Android applies its own mask (circle, squircle, teardrop…), so a rounded
      *     plate here leaves transparent corners *outside* the mask and the tile gets a visible notch.
-     *   • `scale: 0.78` — everything meaningful must sit inside the central circle of 80 % diameter (radius
-     *     204.8 of 512), because that is all Android guarantees to keep. The mark's furthest point from centre
-     *     is its top-left shoulder at (152, 128), i.e. 165 units, so at 0.78 it clears the safe circle with
-     *     room rather than sitting on its edge.
+     *   • `scale: 0.9` — everything meaningful must sit inside the central circle of 80 % diameter (radius
+     *     204.8 of 512), because that is all Android guarantees to keep. The APEXA chevron's furthest point
+     *     from centre is a bottom corner at 176.1 units, so it already clears the safe circle at scale 1 and
+     *     0.9 is margin rather than a rescue. ⚠️ The previous mark needed 0.78 for the same guarantee — the
+     *     number is a property of the glyph, so re-measure it when the master changes instead of carrying it
+     *     over. `scratchpad`-style arithmetic is not needed: max radius is what the master's outline reports.
      */
   },
   {
     file: "apple-icon.png",
     size: 180,
-    background: PRIMARY,
+    background: BRAND,
     radius: 0,
-    ink: INK_ON_PRIMARY,
+    ink: INK_ON_BRAND,
     scale: 0.82,
     flatten: true,
     /*
@@ -139,7 +169,7 @@ const ASSETS = [
     size: 32,
     background: null,
     radius: 0,
-    ink: PRIMARY,
+    ink: BRAND,
     scale: 1.18,
     /*
      * The favicons carry the mark ALONE on transparency, and slightly overscanned (`1.18`).
@@ -152,7 +182,7 @@ const ASSETS = [
      * `prefers-color-scheme`.
      */
   },
-  { file: "icon-dark-32x32.png", size: 32, background: null, radius: 0, ink: INK_ON_PRIMARY, scale: 1.18 },
+  { file: "icon-dark-32x32.png", size: 32, background: null, radius: 0, ink: INK_ON_BRAND, scale: 1.18 },
 ];
 
 /**
@@ -165,9 +195,10 @@ const ASSETS = [
 function themedFaviconSvg() {
   const offset = (512 * (1 - 1.18)) / 2;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="32" height="32">
+  <defs>${brandDefs("brand")}</defs>
   <style>
-    .mark { fill: ${PRIMARY}; }
-    @media (prefers-color-scheme: dark) { .mark { fill: ${INK_ON_PRIMARY}; } }
+    .mark { fill: url(#brand); }
+    @media (prefers-color-scheme: dark) { .mark { fill: ${INK_ON_BRAND}; } }
   </style>
   <g transform="translate(${offset} ${offset}) scale(1.18)"><path class="mark" d="${MARK}"/></g>
 </svg>
@@ -177,7 +208,10 @@ function themedFaviconSvg() {
 for (const asset of ASSETS) {
   let pipeline = sharp(Buffer.from(variantSvg(asset)), { density: 72 });
   // `flatten` before the PNG encode, so the alpha channel is gone from the file rather than merely opaque.
-  if (asset.flatten) pipeline = pipeline.flatten({ background: asset.background });
+  // ⚠️ `BRAND_STOPS[1]`, not `asset.background` — the latter is the gradient sentinel, which `sharp` cannot take
+  // as a colour. Every `flatten: true` asset is full-bleed (`radius: 0`), so no pixel is transparent and this
+  // colour is never actually composited; it exists to satisfy the API while the alpha channel is dropped.
+  if (asset.flatten) pipeline = pipeline.flatten({ background: BRAND_STOPS[1] });
   const buffer = await pipeline
     .png({ compressionLevel: 9, adaptiveFiltering: false, palette: false })
     .toBuffer();
@@ -202,17 +236,17 @@ function platedPng(size, { flatten = false } = {}) {
     Buffer.from(
       variantSvg({
         size,
-        background: PRIMARY,
+        background: BRAND,
         // The web tile's 112 of 512 (≈ 22 %), re-derived per size rather than hard-coded, so every output has
         // the same corner as the browser tab's.
         radius: Math.round((112 / 512) * size),
-        ink: INK_ON_PRIMARY,
+        ink: INK_ON_BRAND,
         scale,
       }),
     ),
     { density: 72 },
   );
-  if (flatten) pipeline = pipeline.flatten({ background: PRIMARY });
+  if (flatten) pipeline = pipeline.flatten({ background: BRAND });
   return pipeline.png({ compressionLevel: 9, adaptiveFiltering: false, palette: false }).toBuffer();
 }
 
@@ -271,6 +305,33 @@ writeFileSync(join(DESKTOP_ASSETS, "app.ico"), packIco(icoImages));
 console.log(`  ✓ ${"desktop/…/Assets/app.ico".padEnd(26)} ${ICO_SIZES.join(", ")}`);
 
 /**
+ * `app/favicon.ico` — and it is generated here because it was **the last create-next-app asset still shipping**.
+ *
+ * ⚠️ It is a *file convention*, not one of `layout.tsx`'s declared `icons`, which is exactly why it survived the
+ * pass that fixed those: Next serves `app/favicon.ico` at `/favicon.ico` whatever the metadata says, and a browser
+ * asks for that path unprompted. So the product's own icons were correct while the bare-URL favicon — the one a
+ * bookmark and an old tab use — was still Next's logo.
+ *
+ * The mark alone on transparency, like the two PNG favicons and for the same reason: at 16 px a plate takes the
+ * margin the glyph needs. Three sizes, because this container is read by things that do not rescale well.
+ */
+const FAVICON_SIZES = [16, 32, 48];
+const faviconImages = [];
+for (const size of FAVICON_SIZES) {
+  faviconImages.push({
+    size,
+    buffer: await sharp(
+      Buffer.from(variantSvg({ size, background: null, radius: 0, ink: BRAND, scale: 1.18 })),
+      { density: 72 },
+    )
+      .png({ compressionLevel: 9, adaptiveFiltering: false, palette: false })
+      .toBuffer(),
+  });
+}
+writeFileSync(join(WEB_ROOT, "app", "favicon.ico"), packIco(faviconImages));
+console.log(`  ✓ ${"app/favicon.ico".padEnd(26)} ${FAVICON_SIZES.join(", ")}`);
+
+/**
  * iOS wants **one** 1024×1024 icon and composes every other size itself (single-size app icons, Xcode 14+).
  *
  * ⚠️ `flatten: true` for the same reason `apple-icon.png` carries it: iOS refuses an alpha channel in an app
@@ -281,11 +342,12 @@ console.log(`  ✓ ${"desktop/…/Assets/app.ico".padEnd(26)} ${ICO_SIZES.join("
 mkdirSync(IOS_APPICON, { recursive: true });
 const appIcon = await sharp(
   Buffer.from(
-    variantSvg({ size: 1024, background: PRIMARY, radius: 0, ink: INK_ON_PRIMARY, scale: 0.82 }),
+    variantSvg({ size: 1024, background: BRAND, radius: 0, ink: INK_ON_BRAND, scale: 0.82 }),
   ),
   { density: 72 },
 )
-  .flatten({ background: PRIMARY })
+  // BRAND_STOPS[1], not the gradient sentinel: see the ASSETS loop. Full-bleed, so nothing is composited.
+  .flatten({ background: BRAND_STOPS[1] })
   .png({ compressionLevel: 9, adaptiveFiltering: false, palette: false })
   .toBuffer();
 writeFileSync(join(IOS_APPICON, "AppIcon-1024.png"), appIcon);

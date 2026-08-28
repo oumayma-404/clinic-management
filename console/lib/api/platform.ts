@@ -1,4 +1,6 @@
-﻿import { consoleFetch } from "./client";
+﻿import { redirect } from "next/navigation";
+
+import { ConsoleApiError, consoleFetch } from "./client";
 
 /**
  * The portfolio reads (`platform-console` US-2), server-side only like everything in this folder.
@@ -483,6 +485,34 @@ export interface PlatformPaymentRecorded {
  * the screen does, which is the `Contains("déjà facturée")` defect this codebase has already paid for once.
  */
 export const CLINIC_NOT_FOUND_CODE = "clinic_not_found";
+
+/**
+ * The refusal `PlatformAccountStateMiddleware` returns while a bootstrapped account still holds the one-time
+ * password the `platform-account create` verb printed — which is what makes « one-time » true of it.
+ */
+export const MUST_CHANGE_PASSWORD_CODE = "must_change_password";
+
+/**
+ * Sends an account that must change its password to the one screen it is allowed to open, and returns otherwise.
+ *
+ * ⚠️ **A destination, not a message** — the same distinction `app/login/sign-in-form.tsx` already makes for
+ * `totp_enrolment_required`, and for the same reason: the API refuses *every* console read while the one-time
+ * password is in place, so a page that renders this refusal as prose renders « je n'ai pas pu lire » over a
+ * server that read fine and answered precisely. A freshly bootstrapped account then has no route to
+ * `/mot-de-passe` at all except typing the URL, which is how the first account created on a deployment meets a
+ * dead end on its first screen.
+ *
+ * ⚠️ Called from a `catch`, never around the read itself: `redirect()` signals by throwing, so calling it inside
+ * the `try` would hand its own control-flow error to the failure branch and render the read as unreadable.
+ *
+ * ⚠️ `/mot-de-passe` must not call this, or the redirect loops — it is the screen this points at, and its own
+ * metadata read deliberately swallows a failure for that reason.
+ */
+export function redirectIfPasswordChangeRequired(error: unknown): void {
+  if (error instanceof ConsoleApiError && error.code === MUST_CHANGE_PASSWORD_CODE) {
+    redirect("/mot-de-passe");
+  }
+}
 
 /**
  * The refusal codes a cancellation can come back with (AC-5.1).

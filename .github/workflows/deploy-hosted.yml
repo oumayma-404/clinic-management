@@ -175,6 +175,11 @@ jobs:
 
           $COMPOSE pull api web console
 
+          # ⚠️ Without this a FRESH server cannot deploy at all: these four build from contexts inside `deploy/`
+          # and are deliberately never pushed, so `up -d --no-build` dies on `No such image:
+          # clinic-internal-certs:1`. Naming them is what lets `--no-build` stay strict about the other three.
+          $COMPOSE build certs postgres backup pitr
+
           # --no-build: the base file still carries a `build:` section (Compose merge cannot remove a key), so
           # without this a tag missing from the registry would silently start a 20-minute rebuild of a commit
           # nobody chose, on the production box. Refusing is the correct outcome.

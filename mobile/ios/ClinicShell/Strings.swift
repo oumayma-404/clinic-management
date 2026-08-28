@@ -12,7 +12,7 @@ import Foundation
  */
 enum Strings {
 
-    static let appName = "Gestion Clinique"
+    static let appName = "APEXA"
 
     // State: connecting
     static let connectingTitle = "Connexion au serveur du cabinet…"

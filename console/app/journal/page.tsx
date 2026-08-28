@@ -5,7 +5,12 @@ import { AccessLogFilters } from "@/components/access-log-filters";
 import { AccessLogList } from "@/components/access-log-list";
 import { Pager } from "@/components/ui/pager";
 import { ConsoleApiError } from "@/lib/api/client";
-import { accessLogSearchParams, fetchAccessLog, type AccessLogQuery } from "@/lib/api/platform";
+import {
+  accessLogSearchParams,
+  fetchAccessLog,
+  redirectIfPasswordChangeRequired,
+  type AccessLogQuery,
+} from "@/lib/api/platform";
 import { readSessionToken } from "@/lib/session";
 
 /**
@@ -44,6 +49,8 @@ export default async function JournalPage({ searchParams }: PageProps) {
   try {
     page = await fetchAccessLog(token, query);
   } catch (error) {
+    // See `redirectIfPasswordChangeRequired`: the one-time-password refusal is a destination, not a message.
+    redirectIfPasswordChangeRequired(error);
     return <ReadFailure error={error} />;
   }
 

@@ -1,6 +1,6 @@
 # Store submission — readiness checklist (operator)
 
-What it takes to put « Gestion Clinique » on Google Play and the App Store, and what to do in the meantime.
+What it takes to put « APEXA » on Google Play and the App Store, and what to do in the meantime.
 
 Policy facts here were verified on **2026-08-19** against Google's and Apple's own documentation, and the links are
 in § Sources. **Re-check them before acting** — both stores change these rules, and two of the four facts below did
@@ -89,7 +89,7 @@ Verified by building it, on 2026-08-19:
 - [x] **`versionCode` 3**, `versionName` `1.1.0`.
 - [x] **Lint clean** under `warningsAsErrors` — this module's only static gate — at the new toolchain.
 - [x] **Release APK + AAB produced.** R8 takes it from 2.4 MB debug to ~130 KB.
-- [x] **Bundle identifier and display name settled**: `com.clinicmanagement.shell`, « Gestion Clinique ». Neither
+- [x] **Bundle identifier and display name settled**: `com.clinicmanagement.shell`, « APEXA ». ⚠️ The identifier kept its pre-rebrand name deliberately. Neither
       can change after first submission, and the identifier lives in **two** files
       (`android/app/build.gradle.kts`, `ios/project.yml`) that must move together or the stores hold two products.
 - [x] **512×512 store icon** — `web/scripts/generate-icons.mjs` already emits `icon-512.png`.

@@ -331,7 +331,7 @@ the block — no rail, no tabs, no auto-play.
 a site read as a template. Scroll-driven has no control to find, and — unlike an auto-playing
 carousel — it does not compete with the hero above it.
 
-| # | Aujourd'hui | Avec Gestion Clinique | The screen |
+| # | Aujourd'hui | Avec APEXA | The screen |
 |---|---|---|---|
 | 01 | La fiche introuvable | Le dossier s'ouvre au nom du patient | `patients` |
 | 02 | Le dimanche, de mémoire | Le dossier vous suit sur le téléphone | `m-odonto`, in a phone frame |
@@ -686,7 +686,8 @@ see `landing-v2/DEPLOY.md` for the credential trap on this machine (two GitHub a
    `demo.html`, `mobile.html`, `hors-ligne.html`. Every nav link currently goes nowhere.
 3. **Three captures that do not exist**: stock, fournisseurs, journal d’activité.
 4. The film — the in-page scene can be recorded to mp4 for social with the installed ffmpeg.
-5. A real contact address — `contact@gestion-clinique.tn` in the footer is a placeholder, and
+5. A real contact address — `contact@apexa.tn` in the footer is a placeholder until `apexa.tn` is registered
+   and a mailbox exists behind it, and
    `confidentialite.html` does not exist.
 6. **Stock photography licensing.** The photos are Unsplash images of practices that are not
    Tunisian. Confirm or reshoot before any paid traffic.

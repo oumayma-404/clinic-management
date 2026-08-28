@@ -1,0 +1,17 @@
+<!--
+  The APEXA chevron — the site's ONE copy of the mark, injected as {{MARK}} by build.mjs.
+
+  It appears three times per page (the topbar, the drawer header, the footer) and used to be three
+  hand-pasted copies of a tooth glyph across two partials. Three copies of one logo is how a rebrand
+  half-lands: two get updated and the third is only noticed on a page nobody opened.
+
+  ⚠️ The path is the outline from `web/branding/icon.svg`, verbatim — the same authority the app's
+  favicon, the installed-app tile, the Windows `.exe` icon and the Android launcher all come from.
+  Do not re-draw it here, and do not "simplify" it into a 24-unit box: the numbers are the stroke's
+  computed outline, not a sketch.
+
+  ⚠️ It fills its plate (`viewBox` 0 0 512 512, sized 100 % by `.brand .mark svg`) because the mark's
+  own inset is already baked into those coordinates — it spans 50.8 % of the width. Sizing the svg
+  smaller than the plate insets it a second time and the chevron shrinks to a speck.
+-->
+<svg viewBox="0 0 512 512" fill="currentColor" aria-hidden="true"><path d="M 126.15 373.14 L 256.00 79.93 L 385.85 373.14 L 348.36 389.74 L 256.00 181.20 L 163.65 389.74 Z"/></svg>

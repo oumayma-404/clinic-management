@@ -78,14 +78,31 @@ export const config = {
      * app to a bare shortcut, silently, on iOS and Android alike. That matters most on iOS, where the installable
      * web app is the only route we have at all (see `mobile/STORE-SUBMISSION.md`).
      *
-     * ⚠️ In practice it is already served without this: `app/manifest.ts` is generated at build time, so the
-     * hosted deployment answers it **200 `application/manifest+json`** repeatedly, and the icons under `public/`
-     * likewise. It is excluded here to make that a property of the matcher rather than of how Next happens to
-     * emit the route. **Do not extend this into a general `\.(png|json|txt)$` escape** — that widens the
-     * unauthenticated surface to any future route whose path ends in an extension, which is a much bigger claim
-     * than this one file needs.
+     * ⚠️ In practice `app/manifest.ts` is generated at build time, so the hosted deployment answers it **200
+     * `application/manifest+json`** repeatedly. It is excluded here to make that a property of the matcher rather
+     * than of how Next happens to emit the route. **Do not extend this into a general `\.(png|json|txt)$`
+     * escape** — that widens the unauthenticated surface to any future route whose path ends in an extension,
+     * which is a much bigger claim than these files need.
+     *
+     * ⚠️ **The icon files are NOT in that lucky category, and the sentence that used to say they were was wrong.**
+     * Measured on the hosted deployment: `GET /icon-192.png` answered **307 → /login?returnTo=%2Ficon-192.png`**.
+     * They live under `public/`, which Next serves through the normal request pipeline, so this matcher runs on
+     * them and the guard redirects. Every consumer of one is a browser fetching it with **no session** — the
+     * login screen's own mark, and the icons the manifest names — so each got an HTML login page where it asked
+     * for an image. The login screen showed a broken-image glyph above « Connexion », on the one screen that has
+     * nothing else to identify the product by; the manifest's icons failed the same way, invisibly, which
+     * downgrades the installed app's tile. Nothing in a build or a type-check can see it: the file is present in
+     * the image, the route answers 307 rather than 404, and the app is *correct* to redirect an unauthenticated
+     * request for anything it does not know to be public.
+     *
+     * The seven icons are listed **by name**, in the same plain form as `favicon.ico` above — no character class,
+     * no `(?:…)` group, no escaped dot. Next hands this matcher to path-to-regexp rather than straight to
+     * `RegExp`, so the narrowest thing that is certainly parsed the same way as the entries already here is worth
+     * more than a shorter pattern; and an explicit list makes the unauthenticated surface readable at a glance,
+     * which a wildcard never does. `check:responsive`'s `public-asset-not-guarded` derives the required list from
+     * what the code actually references, so an eighth icon fails the build instead of failing in a browser.
      */
-    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|manifest.webmanifest).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|manifest.webmanifest|apple-icon.png|icon.svg|icon-192.png|icon-512.png|icon-maskable-512.png|icon-light-32x32.png|icon-dark-32x32.png).*)',
   ],
 };
 

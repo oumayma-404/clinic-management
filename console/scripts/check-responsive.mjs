@@ -467,6 +467,27 @@ check(
   () => scanLines(tsx(), /réseau local/i),
 );
 
+check(
+  "password-change-is-a-destination",
+  "N8",
+  "Every page that renders an API refusal also routes `must_change_password`",
+  "`PlatformAccountStateMiddleware` refuses EVERY console read while a bootstrapped account still holds the " +
+    "one-time password `platform-account create` printed. A page that renders that refusal as prose tells the " +
+    "operator « Portefeuille illisible » about a server that read fine and answered precisely — and since no " +
+    "screen links to `/mot-de-passe`, the very first account created on a deployment meets a dead end on its " +
+    "first screen with no way forward but typing the URL. It shipped that way, on all three reading pages at " +
+    "once, which is the point: this is a per-page decision that has to be made the same way every time. Call " +
+    "`redirectIfPasswordChangeRequired(error)` first in the catch. Nothing typed can catch this — the refusal " +
+    "is a valid `ConsoleApiError` and rendering it compiles.",
+  () =>
+    scanLines(
+      // Keyed on the ROLE, not a file list: a page that knows about `ConsoleApiError` is a page that renders a
+      // refusal, and every one of those is on a route a bootstrapped account can arrive at directly.
+      pages().filter((f) => !read(f).includes("redirectIfPasswordChangeRequired")),
+      /ConsoleApiError/,
+    ),
+);
+
 // ── run ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

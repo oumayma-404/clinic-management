@@ -38,9 +38,13 @@
 .brand .mark {
   display: grid; place-items: center; flex: none;
   width: 1.75rem; height: 1.75rem; border-radius: 7px;
-  background: var(--accent); color: var(--on-accent);
+  /* The LOGO's gradient, not the site's accent - see tokens.css. */
+  background: var(--brand-grad); color: var(--on-brand);
 }
-.brand .mark svg { width: 1.0625rem; height: 1.0625rem; }
+/* 100%, not the 17px the old tooth glyph used. The chevron's inset is already inside its own
+   viewBox (it spans 50.8% of 512), so sizing the svg below the plate insets it twice and the
+   mark renders as a speck in a coloured square. */
+.brand .mark svg { width: 100%; height: 100%; }
 .stuck .brand, .on-light .brand { color: var(--text); }
 
 .nav { display: none; align-items: center; gap: 0.125rem; margin-inline-start: 0.25rem; }

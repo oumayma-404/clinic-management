@@ -39,7 +39,7 @@ html = html.replace(/src="([^"]*assets\/scenes\/([^"]+))"/g, (_m, _full, file) =
   return 'srcdoc="' + doc.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '"'
 })
 
-const title = 'Gestion Clinique'
+const title = 'APEXA'
 const fonts = (html.match(/<link rel="stylesheet" href="https:\/\/fonts\.googleapis[^>]*>/) || [''])[0]
 
 // Keep only what sits between <body> and </body>, then drop the asset links.

@@ -10,6 +10,10 @@
     destructive        = oklch(0.55  0.19   25) = #C92F33
   (An XML comment may not contain a double hyphen, so the CSS custom-property prefix is dropped here.)
 
+  The three brand_gradient_* below are a DIFFERENT thing and are not derived from the tokens above: they are
+  APEXA's logo gradient, the same stops as web/branding/icon.svg, and they colour the launcher plate only
+  (drawable/ic_launcher_background.xml). The app's own screens stay azure. Do not reconcile the two.
+
   The lower four had drifted: they were still #F4F6F8 / #1F2933 / #52606D / #C0392B, i.e. values from before the
   palette this file claims to be converted from. A comment asserting a derivation that stopped being true is worse
   than no comment, so they are re-derived here with the rest.
@@ -21,4 +25,8 @@
     <color name="shell_ink">#FF0E191F</color>
     <color name="shell_ink_muted">#FF58666E</color>
     <color name="shell_danger">#FFC92F33</color>
+
+    <color name="brand_gradient_start">#FF1B54CE</color>
+    <color name="brand_gradient_mid">#FF1E86DC</color>
+    <color name="brand_gradient_end">#FF2FC6E0</color>
 </resources>

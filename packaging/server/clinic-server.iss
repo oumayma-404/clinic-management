@@ -14,9 +14,9 @@
 ; build machine, then compile this script with Inno Setup 6 (ISCC.exe). See ..\README.md.
 ; ============================================================================================
 
-#define AppName        "Gestion Clinique — Serveur"
+#define AppName        "APEXA — Serveur"
 #define AppVersion     "1.0.0"
-#define AppPublisher   "Gestion Clinique"
+#define AppPublisher   "APEXA"
 ; The product mark, shared with the client installer and the shell .exe. Generated from the one master
 ; (web/branding/icon.svg) by web/scripts/generate-icons.mjs.
 #define AppIcon        SourcePath + "\..\..\desktop\ClinicManagement.DesktopShell\Assets\app.ico"
@@ -89,7 +89,7 @@ Source: "{#SourcePath}\..\build-output\server\postgres\*"; DestDir: "{app}\postg
 Source: "{#SourcePath}\tools\nssm.exe"; DestDir: "{app}\tools"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
-Name: "{group}\Gestion Clinique (serveur — localhost)"; Filename: "https://localhost:{#HttpsPort}"
+Name: "{group}\APEXA (serveur — localhost)"; Filename: "https://localhost:{#HttpsPort}"
 Name: "{group}\Désinstaller {#AppName}"; Filename: "{uninstallexe}"
 
 [UninstallRun]
@@ -671,7 +671,7 @@ begin
   else
     ApiDepend := '{#ServiceDb}';
   Exec(ExpandConstant('{sys}\sc.exe'),
-    'create {#ServiceApi} binPath= "' + ApiExe + '" start= auto DisplayName= "Gestion Clinique - API" depend= ' + ApiDepend,
+    'create {#ServiceApi} binPath= "' + ApiExe + '" start= auto DisplayName= "APEXA - API" depend= ' + ApiDepend,
     '', SW_HIDE, ewWaitUntilTerminated, Rc);
   Exec(ExpandConstant('{sys}\sc.exe'), 'failure {#ServiceApi} reset= 60 actions= restart/5000', '', SW_HIDE, ewWaitUntilTerminated, Rc);
 end;

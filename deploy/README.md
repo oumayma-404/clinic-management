@@ -174,12 +174,20 @@ how the deployment runs stays in `docker-compose.hosted.yml`, where it is docume
 cd /opt/clinic-management/deploy
 export CLINIC_IMAGE_PREFIX=ghcr.io/<owner>/clinic CLINIC_IMAGE_TAG=<sha>
 docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml pull api web console
+docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml build certs postgres backup pitr
 docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml up -d --no-build
 ```
 
-⚠️ **Always `--no-build`.** Compose merge cannot *remove* the base file's `build:` section, so a plain `up -d`
-with a tag missing from the registry would quietly start a full rebuild on the production box instead of
-refusing.
+⚠️ **The `build` line is not optional on a server that has never deployed.** `certs`, `postgres`, `backup` and
+`pitr` are local builds by design (they need their `deploy/` contexts anyway and cost seconds), so nothing pushes
+them — and `--no-build` then refuses to create them. Omitting it fails at the first container with
+`No such image: clinic-internal-certs:1`, naming an image no registry was ever supposed to hold. `postgres` and
+`pitr` share one image, so four services build three times. Cheap on every later run; the layers are cached.
+
+⚠️ **Always `--no-build` on the `up`.** Compose merge cannot *remove* the base file's `build:` section, so a
+plain `up -d` with a tag missing from the registry would quietly start a full rebuild on the production box
+instead of refusing. That is why the two steps are separate: the build names the four cheap services explicitly,
+which leaves `up` free to stay strict about the three expensive ones.
 
 ⚠️ **`web`'s build args are read from Compose and are never restated in the workflow**, deliberately.
 `NEXT_PUBLIC_*` is substituted into the bundle by `npm run build`, so those args decide what the browser gets —
@@ -792,12 +800,24 @@ It is published on **loopback only**, so there is no address to reach from the i
 ```bash
 ssh -L 9443:127.0.0.1:9443 <host>
 # then, on your own machine:
-open https://127.0.0.1:9443
+open https://console.localhost:9443
 ```
 
-Expect a **certificate warning**. That site uses Caddy's internal CA, because `127.0.0.1` has no public name for
-Let's Encrypt to issue a certificate against. A warning on `{DOMAIN}` is a different event entirely and should
-never be dismissed.
+⚠️ **`console.localhost`, not `127.0.0.1` — the bare IP cannot work in a browser, and does not fail like a
+certificate problem.** No browser sends SNI for an IP literal (there is no name to send), so Caddy has nothing to
+match on this port and ends the handshake with `internal_error` — Chrome reports `ERR_SSL_PROTOCOL_ERROR`, which
+is not a warning anybody can click through. `*.localhost` resolves to loopback inside Chrome and Firefox with no
+hosts entry (RFC 6761); on Safari or for a command-line client, add `127.0.0.1 console.localhost` to your hosts
+file. The site still answers on the IP for any client that sends it as SNI, so an existing script keeps working.
+
+Expect a **certificate warning**. That site uses Caddy's internal CA, because a loopback name has no public
+authority for Let's Encrypt to issue a certificate against. A warning on `{DOMAIN}` is a different event entirely
+and should never be dismissed.
+
+> **Verifying it from a shell needs SNI too**, which is what hid this for so long: `curl -k https://127.0.0.1:9443`
+> and `wget --no-check-certificate` both report a healthy console *because* of how they handle the IP, so « the
+> console is up » stayed true of every client except the one it exists for. Test with the name:
+> `curl -k --resolve console.localhost:9443:127.0.0.1 https://console.localhost:9443/login`.
 
 ### Bootstrapping the first account
 

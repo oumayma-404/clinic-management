@@ -31,7 +31,8 @@ parallel with everything else.
       on both platforms in one commit or the two stores hold two different products. Play does not require you to
       own a matching domain. *(This entry used to call the value a « placeholder » and invite changing it; both
       `build.gradle.kts` and `mobile/README.md` had already recorded it as settled.)*
-- [x] **Public app name — SETTLED** as « Gestion Clinique », on every platform.
+- [x] **Public app name — SETTLED** as « APEXA », on every platform. (Was « Gestion Clinique »; the bundle
+  identifier `com.clinicmanagement.shell` was deliberately left alone — see `mobile/README.md`.)
 - [ ] **The domain** the hosted backend runs on, e.g. `app.yourclinic.tn`. Buy it if you have not.
 - [ ] **Who owns the accounts** — Apple, Google Play and the domain should be registered to the *company*, never a
       personal account. Moving them later is painful or impossible.

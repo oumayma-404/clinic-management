@@ -121,6 +121,11 @@ if (existsSync(join(SRC, 'scenes'))) {
 const layout = readFileSync(join(SRC, 'layout.html'), 'utf8')
 const navSrc = readFileSync(join(SRC, 'partials', 'nav.html'), 'utf8')
 const footSrc = readFileSync(join(SRC, 'partials', 'footer.html'), 'utf8')
+/* The mark is a partial of its own because it appears three times per page across TWO other
+   partials. It is substituted after NAV/FOOTER are injected, so the `{{MARK}}` tokens inside
+   them resolve in the same pass — and the leftover-token check below catches a typo'd one. */
+const markSrc = readFileSync(join(SRC, 'partials', 'mark.html'), 'utf8')
+  .replace(/<!--[\s\S]*?-->/g, '').trim()
 
 const pages = walk(join(SRC, 'pages'))
 const built = []
@@ -139,7 +144,7 @@ for (const file of pages) {
 
   for (const [k, v] of Object.entries({
     TITLE: meta.title, DESC: meta.desc, PATH: meta.path,
-    ROOT: meta.root ?? '', BASE,
+    ROOT: meta.root ?? '', BASE, MARK: markSrc,
     BODYCLASS: meta.bodyClass ?? '', BARCLASS: meta.barClass ?? '',
   })) html = html.replaceAll(`{{${k}}}`, v)
 
