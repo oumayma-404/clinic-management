@@ -118,6 +118,8 @@ public sealed class FileMirrorService
                         : $"La liste des fichiers n'a pas pu être lue (code {ManifestFailureCode}).");
             }
 
+            progress?.Report($"{manifest.Count} fichier(s) au cabinet. Vérification de ce qui manque…");
+
             var plan = MirrorPathPlanner.Plan(manifest);
             return await PullAsync(http, token, root, plan, progress, cancellationToken);
         }
@@ -199,10 +201,31 @@ public sealed class FileMirrorService
         var fetched = 0;
         var skipped = 0;
         var missing = 0;
+        var examined = 0;
+
+        // ⚠️ **Time-based, not every-Nth-file.** The report used to fire on `fetched % 10 == 0`, so a run that
+        // copied ONE new file never reported at all and the window sat on « Lecture de la liste des fichiers… »
+        // from start to finish — working perfectly, and indistinguishable from frozen. A clock does not care how
+        // many files there turned out to be, which is the property that was missing.
+        var lastReport = System.Diagnostics.Stopwatch.StartNew();
+        var reportEvery = TimeSpan.FromMilliseconds(400);
+
+        void ReportProgress(string message, bool force = false)
+        {
+            if (!force && lastReport.Elapsed < reportEvery)
+            {
+                return;
+            }
+
+            lastReport.Restart();
+            progress?.Report(message);
+        }
 
         foreach (var item in plan)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            examined++;
 
             var destination = Path.Combine(root, item.RelativePath);
 
@@ -213,6 +236,10 @@ public sealed class FileMirrorService
             if (existing.Exists && existing.Length == item.Entry.FileSize)
             {
                 skipped++;
+
+                // The scan itself is progress. Without this, a cabinet whose files are all already present shows
+                // nothing at all between « Lecture… » and the final line.
+                ReportProgress($"Vérification… {examined} / {plan.Count}");
                 continue;
             }
 
@@ -248,11 +275,8 @@ public sealed class FileMirrorService
             {
                 case FetchOutcome.Written:
                     fetched++;
-                    if (fetched % 10 == 0)
-                    {
-                        progress?.Report($"{fetched} fichier(s) copié(s) sur {plan.Count}…");
-                    }
-
+                    ReportProgress(
+                        $"Téléchargement… {fetched} fichier(s) copié(s) ({examined} / {plan.Count} vérifiés)");
                     break;
 
                 // One blob that cannot be fetched — a pre-US-5 flat key, an object lost in the store — may not
