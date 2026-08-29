@@ -82,7 +82,7 @@ export function DashboardSection({
         {href && action && (
           <Link
             href={href}
-            className="text-xs font-medium text-primary underline-offset-4 hover-hover:hover:underline"
+            className="touch-target inline-flex items-center text-xs font-medium text-primary underline-offset-4 hover-hover:hover:underline"
           >
             {action} →
           </Link>

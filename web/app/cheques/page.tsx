@@ -7,6 +7,7 @@ import { AccessDeniedCard } from "@/components/ui/access-denied-card"
 import { ChequesTable } from "@/components/caisse/cheques-table"
 import { useSession } from "@/lib/auth/session"
 import { hidesClinicWideMoney } from "@/lib/nav"
+import { quoteFr } from "@/lib/format"
 
 /**
  * « Chèques à encaisser » (L8 slice B) — the clinic's uncashed cheques, over both payment ledgers.
@@ -31,7 +32,9 @@ export default function ChequesPage() {
           <>
             <PageHeader
               title="Chèques à encaisser"
-              subtitle="Les chèques que le cabinet détient, du plus urgent au plus lointain — factures et échéanciers confondus. Marquez un chèque « encaissé » une fois porté en banque : il quitte la liste sans qu'aucun montant ne bouge, et reste consultable sous « Encaissés »."
+              /* `quoteFr`, not literal guillemets: with ordinary spaces the closing » broke onto its own
+                 last line at 320 px. The helper uses a narrow no-break space, which is what it is for. */
+              subtitle={`Les chèques que le cabinet détient, du plus urgent au plus lointain — factures et échéanciers confondus. Marquez un chèque ${quoteFr("encaissé")} une fois porté en banque : il quitte la liste sans qu'aucun montant ne bouge, et reste consultable sous ${quoteFr("Encaissés")}.`}
             />
 
             <ChequesTable />

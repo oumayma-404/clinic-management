@@ -1048,7 +1048,9 @@ export default function PatientDetailsPage() {
               {patient.phoneNumber ? (
                 <a
                   href={`tel:${patient.phoneNumber}`}
-                  className="font-medium text-foreground underline-offset-2 hover:underline"
+                  /* `touch-target`: an isolated 20px-tall control, and on a phone it is the one link on this
+                     screen someone actually taps (it dials the patient). */
+                  className="touch-target inline-flex items-center font-medium text-foreground underline-offset-2 hover:underline"
                 >
                   {patient.phoneNumber}
                 </a>

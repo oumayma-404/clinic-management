@@ -257,8 +257,24 @@ export function CardList<T>({
               {rowActions && <div className="relative z-10 shrink-0">{rowActions}</div>}
             </div>
 
+            {/* The heading's `after:inset-0` overlay covers the whole card, so anything interactive placed
+                in a FIELD sits under it. `/lab-orders` puts its « Stade » select here and every tap on it
+                navigated to the patient instead of changing the status — the control measured 110×44, so it
+                passed the touch-target rule and was still unusable.
+
+                ⚠️ Lift only the CONTROLS, not the whole `<dl>`: `relative z-10` on the list itself would put
+                the static field text above the overlay too and kill tap-the-card-to-open on every list in
+                the app. `actions`/`primaryAction`/`leading` are wholly interactive, which is why they get
+                the plain wrapper and this does not. */}
             {rowFields.length > 0 && (
-              <dl className={cn("mt-2 space-y-1", accentColour && "ps-2")}>
+              <dl
+                className={cn(
+                  "mt-2 space-y-1",
+                  "[&_:is(button,select,input,textarea,a,summary,[role=button],[role=combobox],[role=switch],[role=checkbox])]:relative",
+                  "[&_:is(button,select,input,textarea,a,summary,[role=button],[role=combobox],[role=switch],[role=checkbox])]:z-10",
+                  accentColour && "ps-2"
+                )}
+              >
                 {rowFields.map((f) => (
                   <div key={f.label} className="flex items-baseline justify-between gap-3">
                     <dt className="shrink-0 font-mono text-2xs uppercase tracking-[0.07em] text-muted-foreground">

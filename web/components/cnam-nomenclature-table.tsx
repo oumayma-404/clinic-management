@@ -20,7 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { ClipboardList, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2, MoreHorizontal, RotateCcw } from "lucide-react"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import {
@@ -247,7 +247,7 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
             {/* Title is the désignation, not the code: `codeActe` is the key you look an act UP by, but the
                 name is how you recognise it in a list. The code rides as a mono eyebrow. */}
             <CardList
-              className={CARDS_ONLY}
+              className={CARDS_ONLY_LG}
               ariaLabel="Nomenclature CNAM"
               items={entries}
               getKey={(e) => e.id}
@@ -299,7 +299,7 @@ export function CnamNomenclatureTable({ onEdit, onAdd, onChanged, reloadToken }:
               )}
               empty={renderEmpty("compact")}
             />
-            <Table containerClassName={TABLE_ONLY}>
+            <Table containerClassName={TABLE_ONLY_LG}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Code acte</TableHead>

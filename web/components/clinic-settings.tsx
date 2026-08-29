@@ -1141,7 +1141,7 @@ export default function ClinicSettings() {
                     */}
                     {isClinicAdmin && !isEditingDoctors && doctor.id && !doctor.id.startsWith("doctor-") && (
                       <details className="mt-2">
-                        <summary className="cursor-pointer py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+                        <summary className="touch-target cursor-pointer py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
                           Horaires de ce praticien
                         </summary>
                         <div className="mt-2">

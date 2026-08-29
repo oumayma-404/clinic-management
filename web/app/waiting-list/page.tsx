@@ -53,7 +53,7 @@ import {
   UserMinus,
   UserPlus,
 } from "lucide-react"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
@@ -486,7 +486,7 @@ export default function WaitingListPage() {
                 {/* « Promouvoir » stays a visible button rather than sinking into the menu: it is the whole
                     point of the salle d'attente and the one action taken dozens of times a day. */}
                 <CardList
-                  className={CARDS_ONLY}
+                  className={CARDS_ONLY_LG}
                   ariaLabel="Liste d'attente"
                   items={entries}
                   loading={loading}
@@ -545,7 +545,7 @@ export default function WaitingListPage() {
                   )}
                   empty={renderEmpty("compact")}
                 />
-                <Table containerClassName={TABLE_ONLY}>
+                <Table containerClassName={TABLE_ONLY_LG}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Patient</TableHead>
