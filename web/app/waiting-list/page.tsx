@@ -369,7 +369,7 @@ export default function WaitingListPage() {
       <EmptyState
         icon={ClipboardList}
         size={size}
-        title="La liste d'attente est vide"
+        title="La liste d'attente est vide 🪑"
         description="Inscrivez ici les patients qui attendent un créneau : dès qu'une place se libère, « Promouvoir » ouvre le rendez-vous avec le patient déjà sélectionné."
         action={
           <Button onClick={handleAddNew} className="gap-2">

@@ -63,8 +63,13 @@ export function VisitClosureList({
   visits,
   loading = false,
   onChanged,
-  emptyTitle = "Rien à clôturer",
-  emptyDescription = "Toutes les séances passées ont leur présence, leur fiche et leur encaissement.",
+  emptyTitle = "Rien à clôturer 🎉",
+  // ⚠️ Two sentences, and the second is the point. « Toutes les séances passées ont… » states a fact about the
+  // data; on the one screen whose whole job is to list what is *unfinished*, an empty list is an achievement,
+  // and saying so is the difference between « the software found nothing » and « you are up to date ».
+  emptyDescription =
+    "Toutes les séances passées ont leur présence, leur fiche et leur encaissement. " +
+    "Beau travail — le dossier du cabinet est à jour.",
   footer,
 }: VisitClosureListProps) {
   const router = useRouter()
@@ -170,7 +175,6 @@ export function VisitClosureList({
           </>
         ) : visits.length === 0 ? (
           <EmptyState
-            size="compact"
             icon={ClipboardCheck}
             title={emptyTitle}
             description={emptyDescription}
