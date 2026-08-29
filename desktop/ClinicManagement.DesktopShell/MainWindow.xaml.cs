@@ -20,6 +20,12 @@ public partial class MainWindow : Window
     private string _latestKnownVersion = string.Empty;
 
     /// <summary>
+    /// The update that is downloaded and waiting, or <c>null</c>. Held because applying it is a separate act the
+    /// user asks for — see <c>ShellUpdater.ApplyAndRestart</c>.
+    /// </summary>
+    private Velopack.UpdateInfo? _stagedUpdate;
+
+    /// <summary>
     /// Guards the update path against re-entry — a timer tick landing on a download already in progress, or a
     /// second press of the wall's button.
     ///
@@ -389,10 +395,14 @@ public partial class MainWindow : Window
     /// noticed a release published on Tuesday. A practice does not reboot its reception machine to find out about
     /// updates.</para>
     ///
-    /// <para>⚠️ Two hours rather than the mirror's thirty minutes: a release happens a few times a year and the
-    /// check is one HTTP call. Being current within the working day is the whole requirement.</para>
+    /// <para>⚠️ <b>Thirty minutes, matching the file mirror in this same file — and it started at two hours,
+    /// which was wrong for a reason worth recording.</b> The reasoning was « a release happens a few times a year,
+    /// so being current within the working day is enough ». True, and it still made the feature feel broken: a
+    /// release published three minutes after somebody opened the app was then invisible for the rest of the
+    /// morning, which is indistinguishable from an updater that does not work. The check is one small JSON GET
+    /// against the clinic's own server; there is nothing to be stingy with.</para>
     /// </summary>
-    private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(2);
+    private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromMinutes(30);
 
     private System.Windows.Threading.DispatcherTimer? _updateTimer;
 
@@ -700,6 +710,7 @@ public partial class MainWindow : Window
                 return;
             }
 
+            _stagedUpdate = outcome.Info;
             ShowUpdateStaged(outcome.StagedVersion);
         }
         catch (Exception)
@@ -732,10 +743,43 @@ public partial class MainWindow : Window
         }
 
         UpdateNoticeText.Text =
-            $"La version {version} est prête. Elle s'installera automatiquement au prochain démarrage " +
-            "d'APEXA — vous n'avez rien à faire.";
-        UpdateNoticeDownloadButton.Visibility = Visibility.Collapsed;
+            $"La version {version} est prête à être installée. APEXA redémarrera — terminez ce que vous faites, " +
+            "puis installez-la quand cela vous convient.";
+        UpdateNoticeDownloadButton.Visibility = Visibility.Visible;
         UpdateNoticeBar.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// « Installer et redémarrer » — the user's decision, not ours.
+    ///
+    /// <para>⚠️ The download already happened, silently, so this is only the swap-and-restart. It is deliberately
+    /// the ONLY thing that replaces a running APEXA outside the version wall: an update applied on somebody's
+    /// behalf mid-appointment is the interruption this product avoids everywhere else.</para>
+    ///
+    /// <para>⚠️ Nothing after <c>ApplyAndRestart</c> runs when it succeeds — the process is replaced. A failure
+    /// leaves the strip and the button as they were, because a staged update stays staged and retrying costs
+    /// nothing.</para>
+    /// </summary>
+    private void InstallUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_stagedUpdate is null || _updateInProgress)
+        {
+            return;
+        }
+
+        _updateInProgress = true;
+        UpdateNoticeDownloadButton.IsEnabled = false;
+        UpdateNoticeText.Text = "Installation…";
+
+        if (ShellUpdater.ApplyAndRestart(_stagedUpdate))
+        {
+            return; // The process is being replaced.
+        }
+
+        _updateInProgress = false;
+        UpdateNoticeDownloadButton.IsEnabled = true;
+        UpdateNoticeText.Text =
+            "L'installation n'a pas pu démarrer. La mise à jour reste téléchargée — vous pouvez réessayer.";
     }
 
     private void DismissUpdateNotice_Click(object sender, RoutedEventArgs e)

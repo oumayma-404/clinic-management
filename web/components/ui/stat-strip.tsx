@@ -126,7 +126,17 @@ export function Stat({ label, value, hint, icon: Icon, tone, loading, onSelect, 
       {loading ? (
         <span className="mt-1.5 block h-7 w-24 max-w-full animate-pulse rounded bg-muted" aria-label="Chargement" />
       ) : (
-        <span className={cn("mt-1.5 block text-xl font-semibold tabular-nums tracking-tight", ink)}>{value}</span>
+        /* `whitespace-nowrap`: the label above deliberately wraps, but a FIGURE must not — at 320 px
+           « 30 046,200 DT » broke after the number and left « DT » alone on the next line, which reads as a
+           second value. The figure is short enough to never need the wrap. */
+        <span
+          className={cn(
+            "mt-1.5 block whitespace-nowrap text-xl font-semibold tabular-nums tracking-tight",
+            ink
+          )}
+        >
+          {value}
+        </span>
       )}
       {hint && <span className="mt-0.5 block text-xs text-muted-foreground">{hint}</span>}
     </>

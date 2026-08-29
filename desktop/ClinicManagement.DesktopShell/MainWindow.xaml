@@ -26,9 +26,9 @@
                 <Button x:Name="UpdateNoticeDismissButton" DockPanel.Dock="Right" Content="✕"
                         Style="{StaticResource ShellGhostButton}"
                         ToolTip="Masquer" Click="DismissUpdateNotice_Click"/>
-                <Button x:Name="UpdateNoticeDownloadButton" DockPanel.Dock="Right" Content="Mettre à jour maintenant"
+                <Button x:Name="UpdateNoticeDownloadButton" DockPanel.Dock="Right" Content="Installer et redémarrer"
                         Style="{StaticResource ShellButton}" Padding="12,4" Margin="12,0,0,0"
-                        Click="DownloadUpdate_Click"/>
+                        Click="InstallUpdate_Click"/>
                 <TextBlock x:Name="UpdateNoticeText" VerticalAlignment="Center"
                            Foreground="{DynamicResource ShellNoticeInk}" TextWrapping="Wrap"/>
             </DockPanel>

@@ -20,7 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Pill, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2, MoreHorizontal, RotateCcw } from "lucide-react"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import {
@@ -245,7 +245,7 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
               horizontal scroller nested around the first — the wrapper now carries only the refetch dimming. */}
           <div className={refreshing ? "opacity-60 transition-opacity" : undefined}>
             <CardList
-              className={CARDS_ONLY}
+              className={CARDS_ONLY_LG}
               ariaLabel="Catalogue de médicaments"
               items={medications}
               getKey={(m) => m.id}
@@ -296,7 +296,7 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
               )}
               empty={renderEmpty("compact")}
             />
-            <Table containerClassName={TABLE_ONLY}>
+            <Table containerClassName={TABLE_ONLY_LG}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Nom commercial</TableHead>

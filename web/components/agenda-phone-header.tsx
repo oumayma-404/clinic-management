@@ -395,7 +395,15 @@ export function AgendaPhoneHeader({
       {/* 7-day strip — tap a day to go to it. Hidden while the mini-month is open (it would say the same thing),
           and in Mois, where the grid below already shows this week among all the others. */}
       {!monthPickerOpen && !isMonthView && (
-        <div className="mt-1.5 grid grid-cols-7 gap-0.5 px-2">
+        /* At 320 px the seven cells measured ~37 px wide — under the § 2 floor, on the control this header
+            exists for. The height floor above was reasoned about; the width never was.
+
+            ⚠️ Trimming the padding and the gap is NOT enough, and that is arithmetic rather than taste:
+            `AppShell`'s `<main>` gutter is 16 px a side, so the strip gets 288 px and seven cells cap at
+            41 px even edge to edge. Meeting 44 means reclaiming the gutter, so below 360 px the strip goes
+            full-bleed (`-mx-4`) — the one place in the app that does. Above 360 px there is room and it
+            returns to the normal gutter, so the bleed is invisible on every ordinary phone. */
+        <div className="-mx-4 mt-1.5 grid grid-cols-7 gap-0 px-1 min-[360px]:mx-0 min-[360px]:gap-0.5 min-[360px]:px-2">
           {weekDays.map((day) => {
             const selected = isSameDay(day, selectedDate)
             const count = countFor(day)

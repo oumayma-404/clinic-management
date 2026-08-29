@@ -11,7 +11,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Users, Flag, FileText, Folder, Trash2, Pencil, MoreHorizontal, Plus, SearchX, Archive } from "lucide-react"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
 import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
@@ -383,7 +383,7 @@ export function PatientsTable({
             strobe the table between keystrokes. */}
         <div className={refreshing ? "opacity-60 transition-opacity" : undefined}>
           {/*
-            ⚠️ The table skeleton is `TABLE_ONLY`, and the card list does its OWN loading state.
+            ⚠️ The table skeleton is `TABLE_ONLY_LG`, and the card list does its OWN loading state.
 
             This branch used to short-circuit above `<CardList>` entirely, so a phone waited on six grey slivers
             in a shape it never renders and then watched the region turn into a stack of cards — the page changed
@@ -394,7 +394,7 @@ export function PatientsTable({
             announced once via aria-label rather than per cell), mirroring `PATIENT_COLUMN_WIDTHS`.
           */}
           {loading && (
-            <div className={`${TABLE_ONLY} space-y-3`} role="status" aria-label="Chargement des patients">
+            <div className={`${TABLE_ONLY_LG} space-y-3`} role="status" aria-label="Chargement des patients">
               <div className="flex gap-4 border-b pb-3">
                 {PATIENT_COLUMN_WIDTHS.map((width, i) => (
                   <div key={i} className={`h-4 animate-pulse rounded bg-muted ${width}`} />
@@ -415,7 +415,7 @@ export function PatientsTable({
             line that says "there is nothing here" costs the same space as one that says something.
           */}
           <CardList
-            className={CARDS_ONLY}
+            className={CARDS_ONLY_LG}
             ariaLabel="Patients"
             loading={loading}
             skeletonRows={6}
@@ -507,7 +507,7 @@ export function PatientsTable({
           />
           {!loading && (
             <>
-          <Table containerClassName={TABLE_ONLY}>
+          <Table containerClassName={TABLE_ONLY_LG}>
             <TableHeader>
               <TableRow>
                 <TableHead>Nom</TableHead>

@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { BellOff, SearchX, Send } from "lucide-react"
 import { STATUS_TONE_CLASS, STATUS_TONE_INK, STATUS_TONE_RAIL } from "@/components/ui/status-tone"
@@ -159,7 +159,7 @@ export function ReminderLogTable({
           a failure actionable, and the comment below records that a tooltip is unreachable on the tablet a
           dentist actually holds. A card list would have been an easy place to lose it. */}
       <CardList
-        className={CARDS_ONLY}
+        className={CARDS_ONLY_LG}
         ariaLabel="Journal des rappels"
         items={rows}
         getKey={(r) => r.id}
@@ -193,7 +193,7 @@ export function ReminderLogTable({
           { label: "Envoyé", value: r.sentAt ? formatDateTime(r.sentAt) : null },
         ]}
       />
-      <Table containerClassName={TABLE_ONLY}>
+      <Table containerClassName={TABLE_ONLY_LG}>
         <TableHeader>
           {/* Headers a step quieter than the data: mono, uppercase, muted. In the stock primitive they are
               `text-foreground`, i.e. as black as the values, so the eye cannot tell which is the content. */}

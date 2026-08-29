@@ -89,7 +89,9 @@ export function ProcedureMixChart({
               aria-pressed={effective === m}
               onClick={() => setMeasure(m)}
               className={cn(
-                "min-h-8 rounded-full px-3 text-xs font-medium transition-colors coarse:min-h-10 coarse:px-4",
+                // `coarse:min-h-11` (44px), not `min-h-10` (40px): the floor is 44, and this segmented
+                // control was the one place on the dashboard that sat under it.
+                "min-h-8 rounded-full px-3 text-xs font-medium transition-colors coarse:min-h-11 coarse:px-4",
                 effective === m
                   ? "bg-primary font-semibold text-primary-foreground"
                   : "text-muted-foreground hover-hover:hover:text-foreground",

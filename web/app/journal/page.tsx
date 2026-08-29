@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { EmptyState } from "@/components/ui/empty-state"
 import { useSession } from "@/lib/auth/session"
@@ -289,7 +289,7 @@ export default function JournalPage() {
               <>
                 {/* Two trees, not a reflow: a `display:block` table strips the implicit roles, and a screen
                     reader would announce « Dr Ben Ali Patient Suppression 12/03 » with no field names. */}
-                <div className={TABLE_ONLY}>
+                <div className={TABLE_ONLY_LG}>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -325,7 +325,7 @@ export default function JournalPage() {
                   </Table>
                 </div>
 
-                <div className={CARDS_ONLY}>
+                <div className={CARDS_ONLY_LG}>
                   <CardList
                     items={entries}
                     ariaLabel="Journal d'activité"

@@ -46,8 +46,11 @@ public static class ShellUpdater
     /// </summary>
     private const string FeedPath = "/api/meta/client-feed";
 
-    /// <summary>What was found, for the caller to state on screen. All-null means « nothing to do ».</summary>
-    public sealed record Outcome(string? StagedVersion, bool AlreadyStaged);
+    /// <summary>
+    /// A newer build, downloaded and waiting. <c>Info</c> is kept because applying it is a SEPARATE act the user
+    /// asks for — see <see cref="ApplyAndRestart"/>.
+    /// </summary>
+    public sealed record Outcome(string StagedVersion, UpdateInfo Info);
 
     /// <summary>
     /// Checks the server's feed and, if there is a newer build, downloads it and stages it. Returns the version
@@ -84,12 +87,34 @@ public static class ShellUpdater
                 .DownloadUpdatesAsync(update, p => progress?.Report(p))
                 .ConfigureAwait(false);
 
-            return new Outcome(version, AlreadyStaged: false);
+            return new Outcome(version, update);
         }
         catch (Exception)
         {
             // Stated on the type: silent, always. There is nothing here a clinic can act on.
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Applies an already-downloaded update and restarts into it. Replaces this process; nothing after it runs.
+    ///
+    /// <para>⚠️ <b>Only ever called because somebody pressed a button.</b> Downloading in the background asks
+    /// nothing of anybody and is safe at any moment; replacing the running application is not the same act, and
+    /// deciding it on a user's behalf mid-consultation is the interruption this product avoids everywhere else.
+    /// The staged update simply waits until it is convenient.</para>
+    /// </summary>
+    public static bool ApplyAndRestart(UpdateInfo info)
+    {
+        try
+        {
+            var manager = new UpdateManager(new SimpleWebSource("http://localhost/unused"));
+            manager.ApplyUpdatesAndRestart(info.TargetFullRelease);
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
         }
     }
 

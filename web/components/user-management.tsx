@@ -37,7 +37,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal } from "lucide-react"
 import { ZONES, zoneChipClass } from "@/lib/zones"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -422,7 +422,13 @@ export function UserManagement() {
                 introduced to avoid. Below `sm:` it now takes its own full-width row under the title; from `sm:` up
                 nothing changes. */}
             {canCreateAccounts && (
-              <CardAction className="col-span-full w-full sm:col-span-1 sm:w-auto sm:justify-self-end">
+              /* ⚠️ `col-span-full` ALONE never worked. `CardAction` ships `col-start-2 row-start-1
+                  row-span-2` (ui/card.tsx), and `col-start` / `row-start` / `row-span` are each a different
+                  tailwind-merge group from `col-span` — so none of them was overridden, all four survived,
+                  and the button stayed pinned beside the title at every width below `sm:` while header row 2
+                  sat permanently empty (measured `grid-template-rows: "96px 0px"`). Every placement axis the
+                  primitive sets has to be reset here, and restored at `sm:`. */
+              <CardAction className="col-span-full col-start-1 row-span-1 row-start-2 w-full sm:col-span-1 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:w-auto sm:justify-self-end">
                 <Button
                   size="sm"
                   className="w-full gap-2 sm:w-auto"
@@ -497,7 +503,7 @@ export function UserManagement() {
                       two and lose the current value from view; keeping it as a field keeps both.
                 */}
                 <CardList
-                  className={CARDS_ONLY}
+                  className={CARDS_ONLY_LG}
                   ariaLabel="Utilisateurs du cabinet"
                   items={users}
                   getKey={(u) => u.id}
@@ -595,7 +601,7 @@ export function UserManagement() {
                     debouncedSearch ? "Aucun utilisateur ne correspond à votre recherche" : "Aucun utilisateur"
                   }
                 />
-                <Table containerClassName={TABLE_ONLY}>
+                <Table containerClassName={TABLE_ONLY_LG}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Nom</TableHead>

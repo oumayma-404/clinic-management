@@ -20,7 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { ClipboardList, Pencil, Trash2, Plus, AlertTriangle, CheckCircle2, MoreHorizontal, RotateCcw } from "lucide-react"
-import { CardList, CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import {
@@ -266,7 +266,7 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
                 raw — the primitive drops a nullish value, so the « — » placeholders the table needs to keep
                 its columns aligned simply do not appear on a card (AC-17). */}
             <CardList
-              className={CARDS_ONLY}
+              className={CARDS_ONLY_LG}
               ariaLabel="Catalogue d'actes dentaires"
               items={acts}
               getKey={(a) => a.id}
@@ -324,7 +324,7 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
               )}
               empty={renderEmpty("compact")}
             />
-            <Table containerClassName={TABLE_ONLY}>
+            <Table containerClassName={TABLE_ONLY_LG}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Code acte</TableHead>

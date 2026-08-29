@@ -25,17 +25,19 @@ public partial class App : Application
     /// </para>
     ///
     /// <para>
-    /// ⚠️ <b><c>SetAutoApplyOnStartup(true)</c> is what makes the flow silent.</b> A staged update is applied on
-    /// the next launch with nobody asked anything — the behaviour every desktop application has. The shell
-    /// therefore never closes itself mid-consultation to finish an update, which is the one thing a « restart
-    /// now » prompt cannot avoid asking for.
+    /// ⚠️ <b><c>SetAutoApplyOnStartup(false)</c>, deliberately — and it was `true` first, which was wrong.</b>
+    /// Downloading a newer build in the background asks nothing of anybody. <i>Applying</i> it is a different
+    /// act: it replaces the application somebody is using, and deciding that on their behalf is not the same
+    /// favour as fetching it for them. So the update waits, and the strip offers « Installer et redémarrer » —
+    /// which is what VS Code and Slack do too. The one exception is the version wall, where the app does not
+    /// work at all and there is nothing to interrupt.
     /// </para>
     /// </summary>
     protected override void OnStartup(StartupEventArgs e)
     {
         // ⚠️ Nothing above this line, and nothing between it and base.OnStartup that shows UI.
         VelopackApp.Build()
-            .SetAutoApplyOnStartup(true)
+            .SetAutoApplyOnStartup(false)
             .Run();
 
         base.OnStartup(e);
