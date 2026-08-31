@@ -60,6 +60,9 @@ public static class PatientMappingExtensions
             IsArchived = patient.IsArchived,
             ArchivedAt = patient.ArchivedAt,
             ArchiveReason = patient.ArchiveReason,
+            ReminderConsent = patient.ReminderConsent,
+            ReminderConsentRecordedAtUtc = patient.ReminderConsentRecordedAtUtc,
+            ReminderConsentRecordedBy = patient.ReminderConsentRecordedBy,
             CreatedAt = patient.CreatedAt,
             Version = patient.Version,
             Flags = includeFlags ? patient.Flags.Select(f => f.ToDto()).ToList() : new List<PatientFlagDto>()

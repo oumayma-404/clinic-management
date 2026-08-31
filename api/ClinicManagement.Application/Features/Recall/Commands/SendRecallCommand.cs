@@ -112,6 +112,12 @@ public class SendRecallCommandHandler : IRequestHandler<SendRecallCommand, Resul
         // it was paired with. It is deliberately NOT the no-channel sentence above, which would tell the practice to
         // configure a channel it has already configured.
         RecallDispatchOutcome.MessagingAllowanceExhausted => MessagingRefusals.RecallExhausted,
+        // Deliberately says nothing about the phone number: the number is fine, and « corrigez le numéro » is
+        // the one action that must not put this message back in the queue.
+        RecallDispatchOutcome.ReminderConsentRefused =>
+            "Ce patient a refusé les rappels automatiques : la relance n'a pas été envoyée. "
+            + "Contactez-le par téléphone, puis utilisez « Marquer comme contacté ». Son choix se modifie "
+            + "dans sa fiche, section « Rappels automatiques »." ,
         _ =>
             "La relance n'a pas pu être mise en file d'envoi. Le patient reste dans la liste des relances ; "
             + "réessayez dans quelques instants.",

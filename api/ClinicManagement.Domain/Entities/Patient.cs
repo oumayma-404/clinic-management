@@ -70,6 +70,29 @@ public class Patient : AggregateRoot<Guid>
     public string? RecallReason { get; private set; }
     public DateTime? LastRecallContactedAt { get; private set; }
 
+    // Consent to be contacted by SMS/WhatsApp. Recording a phone number used to enrol the patient into
+    // reminders with no way for anyone — the patient or the cabinet — to opt out; this is that way out.
+    //
+    // ⚠️ The two stamps are not decoration. « Le patient a refusé » with nobody's name and no date is not a
+    // consent record a cabinet can defend to the INPDP, and it is the half that is always dropped as
+    // unnecessary. Written together in SetReminderConsent so they cannot drift apart.
+    public PatientReminderConsent ReminderConsent { get; private set; } = PatientReminderConsent.NotRecorded;
+    public DateTime? ReminderConsentRecordedAtUtc { get; private set; }
+    public string? ReminderConsentRecordedBy { get; private set; }
+
+    /// <summary>
+    /// May this patient be sent an automated reminder or recall at all?
+    ///
+    /// <para>⚠️ <b>This is the ONLY place the consent enum is turned into a yes/no</b>, and every enqueue path
+    /// must ask it rather than compare the enum itself. A second `!= Refused` written at a call site is how a
+    /// later state (a withdrawal, an expiry) gets honoured in one place and ignored in the other — the failure
+    /// this repository produces most often. <c>ReminderConsentCoverageTests</c> is the derived guard.</para>
+    ///
+    /// <para>See <see cref="PatientReminderConsent.NotRecorded"/> for why an unasked patient is still
+    /// reachable.</para>
+    /// </summary>
+    public bool AcceptsReminders => ReminderConsent != PatientReminderConsent.Refused;
+
     // Archiving (data-and-money-integrity, AC-7..AC-9). Deleting a patient is refused whenever any clinical or
     // financial record is attached — which would otherwise leave no way at all to remove a duplicate or a
     // test entry, since this app has no merge and no soft delete. Archiving is that escape hatch: the patient
@@ -180,6 +203,38 @@ public class Patient : AggregateRoot<Guid>
     {
         Email = email;
         PhoneNumber = phoneNumber;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Record the patient's answer about automated reminders, with who asked and when.
+    ///
+    /// <para>⚠️ <b>Deliberately NOT folded into <see cref="UpdateContact"/>.</b> Changing a phone number is not
+    /// a consent event, and a patient who refused keeps refusing when reception corrects a typo in their
+    /// number. Tying the two together would silently reset a refusal on an unrelated edit — exactly the
+    /// « auto-enrol on a phone number » behaviour this exists to end.</para>
+    ///
+    /// <para><paramref name="recordedBy"/> is the staff member who took the answer. It is stored as free text
+    /// rather than a user id on purpose: the account may be deleted years before the record is questioned, and
+    /// a consent record that dangles is worse than one naming somebody who has left.</para>
+    /// </summary>
+    public void SetReminderConsent(PatientReminderConsent consent, DateTime nowUtc, string? recordedBy)
+    {
+        ReminderConsent = consent;
+
+        // « Not recorded » is the absence of an answer, so it carries no stamps — leaving the old ones would
+        // assert that somebody recorded a non-answer at a date.
+        if (consent == PatientReminderConsent.NotRecorded)
+        {
+            ReminderConsentRecordedAtUtc = null;
+            ReminderConsentRecordedBy = null;
+        }
+        else
+        {
+            ReminderConsentRecordedAtUtc = nowUtc;
+            ReminderConsentRecordedBy = string.IsNullOrWhiteSpace(recordedBy) ? null : recordedBy.Trim();
+        }
+
         UpdatedAt = DateTime.UtcNow;
     }
 

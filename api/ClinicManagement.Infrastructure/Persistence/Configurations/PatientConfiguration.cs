@@ -137,6 +137,18 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
 
         builder.Property(p => p.LastRecallContactedAt);
 
+        // Reminder consent. HasDefaultValue(NotRecorded) for IsArchived's reason below: it is what makes the
+        // migration emit NOT NULL DEFAULT 0, so the column lands on a populated table with no backfill — and
+        // 0 is precisely the honest value for every patient recorded before anyone was asked.
+        builder.Property(p => p.ReminderConsent)
+            .IsRequired()
+            .HasDefaultValue(PatientReminderConsent.NotRecorded);
+
+        builder.Property(p => p.ReminderConsentRecordedAtUtc);
+
+        builder.Property(p => p.ReminderConsentRecordedBy)
+            .HasMaxLength(200);
+
         // Archiving (data-and-money-integrity). HasDefaultValue(false) is what makes the migration emit
         // NOT NULL DEFAULT false, so the column lands on a populated table without a backfill.
         builder.Property(p => p.IsArchived)

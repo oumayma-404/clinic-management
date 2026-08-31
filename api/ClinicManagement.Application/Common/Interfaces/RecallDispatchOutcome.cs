@@ -40,5 +40,16 @@ public enum RecallDispatchOutcome
     /// is <see cref="Enqueued"/> and <b>not</b> refused (AC-5.3): a channel being exhausted is not the same as having
     /// no channel, and the WhatsApp row is simply held at dispatch.</para>
     /// </summary>
-    MessagingAllowanceExhausted = 5
+    MessagingAllowanceExhausted = 5,
+
+    /// <summary>
+    /// The patient has refused automated reminders, so nothing was queued and nothing ever will be while that
+    /// stands.
+    ///
+    /// <para>⚠️ <b>Its own outcome rather than reusing <see cref="NoDeliverablePhone"/></b>, for the reason
+    /// <see cref="MessagingAllowanceExhausted"/> is not <see cref="NoChannelConfigured"/>: the phone sentence
+    /// tells reception to go and fix a number, and fixing the number is precisely what must NOT make the
+    /// message go out. A refusal is answered by calling the patient, not by editing their record.</para>
+    /// </summary>
+    ReminderConsentRefused = 6
 }

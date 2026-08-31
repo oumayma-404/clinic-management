@@ -399,6 +399,14 @@ export interface InvoiceLineDto {
 }
 
 /** The unified per-patient balance (« Solde patient ») across invoices + installments, plus the CNAM split. */
+/**
+ * A patient's answer about automated SMS/WhatsApp reminders.
+ *
+ * Tri-state on purpose: « refusé » and « jamais demandé » are different facts, and a boolean cannot hold both —
+ * the cabinet needs to see who still owes an answer.
+ */
+export type ReminderConsent = "NotRecorded" | "Granted" | "Refused";
+
 export interface PatientBillingSummaryDto {
   invoiceOutstanding: number;
   installmentOutstanding: number;
@@ -745,6 +753,17 @@ export interface PatientDto {
    * On update: omit to leave unchanged, send `""` to clear.
    */
   referredBy?: string | null;
+  /**
+   * Whether the patient agreed to automated SMS/WhatsApp reminders.
+   *
+   * ⚠️ `NotRecorded` **still receives reminders** — it means « nobody has asked yet », not « no ». Every patient
+   * on file before this existed is in that state, and treating it as a refusal would have muted every cabinet
+   * on the day it shipped. Only `Refused` stops a message.
+   */
+  reminderConsent?: ReminderConsent;
+  /** When the answer was taken, and by whom. Null while `reminderConsent` is `NotRecorded`. */
+  reminderConsentRecordedAtUtc?: string | null;
+  reminderConsentRecordedBy?: string | null;
   /**
    * Patient-level notes — what to be reminded of on every visit, as opposed to a dental record's notes, which
    * describe one séance. On update: omit to leave unchanged, send `""` to clear.

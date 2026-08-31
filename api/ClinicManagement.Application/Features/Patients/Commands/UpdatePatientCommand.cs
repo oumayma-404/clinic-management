@@ -114,6 +114,12 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
 
     // "Signaler ce patient" toggle + note. null = leave the flag state unchanged (backward-compatible with
     // callers that don't send it); true = ensure an active flag; false = clear any active flag.
+    /// <summary>
+    /// The patient's answer about automated SMS/WhatsApp reminders. <b>Omitted means unchanged</b>, like every
+    /// other key on this command — sending <c>NotRecorded</c> explicitly is how an answer is un-recorded.
+    /// </summary>
+    public PatientReminderConsent? ReminderConsent { get; set; }
+
     public bool? IsFlagged { get; set; }
     public string? FlagNotes { get; set; }
 }
@@ -126,15 +132,18 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
     private readonly IPatientRepository _patientRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IClinicContext _clinicContext;
 
     public UpdatePatientCommandHandler(
         IPatientRepository patientRepository,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IClinicContext clinicContext)
     {
         _patientRepository = patientRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _clinicContext = clinicContext;
     }
 
     public async Task<Result<PatientDto>> Handle(UpdatePatientCommand request, CancellationToken cancellationToken)
@@ -305,6 +314,14 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                 patient.UpdateNotes(
                     request.Notes ?? patient.Notes,
                     request.ImportantNotes ?? patient.ImportantNotes);
+            }
+
+            // Reminder consent. Its own key and its own mutator: it must NOT ride along with the phone number,
+            // or correcting a typo in the number would quietly re-enrol a patient who had refused.
+            if (request.ReminderConsent.HasValue)
+            {
+                patient.SetReminderConsent(
+                    request.ReminderConsent.Value, DateTime.UtcNow, _clinicContext.GetUserEmail());
             }
 
             // Patient flag ("Signaler ce patient"): a single active HighPriority flag carries the toggle

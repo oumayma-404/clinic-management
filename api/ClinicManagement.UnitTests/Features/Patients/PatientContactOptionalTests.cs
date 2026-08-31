@@ -287,7 +287,7 @@ public class PatientContactOptionalTests
     private async Task<Result<PatientDto>> UpdateAsync(UpdatePatientCommand command)
     {
         var handler = new UpdatePatientCommandHandler(
-            _patients.Object, _clinicResolver.Object, _uow.Object);
+            _patients.Object, _clinicResolver.Object, _uow.Object, new Mock<IClinicContext>().Object);
         return await handler.Handle(command, CancellationToken.None);
     }
 }

@@ -95,7 +95,16 @@ public class ReminderScheduler : IReminderScheduler
         {
             // Gate at ENQUEUE, not at dispatch. A patient with no deliverable phone can never receive this,
             // so queuing it only fills the outbox with rows that fail hours later for a reason nobody acts on.
-            if (!await HasDeliverablePhoneAsync(patientId, cancellationToken))
+            var reachability = await ReachabilityOfAsync(patientId, cancellationToken);
+            if (reachability == PatientReachability.ConsentRefused)
+            {
+                _logger.LogInformation(
+                    "Skipped a recall for patient {PatientId}: the patient refused automated reminders.",
+                    patientId);
+                return RecallDispatchOutcome.ReminderConsentRefused;
+            }
+
+            if (reachability == PatientReachability.NoDeliverablePhone)
             {
                 _logger.LogInformation(
                     "Skipped a recall for patient {PatientId}: no deliverable phone number.", patientId);
@@ -168,12 +177,19 @@ public class ReminderScheduler : IReminderScheduler
         ISet<Guid> voidedRowIds,
         CancellationToken cancellationToken)
     {
-        // Same enqueue-time gate as the recall path: no deliverable phone, no row.
-        if (!await HasDeliverablePhoneAsync(patientId, cancellationToken))
+        // Same enqueue-time gate as the recall path, through the same method: no consent or no deliverable
+        // phone, no row. This path has no outcome to return — it is called while an appointment is being
+        // saved — so the distinction lives only in the log line.
+        var reachability = await ReachabilityOfAsync(patientId, cancellationToken);
+        if (reachability != PatientReachability.Reachable)
         {
             _logger.LogInformation(
-                "Skipped reminders for appointment {AppointmentId}: patient {PatientId} has no deliverable phone number.",
-                appointmentId, patientId);
+                "Skipped reminders for appointment {AppointmentId}: patient {PatientId} is {Reason}.",
+                appointmentId,
+                patientId,
+                reachability == PatientReachability.ConsentRefused
+                    ? "opted out of automated reminders"
+                    : "without a deliverable phone number");
             return;
         }
 
@@ -261,9 +277,50 @@ public class ReminderScheduler : IReminderScheduler
     /// missing is treated as unreachable rather than throwing: this whole class is best-effort.
     /// </summary>
     private async Task<bool> HasDeliverablePhoneAsync(Guid patientId, CancellationToken cancellationToken)
+        => await ReachabilityOfAsync(patientId, cancellationToken) == PatientReachability.Reachable;
+
+    /// <summary>
+    /// Why can — or cannot — this patient be sent an automated message? <b>One read, one answer, consulted by
+    /// every enqueue path.</b>
+    ///
+    /// <para>⚠️ Consent is checked <b>here</b>, beside the phone, rather than at each call site. The two
+    /// questions have the same shape (« is there any point queuing this? »), the same failure mode (a row that
+    /// can never resolve, or worse, one that reaches somebody who said no), and the same cost if they disagree.
+    /// Two enqueue paths exist today; a third would be written against this method, and
+    /// <c>ReminderConsentCoverageTests</c> fails if one is written against the repository instead.</para>
+    ///
+    /// <para>A patient that has gone missing reads as unreachable rather than throwing — this whole class is
+    /// best-effort — and a missing patient is also, correctly, not someone to message.</para>
+    /// </summary>
+    private async Task<PatientReachability> ReachabilityOfAsync(
+        Guid patientId, CancellationToken cancellationToken)
     {
         var patient = await _patients.GetByIdAsync(patientId, cancellationToken);
-        return patient?.PhoneNumber != null && PhoneNumber.IsDeliverable(patient.PhoneNumber.Value);
+
+        if (patient is null)
+        {
+            return PatientReachability.NoDeliverablePhone;
+        }
+
+        // ⚠️ Consent is asked FIRST, and the order is the point. A refusal is a standing instruction about the
+        // person, not about the number on file: reporting « no valid phone » to a patient who refused would
+        // send reception off to correct a number that is not the reason, and « corriger le numéro » is exactly
+        // the action that would re-enrol them under the old behaviour.
+        if (!patient.AcceptsReminders)
+        {
+            return PatientReachability.ConsentRefused;
+        }
+
+        return patient.PhoneNumber != null && PhoneNumber.IsDeliverable(patient.PhoneNumber.Value)
+            ? PatientReachability.Reachable
+            : PatientReachability.NoDeliverablePhone;
+    }
+
+    private enum PatientReachability
+    {
+        Reachable,
+        NoDeliverablePhone,
+        ConsentRefused,
     }
 
     // Removes every unsent reminder row for the appointment; Sent/Failed rows are left untouched.

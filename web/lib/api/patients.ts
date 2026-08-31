@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
-import type { CnamInfo, PatientDto, PatientDeletionCheckDto } from './types';
+import type { CnamInfo, PatientDto, PatientDeletionCheckDto, ReminderConsent } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export const patientsApi = {
@@ -102,6 +102,11 @@ export const patientsApi = {
     emergencyContactPhone?: string;
     /** « Adressé par » — the referring practitioner, free text. */
     referredBy?: string;
+    /**
+     * The patient's answer about automated reminders. Omit at registration when nobody asked — the server then
+     * stores « non renseigné » with no date, rather than an answer that was never given.
+     */
+    reminderConsent?: ReminderConsent;
     /** Patient-level notes; `importantNotes` is shown highlighted on the patient's file. */
     notes?: string;
     importantNotes?: string;

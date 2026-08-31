@@ -64,6 +64,12 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     public List<FamilyHistoryEntryDto>? FamilyHistoryEntries { get; set; }
 
     // "Signaler ce patient" toggle + note at creation (feeds the "Urgents" KPI / flagged filter).
+    /// <summary>
+    /// The patient's answer about automated SMS/WhatsApp reminders, if it was taken at registration. Omitted
+    /// leaves it <c>NotRecorded</c> — an honest « nobody has asked yet », not a silent yes.
+    /// </summary>
+    public PatientReminderConsent? ReminderConsent { get; set; }
+
     public bool? IsFlagged { get; set; }
     public string? FlagNotes { get; set; }
 
@@ -271,6 +277,9 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                 EmergencyContactName = patient.EmergencyContactName,
                 EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
                 ReferredBy = patient.ReferredBy,
+                ReminderConsent = patient.ReminderConsent,
+                ReminderConsentRecordedAtUtc = patient.ReminderConsentRecordedAtUtc,
+                ReminderConsentRecordedBy = patient.ReminderConsentRecordedBy,
                 Notes = patient.Notes,
                 ImportantNotes = patient.ImportantNotes,
                 CreatedAt = patient.CreatedAt,

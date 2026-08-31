@@ -1,3 +1,4 @@
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Application.DTOs;
@@ -72,6 +73,15 @@ public class PatientDto
     public bool IsArchived { get; set; }
     public DateTime? ArchivedAt { get; set; }
     public string? ArchiveReason { get; set; }
+
+    /// <summary>
+    /// Whether the patient agreed to automated SMS/WhatsApp reminders — <c>NotRecorded</c> / <c>Granted</c> /
+    /// <c>Refused</c>. The two stamps say who took the answer and when; a consent nobody can date is not one a
+    /// cabinet can defend.
+    /// </summary>
+    public PatientReminderConsent ReminderConsent { get; set; }
+    public DateTime? ReminderConsentRecordedAtUtc { get; set; }
+    public string? ReminderConsentRecordedBy { get; set; }
 
     public DateTime CreatedAt { get; set; }
 
