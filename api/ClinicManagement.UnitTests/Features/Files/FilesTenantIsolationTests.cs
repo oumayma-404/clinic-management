@@ -131,7 +131,15 @@ public class FilesTenantIsolationTests
         patients.Setup(r => r.GetByIdAsync(foreign.Id, It.IsAny<CancellationToken>())).ReturnsAsync(foreign);
         var storage = new Mock<IFileStorage>();
 
-        var handler = new DownloadPatientFileQueryHandler(files.Object, patients.Object, storage.Object, Resolver(ClinicId).Object);
+        // The access ledger is a dependency now; this case asserts the tenant refusal happens BEFORE any of it,
+        // so a strict mock proves nothing was recorded either — a refused read must leave no trace claiming one.
+        var auditEntries = new Mock<IAuditEntryRepository>(MockBehavior.Strict);
+        var auditActor = new Mock<IAuditActorProvider>();
+        var uow = new Mock<IUnitOfWork>(MockBehavior.Strict);
+
+        var handler = new DownloadPatientFileQueryHandler(
+            files.Object, patients.Object, storage.Object, Resolver(ClinicId).Object,
+            auditEntries.Object, auditActor.Object, uow.Object);
         var result = await handler.Handle(
             new DownloadPatientFileQuery { PatientId = foreign.Id, FileId = file.Id }, CancellationToken.None);
 

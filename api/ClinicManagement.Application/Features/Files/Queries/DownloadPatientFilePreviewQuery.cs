@@ -1,26 +1,27 @@
 using MediatR;
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
-using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Files.Queries;
 
-public class DownloadPatientFileQuery : IRequest<Result<FileDownloadDto>>
+/// <summary>
+/// Serves the small stand-in image for a coffre original, for the machines that cannot reach the coffre.
+///
+/// <para>⚠️ <b>Its absence is ordinary, not a fault.</b> Nothing renders a preview of an STL yet, and one that came
+/// out too big was dropped on purpose — so a missing preview is « we have no picture of this », never « something
+/// went wrong ». The caller shows a typed placeholder.</para>
+/// </summary>
+public class DownloadPatientFilePreviewQuery : IRequest<Result<FileDownloadDto>>
 {
     public Guid PatientId { get; set; }
     public Guid FileId { get; set; }
 }
 
-public class FileDownloadDto
-{
-    public Stream FileStream { get; set; } = null!;
-    public string FileName { get; set; } = string.Empty;
-    public string ContentType { get; set; } = string.Empty;
-}
-
-public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFileQuery, Result<FileDownloadDto>>
+public class DownloadPatientFilePreviewQueryHandler
+    : IRequestHandler<DownloadPatientFilePreviewQuery, Result<FileDownloadDto>>
 {
     private readonly IPatientFileRepository _fileRepository;
     private readonly IPatientRepository _patientRepository;
@@ -30,7 +31,7 @@ public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFi
     private readonly IAuditActorProvider _auditActor;
     private readonly IUnitOfWork _unitOfWork;
 
-    public DownloadPatientFileQueryHandler(
+    public DownloadPatientFilePreviewQueryHandler(
         IPatientFileRepository fileRepository,
         IPatientRepository patientRepository,
         IFileStorage fileStorage,
@@ -48,7 +49,8 @@ public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFi
         _unitOfWork = unitOfWork;
     }
 
-    public async Task<Result<FileDownloadDto>> Handle(DownloadPatientFileQuery request, CancellationToken cancellationToken)
+    public async Task<Result<FileDownloadDto>> Handle(
+        DownloadPatientFilePreviewQuery request, CancellationToken cancellationToken)
     {
         try
         {
@@ -59,43 +61,34 @@ public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFi
             }
 
             var file = await _fileRepository.GetByIdAsync(request.FileId, cancellationToken);
-            if (file == null)
+            if (file == null || file.PatientId != request.PatientId)
             {
                 return Result<FileDownloadDto>.Failure("Fichier introuvable.");
             }
 
-            if (file.PatientId != request.PatientId)
-            {
-                return Result<FileDownloadDto>.Failure("Ce fichier n'appartient pas à ce patient.");
-            }
-
-            // Verify the owning patient belongs to the caller's clinic before streaming any bytes (AC-1).
+            // The same three checks the original's download makes, in the same order — a preview is a picture of
+            // a patient's imaging, and is exactly as much theirs as the study it stands for.
             var patient = await _patientRepository.GetByIdAsync(file.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
                 return Result<FileDownloadDto>.Failure("Fichier introuvable.");
             }
 
-            // A coffre original was never transmitted here, so there is nothing to stream — and saying so names
-            // where the file is instead of reporting a failure the practice would go looking for.
-            if (file.Residency != FileResidency.Hosted || file.StorageKey == null)
+            if (string.IsNullOrEmpty(file.PreviewStorageKey))
             {
-                return Result<FileDownloadDto>.Failure(FileResidencyRefusals.OriginalIsAtTheCabinet());
+                return Result<FileDownloadDto>.Failure("Aucun aperçu n'est disponible pour ce fichier.");
             }
 
-            // Recorded BEFORE the bytes are fetched — this is the row that answers « qui a sorti la
-            // radiographie de ce patient ? », which nothing in the product could answer at all. Not
-            // best-effort: see PatientRecordAccessLedger on why refusing here cannot strand a practitioner.
-            //
-            // ⚠️ Outside the outer catch on purpose. That one turns any exception into
-            // `Result.Failure($"Error downloading file: {ex.Message}")`, which would report an unrecordable
-            // access as an ordinary download failure — and leak the exception text with it.
+            // ⚠️ A preview is the SAME patient content by a second door — a picture of the study, streamed to
+            // whoever asks. Auditing the download alone would leave an unrecorded path to the same bytes, which
+            // is this repository's own « fixes don't propagate » shape. `PatientFileAccessCoverageTests` is what
+            // stops a third door being added without one.
             try
             {
                 await PatientRecordAccessLedger.RecordAsync(
                     _auditEntries, _unitOfWork, _auditActor.Current, clinicResult.Value,
                     PatientRecordAccessLedger.FileEntityType, file.PatientId, file.Id,
-                    "Radiographie ou pièce jointe", DateTime.UtcNow, cancellationToken);
+                    "Aperçu d'une radiographie ou pièce jointe", DateTime.UtcNow, cancellationToken);
             }
             catch (Exception ledgerFailure) when (ledgerFailure is not ConflictException)
             {
@@ -104,20 +97,29 @@ public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFi
                     PatientRecordAccessLedger.UnrecordableCode);
             }
 
-            var fileStream = await _fileStorage.DownloadAsync(file.StorageKey, cancellationToken);
+            var stream = await _fileStorage.DownloadAsync(file.PreviewStorageKey, cancellationToken);
 
             var dto = new FileDownloadDto
             {
-                FileStream = fileStream,
+                FileStream = stream,
                 FileName = file.FileName,
-                ContentType = file.ContentType
+                ContentType = PreviewContentType(file.PreviewStorageKey)
             };
 
             return Result<FileDownloadDto>.Success(dto);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<FileDownloadDto>.Failure($"Error downloading file: {ex.Message}");
+            return Result<FileDownloadDto>.Failure($"Error downloading preview: {ex.Message}");
         }
+    }
+
+    // Derived from the key the registration composed rather than stored beside it: the extension is already the
+    // record of what was written, and a second column could only ever disagree with it.
+    private static string PreviewContentType(string previewStorageKey)
+    {
+        var extension = FileNameSanitizer.ExtensionOf(previewStorageKey);
+
+        return FileTypeCatalog.TryGet(extension)?.ContentType ?? FileTypeCatalog.Jpeg.ContentType;
     }
 }
