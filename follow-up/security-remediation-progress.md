@@ -47,12 +47,18 @@ Commits `08b2d765` and `ccc6608a`.
 | ✅ | **Server-side logout.** `EndSessionCommand` + `POST /api/auth/logout` + the BFF actually calling it. A captured refresh credential used to stay valid 12 h after sign-out. |
 | ✅ | **Archive-grant expiry** — 90 days idle, sliding from last use, **no migration** (`CreatedAtUtc`/`LastUsedAtUtc` already existed). A grant used to be a permanent admin credential. |
 | ✅ | **`ClinicId` + `UserEmail` into the audit chain hash** — done **without** a migration, by versioning the canonical form (`AuditChain.SchemeV2Prefix`). New rows are marked `v2:` and cover the tenancy; pre-change rows keep verifying under `LegacyHash`. The scheme is **read off the stored value, never guessed** — a « try v2, else v1 » fallback would have let a nulled `ClinicId` fall through to v1 and verify clean, re-opening the hole. Old rows stay as protected as they always were, and `A_Legacy_Entry_Is_Only_As_Protected_As_It_Ever_Was` records that in an executable test; a rehash migration is still what closes them. |
-| ⛔ | Read-auditing on file/document downloads — the entire file path is in the concurrent session's edit set. **Blocked**, see § 5. |
+| ✅ | **Read-auditing** — `AuditAction.Read` + `PatientRecordAccessLedger`, on both doors onto a patient's bytes (download **and** preview), with `PatientFileAccessCoverageTests` deriving the rule from the call sites so a third door is covered on the day it is written. Content leaving, not screens opened. |
 | ⛔ | Scoping the archive-grant token (it still mints a full clinic-admin token; expiry bounds it, scoping would remove the over-grant). Needs new audience/claim handling in auth validation. |
 
 ### 2.1 The two that stay blocked, in detail
 
-**Still open on the chain: the tip, and the old rows.** Truncating the newest entries of a chain remains
+**The old rows now have a route: `rehash-audit-chain`.** A console verb rather than a data migration, because it
+needs the **chain key**, which lives in configuration and deliberately not in the database — a migration has no
+access to it, and giving it access would put the key on the restore path it exists to stay independent of. Dry
+run by default; `--apply` writes under one transaction; and it **refuses any chain that does not already verify**,
+because rehashing a tampered row would launder it into a valid v2 hash and destroy the only evidence there was.
+
+**Still open on the chain: the tip.** Truncating the newest entries of a chain remains
 undetectable — nothing persists an expected tip out of band, so deleting the last *k* rows returns `Break.None`
 and the next append re-links from whatever tip it finds. And rows written before scheme v2 are still hashed
 without their tenancy; a rehash migration (verify each under `AuditChain.LegacyHash`, rewrite under `Hash`) is
@@ -78,7 +84,10 @@ Two are feature-sized with frontend work and a device-contract pass; the scope i
 - ⛔ **Consent capture + per-patient reminder opt-out.** There is *no* consent field in any of the 66 domain
   entities, and recording a phone number **auto-enrols** the patient into SMS/WhatsApp — the only gate on
   enqueuing is `HasDeliverablePhoneAsync`. Neither the patient nor the cabinet can exempt one person.
-- ⛔ **Per-patient dossier export.** Every export is list-scoped; nothing assembles one patient's complete record.
+- ✅ **Per-patient dossier export — DONE.** `PatientDossierPackager` + `ExportPatientDossierQuery` +
+  `GET /api/patients/{id}/dossier` (step-up + rate-limited + recorded against that patient) + a « Dossier » button
+  on the patient page. A file whose original is at the cabinet is **listed** with its date rather than silently
+  dropped. Was: ⛔ **Per-patient dossier export.** Every export is list-scoped; nothing assembles one patient's complete record.
   This is the right-of-access mechanism, and it is also what a patient changing dentist asks for constantly.
 - ✅ **Privacy notice — DONE.** `site/src/pages/confidentialite.html`, built and live at `dist/confidentialite.html`,
   which also fixes the footer link that had pointed at a non-existent file since the site shipped. Written from the

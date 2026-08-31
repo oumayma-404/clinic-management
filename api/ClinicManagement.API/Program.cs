@@ -103,6 +103,14 @@ if (args.Length > 0 && string.Equals(args[0], ResetUserTotpConsoleCommand.Comman
 // superseded plaintext key files — the reverse order is R-2's data loss. Usage:
 //   ClinicManagement.API.exe reprotect-secrets [--rotate]
 // Exit codes: 0 = every secret current, 1 = could not run, 2 = ran and work remains.
+// Moves the audit ledger's pre-v2 rows onto the canonical form that covers ClinicId. Dry run unless --apply,
+// and it REFUSES any chain that does not already verify — rehashing a tampered row would launder it.
+//   ClinicManagement.API.exe rehash-audit-chain [--apply]
+if (args.Length > 0 && string.Equals(args[0], RehashAuditChainCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await RehashAuditChainCommand.RunAsync(args);
+}
+
 if (args.Length > 0 && string.Equals(args[0], ReprotectSecretsCommand.CommandName, StringComparison.OrdinalIgnoreCase))
 {
     return await ReprotectSecretsCommand.RunAsync(args);
