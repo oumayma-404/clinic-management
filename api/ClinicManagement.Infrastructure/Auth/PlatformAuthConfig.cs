@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
@@ -85,6 +86,62 @@ public static class PlatformAuthConfig
             throw new InvalidOperationException($"{SigningKeyKey} doit faire au moins 32 octets (256 bits).");
         }
 
+        // ⚠️ A placeholder is not a key. `MinioCredentials` already refuses the published `minioadmin` for this
+        // reason — « a credential that is only decorative is treated as absent » — and the console key had no
+        // such check, so a `.env` copied from the example and never filled in produced a deployment that starts,
+        // reports healthy, and signs the vendor's own sessions with a value published in this repository.
+        if (LooksLikeAPlaceholder(configured))
+        {
+            throw new InvalidOperationException(
+                $"{SigningKeyKey} porte encore une valeur d'exemple. Générez une vraie clé "
+                + "(`openssl rand -base64 48`) et remplacez-la ; une clé publiée dans ce dépôt n'en est pas une.");
+        }
+
+        // ⚠️ THE check this class's own error message has been promising since it was written: « Elle ne doit
+        // jamais être la clé de signature des cliniques ». Nothing enforced it. Sharing one key across the two
+        // issuers collapses the vendor/tenant boundary — the audiences differ, but a single leaked key then
+        // mints BOTH a clinic session and a console session, and the console can read every cabinet's portfolio.
+        // An operator setting both from one generated secret is the obvious, tidy-looking mistake.
+        if (SharesTheClinicSigningKey(configuration, bytes))
+        {
+            throw new InvalidOperationException(
+                $"{SigningKeyKey} est identique à Auth:Local:SigningKey. La console éditeur et les cabinets "
+                + "doivent avoir des clés distinctes : une seule clé compromise ouvrirait les deux.");
+        }
+
         return bytes;
+    }
+
+    /// <summary>
+    /// Placeholder values shipped in this repository's own examples. Matched case-insensitively on a prefix,
+    /// because the examples suffix a hint (<c>CHANGE_ME_strong_db_password</c>).
+    /// </summary>
+    private static bool LooksLikeAPlaceholder(string configured)
+    {
+        var trimmed = configured.Trim();
+
+        return trimmed.StartsWith("CHANGE_ME", StringComparison.OrdinalIgnoreCase)
+               || trimmed.StartsWith("REPLACE_ME", StringComparison.OrdinalIgnoreCase)
+               || trimmed.Equals("changeme", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// True when the console would sign with the same bytes as the clinics.
+    ///
+    /// <para>Resolving the clinic key can itself throw or generate a file on a deployment that has no local
+    /// auth configured, and a comparison must never be the thing that takes startup down — so a failure to read
+    /// it is treated as « cannot be the same key » rather than propagated.</para>
+    /// </summary>
+    private static bool SharesTheClinicSigningKey(IConfiguration configuration, byte[] consoleKey)
+    {
+        try
+        {
+            return CryptographicOperations.FixedTimeEquals(
+                consoleKey, LocalAuthConfig.ResolveSigningKey(configuration));
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
