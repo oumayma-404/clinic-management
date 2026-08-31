@@ -73,6 +73,29 @@ clinic-keys/
 *.pem
 *.key
 
+# ⚠️ The extension rules above MISS these, and each one is a file the operator docs tell you to create.
+#
+# `deploy/backup-identity.txt` is the age PRIVATE key — the half that decrypts every off-site backup of every
+# practice. `deploy/KEY-CUSTODY.md` § 2 and `deploy/RESTORE-DRILL.md` both name that exact path, and an age key
+# is a plain `.txt`, so `*.pem`/`*.key` never see it. `deploy/drill/` is where RESTORE-DRILL tells you to unpack
+# a restored dump: a full plaintext copy of every clinic's records, sitting in the working tree by design.
+# The two `appsettings` names are written by the Windows installer and by the hosted bring-up and carry the
+# database password. `web/.auth/` is Playwright storage state — it holds a live session cookie and regenerates
+# every time the app is driven in a browser, so without a rule here the next `git add -A` commits a credential.
+deploy/backup-identity.txt
+deploy/drill/
+**/appsettings.Production.json
+**/appsettings.Install.json
+web/.auth/
+
+# Environment files anywhere, EXCEPT the committed templates. `deploy/.env.example` and
+# `deploy/.env.hosted.example` are documentation and must stay tracked; everything else with this shape holds
+# real credentials. The negation works because no parent directory is excluded — do not move these under an
+# ignored folder or it stops applying.
+.env
+.env.*
+!.env*.example
+
 # Playwright MCP session artifacts — snapshots, console logs and screenshots from driving the app in a browser.
 # Tooling output about a dev database, never project content. Screenshots used to land in the repo ROOT (the tool
 # writes them to the shell's cwd), which is why they were being deleted by hand; the server now takes

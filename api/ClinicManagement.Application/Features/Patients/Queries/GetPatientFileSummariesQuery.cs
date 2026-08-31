@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -90,8 +91,7 @@ public class GetPatientFileSummariesQueryHandler
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PagedResult<PatientFileSummaryDto>>.Failure(
-                $"Error retrieving patient file summaries: {ex.Message}");
+            return Result<PagedResult<PatientFileSummaryDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

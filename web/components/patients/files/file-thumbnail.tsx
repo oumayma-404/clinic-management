@@ -74,8 +74,27 @@ export function FileThumbnail({
   const holder = useRef<HTMLDivElement | null>(null)
   const liveUrl = useRef<string | null>(null)
 
+  /*
+   * ⚠️ **A stand-in must exist — the original is never fetched to paint a tile.**
+   *
+   * This used to call `downloadFile` for every tile, pulling the FULL original across the wire to draw a 40 px
+   * square. That was always wasteful; it became a correctness problem when the download endpoint started
+   * recording an access in the cabinet's journal, because scrolling a file list then wrote one « radiographie
+   * téléchargée » row per visible tile. The journal exists to answer « qui a sorti une copie du dossier de ce
+   * patient ? », and a row per thumbnail buries the handful that mean something — the same argument that keeps
+   * `Notification` off the audit interceptor.
+   *
+   * Falling back to the original when no stand-in exists was tried and rejected: every file uploaded before the
+   * preview feature has `hasPreview: false`, so on a real database the fallback IS the common case and the noise
+   * comes straight back. A file with no stand-in therefore shows its icon, which is what it already did for
+   * every non-image. **Backfilling previews for existing files restores those thumbnails** — see
+   * `follow-up/security-remediation-outstanding.md`.
+   */
   const eligible =
-    isThumbnailable(file, policy) && file.fileSize > 0 && file.fileSize <= MAX_THUMBNAIL_BYTES
+    isThumbnailable(file, policy) &&
+    file.hasPreview &&
+    file.fileSize > 0 &&
+    file.fileSize <= MAX_THUMBNAIL_BYTES
 
   const drop = useCallback(() => {
     liveUrl.current = null
@@ -93,7 +112,7 @@ export function FileThumbnail({
       observer.disconnect()
 
       patientFilesApi
-        .downloadFile(patientId, file.id)
+        .downloadPreview(patientId, file.id)
         .then((blob) => {
           if (cancelled) return
           const objectUrl = window.URL.createObjectURL(blob)

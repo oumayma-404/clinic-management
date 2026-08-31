@@ -8,7 +8,8 @@ import { Progress } from "@/components/ui/progress"
 import { patientFilesApi } from "@/lib/api/patient-files"
 import { getErrorMessage } from "@/lib/errors"
 import { formatFileSize } from "@/lib/format"
-import { refusalFor, type UploadPolicy } from "@/lib/api/upload-policy"
+import { destinationFor, refusalFor, type FileDestination, type UploadPolicy } from "@/lib/api/upload-policy"
+import { ingestIntoVault } from "@/lib/vault/ingest"
 import { cn } from "@/lib/utils"
 
 /**
@@ -33,17 +34,28 @@ export interface UploadItem {
   state: UploadItemState
   /** French, and the server's own words wherever the server produced them. */
   reason?: string
+  /**
+   * Which door this file goes through. `vault` means the bytes are copied inside the cabinet and never sent —
+   * shown, because « conservé au cabinet » is a different promise from « envoyé » and a user filing a 400 Mo
+   * study in four seconds would otherwise reasonably assume it failed.
+   */
+  destination: FileDestination
+  /** 0 … 1 while a coffre copy runs. Absent for a hosted upload, which has no progress to report. */
+  progress?: number
 }
 
 export function useUploadQueue({
   patientId,
   folderId,
   policy,
+  vault,
   onFileUploaded,
 }: {
   patientId: string
   folderId?: string
   policy?: UploadPolicy | null
+  /** This machine's coffre, or null. Its absence is what makes a study-class file refusable (AC-6). */
+  vault?: FileSystemDirectoryHandle | null
   onFileUploaded: () => void
 }) {
   const [items, setItems] = useState<UploadItem[]>([])
@@ -58,17 +70,24 @@ export function useUploadQueue({
     async (files: File[]) => {
       if (files.length === 0) return
 
-      const queued = files.map((file) => ({
-        file,
-        item: {
-          id: `u${nextId.current++}`,
-          name: file.name,
-          size: file.size,
-          // AC-5.1 — refused instantly, in French, before a byte leaves the browser. The server re-checks.
-          state: (policy && refusalFor(policy, file) ? "refused" : "pending") as UploadItemState,
-          reason: policy ? refusalFor(policy, file) ?? undefined : undefined,
-        },
-      }))
+      const queued = files.map((file) => {
+        // AC-5.1 / AC-6 — refused instantly, in French, before a byte moves. The server re-checks every one of
+        // these; `vaultReachable` is the term that turns « this belongs at the cabinet » into a real refusal on a
+        // machine with no coffre, rather than an upload that would be refused after the wait.
+        const refusal = policy ? refusalFor(policy, file, { vaultReachable: !!vault }) : null
+
+        return {
+          file,
+          item: {
+            id: `u${nextId.current++}`,
+            name: file.name,
+            size: file.size,
+            state: (refusal ? "refused" : "pending") as UploadItemState,
+            reason: refusal ?? undefined,
+            destination: policy ? destinationFor(policy, file) : ("hosted" as FileDestination),
+          },
+        }
+      })
 
       setItems((current) => [...current, ...queued.map((entry) => entry.item)])
 
@@ -82,12 +101,23 @@ export function useUploadQueue({
           const entry = sendable[cursor++]
           update(entry.item.id, { state: "uploading" })
           try {
-            await patientFilesApi.uploadFile(patientId, entry.file, folderId)
-            update(entry.item.id, { state: "done" })
+            if (entry.item.destination === "vault") {
+              // `vault` is non-null here: a null one makes every study-class file `refused` above, so it never
+              // reaches this queue.
+              await ingestIntoVault(vault!, patientId, entry.file, {
+                folderId,
+                onProgress: ({ copied }) => update(entry.item.id, { progress: copied }),
+              })
+            } else {
+              await patientFilesApi.uploadFile(patientId, entry.file, folderId)
+            }
+
+            update(entry.item.id, { state: "done", progress: undefined })
             onFileUploaded()
           } catch (error) {
             update(entry.item.id, {
               state: "failed",
+              progress: undefined,
               reason: getErrorMessage(error, "L'envoi a échoué."),
             })
           }
@@ -99,7 +129,7 @@ export function useUploadQueue({
       )
       setRunning(false)
     },
-    [patientId, folderId, policy, onFileUploaded, update],
+    [patientId, folderId, policy, vault, onFileUploaded, update],
   )
 
   const clear = useCallback(() => setItems([]), [])
@@ -154,13 +184,27 @@ export function UploadQueue({
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="min-w-0 break-words text-sm font-medium">{item.name}</p>
-                  <p className="text-xs text-muted-foreground">{formatFileSize(item.size)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatFileSize(item.size)}
+                    {item.destination === "vault" && " · conservé au cabinet"}
+                  </p>
                 </div>
                 <span className={cn("flex items-center gap-1.5 text-xs font-medium", style.tone)}>
                   <Icon className={cn("h-4 w-4", item.state === "uploading" && "animate-spin")} />
-                  {style.label}
+                  {/* A coffre file is never « envoyé » — nothing left the practice, and saying so would be a
+                      different promise from the one that was kept. */}
+                  {item.destination === "vault" && item.state === "done" ? "Enregistré" : style.label}
                 </span>
               </div>
+              {/* Only the coffre copy has progress worth showing: it moves hundreds of megabytes across a disk
+                  while a hosted upload is a single request with no readable milestones. */}
+              {item.state === "uploading" && item.progress !== undefined && (
+                <Progress
+                  className="mt-2 h-1.5"
+                  value={Math.round(item.progress * 100)}
+                  aria-label={`Copie de ${item.name}`}
+                />
+              )}
               {item.reason && <p className="mt-2 text-xs text-destructive">{item.reason}</p>}
             </li>
           )

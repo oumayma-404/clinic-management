@@ -17,7 +17,7 @@ One global, `window.__clinicShell`, installed **before the page's own scripts ru
 | Member | Type | Since | Notes |
 |---|---|---|---|
 | `version` | `string` | 1 | The shell's own version. Dotted integers — the server parses it with `System.Version`. |
-| `platform` | `"android" \| "ios"` | 1 | So a message can name the right store or OS setting. |
+| `platform` | `"android" \| "ios" \| "windows"` | 1 (`"windows"` since 1.2) | So a message can name the right store or OS setting. |
 | `maxFileBytes` | `number?` | 1 | Ceiling for `saveFile`. **25 MB** on Android. |
 | `saveFile(base64, filename, mimeType)` | `void \| Promise<void>` | 1 | Write the file and offer to open or share it. Base64 **without** a `data:` prefix. |
 | `print()` | `void` | 1 | Print the current page through the OS print service. |
@@ -143,13 +143,15 @@ deliberately **not** a member of `__clinicShell`, so deleting the bridge cannot 
 
 ## Implemented sets, as of Part 7
 
-| | Android | iOS |
-|---|---|---|
-| `version` · `platform` · `maxFileBytes` | ✅ | ⚠️ written, **never compiled** |
-| `saveFile` | ✅ | ⚠️ written — `QLPreviewController`, else the share sheet |
-| `print` | ✅ | ⚠️ written — `UIPrintInteractionController` |
-| `onPushToken` | ✅ registered, inert | ⚠️ written, inert — and free signing has no APNs entitlement |
-| `confirmIdentity` | ✅ API 28+, else `unavailable` | ⚠️ written — `LAContext.deviceOwnerAuthentication` |
+| | Android | iOS | Desktop (WPF) |
+|---|---|---|---|
+| `version` · `platform` | ✅ | ⚠️ written, **never compiled** | ✅ since 1.2 |
+| `maxFileBytes` | ✅ | ⚠️ written | — n/a: no `saveFile` to bound |
+| `saveFile` | ✅ | ⚠️ written — `QLPreviewController`, else the share sheet | — a WebView2 download works |
+| `print` | ✅ | ⚠️ written — `UIPrintInteractionController` | — `window.print()` works |
+| `onPushToken` | ✅ registered, inert | ⚠️ written, inert — and free signing has no APNs entitlement | — |
+| `confirmIdentity` | ✅ API 28+, else `unavailable` | ⚠️ written — `LAContext.deviceOwnerAuthentication` | — |
+| the coffre seam (below) | — | — | ✅ since 1.2 |
 
 ⚠️ **Every iOS cell says *written*, not *implemented*.** The Swift has never been compiled, signed or run — see
 `mobile/ios/README.md`. Read it as a proposal until a green CI run exists.
@@ -170,9 +172,49 @@ The Android native object is exposed as `__clinicShellNative` and carries **thre
 callback. iOS exposes **one** message handler, `clinicShell`, that switches on a `name` field. The **JS-visible**
 set is the four the table above names on both platforms, which is the set this contract and FR-6 both state.
 
+## Desktop (WPF) — the coffre seam, since 1.2
+
+The WPF shell had **no bridge at all** until `clinic-file-vault`: it exposed no `__clinicShell`, which is why its
+version floor is read over **native HTTP before navigation** rather than from the object. It now exposes `version`,
+`platform: "windows"` and one seam, and **none** of the mobile members — each of those solves a WebView problem
+this shell does not have.
+
+**The seam, and why it is not a member:**
+
+```
+window.__clinicShellDeliverVault(handle: FileSystemDirectoryHandle): void   // the PAGE defines, the SHELL calls
+window.__clinicShellPendingVault?: FileSystemDirectoryHandle               // where the shell parks an early arrival
+```
+
+Same shape as `__clinicShellDeliverPushToken` and `__clinicShellDeliverIdentityResult`, and for the same reason:
+AC-26 verifies the bridge by **deleting** `__clinicShell` at runtime, and a resolver living on the object would
+either die with it or outlive it holding a live reference.
+
+⚠️ **The handle arrives with its permission already granted.** `CoreWebView2Environment.CreateWebFileSystemDirectoryHandle`
+(available since WebView2 SDK 1.0.2470; the shell pins 1.0.2903.40) hands web content a real
+`FileSystemDirectoryHandle` whose `PermissionStatus` is `granted`, so the page never calls `requestPermission`, no
+picker opens and no prompt appears. That is what makes filing a 400 Mo study two clicks rather than a
+folder-picking ceremony on every machine.
+
+⚠️ **The two sides race, so the handle is parked rather than lost.** The shell posts on navigation-completed; the
+page's listener is installed whenever its bundle evaluates. The injected script hands the handle over if
+`__clinicShellDeliverVault` exists and parks it in `__clinicShellPendingVault` if not — and `lib/vault/handle.ts`
+checks the parking slot on start-up. Without it the handle would be lost on exactly the *fast* loads, and « no
+coffre » is indistinguishable from « this machine has none », so the bug would read as misconfiguration.
+
+⚠️ **Origin-checked before the post, unlike the mobile bridges' broader scoping.** This object gives the page
+unusual reach into the file system, so `VaultBridge` compares the loaded document's scheme, host and port against
+the configured server and posts nothing on a mismatch.
+
+⚠️ **A missing coffre is a first-class state, never an error.** The shell posts nothing when the folder cannot be
+prepared (an unplugged disk, a share that is down, a runtime predating the API) and the page renders « conservé au
+cabinet » with no local open. In a plain browser the page's own `showDirectoryPicker()` path takes over, which is
+also what covers a shell whose runtime is too old.
+
 ## Version history
 
 | Shell version | Change |
 |---|---|
 | `1.0.0` | Phase 1: `version` · `platform` · `maxFileBytes` · `saveFile` · `print` · `onPushToken`. |
 | `1.1.0` | Phase 4: `confirmIdentity` added. Nothing removed, so a server floor of `1.0.0` still admits it. |
+| `1.2.0` | `clinic-file-vault`: the **desktop** shell joins this contract — its first bridge ever — with `version`, `platform: "windows"` and the coffre seam. `platform` gains a third value. Nothing removed, so a floor of `1.0.0` still admits every client. |

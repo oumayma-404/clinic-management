@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -56,7 +57,7 @@ public class GetPatientMedicalHistoryQueryHandler : IRequestHandler<GetPatientMe
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IEnumerable<PatientMedicalHistoryDto>>.Failure($"Error retrieving medical history: {ex.Message}");
+            return Result<IEnumerable<PatientMedicalHistoryDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

@@ -1,3 +1,5 @@
+using ClinicManagement.Infrastructure.Http;
+using ClinicManagement.Application.Common.Interfaces;
 using System.Net;
 using System.Net.Mail;
 using ClinicManagement.Application.Common.Models;
@@ -24,9 +26,13 @@ public class SmtpDocumentEmailSender : IDocumentEmailSender
 
     private readonly ILogger<SmtpDocumentEmailSender> _logger;
 
-    public SmtpDocumentEmailSender(ILogger<SmtpDocumentEmailSender> logger)
+    private readonly IOutboundEndpointPolicy _endpointPolicy;
+
+    public SmtpDocumentEmailSender(
+        ILogger<SmtpDocumentEmailSender> logger, IOutboundEndpointPolicy endpointPolicy)
     {
         _logger = logger;
+        _endpointPolicy = endpointPolicy;
     }
 
     public async Task<DocumentEmailSendResult> SendAsync(
@@ -41,6 +47,14 @@ public class SmtpDocumentEmailSender : IDocumentEmailSender
 
         try
         {
+            // ⚠️ SMTP is the SSRF path with NO compensating accident. The HTTP integrations are protected by
+            // https being forced — a private service rarely speaks TLS with a valid certificate — while this
+            // dials a bare host on a bare port, so a tenant naming `127.0.0.1.nip.io` reaches the API
+            // container's own loopback. `SmtpClient` has no connect callback to hang the check on, so the
+            // resolution happens here, immediately before the connect.
+            await PublicEgressGuard.EnsureHostResolvesPublicAsync(
+                settings.SmtpHost!, _endpointPolicy.AllowsPrivateNetworkEndpoints, cancellationToken);
+
             using var client = new SmtpClient(settings.SmtpHost, settings.SmtpPort)
             {
                 EnableSsl = settings.SmtpUseTls,

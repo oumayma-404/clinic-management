@@ -1,4 +1,5 @@
-﻿using MediatR;
+using ClinicManagement.Application.Common;
+using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -184,7 +185,7 @@ public class UpdateClinicReminderSettingsCommandHandler
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<ReminderSettingsDto>.Failure($"Error updating reminder settings: {ex.Message}");
+            return Result<ReminderSettingsDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 

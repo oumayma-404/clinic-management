@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -132,7 +133,7 @@ public class UpdateLabWorkOrderCommandHandler : IRequestHandler<UpdateLabWorkOrd
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<LabWorkOrderDto>.Failure($"Erreur lors de la mise à jour du bon de laboratoire : {ex.Message}");
+            return Result<LabWorkOrderDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

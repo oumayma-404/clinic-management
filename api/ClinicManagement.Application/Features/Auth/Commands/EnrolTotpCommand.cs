@@ -74,6 +74,7 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
     private readonly ITotpService _totpService;
     private readonly IUserSecretProtector _secretProtector;
     private readonly IQrCodeGenerator _qrCodeGenerator;
+    private readonly ILoginAttemptTracker _attemptTracker;
     private readonly IUnitOfWork _unitOfWork;
 
     public EnrolTotpCommandHandler(
@@ -83,6 +84,7 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
         ITotpService totpService,
         IUserSecretProtector secretProtector,
         IQrCodeGenerator qrCodeGenerator,
+        ILoginAttemptTracker attemptTracker,
         IUnitOfWork unitOfWork)
     {
         _userRepository = userRepository;
@@ -91,6 +93,7 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
         _totpService = totpService;
         _secretProtector = secretProtector;
         _qrCodeGenerator = qrCodeGenerator;
+        _attemptTracker = attemptTracker;
         _unitOfWork = unitOfWork;
     }
 
@@ -113,10 +116,30 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
                 return Refuse(ClinicAuthRefusals.InvalidCredentials);
             }
 
+            // Both lockout tiers, before the password — `RedeemRecoveryCodeCommand`'s rule, and its reason
+            // verbatim: « or this endpoint would be the unrated door beside a rate-limited one ».
+            //
+            // ⚠️ That reasoning was written one file over and never reached here, which left this endpoint an
+            // unauthenticated password oracle: it verifies a password, branches distinguishably on the result
+            // (wrong → `invalid_credentials`, right-but-enrolled → `totp_already_enrolled`, right-and-not →
+            // 200 with a fresh secret), and recorded no failure anywhere. Neither the per-(account, source)
+            // lockout nor the durable 50-attempt one applied, so the only brake was a sliding 30-per-5-minutes
+            // that never trips a lockout at all — roughly 8 600 guesses a day against one account, for ever.
+            if (_attemptTracker.IsLockedOutForCurrentSource(user.Id) || user.IsLockedOut())
+            {
+                return Result<TotpEnrolmentDto>.Failure(
+                    "Ce compte est temporairement bloqué après plusieurs tentatives de connexion échouées. Veuillez réessayer plus tard.",
+                    ClinicAuthRefusals.TooManyAttempts);
+            }
+
             // Nothing is minted, cleared or persisted before this passes.
             if (_localAuthService.VerifyPassword(user.PasswordHash!, request.Password)
                 == PasswordVerificationOutcome.Failed)
             {
+                _attemptTracker.RecordFailure(user.Id);
+                user.RecordFailedLogin();
+                _userRepository.Update(user);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
                 return Refuse(ClinicAuthRefusals.InvalidCredentials);
             }
 

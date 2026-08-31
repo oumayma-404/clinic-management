@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -56,7 +57,7 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IEnumerable<DentalRecordDto>>.Failure($"Error retrieving dental records: {ex.Message}");
+            return Result<IEnumerable<DentalRecordDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

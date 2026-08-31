@@ -72,6 +72,21 @@ public static class RateLimiting
     public const string ArchiveGrantTokenPolicy = "clinic-archive-grant-token";
 
     /// <summary>
+    /// « Exporter » on a list screen — the patient roster and the agenda, as CSV.
+    ///
+    /// <para>⚠️ <b>Separate from <see cref="ArchivePolicy"/> on purpose.</b> The data is comparably sensitive —
+    /// the patient CSV carries date of birth, address, identifiant CNAM, antécédents médicaux and allergies —
+    /// but the *cadence* is not: an archive is a rare, deliberate act, while a practice exports a recall list or
+    /// a contact list for its accountant in the ordinary course of a week. Sharing the archive's budget of three
+    /// per ten minutes would mean one afternoon's normal work spends it and the next export is refused with a
+    /// message about a limit nobody understands.</para>
+    ///
+    /// <para>What it is for is the bulk case: this endpoint returns the WHOLE filtered set with no paging, so an
+    /// unbounded one is a loop that walks a cabinet's entire identified medical dataset out of the building.</para>
+    /// </summary>
+    public const string ListExportPolicy = "list-export";
+
+    /// <summary>
     /// Policy name for the CSP violation sink (FR-4.5). Anonymous and unauthenticated, so it is bounded per
     /// address — and generously, because one page load can legitimately produce several reports while one
     /// misbehaving browser extension can produce one per navigation for ever. Excess is <b>dropped</b>: a
@@ -98,6 +113,8 @@ public static class RateLimiting
     // AdminOnly *and* a step-up, so the actor is always identified, and per-address would bound a whole practice
     // sharing one NAT address on the actions of one of them.
     private const int DefaultArchivePermitLimit = 3;
+    private const int DefaultListExportPermitLimit = 10;
+    private const int DefaultListExportWindowSeconds = 600;
     private const int DefaultArchiveWindowSeconds = 600;
 
     // Twenty exchanges in ten minutes. Generous next to the three EXPORTS above because this mints a token and
@@ -155,6 +172,10 @@ public static class RateLimiting
             Read(configuration, "RateLimiting:Api:WindowSeconds", DefaultApiWindowSeconds));
         var archivePermitLimit = Read(
             configuration, "RateLimiting:Archive:PermitLimit", DefaultArchivePermitLimit);
+        var listExportPermitLimit = Read(
+            configuration, "RateLimiting:ListExport:PermitLimit", DefaultListExportPermitLimit);
+        var listExportWindow = TimeSpan.FromSeconds(
+            Read(configuration, "RateLimiting:ListExport:WindowSeconds", DefaultListExportWindowSeconds));
         var archiveWindow = TimeSpan.FromSeconds(
             Read(configuration, "RateLimiting:Archive:WindowSeconds", DefaultArchiveWindowSeconds));
 
@@ -214,6 +235,17 @@ public static class RateLimiting
                     {
                         PermitLimit = archivePermitLimit,
                         Window = archiveWindow,
+                        SegmentsPerWindow = SegmentsPerWindow,
+                        QueueLimit = 0
+                    }));
+
+            options.AddPolicy(ListExportPolicy, httpContext =>
+                RateLimitPartition.GetSlidingWindowLimiter(
+                    $"list-export:{ArchivePartitionKey(httpContext, trustedProxies)}",
+                    _ => new SlidingWindowRateLimiterOptions
+                    {
+                        PermitLimit = listExportPermitLimit,
+                        Window = listExportWindow,
                         SegmentsPerWindow = SegmentsPerWindow,
                         QueueLimit = 0
                     }));

@@ -128,6 +128,11 @@ public interface IPatientRepository
     /// The page to return, or <c>null</c> for every matching row. Unbounded is a real case here — the header
     /// search, the patient pickers and the AI dispatcher all need the full set.
     /// </param>
+    /// <param name="pendingCalendarReviewOnly">
+    /// Only the patients the Google Calendar import conjured and nobody has confirmed. In SQL for
+    /// <paramref name="flaggedOnly"/>'s reason: over a page it would mean « those of these 25 », which is a
+    /// different question from the one the filter chip asks.
+    /// </param>
     Task<PagedResult<Patient>> GetByClinicIdAsync(
         Guid clinicId,
         bool includeArchived = false,
@@ -135,6 +140,7 @@ public interface IPatientRepository
         DateTime? createdTo = null,
         string? searchTerm = null,
         bool flaggedOnly = false,
+        bool pendingCalendarReviewOnly = false,
         PageRequest? paging = null,
         CancellationToken cancellationToken = default);
 

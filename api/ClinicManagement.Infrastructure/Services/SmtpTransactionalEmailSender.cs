@@ -69,6 +69,12 @@ public class SmtpTransactionalEmailSender : ITransactionalEmailSender
 
         try
         {
+            // ⚠️ Deliberately NOT behind `PublicEgressGuard`, unlike `SmtpDocumentEmailSender` beside it. That
+            // one dials a host a clinic admin typed into a settings screen, which is a tenant-controlled
+            // endpoint and therefore an SSRF primitive. This one reads the OPERATOR's own configuration, where
+            // an internal relay on the compose network is the normal, intended arrangement — guarding it would
+            // refuse the correct deployment and protect nobody, since anyone who can edit the configuration
+            // already has the container.
             using var client = new SmtpClient(SmtpConfig.Host(_configuration), SmtpConfig.Port(_configuration))
             {
                 EnableSsl = SmtpConfig.UseTls(_configuration),

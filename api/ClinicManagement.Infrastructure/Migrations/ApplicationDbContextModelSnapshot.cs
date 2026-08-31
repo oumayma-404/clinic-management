@@ -326,6 +326,11 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<bool>("GoogleCalendarHoldsOnlyAppointments")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("GoogleCalendarId")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
@@ -337,6 +342,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("LastArchiveDownloadedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastVaultCopyAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("LogoUrl")
@@ -2276,6 +2284,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("ArchivedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("CalendarImportPendingReviewSince")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("ClinicId")
                         .HasColumnType("uuid");
 
@@ -2335,6 +2346,18 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<int>("ReminderConsent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime?>("ReminderConsentRecordedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReminderConsentRecordedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -2345,6 +2368,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnName("xmin");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ClinicId", "CalendarImportPendingReviewSince")
+                        .HasFilter("\"CalendarImportPendingReviewSince\" IS NOT NULL");
 
                     b.HasIndex("ClinicId", "IsArchived");
 
@@ -2406,6 +2432,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("ClinicId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("ContentType")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -2432,8 +2462,16 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("PreviewStorageKey")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("Residency")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
                     b.Property<string>("StorageKey")
-                        .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
@@ -2458,7 +2496,10 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.HasIndex("PatientId");
 
-                    b.ToTable("PatientFiles", (string)null);
+                    b.ToTable("PatientFiles", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PatientFiles_ResidencyForm", "(\"Residency\" = 1 AND \"StorageKey\" IS NOT NULL) OR (\"Residency\" = 2 AND \"StorageKey\" IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.PatientFlag", b =>
@@ -3164,6 +3205,9 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<int?>("MessagingThresholdPercent")
                         .HasColumnType("integer");
+
+                    b.Property<Guid?>("PatientId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid?>("StockItemId")
                         .HasColumnType("uuid");

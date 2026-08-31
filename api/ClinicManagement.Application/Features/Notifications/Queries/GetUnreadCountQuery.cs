@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -54,7 +55,7 @@ public class GetUnreadCountQueryHandler : IRequestHandler<GetUnreadCountQuery, R
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<int>.Failure($"Error retrieving unread count: {ex.Message}");
+            return Result<int>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

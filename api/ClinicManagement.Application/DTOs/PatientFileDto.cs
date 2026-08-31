@@ -13,6 +13,18 @@ public class PatientFileDto
     public DateTime UploadedAt { get; set; }
     public string? UploadedBy { get; set; }
 
+    /// <summary>
+    /// <c>Hosted</c> or <c>Vault</c> — whether the server can serve these bytes at all, or only the record of
+    /// them. The list renders a « conservé au cabinet » state from this rather than inferring it from a null.
+    /// </summary>
+    public string Residency { get; set; } = string.Empty;
+
+    /// <summary>Lower-case hex SHA-256, for a coffre file. Null for a hosted one, whose store vouches for itself.</summary>
+    public string? ContentHash { get; set; }
+
+    /// <summary>Whether a stand-in image exists for a coffre original that is out of reach on this machine.</summary>
+    public bool HasPreview { get; set; }
+
     /// <summary>Round-tripped by the rename/move form so a concurrent change is a 409, not a silent overwrite.</summary>
     public uint Version { get; set; }
 }

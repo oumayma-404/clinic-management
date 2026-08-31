@@ -43,6 +43,12 @@ RUN set -eux; \
 COPY pitr-entrypoint.sh pitr-backup.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/pitr-entrypoint.sh /usr/local/bin/pitr-backup.sh
 
+# ⚠️ Used by the POSTGRES service, not the sidecar — it is this container that pushes WAL. `wal-g wal-push`
+# ships a segment in CLEAR when WALG_LIBSODIUM_KEY is absent, and reports success; the sidecar's entrypoint
+# refused that condition while the archive_command beside it did not. See the script for why failing is right.
+COPY wal-push-guard.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/wal-push-guard.sh
+
 # The cleartext refusal (hosted-security-hardening Part 2, FR-2.3). Baked into the image and reached through
 # `-c hba_file=` in the compose `command:` rather than written into $PGDATA, so a volume that already has an
 # initdb-written pg_hba.conf still gets the rule and nothing on a live host can edit it away. Read

@@ -17,7 +17,7 @@ namespace ClinicManagement.Domain.Entities;
 /// is a numbered fiscal document. Voiding says "this payment was never received".
 /// </para>
 /// </summary>
-public class Payment : Entity<Guid>
+public class Payment : Entity<Guid>, IAuditable
 {
     public Guid InvoiceId { get; private set; }
     public decimal Amount { get; private set; }

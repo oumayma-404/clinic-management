@@ -5,7 +5,7 @@ namespace ClinicManagement.Domain.Enums;
 ///
 /// <para>
 /// It used to be asked three times: a toggle on the odontogram, another in the fiche de soins editor, and a per-fiche
-/// <c>IsAdultTeeth</c> flag shown as a badge in the dossier dentaire. All three answered the same question about the
+/// <c>IsAdultTeeth</c> flag shown as a badge in the actes dentaires list. All three answered the same question about the
 /// same patient, and nothing kept them agreeing.
 /// </para>
 ///

@@ -8,7 +8,7 @@ namespace ClinicManagement.UnitTests.Features.Invoices;
 ///
 /// <para><b>The reported bug.</b> A fiche submitted with <c>Cost 40,000</c> and <c>AmountPaid 999,000</c> was
 /// persisted with both values, <b>no note d'honoraires was raised</b>, nothing reached la caisse — and the patient's
-/// « Dossiers dentaires » table then displayed « 999,000 DT payé · Reste 0,000 », i.e. asserted the cabinet had
+/// « Actes dentaires » table then displayed « 999,000 DT payé · Reste 0,000 », i.e. asserted the cabinet had
 /// collected money that existed in no ledger. Reproduced twice; a fiche with <c>AmountPaid == Cost</c> billed
 /// correctly, which is what identified the amount as the cause.</para>
 ///

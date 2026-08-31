@@ -1,3 +1,5 @@
+using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.API.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
@@ -6,6 +8,7 @@ using ClinicManagement.Application.Features.Files.Queries;
 using System.Security.Claims;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Files;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Common;
 
 namespace ClinicManagement.API.Controllers;
@@ -16,11 +19,16 @@ namespace ClinicManagement.API.Controllers;
 public class PatientFilesController : ApiControllerBase
 {
     private readonly IMediator _mediator;
+    private readonly IFileResidencyPolicy _residencyPolicy;
     private readonly ILogger<PatientFilesController> _logger;
 
-    public PatientFilesController(IMediator mediator, ILogger<PatientFilesController> logger)
+    public PatientFilesController(
+        IMediator mediator,
+        IFileResidencyPolicy residencyPolicy,
+        ILogger<PatientFilesController> logger)
     {
         _mediator = mediator;
+        _residencyPolicy = residencyPolicy;
         _logger = logger;
     }
 
@@ -150,7 +158,93 @@ public class PatientFilesController : ApiControllerBase
         return CreatedAtAction(nameof(GetFiles), new { patientId }, result.Value);
     }
 
+    // The coffre door. ⚠️ No [RequestSizeLimit] sized from the original — the original is not here. What crosses
+    // the wire is a description plus, at most, a 4 Mo preview, which is why a 25 Go study can be recorded at all.
+    // ⚠️ Sized at TWICE the preview cap, deliberately. The handler's contract is that an oversized preview is
+    // **dropped while the row still registers** — but a body limit at the cap itself is enforced by Kestrel before
+    // model binding, so an over-large picture would 413 the whole request and lose the registration, which is the
+    // opposite of the rule. The headroom is what lets the handler be the one to decide.
+    [HttpPost("vault")]
+    [RequestSizeLimit(2 * FileTypeCatalog.PreviewBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 2 * FileTypeCatalog.PreviewBytes)]
+    public async Task<ActionResult<Application.DTOs.PatientFileDto>> RegisterVaultFile(
+        Guid patientId,
+        [FromForm] Models.RegisterVaultFileRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Absent, not refusing: where the clinic's own machine is the object store there is no coffre to file
+        // anything in, so the route does not exist rather than answering a refusal nobody can act on (AC-7).
+        if (!_residencyPolicy.VaultAvailable)
+        {
+            return NotFound();
+        }
+
+        var uploadedBy = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
+
+        var command = new RegisterVaultFileCommand
+        {
+            PatientId = patientId,
+            FileId = request.FileId,
+            FolderId = request.FolderId,
+            FileName = request.FileName,
+            FileSize = request.FileSize,
+            ContentHash = request.ContentHash,
+            Description = request.Description,
+            UploadedBy = uploadedBy,
+            PreviewStream = request.Preview?.OpenReadStream(),
+            PreviewFileName = request.Preview?.FileName,
+            PreviewSize = request.Preview?.Length ?? 0
+        };
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
+        }
+
+        return CreatedAtAction(nameof(GetFiles), new { patientId }, result.Value);
+    }
+
+    /// <summary>
+    /// The stand-in image for a coffre original. Served <b>inline</b> — unlike a download, this is a derived
+    /// thumbnail the app renders itself, and it is a raster the catalog validated on the way in.
+    /// </summary>
+    [HttpGet("{fileId}/preview")]
+    public async Task<IActionResult> DownloadPreview(
+        Guid patientId,
+        Guid fileId,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new DownloadPatientFilePreviewQuery
+        {
+            PatientId = patientId,
+            FileId = fileId
+        };
+
+        var result = await _mediator.Send(query, cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result, StatusCodes.Status404NotFound);
+        }
+
+        var previewDto = result.Value!;
+
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+
+        return File(previewDto.FileStream, previewDto.ContentType);
+    }
+
     [HttpGet("{fileId}/download")]
+    // ⚠️ Reachable by the unattended workstation's scoped token, because the file mirror fetches every file
+    // through here one at a time — without this line the mirror stops copying and the cabinet quietly loses the
+    // local copy of its imaging.
+    //
+    // It widens the scope by nothing: the same token can pull GET /api/backup/archive, which carries these very
+    // files in one download. What the scope still refuses is everything else — the patient records, the
+    // ledgers, the exports, user management.
+    [AcceptsScopedToken(LocalAuthScopes.ClinicArchive)]
     public async Task<IActionResult> DownloadFile(
         Guid patientId,
         Guid fileId,

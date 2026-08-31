@@ -1,3 +1,4 @@
+using ClinicManagement.API.Authorization;
 using ClinicManagement.Application;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.API.Hubs;
@@ -103,6 +104,19 @@ if (args.Length > 0 && string.Equals(args[0], ResetUserTotpConsoleCommand.Comman
 // superseded plaintext key files — the reverse order is R-2's data loss. Usage:
 //   ClinicManagement.API.exe reprotect-secrets [--rotate]
 // Exit codes: 0 = every secret current, 1 = could not run, 2 = ran and work remains.
+// Moves the audit ledger's pre-v2 rows onto the canonical form that covers ClinicId. Dry run unless --apply,
+// and it REFUSES any chain that does not already verify — rehashing a tampered row would launder it.
+//   ClinicManagement.API.exe rehash-audit-chain [--apply]
+if (args.Length > 0 && string.Equals(args[0], SealAuditChainCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await SealAuditChainCommand.RunAsync(args);
+}
+
+if (args.Length > 0 && string.Equals(args[0], RehashAuditChainCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await RehashAuditChainCommand.RunAsync(args);
+}
+
 if (args.Length > 0 && string.Equals(args[0], ReprotectSecretsCommand.CommandName, StringComparison.OrdinalIgnoreCase))
 {
     return await ReprotectSecretsCommand.RunAsync(args);
@@ -222,6 +236,20 @@ var logFilePath = startupProfile.RunsAsWindowsService
     ? Path.Combine(LocalInstallPaths.BaseDirectory, "logs", "clinic-management-.log")
     : "logs/clinic-management-.log";
 
+// How many daily log files to keep. Read from configuration because a deployment must be able to set it, and
+// `startupConfig` includes `AddEnvironmentVariables()` so the compose value reaches here.
+//
+// ⚠️ This key replaces an entire `Serilog` section in appsettings.json that was READ BY NOTHING. There is no
+// `ReadFrom.Configuration` call in this file — the logger is built in code, below — so every value in that
+// section was inert, including a `retainedFileCountLimit` of 7 that contradicted the 30 days
+// `LogTemplateCoverageTests` and the operator docs both describe. `docker-compose.hosted.yml` set
+// `Serilog__WriteTo__1__Args__retainedFileCountLimit: "30"` and it did nothing: the hosted deployment has been
+// keeping 7 days while every document said 30. That is § 9.7's « configuration that is present and inert », so
+// the section was deleted rather than wired up — handing the whole logger to configuration would also let an
+// appsettings file re-enable `Microsoft.EntityFrameworkCore.Database.Command`, which logs SQL with its
+// parameters and would put patient data back in the file this feature exists to keep it out of.
+var retainedLogFileCount = startupConfig.GetValue<int?>("Serilog:RetainedFileCountLimit") ?? 30;
+
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
@@ -237,7 +265,7 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.File(
         path: logFilePath,
         rollingInterval: RollingInterval.Day,
-        retainedFileCountLimit: 7,
+        retainedFileCountLimit: retainedLogFileCount,
         outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} {Level:u3}] {Message:lj}{NewLine}{Exception}")
     .CreateLogger();
 
@@ -298,7 +326,15 @@ try
     }
 
     // Add services to the container
-    builder.Services.AddControllers()
+    builder.Services.AddControllers(options =>
+        {
+            // ⚠️ Global and fail-closed: a scope-narrowed token is refused by every action that has not NAMED
+            // its scope. Registered here rather than per-controller precisely so a controller written next
+            // month is covered without its author deciding anything — see ScopedTokenFilter for why the
+            // opposite direction (endpoints declaring what they refuse) is one forgotten attribute away from
+            // the over-grant it replaces.
+            options.Filters.Add<ScopedTokenFilter>();
+        })
         .AddJsonOptions(options =>
         {
             options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
@@ -611,6 +647,15 @@ try
             policy.WithOrigins(corsOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
+                  // ⚠️ `Content-Disposition` is NOT a CORS-safelisted response header, so browser JavaScript
+                  // cannot read it cross-origin unless it is exposed here — and every download in this product
+                  // takes its filename from it. Without this, `filenameFromDisposition` returns null on any
+                  // split-origin deployment and every export arrives as the client-side fallback name: the
+                  // patient roster, the agenda and the caisse all land as « export.csv », and the patient
+                  // dossier — a ZIP — lands as « export.csv » too. It works in production only because Caddy
+                  // serves the app and the API on one origin, so CORS never applies; it is broken in dev and in
+                  // any deployment that splits them. Found by downloading a real dossier in a browser.
+                  .WithExposedHeaders("Content-Disposition")
                   .AllowCredentials(); // Required when sending credentials (cookies)
         });
     });

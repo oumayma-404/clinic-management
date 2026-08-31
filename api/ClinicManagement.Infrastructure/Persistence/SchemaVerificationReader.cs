@@ -28,6 +28,7 @@ public class SchemaVerificationReader : ISchemaVerificationReader
     private readonly IConfiguration? _configuration;
     private readonly IDataProtectionProvider? _dataProtection;
     private readonly Security.IAuditChainKeyProvider? _auditChainKey;
+    private readonly Security.IAuditChainSealStore? _sealStore;
 
     /// <param name="configuration">
     /// Read only for the internal root certificate's remaining life (FR-2.6) — a third "side" beside the model
@@ -49,13 +50,15 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         IVendorMessagingAvailability vendorMessaging,
         IConfiguration? configuration = null,
         IDataProtectionProvider? dataProtection = null,
-        Security.IAuditChainKeyProvider? auditChainKey = null)
+        Security.IAuditChainKeyProvider? auditChainKey = null,
+        Security.IAuditChainSealStore? sealStore = null)
     {
         _context = context;
         _vendorMessaging = vendorMessaging;
         _configuration = configuration;
         _dataProtection = dataProtection;
         _auditChainKey = auditChainKey;
+        _sealStore = sealStore;
     }
 
     public async Task<SchemaFacts> ReadAsync(CancellationToken cancellationToken = default)
@@ -108,7 +111,8 @@ public class SchemaVerificationReader : ISchemaVerificationReader
 
         const string sql = """
             SELECT "Id", "ChainKey", "Sequence", "UserId", "EntityType", "EntityId", "Action",
-                   "ChangedFields", "OccurredAt", "IsDeclaredGap", "PreviousHash", "EntryHash"
+                   "ChangedFields", "OccurredAt", "IsDeclaredGap", "PreviousHash", "EntryHash",
+                   "ClinicId", "UserEmail"
             FROM "AuditEntries"
             ORDER BY "ChainKey", "Sequence"
             """;
@@ -116,6 +120,12 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         var chains = new List<AuditChainWalkResult>();
         var buffer = new List<AuditChainEntry>();
         Guid? currentChain = null;
+
+        // ⚠️ The sealed tips, held OUTSIDE this database. Without them a chain whose newest entries were deleted
+        // walks perfectly — no neighbour is missing — so `audit-chain-intact` reports it intact. This is the one
+        // input that makes truncation visible at all, and an unreadable seal file THROWS rather than reading as
+        // « nothing sealed »: falling back would silently restore that blind spot.
+        var seals = _sealStore?.Read() ?? new Dictionary<Guid, Domain.Services.AuditChainSeal>();
 
         await using var command = new NpgsqlCommand(sql, connection);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -126,7 +136,8 @@ public class SchemaVerificationReader : ISchemaVerificationReader
 
             if (currentChain is { } open && open != chainKey)
             {
-                chains.Add(Domain.Services.AuditChain.Walk(open, buffer, _auditChainKey.Key));
+                chains.Add(Domain.Services.AuditChain.Walk(
+                    open, buffer, _auditChainKey.Key, seals.GetValueOrDefault(open)));
                 buffer.Clear();
             }
 
@@ -143,12 +154,18 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                 reader.GetDateTime(8),
                 reader.GetBoolean(9),
                 reader.IsDBNull(10) ? null : reader.GetString(10),
-                reader.IsDBNull(11) ? null : reader.GetString(11)));
+                reader.IsDBNull(11) ? null : reader.GetString(11),
+                // ⚠️ Both are part of the v2 canonical form. Omitting them here would not fail to compile and
+                // would not fail a unit test — it would make `verify-schema` report EVERY chained row as
+                // altered, on the one check whose whole value is being believed when it says so.
+                reader.IsDBNull(12) ? null : reader.GetGuid(12),
+                reader.IsDBNull(13) ? null : reader.GetString(13)));
         }
 
         if (currentChain is { } last)
         {
-            chains.Add(Domain.Services.AuditChain.Walk(last, buffer, _auditChainKey.Key));
+            chains.Add(Domain.Services.AuditChain.Walk(
+                last, buffer, _auditChainKey.Key, seals.GetValueOrDefault(last)));
         }
 
         return new AuditChainFacts(chains);

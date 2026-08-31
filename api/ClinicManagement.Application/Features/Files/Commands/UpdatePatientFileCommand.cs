@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using System.Text.Json.Serialization;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
@@ -157,7 +158,7 @@ public class UpdatePatientFileCommandHandler : IRequestHandler<UpdatePatientFile
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PatientFileDto>.Failure($"Error updating file: {ex.Message}");
+            return Result<PatientFileDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

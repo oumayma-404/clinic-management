@@ -6,6 +6,7 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Files.Commands;
@@ -32,6 +33,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly IFileResidencyPolicy _residencyPolicy;
     private readonly ILogger<UploadPatientFileCommandHandler> _logger;
 
     public UploadPatientFileCommandHandler(
@@ -41,6 +43,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
         IFileStorage fileStorage,
         IUnitOfWork unitOfWork,
         ICurrentClinicResolver clinicResolver,
+        IFileResidencyPolicy residencyPolicy,
         ILogger<UploadPatientFileCommandHandler> logger)
     {
         _patientRepository = patientRepository;
@@ -49,6 +52,7 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
         _clinicResolver = clinicResolver;
+        _residencyPolicy = residencyPolicy;
         _logger = logger;
     }
 
@@ -107,6 +111,13 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
             }
 
             var upload = validation.Value!;
+
+            // The catalog decides where a file belongs, and this door only holds the ones the deployment keeps.
+            // Without this the 25 Mo threshold would be advice the picker follows and nothing enforces.
+            if (_residencyPolicy.Decide(upload.Entry, upload.ByteLength) != FileResidency.Hosted)
+            {
+                return Result<PatientFileDto>.Failure(FileResidencyRefusals.BelongsInTheVault());
+            }
 
             // Store the blob first, then persist the record. If the DB save fails we must remove
             // the just-stored blob so no orphan remains (FR-C3).

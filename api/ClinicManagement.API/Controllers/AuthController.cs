@@ -459,6 +459,39 @@ public class AuthController : ApiControllerBase
     }
 
     /// <summary>
+    /// Ends the session <b>on the server</b> — the revoke half of « Se déconnecter ».
+    ///
+    /// <para>⚠️ <b>There was no such endpoint.</b> The BFF cleared its cookies and stopped, and
+    /// <c>SessionFamily.End</c> was reachable only from replay detection, so a refresh credential captured before
+    /// sign-out stayed valid for its full 12 hours and kept rotating itself. Signing out at a shared reception PC
+    /// revoked nothing.</para>
+    ///
+    /// <para>⚠️ <b>Anonymous by construction, like <c>refresh</c>.</b> The credential in the body <i>is</i> the
+    /// authentication — the caller proves possession of the very thing being revoked. Demanding a valid access
+    /// token would refuse exactly the case that most needs revoking: a browser signing out after its 30-minute
+    /// access token has already expired.</para>
+    ///
+    /// <para>⚠️ <b>Always 204</b>, whether the credential was live, expired, already ended or never existed.
+    /// Sign-out is not a place to learn whether a credential was real, and the browser is discarding it either
+    /// way — which also makes it idempotent, and sign-out fires while the session is being torn down.</para>
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [AllowsWithoutSubscription("Signing out is not recording clinic work, and a cabinet must always be able to.")]
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout([FromBody] RefreshRequest request)
+    {
+        if (!Deployment.UsesLocalAccounts)
+        {
+            return NotFound();
+        }
+
+        await _mediator.Send(new EndSessionCommand { RefreshToken = request.RefreshToken });
+
+        return NoContent();
+    }
+
+    /// <summary>
     /// Local-mode first-run setup: creates the clinic + first admin (email+password).
     /// Reachable only from the server machine (localhost) and only until the first admin
     /// exists — AC-1.2a. Does not exist in Cloud mode.

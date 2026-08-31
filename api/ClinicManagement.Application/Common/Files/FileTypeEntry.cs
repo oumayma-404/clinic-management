@@ -17,7 +17,9 @@ public sealed class FileTypeEntry
         long maxBytes,
         SignatureRule signature,
         bool isBrowserPreviewable,
-        string label)
+        string label,
+        ResidencyRule? residency = null,
+        long vaultMaxBytes = 0)
     {
         Extensions = extensions;
         ContentType = contentType;
@@ -26,6 +28,8 @@ public sealed class FileTypeEntry
         Signature = signature;
         IsBrowserPreviewable = isBrowserPreviewable;
         Label = label;
+        Residency = residency ?? ResidencyRule.AlwaysHosted;
+        VaultMaxBytes = vaultMaxBytes;
     }
 
     /// <summary>Lower-case, without the dot. The first one is the canonical spelling.</summary>
@@ -45,4 +49,17 @@ public sealed class FileTypeEntry
 
     /// <summary>French, for the refusal messages and the upload policy the client renders.</summary>
     public string Label { get; }
+
+    /// <summary>
+    /// Where this format's files belong. <see cref="MaxBytes"/> is the cap on what the deployment will hold; a
+    /// file above it is not refused, it is filed in the cabinet's coffre instead — which is why widening this
+    /// costs the upload door nothing.
+    /// </summary>
+    public ResidencyRule Residency { get; }
+
+    /// <summary>
+    /// The largest file of this format the coffre will take. Zero for a format that never goes there. It bounds a
+    /// runaway rather than the deployment's disk — the bytes are the cabinet's own — so it is generous.
+    /// </summary>
+    public long VaultMaxBytes { get; }
 }

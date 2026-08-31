@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client';
+import { apiGet, apiPost, apiPut } from './client';
 
 export interface GoogleCalendarStatus {
   isConfigured: boolean;
@@ -8,6 +8,11 @@ export interface GoogleCalendarStatus {
   tokenValid?: boolean;
   calendarId: string;
   message: string;
+  /**
+   * The practice has declared the connected calendar holds nothing but appointments, so the import treats any
+   * event titled « Prénom Nom » as one instead of demanding a keyword in the title.
+   */
+  holdsOnlyAppointments: boolean;
 }
 
 export interface GoogleCalendarAuthResponse {
@@ -58,6 +63,14 @@ export const googleCalendarApi = {
    */
   syncAppointment: async (appointmentId: string): Promise<{ message: string }> => {
     return apiPost<{ message: string }>(`/googlecalendar/sync-appointment/${appointmentId}`, {});
+  },
+
+  /**
+   * Admin-only: declare whether the connected calendar holds only appointments. Refused with a French message when
+   * the clinic has no Google connection — the setting describes a specific calendar.
+   */
+  setImportSettings: async (holdsOnlyAppointments: boolean): Promise<{ holdsOnlyAppointments: boolean }> => {
+    return apiPut<{ holdsOnlyAppointments: boolean }>('/googlecalendar/import-settings', { holdsOnlyAppointments });
   },
 };
 

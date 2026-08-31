@@ -137,6 +137,18 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
 
         builder.Property(p => p.LastRecallContactedAt);
 
+        // Reminder consent. HasDefaultValue(NotRecorded) for IsArchived's reason below: it is what makes the
+        // migration emit NOT NULL DEFAULT 0, so the column lands on a populated table with no backfill — and
+        // 0 is precisely the honest value for every patient recorded before anyone was asked.
+        builder.Property(p => p.ReminderConsent)
+            .IsRequired()
+            .HasDefaultValue(PatientReminderConsent.NotRecorded);
+
+        builder.Property(p => p.ReminderConsentRecordedAtUtc);
+
+        builder.Property(p => p.ReminderConsentRecordedBy)
+            .HasMaxLength(200);
+
         // Archiving (data-and-money-integrity). HasDefaultValue(false) is what makes the migration emit
         // NOT NULL DEFAULT false, so the column lands on a populated table without a backfill.
         builder.Property(p => p.IsArchived)
@@ -150,6 +162,14 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
 
         // Every list, search and picker filters on (clinic, archived).
         builder.HasIndex(p => new { p.ClinicId, p.IsArchived });
+
+        // calendar-import-review. No HasDefaultValue: null IS the steady state, so the column lands nullable on a
+        // populated table and every existing patient reads as already confirmed, which is what they are.
+        builder.Property(p => p.CalendarImportPendingReviewSince);
+
+        // Filtered, because the rows that match are a handful and the « À compléter » chip is the only reader.
+        builder.HasIndex(p => new { p.ClinicId, p.CalendarImportPendingReviewSince })
+            .HasFilter("\"CalendarImportPendingReviewSince\" IS NOT NULL");
 
         builder.Property(p => p.CreatedAt)
             .IsRequired();

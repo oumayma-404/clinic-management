@@ -84,8 +84,39 @@ public class ClinicArchiveGrant : AggregateRoot<Guid>
     public static string HashSecret(string secret) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(secret)));
 
+    /// <summary>
+    /// How long a grant may sit unused before it stops authorising anything.
+    ///
+    /// <para><b>Why a grant has to expire at all.</b> Exchanging this secret mints an ordinary clinic
+    /// <b>administrator</b> access token with the whole API surface — not a token scoped to the archive — so the
+    /// secret sitting on a practice's Windows PC is, in effect, a standing admin credential. With
+    /// <c>RevokedAtUtc</c> as the only end, it was <b>permanent</b>: anything that reads that disk once owns the
+    /// cabinet until somebody notices and revokes by hand, and nobody revokes a credential they have forgotten
+    /// exists.</para>
+    ///
+    /// <para>⚠️ <b>Idle, not absolute — and the distinction is what makes it safe to ship.</b> The window runs
+    /// from the last <i>use</i>, so the poste that actually copies (nightly, or weekly) renews itself simply by
+    /// working and nobody is ever interrupted. What dies is a grant nothing has presented for three months: a
+    /// decommissioned PC, a laptop that left the practice, a copy of the file taken off a disk. An absolute
+    /// lifetime would instead stop a working installation on a date nobody chose, which is how a security control
+    /// gets switched off rather than renewed.</para>
+    ///
+    /// <para>⚠️ <b>Ninety days is deliberately generous.</b> The shortest cadence the shell offers is far inside
+    /// it, and the cost of being wrong in the tight direction — a practice's unattended copy silently stopping —
+    /// is exactly the failure `clinic-recovery-points` exists to prevent.</para>
+    /// </summary>
+    public static readonly TimeSpan IdleLifetime = TimeSpan.FromDays(90);
+
+    /// <summary>
+    /// When this grant stops authorising by disuse. Derived rather than stored, so no column and no migration:
+    /// the two instants it needs are already here.
+    /// </summary>
+    public DateTime ExpiresAtUtc => (LastUsedAtUtc ?? CreatedAtUtc) + IdleLifetime;
+
     /// <summary>Whether this grant may still authorise a pull, at <paramref name="nowUtc"/>.</summary>
-    public bool IsUsable(DateTime nowUtc) => RevokedAtUtc == null || RevokedAtUtc > nowUtc;
+    public bool IsUsable(DateTime nowUtc) =>
+        (RevokedAtUtc == null || RevokedAtUtc > nowUtc)
+        && ExpiresAtUtc > nowUtc;
 
     public void MarkUsed(DateTime nowUtc) => LastUsedAtUtc = nowUtc;
 

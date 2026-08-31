@@ -30,6 +30,26 @@ public static class FileTypeCatalog
     /// </summary>
     public const long MaxBytesAcrossCatalog = LargeBytes;
 
+    /// <summary>
+    /// The largest file the cabinet's coffre will take — a raw scanner export, with room to spare. It bounds a
+    /// runaway rather than anyone's disk bill: these bytes never leave the practice's own hardware.
+    /// </summary>
+    public const long VaultBytes = 64L * 1024 * 1024 * 1024;
+
+    /// <summary>
+    /// The ceiling on the small image standing in for a vault original off-site. A preview above it is
+    /// <b>dropped</b> and the file still registered — previews are the one part of a coffre file the deployment
+    /// does store, so an unbounded one would rebuild the problem the residency exists to remove.
+    /// </summary>
+    public const long PreviewBytes = 4L * 1024 * 1024;
+
+    /// <summary>
+    /// Above this, imaging and lab archives are filed in the cabinet's coffre instead of hosted. It is
+    /// <see cref="DocumentBytes"/> and not a number of its own: the line already drawn between « a document » and
+    /// « a study » is the same line, and a second constant beside it would be the one to drift.
+    /// </summary>
+    private static readonly ResidencyRule LargeStaysAtTheCabinet = ResidencyRule.HostedUpTo(DocumentBytes);
+
     private static readonly byte[] Zip = { 0x50, 0x4B, 0x03, 0x04 };
     private static readonly byte[] ZipEmpty = { 0x50, 0x4B, 0x05, 0x06 };
     private static readonly byte[] ZipSpanned = { 0x50, 0x4B, 0x07, 0x08 };
@@ -68,21 +88,28 @@ public static class FileTypeCatalog
             // The ISO-BMFF `ftyp` box at offset 4; the brand that follows it varies by device and iOS version.
             SignatureRule.Required(4, "ftyp"), false, "HEIC"),
 
-        // AC-3.2 — dental 3D and CBCT.
+        // AC-3.2 — dental 3D and CBCT. These are the six formats a study arrives in, and the only ones the
+        // coffre takes: above DocumentBytes their bytes stay on the cabinet's own hardware.
         new(new[] { "dcm", "dicom" }, "application/dicom", FileType.Scan, LargeBytes,
             // AC-2.4: DICM sits behind a 128-byte preamble, and preamble-less exports from real scanners exist.
-            SignatureRule.Advisory(128, "DICM"), false, "DICOM"),
+            SignatureRule.Advisory(128, "DICM"), false, "DICOM",
+            residency: LargeStaysAtTheCabinet, vaultMaxBytes: VaultBytes),
         new(new[] { "stl" }, "model/stl", FileType.Other, LargeBytes,
             SignatureRule.None("un STL ASCII commence par du texte libre et un STL binaire par un en-tête de 80 octets sans marqueur"),
-            false, "STL"),
+            false, "STL",
+            residency: LargeStaysAtTheCabinet, vaultMaxBytes: VaultBytes),
         new(new[] { "ply" }, "model/ply", FileType.Other, LargeBytes,
-            SignatureRule.Required(0, "ply"), false, "PLY"),
+            SignatureRule.Required(0, "ply"), false, "PLY",
+            residency: LargeStaysAtTheCabinet, vaultMaxBytes: VaultBytes),
         new(new[] { "obj" }, "model/obj", FileType.Other, LargeBytes,
-            SignatureRule.None("Wavefront OBJ est un format texte sans marqueur d'en-tête"), false, "OBJ"),
+            SignatureRule.None("Wavefront OBJ est un format texte sans marqueur d'en-tête"), false, "OBJ",
+            residency: LargeStaysAtTheCabinet, vaultMaxBytes: VaultBytes),
         new(new[] { "3mf" }, "model/3mf", FileType.Other, LargeBytes,
-            SignatureRule.Required(0, Zip, ZipEmpty, ZipSpanned), false, "3MF"),
+            SignatureRule.Required(0, Zip, ZipEmpty, ZipSpanned), false, "3MF",
+            residency: LargeStaysAtTheCabinet, vaultMaxBytes: VaultBytes),
         new(new[] { "zip" }, "application/zip", FileType.Other, LargeBytes,
-            SignatureRule.Required(0, Zip, ZipEmpty, ZipSpanned), false, "ZIP"),
+            SignatureRule.Required(0, Zip, ZipEmpty, ZipSpanned), false, "ZIP",
+            residency: LargeStaysAtTheCabinet, vaultMaxBytes: VaultBytes),
 
         // AC-3.3 — office and text.
         new(new[] { "docx" }, "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

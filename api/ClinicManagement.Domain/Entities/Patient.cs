@@ -47,6 +47,18 @@ public class Patient : AggregateRoot<Guid>
     public string? ReferredBy { get; private set; }
 
     /// <summary>
+    /// When the Google Calendar import created this record from an event title alone. Non-null means <b>nobody has
+    /// confirmed it</b>: the name was read off a calendar and everything else — birth date, gender, telephone — is
+    /// absent rather than answered.
+    ///
+    /// <para>⚠️ It is cleared by <see cref="UpdatePersonalInfo"/> on <b>any</b> human edit, not once the fields are
+    /// full. What is being tracked is confirmation, not completeness — <see cref="DateOfBirth"/>'s own note says a
+    /// patient with no birth date is an ordinary patient rather than a data-quality problem, so clearing on
+    /// completeness would nag for ever about someone whose birthday the practice genuinely does not have.</para>
+    /// </summary>
+    public DateTime? CalendarImportPendingReviewSince { get; private set; }
+
+    /// <summary>
     /// Free-standing notes about the patient themselves — what the dentist wants to be reminded of on every visit,
     /// as opposed to a <see cref="DentalRecord"/>'s notes, which describe one séance.
     ///
@@ -69,6 +81,29 @@ public class Patient : AggregateRoot<Guid>
     public DateTime? RecallSnoozedUntil { get; private set; }
     public string? RecallReason { get; private set; }
     public DateTime? LastRecallContactedAt { get; private set; }
+
+    // Consent to be contacted by SMS/WhatsApp. Recording a phone number used to enrol the patient into
+    // reminders with no way for anyone — the patient or the cabinet — to opt out; this is that way out.
+    //
+    // ⚠️ The two stamps are not decoration. « Le patient a refusé » with nobody's name and no date is not a
+    // consent record a cabinet can defend to the INPDP, and it is the half that is always dropped as
+    // unnecessary. Written together in SetReminderConsent so they cannot drift apart.
+    public PatientReminderConsent ReminderConsent { get; private set; } = PatientReminderConsent.NotRecorded;
+    public DateTime? ReminderConsentRecordedAtUtc { get; private set; }
+    public string? ReminderConsentRecordedBy { get; private set; }
+
+    /// <summary>
+    /// May this patient be sent an automated reminder or recall at all?
+    ///
+    /// <para>⚠️ <b>This is the ONLY place the consent enum is turned into a yes/no</b>, and every enqueue path
+    /// must ask it rather than compare the enum itself. A second `!= Refused` written at a call site is how a
+    /// later state (a withdrawal, an expiry) gets honoured in one place and ignored in the other — the failure
+    /// this repository produces most often. <c>ReminderConsentCoverageTests</c> is the derived guard.</para>
+    ///
+    /// <para>See <see cref="PatientReminderConsent.NotRecorded"/> for why an unasked patient is still
+    /// reachable.</para>
+    /// </summary>
+    public bool AcceptsReminders => ReminderConsent != PatientReminderConsent.Refused;
 
     // Archiving (data-and-money-integrity, AC-7..AC-9). Deleting a patient is refused whenever any clinical or
     // financial record is attached — which would otherwise leave no way at all to remove a duplicate or a
@@ -144,6 +179,26 @@ public class Patient : AggregateRoot<Guid>
         PhoneNumber = phoneNumber;
         Address = address;
         UpdatedAt = DateTime.UtcNow;
+        // A human has been through this record, which is the whole of what the stamp was waiting for. Cleared here
+        // rather than at the call sites so none of them can forget — see the property's own note.
+        CalendarImportPendingReviewSince = null;
+    }
+
+    /// <summary>
+    /// Confirms a calendar-imported record as-is, with nothing to change. Without it a fiche whose name is simply
+    /// correct could only be cleared by editing something, which is how a review prompt teaches people to make a
+    /// pointless edit.
+    /// </summary>
+    public void ConfirmCalendarImport()
+    {
+        CalendarImportPendingReviewSince = null;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Stamps this record as conjured from a calendar event title, awaiting a human's confirmation.</summary>
+    public void MarkImportedFromCalendar(DateTime importedAtUtc)
+    {
+        CalendarImportPendingReviewSince = importedAtUtc;
     }
 
     public void UpdateInsuranceInfo(InsuranceInfo? insuranceInfo)
@@ -180,6 +235,38 @@ public class Patient : AggregateRoot<Guid>
     {
         Email = email;
         PhoneNumber = phoneNumber;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Record the patient's answer about automated reminders, with who asked and when.
+    ///
+    /// <para>⚠️ <b>Deliberately NOT folded into <see cref="UpdateContact"/>.</b> Changing a phone number is not
+    /// a consent event, and a patient who refused keeps refusing when reception corrects a typo in their
+    /// number. Tying the two together would silently reset a refusal on an unrelated edit — exactly the
+    /// « auto-enrol on a phone number » behaviour this exists to end.</para>
+    ///
+    /// <para><paramref name="recordedBy"/> is the staff member who took the answer. It is stored as free text
+    /// rather than a user id on purpose: the account may be deleted years before the record is questioned, and
+    /// a consent record that dangles is worse than one naming somebody who has left.</para>
+    /// </summary>
+    public void SetReminderConsent(PatientReminderConsent consent, DateTime nowUtc, string? recordedBy)
+    {
+        ReminderConsent = consent;
+
+        // « Not recorded » is the absence of an answer, so it carries no stamps — leaving the old ones would
+        // assert that somebody recorded a non-answer at a date.
+        if (consent == PatientReminderConsent.NotRecorded)
+        {
+            ReminderConsentRecordedAtUtc = null;
+            ReminderConsentRecordedBy = null;
+        }
+        else
+        {
+            ReminderConsentRecordedAtUtc = nowUtc;
+            ReminderConsentRecordedBy = string.IsNullOrWhiteSpace(recordedBy) ? null : recordedBy.Trim();
+        }
+
         UpdatedAt = DateTime.UtcNow;
     }
 

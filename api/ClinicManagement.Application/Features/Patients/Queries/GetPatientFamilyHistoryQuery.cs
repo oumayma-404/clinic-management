@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -56,7 +57,7 @@ public class GetPatientFamilyHistoryQueryHandler : IRequestHandler<GetPatientFam
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IEnumerable<PatientFamilyHistoryDto>>.Failure($"Error retrieving family history: {ex.Message}");
+            return Result<IEnumerable<PatientFamilyHistoryDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

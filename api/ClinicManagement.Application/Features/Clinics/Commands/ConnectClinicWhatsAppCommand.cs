@@ -1,4 +1,5 @@
-﻿using MediatR;
+using ClinicManagement.Application.Common;
+using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -136,7 +137,7 @@ public class ConnectClinicWhatsAppCommandHandler
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<ReminderSettingsDto>.Failure($"Error connecting WhatsApp: {ex.Message}");
+            return Result<ReminderSettingsDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 

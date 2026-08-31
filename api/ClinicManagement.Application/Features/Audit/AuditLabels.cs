@@ -21,6 +21,9 @@ public static class AuditLabels
         AuditAction.Insert => "Création",
         AuditAction.Update => "Modification",
         AuditAction.Delete => "Suppression",
+        // « Consultation » rather than « Lecture »: what is recorded is a patient's content leaving the server —
+        // a radiograph or a document downloaded — which is what a practitioner calls consulting a dossier.
+        AuditAction.Read => "Consultation",
         _ => action.ToString()
     };
 

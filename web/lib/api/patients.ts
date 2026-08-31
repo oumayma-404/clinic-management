@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
-import type { CnamInfo, PatientDto, PatientDeletionCheckDto } from './types';
+import type { CnamInfo, PatientDto, PatientDeletionCheckDto, ReminderConsent } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
 export const patientsApi = {
@@ -38,6 +38,11 @@ export const patientsApi = {
        * `/fichiers`, so the « Restaurer » control on their own page was reachable only by typing their UUID.
        */
       includeArchived?: boolean;
+      /**
+       * Only the patients the Google Calendar import conjured from an event title and nobody has confirmed.
+       * Server-side, for `flaggedOnly`'s reason.
+       */
+      pendingCalendarReviewOnly?: boolean;
     },
   ): Promise<PagedResponse<PatientDto>> => {
     const { search, ...rest } = params;
@@ -46,6 +51,14 @@ export const patientsApi = {
 
   get: async (id: string): Promise<PatientDto> => {
     return apiGet<PatientDto>(`/patients/${id}`);
+  },
+
+  /**
+   * Confirms a calendar-imported fiche as correct with nothing to change. The other way out of the review state is
+   * simply saving the patient's info, which clears it server-side.
+   */
+  confirmCalendarImport: async (id: string): Promise<PatientDto> => {
+    return apiPost<PatientDto>(`/patients/${id}/confirm-calendar-import`, {});
   },
 
   create: async (data: {
@@ -102,6 +115,11 @@ export const patientsApi = {
     emergencyContactPhone?: string;
     /** « Adressé par » — the referring practitioner, free text. */
     referredBy?: string;
+    /**
+     * The patient's answer about automated reminders. Omit at registration when nobody asked — the server then
+     * stores « non renseigné » with no date, rather than an answer that was never given.
+     */
+    reminderConsent?: ReminderConsent;
     /** Patient-level notes; `importantNotes` is shown highlighted on the patient's file. */
     notes?: string;
     importantNotes?: string;

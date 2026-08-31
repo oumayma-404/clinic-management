@@ -7,6 +7,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 namespace ClinicManagement.Infrastructure.Auth;
@@ -17,7 +18,26 @@ namespace ClinicManagement.Infrastructure.Auth;
 /// </summary>
 public class LocalAuthService : ILocalAuthService
 {
-    private readonly PasswordHasher<User> _passwordHasher = new();
+    /// <summary>
+    /// PBKDF2-HMAC-SHA512 with a 128-bit per-password CSPRNG salt (the framework's IdentityV3 format), at
+    /// <b>210 000</b> iterations rather than the .NET 8 default of 100 000 — OWASP's current figure for
+    /// PBKDF2-HMAC-SHA512.
+    ///
+    /// <para>⚠️ <b>The options must be passed in here, not registered in DI.</b> This field used to be
+    /// <c>new()</c>, and <c>PasswordHasher&lt;T&gt;</c>'s parameterless constructor reads no configuration — so
+    /// a <c>services.Configure&lt;PasswordHasherOptions&gt;(…)</c> would have looked correct, changed nothing,
+    /// and left every password on the old work factor with a green build. That is this repository's « present
+    /// and inert » shape.</para>
+    ///
+    /// <para><b>Existing accounts migrate on their own.</b> The stored format carries its own iteration count,
+    /// so old hashes keep verifying; the verifier reports <c>SuccessRehashNeeded</c> and
+    /// <c>LoginCommand</c>/<c>PlatformLoginCommand</c> already act on it, re-hashing at the new factor on the
+    /// owner's next sign-in. Raising this number is therefore safe and needs no migration — which is exactly
+    /// what that rehash path was built for.</para>
+    /// </summary>
+    private readonly PasswordHasher<User> _passwordHasher = new(
+        Options.Create(new PasswordHasherOptions { IterationCount = 210_000 }));
+
     private readonly IConfiguration _configuration;
 
     public LocalAuthService(IConfiguration configuration)
@@ -51,7 +71,11 @@ public class LocalAuthService : ILocalAuthService
         };
     }
 
-    public LocalAuthToken GenerateToken(User user)
+    public LocalAuthToken GenerateToken(User user) => GenerateToken(user, scope: null);
+
+    public LocalAuthToken GenerateScopedToken(User user, string scope) => GenerateToken(user, scope);
+
+    private LocalAuthToken GenerateToken(User user, string? scope)
     {
         // The browser-held credential: short-lived on purpose, renewed silently from the cookie (AC-5.3).
         var expiresAt = DateTime.UtcNow.AddMinutes(LocalAuthConfig.AccessTokenLifetimeMinutes(_configuration));
@@ -68,6 +92,14 @@ public class LocalAuthService : ILocalAuthService
             // retires the long-lived tokens issued before this shipped (AC-5.15).
             new(LocalAuthClaims.TokenVersion, user.TokenVersion.ToString(CultureInfo.InvariantCulture))
         };
+
+        // Present ONLY on a restricted token. `ScopedTokenFilter` refuses every endpoint that has not named
+        // this scope, so adding the claim removes surface rather than granting any — which is why an ordinary
+        // sign-in leaves it off entirely instead of carrying a « full » value nobody would have to check.
+        if (!string.IsNullOrWhiteSpace(scope))
+        {
+            claims.Add(new Claim(LocalAuthClaims.Scope, scope));
+        }
 
         if (!string.IsNullOrWhiteSpace(user.Email))
         {

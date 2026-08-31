@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Exceptions;
@@ -161,7 +162,7 @@ public class ImportPatientsCommandHandler : IRequestHandler<ImportPatientsComman
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PatientImportResultDto>.Failure($"Échec de l'import : {ex.Message}");
+            return Result<PatientImportResultDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

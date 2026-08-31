@@ -38,8 +38,9 @@ public class UpdatePatientCommandHandlerTests
     private readonly Mock<IPatientRepository> _patients = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
     private readonly Mock<IUnitOfWork> _uow = new();
+    private readonly Mock<IClinicContext> _clinicContext = new();
 
-    private UpdatePatientCommandHandler Handler() => new(_patients.Object, _clinicResolver.Object, _uow.Object);
+    private UpdatePatientCommandHandler Handler() => new(_patients.Object, _clinicResolver.Object, _uow.Object, _clinicContext.Object);
 
     private void Authenticated() =>
         _clinicResolver.Setup(r => r.GetClinicIdAsync(It.IsAny<CancellationToken>()))

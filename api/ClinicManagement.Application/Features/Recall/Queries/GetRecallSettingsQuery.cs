@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -41,7 +42,7 @@ public class GetRecallSettingsQueryHandler : IRequestHandler<GetRecallSettingsQu
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<RecallSettingsDto>.Failure($"Erreur lors de la récupération des paramètres de relance : {ex.Message}");
+            return Result<RecallSettingsDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

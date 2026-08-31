@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -64,6 +65,13 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     public List<FamilyHistoryEntryDto>? FamilyHistoryEntries { get; set; }
 
     // "Signaler ce patient" toggle + note at creation (feeds the "Urgents" KPI / flagged filter).
+    /// <summary>
+    /// The patient's answer about automated SMS/WhatsApp reminders, if it was taken at registration —
+    /// <c>"Granted"</c> or <c>"Refused"</c>. Omitted leaves it <c>NotRecorded</c>: an honest « nobody has asked
+    /// yet », not a silent yes. A string, for <c>UpdatePatientCommand.ReminderConsent</c>'s reason.
+    /// </summary>
+    public string? ReminderConsent { get; set; }
+
     public bool? IsFlagged { get; set; }
     public string? FlagNotes { get; set; }
 
@@ -271,6 +279,9 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
                 EmergencyContactName = patient.EmergencyContactName,
                 EmergencyContactPhone = patient.EmergencyContactPhone?.Value,
                 ReferredBy = patient.ReferredBy,
+                ReminderConsent = patient.ReminderConsent.ToString(),
+                ReminderConsentRecordedAtUtc = patient.ReminderConsentRecordedAtUtc,
+                ReminderConsentRecordedBy = patient.ReminderConsentRecordedBy,
                 Notes = patient.Notes,
                 ImportantNotes = patient.ImportantNotes,
                 CreatedAt = patient.CreatedAt,
@@ -310,7 +321,7 @@ public class CreatePatientCommandHandler : IRequestHandler<CreatePatientCommand,
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PatientDto>.Failure($"Error creating patient: {ex.Message}");
+            return Result<PatientDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

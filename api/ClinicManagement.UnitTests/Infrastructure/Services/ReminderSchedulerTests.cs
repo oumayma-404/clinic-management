@@ -1,4 +1,4 @@
-﻿using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -119,6 +119,20 @@ public class ReminderSchedulerTests
                 .ReturnsAsync(new Patient(
                     patientId, ClinicId, "Sans", "Téléphone",
                     new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc), "M"));
+
+        /// <summary>
+        /// A patient with a perfectly good phone who has told the cabinet not to send automated messages. The
+        /// number is deliberately valid: the whole point is that consent, not deliverability, is what stops it.
+        /// </summary>
+        public void PatientRefusedReminders(Guid patientId)
+        {
+            var patient = ReachablePatient(patientId);
+            patient.SetReminderConsent(
+                PatientReminderConsent.Refused, new DateTime(2026, 8, 31, 9, 0, 0, DateTimeKind.Utc), "reception@cabinet.tn");
+
+            Patients.Setup(r => r.GetByIdAsync(patientId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(patient);
+        }
 
         private static Patient ReachablePatient(Guid patientId) =>
             new(patientId, ClinicId, "Jean", "Dupont",
@@ -393,6 +407,63 @@ public class ReminderSchedulerTests
         Assert.Empty(h.Added);
         // [AC-P3.1] and it says so, rather than returning void and letting the caller assume a send.
         Assert.Equal(RecallDispatchOutcome.NoDeliverablePhone, outcome);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>A patient who refused gets nothing on the appointment path.</b> Recording a phone number used to
+    /// enrol somebody into reminders with no way out for the patient or the cabinet; this is the way out, and
+    /// this fixture is what proves it is wired to <i>this</i> path and not only to the relance below.
+    ///
+    /// <para>The phone is valid throughout. If this ever fails while the phone-less fixtures pass, the consent
+    /// check has been dropped and the deliverability check is carrying the test.</para>
+    /// </summary>
+    [Fact]
+    public async Task Booking_Enqueues_Nothing_For_A_Patient_Who_Refused_Reminders()
+    {
+        var h = new Harness("Sms", "WhatsApp");
+        var patientId = Guid.NewGuid();
+        h.PatientRefusedReminders(patientId);
+        var appt = DateTime.UtcNow.AddDays(3);
+
+        await h.Scheduler().ScheduleForAppointmentAsync(ClinicId, Guid.NewGuid(), patientId, "Jean Dupont", appt);
+
+        Assert.Empty(h.Added);
+    }
+
+    /// <summary>
+    /// The same refusal on the relance path — and it is reported as <b>its own outcome</b>, not as a missing
+    /// phone. That distinction is the whole point: « numéro invalide » sends reception off to correct a number,
+    /// and correcting the number is exactly what must not put the message back in the queue.
+    /// </summary>
+    [Fact]
+    public async Task Recall_Refuses_And_Names_Consent_Rather_Than_The_Phone()
+    {
+        var h = new Harness("Sms");
+        var patientId = Guid.NewGuid();
+        h.PatientRefusedReminders(patientId);
+
+        var outcome = await h.Scheduler().ScheduleRecallAsync(ClinicId, patientId, "Jean Dupont", "contrôle");
+
+        Assert.Empty(h.Added);
+        Assert.Equal(RecallDispatchOutcome.ReminderConsentRefused, outcome);
+        Assert.NotEqual(RecallDispatchOutcome.NoDeliverablePhone, outcome);
+    }
+
+    /// <summary>
+    /// The grandfathering decision, asserted rather than assumed. Every patient recorded before this column
+    /// existed is <c>NotRecorded</c>, and treating that as a refusal would have silently muted every reminder
+    /// in every cabinet on the day it shipped. If somebody later decides consent must be explicit, this is the
+    /// test that has to be changed deliberately — which is the point of writing it down.
+    /// </summary>
+    [Fact]
+    public async Task A_Patient_Nobody_Has_Asked_Yet_Still_Receives_Reminders()
+    {
+        var h = new Harness("Sms");
+        var appt = DateTime.UtcNow.AddDays(3);
+
+        await h.Scheduler().ScheduleForAppointmentAsync(ClinicId, Guid.NewGuid(), Guid.NewGuid(), "Jean Dupont", appt);
+
+        Assert.NotEmpty(h.Added);
     }
 
     // [AC-P3.1/AC-P3.2] No channel enabled: nothing is enqueued AND the caller is told which of the two

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 import { formatDT } from "@/lib/format"
 import { conditionStyle } from "@/components/odontogram-conditions"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
+import { COARSE_POINTER_QUERY } from "@/lib/hooks/use-media-query"
 import type { ProcedureTypeDto } from "@/lib/api/types"
 
 /**
@@ -55,26 +56,23 @@ export function ActCatalogPicker({
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  /**
+   * Focus the search field — **on a mouse only**.
+   *
+   * <p>On a finger this raised the on-screen keyboard the instant « Ajouter une fiche médicale » opened, over the
+   * very list the field filters, and the browser scrolled the sheet's own body to bring the focused field up.
+   * `stock-table.tsx` states the rule for the rest of the app (`ui/dialog.tsx` sends the opening focus to the
+   * title so a sheet does not raise a keyboard over its content); this picker had opted itself back out. Typing
+   * still focuses it — a tap on the field is a request for the keyboard, which is a different thing.</p>
+   */
   useEffect(() => {
-    if (autoFocus) inputRef.current?.focus()
+    if (!autoFocus) return
+    if (window.matchMedia?.(COARSE_POINTER_QUERY).matches) return
+    inputRef.current?.focus()
   }, [autoFocus])
 
   const trimmed = query.trim()
   const searching = trimmed !== ""
-
-  // Flat, ranked match list — also the keyboard's index space, so browsing and searching share one cursor.
-  const matches = useMemo(() => {
-    if (!searching) return procedureTypes
-    const needle = fold(trimmed)
-    return procedureTypes.filter(
-      (pt) =>
-        fold(pt.name).includes(needle) ||
-        // The discipline is searchable, because it is how staff name a group of acts out loud: « endo » must
-        // reach « Traitement de canal », whose own name contains none of those letters.
-        fold(pt.category ?? "").includes(needle) ||
-        fold(pt.description ?? "").includes(needle),
-    )
-  }, [procedureTypes, searching, trimmed])
 
   // Browsing only: the same list, bucketed for headings — canonical disciplines in clinical order, the clinic's
   // own after them, unfiled acts last. Grouping moved to a shared helper so this picker and the agenda's cannot
@@ -85,20 +83,63 @@ export function ActCatalogPicker({
     [procedureTypes, searching],
   )
 
+  /**
+   * Flat, ranked match list — also the keyboard's index space, so browsing and searching share one cursor.
+   *
+   * <p>⚠️ While BROWSING that index space must be the **grouped** order, not `procedureTypes`' own. The rows are
+   * rendered group by group and look their own index up with `matches.indexOf(pt)`, so indexing the ungrouped
+   * array handed the cursor to whatever act the API returned first — measured as the 9th row down. The mount
+   * effect below then scrolled the list to it, so on a phone the picker opened mid-catalogue with
+   * « Consultation » out of sight above, and ↓ moved the highlight to an unrelated row further down the page
+   * rather than to the next one. `groupProceduresByCategory` partitions, so the `n/n` count is unaffected.</p>
+   */
+  const matches = useMemo(() => {
+    if (!searching) return groups.flatMap((group) => group.items)
+    const needle = fold(trimmed)
+    return procedureTypes.filter(
+      (pt) =>
+        fold(pt.name).includes(needle) ||
+        // The discipline is searchable, because it is how staff name a group of acts out loud: « endo » must
+        // reach « Traitement de canal », whose own name contains none of those letters.
+        fold(pt.category ?? "").includes(needle) ||
+        fold(pt.description ?? "").includes(needle),
+    )
+  }, [procedureTypes, searching, trimmed, groups])
+
   const clampedCursor = Math.min(cursor, Math.max(0, matches.length - 1))
   const exactMatch = matches.some((pt) => fold(pt.name) === fold(trimmed))
 
-  // Keep the highlighted row in view when arrowing past the visible window.
+  /**
+   * Keep the highlighted row in view when arrowing past the visible window.
+   *
+   * <p>⚠️ Scrolls **this container and nothing else**, and only once a key has actually moved the cursor.
+   * `scrollIntoView` walks up and scrolls *every* scrollable ancestor, so inside the fiche's mobile sheet it
+   * moved the `DialogBody` too: the picker opened with the form pushed 86 px up (the Patient field gone) and its
+   * own list 266 px down, which on a phone reads as a list that cannot be scrolled to its top. Nothing needs
+   * bringing into view before the first ↑/↓ — the catalogue belongs at row one — so the ref gates the effect
+   * instead of the effect running on mount.</p>
+   */
+  const cursorMoved = useRef(false)
   useEffect(() => {
-    listRef.current?.querySelector<HTMLElement>('[data-cursor="true"]')?.scrollIntoView({ block: "nearest" })
+    const list = listRef.current
+    const row = list?.querySelector<HTMLElement>('[data-cursor="true"]')
+    if (!cursorMoved.current || !list || !row) return
+    // Rect deltas rather than `offsetTop`: the rows sit inside per-group wrappers and the list is not a
+    // positioned ancestor, so `offsetTop` is measured against the dialog rather than against this box.
+    const listBox = list.getBoundingClientRect()
+    const rowBox = row.getBoundingClientRect()
+    if (rowBox.top < listBox.top) list.scrollTop += rowBox.top - listBox.top
+    else if (rowBox.bottom > listBox.bottom) list.scrollTop += rowBox.bottom - listBox.bottom
   }, [clampedCursor, matches.length])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
       e.preventDefault()
+      cursorMoved.current = true
       setCursor((c) => Math.min(c + 1, matches.length - 1))
     } else if (e.key === "ArrowUp") {
       e.preventDefault()
+      cursorMoved.current = true
       setCursor((c) => Math.max(c - 1, 0))
     } else if (e.key === "Enter") {
       // Owned here so it never reaches the Dialog — see the component note above.

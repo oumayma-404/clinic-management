@@ -114,6 +114,30 @@ public interface INotificationGenerator
     Task ClearArchiveStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Flags that no copy of the cabinet's <b>coffre</b> has left the machine holding it for
+    /// <paramref name="staleAfterDays"/> (<c>clinic-file-vault</c>). <see cref="EnsureArchiveStaleAsync"/>'s
+    /// ensure/clear shape, matched on a stable prefix so a daily pass restates nothing.
+    ///
+    /// <para>⚠️ <b>A separate alert from the archive's, and that separation is the point.</b> A coffre original was
+    /// never uploaded, so no archive has ever held one — a cabinet can have a perfectly fresh archive and a coffre
+    /// nobody has ever copied, which is exactly when a failed disk loses a decade of imaging while every backup
+    /// indicator reads green.</para>
+    ///
+    /// <para><paramref name="lastCopiedUtc"/> is <c>null</c> when no copy has ever been reported, and the wording
+    /// differs. The caller must not fire this on a cabinet whose coffre is <b>empty</b>: there is nothing to lose
+    /// yet, and an alert about an empty folder is one that gets dismissed for ever.</para>
+    /// </summary>
+    Task EnsureVaultCopyStaleAsync(
+        Guid clinicId, DateTime? lastCopiedUtc, int staleAfterDays,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes the coffre-staleness alert if one exists — a copy has just been reported. No-op otherwise, which is
+    /// the common case on a daily pass.
+    /// </summary>
+    Task ClearVaultCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ensures the cabinet carries exactly one warning row for <paramref name="thresholdDays"/> — 7, 3, 1 or 0 days
     /// before <paramref name="endsOn"/> (<c>clinic-subscription</c> AC-3.4). Visible to all staff (AC-3.7) and
     /// deep-links to « Abonnement ».
@@ -286,4 +310,20 @@ public interface INotificationGenerator
     /// </summary>
     Task ClinicArchiveExportedAsync(
         Guid clinicId, string actorUserId, string actorName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tells the practice that the Google Calendar import created a patient record from an event title alone, and
+    /// that it needs completing (<c>calendar-import-review</c> AC-9). Deep-links to that patient's fiche.
+    ///
+    /// <para>⚠️ <b>Fire-once per patient, not an ensure/clear pair</b> — each row is one record needing attention,
+    /// and a single restated row carrying a count would hide every patient but the number. Called <b>only</b> for a
+    /// patient the import actually created: an event matched to someone the clinic already has produces nothing, or
+    /// an established practice connecting its calendar would badge the bell once per patient it already knew.</para>
+    ///
+    /// <para>Clinic-wide with no actor: a scheduled job did it, and reception completes patient records as often as
+    /// the dentist. In-app only — the category is classified <c>false</c> in
+    /// <see cref="Common.Services.StaffNotificationRules.ReachesALockedPhone"/>.</para>
+    /// </summary>
+    Task PatientImportedFromCalendarAsync(
+        Guid clinicId, Guid patientId, string patientName, CancellationToken cancellationToken = default);
 }

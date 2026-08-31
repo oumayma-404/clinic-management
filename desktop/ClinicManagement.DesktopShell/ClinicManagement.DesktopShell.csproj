@@ -9,7 +9,10 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>ClinicManagement.DesktopShell</RootNamespace>
     <AssemblyName>ClinicManagement.DesktopShell</AssemblyName>
-    <Version>1.0.0</Version>
+    <!-- 1.2.0 with clinic-file-vault: this shell now exposes window.__clinicShell (its first bridge), and
+         mobile/shared/bridge.md's rule is that the method set and the version move together. It is also what
+         `version` reports to the page and what X-Client-Version already sent, so there is one number. -->
+    <Version>1.2.0</Version>
     <!-- Shown in the title bar, the taskbar, alt-tab and Explorer, and picked up by the client installer as its
          own icon. Generated from `web/branding/icon.svg` by `web/scripts/generate-icons.mjs` — never hand-edited,
          or the shell's tile drifts from the browser tab it renders. -->

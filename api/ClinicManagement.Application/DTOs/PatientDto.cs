@@ -1,3 +1,4 @@
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Application.DTOs;
@@ -72,6 +73,28 @@ public class PatientDto
     public bool IsArchived { get; set; }
     public DateTime? ArchivedAt { get; set; }
     public string? ArchiveReason { get; set; }
+
+    /// <summary>
+    /// Set when the Google Calendar import created this record from an event title alone and nobody has confirmed
+    /// it yet. Drives the fiche's « à compléter » banner and the patients list's own filter.
+    /// </summary>
+    public DateTime? CalendarImportPendingReviewSince { get; set; }
+
+    /// <summary>
+    /// Whether the patient agreed to automated SMS/WhatsApp reminders — <c>"NotRecorded"</c>,
+    /// <c>"Granted"</c> or <c>"Refused"</c>. The two stamps below say who took the answer and when; a consent
+    /// nobody can date is not one a cabinet can defend.
+    ///
+    /// <para>⚠️ <b>A string, for <see cref="Dentition"/>'s reason, and I got this wrong first time.</b> This API
+    /// registers no <c>JsonStringEnumConverter</c>, so a raw enum property leaves as <c>0</c>/<c>1</c>/<c>2</c>.
+    /// The browser then compares an integer against <c>"Refused"</c>, never matches, and the control shows
+    /// « non renseigné » over every stored answer while a write of <c>"Refused"</c> is refused as a 400 — both
+    /// silent, and neither visible to <c>tsc</c>, the unit suite or <c>check:responsive</c>. Only a real request
+    /// showed it.</para>
+    /// </summary>
+    public string ReminderConsent { get; set; } = nameof(PatientReminderConsent.NotRecorded);
+    public DateTime? ReminderConsentRecordedAtUtc { get; set; }
+    public string? ReminderConsentRecordedBy { get; set; }
 
     public DateTime CreatedAt { get; set; }
 

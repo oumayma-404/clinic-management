@@ -30,8 +30,14 @@ interface ClinicShell {
    */
   readonly version: string
 
-  /** Which shell is running. Present so a platform-specific message can name the right store or setting. */
-  readonly platform: "android" | "ios"
+  /**
+   * Which shell is running. Present so a platform-specific message can name the right store or setting.
+   *
+   * ⚠️ `"windows"` is the WPF desktop shell, which had **no bridge at all** until the coffre — it was
+   * indistinguishable from a plain browser, and its version floor was read over native HTTP before navigation
+   * instead. It exposes `version`, `platform` and the vault seam below, and none of the mobile members.
+   */
+  readonly platform: "android" | "ios" | "windows"
 
   /**
    * The largest file, in bytes, this shell can accept through `saveFile`.
@@ -66,4 +72,27 @@ interface ClinicShell {
 
 interface Window {
   readonly __clinicShell?: ClinicShell
+
+  /**
+   * How the desktop shell hands the page its coffre folder — a `FileSystemDirectoryHandle` for
+   * `{dossier}\coffre`, created native-side with its permission **already granted**, so the page never calls
+   * `requestPermission` and the user never meets a picker.
+   *
+   * ⚠️ **Deliberately not a member of `__clinicShell`**, exactly like `__clinicShellDeliverPushToken` and
+   * `__clinicShellDeliverIdentityResult`: AC-26 verifies the bridge by *deleting* it at runtime, and a resolver
+   * living on the object would either die with it or keep a live reference to something that is gone.
+   *
+   * ⚠️ The page **defines** this; the shell calls it. It is absent in every browser, where
+   * `lib/vault/handle.ts` falls back to `showDirectoryPicker()`.
+   */
+  __clinicShellDeliverVault?: (handle: FileSystemDirectoryHandle) => void
+
+  /**
+   * Where the shell parks the coffre handle when it arrives **before** the page installed its listener.
+   *
+   * ⚠️ The two sides genuinely race: the shell posts on navigation-completed, the bundle evaluates whenever it
+   * evaluates. Without a parking slot the handle would be lost on exactly the fast loads — and « no coffre »
+   * looks identical to « this machine has none », so the bug would read as a configuration problem.
+   */
+  __clinicShellPendingVault?: FileSystemDirectoryHandle
 }

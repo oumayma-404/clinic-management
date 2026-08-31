@@ -107,6 +107,11 @@ public sealed class CsvTable
     /// RFC 4180 quoting, applied only when needed: a cell containing the delimiter, a quote, a newline — or
     /// <b>leading/trailing whitespace</b>, which a spreadsheet otherwise silently trims (a phone number typed
     /// with a trailing space would round-trip differently from the stored value).
+    ///
+    /// <para>⚠️ <b>Quoting is not protection against a formula, which is why <see cref="Neutralise"/> runs
+    /// first.</b> Excel strips the quotes on import and still evaluates what is inside, so a patient named
+    /// <c>=WEBSERVICE(…)</c> executes in the file the cabinet hands its accountant. Every export in the product
+    /// funnels through here, so this is the one place it can be stopped.</para>
     /// </summary>
     private static string Escape(string? value)
     {
@@ -115,6 +120,8 @@ public sealed class CsvTable
             return string.Empty;
         }
 
+        value = Neutralise(value);
+
         var needsQuotes = value.Contains(Delimiter)
                           || value.Contains('"')
                           || value.Contains('\n')
@@ -122,6 +129,47 @@ public sealed class CsvTable
                           || value != value.Trim();
 
         return needsQuotes ? '"' + value.Replace("\"", "\"\"") + '"' : value;
+    }
+
+    /// <summary>
+    /// The characters a spreadsheet reads as « this cell is code »: <c>=</c> opens a formula, <c>+</c> and
+    /// <c>@</c> are accepted as formula leaders by Excel, and a leading TAB or CR shifts what the parser sees
+    /// so the next character becomes the leader instead.
+    /// </summary>
+    private const string FormulaLeaders = "=+@\t\r";
+
+    /// <summary>Same culture <see cref="CsvCell.Money"/> writes with — see <see cref="Neutralise"/>.</summary>
+    private static readonly CultureInfo CellCulture = CultureInfo.GetCultureInfo("fr-FR");
+
+    /// <summary>
+    /// Prefixes a cell that a spreadsheet would execute with an apostrophe, which marks it as text.
+    ///
+    /// <para>⚠️ <b><c>-</c> is deliberately NOT neutralised unconditionally</b>, because <see cref="CsvCell.Money"/>
+    /// writes a negative dinar as <c>-1234,500</c> and the whole reason the accountant asked for this file is
+    /// that the column sums. So a leading <c>-</c> is left alone when the rest of the cell parses as a number in
+    /// the culture the file is written in, and neutralised when it does not — <c>-2+3</c> and
+    /// <c>-cmd|'/c calc'!A1</c> are not numbers and do not survive.</para>
+    ///
+    /// <para>The cost is cosmetic and paid only by the pathological cell: Excel imports the apostrophe literally
+    /// from a CSV rather than consuming it as the text marker it is during typing, so such a value displays with
+    /// a leading <c>'</c>. A name that genuinely starts with <c>=</c> reading slightly wrong is the right trade
+    /// against the same name executing.</para>
+    /// </summary>
+    private static string Neutralise(string value)
+    {
+        var leader = value[0];
+
+        if (FormulaLeaders.Contains(leader, StringComparison.Ordinal))
+        {
+            return "'" + value;
+        }
+
+        if (leader == '-' && !decimal.TryParse(value, NumberStyles.Number, CellCulture, out _))
+        {
+            return "'" + value;
+        }
+
+        return value;
     }
 }
 

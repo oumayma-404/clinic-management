@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using MediatR;
@@ -99,7 +100,7 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IEnumerable<PatientFolderDto>>.Failure($"Error initializing default folders: {ex.Message}");
+            return Result<IEnumerable<PatientFolderDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 

@@ -76,6 +76,7 @@ import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto, MedicalDocumentDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
+import { ExportButton } from "@/components/ui/export-button"
 import { PatientRecordModal } from "@/components/patient-record-modal"
 import { Edit } from "lucide-react"
 import { Receipt } from "lucide-react"
@@ -149,7 +150,7 @@ const documentTypeLabel = (type: string) => DOCUMENT_TYPE_LABELS[type] ?? type
  * The placeholder for a section whose request has not answered yet.
  *
  * Load-bearing since the page began painting its identity before its details: `[]` used to be reachable only
- * after every request had answered, so « Aucun dossier dentaire » was always true. It is now also the state
+ * after every request had answered, so « Aucun acte dentaire » was always true. It is now also the state
  * *before* the request answers — and a page that tells a dentist their patient has no records, no
  * appointments and no files, a beat before listing all three, is worse than one that took longer to appear.
  */
@@ -339,16 +340,16 @@ function DentalRecordNotes({
  */
 const PATIENT_TABS = [
   "medical-records",
+  "treatment-plans",
   "appointments",
   "notes",
   "documents",
   "files",
   "factures",
-  "treatment-plans",
 ]
 
 /**
- * Rows per page in « Dossiers dentaires ».
+ * Rows per page in « Actes dentaires ».
  *
  * Five, not the app's `DEFAULT_PAGE_SIZE` of 25: this list sits inside a tab under the patient's identity, its
  * rows are tall (teeth badges, expandable notes) and a fiche is *read* rather than scanned — a long-standing
@@ -434,7 +435,7 @@ export default function PatientDetailsPage() {
       return next
     })
   /**
-   * « Dossiers dentaires » pages **in the browser**, deliberately.
+   * « Actes dentaires » pages **in the browser**, deliberately.
    *
    * `dentalRecordsApi.list` takes no paging parameters, and four other things on this page read the *whole*
    * history anyway — the Notes tab, the odontogram band, the plan-act reconciliation and the delete
@@ -471,6 +472,7 @@ export default function PatientDetailsPage() {
   // (AC-P2.17) instead of vaguely warning that the fiche is billed. Same pass as the set above.
   const [invoicingNumberByRecordId, setInvoicingNumberByRecordId] = useState<Map<string, string>>(new Map())
   const [unarchiving, setUnarchiving] = useState(false)
+  const [confirmingImport, setConfirmingImport] = useState(false)
   // The dental record being invoiced (drives the pre-filled invoice modal); null = closed.
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
   // Pending destructive confirmations (AC-P2.16 / AC-P2.20). null = dialog closed.
@@ -1099,18 +1101,25 @@ export default function PatientDetailsPage() {
             « Modifier le patient » is « Modifier », and each button keeps its icon plus a `title` carrying
             the full phrase. `sm:shrink-0` stops the row being compressed instead of the name.
 
-            ⚠️ **`shrink-0` is `sm:`-prefixed, and that is the whole fix for a real phone defect.** Unprefixed,
-            it pinned this group at its ~500 px max-content width inside a 343 px column — so `flex-wrap` never
-            fired (the box was already as wide as its content), « Planifier un RDV » sat off-screen and the whole
-            page scrolled sideways. Below `sm:` the group must be allowed to shrink so its own `flex-wrap` can do
-            the job it is here for; above it, the name is what needs protecting and the pin is right.
+            ⚠️ **The pin is `xl:`-prefixed, and a `sm:` pin scrolled every tablet sideways.** Pinned, the group
+            cannot shrink, so its own `flex-wrap` never fires — the box is already as wide as its content — and
+            the outer row cannot rescue it either: wrapping a 633 px item onto a line of its own still overflows
+            a 501 px line. Measured at 820 px with the rail out: group 633 px in a 501 px column, `<main>`
+            scrolling 657 in 549, « Planifier un RDV » 93 px past the right edge. That was already true at 609 px
+            with the shorter label this button replaced; five actions of French simply do not fit beside a name
+            on a tablet.
+            So below `xl:` the group takes a **row of its own** (`basis-full`) and is free to shrink, which is
+            what lets `flex-wrap` split the five buttons over two rows. The name then keeps the whole width above
+            it rather than being crushed to the ~56 px a 1024 px viewport would leave it — which is the defect a
+            plain `lg:shrink-0` trades this one for, and the reason the pin exists at all. From 1280 px there is
+            room for both, so the group returns beside the name and the pin is right again.
           */}
-          <div className="flex min-w-0 flex-wrap gap-2 sm:shrink-0">
+          <div className="flex min-w-0 basis-full flex-wrap gap-2 xl:basis-auto xl:shrink-0">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setEditDialogOpen(true)}
-              className="gap-2"
+              className="gap-2 coarse:h-11"
               title="Modifier le patient"
             >
               <Edit className="h-4 w-4" />
@@ -1123,23 +1132,47 @@ export default function PatientDetailsPage() {
               variant="outline"
               size="sm"
               onClick={() => router.push(`/patients/${patient.id}/files`)}
-              className="gap-2"
+              className="gap-2 coarse:h-11"
               title="Fichiers et dossiers du patient"
             >
               <FolderOpen className="h-4 w-4" />
               Fichiers
             </Button>
+            {/* The plans of THIS patient, one tap from the top of their page — the tab is the destination rather
+                than the clinic-wide devis list, which has no patient filter and would answer a different
+                question. Goes through `openTab` so the strip is scrolled into view; see its own note. */}
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setRecordModalOpen(true)}
-              className="gap-2"
-              title="Ajouter un dossier médical"
+              onClick={() => openTab("treatment-plans")}
+              className="gap-2 coarse:h-11"
+              title="Plans de traitement du patient"
             >
-              <FileText className="h-4 w-4" />
-              Dossier médical
+              <ClipboardCheck className="h-4 w-4" />
+              Plans de traitement
             </Button>
-            <Button size="sm" onClick={() => router.push(`/appointments?patientId=${patient.id}`)}>
+            {/*
+              « Dossier » — the patient's own copy of their record, as one archive.
+              This is the right of access under la loi organique 2004-63, and it is also the request a cabinet
+              fields constantly for an ordinary reason: somebody is changing dentist. It sits here rather than in
+              a settings screen because the person who receives that request is the person looking at this page.
+              Confirmed like the roster export: it is one person's whole medical history in a single file.
+            */}
+            <ExportButton
+              path={`/patients/${patient.id}/dossier`}
+              label="dossier"
+              compact
+              stepUpAction="export-patient-dossier"
+              stepUpPurpose="Exporter le dossier complet de ce patient, pour le lui remettre"
+            />
+            {/* `coarse:h-11` across the whole row, matching `ExportButton`'s own painted floor: on a coarse
+                pointer one 44 px control beside four 32 px ones was visibly misaligned, and their `touch-target`
+                overlays overhung each other besides. */}
+            <Button
+              size="sm"
+              className="coarse:h-11"
+              onClick={() => router.push(`/appointments?patientId=${patient.id}`)}
+            >
               Planifier un RDV
             </Button>
           </div>
@@ -1204,6 +1237,57 @@ export default function PatientDetailsPage() {
               >
                 {unarchiving ? "Restauration…" : "Restaurer"}
               </Button>
+            </div>
+          </div>
+        )}
+
+        {/* AC-8 — a fiche Google Agenda conjured from an event title, with only a name on it. Same amber band as the
+            archived notice above, and the same construction: an explanation that names where the record came from,
+            then the two ways out. « C'est correct » exists so a fiche whose name is simply right can be cleared
+            without inventing an edit. */}
+        {patient?.calendarImportPendingReviewSince && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                  Fiche créée depuis Google Agenda, à compléter
+                </p>
+                <p className="text-sm text-amber-800 dark:text-amber-300">
+                  Seul le nom a été lu, dans le titre d&apos;un rendez-vous
+                  {` du ${formatDateFr(patient.calendarImportPendingReviewSince)}`}. La date de naissance, le sexe
+                  et le téléphone n&apos;ont pas été renseignés.
+                </p>
+              </div>
+              {/* `lg:`, not `sm:`: beside the text from 640 px the two actions left the description a ~250 px
+                  column wrapping to five lines on a tablet. They take their own row until there is genuinely
+                  room for both. */}
+              <div className="flex w-full flex-wrap gap-2 lg:w-auto">
+                {/* `coarse:h-11`, not `.touch-target`: these two sit side by side, and a 44 px overlay on adjacent
+                    siblings overhangs its neighbour — the later one paints last and steals the tap. */}
+                <Button size="sm" className="coarse:h-11" onClick={() => setEditDialogOpen(true)}>
+                  Compléter la fiche
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="coarse:h-11"
+                  disabled={confirmingImport}
+                  onClick={async () => {
+                    try {
+                      setConfirmingImport(true)
+                      const confirmed = await patientsApi.confirmCalendarImport(patient.id)
+                      setPatient(confirmed)
+                      toast.success("Fiche confirmée")
+                    } catch (error) {
+                      showErrorToast(error)
+                    } finally {
+                      setConfirmingImport(false)
+                    }
+                  }}
+                >
+                  {confirmingImport ? "Confirmation…" : "C'est correct"}
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -1290,6 +1374,11 @@ export default function PatientDetailsPage() {
               <FileCheck className="h-4 w-4" />
               Dossiers médicaux
             </TabsTrigger>
+            {/* Second, not last: treatment is what the first tab's actes lead to, so the two sit side by side. */}
+            <TabsTrigger value="treatment-plans" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
+              <ClipboardCheck className="h-4 w-4" />
+              Plan de traitement
+            </TabsTrigger>
             <TabsTrigger value="appointments" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <Calendar className="h-4 w-4" />
               Rendez-vous
@@ -1310,10 +1399,6 @@ export default function PatientDetailsPage() {
               <Receipt className="h-4 w-4" />
               Factures
             </TabsTrigger>
-            <TabsTrigger value="treatment-plans" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
-              <ClipboardCheck className="h-4 w-4" />
-              Plan de traitement
-            </TabsTrigger>
           </TabsList>
           <span
             aria-hidden="true"
@@ -1328,9 +1413,9 @@ export default function PatientDetailsPage() {
               {/*
                 ⚠️ `flex-wrap` + `min-w-0 flex-1` + a full-width action below `sm:`.
 
-                A Card's content box is ~310px on a 390px phone, and « Ajouter un dossier dentaire » at
+                A Card's content box is ~310px on a 390px phone, and « Ajouter un acte dentaire » at
                 `size="sm"` is ~218px of unwrappable French — so the un-wrapped row left the title block ~92px,
-                which wrapped « Dossiers dentaires » onto three lines and its description onto eight. All three
+                which wrapped « Actes dentaires » onto three lines and its description onto eight. All three
                 tab headers on this page carried the same construction.
               */}
               <CardHeader>
@@ -1338,7 +1423,7 @@ export default function PatientDetailsPage() {
                   <div className="min-w-0 flex-1">
                     <CardTitle className="flex items-center gap-2">
                       <FileCheck className="h-5 w-5" />
-                      Dossiers dentaires
+                      Actes dentaires
                     </CardTitle>
                     <CardDescription>Historique complet des actes et interventions dentaires</CardDescription>
                   </div>
@@ -1350,7 +1435,7 @@ export default function PatientDetailsPage() {
                     size="sm"
                     className="w-full sm:w-auto"
                   >
-                    Ajouter un dossier dentaire
+                    Ajouter un acte dentaire
                   </Button>
                 </div>
               </CardHeader>
@@ -1371,7 +1456,7 @@ export default function PatientDetailsPage() {
                             setRecordModalOpen(true)
                           }}
                         >
-                          Ajouter un dossier dentaire
+                          Ajouter un acte dentaire
                         </Button>
                       }
                     />,
@@ -1384,7 +1469,7 @@ export default function PatientDetailsPage() {
                         Actions column — which is what pushed the figure staff actually read off the row. */}
                     <CardList
                       className={CARDS_ONLY}
-                      ariaLabel="Dossiers dentaires"
+                      ariaLabel="Actes dentaires"
                       items={recordsPage.items}
                       getKey={(record) => record.id}
                       title={(record) => record.procedureType}
@@ -1447,7 +1532,7 @@ export default function PatientDetailsPage() {
                       actions={(record) => (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" aria-label="Actions du dossier dentaire">
+                            <Button variant="ghost" size="icon" aria-label="Actions de l'acte dentaire">
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -1619,16 +1704,32 @@ export default function PatientDetailsPage() {
             </Card>
           </TabsContent>
 
+          {/* Plan de traitement Tab */}
+          <TabsContent value="treatment-plans" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ClipboardCheck className="h-5 w-5" />
+                  Plans de traitement
+                </CardTitle>
+                <CardDescription>Devis, actes planifiés et échéanciers de paiement du patient.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TreatmentPlansTable patientId={patientId} patientName={patientName} showPatientColumn={false} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           {/* Notes Tab */}
           <TabsContent value="notes">
             <Card>
               <CardHeader>
                 <CardTitle>Notes des dossiers médicaux</CardTitle>
-                <CardDescription>Notes et notes importantes des dossiers dentaires</CardDescription>
+                <CardDescription>Notes et notes importantes des actes dentaires</CardDescription>
               </CardHeader>
               <CardContent>
                 {dentalRecords.length === 0 ? (
-                  // Same read as « Dossiers dentaires », so the same failure band — but the copy describes what
+                  // Same read as « Actes dentaires », so the same failure band — but the copy describes what
                   // THIS tab shows. « Aucun dossier médical » answered a question the tab does not ask.
                   renderSectionEmpty(["dentalRecords"], notesEmptyState)
                 ) : (
@@ -1706,7 +1807,7 @@ export default function PatientDetailsPage() {
           <TabsContent value="documents">
             <Card>
               <CardHeader>
-                {/* Same wrap/flex-1/full-width-action fix as « Dossiers dentaires » above. */}
+                {/* Same wrap/flex-1/full-width-action fix as « Actes dentaires » above. */}
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <CardTitle className="flex items-center gap-2">
@@ -2323,22 +2424,6 @@ export default function PatientDetailsPage() {
                   showPatientColumn={false}
                   onChanged={() => setRefreshKey((k) => k + 1)}
                 />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Plan de traitement Tab */}
-          <TabsContent value="treatment-plans" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <ClipboardCheck className="h-5 w-5" />
-                  Plans de traitement
-                </CardTitle>
-                <CardDescription>Devis, actes planifiés et échéanciers de paiement du patient.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <TreatmentPlansTable patientId={patientId} patientName={patientName} showPatientColumn={false} />
               </CardContent>
             </Card>
           </TabsContent>

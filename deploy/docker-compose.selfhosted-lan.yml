@@ -31,7 +31,14 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: clinic_user
-      POSTGRES_PASSWORD: clinic_password
+      # ⚠️ No default, and the `:?` is what makes that true: `docker compose up` REFUSES to start rather than
+      # silently using a password published in this repository. It used to read `clinic_password` inline, so
+      # every LAN install that followed this file shared one credential that anybody could look up — and the
+      # database listens on the practice's own network, where a second machine is the normal case.
+      #
+      # Generate one and put it in `deploy/.env` beside this file:
+      #     echo "LAN_POSTGRES_PASSWORD=$(openssl rand -base64 24)" >> deploy/.env
+      POSTGRES_PASSWORD: ${LAN_POSTGRES_PASSWORD:?Définissez LAN_POSTGRES_PASSWORD dans deploy/.env (openssl rand -base64 24) — aucun mot de passe par défaut n'est fourni}
       POSTGRES_DB: clinic_management
     volumes:
       - lan-postgres:/var/lib/postgresql/data
@@ -95,7 +102,9 @@ services:
       Auth__Mode: Local
       # ⚠️ `postgres` resolves through the shared namespace: `web` is on this compose's network, and `api` borrows
       # its stack, so service DNS still works even though `api` joins no network of its own.
-      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=clinic_management;Username=clinic_user;Password=clinic_password"
+      # Same variable as the postgres service above — one value, named once, so the two cannot drift into an
+      # install whose API cannot reach its own database.
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=clinic_management;Username=clinic_user;Password=${LAN_POSTGRES_PASSWORD:?Définissez LAN_POSTGRES_PASSWORD dans deploy/.env}"
       Hosting__HttpPort: "5000"
       Hosting__HttpsPort: "5001"
       Hosting__WebPort: "3000"

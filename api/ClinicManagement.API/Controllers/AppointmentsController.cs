@@ -1,4 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using ClinicManagement.API.Startup;
 using MediatR;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Appointments.Commands;
@@ -93,12 +95,16 @@ public class AppointmentsController : ApiControllerBase
     /// whole filtered set, never the current page » true by construction rather than by discipline.</para>
     /// </summary>
     [HttpGet("export")]
+    [EnableRateLimiting(RateLimiting.ListExportPolicy)]
     public async Task<ActionResult> ExportAppointments(
         [FromQuery] DateTime? startDate = null,
         [FromQuery] DateTime? endDate = null,
         [FromQuery] Guid? doctorId = null)
     {
-        var result = await _mediator.Send(new GetAppointmentsQuery
+        // The agenda's CSV carries the patient's name beside the séance's acts and its free-text notes, so this
+        // is clinical content leaving in bulk. It is bounded and recorded now; deliberately NOT behind a step-up,
+        // unlike the patient roster — see ExportAppointmentsQuery for why the two differ.
+        var result = await _mediator.Send(new ExportAppointmentsQuery
         {
             StartDate = startDate,
             EndDate = endDate,

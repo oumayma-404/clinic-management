@@ -68,24 +68,13 @@ public static class FileUploadValidator
         CancellationToken cancellationToken = default)
     {
         var name = FileNameSanitizer.Sanitize(fileName);
-        var extension = FileNameSanitizer.ExtensionOf(name);
-        if (extension.Length == 0)
+        var resolved = ResolveEntry(profile, name);
+        if (resolved.IsFailure)
         {
-            return Result<ValidatedUpload>.Failure(MissingExtensionMessage);
+            return Result<ValidatedUpload>.FailureFrom(resolved);
         }
 
-        // AC-2.5: the deny-list is asked first, and answers with its own reason — « non pris en charge » on a
-        // .exe would read as a gap in the catalog rather than as a refusal.
-        if (FileTypeCatalog.DeniedExtensions.Contains(extension))
-        {
-            return Result<ValidatedUpload>.Failure(DeniedMessage);
-        }
-
-        var entry = profile.TryGet(extension);
-        if (entry is null)
-        {
-            return Result<ValidatedUpload>.Failure(profile.UnsupportedMessage);
-        }
+        var entry = resolved.Value!;
 
         if (declaredLength <= 0)
         {
@@ -112,6 +101,33 @@ public static class FileUploadValidator
         var body = Rewind(content, header, read);
         var byteLength = body.CanSeek ? body.Length - body.Position : declaredLength;
         return Result<ValidatedUpload>.Success(new ValidatedUpload(name, entry, body, byteLength));
+    }
+
+    /// <summary>
+    /// The half of the judgement that needs only a name: extension present, not deny-listed, and known to this
+    /// door. Extracted so the coffre's registration — which has no original stream to inspect, because the bytes
+    /// never left the cabinet — asks the same three questions in the same order and refuses in the same words.
+    /// </summary>
+    public static Result<FileTypeEntry> ResolveEntry(FileUploadProfile profile, string sanitizedName)
+    {
+        var extension = FileNameSanitizer.ExtensionOf(sanitizedName);
+        if (extension.Length == 0)
+        {
+            return Result<FileTypeEntry>.Failure(MissingExtensionMessage);
+        }
+
+        // AC-2.5: the deny-list is asked first, and answers with its own reason — « non pris en charge » on a
+        // .exe would read as a gap in the catalog rather than as a refusal.
+        if (FileTypeCatalog.DeniedExtensions.Contains(extension))
+        {
+            return Result<FileTypeEntry>.Failure(DeniedMessage);
+        }
+
+        var entry = profile.TryGet(extension);
+
+        return entry is null
+            ? Result<FileTypeEntry>.Failure(profile.UnsupportedMessage)
+            : Result<FileTypeEntry>.Success(entry);
     }
 
     /// <summary>

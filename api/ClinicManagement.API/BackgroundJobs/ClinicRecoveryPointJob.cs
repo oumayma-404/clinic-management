@@ -51,6 +51,7 @@ public class ClinicRecoveryPointJob
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationGenerator _notificationGenerator;
+    private readonly IPatientFileRepository _patientFiles;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
     private readonly ILogger<ClinicRecoveryPointJob> _logger;
@@ -62,6 +63,7 @@ public class ClinicRecoveryPointJob
         IFileStorage fileStorage,
         IUnitOfWork unitOfWork,
         INotificationGenerator notificationGenerator,
+        IPatientFileRepository patientFiles,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
         ILogger<ClinicRecoveryPointJob> logger)
@@ -72,6 +74,7 @@ public class ClinicRecoveryPointJob
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
         _notificationGenerator = notificationGenerator;
+        _patientFiles = patientFiles;
         _auditActor = auditActor;
         _tenantScope = tenantScope;
         _logger = logger;
@@ -116,6 +119,12 @@ public class ClinicRecoveryPointJob
         // Evaluated whether or not a point was taken, and whether or not one succeeded: this alert is about the copy
         // the *practice* holds, which nothing this job does can change.
         await EvaluateArchiveStalenessAsync(clinic);
+
+        // Its own question, and never folded into the one above: the archive carries the rows and the hosted blobs,
+        // while a coffre original was never on the server — so a cabinet can hold a perfectly fresh archive and a
+        // coffre nobody has ever copied. That is exactly the state where a failed disk loses a decade of imaging
+        // while every backup indicator reads green.
+        await EvaluateVaultCopyStalenessAsync(clinic);
     }
 
     /// <summary>
@@ -284,6 +293,39 @@ public class ClinicRecoveryPointJob
         else
         {
             await _notificationGenerator.ClearArchiveStaleAsync(clinic.Id);
+        }
+    }
+
+    /// <summary>
+    /// The same shape for the coffre, with one extra term in front of it: <b>is there anything to lose?</b>
+    ///
+    /// <para>⚠️ A cabinet whose coffre is empty is never nagged, and the count is asked <i>first</i> so the common
+    /// case — most practices, most days, no vault files at all — costs one indexed count and no notification read.
+    /// A warning about an empty folder is the fastest way to teach an owner to dismiss this alert, and the real one
+    /// would go with it.</para>
+    ///
+    /// <para>⚠️ Measured from <see cref="Clinic.CreatedAt"/> when nothing has been reported, exactly as the archive's
+    /// is: from the epoch it would fire the day the first study is filed, before anybody could have copied it.</para>
+    /// </summary>
+    private async Task EvaluateVaultCopyStalenessAsync(Clinic clinic)
+    {
+        if (await _patientFiles.CountVaultFilesAsync(clinic.Id) == 0)
+        {
+            await _notificationGenerator.ClearVaultCopyStaleAsync(clinic.Id);
+            return;
+        }
+
+        var threshold = DateTime.UtcNow.AddDays(-ClinicRecoveryPoint.VaultCopyStaleAfterDays);
+        var reference = clinic.LastVaultCopyAtUtc ?? clinic.CreatedAt;
+
+        if (reference < threshold)
+        {
+            await _notificationGenerator.EnsureVaultCopyStaleAsync(
+                clinic.Id, clinic.LastVaultCopyAtUtc, ClinicRecoveryPoint.VaultCopyStaleAfterDays);
+        }
+        else
+        {
+            await _notificationGenerator.ClearVaultCopyStaleAsync(clinic.Id);
         }
     }
 }

@@ -50,6 +50,7 @@ public class ManageTotpCommandHandler
     private readonly ITotpService _totpService;
     private readonly IUserSecretProtector _secretProtector;
     private readonly ISecondFactorPolicy _secondFactorPolicy;
+    private readonly ITotpReplayGuard _totpReplayGuard;
     private readonly IUnitOfWork _unitOfWork;
 
     public ManageTotpCommandHandler(
@@ -58,6 +59,7 @@ public class ManageTotpCommandHandler
         ITotpService totpService,
         IUserSecretProtector secretProtector,
         ISecondFactorPolicy secondFactorPolicy,
+        ITotpReplayGuard totpReplayGuard,
         IUnitOfWork unitOfWork)
     {
         _clinicContext = clinicContext;
@@ -65,6 +67,7 @@ public class ManageTotpCommandHandler
         _totpService = totpService;
         _secretProtector = secretProtector;
         _secondFactorPolicy = secondFactorPolicy;
+        _totpReplayGuard = totpReplayGuard;
         _unitOfWork = unitOfWork;
     }
 
@@ -88,8 +91,13 @@ public class ManageTotpCommandHandler
             return (null, NotEnrolled);
         }
 
+        // ⚠️ Verified FIRST, then claimed — same order as `LoginCommand`, so a wrong guess cannot burn the real
+        // code's one use. What this helper gates is not a sign-in: it is « regenerate my recovery codes » and
+        // « disable my second factor », so a code captured once and replayed here hands over the two operations
+        // that dismantle the factor itself.
         if (!_secretProtector.TryUnprotect(user.ProtectedTotpSecret!, out var secret)
-            || !_totpService.VerifyCode(secret, totpCode))
+            || !_totpService.VerifyCode(secret, totpCode)
+            || !_totpReplayGuard.TryConsume(user.Id, totpCode))
         {
             return (null, WrongCode);
         }

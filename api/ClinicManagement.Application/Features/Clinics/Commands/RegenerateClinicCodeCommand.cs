@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -87,7 +88,7 @@ public class RegenerateClinicCodeCommandHandler : IRequestHandler<RegenerateClin
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<ClinicDto>.Failure($"Error regenerating clinic code: {ex.Message}");
+            return Result<ClinicDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

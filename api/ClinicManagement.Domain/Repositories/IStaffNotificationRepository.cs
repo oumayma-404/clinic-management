@@ -74,6 +74,13 @@ public interface IStaffNotificationRepository
     Task<StaffNotification?> GetArchiveStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The cabinet's live « coffre non copié » alert, if it has one (<c>clinic-file-vault</c>).
+    /// <see cref="GetArchiveStaleAsync"/>'s shape and its reason — one such fact per cabinet — and deliberately a
+    /// separate row: a fresh archive says nothing about the coffre, whose originals were never on the server.
+    /// </summary>
+    Task<StaffNotification?> GetVaultCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The cabinet's warning row for one expiry threshold, if it has one (<c>clinic-subscription</c> FR-5).
     /// Keyed on <b>(clinic, threshold)</b> and not on the clinic alone, which is the whole difference from
     /// <see cref="GetBackupStaleAsync"/>: the daily pass must be idempotent <i>within</i> a threshold while still

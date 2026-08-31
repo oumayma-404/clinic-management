@@ -1,7 +1,9 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Files.Queries;
@@ -25,17 +27,26 @@ public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFi
     private readonly IPatientRepository _patientRepository;
     private readonly IFileStorage _fileStorage;
     private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly IAuditEntryRepository _auditEntries;
+    private readonly IAuditActorProvider _auditActor;
+    private readonly IUnitOfWork _unitOfWork;
 
     public DownloadPatientFileQueryHandler(
         IPatientFileRepository fileRepository,
         IPatientRepository patientRepository,
         IFileStorage fileStorage,
-        ICurrentClinicResolver clinicResolver)
+        ICurrentClinicResolver clinicResolver,
+        IAuditEntryRepository auditEntries,
+        IAuditActorProvider auditActor,
+        IUnitOfWork unitOfWork)
     {
         _fileRepository = fileRepository;
         _patientRepository = patientRepository;
         _fileStorage = fileStorage;
         _clinicResolver = clinicResolver;
+        _auditEntries = auditEntries;
+        _auditActor = auditActor;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<Result<FileDownloadDto>> Handle(DownloadPatientFileQuery request, CancellationToken cancellationToken)
@@ -66,6 +77,34 @@ public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFi
                 return Result<FileDownloadDto>.Failure("Fichier introuvable.");
             }
 
+            // A coffre original was never transmitted here, so there is nothing to stream — and saying so names
+            // where the file is instead of reporting a failure the practice would go looking for.
+            if (file.Residency != FileResidency.Hosted || file.StorageKey == null)
+            {
+                return Result<FileDownloadDto>.Failure(FileResidencyRefusals.OriginalIsAtTheCabinet());
+            }
+
+            // Recorded BEFORE the bytes are fetched — this is the row that answers « qui a sorti la
+            // radiographie de ce patient ? », which nothing in the product could answer at all. Not
+            // best-effort: see PatientRecordAccessLedger on why refusing here cannot strand a practitioner.
+            //
+            // ⚠️ Outside the outer catch on purpose. That one turns any exception into
+            // `Result.Failure($"Error downloading file: {ex.Message}")`, which would report an unrecordable
+            // access as an ordinary download failure — and leak the exception text with it.
+            try
+            {
+                await PatientRecordAccessLedger.RecordAsync(
+                    _auditEntries, _unitOfWork, _auditActor.Current, clinicResult.Value,
+                    PatientRecordAccessLedger.FileEntityType, file.PatientId, file.Id,
+                    "Radiographie ou pièce jointe", DateTime.UtcNow, cancellationToken);
+            }
+            catch (Exception ledgerFailure) when (ledgerFailure is not ConflictException)
+            {
+                return Result<FileDownloadDto>.Failure(
+                    PatientRecordAccessLedger.UnrecordableMessage,
+                    PatientRecordAccessLedger.UnrecordableCode);
+            }
+
             var fileStream = await _fileStorage.DownloadAsync(file.StorageKey, cancellationToken);
 
             var dto = new FileDownloadDto
@@ -79,7 +118,7 @@ public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFi
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<FileDownloadDto>.Failure($"Error downloading file: {ex.Message}");
+            return Result<FileDownloadDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

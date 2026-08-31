@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
@@ -86,7 +87,7 @@ public class CreatePatientMedicalHistoryCommandHandler : IRequestHandler<CreateP
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PatientMedicalHistoryDto>.Failure($"Error creating medical history entry: {ex.Message}");
+            return Result<PatientMedicalHistoryDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

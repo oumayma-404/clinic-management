@@ -19,9 +19,11 @@ namespace ClinicManagement.Domain.Common;
 /// ⚠️ <b>This checks literals, not resolution.</b> A hostname that resolves to a private address still passes
 /// here, because the domain does no I/O and DNS can change between validation and use. The complete defence is
 /// this rule <i>plus</i> a <c>SocketsHttpHandler.ConnectCallback</c> on the outbound client re-checking the
-/// resolved address; that half is owed and recorded in <c>SECURITY_REVIEW_2026-08.md</c>. This half is still
-/// worth having: it refuses the direct, obvious form and it refuses <c>http://</c>, which is what stops a
-/// credential travelling in clear text.
+/// resolved address. <b>That half now exists</b> — <c>PublicEgressGuard</c>, which calls
+/// <see cref="IsPublicAddress"/> so the two halves can never disagree about which ranges are private. This half
+/// is still worth having, and is not redundant: it refuses the direct, obvious form with a French message an
+/// admin can act on, at the moment they type it rather than hours later inside a background job — and it
+/// refuses <c>http://</c>, which is what stops a credential travelling in clear text.
 /// </para>
 ///
 /// <para>
@@ -114,6 +116,13 @@ public static class OutboundEndpoint
             throw new ArgumentException($"{fieldLabel} doit désigner un serveur public, pas une adresse interne.");
         }
     }
+
+    /// <summary>
+    /// Is this a routable, public address? Public because the <b>connect-time</b> half of this rule needs the
+    /// identical predicate: <c>PublicEgressGuard</c> re-checks the addresses a host actually resolved to, and
+    /// two copies of « which ranges are private » would drift on the first range somebody adds.
+    /// </summary>
+    public static bool IsPublicAddress(IPAddress address) => IsPublic(address);
 
     private static bool IsPublic(IPAddress address)
     {

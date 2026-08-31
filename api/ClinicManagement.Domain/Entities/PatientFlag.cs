@@ -3,7 +3,7 @@ using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Domain.Entities;
 
-public class PatientFlag : Entity<Guid>
+public class PatientFlag : Entity<Guid>, IAuditable
 {
     public Guid PatientId { get; private set; }
     public PatientFlagType FlagType { get; private set; }

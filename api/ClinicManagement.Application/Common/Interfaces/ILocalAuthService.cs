@@ -44,6 +44,21 @@ public interface ILocalAuthService
     LocalAuthToken GenerateToken(User user);
 
     /// <summary>
+    /// Issues a token <b>narrowed to one purpose</b>: identical to <see cref="GenerateToken"/> except that it
+    /// carries a scope claim, and the API then refuses it on every endpoint that has not named that scope as
+    /// acceptable.
+    ///
+    /// <para>⚠️ <b>Adding the scope removes surface; it never grants any.</b> The check fails closed, so an
+    /// endpoint written next month is unreachable by a scoped token with no decision required from its author —
+    /// which is the property an endpoint-declares-what-it-refuses design cannot have.</para>
+    ///
+    /// <para>Exists because the unattended-archive exchange used to hand a workstation an ordinary clinic-admin
+    /// token with the whole API surface in return for a device secret.</para>
+    /// </summary>
+    /// <param name="scope">One of <c>LocalAuthScopes</c>' constants.</param>
+    LocalAuthToken GenerateScopedToken(User user, string scope);
+
+    /// <summary>
     /// Issues the <b>durable session</b> credential stored in the HttpOnly cookie (security-hardening US-5).
     ///
     /// <para>Carries a different audience from <see cref="GenerateToken"/>, so the API's bearer validation

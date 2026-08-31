@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -81,8 +82,7 @@ public class GetClinicFileManifestQueryHandler
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PagedResult<ClinicFileManifestEntryDto>>.Failure(
-                $"La liste des fichiers n'a pas pu être lue : {ex.Message}");
+            return Result<PagedResult<ClinicFileManifestEntryDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 

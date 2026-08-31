@@ -42,5 +42,12 @@ public enum NotificationTargetKind
     /// <see cref="BackupSettings"/> and <see cref="Subscription"/> it carries <b>no id</b>: the alert is about
     /// this account, and everything it asks for is on that one screen.
     /// </summary>
-    Security = 7
+    Security = 7,
+
+    /// <summary>
+    /// One patient's fiche. The first target kind since <see cref="Appointment"/> and <see cref="StockItem"/> to
+    /// carry an <b>id</b> — <see cref="Entities.StaffNotification.PatientId"/> — because unlike the five
+    /// clinic-wide screens above, the record to act on is a specific one.
+    /// </summary>
+    Patient = 8
 }

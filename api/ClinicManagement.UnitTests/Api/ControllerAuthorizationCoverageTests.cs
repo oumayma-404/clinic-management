@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using ClinicManagement.Application.Common.Authorization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -50,6 +50,21 @@ public class ControllerAuthorizationCoverageTests
         "Auth.VerifySignUp",         // the other half: consumes that token and provisions the clinic. Anonymous
                                      // for the same reason and gated by the same capability; the 32-byte
                                      // single-use token IS the credential, and it issues no session in exchange.
+        "Backup.ExchangeArchiveGrant", // An UNATTENDED workstation exchanging its device secret for a token, so
+                                      // there is no session to authenticate with and nobody present to sign in
+                                      // — the 32-byte grant secret in the header IS the credential, matched
+                                      // against a stored hash, rate-limited, and expiring 90 days after last
+                                      // use. ⚠️ This entry is only defensible because the token it returns is
+                                      // now SCOPED (`LocalAuthScopes.ClinicArchive`): it reaches
+                                      // GET /api/backup/archive and, by ScopedTokenFilter's fail-closed rule,
+                                      // nothing else. While it minted an ordinary clinic-admin token this
+                                      // endpoint was a hole and this guard was right to be red about it.
+        "Auth.Logout",               // REVOKES the session server-side. Anonymous for `Auth.Refresh`'s reason and
+                                     // one more: the credential in the body IS the authentication, and demanding
+                                     // a valid access token would refuse exactly the case that most needs
+                                     // revoking — a browser signing out after its 30-minute token expired. It
+                                     // grants nothing, answers 204 for a live, expired, unknown or already-ended
+                                     // credential alike (no oracle), and is rate-limited like its neighbours.
         "Auth.Refresh",              // exchanges the HttpOnly session cookie for a short-lived access token
                                      // (security-hardening US-5). Anonymous by necessity — the caller has no
                                      // access token yet, that being the point. Not unauthenticated in effect:

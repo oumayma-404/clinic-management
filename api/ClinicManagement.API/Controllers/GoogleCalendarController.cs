@@ -197,6 +197,7 @@ public class GoogleCalendarController : ApiControllerBase
             hasRefreshToken,
             tokenValid,
             calendarId,
+            holdsOnlyAppointments = clinic?.GoogleCalendarHoldsOnlyAppointments ?? false,
             message = !hasClientId || !hasClientSecret
                 ? "Le ClientId et le ClientSecret Google doivent être configurés côté serveur."
                 : !hasRefreshToken
@@ -205,6 +206,21 @@ public class GoogleCalendarController : ApiControllerBase
                         ? "Le jeton Google Calendar est invalide ou expiré. Reconnectez-vous."
                         : "Google Calendar est connecté et prêt."
         });
+    }
+
+    /// <summary>
+    /// Admin-only: record whether the connected calendar holds nothing but appointments, which opens the import
+    /// gate to events titled « Prénom Nom » (<c>calendar-import-review</c>).
+    /// </summary>
+    [HttpPut("import-settings")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> SetImportSettings(
+        [FromBody] SetGoogleCalendarImportSettingsCommand command, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(command, cancellationToken);
+        return result.IsFailure
+            ? HandleFailure(result)
+            : Ok(new { holdsOnlyAppointments = result.Value });
     }
 
     /// <summary>

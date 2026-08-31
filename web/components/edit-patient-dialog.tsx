@@ -43,7 +43,7 @@ import { cn } from "@/lib/utils"
 import { patientsApi } from "@/lib/api/patients"
 import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
-import type { PatientDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto } from "@/lib/api/types"
+import type { PatientDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, ReminderConsent } from "@/lib/api/types"
 import { ApiError, ApiErrorCode } from "@/lib/api/client"
 import { isDeliverablePhone, PHONE_ERROR_FR } from "@/lib/phone"
 import { formatAmount, formatDT, parseAmountInput, quoteFr, roundMillimes } from "@/lib/format"
@@ -164,6 +164,19 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const [emergencyPhone, setEmergencyPhone] = useState("")
   // « Adressé par » — the referring practitioner. Optional, free text (usually a doctor outside this clinic).
   const [referredBy, setReferredBy] = useState("")
+  const [reminderConsent, setReminderConsent] = useState<ReminderConsent>("NotRecorded")
+
+  // Who took the answer and when. Shown rather than hidden because a consent nobody can date is one the cabinet
+  // cannot defend — and it is read from the SAVED patient, never from the control above, so it keeps describing
+  // the stored answer while somebody is still changing their mind about the new one.
+  const consentRecordedLabel = (() => {
+    if (!patient?.reminderConsentRecordedAtUtc) return null
+    const on = new Date(patient.reminderConsentRecordedAtUtc)
+    if (Number.isNaN(on.getTime())) return null
+    const when = on.toLocaleDateString("fr-FR")
+    const by = patient.reminderConsentRecordedBy
+    return by ? `Réponse enregistrée le ${when} par ${by}.` : `Réponse enregistrée le ${when}.`
+  })()
 
   // Patient-level notes. Distinct from a fiche de soins' notes, which describe one séance: these are what the
   // dentist wants back in front of them on every visit, which is why the section leads the form.
@@ -351,6 +364,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
 
       // « Adressé par »
       setReferredBy(patient.referredBy || "")
+      setReminderConsent(patient.reminderConsent ?? "NotRecorded")
 
       // Patient-level notes
       setPatientNotes(patient.notes || "")
@@ -718,6 +732,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           // Always present (possibly ""), so emptying the box clears the stored value instead of
           // reading as "leave it alone" — same reason as the two contact fields above.
           referredBy: referredBy.trim(),
+          // Always sent, like the fields above: the control has three explicit states and « non renseigné » is
+          // one of them, so omitting it would make un-recording an answer impossible.
+          reminderConsent,
           // Always present (possibly ""), so emptying either box clears it. Each is resolved independently
           // server-side, so sending both is safe.
           notes: patientNotes.trim(),
@@ -856,6 +873,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
           emergencyContactName: emergencyName.trim() || undefined,
           emergencyContactPhone: emergencyPhone.trim() || undefined,
           referredBy: referredBy.trim() || undefined,
+          // Omitted at « non renseigné » so a new patient is created with an honest « nobody has asked »
+          // rather than a recorded answer with today's date on it.
+          reminderConsent: reminderConsent === "NotRecorded" ? undefined : reminderConsent,
           notes: patientNotes.trim() || undefined,
           importantNotes: patientImportantNotes.trim() || undefined,
           // Exactly what was typed (AC-21). The two `|| "Unknown"` paddings existed because the server demanded
@@ -1076,6 +1096,39 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   )}
                 </div>
 
+                {/* Rappels automatiques — deliberately beside the phone number rather than in a settings screen.
+                    Recording a number used to enrol the patient into SMS/WhatsApp with no way out; the answer is
+                    taken where the number is taken, which is the one moment somebody is actually speaking to the
+                    patient. A separate screen would be a control nobody opens. */}
+                <div className="space-y-2">
+                  <Label htmlFor="reminderConsent">Rappels automatiques (SMS / WhatsApp)</Label>
+                  <Select
+                    value={reminderConsent}
+                    onValueChange={(v) => setReminderConsent(v as ReminderConsent)}
+                  >
+                    <SelectTrigger id="reminderConsent" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="NotRecorded">Non renseigné</SelectItem>
+                      <SelectItem value="Granted">Le patient accepte</SelectItem>
+                      <SelectItem value="Refused">Le patient refuse</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {/* Each state says what will actually happen, because « non renseigné » is the one people
+                      misread — it sends, and a cabinet that assumes otherwise is the whole risk here. */}
+                  <p className="text-xs text-muted-foreground">
+                    {reminderConsent === "Refused"
+                      ? "Aucun rappel ni relance ne sera envoyé à ce patient, même avec un numéro valide."
+                      : reminderConsent === "Granted"
+                        ? "Ce patient recevra les rappels de rendez-vous et les relances."
+                        : "Tant que la question n'a pas été posée, ce patient reçoit les rappels. Enregistrez sa réponse dès que possible."}
+                  </p>
+                  {consentRecordedLabel && (
+                    <p className="text-xs text-muted-foreground">{consentRecordedLabel}</p>
+                  )}
+                </div>
+
                 {/* Email */}
                 <div className="space-y-2">
                   <Label htmlFor="email">
@@ -1140,7 +1193,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   Denture — asked once, here, because it is a property of the patient and not of a visit.
 
                   It replaces two toggles that asked the same question about the same patient every time anyone opened
-                  the odontogram or the fiche editor, plus a per-fiche badge in the dossier dentaire. Pre-selected
+                  the odontogram or the fiche editor, plus a per-fiche badge in the actes dentaires table. Pre-selected
                   from the age so the common case is already right; changeable because the age rule is a heuristic
                   and a growing child has to be switchable.
                 */}

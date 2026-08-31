@@ -20,6 +20,16 @@ namespace ClinicManagement.Domain.Services;
 /// feature shipped, which no key can retroactively cover. See <see cref="AuditChain.Walk"/> on why that is
 /// reported rather than treated as a break.
 /// </param>
+/// <param name="ClinicId">
+/// ⚠️ <b>Added to the hashed set, and it is the whole point of scheme v2.</b> Every read of the journal filters
+/// on this column while it was not covered by the hash, so nulling it removed a row from a cabinet's journal
+/// permanently and the chain still verified as intact. Nullable because the ledger legitimately holds rows that
+/// belong to no cabinet (console and process actions).
+/// </param>
+/// <param name="UserEmail">
+/// Also newly covered: it is what names the author to a human reading the journal back, and it was equally
+/// rewritable with no break.
+/// </param>
 public sealed record AuditChainEntry(
     Guid Id,
     Guid ChainKey,
@@ -32,7 +42,9 @@ public sealed record AuditChainEntry(
     DateTime OccurredAt,
     bool IsDeclaredGap,
     string? PreviousHash,
-    string? EntryHash);
+    string? EntryHash,
+    Guid? ClinicId,
+    string? UserEmail);
 
 /// <summary>Why a chain walk stopped, in the vocabulary the report renders.</summary>
 public enum AuditChainBreak
@@ -53,8 +65,29 @@ public enum AuditChainBreak
     /// An unchained (hash-less) entry appears <b>after</b> a chained one. Chained history cannot un-chain itself,
     /// so this is what erasing a hash to hide an edit looks like.
     /// </summary>
-    UnchainedAfterChained = 4
+    UnchainedAfterChained = 4,
+
+    /// <summary>
+    /// The chain is internally perfect but <b>shorter than the last sealed tip</b> — its newest entries were
+    /// deleted.
+    ///
+    /// <para>⚠️ <b>This is the one break the arithmetic alone cannot see, by construction.</b> Every other check
+    /// compares an entry against its neighbour; deleting the newest <i>k</i> rows removes no neighbour and leaves
+    /// a shorter chain that verifies perfectly, after which the next append re-links from whatever tip it finds.
+    /// « Delete the last hour » is therefore the cheapest possible attack on this ledger, and it was free. The
+    /// only defence is a record of the expected tip held <b>outside the database the tip protects</b> — which is
+    /// what `seal-audit-chain` writes beside the chain key.</para>
+    /// </summary>
+    TipTruncated = 5
 }
+
+/// <summary>
+/// One chain's last known-good tip, recorded out of band by the <c>seal-audit-chain</c> verb.
+/// </summary>
+/// <param name="Sequence">The highest sequence number the chain held when it was sealed.</param>
+/// <param name="EntryHash">That entry's hash — so a chain rebuilt to the same LENGTH is still caught.</param>
+/// <param name="SealedAtUtc">When the seal was taken, for the operator reading the report.</param>
+public sealed record AuditChainSeal(Guid ChainKey, long Sequence, string EntryHash, DateTime SealedAtUtc);
 
 /// <summary>What one chain's walk found.</summary>
 /// <param name="Unchained">
@@ -104,11 +137,21 @@ public static class AuditChain
     public const int MinimumKeyBytes = 32;
 
     /// <summary>
-    /// The value <paramref name="entry"/> must carry, given the hash of the entry before it.
+    /// Marks a hash computed over the <b>v2</b> canonical form — the one that covers <c>ClinicId</c> and
+    /// <c>UserEmail</c>. Base64 never contains a colon, so the prefix is unambiguous and needs no column.
     ///
-    /// <para><paramref name="entry"/>'s own <c>PreviousHash</c> and <c>EntryHash</c> are <b>not</b> read — the
-    /// first is the parameter, and the second is what this returns.</para>
+    /// <para>⚠️ <b>The marker is what makes this safe without a migration, and it is not decoration.</b> Rows
+    /// written before this change are hashed over the v1 form, so the verifier must know which arithmetic to
+    /// use. Deciding by « try v2, else try v1 » would have been catastrophic: v1 does not cover
+    /// <c>ClinicId</c>, so nulling it on a v2 row would simply fall through to v1 and verify <i>clean</i> —
+    /// re-opening the exact hole this closes. The scheme is therefore read off the stored value, never guessed,
+    /// and a v2 row is checked against v2 only.</para>
+    ///
+    /// <para>Downgrading a v2 row to a v1 hash to escape the ClinicId cover is not a way in: writing any valid
+    /// hash of either scheme needs the key, and an attacker holding the key can rewrite the whole chain anyway.</para>
     /// </summary>
+    public const string SchemeV2Prefix = "v2:";
+
     public static string Hash(string? previousHash, AuditChainEntry entry, byte[] key)
     {
         ArgumentNullException.ThrowIfNull(entry);
@@ -120,6 +163,41 @@ public static class AuditChain
                 $"La clé de chaînage du journal doit faire au moins {MinimumKeyBytes} octets.", nameof(key));
         }
 
+        return SchemeV2Prefix + Digest(previousHash, entry, key, includeTenancy: true);
+    }
+
+    /// <summary>
+    /// The hash a row written before <see cref="SchemeV2Prefix"/> existed carries. Kept — not deleted — because
+    /// every entry already in a deployment's ledger is on it, and re-hashing them all is a data migration this
+    /// change deliberately does not require.
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ <b>Public deliberately.</b> Two callers outside the walk need it: a rehash migration must be able to
+    /// verify a pre-change row before rewriting it under v2, and the tests must be able to <i>produce</i> one —
+    /// « hash it with the tenancy set to null » is <b>not</b> the same value, because the v2 form appends two
+    /// length-prefixed fields whether or not they are empty. Without this, a test for the legacy path would have
+    /// to re-implement the canonical form, which is the second copy this class exists to avoid.
+    /// </remarks>
+    public static string LegacyHash(string? previousHash, AuditChainEntry entry, byte[] key)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+
+        return Digest(previousHash, entry, key, includeTenancy: false);
+    }
+
+    /// <summary>
+    /// The arithmetic itself. <paramref name="includeTenancy"/> is the only difference between the two schemes.
+    ///
+    /// <para>⚠️ <b>Why <c>ClinicId</c> had to be covered.</b> It was <b>not</b> in the hashed set, and every read
+    /// of the journal filters on it — so <c>UPDATE "AuditEntries" SET "ClinicId"=NULL WHERE …</c> removed a row
+    /// from the cabinet's journal permanently while <c>verify-schema</c> went on reporting the chain intact. That
+    /// is precisely the reader the tamper-evidence is sold against: somebody holding full database access.
+    /// <c>UserEmail</c> joins it for the same reason at lower stakes — it is what names the author to a human
+    /// reading the journal back, and it was equally rewritable.</para>
+    /// </summary>
+    private static string Digest(string? previousHash, AuditChainEntry entry, byte[] key, bool includeTenancy)
+    {
         var canonical = new StringBuilder();
         AppendField(canonical, previousHash);
         AppendField(canonical, entry.ChainKey.ToString("D", CultureInfo.InvariantCulture));
@@ -133,9 +211,38 @@ public static class AuditChain
         AppendField(canonical, CanonicalMoment(entry.OccurredAt));
         AppendField(canonical, entry.IsDeclaredGap ? "1" : "0");
 
+        if (includeTenancy)
+        {
+            AppendField(canonical, entry.ClinicId?.ToString("D", CultureInfo.InvariantCulture));
+            AppendField(canonical, entry.UserEmail);
+        }
+
         using var hmac = new HMACSHA256(key);
         return Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
+
+    /// <summary>
+    /// Whether <paramref name="entry"/>'s stored hash is the right one for its own contents, <b>under the scheme
+    /// it was written with</b>. See <see cref="SchemeV2Prefix"/> on why the scheme is read and never guessed.
+    /// </summary>
+    private static bool HashMatches(AuditChainEntry entry, byte[] key)
+    {
+        var stored = entry.EntryHash!;
+
+        var expected = stored.StartsWith(SchemeV2Prefix, StringComparison.Ordinal)
+            ? Hash(entry.PreviousHash, entry, key)
+            : LegacyHash(entry.PreviousHash, entry, key);
+
+        // Compared as raw bytes of the same shape: strip the marker from both sides so a length difference
+        // cannot turn a genuine mismatch into an exception instead of a verdict.
+        return CryptographicOperations.FixedTimeEquals(
+            Decode(StripScheme(stored)), Decode(StripScheme(expected)));
+    }
+
+    private static string StripScheme(string hash) =>
+        hash.StartsWith(SchemeV2Prefix, StringComparison.Ordinal)
+            ? hash[SchemeV2Prefix.Length..]
+            : hash;
 
     /// <summary>
     /// Walks one chain's entries — which must be ordered by <c>Sequence</c> — and reports the first break.
@@ -156,6 +263,16 @@ public static class AuditChain
     /// about » from « a break nobody declared » — so it is counted separately and is never itself a break.</para>
     /// </summary>
     public static AuditChainWalkResult Walk(Guid chainKey, IEnumerable<AuditChainEntry> orderedEntries, byte[] key)
+        => Walk(chainKey, orderedEntries, key, seal: null);
+
+    /// <inheritdoc cref="Walk(Guid, IEnumerable{AuditChainEntry}, byte[])"/>
+    /// <param name="seal">
+    /// The last tip recorded out of band, or null when this chain has never been sealed. Supplying it is what
+    /// makes <see cref="AuditChainBreak.TipTruncated"/> reachable — without it, deleting the newest entries is
+    /// invisible to every other check in this method.
+    /// </param>
+    public static AuditChainWalkResult Walk(
+        Guid chainKey, IEnumerable<AuditChainEntry> orderedEntries, byte[] key, AuditChainSeal? seal)
     {
         ArgumentNullException.ThrowIfNull(orderedEntries);
 
@@ -197,8 +314,7 @@ public static class AuditChain
                     AuditChainBreak.LinkBroken, entry);
             }
 
-            if (!CryptographicOperations.FixedTimeEquals(
-                    Decode(entry.EntryHash), Decode(Hash(entry.PreviousHash, entry, key))))
+            if (!HashMatches(entry, key))
             {
                 return Broken(chainKey, checkedCount, unchained, declaredGaps,
                     AuditChainBreak.ContentAltered, entry);
@@ -208,8 +324,38 @@ public static class AuditChain
             previous = entry;
         }
 
+        // ⚠️ Checked LAST, and only on a chain that is otherwise intact: an earlier break is a more specific
+        // answer, and reporting « tronquée » over an altered row would send an operator looking for a deletion
+        // that did not happen.
+        if (seal is not null && !ReachesTheSealedTip(previous, seal))
+        {
+            return new AuditChainWalkResult(
+                chainKey, checkedCount, unchained, declaredGaps,
+                AuditChainBreak.TipTruncated, seal.Sequence, null);
+        }
+
         return new AuditChainWalkResult(
             chainKey, checkedCount, unchained, declaredGaps, AuditChainBreak.None, null, null);
+    }
+
+    /// <summary>
+    /// Does the chain still contain the sealed entry?
+    ///
+    /// <para>Growing past the seal is normal — the ledger is append-only and a seal is a point in its history, not
+    /// a ceiling. What must never happen is the chain ending <b>before</b> that point. A chain that reached the
+    /// sealed sequence but carries a different hash there is rejected too: rebuilding a forged chain to the same
+    /// length is the obvious way round a length-only check.</para>
+    /// </summary>
+    private static bool ReachesTheSealedTip(AuditChainEntry? tip, AuditChainSeal seal)
+    {
+        if (tip is null || tip.Sequence < seal.Sequence)
+        {
+            return false;
+        }
+
+        // Beyond the seal there is nothing to compare against — the entries are newer than the record.
+        return tip.Sequence > seal.Sequence
+               || string.Equals(tip.EntryHash, seal.EntryHash, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -222,6 +368,8 @@ public static class AuditChain
         AuditChainBreak.ContentAltered => "cette entrée a été modifiée après son écriture",
         AuditChainBreak.LinkBroken => "cette entrée ne pointe pas sur celle qui la précède",
         AuditChainBreak.SequenceGap => "un numéro d'ordre manque avant cette entrée",
+        AuditChainBreak.TipTruncated =>
+            "les entrées les plus récentes de cette chaîne ont été supprimées depuis le dernier scellement",
         AuditChainBreak.UnchainedAfterChained =>
             "cette entrée n'est plus chaînée alors que celles qui la précèdent le sont",
         _ => "rupture non classée"

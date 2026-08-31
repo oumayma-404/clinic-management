@@ -124,7 +124,8 @@ public class ConcurrencyConflictTests
         uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ConflictException(ErrorMessages.Conflict));
 
-        var handler = new UpdatePatientCommandHandler(patients.Object, resolver.Object, uow.Object);
+        var handler = new UpdatePatientCommandHandler(
+            patients.Object, resolver.Object, uow.Object, new Mock<IClinicContext>().Object);
 
         await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(
             new UpdatePatientCommand { Id = patient.Id, FirstName = "Sonya", Version = 7u },
@@ -153,7 +154,8 @@ public class ConcurrencyConflictTests
         var uow = new Mock<IUnitOfWork>();
         uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
-        var handler = new UpdatePatientCommandHandler(patients.Object, resolver.Object, uow.Object);
+        var handler = new UpdatePatientCommandHandler(
+            patients.Object, resolver.Object, uow.Object, new Mock<IClinicContext>().Object);
         var result = await handler.Handle(
             new UpdatePatientCommand { Id = patient.Id, FirstName = "Sonya", Version = 99u },
             CancellationToken.None);

@@ -264,6 +264,16 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
             return false;
         }
 
+        // ⚠️ Either marker. `IAuditable` was added because this walk — « is it an aggregate root? » — was the
+        // only thing deciding what reached the journal, and it answered NO for the entire clinical record:
+        // DentalRecord, MedicalDocument, PatientFile, ToothState, PatientMedicalHistory, PatientFamilyHistory,
+        // PatientFlag and Payment are all plain Entity<Guid>. Editing a patient's name was recorded; editing
+        // their clinical notes was not. See IAuditable for why they were not simply promoted instead.
+        if (typeof(IAuditable).IsAssignableFrom(type))
+        {
+            return true;
+        }
+
         for (var candidate = type; candidate is not null; candidate = candidate.BaseType)
         {
             if (candidate.IsGenericType && candidate.GetGenericTypeDefinition() == typeof(AggregateRoot<>))

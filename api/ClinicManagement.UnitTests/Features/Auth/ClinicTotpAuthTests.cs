@@ -73,8 +73,12 @@ public class ClinicTotpAuthTests
             _sessionFamilies.Object, _auditActor.Object);
     }
 
+    // ⚠️ The attempt tracker is now a dependency, and it is permissive here by default: every scenario in this
+    // class is about the enrolment flow, not about the brake. `An_enrolment_attempt_is_rate_limited_like_a_login`
+    // below is where the brake itself is asserted.
     private EnrolTotpCommandHandler EnrolHandler() => new(
-        _users.Object, _clinics.Object, _auth.Object, _totp.Object, _secrets.Object, _qr.Object, _uow.Object);
+        _users.Object, _clinics.Object, _auth.Object, _totp.Object, _secrets.Object, _qr.Object,
+        _attempts.Object, _uow.Object);
 
     private RedeemRecoveryCodeCommandHandler RecoveryHandler() => new(
         _users.Object, _auth.Object, _attempts.Object, _uow.Object, _sessionFamilies.Object);
@@ -247,6 +251,43 @@ public class ClinicTotpAuthTests
         Assert.Contains("someone%40clinic.com", result.Value.SecretUri);
         // Issued but unconfirmed — the state the ladder refuses on.
         Assert.False(user.IsTotpEnrolled);
+    }
+
+    // This endpoint verifies a password and branches distinguishably on the result, so without the two lockout
+    // tiers it is a password oracle — and an UNAUTHENTICATED one, beside a login path that has both. The rule
+    // was written for RedeemRecoveryCodeCommand (« or this endpoint would be the unrated door beside a
+    // rate-limited one ») and never reached here.
+    [Fact]
+    public async Task An_enrolment_attempt_is_rate_limited_like_a_login()
+    {
+        Account(User.RoleAdmin);
+        _attempts.Setup(a => a.IsLockedOutForCurrentSource(It.IsAny<string>())).Returns(true);
+
+        var result = await EnrolHandler().Handle(
+            new EnrolTotpCommand { Email = "someone@clinic.com", Password = "un-mot-de-passe-long" },
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ClinicAuthRefusals.TooManyAttempts, result.Code);
+        // Refused BEFORE the password is looked at, so a locked-out caller learns nothing from the branch.
+        _auth.Verify(a => a.VerifyPassword(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    // And the counter half: a wrong password here must cost an attempt, or the lockout above can never trip.
+    [Fact]
+    public async Task A_wrong_password_at_enrolment_spends_an_attempt()
+    {
+        Account(User.RoleAdmin);
+        _auth.Setup(a => a.VerifyPassword(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(PasswordVerificationOutcome.Failed);
+
+        var result = await EnrolHandler().Handle(
+            new EnrolTotpCommand { Email = "someone@clinic.com", Password = "mauvais-mot-de-passe" },
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ClinicAuthRefusals.InvalidCredentials, result.Code);
+        _attempts.Verify(a => a.RecordFailure(It.IsAny<string>()), Times.Once);
     }
 
     // [FR-1.3] Step two mints exactly eight codes, once.

@@ -117,10 +117,12 @@ export interface NotificationDto {
   /** Effective feed time (ISO) — creation time for immediate categories, due time for reminders. */
   createdAt: string;
   isRead: boolean;
-  /** Appointment | StockItem */
+  /** Appointment | StockItem | Recall | BackupSettings | Subscription | MessagingAllowance | Security | Patient */
   targetKind: string;
   appointmentId?: string | null;
   stockItemId?: string | null;
+  /** The patient a `PatientImportedNeedsReview` row opens; null on every other category. */
+  patientId?: string | null;
   /**
    * Who to contact about this row — populated for `LowStock` only, and only while the article still names a
    * fournisseur (AC-6). Resolved server-side at READ time from the article's current link, never frozen into
@@ -399,6 +401,14 @@ export interface InvoiceLineDto {
 }
 
 /** The unified per-patient balance (« Solde patient ») across invoices + installments, plus the CNAM split. */
+/**
+ * A patient's answer about automated SMS/WhatsApp reminders.
+ *
+ * Tri-state on purpose: « refusé » and « jamais demandé » are different facts, and a boolean cannot hold both —
+ * the cabinet needs to see who still owes an answer.
+ */
+export type ReminderConsent = "NotRecorded" | "Granted" | "Refused";
+
 export interface PatientBillingSummaryDto {
   invoiceOutstanding: number;
   installmentOutstanding: number;
@@ -746,6 +756,17 @@ export interface PatientDto {
    */
   referredBy?: string | null;
   /**
+   * Whether the patient agreed to automated SMS/WhatsApp reminders.
+   *
+   * ⚠️ `NotRecorded` **still receives reminders** — it means « nobody has asked yet », not « no ». Every patient
+   * on file before this existed is in that state, and treating it as a refusal would have muted every cabinet
+   * on the day it shipped. Only `Refused` stops a message.
+   */
+  reminderConsent?: ReminderConsent;
+  /** When the answer was taken, and by whom. Null while `reminderConsent` is `NotRecorded`. */
+  reminderConsentRecordedAtUtc?: string | null;
+  reminderConsentRecordedBy?: string | null;
+  /**
    * Patient-level notes — what to be reminded of on every visit, as opposed to a dental record's notes, which
    * describe one séance. On update: omit to leave unchanged, send `""` to clear.
    */
@@ -786,6 +807,11 @@ export interface PatientDto {
   isArchived: boolean;
   archivedAt?: string | null;
   archiveReason?: string | null;
+  /**
+   * Set when the Google Calendar import created this record from an event title alone and nobody has confirmed it.
+   * Drives the fiche's « à compléter » banner and the patients list's own filter.
+   */
+  calendarImportPendingReviewSince?: string | null;
   createdAt: string;
 }
 
@@ -1002,6 +1028,16 @@ export interface PatientFileDto {
   description?: string;
   uploadedAt: string;
   uploadedBy?: string;
+  /**
+   * Where the bytes are. `Hosted` — the server can serve them, as it always could. `Vault` — they are in the
+   * cabinet's own coffre and never reached the server, so this machine can open the original only if it holds
+   * that folder. Never infer it from a null; the server states it.
+   */
+  residency: 'Hosted' | 'Vault';
+  /** Lower-case hex SHA-256 of a coffre original. Null for a hosted file, whose store vouches for itself. */
+  contentHash?: string | null;
+  /** Whether a stand-in image exists for a coffre original that is out of reach on this machine. */
+  hasPreview: boolean;
   /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
   version: number;
 }

@@ -12,7 +12,7 @@ namespace ClinicManagement.Domain.Entities;
 /// entries; deleting a source record cascades its treatment entries away, while diagnosis entries persist until
 /// treated or explicitly removed.
 /// </summary>
-public class ToothState : Entity<Guid>
+public class ToothState : Entity<Guid>, IAuditable
 {
     public Guid PatientId { get; private set; }
 

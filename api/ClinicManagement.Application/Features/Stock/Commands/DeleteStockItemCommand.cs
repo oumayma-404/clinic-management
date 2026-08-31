@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -46,7 +47,7 @@ public class DeleteStockItemCommandHandler : IRequestHandler<DeleteStockItemComm
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<bool>.Failure($"Error deleting stock item: {ex.Message}");
+            return Result<bool>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

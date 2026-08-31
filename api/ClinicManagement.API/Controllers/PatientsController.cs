@@ -1,8 +1,9 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients.Commands;
+using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Application.Features.Patients.Queries;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Domain.Common;
@@ -10,6 +11,10 @@ using ClinicManagement.Domain.Repositories;
 using ClinicManagement.API.Models;
 using ClinicManagement.Application.Common.Csv;
 using ClinicManagement.Application.Common.Files;
+using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.API.Startup;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace ClinicManagement.API.Controllers;
 
@@ -18,11 +23,30 @@ namespace ClinicManagement.API.Controllers;
 [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class PatientsController : ApiControllerBase
 {
-    private readonly IMediator _mediator;
+    /// <summary>
+    /// The step-up action « Exporter la liste des patients ». Distinct from the archive's, so a confirmation
+    /// minted for one cannot be spent on the other — <c>IStepUpConfirmations</c> keys on (user, action).
+    /// </summary>
+    public const string ExportStepUpAction = "export-patient-list";
 
-    public PatientsController(IMediator mediator)
+    /// <summary>
+    /// The step-up action for one patient's whole dossier. Distinct from the roster's, so a confirmation minted
+    /// for one cannot be spent on the other — <c>IStepUpConfirmations</c> keys on (user, action).
+    /// </summary>
+    public const string DossierStepUpAction = "export-patient-dossier";
+
+    private readonly IMediator _mediator;
+    private readonly IStepUpConfirmations _stepUp;
+    private readonly IClinicContext _clinicContext;
+
+    public PatientsController(
+        IMediator mediator,
+        IStepUpConfirmations stepUp,
+        IClinicContext clinicContext)
     {
         _mediator = mediator;
+        _stepUp = stepUp;
+        _clinicContext = clinicContext;
     }
 
     /// <summary>
@@ -48,14 +72,32 @@ public class PatientsController : ApiControllerBase
     /// whole filtered set, never the current page » true by construction instead of by discipline — the export
     /// cannot see a page to accidentally export.</para>
     /// </summary>
+    /// <param name="confirmation">
+    /// The step-up token minted by <c>POST /api/auth/step-up</c> for <see cref="ExportStepUpAction"/>.
+    /// ⚠️ <b>A header, never the query string</b> — this application's URLs are logged.
+    /// </param>
     [HttpGet("export")]
+    [EnableRateLimiting(RateLimiting.ListExportPolicy)]
     public async Task<ActionResult> ExportPatients(
+        [FromHeader(Name = BackupController.StepUpHeader)] string? confirmation,
         [FromQuery] string? searchTerm = null,
         [FromQuery] DateTime? createdFrom = null,
         [FromQuery] DateTime? createdTo = null,
         [FromQuery] bool flaggedOnly = false)
     {
-        var result = await _mediator.Send(new GetPatientsQuery
+        // ⚠️ Three controls added together, because the finding was the ASYMMETRY rather than any one of them:
+        // this file carries twenty columns per patient — date de naissance, adresse, identifiant CNAM,
+        // antécédents médicaux, allergies — i.e. the cabinet's whole identified medical dataset, and it had
+        // none of the four the whole-clinic ZIP archive has, while the ZIP carries the same data. The role gate
+        // is deliberately NOT narrowed: reception legitimately exports a recall list, and the gap was that the
+        // export was unattributable and unbounded, not that it existed.
+        var refusal = RequireStepUp(confirmation, ExportStepUpAction);
+        if (refusal != null)
+        {
+            return refusal;
+        }
+
+        var result = await _mediator.Send(new ExportPatientsQuery
         {
             SearchTerm = searchTerm,
             CreatedFrom = createdFrom,
@@ -68,7 +110,64 @@ public class PatientsController : ApiControllerBase
             return HandleFailure(result);
         }
 
-        return Csv(ExportTables.Patients(result.Value!.Items), "patients");
+        return Csv(ExportTables.Patients(result.Value!), "patients");
+    }
+
+    /// <summary>
+    /// « Exporter le dossier » — one patient's complete record as one archive, for the patient.
+    ///
+    /// <para>This is the right of access under <i>loi organique 2004-63</i>, and the request a cabinet fields
+    /// whenever somebody changes dentist. Nothing in the product could produce it before: every export was
+    /// list-scoped, and the whole-clinic archive is the practice's backup rather than a person's file.</para>
+    ///
+    /// <para>⚠️ <b>Confirmed and rate-limited like the roster, and for a sharper reason.</b> One person's entire
+    /// medical history in a single file is the most concentrated export this product can make — and the access is
+    /// recorded against that patient, so « qui a sorti mon dossier ? » is answerable afterwards.</para>
+    ///
+    /// <para>⚠️ <b>`AnyClinicRole`, deliberately not narrowed.</b> Reception is who fields the request and who
+    /// hands the archive over; making it admin-only would mean the person asked cannot answer. What makes that
+    /// safe is that the export is confirmed, bounded and named in the journal.</para>
+    /// </summary>
+    [HttpGet("{id}/dossier")]
+    [EnableRateLimiting(RateLimiting.ListExportPolicy)]
+    public async Task<ActionResult> ExportDossier(
+        Guid id,
+        [FromHeader(Name = BackupController.StepUpHeader)] string? confirmation)
+    {
+        var refusal = RequireStepUp(confirmation, DossierStepUpAction);
+        if (refusal != null)
+        {
+            return refusal;
+        }
+
+        var result = await _mediator.Send(new ExportPatientDossierQuery { PatientId = id });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return File(result.Value!.Content, PatientDossierPackager.ContentType, result.Value.FileName);
+    }
+
+    /// <summary>
+    /// Spends the caller's confirmation for <paramref name="action"/>, or refuses with 403.
+    /// <c>BackupController.RequireStepUp</c>'s rule and its reasoning: an unlocked machine with a session open
+    /// must not be enough to walk a practice's records out, so the confirmation proves somebody is present now.
+    /// </summary>
+    private ActionResult? RequireStepUp(string? confirmation, string action)
+    {
+        var callerId = _clinicContext.GetUserId();
+
+        if (string.IsNullOrWhiteSpace(callerId)
+            || !_stepUp.Consume(callerId, action, confirmation ?? string.Empty))
+        {
+            return Failure(
+                "Cette action demande une confirmation récente de votre identité. Veuillez réessayer.",
+                StatusCodes.Status403Forbidden);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -238,6 +337,7 @@ public class PatientsController : ApiControllerBase
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null,
         [FromQuery] bool flaggedOnly = false,
+        [FromQuery] bool pendingCalendarReviewOnly = false,
         [FromQuery] bool includeArchived = false)
     {
         var query = new GetPatientsQuery
@@ -249,7 +349,8 @@ public class PatientsController : ApiControllerBase
             CreatedTo = createdTo,
             Page = page,
             PageSize = pageSize,
-            FlaggedOnly = flaggedOnly
+            FlaggedOnly = flaggedOnly,
+            PendingCalendarReviewOnly = pendingCalendarReviewOnly
         };
         var result = await _mediator.Send(query);
 
@@ -413,6 +514,25 @@ public class PatientsController : ApiControllerBase
     public async Task<ActionResult<PatientDto>> ArchivePatient(Guid id, [FromBody] ArchivePatientRequest? request)
     {
         var result = await _mediator.Send(new ArchivePatientCommand { Id = id, Reason = request?.Reason });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Confirms a fiche the Google Calendar import created, with nothing to change (AC-8). Open to every clinical
+    /// role: reception completes patient records as often as the dentist, which is why the notification is
+    /// clinic-wide in the first place.
+    /// </summary>
+    [HttpPost("{id}/confirm-calendar-import")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<ActionResult<PatientDto>> ConfirmCalendarImport(Guid id)
+    {
+        var result = await _mediator.Send(new ConfirmCalendarImportCommand { Id = id });
 
         if (result.IsFailure)
         {

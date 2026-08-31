@@ -1,5 +1,6 @@
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +14,17 @@ public class PatientFileRepository : IPatientFileRepository
     public PatientFileRepository(ApplicationDbContext context)
     {
         _context = context;
+    }
+
+    public async Task<int> CountVaultFilesAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // IgnoreQueryFilters because the only caller is the daily pass, which runs UseSystemWide with no clinic in
+        // scope; the clinicId parameter is the authoritative check, as it is in the staleness reads beside it.
+        return await _context.PatientFiles
+            .IgnoreQueryFilters()
+            .CountAsync(
+                f => f.ClinicId == clinicId && f.Residency == FileResidency.Vault,
+                cancellationToken);
     }
 
     public async Task<PatientFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)

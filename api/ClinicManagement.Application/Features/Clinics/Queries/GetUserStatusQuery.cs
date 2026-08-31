@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -113,7 +114,7 @@ public class GetUserStatusQueryHandler : IRequestHandler<GetUserStatusQuery, Res
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<UserStatusDto>.Failure($"Error getting user status: {ex.Message}");
+            return Result<UserStatusDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

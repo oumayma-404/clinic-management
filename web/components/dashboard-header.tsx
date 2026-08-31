@@ -232,6 +232,10 @@ export function DashboardHeader() {
       // L4d — the staleness alert carries no id: it is about the clinic, and everything it asks for (the last
       // successful backup, the schedule, « Sauvegarder maintenant », the restore command) is on one screen.
       router.push("/settings")
+    } else if (notification.targetKind === "Patient" && notification.patientId) {
+      // calendar-import-review — the first targeted kind since Appointment/StockItem to carry an id: the record to
+      // finish is a specific fiche, not a clinic-wide screen.
+      router.push(`/patients/${notification.patientId}`)
     } else if (notification.targetKind === "Subscription") {
       // clinic-subscription AC-3.4 — like the two above it carries no id, and « Abonnement » is where the end
       // date, the tarif, how to pay and who to contact all are. Open to every role, secretaries included.

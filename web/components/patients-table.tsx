@@ -46,6 +46,11 @@ interface PatientsTableProps {
    */
   showArchived?: boolean
   /**
+   * Only the fiches the Google Calendar import conjured and nobody has confirmed (`calendar-import-review` AC-13).
+   * Server-side, like the two above — over a page it would mean « those of these 25 ».
+   */
+  showPendingReviewOnly?: boolean
+  /**
    * Inclusive registration-date bounds (`yyyy-MM-dd`), applied server-side. Set by the dashboard's « Nouveaux
    * patients » drill-through so the list shows exactly the patients that KPI counted.
    */
@@ -83,6 +88,7 @@ export function PatientsTable({
   searchQuery,
   showFlaggedOnly,
   showArchived = false,
+  showPendingReviewOnly = false,
   createdFrom,
   createdTo,
   onCreatePatient,
@@ -198,10 +204,11 @@ export function PatientsTable({
         search,
         flaggedOnly: showFlaggedOnly || undefined,
         includeArchived: showArchived || undefined,
+        pendingCalendarReviewOnly: showPendingReviewOnly || undefined,
         createdFrom,
         createdTo,
       }),
-    [showFlaggedOnly, showArchived, createdFrom, createdTo],
+    [showFlaggedOnly, showArchived, showPendingReviewOnly, createdFrom, createdTo],
   )
 
   const {
@@ -217,7 +224,7 @@ export function PatientsTable({
     fetchPage,
     search: searchQuery,
     // Ticking « signalés » or arriving on a date-bounded drill-through returns to page 1 (AC-22).
-    filters: [showFlaggedOnly, showArchived, createdFrom, createdTo],
+    filters: [showFlaggedOnly, showArchived, showPendingReviewOnly, createdFrom, createdTo],
     // Both signals in one key: this table's own mutations and the page's realtime nudge. A refetch either way.
     refreshKey: `${reloadKey ?? 0}:${refreshKey}`,
   })
@@ -301,7 +308,8 @@ export function PatientsTable({
    * registration-date drill-through can each empty the list, and offering « Ajouter un patient » there invites a
    * duplicate of a patient who is sitting one filter away.</p>
    */
-  const isFiltered = isSearching || showFlaggedOnly || Boolean(createdFrom || createdTo)
+  const isFiltered =
+    isSearching || showFlaggedOnly || showPendingReviewOnly || Boolean(createdFrom || createdTo)
 
   const emptyState = error ? null : (
     <EmptyState
@@ -315,9 +323,11 @@ export function PatientsTable({
           ? `Aucun résultat pour ${quoteFr(searchQuery.trim())}`
           : showFlaggedOnly
             ? "Aucun patient signalé"
-            : isFiltered
-              ? "Aucun patient sur cette période"
-              : "Aucun patient enregistré"
+            : showPendingReviewOnly
+              ? "Aucune fiche à compléter"
+              : isFiltered
+                ? "Aucun patient sur cette période"
+                : "Aucun patient enregistré"
       }
       description={
         isFiltered

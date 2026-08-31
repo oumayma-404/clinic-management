@@ -25,6 +25,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
     /// omission was invisible.
     /// </summary>
     private readonly IReminderScheduler _reminderScheduler;
+    private readonly INotificationGenerator _notificationGenerator;
     private readonly IGoogleTokenProtector _googleTokenProtector;
     private readonly ILogger<GoogleCalendarSyncService> _logger;
 
@@ -36,6 +37,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         IReminderScheduler reminderScheduler,
+        INotificationGenerator notificationGenerator,
         IGoogleTokenProtector googleTokenProtector,
         ILogger<GoogleCalendarSyncService> logger)
     {
@@ -47,6 +49,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _reminderScheduler = reminderScheduler;
+        _notificationGenerator = notificationGenerator;
         _logger = logger;
     }
 
@@ -211,8 +214,11 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             
             var location = appointment.DoctorName != null ? $"Doctor: {appointment.DoctorName}" : null;
             
+            // ⚠️ `summary` is `$"Appointment: {patient.GetFullName()}"` (built above), so it is a patient name
+            // wearing a neutral placeholder name. FR-4.4 applies to the VALUE, not to what the placeholder is
+            // called — see the guard note in LogTemplateCoverageTests.
             _logger.LogDebug("Syncing appointment to Google Calendar: Summary={Summary}, Start={StartDateTime}, End={EndDateTime}, Location={Location}",
-                summary, startDateTime, endDateTime, location);
+                LogMask.Name(summary), startDateTime, endDateTime, location);
 
             if (string.IsNullOrEmpty(appointment.GoogleCalendarEventId))
             {
@@ -291,6 +297,15 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 return;
             }
 
+            // Read once for the whole pass: `GoogleCalendarHoldsOnlyAppointments` decides which events count as
+            // appointments at all, and re-reading it per event would be a query per row of the calendar.
+            var clinic = await _clinicRepository.GetByIdAsync(clinicId, cancellationToken);
+            if (clinic == null)
+            {
+                _logger.LogWarning("Clinic {ClinicId} disappeared between resolving its connection and the sync; skipping.", clinicId);
+                return;
+            }
+
             var startDate = DateTime.UtcNow.AddDays(-7);
             var endDate = DateTime.UtcNow.AddDays(90);
             _logger.LogInformation("Fetching events from {StartDate} to {EndDate}", startDate, endDate);
@@ -306,8 +321,13 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             
             if (eventList.Count > 0)
             {
-                _logger.LogInformation("Sample events: {Events}", 
-                    string.Join(", ", eventList.Take(3).Select(e => $"'{e.Summary}' ({e.StartDateTime:yyyy-MM-dd HH:mm})")));
+                // ⚠️ At Information, so this reaches the DURABLE rolling file. A Google event summary written by
+                // this product is `Appointment: <patient full name>`, and one written by hand in the calendar is
+                // whatever the practice typed — a patient name either way. Masked, not dropped: the date and the
+                // count are what diagnose a sync, and the initial-plus-length still distinguishes an empty
+                // summary from an unparseable one.
+                _logger.LogInformation("Sample events: {Events}",
+                    string.Join(", ", eventList.Take(3).Select(e => $"'{LogMask.Name(e.Summary)}' ({e.StartDateTime:yyyy-MM-dd HH:mm})")));
             }
 
             var allAppointments = (await _appointmentRepository.GetAllAsync(cancellationToken))
@@ -327,8 +347,8 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
 
             foreach (var googleEvent in eventList)
             {
-                _logger.LogDebug("Processing Google Calendar event: {EventId} - {Summary} at {StartTime}", 
-                    googleEvent.Id, googleEvent.Summary, googleEvent.StartDateTime);
+                _logger.LogDebug("Processing Google Calendar event: {EventId} - {Summary} at {StartTime}",
+                    googleEvent.Id, LogMask.Name(googleEvent.Summary), googleEvent.StartDateTime);
 
                 // Skip if we already have this event synced
                 if (appointmentsByGoogleId.ContainsKey(googleEvent.Id))
@@ -376,7 +396,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 }
 
                 // Create new appointment from Google Calendar event (if it looks like a clinic appointment)
-                if (IsClinicAppointment(googleEvent))
+                if (IsClinicAppointment(googleEvent, clinic))
                 {
                     _logger.LogDebug("Event looks like a clinic appointment, creating new appointment");
                     var created = await CreateAppointmentFromGoogleEventAsync(googleEvent, clinicId, cancellationToken);
@@ -387,7 +407,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 }
                 else
                 {
-                    _logger.LogDebug("Event does not match clinic appointment pattern, skipping: {Summary}", googleEvent.Summary);
+                    _logger.LogDebug("Event does not match clinic appointment pattern, skipping: {Summary}", LogMask.Name(googleEvent.Summary));
                 }
             }
 
@@ -410,6 +430,22 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
     // (a silent AC-6 regression risk if one side's literal were changed independently).
     private const string NotesLabel = "Notes: ";
     private const string StatusLabel = "Status: ";
+
+    /// <summary>The prefix this product writes on every event it pushes. Stripped before any name test.</summary>
+    private const string OurSummaryPrefix = "Appointment: ";
+
+    private static readonly char[] NameSeparators = [' ', '-'];
+
+    /// <summary>
+    /// Words that give a title away as something other than a patient, even inside the practice's own
+    /// « this calendar holds only appointments » declaration. Deliberately short: the declaration is the guard, and
+    /// a long blocklist would start refusing real Tunisian surnames.
+    /// </summary>
+    private static readonly HashSet<string> NonPatientWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "réunion", "reunion", "meeting", "call", "appel", "congé", "conge", "vacances", "férié", "ferie",
+        "déjeuner", "dejeuner", "pause", "formation", "cnam", "fermé", "ferme", "fermeture", "anniversaire",
+    };
 
     private string BuildAppointmentDescription(Appointment appointment)
     {
@@ -502,36 +538,47 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             }
         }
 
-        // If no pattern matches but summary is short and looks like a name, return it
-        // (for cases where someone just puts a patient name as the event title)
-        if (summary.Length < 100 && !summary.Contains("meeting") && !summary.Contains("call"))
+        // A bare « Prénom Nom » title, which is what the practice types when its calendar holds only appointments.
+        // ⚠️ Through `LooksLikeAPersonName`, the SAME test `IsClinicAppointment` gates on — a second copy of the
+        // word count and its blocklist here would let the gate admit an event this then refuses to name.
+        if (summary.Length < 100 && LooksLikeAPersonName(summary))
         {
-            // Check if it looks like a name (has at least one space, suggesting first and last name)
-            var parts = summary.Split(new[] { ' ', '-' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 2 && parts.Length <= 4)
-            {
-                return summary.Trim();
-            }
+            return summary.Trim();
         }
 
         return null;
     }
 
-    private bool IsClinicAppointment(GoogleCalendarEvent googleEvent)
+    /// <summary>
+    /// Whether a Google event is one of this clinic's appointments (<c>calendar-import-review</c> AC-1 to AC-3).
+    ///
+    /// <para>Two regimes, chosen by the practice. Off — the default and unchanged behaviour — an event must carry a
+    /// clinic keyword, or our own <c>Appointment: </c> prefix. On, the practice has declared the calendar holds
+    /// nothing but appointments, so a title that reads as a person's name is enough; the keyword convention was
+    /// confusing staff and buying nothing.</para>
+    ///
+    /// <para>⚠️ Even with it on this is <b>not</b> « accept everything ». A title that is not a two-to-four-word
+    /// name — « Réunion CNAM », one word, a sentence — is refused, because the importer has no patient to book it
+    /// against and inventing one from a fragment is worse than skipping the event.</para>
+    /// </summary>
+    private static bool IsClinicAppointment(GoogleCalendarEvent googleEvent, Clinic clinic)
     {
-        // If summary is empty, skip
         if (string.IsNullOrWhiteSpace(googleEvent.Summary))
         {
             return false;
         }
 
         var summary = googleEvent.Summary.ToLowerInvariant();
+
+        if (clinic.GoogleCalendarHoldsOnlyAppointments)
+        {
+            return LooksLikeAPersonName(StripOurPrefix(googleEvent.Summary));
+        }
+
         var description = googleEvent.Description?.ToLowerInvariant() ?? string.Empty;
-        
-        // Check if event summary contains clinic-related keywords
-        // This helps filter out personal events that aren't clinic appointments
-        var hasClinicKeywords = summary.Contains("appointment") || 
-                               summary.Contains("patient") || 
+
+        var hasClinicKeywords = summary.Contains("appointment") ||
+                               summary.Contains("patient") ||
                                summary.Contains("doctor") ||
                                summary.Contains("clinic") ||
                                summary.Contains("consultation") ||
@@ -543,6 +590,56 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         var isOurFormat = summary.StartsWith("appointment: ");
 
         return hasClinicKeywords || isOurFormat;
+    }
+
+    /// <summary>Our own written format's prefix, removed before any name test — see <c>SyncAppointmentTo…</c>.</summary>
+    private static string StripOurPrefix(string summary) =>
+        summary.StartsWith(OurSummaryPrefix, StringComparison.OrdinalIgnoreCase)
+            ? summary[OurSummaryPrefix.Length..].Trim()
+            : summary.Trim();
+
+    /// <summary>
+    /// Whether an existing patient is the person a calendar title names — the full name as stored, or a first/last
+    /// split of the title. Exact on both spellings; see the call site on why nothing partial is accepted.
+    /// </summary>
+    private static bool MatchesName(Patient patient, string title)
+    {
+        if (patient.GetFullName().Trim().Equals(title, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var parts = title.Split(NameSeparators, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            return false;
+        }
+
+        return patient.FirstName.Trim().Equals(parts[0].Trim(), StringComparison.OrdinalIgnoreCase)
+            && patient.LastName.Trim().Equals(string.Join(" ", parts.Skip(1)).Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Whether a title reads as « Prénom Nom » — two to four words, none of them a keyword that gives the event
+    /// away as something other than a patient.
+    ///
+    /// <para>Two words minimum is load-bearing: a single token cannot be split into a first and a last name, and the
+    /// branch that used to try stored « Karim » as both.</para>
+    /// </summary>
+    private static bool LooksLikeAPersonName(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return false;
+        }
+
+        var parts = title.Split(NameSeparators, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2 || parts.Length > 4)
+        {
+            return false;
+        }
+
+        return !parts.Any(part => NonPatientWords.Contains(part.Trim()));
     }
 
     private async Task UpdateAppointmentFromGoogleEventAsync(
@@ -659,8 +756,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             
             if (string.IsNullOrEmpty(patientName))
             {
-                _logger.LogWarning("Cannot create appointment from Google Calendar event {EventId}: patient name not found in summary '{Summary}' or description", 
-                    googleEvent.Id, googleEvent.Summary);
+                // ⚠️ At Warning, so this reaches the durable file too — and it is the one statement in this file
+                // that logs a summary the product did NOT build, i.e. free text a practice typed into Google.
+                _logger.LogWarning("Cannot create appointment from Google Calendar event {EventId}: patient name not found in summary '{Summary}' or description",
+                    googleEvent.Id, LogMask.Name(googleEvent.Summary));
                 return false;
             }
 
@@ -673,32 +772,25 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             // DUPLICATE record for someone the clinic already has.
             var patients = (await _patientRepository.GetByClinicIdAsync(clinicId, includeArchived: true, cancellationToken: cancellationToken)).Items;
             
-            // Try exact match first (case-insensitive)
-            var patient = patients.FirstOrDefault(p => 
-                p.GetFullName().Trim().Equals(patientName, StringComparison.OrdinalIgnoreCase));
+            // AC-4 to AC-6 — EXACT and UNAMBIGUOUS, in one pass over both spellings of a match.
+            //
+            // ⚠️ The `Contains` fallback that stood here is deleted, not tightened. It made « Ali » match
+            // « Ali Ben Salah », so an event could be booked onto the wrong person's file — and behind the old
+            // keyword gate that fired rarely, while as the primary path it would run on every event of the calendar.
+            // Two people of the same name is a refusal for the same reason: a wrong patient on an appointment is
+            // worse than an unimported event, and a third duplicate is worse than both.
+            var candidates = patients.Where(p => MatchesName(p, patientName)).ToList();
 
-            // If not found, try matching first name + last name separately
-            if (patient == null)
+            if (candidates.Count > 1)
             {
-                var nameParts = patientName.Split(new[] { ' ', '-' }, StringSplitOptions.RemoveEmptyEntries);
-                if (nameParts.Length >= 2)
-                {
-                    var firstName = nameParts[0].Trim();
-                    var lastName = string.Join(" ", nameParts.Skip(1)).Trim();
-                    
-                    patient = patients.FirstOrDefault(p => 
-                        p.FirstName.Trim().Equals(firstName, StringComparison.OrdinalIgnoreCase) &&
-                        p.LastName.Trim().Equals(lastName, StringComparison.OrdinalIgnoreCase));
-                }
+                _logger.LogWarning(
+                    "Google event {EventId} names a patient matching {Count} records; skipped rather than guessing.",
+                    googleEvent.Id, candidates.Count);
+                return false;
             }
 
-            // If still not found, try partial matching
-            if (patient == null)
-            {
-                patient = patients.FirstOrDefault(p => 
-                    p.GetFullName().Trim().Contains(patientName, StringComparison.OrdinalIgnoreCase) ||
-                    patientName.Contains(p.GetFullName().Trim(), StringComparison.OrdinalIgnoreCase));
-            }
+            var patient = candidates.SingleOrDefault();
+            var createdPatient = false;
 
             if (patient == null)
             {
@@ -706,55 +798,40 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 _logger.LogInformation("Patient {PatientName} not found. Creating one automatically from Google Calendar event {EventId}",
                     LogMask.Name(patientName), googleEvent.Id);
                 
-                var nameParts = patientName.Split(new[] { ' ', '-' }, StringSplitOptions.RemoveEmptyEntries);
-                string firstName;
-                string lastName;
-                
-                if (nameParts.Length >= 2)
+                var nameParts = patientName.Split(NameSeparators, StringSplitOptions.RemoveEmptyEntries);
+                if (nameParts.Length < 2)
                 {
-                    firstName = nameParts[0].Trim();
-                    lastName = string.Join(" ", nameParts.Skip(1)).Trim();
-                }
-                else if (nameParts.Length == 1)
-                {
-                    // If only one part, use it as last name
-                    firstName = nameParts[0].Trim();
-                    lastName = nameParts[0].Trim();
-                }
-                else
-                {
-                    _logger.LogWarning("Cannot extract a patient name from {PatientName} for Google Calendar event {EventId}",
+                    // A single token cannot be split into a first and a last name. The branch that used to try
+                    // stored « Karim » as both, so the clinic acquired a patient called « Karim Karim ».
+                    _logger.LogWarning("Cannot extract a first and last name from {PatientName} for Google Calendar event {EventId}",
                         LogMask.Name(patientName), googleEvent.Id);
                     return false;
                 }
 
-                // Create new patient with minimal required information
-                // Ensure DateOfBirth is UTC
-                var dateOfBirth = DateTime.UtcNow;
-                if (dateOfBirth.Kind != DateTimeKind.Utc)
-                {
-                    dateOfBirth = DateTime.SpecifyKind(dateOfBirth, DateTimeKind.Utc);
-                }
-                
-                // No contact details: a patient conjured from a calendar event title genuinely has none.
-                // This was the second, undocumented sentinel source — unknown@example.com / 000-000-0000 —
-                // and unlike the create form nobody ever saw the form that "filled it in".
-                // Dentition is deliberately left at the entity's Adult default and NOT derived from dateOfBirth:
-                // that value is DateTime.UtcNow, a placeholder standing in for "unknown", so the age rule would
-                // compute age 0 and chart an adult conjured from a calendar title on baby teeth. Whoever opens this
-                // patient sets the real dentition in patient info.
+                var firstName = nameParts[0].Trim();
+                var lastName = string.Join(" ", nameParts.Skip(1)).Trim();
+
+                // AC-7 — **DateOfBirth is null**, not today's date. It used to be `DateTime.UtcNow`, so every patient
+                // this path created was recorded as born today; `Patient.DateOfBirth`'s own note calls that
+                // substitution out as removed, and this was the call site that never got the fix.
+                // No contact details either: a patient conjured from a calendar event title genuinely has none.
+                // Dentition stays at the entity's Adult default rather than being derived — there is now honestly
+                // no birth date to derive it from, and whoever completes the fiche sets it.
                 var newPatient = new Patient(
                     Guid.NewGuid(),
                     clinicId,
                     firstName,
                     lastName,
-                    dateOfBirth,
+                    dateOfBirth: null,
                     "Unknown"); // Default gender
+
+                newPatient.MarkImportedFromCalendar(DateTime.UtcNow);
 
                 await _patientRepository.AddAsync(newPatient, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
-                
+
                 patient = newPatient;
+                createdPatient = true;
                 _logger.LogInformation("Created patient {PatientId} from Google Calendar event {EventId}",
                     patient.Id, googleEvent.Id);
             }
@@ -818,6 +895,15 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
 
             _logger.LogInformation("Created appointment {AppointmentId} from Google Calendar event {EventId}",
                 appointment.Id, googleEvent.Id);
+
+            // AC-9/AC-11 — post-commit and best-effort, the interface's own contract. Only for a patient this pass
+            // CREATED: an established practice connecting its calendar must not badge the bell once per person it
+            // already knew.
+            if (createdPatient)
+            {
+                await _notificationGenerator.PatientImportedFromCalendarAsync(
+                    patient.ClinicId, patient.Id, patient.GetFullName(), cancellationToken);
+            }
 
             // L3b — an appointment created in Google is an appointment, and it used to enqueue no reminder at
             // all: the dentist who types a visit into their own calendar got a silently reminder-less booking.

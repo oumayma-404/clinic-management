@@ -47,6 +47,7 @@ public class StepUpCommandHandler : IRequestHandler<StepUpCommand, Result<StepUp
     private readonly ITotpService _totpService;
     private readonly IUserSecretProtector _secretProtector;
     private readonly IStepUpConfirmations _confirmations;
+    private readonly ITotpReplayGuard _totpReplayGuard;
 
     public StepUpCommandHandler(
         IClinicContext clinicContext,
@@ -54,7 +55,8 @@ public class StepUpCommandHandler : IRequestHandler<StepUpCommand, Result<StepUp
         ILocalAuthService localAuthService,
         ITotpService totpService,
         IUserSecretProtector secretProtector,
-        IStepUpConfirmations confirmations)
+        IStepUpConfirmations confirmations,
+        ITotpReplayGuard totpReplayGuard)
     {
         _clinicContext = clinicContext;
         _userRepository = userRepository;
@@ -62,6 +64,7 @@ public class StepUpCommandHandler : IRequestHandler<StepUpCommand, Result<StepUp
         _totpService = totpService;
         _secretProtector = secretProtector;
         _confirmations = confirmations;
+        _totpReplayGuard = totpReplayGuard;
     }
 
     public async Task<Result<StepUpDto>> Handle(StepUpCommand request, CancellationToken cancellationToken)
@@ -97,8 +100,15 @@ public class StepUpCommandHandler : IRequestHandler<StepUpCommand, Result<StepUp
             if (!proved && !string.IsNullOrWhiteSpace(request.TotpCode) && user.IsTotpEnrolled)
             {
                 // An undecryptable secret proves nothing; it never counts as a pass.
+                //
+                // ⚠️ Verified FIRST, then claimed — same order as `LoginCommand`, so a wrong guess cannot burn
+                // the real code's one use. This is the third of the three sites that verify a TOTP code, and
+                // until now it was one of the two that did not consume it: step-up is what gates the archive
+                // export and user management, so a code captured at the login screen was re-presentable here
+                // inside its window to authorise exactly the operations step-up exists to protect.
                 proved = _secretProtector.TryUnprotect(user.ProtectedTotpSecret!, out var secret)
-                         && _totpService.VerifyCode(secret, request.TotpCode!);
+                         && _totpService.VerifyCode(secret, request.TotpCode!)
+                         && _totpReplayGuard.TryConsume(user.Id, request.TotpCode!);
             }
 
             if (!proved)

@@ -10,7 +10,7 @@ namespace ClinicManagement.Domain.Entities;
 /// <see cref="ProcedureType"/> summary, <see cref="Cost"/>, and flat <see cref="Teeth"/> list are DERIVED
 /// (recomputed in <see cref="SetActs"/>). Kept as stored columns for display / AI summary / the invoice bridge.
 /// </summary>
-public class DentalRecord : Entity<Guid>
+public class DentalRecord : Entity<Guid>, IAuditable
 {
     private const int ProcedureSummaryMaxLength = 200;
 

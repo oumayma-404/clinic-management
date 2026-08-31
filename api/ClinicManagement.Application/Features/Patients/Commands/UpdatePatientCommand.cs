@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using System.Text.Json.Serialization;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
@@ -114,6 +115,17 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
 
     // "Signaler ce patient" toggle + note. null = leave the flag state unchanged (backward-compatible with
     // callers that don't send it); true = ensure an active flag; false = clear any active flag.
+    /// <summary>
+    /// The patient's answer about automated SMS/WhatsApp reminders — <c>"NotRecorded"</c>, <c>"Granted"</c> or
+    /// <c>"Refused"</c>. <b>Omitted means unchanged</b>, like every other key on this command; sending
+    /// <c>"NotRecorded"</c> explicitly is how an answer is un-recorded.
+    ///
+    /// <para>⚠️ A string rather than the enum, for <c>PatientDto.Dentition</c>'s reason: with no
+    /// <c>JsonStringEnumConverter</c> registered, an enum property refuses <c>"Refused"</c> with a 400 and
+    /// accepts only <c>2</c>.</para>
+    /// </summary>
+    public string? ReminderConsent { get; set; }
+
     public bool? IsFlagged { get; set; }
     public string? FlagNotes { get; set; }
 }
@@ -126,15 +138,18 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
     private readonly IPatientRepository _patientRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IClinicContext _clinicContext;
 
     public UpdatePatientCommandHandler(
         IPatientRepository patientRepository,
         ICurrentClinicResolver clinicResolver,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IClinicContext clinicContext)
     {
         _patientRepository = patientRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _clinicContext = clinicContext;
     }
 
     public async Task<Result<PatientDto>> Handle(UpdatePatientCommand request, CancellationToken cancellationToken)
@@ -307,6 +322,15 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
                     request.ImportantNotes ?? patient.ImportantNotes);
             }
 
+            // Reminder consent. Its own key and its own mutator: it must NOT ride along with the phone number,
+            // or correcting a typo in the number would quietly re-enrol a patient who had refused.
+            var requestedConsent = ReminderConsentRules.Parse(request.ReminderConsent);
+            if (requestedConsent.HasValue)
+            {
+                patient.SetReminderConsent(
+                    requestedConsent.Value, DateTime.UtcNow, _clinicContext.GetUserEmail());
+            }
+
             // Patient flag ("Signaler ce patient"): a single active HighPriority flag carries the toggle
             // + note; it feeds the "Urgents" KPI and the flagged filter. A null IsFlagged leaves it unchanged.
             if (request.IsFlagged.HasValue)
@@ -353,7 +377,7 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PatientDto>.Failure($"Error updating patient: {ex.Message}");
+            return Result<PatientDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

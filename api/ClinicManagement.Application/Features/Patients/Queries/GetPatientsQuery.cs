@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -32,6 +33,12 @@ public class GetPatientsQuery : IRequest<Result<PagedResult<PatientDto>>>
     /// which a page turns into "the flagged ones on this page".
     /// </summary>
     public bool FlaggedOnly { get; set; }
+
+    /// <summary>
+    /// Only the patients the Google Calendar import created from an event title and nobody has confirmed
+    /// (<c>calendar-import-review</c> AC-13). Applied in SQL, like <see cref="FlaggedOnly"/>.
+    /// </summary>
+    public bool PendingCalendarReviewOnly { get; set; }
 
     /// <summary>
     /// Include patients that have been archived. <b>False everywhere except the patients page's own « Afficher les
@@ -110,6 +117,7 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
                 createdTo: request.CreatedTo,
                 searchTerm: request.SearchTerm,
                 flaggedOnly: request.FlaggedOnly,
+                pendingCalendarReviewOnly: request.PendingCalendarReviewOnly,
                 includeArchived: request.IncludeArchived,
                 paging: paging,
                 cancellationToken: cancellationToken);
@@ -118,7 +126,7 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PagedResult<PatientDto>>.Failure($"Error retrieving patients: {ex.Message}");
+            return Result<PagedResult<PatientDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

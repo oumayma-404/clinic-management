@@ -39,6 +39,7 @@ public class PlatformAuthTests
         public Mock<IPlatformAuthService> Auth { get; } = new();
         public Mock<IPlatformSecretProtector> Protector { get; } = new();
         public Mock<ITotpService> Totp { get; } = new();
+        public Mock<ITotpReplayGuard> ReplayGuard { get; } = new();
         public Mock<IUnitOfWork> UnitOfWork { get; } = new();
         public PlatformAccount Account { get; }
 
@@ -72,12 +73,15 @@ public class PlatformAuthTests
             Protector.Setup(p => p.TryUnprotect("protected-secret", out secret)).Returns(true);
             Totp.Setup(t => t.VerifyCode(Secret, GoodCode)).Returns(true);
             Totp.Setup(t => t.VerifyCode(It.IsAny<string>(), It.Is<string>(c => c != GoodCode))).Returns(false);
+
+            // First presentation of any code is accepted; the replay cases below re-arm this per test.
+            ReplayGuard.Setup(g => g.TryConsume(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
         }
 
         public static List<string> RecoveryCodes { get; } = new() { "AAAABBBBCCCCDDDDEEEE", "FFFFGGGGHHHHJJJJKKKK" };
 
         public PlatformLoginCommandHandler Login() => new(
-            Accounts.Object, Auth.Object, Protector.Object, Totp.Object, UnitOfWork.Object,
+            Accounts.Object, Auth.Object, Protector.Object, Totp.Object, ReplayGuard.Object, UnitOfWork.Object,
             NullLogger<PlatformLoginCommandHandler>.Instance);
 
         public EnrolPlatformTotpCommandHandler Enrol() => new(
@@ -101,6 +105,40 @@ public class PlatformAuthTests
         Assert.Equal("a-token", result.Value!.Token);
         // An ordinary sign-in does not report the recovery-code count — see PlatformSessionDto.
         Assert.Null(result.Value.RecoveryCodesRemaining);
+    }
+
+    // RFC 6238 § 5.2: a code is accepted ONCE. The clinic side enforced this from the day the guard was written;
+    // the console — the highest-privileged surface in the product — was not wired to it, so a code observed once
+    // was presentable again for the rest of its ~90-second window. The refusal is deliberately the SAME code as a
+    // wrong password, so a replay cannot be used to learn that the code was otherwise valid.
+    [Fact]
+    public async Task A_code_already_spent_is_refused_exactly_like_a_wrong_one()
+    {
+        var harness = new Harness();
+        harness.ReplayGuard.Setup(g => g.TryConsume(It.IsAny<string>(), GoodCode)).Returns(false);
+
+        var result = await harness.Login().Handle(
+            new PlatformLoginCommand("ops@editeur.tn", Password, GoodCode), default);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(PlatformAuthRefusals.InvalidCredentials, result.Code);
+        Assert.Null(result.Value);
+    }
+
+    // The mirror, and the reason the guard is consulted AFTER the code verifies rather than before: claiming
+    // first would let a wrong guess burn the real code's one use and lock the account's owner out of their own
+    // window. A failed verification must therefore spend nothing.
+    [Fact]
+    public async Task A_wrong_code_does_not_spend_the_real_one()
+    {
+        var harness = new Harness();
+
+        var result = await harness.Login().Handle(
+            new PlatformLoginCommand("ops@editeur.tn", Password, "000000"), default);
+
+        Assert.True(result.IsFailure);
+        harness.ReplayGuard.Verify(
+            g => g.TryConsume(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
     // [AC-1.3 / EC-2] THE case this endpoint exists to get right: a leaked password alone yields no secret, no
