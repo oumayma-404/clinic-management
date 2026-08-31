@@ -169,7 +169,7 @@ public class RecallQueryBoundsTests
         _patients.Verify(
             r => r.GetByClinicIdAsync(
                 It.IsAny<Guid>(), It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(),
-                It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<PageRequest?>(),
+                It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<PatientListSort>(), It.IsAny<PageRequest?>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
         _patients.Verify(r => r.GetAllAsync(It.IsAny<CancellationToken>()), Times.Never);

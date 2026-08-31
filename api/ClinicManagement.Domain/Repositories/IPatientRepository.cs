@@ -10,6 +10,29 @@ namespace ClinicManagement.Domain.Repositories;
 /// caught <c>DbUpdateException</c>: neither has a foreign key to <c>Patients</c>, so no database constraint has
 /// ever fired for them — a patient with ten invoices and nothing else deleted cleanly and orphaned all ten.
 /// </summary>
+/// <summary>
+/// How the patients list is ordered. An enum rather than a column name so an unknown value is a compile error
+/// here and a clamp at the edge, never a string interpolated into an <c>ORDER BY</c> —
+/// <see cref="PatientFileSummarySort"/>'s reasoning, one read over.
+/// </summary>
+public enum PatientListSort
+{
+    /// <summary>
+    /// Alphabetical by surname. <b>The default, and every caller but the patients page keeps it</b>: the header
+    /// lookup, the booking dialog's picker and the calendar import's candidate scan all read this method, and a
+    /// picker you scan for a name is worse ordered by anything else.
+    /// </summary>
+    Name = 0,
+
+    /// <summary>
+    /// Most recently registered first — what « Patients » itself shows, so the fiche just created is the first
+    /// row rather than somewhere under Z. Ordered on <c>CreatedAt</c>, never on the id: the ids are v4 GUIDs and
+    /// carry no time at all, so a « derniers ajouts » sorted by id would be an arbitrary order with a name that
+    /// claims otherwise.
+    /// </summary>
+    RecentlyAdded = 1,
+}
+
 public sealed record PatientLinkedDataCounts(
     int Appointments,
     int Invoices,
@@ -141,6 +164,7 @@ public interface IPatientRepository
         string? searchTerm = null,
         bool flaggedOnly = false,
         bool pendingCalendarReviewOnly = false,
+        PatientListSort sort = PatientListSort.Name,
         PageRequest? paging = null,
         CancellationToken cancellationToken = default);
 

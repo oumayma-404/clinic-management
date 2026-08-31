@@ -185,7 +185,7 @@ public class PatientContactOptionalTests
     {
         var withPhone = PatientWith(null, new PhoneNumber("20123456"));
         var without = PatientWith(null, null);
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<PageRequest?>(),
+        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<PatientListSort>(), It.IsAny<PageRequest?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((new[] { without, withPhone }).AsPage());
 
@@ -202,7 +202,8 @@ public class PatientContactOptionalTests
         _patients.Verify(
             r => r.GetByClinicIdAsync(
                 ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), "20123456",
-                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()),
+                It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<PatientListSort>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
