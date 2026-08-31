@@ -65,12 +65,20 @@ session's edit set — see § 5.1.
 
 ## 3. Batch 3 — PARTLY DONE
 
+Commits `0b683ce4` and `531561aa`.
+
 Two are feature-sized with frontend work and a device-contract pass; the scope is the owner's call.
 
-- **Consent capture + per-patient reminder opt-out.** There is *no* consent field in any of the 66 domain
+- ✅ **The clinic-facing dossier corrected — `531561aa`.** `SECURITE-DOSSIER-PATIENT.md` is written to be handed
+  to a cabinet's legal counsel, and three of its claims did not survive checking: the key-custody promise (the
+  custody table is still placeholders), the residency claim (which explicitly named « services de messagerie »,
+  the one category the guard does *not* inspect), and « les exports complets sont nominatifs » (true of the ZIP
+  only). Now v1.1. Two other claims became true rather than being withdrawn — the clinical-record journal and
+  no-PHI-in-logs — because Batch 1 and 2 fixed them.
+- ⛔ **Consent capture + per-patient reminder opt-out.** There is *no* consent field in any of the 66 domain
   entities, and recording a phone number **auto-enrols** the patient into SMS/WhatsApp — the only gate on
   enqueuing is `HasDeliverablePhoneAsync`. Neither the patient nor the cabinet can exempt one person.
-- **Per-patient dossier export.** Every export is list-scoped; nothing assembles one patient's complete record.
+- ⛔ **Per-patient dossier export.** Every export is list-scoped; nothing assembles one patient's complete record.
   This is the right-of-access mechanism, and it is also what a patient changing dentist asks for constantly.
 - ✅ **Privacy notice — DONE.** `site/src/pages/confidentialite.html`, built and live at `dist/confidentialite.html`,
   which also fixes the footer link that had pointed at a non-existent file since the site shipped. Written from the
@@ -102,6 +110,16 @@ Two are feature-sized with frontend work and a device-contract pass; the scope i
 ---
 
 ## 5. ⚠️ Two hazards before you resume
+
+### 5.0 Current state of the block (as of the last update)
+
+The other session went quiet around 11:10 and left **~50 files uncommitted**, including
+`ApplicationDbContextModelSnapshot.cs`. The snapshot now *does* carry their `FileResidency` property, so
+`dotnet ef migrations add` would emit only this branch's own columns — but committing the resulting snapshot
+would carry **their** model change into a security commit, and committing the migration without the snapshot
+leaves the two drifting. So migrations stay blocked until their work lands, and everything in this file marked ⛔
+waits on that. Nothing here is blocked on a technical unknown; it is blocked on a working tree with two authors
+in it.
 
 ### 5.1 A concurrent session was writing to this repo
 
