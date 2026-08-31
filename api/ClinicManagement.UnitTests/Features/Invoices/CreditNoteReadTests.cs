@@ -50,7 +50,7 @@ public class CreditNoteReadTests
             .ReturnsAsync(Result<Guid>.Success(ClinicId));
         _patients.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Patient?)null);
-        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<PageRequest?>(),
+        _patients.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<bool>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<PageRequest?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((Array.Empty<Patient>()).AsPage());
         // ⚠️ Two reads the list and revenue handlers grew after this file was written, both returning a

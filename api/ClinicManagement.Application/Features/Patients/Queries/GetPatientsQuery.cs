@@ -35,6 +35,12 @@ public class GetPatientsQuery : IRequest<Result<PagedResult<PatientDto>>>
     public bool FlaggedOnly { get; set; }
 
     /// <summary>
+    /// Only the patients the Google Calendar import created from an event title and nobody has confirmed
+    /// (<c>calendar-import-review</c> AC-13). Applied in SQL, like <see cref="FlaggedOnly"/>.
+    /// </summary>
+    public bool PendingCalendarReviewOnly { get; set; }
+
+    /// <summary>
     /// Include patients that have been archived. <b>False everywhere except the patients page's own « Afficher les
     /// patients archivés »</b>, which is the one screen that exists to find them again.
     /// <para>⚠️ <b>This parameter existed on <see cref="IPatientRepository"/> from the start and had no caller at
@@ -111,6 +117,7 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
                 createdTo: request.CreatedTo,
                 searchTerm: request.SearchTerm,
                 flaggedOnly: request.FlaggedOnly,
+                pendingCalendarReviewOnly: request.PendingCalendarReviewOnly,
                 includeArchived: request.IncludeArchived,
                 paging: paging,
                 cancellationToken: cancellationToken);

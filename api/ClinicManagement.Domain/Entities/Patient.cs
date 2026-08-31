@@ -47,6 +47,18 @@ public class Patient : AggregateRoot<Guid>
     public string? ReferredBy { get; private set; }
 
     /// <summary>
+    /// When the Google Calendar import created this record from an event title alone. Non-null means <b>nobody has
+    /// confirmed it</b>: the name was read off a calendar and everything else — birth date, gender, telephone — is
+    /// absent rather than answered.
+    ///
+    /// <para>⚠️ It is cleared by <see cref="UpdatePersonalInfo"/> on <b>any</b> human edit, not once the fields are
+    /// full. What is being tracked is confirmation, not completeness — <see cref="DateOfBirth"/>'s own note says a
+    /// patient with no birth date is an ordinary patient rather than a data-quality problem, so clearing on
+    /// completeness would nag for ever about someone whose birthday the practice genuinely does not have.</para>
+    /// </summary>
+    public DateTime? CalendarImportPendingReviewSince { get; private set; }
+
+    /// <summary>
     /// Free-standing notes about the patient themselves — what the dentist wants to be reminded of on every visit,
     /// as opposed to a <see cref="DentalRecord"/>'s notes, which describe one séance.
     ///
@@ -167,6 +179,26 @@ public class Patient : AggregateRoot<Guid>
         PhoneNumber = phoneNumber;
         Address = address;
         UpdatedAt = DateTime.UtcNow;
+        // A human has been through this record, which is the whole of what the stamp was waiting for. Cleared here
+        // rather than at the call sites so none of them can forget — see the property's own note.
+        CalendarImportPendingReviewSince = null;
+    }
+
+    /// <summary>
+    /// Confirms a calendar-imported record as-is, with nothing to change. Without it a fiche whose name is simply
+    /// correct could only be cleared by editing something, which is how a review prompt teaches people to make a
+    /// pointless edit.
+    /// </summary>
+    public void ConfirmCalendarImport()
+    {
+        CalendarImportPendingReviewSince = null;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Stamps this record as conjured from a calendar event title, awaiting a human's confirmation.</summary>
+    public void MarkImportedFromCalendar(DateTime importedAtUtc)
+    {
+        CalendarImportPendingReviewSince = importedAtUtc;
     }
 
     public void UpdateInsuranceInfo(InsuranceInfo? insuranceInfo)

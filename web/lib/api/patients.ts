@@ -38,6 +38,11 @@ export const patientsApi = {
        * `/fichiers`, so the « Restaurer » control on their own page was reachable only by typing their UUID.
        */
       includeArchived?: boolean;
+      /**
+       * Only the patients the Google Calendar import conjured from an event title and nobody has confirmed.
+       * Server-side, for `flaggedOnly`'s reason.
+       */
+      pendingCalendarReviewOnly?: boolean;
     },
   ): Promise<PagedResponse<PatientDto>> => {
     const { search, ...rest } = params;
@@ -46,6 +51,14 @@ export const patientsApi = {
 
   get: async (id: string): Promise<PatientDto> => {
     return apiGet<PatientDto>(`/patients/${id}`);
+  },
+
+  /**
+   * Confirms a calendar-imported fiche as correct with nothing to change. The other way out of the review state is
+   * simply saving the patient's info, which clears it server-side.
+   */
+  confirmCalendarImport: async (id: string): Promise<PatientDto> => {
+    return apiPost<PatientDto>(`/patients/${id}/confirm-calendar-import`, {});
   },
 
   create: async (data: {

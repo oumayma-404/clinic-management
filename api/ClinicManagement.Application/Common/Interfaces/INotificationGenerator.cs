@@ -310,4 +310,20 @@ public interface INotificationGenerator
     /// </summary>
     Task ClinicArchiveExportedAsync(
         Guid clinicId, string actorUserId, string actorName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tells the practice that the Google Calendar import created a patient record from an event title alone, and
+    /// that it needs completing (<c>calendar-import-review</c> AC-9). Deep-links to that patient's fiche.
+    ///
+    /// <para>⚠️ <b>Fire-once per patient, not an ensure/clear pair</b> — each row is one record needing attention,
+    /// and a single restated row carrying a count would hide every patient but the number. Called <b>only</b> for a
+    /// patient the import actually created: an event matched to someone the clinic already has produces nothing, or
+    /// an established practice connecting its calendar would badge the bell once per patient it already knew.</para>
+    ///
+    /// <para>Clinic-wide with no actor: a scheduled job did it, and reception completes patient records as often as
+    /// the dentist. In-app only — the category is classified <c>false</c> in
+    /// <see cref="Common.Services.StaffNotificationRules.ReachesALockedPhone"/>.</para>
+    /// </summary>
+    Task PatientImportedFromCalendarAsync(
+        Guid clinicId, Guid patientId, string patientName, CancellationToken cancellationToken = default);
 }

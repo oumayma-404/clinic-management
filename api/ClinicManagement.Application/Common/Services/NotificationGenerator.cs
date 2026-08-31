@@ -673,6 +673,28 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task PatientImportedFromCalendarAsync(
+        Guid clinicId, Guid patientId, string patientName, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var who = string.IsNullOrWhiteSpace(patientName) ? "Un patient" : patientName.Trim();
+
+            var notification = StaffNotification.ForPatientImportReview(
+                Guid.NewGuid(), clinicId,
+                "Fiche patient à compléter",
+                $"« {who} » a été créé depuis Google Agenda, à partir du seul titre d'un rendez-vous. La fiche ne "
+                + "contient que le nom : complétez la date de naissance, le sexe et le téléphone, ou confirmez-la "
+                + "telle quelle si elle est correcte.",
+                DateTime.UtcNow,
+                patientId);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
     public async Task SecondFactorResetAsync(
         Guid clinicId,
         string targetUserId,

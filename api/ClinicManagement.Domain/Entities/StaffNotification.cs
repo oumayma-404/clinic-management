@@ -35,6 +35,12 @@ public class StaffNotification : AggregateRoot<Guid>
     public Guid? StockItemId { get; private set; }
 
     /// <summary>
+    /// The patient this row deep-links to. Written only by <see cref="ForPatientImportReview"/>; null on every
+    /// other category.
+    /// </summary>
+    public Guid? PatientId { get; private set; }
+
+    /// <summary>
     /// When set, only this user sees the row (a doctor-targeted post-visit review); when null, the row
     /// stays clinic-wide (all existing categories). Repository predicates honor this in addition to
     /// <see cref="ActorUserId"/> exclusion.
@@ -144,6 +150,24 @@ public class StaffNotification : AggregateRoot<Guid>
         notification.MessagingThresholdPercent = thresholdPercent;
         notification.MessagingAllowanceMonth = monthKey
             ?? throw new ArgumentNullException(nameof(monthKey));
+        return notification;
+    }
+
+    /// <summary>
+    /// A patient the Google Calendar import conjured from an event title, awaiting confirmation
+    /// (<c>calendar-import-review</c>). Clinic-wide with no actor: a scheduled job did it, not a person.
+    ///
+    /// <para>A factory rather than a twelfth constructor parameter, on <see cref="ForSubscription"/>'s reasoning —
+    /// the patient id is meaningful for exactly one category, and an optional ctor argument would let any of the
+    /// other sixteen carry one.</para>
+    /// </summary>
+    public static StaffNotification ForPatientImportReview(
+        Guid id, Guid clinicId, string title, string message, DateTime effectiveFeedTimeUtc, Guid patientId)
+    {
+        var notification = new StaffNotification(
+            id, clinicId, NotificationCategory.PatientImportedNeedsReview, title, message,
+            effectiveFeedTimeUtc, NotificationTargetKind.Patient);
+        notification.PatientId = patientId;
         return notification;
     }
 

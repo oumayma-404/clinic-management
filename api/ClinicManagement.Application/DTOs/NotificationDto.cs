@@ -20,6 +20,9 @@ public class NotificationDto
     public Guid? AppointmentId { get; set; }
     public Guid? StockItemId { get; set; }
 
+    /// <summary>The patient a <c>PatientImportedNeedsReview</c> row opens; null on every other category.</summary>
+    public Guid? PatientId { get; set; }
+
     /// <summary>
     /// The fournisseur to contact about this row — populated for <c>LowStock</c> rows only, and only when the
     /// article still names one (AC-6).
@@ -54,6 +57,7 @@ public static class NotificationMappingExtensions
         IsRead = isRead,
         TargetKind = notification.TargetKind.ToString(),
         AppointmentId = notification.AppointmentId,
-        StockItemId = notification.StockItemId
+        StockItemId = notification.StockItemId,
+        PatientId = notification.PatientId
     };
 }

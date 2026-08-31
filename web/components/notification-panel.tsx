@@ -16,6 +16,7 @@ import {
   Hourglass,
   type LucideIcon,
   DatabaseBackup,
+  UserPlus,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { WhatsAppAction } from "@/components/suppliers/whatsapp-action"
@@ -55,6 +56,9 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
   // than a clock or a triangle: what it asks for is a payment, and it is the only row in the feed about money owed
   // to the software vendor rather than about the practice's own work.
   SubscriptionExpiring: CreditCard,
+  // calendar-import-review — Google Agenda conjured a patient record from an event title. `UserPlus` rather than a
+  // warning glyph: a fiche was added and needs finishing, which is a task rather than a fault.
+  PatientImportedNeedsReview: UserPlus,
 }
 
 /**
@@ -91,6 +95,7 @@ const CATEGORY_TONE: Record<string, string> = {
   SubscriptionExpiring: "bg-warning-wash text-warning-ink",
   // Something the user is asked to complete. Teal — the app's "do this" colour.
   PostVisitReview: "bg-primary/10 text-primary",
+  PatientImportedNeedsReview: "bg-primary/10 text-primary",
   // Something simply happened. Teal at lower weight; it is information, not a task.
   AppointmentCreated: "bg-primary/10 text-primary",
   AppointmentRescheduled: "bg-primary/10 text-primary",

@@ -28,6 +28,8 @@ export default function PatientsPage() {
   // Off by default — archiving means "stop offering this person", and a list that showed them by default would
   // undo the only thing the action does.
   const [showArchived, setShowArchived] = useState(false)
+  // calendar-import-review AC-13 — the fiches Google Agenda conjured and nobody has confirmed.
+  const [showPendingReviewOnly, setShowPendingReviewOnly] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -54,6 +56,10 @@ export default function PatientsPage() {
     if (params.get("flagged") === "1") {
       setShowFlaggedOnly(true)
     }
+    // Seeded from the same key the chip writes, so a link this page emits is a link it honours.
+    if (params.get("pendingCalendarReview") === "1") {
+      setShowPendingReviewOnly(true)
+    }
     // A malformed date is ignored rather than refused — a stale link lands on the full list, never a broken state.
     const from = params.get("createdFrom")
     const to = params.get("createdTo")
@@ -71,6 +77,16 @@ export default function PatientsPage() {
   }
 
   const hasDateWindow = Boolean(createdFrom || createdTo)
+
+  // The chip owns the URL key too: without it the filter would be invisible on a refresh and unlinkable.
+  const togglePendingReview = () => {
+    const next = !showPendingReviewOnly
+    setShowPendingReviewOnly(next)
+    const url = new URL(window.location.href)
+    if (next) url.searchParams.set("pendingCalendarReview", "1")
+    else url.searchParams.delete("pendingCalendarReview")
+    window.history.replaceState({}, "", url)
+  }
 
   return (
     <ClinicGuard>
@@ -114,14 +130,16 @@ export default function PatientsPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => setImportDialogOpen(true)}
-                  className="touch-target gap-1.5"
+                  className="touch-target gap-1.5 coarse:h-11"
                   aria-label="Importer des patients depuis un fichier CSV"
                 >
                   <Upload className="size-4" aria-hidden="true" />
                   <span className="sr-only sm:not-sr-only">Importer</span>
                 </Button>
               )}
-              <Button onClick={() => setCreateDialogOpen(true)} className="gap-2">
+              {/* Same row floor as « Exporter » beside it — it painted 44 px on a coarse pointer while these two
+                  painted 32 and 36, so the header read as three misaligned controls on a tablet. */}
+              <Button onClick={() => setCreateDialogOpen(true)} className="gap-2 coarse:h-11">
                 <Plus className="h-4 w-4" />
                 Ajouter un patient
               </Button>
@@ -144,6 +162,11 @@ export default function PatientsPage() {
             label="Signalés"
             active={showFlaggedOnly}
             onToggle={() => setShowFlaggedOnly(!showFlaggedOnly)}
+          />
+          <FilterChip
+            label="À compléter"
+            active={showPendingReviewOnly}
+            onToggle={togglePendingReview}
           />
           {/* This one WIDENS the list rather than narrowing it, which is why its label says so plainly instead
               of naming a subset: « Archivés » beside « Signalés » would read as "show only the archived ones". */}
@@ -181,6 +204,7 @@ export default function PatientsPage() {
           searchQuery={searchQuery}
           showFlaggedOnly={showFlaggedOnly}
           showArchived={showArchived}
+          showPendingReviewOnly={showPendingReviewOnly}
           createdFrom={createdFrom}
           createdTo={createdTo}
           onCreatePatient={() => setCreateDialogOpen(true)}
@@ -188,6 +212,7 @@ export default function PatientsPage() {
             setSearchQuery("")
             setShowFlaggedOnly(false)
             setShowArchived(false)
+            if (showPendingReviewOnly) togglePendingReview()
             clearDateWindow()
           }}
         />

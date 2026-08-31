@@ -472,6 +472,7 @@ export default function PatientDetailsPage() {
   // (AC-P2.17) instead of vaguely warning that the fiche is billed. Same pass as the set above.
   const [invoicingNumberByRecordId, setInvoicingNumberByRecordId] = useState<Map<string, string>>(new Map())
   const [unarchiving, setUnarchiving] = useState(false)
+  const [confirmingImport, setConfirmingImport] = useState(false)
   // The dental record being invoiced (drives the pre-filled invoice modal); null = closed.
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
   // Pending destructive confirmations (AC-P2.16 / AC-P2.20). null = dialog closed.
@@ -1118,7 +1119,7 @@ export default function PatientDetailsPage() {
               variant="outline"
               size="sm"
               onClick={() => setEditDialogOpen(true)}
-              className="gap-2"
+              className="gap-2 coarse:h-11"
               title="Modifier le patient"
             >
               <Edit className="h-4 w-4" />
@@ -1131,7 +1132,7 @@ export default function PatientDetailsPage() {
               variant="outline"
               size="sm"
               onClick={() => router.push(`/patients/${patient.id}/files`)}
-              className="gap-2"
+              className="gap-2 coarse:h-11"
               title="Fichiers et dossiers du patient"
             >
               <FolderOpen className="h-4 w-4" />
@@ -1144,7 +1145,7 @@ export default function PatientDetailsPage() {
               variant="outline"
               size="sm"
               onClick={() => openTab("treatment-plans")}
-              className="gap-2"
+              className="gap-2 coarse:h-11"
               title="Plans de traitement du patient"
             >
               <ClipboardCheck className="h-4 w-4" />
@@ -1164,7 +1165,14 @@ export default function PatientDetailsPage() {
               stepUpAction="export-patient-dossier"
               stepUpPurpose="Exporter le dossier complet de ce patient, pour le lui remettre"
             />
-            <Button size="sm" onClick={() => router.push(`/appointments?patientId=${patient.id}`)}>
+            {/* `coarse:h-11` across the whole row, matching `ExportButton`'s own painted floor: on a coarse
+                pointer one 44 px control beside four 32 px ones was visibly misaligned, and their `touch-target`
+                overlays overhung each other besides. */}
+            <Button
+              size="sm"
+              className="coarse:h-11"
+              onClick={() => router.push(`/appointments?patientId=${patient.id}`)}
+            >
               Planifier un RDV
             </Button>
           </div>
@@ -1229,6 +1237,57 @@ export default function PatientDetailsPage() {
               >
                 {unarchiving ? "Restauration…" : "Restaurer"}
               </Button>
+            </div>
+          </div>
+        )}
+
+        {/* AC-8 — a fiche Google Agenda conjured from an event title, with only a name on it. Same amber band as the
+            archived notice above, and the same construction: an explanation that names where the record came from,
+            then the two ways out. « C'est correct » exists so a fiche whose name is simply right can be cleared
+            without inventing an edit. */}
+        {patient?.calendarImportPendingReviewSince && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                  Fiche créée depuis Google Agenda, à compléter
+                </p>
+                <p className="text-sm text-amber-800 dark:text-amber-300">
+                  Seul le nom a été lu, dans le titre d&apos;un rendez-vous
+                  {` du ${formatDateFr(patient.calendarImportPendingReviewSince)}`}. La date de naissance, le sexe
+                  et le téléphone n&apos;ont pas été renseignés.
+                </p>
+              </div>
+              {/* `lg:`, not `sm:`: beside the text from 640 px the two actions left the description a ~250 px
+                  column wrapping to five lines on a tablet. They take their own row until there is genuinely
+                  room for both. */}
+              <div className="flex w-full flex-wrap gap-2 lg:w-auto">
+                {/* `coarse:h-11`, not `.touch-target`: these two sit side by side, and a 44 px overlay on adjacent
+                    siblings overhangs its neighbour — the later one paints last and steals the tap. */}
+                <Button size="sm" className="coarse:h-11" onClick={() => setEditDialogOpen(true)}>
+                  Compléter la fiche
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="coarse:h-11"
+                  disabled={confirmingImport}
+                  onClick={async () => {
+                    try {
+                      setConfirmingImport(true)
+                      const confirmed = await patientsApi.confirmCalendarImport(patient.id)
+                      setPatient(confirmed)
+                      toast.success("Fiche confirmée")
+                    } catch (error) {
+                      showErrorToast(error)
+                    } finally {
+                      setConfirmingImport(false)
+                    }
+                  }}
+                >
+                  {confirmingImport ? "Confirmation…" : "C'est correct"}
+                </Button>
+              </div>
             </div>
           </div>
         )}

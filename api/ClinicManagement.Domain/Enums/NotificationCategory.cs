@@ -156,5 +156,22 @@ public enum NotificationCategory
     /// <para>In-app only. What it asks for is « branchez le disque et laissez la copie se faire », which happens at
     /// the machine holding the coffre.</para>
     /// </summary>
-    VaultCopyStale = 16
+    VaultCopyStale = 16,
+
+    /// <summary>
+    /// A patient record was created by the Google Calendar import from an event title alone, and nobody has
+    /// confirmed it yet (<c>calendar-import-review</c>).
+    ///
+    /// <para>⚠️ <b>Fire-once per patient, and clinic-wide.</b> Not an ensure/clear pair like
+    /// <see cref="ArchiveStale"/>: each row is a distinct record needing attention, with its own deep link, so one
+    /// restated row carrying a count would hide every patient but the number. And not targeted — the import path
+    /// resolves no <c>DoctorId</c>, so there is no practitioner to address it to, and reception completes patient
+    /// records as often as the dentist does.</para>
+    ///
+    /// <para>In-app only. What it asks for is a birth date and a telephone number typed into a fiche, which happens
+    /// at a keyboard — and the record is provisional on the patient itself
+    /// (<see cref="Entities.Patient.CalendarImportPendingReviewSince"/>), so the fact survives the bell being
+    /// cleared. That column, not this row, is what the « À compléter » filter reads.</para>
+    /// </summary>
+    PatientImportedNeedsReview = 17
 }

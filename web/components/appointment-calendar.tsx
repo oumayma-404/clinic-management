@@ -18,6 +18,7 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { ExportButton } from "@/components/ui/export-button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   ChevronLeft,
@@ -596,6 +597,12 @@ interface AppointmentCalendarProps {
     onConnect: () => void
     onImport: () => void
     onDisconnect: () => void
+    /**
+     * The practice's declaration that the connected calendar holds only appointments — the import then accepts any
+     * event titled « Prénom Nom » (`calendar-import-review`). Undefined while the status read is in flight.
+     */
+    holdsOnlyAppointments?: boolean
+    onHoldsOnlyAppointmentsChange?: (value: boolean) => void
   }
   /**
    * Bump to refetch the current window **in place**. Replaces the old `key={refreshKey}` remount, which threw
@@ -2851,6 +2858,36 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                     <Unlink className="h-4 w-4" />
                     Déconnecter Google
                   </Button>
+                  {googleControls.onHoldsOnlyAppointmentsChange && (
+                    <>
+                      <div className="my-1 border-t" />
+                      {/* calendar-import-review — a statement about the connected calendar, so it lives beside the
+                          import it governs rather than in Paramètres, which has no Google section at all. */}
+                      <label className="flex cursor-pointer items-start gap-2 rounded-sm px-2 py-2 hover:bg-muted coarse:py-3">
+                        <Checkbox
+                          checked={googleControls.holdsOnlyAppointments ?? false}
+                          onCheckedChange={(checked) =>
+                            googleControls.onHoldsOnlyAppointmentsChange?.(checked === true)
+                          }
+                          className="mt-0.5"
+                          aria-describedby="google-holds-only-appointments-hint"
+                        />
+                        <span className="min-w-0 space-y-1">
+                          <span className="block text-sm leading-tight">
+                            Ce calendrier ne contient que des rendez-vous
+                          </span>
+                          <span
+                            id="google-holds-only-appointments-hint"
+                            className="block text-2xs leading-snug text-muted-foreground"
+                          >
+                            Tout évènement intitulé « Prénom Nom » devient un rendez-vous, et la fiche patient est
+                            créée si elle n&apos;existe pas. Ne cochez pas si l&apos;agenda contient aussi vos
+                            évènements personnels.
+                          </span>
+                        </span>
+                      </label>
+                    </>
+                  )}
                   {!internetReachable && (
                     <p className="px-2 pt-1 text-2xs text-warning-ink">Connexion internet requise</p>
                   )}

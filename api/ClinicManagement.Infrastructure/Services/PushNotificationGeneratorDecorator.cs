@@ -222,6 +222,12 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         Guid clinicId, string targetUserId, string? deviceLabel, CancellationToken cancellationToken = default) =>
         _inner.SessionEndedForReplayAsync(clinicId, targetUserId, deviceLabel, cancellationToken);
 
+    // Pass-through: completing a fiche is keyboard work, and the patient carries the provisional mark itself, so
+    // nothing is lost by this waiting for whoever next opens the app.
+    public Task PatientImportedFromCalendarAsync(
+        Guid clinicId, Guid patientId, string patientName, CancellationToken cancellationToken = default) =>
+        _inner.PatientImportedFromCalendarAsync(clinicId, patientId, patientName, cancellationToken);
+
     // Pass-through: the export has already completed by the time this is written, so there is nothing a banner
     // could let anybody intervene in.
     // Pass-through: ArchiveStale is in-app only (StaffNotificationRules.ReachesALockedPhone answers false), and

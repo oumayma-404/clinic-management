@@ -75,6 +75,12 @@ public class PatientDto
     public string? ArchiveReason { get; set; }
 
     /// <summary>
+    /// Set when the Google Calendar import created this record from an event title alone and nobody has confirmed
+    /// it yet. Drives the fiche's « à compléter » banner and the patients list's own filter.
+    /// </summary>
+    public DateTime? CalendarImportPendingReviewSince { get; set; }
+
+    /// <summary>
     /// Whether the patient agreed to automated SMS/WhatsApp reminders — <c>"NotRecorded"</c>,
     /// <c>"Granted"</c> or <c>"Refused"</c>. The two stamps below say who took the answer and when; a consent
     /// nobody can date is not one a cabinet can defend.

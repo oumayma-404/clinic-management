@@ -74,6 +74,12 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
         builder.Property(c => c.GoogleCalendarId)
             .HasMaxLength(256);
 
+        // calendar-import-review. HasDefaultValue(false) so the migration emits NOT NULL DEFAULT false and the
+        // column lands on populated tables with no backfill — every existing clinic keeps today's keyword gate.
+        builder.Property(c => c.GoogleCalendarHoldsOnlyAppointments)
+            .IsRequired()
+            .HasDefaultValue(false);
+
         // Patient-recall interval in months (clinical-workflow-depth), default 6.
         builder.Property(c => c.RecallIntervalMonths)
             .IsRequired()

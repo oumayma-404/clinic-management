@@ -117,10 +117,12 @@ export interface NotificationDto {
   /** Effective feed time (ISO) — creation time for immediate categories, due time for reminders. */
   createdAt: string;
   isRead: boolean;
-  /** Appointment | StockItem */
+  /** Appointment | StockItem | Recall | BackupSettings | Subscription | MessagingAllowance | Security | Patient */
   targetKind: string;
   appointmentId?: string | null;
   stockItemId?: string | null;
+  /** The patient a `PatientImportedNeedsReview` row opens; null on every other category. */
+  patientId?: string | null;
   /**
    * Who to contact about this row — populated for `LowStock` only, and only while the article still names a
    * fournisseur (AC-6). Resolved server-side at READ time from the article's current link, never frozen into
@@ -805,6 +807,11 @@ export interface PatientDto {
   isArchived: boolean;
   archivedAt?: string | null;
   archiveReason?: string | null;
+  /**
+   * Set when the Google Calendar import created this record from an event title alone and nobody has confirmed it.
+   * Drives the fiche's « à compléter » banner and the patients list's own filter.
+   */
+  calendarImportPendingReviewSince?: string | null;
   createdAt: string;
 }
 

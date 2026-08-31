@@ -163,6 +163,14 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
         // Every list, search and picker filters on (clinic, archived).
         builder.HasIndex(p => new { p.ClinicId, p.IsArchived });
 
+        // calendar-import-review. No HasDefaultValue: null IS the steady state, so the column lands nullable on a
+        // populated table and every existing patient reads as already confirmed, which is what they are.
+        builder.Property(p => p.CalendarImportPendingReviewSince);
+
+        // Filtered, because the rows that match are a handful and the « À compléter » chip is the only reader.
+        builder.HasIndex(p => new { p.ClinicId, p.CalendarImportPendingReviewSince })
+            .HasFilter("\"CalendarImportPendingReviewSince\" IS NOT NULL");
+
         builder.Property(p => p.CreatedAt)
             .IsRequired();
 

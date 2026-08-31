@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
 using ClinicManagement.Application.DTOs;
@@ -337,6 +337,7 @@ public class PatientsController : ApiControllerBase
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null,
         [FromQuery] bool flaggedOnly = false,
+        [FromQuery] bool pendingCalendarReviewOnly = false,
         [FromQuery] bool includeArchived = false)
     {
         var query = new GetPatientsQuery
@@ -348,7 +349,8 @@ public class PatientsController : ApiControllerBase
             CreatedTo = createdTo,
             Page = page,
             PageSize = pageSize,
-            FlaggedOnly = flaggedOnly
+            FlaggedOnly = flaggedOnly,
+            PendingCalendarReviewOnly = pendingCalendarReviewOnly
         };
         var result = await _mediator.Send(query);
 
@@ -512,6 +514,25 @@ public class PatientsController : ApiControllerBase
     public async Task<ActionResult<PatientDto>> ArchivePatient(Guid id, [FromBody] ArchivePatientRequest? request)
     {
         var result = await _mediator.Send(new ArchivePatientCommand { Id = id, Reason = request?.Reason });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Confirms a fiche the Google Calendar import created, with nothing to change (AC-8). Open to every clinical
+    /// role: reception completes patient records as often as the dentist, which is why the notification is
+    /// clinic-wide in the first place.
+    /// </summary>
+    [HttpPost("{id}/confirm-calendar-import")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<ActionResult<PatientDto>> ConfirmCalendarImport(Guid id)
+    {
+        var result = await _mediator.Send(new ConfirmCalendarImportCommand { Id = id });
 
         if (result.IsFailure)
         {

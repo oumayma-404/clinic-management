@@ -48,6 +48,18 @@ public class Clinic : AggregateRoot<Guid>
     /// <summary>Target Google calendar id for this clinic's sync; null falls back to the account's "primary".</summary>
     public string? GoogleCalendarId { get; private set; }
 
+    /// <summary>
+    /// The practice declares that the connected calendar holds <b>nothing but appointments</b>, so the Google→App
+    /// import may treat any event titled « Prénom Nom » as one instead of demanding a keyword in the title
+    /// (<c>calendar-import-review</c>).
+    ///
+    /// <para>⚠️ <b>A per-clinic declaration rather than a global rule, and default false.</b> Turning it on
+    /// unconditionally would mint patients and appointments out of every 2-to-4-word event in whatever calendar was
+    /// connected — and <see cref="GoogleCalendarId"/> null means the Google account's <i>primary</i>, where
+    /// « Déjeuner Sarah Belhadj » lives. This makes the premise a fact the practice states about its own calendar.</para>
+    /// </summary>
+    public bool GoogleCalendarHoldsOnlyAppointments { get; private set; }
+
     // Patient-recall interval in months (clinical-workflow-depth): how long after a patient's last visit they
     // are considered "à relancer". Defaults to 6 months.
     public int RecallIntervalMonths { get; private set; }
@@ -287,6 +299,16 @@ public class Clinic : AggregateRoot<Guid>
         GoogleRefreshToken = null;
         GoogleRefreshTokenProtected = null;
         GoogleCalendarId = null;
+        // AC-14 — the declaration was made about the calendar being disconnected. Left standing, reconnecting a
+        // different Google account would inherit a promise nobody made about it, and start minting patients.
+        GoogleCalendarHoldsOnlyAppointments = false;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Records whether the connected calendar holds only appointments — see the property's own note.</summary>
+    public void SetGoogleCalendarHoldsOnlyAppointments(bool holdsOnlyAppointments)
+    {
+        GoogleCalendarHoldsOnlyAppointments = holdsOnlyAppointments;
         UpdatedAt = DateTime.UtcNow;
     }
 

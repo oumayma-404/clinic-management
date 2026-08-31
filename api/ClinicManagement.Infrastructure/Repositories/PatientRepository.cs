@@ -92,10 +92,17 @@ public class PatientRepository : IPatientRepository
         DateTime? createdTo = null,
         string? searchTerm = null,
         bool flaggedOnly = false,
+        bool pendingCalendarReviewOnly = false,
         PageRequest? paging = null,
         CancellationToken cancellationToken = default)
     {
         var query = _context.Patients.Where(p => p.ClinicId == clinicId);
+
+        // In SQL, like flaggedOnly below and for its reason.
+        if (pendingCalendarReviewOnly)
+        {
+            query = query.Where(p => p.CalendarImportPendingReviewSince != null);
+        }
 
         // « Patients signalés » used to be a client-side .filter() over the full list. That was equivalent only
         // while the client held every patient: over a page it hides flagged patients on other pages and shows a
