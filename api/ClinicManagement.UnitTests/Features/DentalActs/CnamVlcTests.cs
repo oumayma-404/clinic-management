@@ -129,7 +129,6 @@ public class CnamVlcTests
     }
 
     [Theory] // [K10] A lettre clé the convention does not settle carries all three fields NULL, together.
-    [InlineData("VD")]
     [InlineData("RD")]
     [InlineData("ZZ")]
     public async Task Dto_Convention_Fields_Are_Null_Together_For_An_Unsettled_Lettre_Cle(string lettreCle)
@@ -159,5 +158,52 @@ public class CnamVlcTests
         // about what the convention says — and after applying it, the prompt must stop showing.
         Assert.Equal(30.000m, result.Value!.ConventionValue);
         Assert.Equal(30.000m, result.Value!.Value);
+    }
+
+    [Fact]
+    public async Task Confirming_The_Catalogue_Clears_The_Provisional_Flag_On_The_Vlc_Rows()
+    {
+        // The dental confirm absorbed ConfirmCnamDataCommand's VLC half, so it is the only writer of
+        // CnamLetterValue.Confirm() — without this the « à vérifier » badge could never be cleared.
+        var value = new CnamLetterValue(Guid.NewGuid(), ClinicId, "D", 3m);
+        Assert.True(value.IsProvisional);
+
+        _repo.Setup(r => r.GetAllLetterValuesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { value });
+
+        var acts = new Mock<IDentalActCodeRepository>();
+        acts.Setup(r => r.GetProvisionalAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<DentalActCode>());
+
+        var result = await new ConfirmDentalActsCommandHandler(
+                acts.Object, _repo.Object, _clinicResolver.Object, _uow.Object,
+                NullLogger<ConfirmDentalActsCommandHandler>.Instance)
+            .Handle(new ConfirmDentalActsCommand(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(value.IsProvisional);
+        _repo.Verify(r => r.UpdateLetterValueAsync(value, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Confirming_Leaves_A_Vlc_Row_Somebody_Already_Vouched_For_Untouched()
+    {
+        var value = new CnamLetterValue(Guid.NewGuid(), ClinicId, "D", 3m);
+        value.Confirm();
+
+        _repo.Setup(r => r.GetAllLetterValuesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { value });
+
+        var acts = new Mock<IDentalActCodeRepository>();
+        acts.Setup(r => r.GetProvisionalAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<DentalActCode>());
+
+        var result = await new ConfirmDentalActsCommandHandler(
+                acts.Object, _repo.Object, _clinicResolver.Object, _uow.Object,
+                NullLogger<ConfirmDentalActsCommandHandler>.Instance)
+            .Handle(new ConfirmDentalActsCommand(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        _repo.Verify(r => r.UpdateLetterValueAsync(It.IsAny<CnamLetterValue>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

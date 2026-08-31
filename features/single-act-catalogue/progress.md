@@ -7,7 +7,7 @@
 ## Status
 - [x] Implementation
 - [x] Quality checks (dotnet build 0 errors / 0 new warnings; tsc 0; check:responsive 23/23; next build OK)
-- [ ] Tests (handled by /test-small-feature)
+- [x] Tests (added — see Test Plan)
 
 ## Working tree note (start of session)
 The branch carries unrelated in-flight security work: **14 modified + 97 untracked** files at session start.
@@ -86,3 +86,36 @@ scaffolding:
 2. Added `DELETE FROM "CnamLetterValues" WHERE upper("LettreCle") = 'VD'` to `Up()`.
 `Up()` is otherwise a single `DropTable`. Snapshot + Designer verified free of the entity.
 ⚠️ **Not run against a database** — `verify-schema` before/after is still owed (nothing in `UnitTests` touches one).
+
+## Test Plan
+| AC | Action | Target | Notes |
+|----|--------|--------|-------|
+| AC-1 | Covered by an existing derived guard | `RealtimeResourceResolverTests` | Reflects every MediatR request against `clinic-hub.ts` and asserts the two key sets are equal **in both directions** — the `cnamnomenclature` removal is exactly what it exists to catch. Passes. |
+| AC-2 | Modify existing | `DentalActCatalogAuthorizationTests` | Retargeted from the deleted controller; `UpdateLetterValue` is in the AdminOnly list, `GetLetterValues` in the any-authenticated list. |
+| AC-3 | Add scenarios | `DentalActCatalogSeedTests` | `Consultations_Are_Coted_At_One`, `Consultation_Codes_Are_Their_Own_Lettre_Cle`, `Consultations_Use_A_Valued_Lettre_Cle`. The arithmetic itself is `CnamReimbursementEstimateTests`' existing coefficient × VLC × rate coverage. |
+| AC-4 | Add scenarios | `CnamReimbursementEstimateTests`, `ReimbursementEstimatesQueryTests` | 4 facts on `UnavailableReason` (null / MissingCoefficient ×2 / NoLetterValue / precedence when both absent), plus per-index reasons through the batch handler and agreement between the batch and single-act reads. |
+| AC-5 | Coverage note | — | Route moves have no unit surface: the controller is a thin MediatR pass-through. `DentalActCatalogAuthorizationTests` pins each action by `nameof`, so a rename fails the build. Verified live: authenticated, the three retired routes answer 404 (identical to a never-existent path) and both new routes 200. |
+| AC-6 | Add scenarios | `CnamCatalogSeedTests` | `Seed_Holds_Only_Lettres_Cles_The_Nomenclature_Defines` pins the set to CD/CDS/D/RD; the `VD` inline case was dropped from `CnamVlcTests`' unsettled-clé theory (`ZZ` already covers "a clé we do not hold"). |
+| AC-7 | Coverage note | — | `web/` has no test runner (documented in `.claude/rules/frontend-web.md` § 14). Covered by `check:responsive` 23/23 + the eye pass at 320/390/820/1440, both recorded below. |
+| DEV-3 | Add scenarios | `CnamVlcTests` | The confirm's new VLC half: clears the provisional flag and stages the row, and leaves a row somebody already vouched for untouched. Cross-clinic refusal is in `CatalogTenantIsolationTests`. |
+
+**Coverage note — `ClinicCatalogSeeder`'s consultation top-up has no unit surface.** It takes
+`ApplicationDbContext`, and nothing in `UnitTests` touches a database (root `CLAUDE.md`). The seed *list* it reads
+is unit-tested above; the top-up itself was verified live against the dev database: 7 cabinets × `Cd` + `Cds`,
+coefficient 1, category « Consultation », `IsProvisional = false`, 700 → 714 acts.
+
+## Tests Run
+| Suite | Filter | Result |
+|-------|--------|--------|
+| Unit | `CnamReimbursementEstimateTests` + `ReimbursementEstimatesQueryTests` + `CnamVlcTests` | **37 passed**, 0 failed |
+| Unit | `CnamCatalogSeedTests` + `DentalActCatalogSeedTests` + `CatalogTenantIsolationTests` + `DentalActCatalogAuthorizationTests` | **54 passed**, 0 failed |
+| Unit | the derived guards — `RealtimeResourceResolver` · `AdminSurfaceCoverage` · `SubscriptionExemptionCoverage` · `ControllerAuthorizationCoverage` · `LogTemplateCoverage` | **40 passed**, 0 failed |
+| Unit | **whole suite** (deliberate: the change deletes an entity and edits shared seeds + `ApplicationDbContext`, so the blast radius is wider than a typical small feature) | **3702 passed**, 0 failed |
+
+Run with the isolated-`OutDir` + `dotnet vstest` recipe, which dodges both Smart App Control's `0x800711C7`
+load block and the running API's lock on `bin`.
+
+## Still owed
+- **`verify-schema` before/after** — the migration was applied to the dev database without capturing a before run.
+  Nothing in `UnitTests` can cover a migration, so this is the only gate for it:
+  `docker exec` / `dotnet run -- verify-schema` before and after, diffed.

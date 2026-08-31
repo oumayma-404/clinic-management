@@ -62,6 +62,19 @@ public class DentalActCatalogSeedTests
         Assert.Empty(dch.Intersect(consultations));
     }
 
+    [Fact] // [single-act-catalogue] The fee IS the valeur, so the ordinary coefficient x VLC x taux lands on it.
+    public void Consultations_Are_Coted_At_One()
+    {
+        Assert.Equal(1m, DentalActCatalogSeed.ConsultationSeed.Cotation);
+    }
+
+    [Fact] // [single-act-catalogue] The CNAM publishes no code for a consultation, so the lettre cle IS the code.
+    public void Consultation_Codes_Are_Their_Own_Lettre_Cle()
+    {
+        Assert.All(DentalActCatalogSeed.ConsultationActs, c =>
+            Assert.Equal(c.LettreCle, c.CodeActe, ignoreCase: true));
+    }
+
     [Fact] // [single-act-catalogue] Each consultation bills under a lettre cle the VLC set actually values.
     public void Consultations_Use_A_Valued_Lettre_Cle()
     {
