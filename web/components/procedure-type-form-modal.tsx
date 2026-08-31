@@ -379,7 +379,7 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              Coût habituel de cet acte. Utilisé pour préremplir le coût dans les dossiers dentaires.
+              Coût habituel de cet acte. Utilisé pour préremplir le coût dans les actes dentaires.
             </p>
           </div>
 

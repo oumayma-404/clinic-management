@@ -150,7 +150,7 @@ const documentTypeLabel = (type: string) => DOCUMENT_TYPE_LABELS[type] ?? type
  * The placeholder for a section whose request has not answered yet.
  *
  * Load-bearing since the page began painting its identity before its details: `[]` used to be reachable only
- * after every request had answered, so « Aucun dossier dentaire » was always true. It is now also the state
+ * after every request had answered, so « Aucun acte dentaire » was always true. It is now also the state
  * *before* the request answers — and a page that tells a dentist their patient has no records, no
  * appointments and no files, a beat before listing all three, is worse than one that took longer to appear.
  */
@@ -340,16 +340,16 @@ function DentalRecordNotes({
  */
 const PATIENT_TABS = [
   "medical-records",
+  "treatment-plans",
   "appointments",
   "notes",
   "documents",
   "files",
   "factures",
-  "treatment-plans",
 ]
 
 /**
- * Rows per page in « Dossiers dentaires ».
+ * Rows per page in « Actes dentaires ».
  *
  * Five, not the app's `DEFAULT_PAGE_SIZE` of 25: this list sits inside a tab under the patient's identity, its
  * rows are tall (teeth badges, expandable notes) and a fiche is *read* rather than scanned — a long-standing
@@ -435,7 +435,7 @@ export default function PatientDetailsPage() {
       return next
     })
   /**
-   * « Dossiers dentaires » pages **in the browser**, deliberately.
+   * « Actes dentaires » pages **in the browser**, deliberately.
    *
    * `dentalRecordsApi.list` takes no paging parameters, and four other things on this page read the *whole*
    * history anyway — the Notes tab, the odontogram band, the plan-act reconciliation and the delete
@@ -1130,15 +1130,18 @@ export default function PatientDetailsPage() {
               <FolderOpen className="h-4 w-4" />
               Fichiers
             </Button>
+            {/* The plans of THIS patient, one tap from the top of their page — the tab is the destination rather
+                than the clinic-wide devis list, which has no patient filter and would answer a different
+                question. Goes through `openTab` so the strip is scrolled into view; see its own note. */}
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setRecordModalOpen(true)}
+              onClick={() => openTab("treatment-plans")}
               className="gap-2"
-              title="Ajouter un dossier médical"
+              title="Plans de traitement du patient"
             >
-              <FileText className="h-4 w-4" />
-              Dossier médical
+              <ClipboardCheck className="h-4 w-4" />
+              Plans de traitement
             </Button>
             {/*
               « Dossier » — the patient's own copy of their record, as one archive.
@@ -1305,6 +1308,11 @@ export default function PatientDetailsPage() {
               <FileCheck className="h-4 w-4" />
               Dossiers médicaux
             </TabsTrigger>
+            {/* Second, not last: treatment is what the first tab's actes lead to, so the two sit side by side. */}
+            <TabsTrigger value="treatment-plans" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
+              <ClipboardCheck className="h-4 w-4" />
+              Plan de traitement
+            </TabsTrigger>
             <TabsTrigger value="appointments" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <Calendar className="h-4 w-4" />
               Rendez-vous
@@ -1325,10 +1333,6 @@ export default function PatientDetailsPage() {
               <Receipt className="h-4 w-4" />
               Factures
             </TabsTrigger>
-            <TabsTrigger value="treatment-plans" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
-              <ClipboardCheck className="h-4 w-4" />
-              Plan de traitement
-            </TabsTrigger>
           </TabsList>
           <span
             aria-hidden="true"
@@ -1343,9 +1347,9 @@ export default function PatientDetailsPage() {
               {/*
                 ⚠️ `flex-wrap` + `min-w-0 flex-1` + a full-width action below `sm:`.
 
-                A Card's content box is ~310px on a 390px phone, and « Ajouter un dossier dentaire » at
+                A Card's content box is ~310px on a 390px phone, and « Ajouter un acte dentaire » at
                 `size="sm"` is ~218px of unwrappable French — so the un-wrapped row left the title block ~92px,
-                which wrapped « Dossiers dentaires » onto three lines and its description onto eight. All three
+                which wrapped « Actes dentaires » onto three lines and its description onto eight. All three
                 tab headers on this page carried the same construction.
               */}
               <CardHeader>
@@ -1353,7 +1357,7 @@ export default function PatientDetailsPage() {
                   <div className="min-w-0 flex-1">
                     <CardTitle className="flex items-center gap-2">
                       <FileCheck className="h-5 w-5" />
-                      Dossiers dentaires
+                      Actes dentaires
                     </CardTitle>
                     <CardDescription>Historique complet des actes et interventions dentaires</CardDescription>
                   </div>
@@ -1365,7 +1369,7 @@ export default function PatientDetailsPage() {
                     size="sm"
                     className="w-full sm:w-auto"
                   >
-                    Ajouter un dossier dentaire
+                    Ajouter un acte dentaire
                   </Button>
                 </div>
               </CardHeader>
@@ -1386,7 +1390,7 @@ export default function PatientDetailsPage() {
                             setRecordModalOpen(true)
                           }}
                         >
-                          Ajouter un dossier dentaire
+                          Ajouter un acte dentaire
                         </Button>
                       }
                     />,
@@ -1399,7 +1403,7 @@ export default function PatientDetailsPage() {
                         Actions column — which is what pushed the figure staff actually read off the row. */}
                     <CardList
                       className={CARDS_ONLY}
-                      ariaLabel="Dossiers dentaires"
+                      ariaLabel="Actes dentaires"
                       items={recordsPage.items}
                       getKey={(record) => record.id}
                       title={(record) => record.procedureType}
@@ -1462,7 +1466,7 @@ export default function PatientDetailsPage() {
                       actions={(record) => (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" aria-label="Actions du dossier dentaire">
+                            <Button variant="ghost" size="icon" aria-label="Actions de l'acte dentaire">
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -1634,16 +1638,32 @@ export default function PatientDetailsPage() {
             </Card>
           </TabsContent>
 
+          {/* Plan de traitement Tab */}
+          <TabsContent value="treatment-plans" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ClipboardCheck className="h-5 w-5" />
+                  Plans de traitement
+                </CardTitle>
+                <CardDescription>Devis, actes planifiés et échéanciers de paiement du patient.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TreatmentPlansTable patientId={patientId} patientName={patientName} showPatientColumn={false} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           {/* Notes Tab */}
           <TabsContent value="notes">
             <Card>
               <CardHeader>
                 <CardTitle>Notes des dossiers médicaux</CardTitle>
-                <CardDescription>Notes et notes importantes des dossiers dentaires</CardDescription>
+                <CardDescription>Notes et notes importantes des actes dentaires</CardDescription>
               </CardHeader>
               <CardContent>
                 {dentalRecords.length === 0 ? (
-                  // Same read as « Dossiers dentaires », so the same failure band — but the copy describes what
+                  // Same read as « Actes dentaires », so the same failure band — but the copy describes what
                   // THIS tab shows. « Aucun dossier médical » answered a question the tab does not ask.
                   renderSectionEmpty(["dentalRecords"], notesEmptyState)
                 ) : (
@@ -1721,7 +1741,7 @@ export default function PatientDetailsPage() {
           <TabsContent value="documents">
             <Card>
               <CardHeader>
-                {/* Same wrap/flex-1/full-width-action fix as « Dossiers dentaires » above. */}
+                {/* Same wrap/flex-1/full-width-action fix as « Actes dentaires » above. */}
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <CardTitle className="flex items-center gap-2">
@@ -2338,22 +2358,6 @@ export default function PatientDetailsPage() {
                   showPatientColumn={false}
                   onChanged={() => setRefreshKey((k) => k + 1)}
                 />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Plan de traitement Tab */}
-          <TabsContent value="treatment-plans" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <ClipboardCheck className="h-5 w-5" />
-                  Plans de traitement
-                </CardTitle>
-                <CardDescription>Devis, actes planifiés et échéanciers de paiement du patient.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <TreatmentPlansTable patientId={patientId} patientName={patientName} showPatientColumn={false} />
               </CardContent>
             </Card>
           </TabsContent>

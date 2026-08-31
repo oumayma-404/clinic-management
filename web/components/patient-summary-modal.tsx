@@ -317,12 +317,12 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
-                Dossiers dentaires
+                Actes dentaires
               </CardTitle>
             </CardHeader>
             <CardContent>
               {dentalRecords.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">Aucun dossier dentaire</p>
+                <p className="text-center text-muted-foreground py-8">Aucun acte dentaire</p>
               ) : (
                 <div className="w-full">
                   {/*
@@ -335,7 +335,7 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                     keeping a desktop copy of it a copy of the defect.
                   */}
                   <CardList
-                    ariaLabel="Dossiers dentaires du patient"
+                    ariaLabel="Actes dentaires du patient"
                     items={dentalRecords}
                     getKey={(r) => r.id}
                     title={(r) => r.procedureType}

@@ -1193,7 +1193,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   Denture — asked once, here, because it is a property of the patient and not of a visit.
 
                   It replaces two toggles that asked the same question about the same patient every time anyone opened
-                  the odontogram or the fiche editor, plus a per-fiche badge in the dossier dentaire. Pre-selected
+                  the odontogram or the fiche editor, plus a per-fiche badge in the actes dentaires table. Pre-selected
                   from the age so the common case is already right; changeable because the age rule is a heuristic
                   and a growing child has to be switchable.
                 */}
