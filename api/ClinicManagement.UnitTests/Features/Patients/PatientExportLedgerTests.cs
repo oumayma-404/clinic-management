@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
-using ClinicManagement.Application.Features.Patients;
+using ClinicManagement.Application.Common.Csv;
 using ClinicManagement.Application.Features.Patients.Queries;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
@@ -77,10 +77,11 @@ public class PatientExportLedgerTests
         Assert.True(result.IsSuccess);
 
         var row = Assert.Single(_written);
-        Assert.Equal(PatientExportLedger.EntityType, row.EntityType);
+        Assert.Equal(ListExportLedger.PatientEntityType, row.EntityType);
         Assert.Equal(ClinicId, row.ClinicId);
         Assert.Equal("user-1", row.UserId);
         Assert.Contains("3 ligne(s)", row.ChangedFields);
+        Assert.Contains("Liste des patients", row.ChangedFields);
     }
 
     // THE case this exists for. The archive's rule verbatim: the operation *is* what is being recorded, so an
@@ -94,7 +95,7 @@ public class PatientExportLedgerTests
         var result = await Handler().Handle(new ExportPatientsQuery(), CancellationToken.None);
 
         Assert.True(result.IsFailure);
-        Assert.Equal(PatientExportLedger.UnrecordableCode, result.Code);
+        Assert.Equal(ListExportLedger.UnrecordableCode, result.Code);
         Assert.Null(result.Value);
     }
 
@@ -125,7 +126,7 @@ public class PatientExportLedgerTests
     public void The_filter_summary_names_each_narrowing_without_its_value(
         bool flaggedOnly, bool byDate, string expected)
     {
-        var summary = PatientExportLedger.DescribeFilters(
+        var summary = ListExportLedger.DescribeFilters(
             searchTerm: null,
             createdFrom: byDate ? new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
             createdTo: null,

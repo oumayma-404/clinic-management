@@ -4,10 +4,10 @@ using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 
-namespace ClinicManagement.Application.Features.Patients;
+namespace ClinicManagement.Application.Common.Csv;
 
 /// <summary>
-/// Records that the practice's <b>patient roster</b> left the building as a CSV — who, which practice, how many
+/// Records that a list of the practice's records left the building as a CSV — who, which practice, how many
 /// rows, and under which filters.
 ///
 /// <para><b>Why this exists, stated plainly.</b> <c>GET /api/patients/export</c> returns twenty columns per
@@ -36,17 +36,22 @@ namespace ClinicManagement.Application.Features.Patients;
 /// that is held by both files stating it rather than by an abstraction that would have to grow a flag per
 /// difference.</para>
 /// </summary>
-public static class PatientExportLedger
+public static class ListExportLedger
 {
-    /// <summary>The <c>EntityType</c> the row carries, so « Journal d'activité » can name it.</summary>
-    public const string EntityType = "PatientExport";
+    /// <summary>
+    /// The <c>EntityType</c> a patient-roster export carries, so « Journal d'activité » can name it.
+    /// </summary>
+    public const string PatientEntityType = "PatientExport";
+
+    /// <summary>The agenda's equivalent. Distinct, so the journal can be filtered to one or the other.</summary>
+    public const string AppointmentEntityType = "AppointmentExport";
 
     /// <summary>
     /// What a caller sees when the row cannot be written. Beside its code, in one place, for the reason
     /// <c>SubscriptionRefusals</c> states: a sentence and its code are one statement.
     /// </summary>
     public const string UnrecordableMessage =
-        "L'export de la liste des patients n'a pas pu être inscrit au journal du cabinet, et une exportation "
+        "Cet export n'a pas pu être inscrit au journal du cabinet, et une exportation "
         + "non tracée ne peut pas être autorisée. Vos données sont intactes — réessayez, puis contactez votre "
         + "hébergeur si le problème persiste.";
 
@@ -70,11 +75,22 @@ public static class PatientExportLedger
     /// Anything the save throws travels up. The caller turns it into <see cref="UnrecordableMessage"/> — it must
     /// not be swallowed, which is the whole difference between this and a notification.
     /// </exception>
+    /// <param name="entityType">
+    /// <see cref="PatientEntityType"/> or <see cref="AppointmentEntityType"/> — what was exported, so the journal
+    /// can be filtered to one kind.
+    /// </param>
+    /// <param name="subject">
+    /// The French noun the sentence opens with (« Liste des patients », « Agenda »). Server-side for
+    /// <c>AuditLabels</c>' reason: a client-side map would be a second list to extend, and the one that forgets a
+    /// new export renders a raw type name to a dentist.
+    /// </param>
     public static async Task<Guid> RecordAsync(
         IAuditEntryRepository auditEntries,
         IUnitOfWork unitOfWork,
         AuditActor actor,
         Guid clinicId,
+        string entityType,
+        string subject,
         int rowCount,
         string filterSummary,
         DateTime occurredAt,
@@ -84,10 +100,10 @@ public static class PatientExportLedger
             clinicId,
             actor.UserId,
             actor.Email,
-            EntityType,
+            entityType,
             clinicId.ToString(),
             AuditAction.Insert,
-            $"Liste des patients exportée en CSV — {rowCount} ligne(s), {filterSummary}",
+            $"{subject} exporté(e) en CSV — {rowCount} ligne(s), {filterSummary}",
             occurredAt);
 
         await auditEntries.AddRangeAsync(new[] { entry }, cancellationToken);

@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common.Csv;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -91,13 +92,15 @@ public class ExportPatientsQueryHandler
         // exactly the guarantee this feature exists to make true.
         try
         {
-            await PatientExportLedger.RecordAsync(
+            await ListExportLedger.RecordAsync(
                 _auditEntries,
                 _unitOfWork,
                 _auditActor.Current,
                 clinicId.Value,
+                ListExportLedger.PatientEntityType,
+                "Liste des patients",
                 rows.Count,
-                PatientExportLedger.DescribeFilters(
+                ListExportLedger.DescribeFilters(
                     request.SearchTerm, request.CreatedFrom, request.CreatedTo, request.FlaggedOnly),
                 DateTime.UtcNow,
                 cancellationToken);
@@ -107,7 +110,7 @@ public class ExportPatientsQueryHandler
             _logger.LogError(
                 ex, "Refused a patient CSV export for clinic {ClinicId}: the ledger row failed.", clinicId.Value);
             return Result<IReadOnlyList<PatientDto>>.Failure(
-                PatientExportLedger.UnrecordableMessage, PatientExportLedger.UnrecordableCode);
+                ListExportLedger.UnrecordableMessage, ListExportLedger.UnrecordableCode);
         }
 
         return Result<IReadOnlyList<PatientDto>>.Success(rows);
