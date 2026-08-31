@@ -81,7 +81,13 @@ Two are feature-sized with frontend work and a device-contract pass; the scope i
   the one category the guard does *not* inspect), and « les exports complets sont nominatifs » (true of the ZIP
   only). Now v1.1. Two other claims became true rather than being withdrawn — the clinical-record journal and
   no-PHI-in-logs — because Batch 1 and 2 fixed them.
-- ⛔ **Consent capture + per-patient reminder opt-out.** There is *no* consent field in any of the 66 domain
+- ⛔ **Consent capture + per-patient reminder opt-out — THE LAST ITEM, and the only one still blocked.**
+  Everything else in this file is done. This needs a persisted per-patient flag, i.e. a column on `Patient`, i.e.
+  a migration — and § 5.0's block is still in force. It is not a design problem: the two enqueue sites are
+  `ReminderScheduler.cs:98` and `:172`, both gated on `HasDeliverablePhoneAsync` alone, and the check goes beside
+  it. **Unblock it by committing (or stashing) the other session's work**, then it is one focused change:
+  a column + `Patient.SetReminderConsent`, the check at both enqueue sites, the field on the patient form, and
+  tests. Was: **Consent capture + per-patient reminder opt-out.** There is *no* consent field in any of the 66 domain
   entities, and recording a phone number **auto-enrols** the patient into SMS/WhatsApp — the only gate on
   enqueuing is `HasDeliverablePhoneAsync`. Neither the patient nor the cabinet can exempt one person.
 - ✅ **Per-patient dossier export — DONE.** `PatientDossierPackager` + `ExportPatientDossierQuery` +
