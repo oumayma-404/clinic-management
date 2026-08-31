@@ -22,6 +22,10 @@ import { buildNavSections } from "@/lib/nav"
  *   <li>the icon chip of a zone-scoped empty state;</li>
  *   <li><b>a worklist chip and row stripe naming the zone a task must be answered in</b> — « À clôturer »
  *       (`components/visits/visit-closure-list.tsx`) and nothing else so far.</li>
+ *   <li><b>the two tabs of « À clôturer »</b> (`app/a-cloturer/page.tsx`) — a soft wash behind the ACTIVE trigger
+ *       only, naming where each half's work is answered: azure for the séances (the agenda), violet for the
+ *       patients (the clinical record). It is page chrome, like entry 2, not a tint on a record — and it is the
+ *       active mark alone, so the hue stays a mark rather than becoming the panel's colour.</li>
  * </ol>
  *
  * <p>⚠️ <b>A fifth entry has been removed and must not return: a 10 % gradient band behind the `PageHeader`,
@@ -149,7 +153,6 @@ const ROUTE_ZONES: Array<[string, ZoneKey]> = [
   ["/fournisseurs", "ops"],
   ["/rappels", "ops"],
   ["/procedure-types", "config"],
-  ["/cnam-nomenclature", "config"],
   ["/medications", "config"],
   ["/dental-acts", "config"],
   ["/users", "config"],

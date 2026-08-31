@@ -11,7 +11,7 @@ import { CARDS_ONLY, TABLE_ONLY } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { Coins } from "lucide-react"
-import { cnamNomenclatureApi } from "@/lib/api/cnam-nomenclature"
+import { dentalActsApi } from "@/lib/api/dental-acts"
 import type { CnamLetterValueDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { formatDT, parseAmountInput, quoteFr } from "@/lib/format"
@@ -90,7 +90,7 @@ export function CnamLetterValuesCard({ onChanged, reloadToken }: CnamLetterValue
       try {
         setLoading(true)
         setError(null)
-        const data = await cnamNomenclatureApi.listLetterValues()
+        const data = await dentalActsApi.listLetterValues()
         if (!active) return
         setValues(data)
         setDrafts(Object.fromEntries(data.map((v) => [v.id, String(v.value)])))
@@ -113,7 +113,7 @@ export function CnamLetterValuesCard({ onChanged, reloadToken }: CnamLetterValue
    */
   const currentVersion = async (v: CnamLetterValueDto): Promise<number> => {
     try {
-      const rows = await cnamNomenclatureApi.listLetterValues()
+      const rows = await dentalActsApi.listLetterValues()
       return rows.find((r) => r.id === v.id)?.version ?? v.version
     } catch {
       return v.version
@@ -130,7 +130,7 @@ export function CnamLetterValuesCard({ onChanged, reloadToken }: CnamLetterValue
       setSavingId(v.id)
       // Band B — a per-row action re-reads the row's version immediately before writing. The rendered row is as
       // old as the last refetch, and this value prices every reimbursement estimate in the product.
-      await cnamNomenclatureApi.updateLetterValue(v.id, parsed, await currentVersion(v))
+      await dentalActsApi.updateLetterValue(v.id, parsed, await currentVersion(v))
       toast.success(`Valeur de ${quoteFr(v.lettreCle)} mise à jour.`)
       onChanged() // parent bumps reloadToken → in-place refetch, no remount / no lost sibling draft
     } catch (err) {
@@ -149,7 +149,7 @@ export function CnamLetterValuesCard({ onChanged, reloadToken }: CnamLetterValue
     }
     try {
       setSavingId(v.id)
-      await cnamNomenclatureApi.updateLetterValue(v.id, v.conventionValue, await currentVersion(v))
+      await dentalActsApi.updateLetterValue(v.id, v.conventionValue, await currentVersion(v))
       toast.success(`Valeur conventionnelle appliquée à ${quoteFr(v.lettreCle)}.`)
       onChanged()
     } catch (err) {

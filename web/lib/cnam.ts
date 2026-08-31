@@ -67,7 +67,7 @@ export function cnamLienRequiresRang(value: string | null | undefined): boolean 
 // ⚠️ **A display mirror of `Domain/Services/CnamPlafond`, not a second authority.** Every figure a screen
 // *reports* — the ceiling, what was consumed, what remains — comes from `GET /api/patients/{id}/cnam-ceiling`,
 // computed server-side against the invoices, exactly as the client-side reimbursement calculator was deleted in
-// favour of `POST /cnam-nomenclature/reimbursement-estimates` (audit § 5.10). What lives here is only what the
+// favour of `POST /dental-acts/reimbursement-estimates` (audit § 5.10). What lives here is only what the
 // *input form* needs: the figure the patient dialog previews beside an empty override box, so the person typing
 // can see what they are replacing. It is never sent, never persisted, and never rendered as a result.
 //

@@ -1,7 +1,7 @@
-using ClinicManagement.Application.Features.CnamNomenclature;
+using ClinicManagement.Application.Features.DentalActs;
 using Xunit;
 
-namespace ClinicManagement.UnitTests.Features.CnamNomenclature;
+namespace ClinicManagement.UnitTests.Features.DentalActs;
 
 /// <summary>
 /// Reimbursement estimate calculator (FR-5.5): estimate = coefficient × VLC × rate; July-2021 rates

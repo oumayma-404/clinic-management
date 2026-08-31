@@ -8,7 +8,8 @@ namespace ClinicManagement.Infrastructure.Persistence;
 
 /// <summary>
 /// Populates a clinic's per-clinic reference catalogs from the shared seed single-source-of-truth
-/// (<see cref="CnamCatalogSeed"/> / <see cref="MedicationCatalogSeed"/> / <see cref="DentalActCatalogSeed"/>),
+/// (<see cref="CnamCatalogSeed"/> — the VLC — plus <see cref="MedicationCatalogSeed"/> and
+/// <see cref="DentalActCatalogSeed"/>),
 /// feature cloud-security-and-tenant-isolation, #5. Every clinic gets the SAME default; edits then diverge
 /// per clinic. Uses the DbContext directly (reference-data seeding, like a migration) and runs with no clinic
 /// in scope, so the tenant query filter is inactive and it can read/write any clinic's rows by explicit
@@ -46,18 +47,6 @@ public class ClinicCatalogSeeder : IClinicCatalogSeeder
     {
         var seededAnything = false;
 
-        // CNAM nomenclature entries
-        if (!await _context.CnamNomenclatureEntries.IgnoreQueryFilters().AnyAsync(e => e.ClinicId == clinicId, cancellationToken))
-        {
-            foreach (var e in CnamCatalogSeed.Entries)
-            {
-                await _context.CnamNomenclatureEntries.AddAsync(new CnamNomenclatureEntry(
-                    CnamCatalogSeed.DeterministicGuid($"{clinicId}:cnam-entry:{e.CodeActe}"),
-                    clinicId, e.CodeActe, e.DesignationFr, e.LettreCle, e.Coefficient, e.Category), cancellationToken);
-            }
-            seededAnything = true;
-        }
-
         // CNAM lettre-clé values (VLC)
         if (!await _context.CnamLetterValues.IgnoreQueryFilters().AnyAsync(v => v.ClinicId == clinicId, cancellationToken))
         {
@@ -93,6 +82,34 @@ public class ClinicCatalogSeeder : IClinicCatalogSeeder
                     DentalActCatalogSeed.LettreCle, coefficient: null, defaultFee: null,
                     requiresAccordPrealable: a.RequiresAccordPrealable, isProvisional: true), cancellationToken);
             }
+            seededAnything = true;
+        }
+
+        // Consultation acts (Cd/Cds) — matched by CODE, not by « the catalogue is empty ». Every clinic seeded
+        // before feature single-act-catalogue already holds the 100 DCH acts, so the guard above would skip them
+        // for ever. Self-terminating: a code that exists is not re-added, and an admin who deletes one is not
+        // overruled on the next startup because deactivation keeps the row.
+        var consultationCodes = DentalActCatalogSeed.ConsultationActs.Select(c => c.CodeActe).ToList();
+        var existingConsultations = await _context.DentalActCodes
+            .IgnoreQueryFilters()
+            .Where(a => a.ClinicId == clinicId && consultationCodes.Contains(a.CodeActe))
+            .Select(a => a.CodeActe)
+            .ToListAsync(cancellationToken);
+
+        foreach (var c in DentalActCatalogSeed.ConsultationActs)
+        {
+            if (existingConsultations.Contains(c.CodeActe, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // isProvisional: false — unlike a DCH act, both figures behind these two are sourced from the
+            // convention's own honoraires table, so there is nothing for an admin to go and verify.
+            await _context.DentalActCodes.AddAsync(new DentalActCode(
+                DentalActCatalogSeed.DeterministicGuid($"{clinicId}:dental-act:{c.CodeActe}"),
+                clinicId, c.CodeActe, c.DesignationFr, DentalActCatalogSeed.Consultation,
+                c.LettreCle, coefficient: DentalActCatalogSeed.ConsultationSeed.Cotation, defaultFee: null,
+                requiresAccordPrealable: false, isProvisional: false), cancellationToken);
             seededAnything = true;
         }
 

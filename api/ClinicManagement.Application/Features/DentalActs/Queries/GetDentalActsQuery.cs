@@ -35,8 +35,7 @@ public class GetDentalActsQueryHandler : IRequestHandler<GetDentalActsQuery, Res
     {
         try
         {
-            // Category and `Q` moved into the repository — see GetCnamNomenclatureQuery for why an in-memory
-            // filter and a SQL page cannot coexist.
+            // Category and `Q` are filtered in the repository: an in-memory filter and a SQL page cannot coexist.
             var page = await _repository.GetAllAsync(
                 request.IncludeInactive,
                 request.Category,

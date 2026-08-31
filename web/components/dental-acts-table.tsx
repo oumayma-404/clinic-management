@@ -43,6 +43,23 @@ interface DentalActsTableProps {
   reloadToken?: number
 }
 
+/**
+ * The cotation cell. A null coefficient is « Cotation manquante », never a bare « — »: the CNAM
+ * « Liste des actes » publishes no cotations (they are in the NGAP arrêté), so every DCH act ships without one
+ * and the estimate cannot be computed until an admin enters it. A dash reads as « nothing to say here », which
+ * is the opposite of the truth — this is the one screen that can close the gap.
+ */
+function Cotation({ coefficient }: { coefficient: number | null }) {
+  if (coefficient != null) {
+    return <>{coefficient}</>
+  }
+  return (
+    <span className="text-xs text-warning-ink" title="Le coefficient (cotation) vient de l'arrêté NGAP. Modifiez l'acte pour le saisir.">
+      Cotation manquante
+    </span>
+  )
+}
+
 export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: DentalActsTableProps) {
   const [search, setSearch] = useState("")
   const [actToDelete, setActToDelete] = useState<DentalActDto | null>(null)
@@ -262,9 +279,9 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
           {/* No `overflow-x-auto` here: `ui/table.tsx` already wraps its own table in one, so this was a second
               horizontal scroller nested around the first — the wrapper now carries only the refetch dimming. */}
           <div className={refreshing ? "opacity-60 transition-opacity" : undefined}>
-            {/* Same shape as the CNAM nomenclature, plus a tarif. `coefficient` and `defaultFee` are passed
-                raw — the primitive drops a nullish value, so the « — » placeholders the table needs to keep
-                its columns aligned simply do not appear on a card (AC-17). */}
+            {/* `defaultFee` is passed raw — the primitive drops a nullish value, so the « — » placeholder the
+                table needs to keep its columns aligned simply does not appear on a card (AC-17). The cotation is
+                the exception: an absent one is a statement, so it is rendered rather than dropped. */}
             <CardList
               className={CARDS_ONLY_LG}
               ariaLabel="Catalogue d'actes dentaires"
@@ -291,7 +308,7 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
               fields={(a) => [
                 { label: "Tarif", value: a.defaultFee != null ? formatDT(a.defaultFee) : null },
                 { label: "Lettre clé", value: <Badge variant="outline">{a.lettreCle}</Badge> },
-                { label: "Coefficient", value: a.coefficient },
+                { label: "Coefficient", value: <Cotation coefficient={a.coefficient} /> },
                 { label: "Catégorie", value: a.category },
               ]}
               actions={(a) => (
@@ -350,7 +367,9 @@ export function DentalActsTable({ onEdit, onAdd, onChanged, reloadToken }: Denta
                       <TableCell>
                         <Badge variant="outline">{act.lettreCle}</Badge>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{act.coefficient ?? "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        <Cotation coefficient={act.coefficient} />
+                      </TableCell>
                       <TableCell className="text-muted-foreground">{act.category}</TableCell>
                       <TableCell className="text-right text-muted-foreground">
                         {act.defaultFee != null ? formatDT(act.defaultFee) : "—"}

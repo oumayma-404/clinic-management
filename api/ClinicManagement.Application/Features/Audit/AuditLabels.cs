@@ -54,7 +54,6 @@ public static class AuditLabels
         nameof(Doctor) => "Praticien",
         nameof(Clinic) => "Cabinet",
         nameof(ClinicReminderSettings) => "Paramètres de rappel",
-        nameof(CnamNomenclatureEntry) => "Nomenclature CNAM",
         nameof(CnamLetterValue) => "Valeur de la lettre clé",
         nameof(DentalActCode) => "Acte dentaire (DCH)",
         nameof(Medication) => "Médicament",

@@ -2,11 +2,10 @@ using ClinicManagement.Application.Common.Exceptions;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
-using ClinicManagement.Application.Features.CnamNomenclature.Commands;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging;
 
-namespace ClinicManagement.Application.Features.CnamNomenclature.Queries;
+namespace ClinicManagement.Application.Features.DentalActs.Queries;
 
 // Read the valeurs de la lettre clé (VLC) — global reference data, any authenticated user (FR-5.2/5.3).
 public class GetCnamLetterValuesQuery : IRequest<Result<IEnumerable<CnamLetterValueDto>>>
@@ -33,7 +32,7 @@ public class GetCnamLetterValuesQueryHandler
         try
         {
             var values = (await _repository.GetAllLetterValuesAsync(cancellationToken))
-                .Select(CnamEntryMapper.ToDto)
+                .Select(CnamLetterValueMapper.ToDto)
                 .ToList();
 
             return Result<IEnumerable<CnamLetterValueDto>>.Success(values);

@@ -650,22 +650,8 @@ export interface CnamCeilingDto {
   invoiceCount: number;
 }
 
-// A CNAM dental nomenclature entry (DB-backed, global reference data from GET /api/cnam-nomenclature).
 // Used by the bulletin editor to fill Code acte + Cotation and compute an indicative estimate, and by the
 // admin catalog screen. Writes are admin-only.
-export interface CnamNomenclatureEntryDto {
-  id: string;
-  codeActe: string;
-  designationFr: string;
-  lettreCle: string;
-  coefficient: number;
-  category: string;
-  isActive: boolean;
-  isProvisional: boolean;
-  /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
-  version: number;
-}
-
 // A valeur de la lettre clé (VLC) — the dinar value per lettre clé used in the reimbursement estimate.
 export interface CnamLetterValueDto {
   id: string;
@@ -673,11 +659,11 @@ export interface CnamLetterValueDto {
   value: number;
   isProvisional: boolean;
 
-  // What the CNAM dentist convention currently in force says, so `/cnam-nomenclature` can offer the correction
+  // What the CNAM dentist convention currently in force says, so `/dental-acts` can offer the correction
   // instead of applying it behind an admin's back. The server corrects only rows untouched since seeding; a value
   // an admin has edited is deliberately left alone, which is exactly why the divergence has to be visible here.
   //
-  // ⚠️ All three are **null together** for a lettre clé the convention text did not settle (Vd/Rd). Render that as
+  // ⚠️ All three are **null together** for a lettre clé the convention text did not settle (Rd). Render that as
   // « non fixée par la convention », never as a figure — a null is « we do not know ».
   /** The dinar value the convention in force fixes for this lettre clé, if it fixes one. */
   conventionValue: number | null;
@@ -812,7 +798,29 @@ export interface PatientDto {
    * Drives the fiche's « à compléter » banner and the patients list's own filter.
    */
   calendarImportPendingReviewSince?: string | null;
+  /**
+   * « S'agit-il de ce patient ? » — the existing record this imported fiche is probably a duplicate of, resolved
+   * server-side. Absent for almost every patient, and absent too when the suggested record no longer exists: an
+   * expired question must read as no question.
+   */
+  suggestedDuplicate?: SuggestedDuplicateDto | null;
   createdAt: string;
+}
+
+/**
+ * The patient a calendar import resembles closely enough to ask about.
+ *
+ * Carries the birth date and the phone because the *names* are near-identical by construction — that is what made
+ * them a suggestion — so the name alone cannot separate « Imen Nasri » from « Iman Nasri », and « Oui » deletes a
+ * record. `phoneMatches` is the strongest confirmation available; a *different* phone never reaches here, it
+ * suppresses the suggestion at import.
+ */
+export interface SuggestedDuplicateDto {
+  id: string;
+  fullName: string;
+  dateOfBirth?: string | null;
+  phone?: string | null;
+  phoneMatches: boolean;
 }
 
 /** What blocks a patient's deletion, read when the confirm dialog opens rather than after clicking. */

@@ -104,7 +104,6 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     // Per-clinic CNAM reference data (feature cloud-security-and-tenant-isolation, #5): clinic-scoped via
     // HasQueryFilter below. Every clinic is seeded with the SAME default catalog + VLC values on creation,
     // then each clinic's admin edits stay private to it.
-    public DbSet<CnamNomenclatureEntry> CnamNomenclatureEntries { get; set; }
     public DbSet<CnamLetterValue> CnamLetterValues { get; set; }
     // Per-clinic medication catalog (#5): clinic-scoped. Backs the ordonnance medication picker.
     public DbSet<Medication> Medications { get; set; }
@@ -291,7 +290,6 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         // Per-clinic reference catalogs (#5): scoped like the other aggregate roots. The per-clinic seeder reads
         // through IgnoreQueryFilters() throughout, so it is immune to the scope rather than dependent on it.
         // MedicationActiveIngredient is reached only through Medication, so it needs no filter of its own.
-        modelBuilder.Entity<CnamNomenclatureEntry>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
         modelBuilder.Entity<CnamLetterValue>().HasQueryFilter(v => IsSystemWide || v.ClinicId == ScopedClinicId);
         modelBuilder.Entity<Medication>().HasQueryFilter(m => IsSystemWide || m.ClinicId == ScopedClinicId);
         modelBuilder.Entity<DentalActCode>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);

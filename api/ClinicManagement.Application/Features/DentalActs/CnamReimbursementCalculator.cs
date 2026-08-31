@@ -1,4 +1,6 @@
-namespace ClinicManagement.Application.Features.CnamNomenclature;
+using ClinicManagement.Domain.Enums;
+
+namespace ClinicManagement.Application.Features.DentalActs;
 
 /// <summary>
 /// Authoritative, pure CNAM reimbursement estimate (FR-5.5). Estimate = coefficient × VLC × rate, with
@@ -46,5 +48,19 @@ public static class CnamReimbursementCalculator
 
         var rate = RateForPatient(dateOfBirth, careDate);
         return coefficient * vlc.Value * rate;
+    }
+
+    /// <summary>
+    /// Why <see cref="Estimate"/> returned null, as the enum member's own name — null when it did not.
+    /// A missing cotation is reported ahead of a missing valeur: it is the half an admin can actually close.
+    /// </summary>
+    public static string? UnavailableReason(decimal coefficient, decimal? vlc)
+    {
+        if (coefficient <= 0)
+        {
+            return nameof(ReimbursementUnavailability.MissingCoefficient);
+        }
+
+        return vlc is null ? nameof(ReimbursementUnavailability.NoLetterValue) : null;
     }
 }

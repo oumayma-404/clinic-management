@@ -1,5 +1,5 @@
-using ClinicManagement.Application.Features.CnamNomenclature.Commands;
-using ClinicManagement.Application.Features.CnamNomenclature.Queries;
+using ClinicManagement.Application.Features.DentalActs.Commands;
+using ClinicManagement.Application.Features.DentalActs.Queries;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Entities;
@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
-namespace ClinicManagement.UnitTests.Features.CnamNomenclature;
+namespace ClinicManagement.UnitTests.Features.DentalActs;
 
 /// <summary>
 /// Valeur de la lettre clé (VLC) — global, admin-managed set keyed by lettre clé (FR-5.2/5.3).

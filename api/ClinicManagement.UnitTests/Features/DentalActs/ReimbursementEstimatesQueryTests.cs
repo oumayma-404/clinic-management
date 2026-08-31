@@ -1,12 +1,12 @@
-using ClinicManagement.Application.Features.CnamNomenclature;
-using ClinicManagement.Application.Features.CnamNomenclature.Queries;
+using ClinicManagement.Application.Features.DentalActs;
+using ClinicManagement.Application.Features.DentalActs.Queries;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
-namespace ClinicManagement.UnitTests.Features.CnamNomenclature;
+namespace ClinicManagement.UnitTests.Features.DentalActs;
 
 /// <summary>
 /// The batch reimbursement estimate (audit § 5.10, ACs P6.15–6.17).

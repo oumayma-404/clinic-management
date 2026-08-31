@@ -2,7 +2,6 @@ using ClinicManagement.UnitTests.Common;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
-using ClinicManagement.Application.Features.CnamNomenclature.Commands;
 using ClinicManagement.Application.Features.DentalActs.Commands;
 using ClinicManagement.Application.Features.Medications.Commands;
 using ClinicManagement.Domain.Entities;
@@ -103,8 +102,13 @@ public class CatalogTenantIsolationTests
         var repo = new Mock<IDentalActCodeRepository>();
         repo.Setup(r => r.GetProvisionalAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { mine, theirs });
 
+        var letterValues = new Mock<ICnamCatalogRepository>();
+        letterValues.Setup(r => r.GetAllLetterValuesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<CnamLetterValue>());
+
         var handler = new ConfirmDentalActsCommandHandler(
-            repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<ConfirmDentalActsCommandHandler>.Instance);
+            repo.Object, letterValues.Object, _clinicResolver.Object, _uow.Object,
+            NullLogger<ConfirmDentalActsCommandHandler>.Instance);
 
         var result = await handler.Handle(new ConfirmDentalActsCommand(), CancellationToken.None);
 
@@ -113,50 +117,7 @@ public class CatalogTenantIsolationTests
         repo.Verify(r => r.UpdateAsync(theirs, It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // ---- CNAM nomenclature ----
-
-    private static CnamNomenclatureEntry ForeignEntry() =>
-        new(Guid.NewGuid(), OtherClinic, "CONS", "Consultation", "CD", 1, "Consultation");
-
-    [Fact]
-    public async Task UpdateCnamEntry_Refuses_Another_Clinics_Row() // [AC-9.1][AC-9.3]
-    {
-        var entry = ForeignEntry();
-        var repo = new Mock<ICnamCatalogRepository>();
-        repo.Setup(r => r.GetByIdAsync(entry.Id, It.IsAny<CancellationToken>())).ReturnsAsync(entry);
-
-        var handler = new UpdateCnamEntryCommandHandler(
-            repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<UpdateCnamEntryCommandHandler>.Instance);
-
-        var result = await handler.Handle(
-            new UpdateCnamEntryCommand
-            {
-                Id = entry.Id,
-                CodeActe = "CONS",
-                DesignationFr = "Piraté",
-                LettreCle = "CD",
-                Coefficient = 1,
-                Category = "Consultation"
-            },
-            CancellationToken.None);
-
-        AssertRefusedAndNothingSaved(result.IsFailure, result.Error);
-    }
-
-    [Fact]
-    public async Task DeactivateCnamEntry_Refuses_Another_Clinics_Row() // [AC-9.1][AC-9.3]
-    {
-        var entry = ForeignEntry();
-        var repo = new Mock<ICnamCatalogRepository>();
-        repo.Setup(r => r.GetByIdAsync(entry.Id, It.IsAny<CancellationToken>())).ReturnsAsync(entry);
-
-        var handler = new DeactivateCnamEntryCommandHandler(
-            repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<DeactivateCnamEntryCommandHandler>.Instance);
-
-        var result = await handler.Handle(new DeactivateCnamEntryCommand { Id = entry.Id }, CancellationToken.None);
-
-        AssertRefusedAndNothingSaved(result.IsFailure, result.Error);
-    }
+    // ---- CNAM valeurs de la lettre clé ----
 
     [Fact]
     public async Task UpdateCnamLetterValue_Refuses_Another_Clinics_Row() // [AC-9.1][AC-9.3]
@@ -178,30 +139,27 @@ public class CatalogTenantIsolationTests
     }
 
     [Fact]
-    public async Task ConfirmCnamData_Confirms_Only_The_Callers_Rows() // [AC-9.4] the bulk-write path
+    public async Task ConfirmDentalActs_Confirms_Only_The_Callers_Letter_Values() // [AC-9.4] the bulk-write path
     {
-        var mine = new CnamNomenclatureEntry(Guid.NewGuid(), CallerClinic, "A", "À moi", "CD", 1, "Consultation");
-        var theirs = new CnamNomenclatureEntry(Guid.NewGuid(), OtherClinic, "B", "À eux", "CD", 1, "Consultation");
         var myValue = new CnamLetterValue(Guid.NewGuid(), CallerClinic, "D", 1.2m);
         var theirValue = new CnamLetterValue(Guid.NewGuid(), OtherClinic, "D", 1.2m);
 
-        var repo = new Mock<ICnamCatalogRepository>();
-        repo.Setup(r => r.GetAllAsync(true, It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<PageRequest?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { mine, theirs }.AsPage());
-        repo.Setup(r => r.GetAllLetterValuesAsync(It.IsAny<CancellationToken>()))
+        var letterValues = new Mock<ICnamCatalogRepository>();
+        letterValues.Setup(r => r.GetAllLetterValuesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { myValue, theirValue });
 
-        var handler = new ConfirmCnamDataCommandHandler(
-            repo.Object, _clinicResolver.Object, _uow.Object, NullLogger<ConfirmCnamDataCommandHandler>.Instance);
+        var acts = new Mock<IDentalActCodeRepository>();
+        acts.Setup(r => r.GetProvisionalAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<DentalActCode>());
 
-        var result = await handler.Handle(new ConfirmCnamDataCommand(), CancellationToken.None);
+        var handler = new ConfirmDentalActsCommandHandler(
+            acts.Object, letterValues.Object, _clinicResolver.Object, _uow.Object,
+            NullLogger<ConfirmDentalActsCommandHandler>.Instance);
+
+        var result = await handler.Handle(new ConfirmDentalActsCommand(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        repo.Verify(r => r.UpdateAsync(mine, It.IsAny<CancellationToken>()), Times.Once);
-        repo.Verify(r => r.UpdateAsync(theirs, It.IsAny<CancellationToken>()), Times.Never);
-        repo.Verify(r => r.UpdateLetterValueAsync(myValue, It.IsAny<CancellationToken>()), Times.Once);
-        repo.Verify(r => r.UpdateLetterValueAsync(theirValue, It.IsAny<CancellationToken>()), Times.Never);
+        letterValues.Verify(r => r.UpdateLetterValueAsync(myValue, It.IsAny<CancellationToken>()), Times.Once);
+        letterValues.Verify(r => r.UpdateLetterValueAsync(theirValue, It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // ---- Medications ----
