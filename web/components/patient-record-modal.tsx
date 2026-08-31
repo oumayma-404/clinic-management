@@ -385,6 +385,21 @@ export function PatientRecordModal({
     [priorByTooth],
   )
 
+  /**
+   * The catalogue colour of the act being composed — the act's own colour, not a condition's.
+   *
+   * <p>A tooth added to the live selection paints in it, so « ces dents-là, cet acte-là » is one glance rather
+   * than a selection ring plus a reading of the slot above. Null on a free-text act or before anything is
+   * picked, and the chart's neutral selection fill stands in — which is the state the modal opens in.</p>
+   */
+  const draftColor = useMemo(
+    () =>
+      (draft.procedureTypeId
+        ? procedureTypes.find((p) => p.id === draft.procedureTypeId)?.colorHex
+        : null) ?? null,
+    [draft.procedureTypeId, procedureTypes],
+  )
+
   // Per-tooth paint: prior state as the outline, confirmed acts as the fill, the live selection on top.
   const toothPaint = useMemo(() => {
     const map = new Map<number, ToothPaint>()
@@ -413,11 +428,14 @@ export function PatientRecordModal({
       }
     }
 
+    // The draft's colour WINS over a confirmed act's on a selected tooth: the selection is what is being
+    // charted now, and the ring plus the count badge are what still say the tooth carries an earlier act.
+    // Deselecting recomputes this map, so the confirmed colour comes straight back.
     for (const tooth of selection) {
       const prev = map.get(tooth)
       map.set(tooth, {
         selected: true,
-        color: prev?.color ?? null,
+        color: draftColor ?? prev?.color ?? null,
         count: prev?.count ?? 0,
         existingColor: prev?.existingColor ?? null,
         existingIsDiagnosis: prev?.existingIsDiagnosis,
@@ -425,7 +443,7 @@ export function PatientRecordModal({
     }
 
     return map
-  }, [priorByTooth, acts, selection])
+  }, [priorByTooth, acts, selection, draftColor])
 
   const viewTeeth = FDI_BY_VIEW[dentitionView]
   const { upper: upperQuadrants, lower: lowerQuadrants } = ARCH_QUADRANTS_BY_VIEW[dentitionView]
