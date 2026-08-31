@@ -1,6 +1,5 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
-using ClinicManagement.Infrastructure.Persistence;
 
 #nullable disable
 
@@ -60,26 +59,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                 column: "CodeActe",
                 unique: true);
 
-            // Seed the provisional CNAM catalog + VLC (FR-5.1/5.2) from the shared CnamCatalogSeed
-            // single-source-of-truth. Every row is IsProvisional = true ("à vérifier") until an admin
-            // confirms it. Ids are deterministic (stable across machines / re-generations).
-            var seededAt = CnamCatalogSeed.SeededAtUtc;
-
-            foreach (var e in CnamCatalogSeed.Entries)
-            {
-                migrationBuilder.InsertData(
-                    table: "CnamNomenclatureEntries",
-                    columns: new[] { "Id", "CodeActe", "DesignationFr", "LettreCle", "Coefficient", "Category", "IsActive", "IsProvisional", "CreatedAt", "UpdatedAt" },
-                    values: new object[] { e.Id, e.CodeActe, e.DesignationFr, e.LettreCle, e.Coefficient, e.Category, true, true, seededAt, null });
-            }
-
-            foreach (var v in CnamCatalogSeed.LetterValues)
-            {
-                migrationBuilder.InsertData(
-                    table: "CnamLetterValues",
-                    columns: new[] { "Id", "LettreCle", "Value", "IsProvisional", "CreatedAt", "UpdatedAt" },
-                    values: new object[] { v.Id, v.LettreCle, v.Value, true, seededAt, null });
-            }
+            // The seeding loops that used to be here are gone (feature single-act-catalogue). They were already
+            // dead: AddPerClinicCatalogs (2026-07-23) deletes every row of both tables when the catalogs became
+            // per-clinic, and ClinicCatalogSeeder re-seeds them. CnamNomenclatureEntries is dropped outright by
+            // DropCnamNomenclatureCatalog, and its entity no longer exists to seed from.
         }
 
         /// <inheritdoc />

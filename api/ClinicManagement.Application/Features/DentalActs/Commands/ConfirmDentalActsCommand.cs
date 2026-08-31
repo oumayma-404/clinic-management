@@ -7,7 +7,14 @@ using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.DentalActs.Commands;
 
-/// <summary>Clear the provisional "à vérifier" flag on every dental act. AdminOnly (controller-enforced).</summary>
+/// <summary>
+/// Clear the provisional "à vérifier" flag on the clinic's whole reference set — every dental act <b>and</b>
+/// every valeur de la lettre clé. AdminOnly (controller-enforced).
+///
+/// <para>The VLC half arrived here when <c>single-act-catalogue</c> retired <c>ConfirmCnamDataCommand</c>, which
+/// confirmed the invented act catalogue and the VLC together. Folding it in rather than dropping it is what keeps
+/// a lettre-clé value confirmable at all: it is the only writer of <c>CnamLetterValue.Confirm()</c>.</para>
+/// </summary>
 public class ConfirmDentalActsCommand : IRequest<Result>
 {
 }
@@ -15,17 +22,20 @@ public class ConfirmDentalActsCommand : IRequest<Result>
 public class ConfirmDentalActsCommandHandler : IRequestHandler<ConfirmDentalActsCommand, Result>
 {
     private readonly IDentalActCodeRepository _repository;
+    private readonly ICnamCatalogRepository _letterValues;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ConfirmDentalActsCommandHandler> _logger;
 
     public ConfirmDentalActsCommandHandler(
         IDentalActCodeRepository repository,
+        ICnamCatalogRepository letterValues,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<ConfirmDentalActsCommandHandler> logger)
     {
         _repository = repository;
+        _letterValues = letterValues;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -52,12 +62,20 @@ public class ConfirmDentalActsCommandHandler : IRequestHandler<ConfirmDentalActs
                 await _repository.UpdateAsync(act, cancellationToken);
             }
 
+            // Same clinic filter, same reason: the VLC read is behind the same fail-open filter.
+            var values = await _letterValues.GetAllLetterValuesAsync(cancellationToken);
+            foreach (var value in values.Where(v => v.ClinicId == clinicResult.Value && v.IsProvisional))
+            {
+                value.Confirm();
+                await _letterValues.UpdateLetterValueAsync(value, cancellationToken);
+            }
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             return Result.Success();
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            _logger.LogError(ex, "Error confirming dental act catalog");
+            _logger.LogError(ex, "Error confirming the dental act catalog + VLC");
             return Result.Failure("Erreur lors de la confirmation du catalogue.");
         }
     }

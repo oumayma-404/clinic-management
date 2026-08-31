@@ -6,7 +6,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging;
 
-namespace ClinicManagement.Application.Features.CnamNomenclature.Queries;
+namespace ClinicManagement.Application.Features.DentalActs.Queries;
 
 // Authoritative indicative reimbursement estimate for a single act (FR-5.5): coefficient × VLC × age-rate.
 // Any authenticated user (editor aid). The VLC value is resolved from the global admin-managed set; a
@@ -55,6 +55,7 @@ public class GetReimbursementEstimateQueryHandler
             {
                 Estimate = estimate,
                 RateApplied = CnamReimbursementCalculator.RateForPatient(request.PatientDateOfBirth, careDate),
+                UnavailableReason = CnamReimbursementCalculator.UnavailableReason(request.Coefficient, vlc),
             });
         }
         catch (Exception ex) when (ex is not ConflictException)

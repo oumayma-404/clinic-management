@@ -171,6 +171,12 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
         builder.HasIndex(p => new { p.ClinicId, p.CalendarImportPendingReviewSince })
             .HasFilter("\"CalendarImportPendingReviewSince\" IS NOT NULL");
 
+        // calendar-import-duplicate-merge. ⚠️ A plain Guid? column and NOT a self-referencing FK: the suggested
+        // patient may be deleted or archived independently, and a dangling id must read as "no suggestion" rather
+        // than block the delete or fail the load. No index either — it is only ever read on rows the filtered
+        // index above has already found.
+        builder.Property(p => p.CalendarImportSuggestedDuplicateId);
+
         builder.Property(p => p.CreatedAt)
             .IsRequired();
 

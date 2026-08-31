@@ -23,6 +23,7 @@ public static class DentalActCatalogSeed
     public const string Pedodontie = "Pédodontie";
     public const string OrthopedieDentoFaciale = "Orthopédie dento-faciale";
     public const string Prothese = "Prothèse";
+    public const string Consultation = "Consultation";
 
     // Every dental act is cotée with the "D" lettre clé (CNAM dental key).
     public const string LettreCle = "D";
@@ -194,6 +195,42 @@ public static class DentalActCatalogSeed
             string.Equals(a.CodeActe, trimmed, StringComparison.OrdinalIgnoreCase)
             && a.Category == Prothese
             && !a.RequiresAccordPrealable);
+    }
+
+    /// <summary>
+    /// The two <b>consultations</b>, which chapitre DCH does not contain — it lists acts on teeth and gums, and a
+    /// consultation is priced by the convention's own honoraires table instead.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Source: <b>Convention sectorielle des médecins dentistes de libre pratique</b>, honoraires conventionnels
+    /// table — <c>Cd</c> « Consultation du médecin dentiste » 30,000 DT and <c>Cds</c> « Consultation du médecin
+    /// dentiste spécialiste (orthodontiste) » 45,000 DT, both dating from 01/01/2021 and unchanged in CNAM's
+    /// December-2022 tariff table. Both lettres clés are defined by the NGAP arrêté du 1er juin 2006, art. 4.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>The code IS the lettre clé</b>, because the CNAM publishes no code for a consultation and inventing
+    /// one is what produced the catalogue this feature retired. <c>Coefficient</c> is 1 so the ordinary
+    /// <c>coefficient × VLC × taux</c> estimate lands on the conventional fee with no special case anywhere — the
+    /// convention prices these as lettres clés, so this is its model, not a workaround for it.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>A separate list from <see cref="Acts"/> on purpose.</b> The shipped <c>AddDentalCore</c> migration
+    /// iterates <c>Acts</c> and inserts every row with the hard-coded <see cref="LettreCle"/> and a null
+    /// coefficient — appending these there would give them lettre clé « D » on a fresh database and nothing at all
+    /// on an existing one. <c>ClinicCatalogSeeder</c> tops them up <b>by code</b> instead.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<ConsultationSeed> ConsultationActs { get; } = new[]
+    {
+        new ConsultationSeed("Cd", "Consultation du médecin dentiste", CnamCatalogSeed.CD),
+        new ConsultationSeed("Cds", "Consultation du médecin dentiste spécialiste (orthodontiste)", CnamCatalogSeed.CDS),
+    };
+
+    /// <summary>A consultation act: its own lettre clé, and a coefficient of 1 (the fee IS the valeur).</summary>
+    public sealed record ConsultationSeed(string CodeActe, string DesignationFr, string LettreCle)
+    {
+        public const decimal Cotation = 1m;
     }
 
     /// <summary>

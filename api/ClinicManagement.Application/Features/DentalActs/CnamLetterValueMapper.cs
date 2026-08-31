@@ -2,24 +2,11 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Services;
 
-namespace ClinicManagement.Application.Features.CnamNomenclature.Commands;
+namespace ClinicManagement.Application.Features.DentalActs;
 
-// Shared entity → DTO mapping for the CNAM command handlers (keeps the projection in one place).
-internal static class CnamEntryMapper
+// Entity → DTO mapping for the valeurs de la lettre clé (keeps the projection in one place).
+internal static class CnamLetterValueMapper
 {
-    public static CnamNomenclatureEntryDto ToDto(CnamNomenclatureEntry e) => new()
-    {
-        Id = e.Id,
-        CodeActe = e.CodeActe,
-        DesignationFr = e.DesignationFr,
-        LettreCle = e.LettreCle,
-        Coefficient = e.Coefficient,
-        Category = e.Category,
-        IsActive = e.IsActive,
-        IsProvisional = e.IsProvisional,
-        Version = e.Version,
-    };
-
     // The convention fields are projected here rather than at each call site so the letter-values read and the
     // update command's response cannot disagree about what the convention says — the update's response is what
     // the admin screen re-renders straight after pressing « Appliquer ».
@@ -34,7 +21,7 @@ internal static class CnamEntryMapper
             IsProvisional = v.IsProvisional,
             Version = v.Version,
             // Null together, always: a source with no value to attribute it to would read as provenance for the
-            // clinic's own figure (Vd/Rd — the convention settles nothing for them).
+            // clinic's own figure (Rd — the convention settles nothing for it).
             ConventionValue = conventionValue,
             ConventionSource = conventionValue is null ? null : CnamConventionTariffs.Source,
             ConventionRevisionIntervalYears =

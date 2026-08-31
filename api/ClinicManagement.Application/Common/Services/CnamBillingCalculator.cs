@@ -1,5 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
-using ClinicManagement.Application.Features.CnamNomenclature;
+using ClinicManagement.Application.Features.DentalActs;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Services;

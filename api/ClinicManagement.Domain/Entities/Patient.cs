@@ -59,6 +59,21 @@ public class Patient : AggregateRoot<Guid>
     public DateTime? CalendarImportPendingReviewSince { get; private set; }
 
     /// <summary>
+    /// The existing patient this imported record is probably a duplicate of — the one whose name is the <b>same
+    /// name written differently</b> (« Chaima Benkhalifa » for « Chaïma Ben Khalifa »). Stamped by the import when
+    /// it finds exactly one such patient, and answered by a human: accepting merges, refusing clears this.
+    ///
+    /// <para>⚠️ <b>No foreign key, deliberately.</b> The suggested patient can be deleted or archived on its own,
+    /// and a stale id must degrade to "no suggestion" on read rather than to a load failure — a dangling
+    /// suggestion is a question that has expired, not corrupt data.</para>
+    ///
+    /// <para>⚠️ Null while <see cref="CalendarImportPendingReviewSince"/> is set is the ordinary case: most
+    /// imported patients resemble nobody. The two are independent — refusing a suggestion leaves the record still
+    /// awaiting its details.</para>
+    /// </summary>
+    public Guid? CalendarImportSuggestedDuplicateId { get; private set; }
+
+    /// <summary>
     /// Free-standing notes about the patient themselves — what the dentist wants to be reminded of on every visit,
     /// as opposed to a <see cref="DentalRecord"/>'s notes, which describe one séance.
     ///
@@ -182,23 +197,27 @@ public class Patient : AggregateRoot<Guid>
         // A human has been through this record, which is the whole of what the stamp was waiting for. Cleared here
         // rather than at the call sites so none of them can forget — see the property's own note.
         CalendarImportPendingReviewSince = null;
+        // And with it the duplicate question: somebody who edited this fiche and kept it has answered it.
+        CalendarImportSuggestedDuplicateId = null;
     }
 
     /// <summary>
-    /// Confirms a calendar-imported record as-is, with nothing to change. Without it a fiche whose name is simply
-    /// correct could only be cleared by editing something, which is how a review prompt teaches people to make a
-    /// pointless edit.
+    /// Stamps this record as conjured from a calendar event title, awaiting a human's confirmation — optionally
+    /// naming the existing patient it is probably a duplicate of.
     /// </summary>
-    public void ConfirmCalendarImport()
-    {
-        CalendarImportPendingReviewSince = null;
-        UpdatedAt = DateTime.UtcNow;
-    }
-
-    /// <summary>Stamps this record as conjured from a calendar event title, awaiting a human's confirmation.</summary>
-    public void MarkImportedFromCalendar(DateTime importedAtUtc)
+    public void MarkImportedFromCalendar(DateTime importedAtUtc, Guid? suggestedDuplicateId = null)
     {
         CalendarImportPendingReviewSince = importedAtUtc;
+        CalendarImportSuggestedDuplicateId = suggestedDuplicateId;
+    }
+
+    /// <summary>
+    /// « Non, ce n'est pas le même patient. » Clears the suggestion and <b>keeps the review stamp</b> — the record
+    /// is still a name off a calendar with no details, so it stays on « Patients à compléter » with its own action.
+    /// </summary>
+    public void RejectCalendarImportSuggestion()
+    {
+        CalendarImportSuggestedDuplicateId = null;
     }
 
     public void UpdateInsuranceInfo(InsuranceInfo? insuranceInfo)

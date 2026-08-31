@@ -105,10 +105,20 @@ const DIALOG_MOBILE_VARIANTS = {
     "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
 } as const
 
-/** Restores the centred-dialog presentation at `md:` and up. Shared with `AlertDialogContent`. */
+/**
+ * Restores the centred-dialog presentation at `md:` and up. Shared with `AlertDialogContent`.
+ *
+ * ⚠️ `md:overflow-y-auto` is what a dialog with **no** `DialogBody` scrolls with — most of them — but a dialog that
+ * HAS one already has a scroll container, and the two nested produced **two parallel scrollbars** on every one of
+ * the nine dialogs using it (measured on « Modifier le patient » at 1440 px: content 808/2844 *and* body 610/2793).
+ * `has-[…]` turns the outer scroller off exactly where the inner one exists, so a new `DialogBody` dialog cannot
+ * reintroduce it and no call site has to remember `md:overflow-hidden`. Its `:has()` argument also outweighs the
+ * plain utility's specificity, which is what makes the override land.
+ */
 export const DIALOG_DESKTOP =
   "md:inset-auto md:top-1/2 md:left-1/2 md:h-auto md:max-h-[85dvh] md:w-full md:max-w-[calc(100%-2rem)] " +
   "md:-translate-x-1/2 md:-translate-y-1/2 md:overflow-y-auto md:rounded-lg md:border md:duration-200 " +
+  "md:has-[[data-slot=dialog-body]]:overflow-hidden " +
   "md:data-[state=closed]:slide-out-to-bottom-0 md:data-[state=open]:slide-in-from-bottom-0 " +
   "md:data-[state=closed]:zoom-out-95 md:data-[state=open]:zoom-in-95 md:max-w-lg"
 

@@ -26,7 +26,6 @@ export const RealtimeResource = {
   Suppliers: "suppliers",
   Notifications: "notifications",
   Invoices: "invoices",
-  CnamNomenclature: "cnamnomenclature",
   Medications: "medications",
   DentalActs: "dentalacts",
   TreatmentPlans: "treatmentplans",

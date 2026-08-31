@@ -7,34 +7,39 @@ using Xunit;
 namespace ClinicManagement.UnitTests.Api;
 
 /// <summary>
-/// The CNAM catalog/VLC write endpoints are global reference-data mutations and must be admin-only
+/// The act-catalogue and VLC write endpoints are per-clinic reference-data mutations and must be admin-only
 /// (FR-5.3/5.4). This pins the <c>[Authorize(Policy = AdminOnly)]</c> attribute on each write action so a
 /// future refactor cannot silently open them to any authenticated user. Reads deliberately carry no
-/// admin policy (any authenticated user may read the catalog/VLC/estimate).
+/// admin policy (any authenticated user may read the catalogue/VLC/estimate).
+///
+/// <para>The VLC actions moved onto <c>DentalActsController</c> with feature single-act-catalogue; the
+/// guarantee is unchanged, and the class it points at is now the only catalogue controller for acts.</para>
 /// </summary>
-public class CnamControllerAuthorizationTests
+public class DentalActCatalogAuthorizationTests
 {
     private static readonly string[] AdminOnlyActions =
     {
-        nameof(CnamNomenclatureController.CreateEntry),
-        nameof(CnamNomenclatureController.UpdateEntry),
-        nameof(CnamNomenclatureController.DeactivateEntry),
-        nameof(CnamNomenclatureController.ConfirmData),
-        nameof(CnamNomenclatureController.UpdateLetterValue),
+        nameof(DentalActsController.CreateAct),
+        nameof(DentalActsController.UpdateAct),
+        nameof(DentalActsController.DeactivateAct),
+        nameof(DentalActsController.ReactivateAct),
+        nameof(DentalActsController.ConfirmData),
+        nameof(DentalActsController.UpdateLetterValue),
     };
 
     private static readonly string[] AnyAuthenticatedReadActions =
     {
-        nameof(CnamNomenclatureController.GetNomenclature),
-        nameof(CnamNomenclatureController.GetLetterValues),
-        nameof(CnamNomenclatureController.GetReimbursementEstimate),
+        nameof(DentalActsController.GetDentalActs),
+        nameof(DentalActsController.GetLetterValues),
+        nameof(DentalActsController.GetReimbursementEstimate),
+        nameof(DentalActsController.GetReimbursementEstimates),
     };
 
     [Theory]
     [MemberData(nameof(AdminOnlyActionData))]
     public void Write_Endpoints_Require_AdminOnly(string action) // [FR-5.3/5.4]
     {
-        var method = typeof(CnamNomenclatureController).GetMethod(action)!;
+        var method = typeof(DentalActsController).GetMethod(action)!;
         var authorize = method.GetCustomAttribute<AuthorizeAttribute>();
 
         Assert.NotNull(authorize);
@@ -45,7 +50,7 @@ public class CnamControllerAuthorizationTests
     [MemberData(nameof(ReadActionData))]
     public void Read_Endpoints_Carry_No_Method_Level_Admin_Policy(string action) // [FR-5.3]
     {
-        var method = typeof(CnamNomenclatureController).GetMethod(action)!;
+        var method = typeof(DentalActsController).GetMethod(action)!;
         var authorize = method.GetCustomAttribute<AuthorizeAttribute>();
 
         // Reads inherit the class-level [Authorize] (any authenticated user); no per-method AdminOnly.

@@ -1,7 +1,8 @@
-using ClinicManagement.Application.Features.CnamNomenclature;
+using ClinicManagement.Application.Features.DentalActs;
+using ClinicManagement.Domain.Enums;
 using Xunit;
 
-namespace ClinicManagement.UnitTests.Features.CnamNomenclature;
+namespace ClinicManagement.UnitTests.Features.DentalActs;
 
 /// <summary>
 /// Reimbursement estimate calculator (FR-5.5): estimate = coefficient × VLC × rate; July-2021 rates
@@ -67,6 +68,39 @@ public class CnamReimbursementEstimateTests
     {
         var estimate = CnamReimbursementCalculator.Estimate(10m, vlc: null, dateOfBirth: null, CareDate);
         Assert.Null(estimate);
+    }
+
+    [Fact]
+    public void UnavailableReason_Is_Null_When_The_Estimate_Is_Computable()
+    {
+        Assert.Null(CnamReimbursementCalculator.UnavailableReason(10m, 1.5m));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void UnavailableReason_Names_A_Missing_Cotation(decimal coefficient)
+    {
+        Assert.Equal(
+            nameof(ReimbursementUnavailability.MissingCoefficient),
+            CnamReimbursementCalculator.UnavailableReason(coefficient, 3m));
+    }
+
+    [Fact]
+    public void UnavailableReason_Names_A_Lettre_Cle_The_Convention_Does_Not_Value()
+    {
+        Assert.Equal(
+            nameof(ReimbursementUnavailability.NoLetterValue),
+            CnamReimbursementCalculator.UnavailableReason(10m, vlc: null));
+    }
+
+    [Fact]
+    public void UnavailableReason_Reports_The_Missing_Cotation_First_When_Both_Are_Absent()
+    {
+        // The cotation is the half an admin can close in the catalogue; the valeur is not.
+        Assert.Equal(
+            nameof(ReimbursementUnavailability.MissingCoefficient),
+            CnamReimbursementCalculator.UnavailableReason(0m, vlc: null));
     }
 
     // Boundary birthday: exactly on the birthday counts as the older age.

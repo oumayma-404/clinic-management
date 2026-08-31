@@ -324,7 +324,7 @@ export function PatientsTable({
           : showFlaggedOnly
             ? "Aucun patient signalé"
             : showPendingReviewOnly
-              ? "Aucune fiche à compléter"
+              ? "Aucun patient à compléter"
               : isFiltered
                 ? "Aucun patient sur cette période"
                 : "Aucun patient enregistré"

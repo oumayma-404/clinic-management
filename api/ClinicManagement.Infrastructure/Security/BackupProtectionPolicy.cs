@@ -35,18 +35,23 @@ public static class BackupProtectionPolicy
     /// </summary>
     public static DriveType ResolveDriveType(string path)
     {
+        // A UNC path (\\server\share) has no DriveInfo — it is a network destination by definition.
+        //
+        // ⚠️ Tested on the RAW input, before `GetFullPath`. Read off `GetPathRoot` the answer depended on the host's
+        // path parser: on Linux a backslash is an ordinary filename character, so a share resolved to the working
+        // directory's root and read back as a local Fixed disk — i.e. « protégeable », the unsafe direction. A
+        // string beginning `\\` is a UNC path whatever parses it.
+        if (path is not null && path.AsSpan().TrimStart().StartsWith(@"\\"))
+        {
+            return DriveType.Network;
+        }
+
         try
         {
             var root = Path.GetPathRoot(Path.GetFullPath(path));
             if (string.IsNullOrWhiteSpace(root))
             {
                 return DriveType.Unknown;
-            }
-
-            // A UNC path (\\server\share) has no DriveInfo — it is a network destination by definition.
-            if (root.StartsWith(@"\\", StringComparison.Ordinal))
-            {
-                return DriveType.Network;
             }
 
             return new DriveInfo(root).DriveType;

@@ -10,7 +10,12 @@ import { Label } from "@/components/ui/label"
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { VisitClosureList } from "@/components/visits/visit-closure-list"
+import { PendingReviewBlock } from "@/components/patients/pending-review-block"
+import { cn } from "@/lib/utils"
+import { ClipboardCheck, UserPlus } from "lucide-react"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { DEFAULT_PAGE_SIZE, type PagedResponse } from "@/lib/api/paging"
 import type { VisitToCloseDto } from "@/lib/api/types"
@@ -86,6 +91,10 @@ export default function VisitsToClosePage() {
     load,
   )
 
+  // The count the « Patients à compléter » tab carries. Lifted out of the block because a tab with no figure on it
+  // is a door with nothing to say how much is behind it — and this half is hidden by default.
+  const [pendingCount, setPendingCount] = useState(0)
+
   const changeWindow = (value: string) => {
     setDays(value)
     // A wider window is a different list; keeping page 4 would land past its end and read as « rien à clôturer ».
@@ -125,6 +134,65 @@ export default function VisitsToClosePage() {
           }
         />
 
+        {/*
+          Two tabs rather than two stacked blocks: an imported patient is not a séance (no visit date to group
+          under, not counted in « N séances »), and stacking them pushed the séances — the page's reason for
+          existing — below a card that is usually empty.
+
+          The active trigger carries its zone's wash: azure for the séances, answered on the agenda; violet for the
+          patients, answered in the clinical record. Entry 6 on `lib/zones.ts`' list, and the ACTIVE mark only, so
+          the hue stays a mark instead of becoming the panel's colour scheme.
+
+          ⚠️ Each trigger carries its count. A tab hides its half by definition, so without the figure the backlog
+          this page exists to surface would be behind an unremarkable door — and « 0 » is a statement worth making.
+        */}
+        <Tabs defaultValue="visits" className="space-y-4">
+          <TabsList className="flex h-auto w-full items-stretch gap-1 p-1 sm:w-auto sm:justify-start">
+            {/* ⚠️ The labels are SHORTENED below `sm:`, with the full phrase kept as the accessible name.
+                `TabsTrigger` is `whitespace-nowrap`, so at 320 px the two labels plus their badges measured wider
+                than the 288 px content box and « Séances » was clipped to « s 32 » — the strip overflowed and the
+                active tab had scrolled it out. Same trick as `odontogram.tsx`'s « Créer un plan »: shorten what is
+                drawn, never what is announced. */}
+            <TabsTrigger
+              value="visits"
+              aria-label="Séances à clôturer"
+              className={cn(
+                "h-auto min-h-9 min-w-0 flex-1 gap-1.5 py-1.5 leading-tight coarse:min-h-11 sm:flex-none sm:gap-2",
+                "data-[state=active]:bg-zone-daily/12 data-[state=active]:text-zone-daily",
+              )}
+            >
+              <ClipboardCheck className="hidden h-4 w-4 shrink-0 sm:block" />
+              Séances
+              <Badge variant="secondary" className="ms-0.5 shrink-0 tabular-nums">
+                {(data?.totalCount ?? 0).toLocaleString("fr-TN")}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger
+              value="patients"
+              aria-label="Patients à compléter"
+              className={cn(
+                "h-auto min-h-9 min-w-0 flex-1 gap-1.5 py-1.5 leading-tight coarse:min-h-11 sm:flex-none sm:gap-2",
+                "data-[state=active]:bg-zone-clinical/12 data-[state=active]:text-zone-clinical",
+              )}
+            >
+              <UserPlus className="hidden h-4 w-4 shrink-0 sm:block" />
+              <span className="sm:hidden">À compléter</span>
+              <span className="hidden sm:inline">Patients à compléter</span>
+              <Badge variant="secondary" className="ms-0.5 shrink-0 tabular-nums">
+                {pendingCount.toLocaleString("fr-TN")}
+              </Badge>
+            </TabsTrigger>
+          </TabsList>
+
+          {/* ⚠️ `forceMount`: Radix unmounts an inactive panel, so the block's read — and therefore the count on
+              its own trigger — would not run until somebody opened the tab, which is precisely the tab nobody
+              opens without a figure on it. Radix applies `hidden` while inactive, so it costs a hidden table of at
+              most 25 rows and no announcement. */}
+          <TabsContent value="patients" forceMount className="data-[state=inactive]:hidden">
+            <PendingReviewBlock onLoaded={setPendingCount} />
+          </TabsContent>
+
+          <TabsContent value="visits">
         {error ? (
           // The shared primitive, `role="alert"` in both variants — the reader is otherwise about to take an
           // absence for a fact, and here the wrong reading (« rien à clôturer ») is actively reassuring. It
@@ -160,6 +228,8 @@ export default function VisitsToClosePage() {
             }
           />
         )}
+          </TabsContent>
+        </Tabs>
       </AppShell>
     </ClinicGuard>
   )

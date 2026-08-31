@@ -936,64 +936,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("CnamLetterValues", (string)null);
                 });
 
-            modelBuilder.Entity("ClinicManagement.Domain.Entities.CnamNomenclatureEntry", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Category")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("ClinicId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("CodeActe")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<decimal>("Coefficient")
-                        .HasPrecision(18, 3)
-                        .HasColumnType("numeric(18,3)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("DesignationFr")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsProvisional")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("LettreCle")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<uint>("Version")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ClinicId", "CodeActe")
-                        .IsUnique();
-
-                    b.ToTable("CnamNomenclatureEntries", (string)null);
-                });
-
             modelBuilder.Entity("ClinicManagement.Domain.Entities.CreditNote", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2286,6 +2228,9 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<DateTime?>("CalendarImportPendingReviewSince")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CalendarImportSuggestedDuplicateId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("ClinicId")
                         .HasColumnType("uuid");
@@ -4043,15 +3988,6 @@ namespace ClinicManagement.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.CnamLetterValue", b =>
-                {
-                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
-                        .WithMany()
-                        .HasForeignKey("ClinicId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("ClinicManagement.Domain.Entities.CnamNomenclatureEntry", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
                         .WithMany()

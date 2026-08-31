@@ -1180,6 +1180,18 @@ try
         job => job.StartRunningAppointments(),
         Cron.Minutely);
 
+    // Google Calendar import (Google→App) — every 15 minutes.
+    //
+    // ⚠️ This direction had NO job at all: the only caller was the « Importer depuis Google » button, so an
+    // appointment typed straight into Google never arrived until somebody pressed it. The reverse direction runs
+    // inline post-commit, which is what made the gap easy to miss — the app's own bookings did appear in Google.
+    // Fifteen minutes rather than minutely: each pass is a network hop per connected clinic over a 97-day window,
+    // and a quarter of an hour is well inside how fast a calendar edit needs to land on an agenda.
+    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.GoogleCalendarImportJob>(
+        "import-from-google-calendar",
+        job => job.ImportFromGoogleCalendar(),
+        "*/15 * * * *");
+
     // Approaching-expiry stock alerts (AC-P4.6) — daily, deliberately NOT connectivity-gated: the alert is
     // in-app, so it has to work on an offline LAN install. An expiry is crossed by the passage of time rather
     // than by a write, so without this scan the notification would never fire for the case it exists for (a

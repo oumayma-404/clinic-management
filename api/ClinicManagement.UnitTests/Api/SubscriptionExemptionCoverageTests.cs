@@ -78,7 +78,7 @@ public class SubscriptionExemptionCoverageTests
         "Auth.StepUp",
 
         // --- Compute-only POSTs (AC-4.9): a POST for a read, each persisting nothing.
-        "CnamNomenclature.GetReimbursementEstimates",   // an estimate per act row; a GET could not carry the list
+        "DentalActs.GetReimbursementEstimates",   // an estimate per act row; a GET could not carry the list
         "Patients.PreviewPatientImport",                 // the dry run — a Query by design. The commit is refused.
         // ⚠️ Takes the document in the BODY and persists nothing — it loads no stored document and checks no
         // ownership, so an expired cabinet can render a brand-new one. AC-4.9 exempts it in those terms anyway.
@@ -251,7 +251,7 @@ public class SubscriptionExemptionCoverageTests
     // [AC-4.9] The three compute-only POSTs are exempt — the ones that would otherwise read as writes because of
     // their verb alone. Stated separately from the set above so the AC has a case of its own to point at.
     [Theory]
-    [InlineData("CnamNomenclature.GetReimbursementEstimates")]
+    [InlineData("DentalActs.GetReimbursementEstimates")]
     [InlineData("Patients.PreviewPatientImport")]
     [InlineData("MedicalDocuments.GeneratePdfForDownload")]
     public void The_Compute_Only_Posts_Are_Exempt(string endpoint)

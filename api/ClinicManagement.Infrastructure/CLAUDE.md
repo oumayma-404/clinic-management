@@ -89,7 +89,7 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
     everything: that is a different case from `Unset`, and `TenantScopeFilterTests` pins both.
     `HasQueryFilter` scopes the directly-clinic-owned
     aggregate roots: `Patient`, `Appointment`, `ProcedureType`, `StaffNotification`, `Invoice`,
-    `TreatmentPlan`, `ClinicReminderSettings` (by `Id` = clinic id), `CnamNomenclatureEntry`,
+    `TreatmentPlan`, `ClinicReminderSettings` (by `Id` = clinic id),
     `CnamLetterValue`, `Medication`, `DentalActCode`, `Expense`, `WaitingListEntry`, `LabWorkOrder`,
     `RecurringAppointment`, **`Doctor`**, **`StockItem`** (the last two were the only clinic-owned roots left unfiltered - and `StockItem`'s own child `StockMovement` was filtered while its *parent* was not). **`User`/`Clinic` are deliberately unfiltered** (auth/join flows resolve them
     before a clinic context exists). Child entities (`InvoiceLine`, `Payment`, `Installment`,
@@ -203,7 +203,7 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
   numbers). `CnamLetterValue.SetValue` stamps `UpdatedAt` but does **not** clear the provisional flag — only
   `Confirm()` does — so an admin who typed their own valeur and never pressed « Confirmer » still reads
   `IsProvisional = true`, and correcting on that flag would overwrite the one entry that must never be touched.
-  Divergence that survives the predicate is *offered* on `/cnam-nomenclature` instead
+  Divergence that survives the predicate is *offered* on `/dental-acts` instead
   (`CnamLetterValueDto.ConventionValue`), never applied silently. Self-terminating: both mutators stamp
   `UpdatedAt`, so a corrected row fails the predicate on every later startup.
   The convention's own table lives in **Domain** (`Services/CnamConventionTariffs`) because the seed
@@ -219,7 +219,7 @@ Patient, PatientFlag, PatientFile, PatientFolder, PatientMedicalHistory, Patient
 StaffNotification (indexes `(ClinicId, EffectiveFeedTime)` + `AppointmentId`), NotificationRead (PK
 `(NotificationId, UserId)`), StockItem, ProcedureType, RecurringAppointment, DentalRecord, DentalRecordTooth,
 DentalRecordAct, ToothState, MedicalDocument, Clinic, User, Doctor, Invoice, InvoiceLine, Payment,
-Installment, TreatmentPlan, TreatmentPlanItem, ClinicReminderSettings, CnamNomenclatureEntry, CnamLetterValue,
+Installment, TreatmentPlan, TreatmentPlanItem, ClinicReminderSettings, CnamLetterValue,
 DentalActCode, Medication, MedicationActiveIngredient, Expense, WaitingListEntry, LabWorkOrder.
 
 ### Migrations (`Migrations/`)

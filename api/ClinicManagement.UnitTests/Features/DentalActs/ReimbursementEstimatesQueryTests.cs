@@ -1,12 +1,13 @@
-using ClinicManagement.Application.Features.CnamNomenclature;
-using ClinicManagement.Application.Features.CnamNomenclature.Queries;
+using ClinicManagement.Application.Features.DentalActs;
+using ClinicManagement.Domain.Enums;
+using ClinicManagement.Application.Features.DentalActs.Queries;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
-namespace ClinicManagement.UnitTests.Features.CnamNomenclature;
+namespace ClinicManagement.UnitTests.Features.DentalActs;
 
 /// <summary>
 /// The batch reimbursement estimate (audit § 5.10, ACs P6.15–6.17).
@@ -199,5 +200,62 @@ public class ReimbursementEstimatesQueryTests
         Assert.True(single.IsSuccess);
         Assert.Equal(single.Value!.Estimate, batch.Value!.Single().Estimate);
         Assert.Equal(single.Value!.RateApplied, batch.Value!.Single().RateApplied);
+    }
+
+    [Fact]
+    public async Task Each_Absent_Estimate_Says_Which_Half_Is_Missing_Aligned_By_Index()
+    {
+        WireLetterValues(("D", 3m));
+
+        var result = await Handler().Handle(
+            new GetReimbursementEstimatesQuery
+            {
+                Items = new()
+                {
+                    new ReimbursementEstimateItem { LettreCle = "D", Coefficient = 10m },
+                    new ReimbursementEstimateItem { LettreCle = "ZZ", Coefficient = 5m },
+                    new ReimbursementEstimateItem { LettreCle = "D", Coefficient = 0m },
+                },
+            },
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        var items = result.Value!;
+
+        Assert.Equal(10m * 3m * 0.60m, items[0].Estimate);
+        Assert.Null(items[0].UnavailableReason);
+
+        Assert.Null(items[1].Estimate);
+        Assert.Equal(nameof(ReimbursementUnavailability.NoLetterValue), items[1].UnavailableReason);
+
+        Assert.Null(items[2].Estimate);
+        Assert.Equal(nameof(ReimbursementUnavailability.MissingCoefficient), items[2].UnavailableReason);
+    }
+
+    [Fact]
+    public async Task The_Single_Act_Read_Reports_The_Same_Absence_Reason_As_The_Batch()
+    {
+        WireLetterValues(("D", 3m));
+        _catalog.Setup(r => r.GetLetterValueByCleAsync("ZZ", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((CnamLetterValue?)null);
+
+        var single = await new GetReimbursementEstimateQueryHandler(
+                _catalog.Object, NullLogger<GetReimbursementEstimateQueryHandler>.Instance)
+            .Handle(
+                new GetReimbursementEstimateQuery { LettreCle = "ZZ", Coefficient = 5m },
+                CancellationToken.None);
+
+        var batch = await Handler().Handle(
+            new GetReimbursementEstimatesQuery
+            {
+                Items = new() { new ReimbursementEstimateItem { LettreCle = "ZZ", Coefficient = 5m } },
+            },
+            CancellationToken.None);
+
+        Assert.True(single.IsSuccess);
+        Assert.True(batch.IsSuccess);
+        Assert.Null(single.Value!.Estimate);
+        Assert.Equal(nameof(ReimbursementUnavailability.NoLetterValue), single.Value!.UnavailableReason);
+        Assert.Equal(single.Value!.UnavailableReason, batch.Value!.Single().UnavailableReason);
     }
 }

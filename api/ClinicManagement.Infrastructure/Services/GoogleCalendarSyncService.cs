@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Domain.Repositories;
@@ -14,7 +15,6 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IClinicRepository _clinicRepository;
-    private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
 
     /// <summary>
@@ -34,7 +34,6 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         IAppointmentRepository appointmentRepository,
         IPatientRepository patientRepository,
         IClinicRepository clinicRepository,
-        ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         IReminderScheduler reminderScheduler,
         INotificationGenerator notificationGenerator,
@@ -46,7 +45,6 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
         _clinicRepository = clinicRepository;
-        _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _reminderScheduler = reminderScheduler;
         _notificationGenerator = notificationGenerator;
@@ -273,23 +271,17 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         }
     }
 
-    public async Task SyncGoogleCalendarToAppointmentsAsync(CancellationToken cancellationToken = default)
+    public async Task SyncGoogleCalendarToAppointmentsAsync(
+        Guid clinicId,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger.LogInformation("Starting sync from Google Calendar to appointments");
+            _logger.LogInformation("Starting sync from Google Calendar to appointments for clinic {ClinicId}", clinicId);
 
-            // Google → App is a manual, authenticated action: resolve the CALLER's clinic and use ITS own
-            // connection, and scope every read/write below to that clinic (no cross-clinic writes, #4). The
-            // disabled recurring job runs with no clinic in scope → resolve fails → skip.
-            var clinicResult = await _clinicResolver.GetClinicIdAsync(cancellationToken);
-            if (clinicResult.IsFailure)
-            {
-                _logger.LogWarning("No clinic in scope for the Google→App sync; skipping.");
-                return;
-            }
-            var clinicId = clinicResult.Value;
-
+            // The clinic is the caller's to name — the controller resolves the signed-in user's, the recurring
+            // import passes each connected clinic in turn. Every read and write below is scoped to it, and its own
+            // connection is used, so neither caller can write across clinics (#4).
             var connection = await ResolveConnectionAsync(clinicId, cancellationToken);
             if (connection == null)
             {
@@ -620,6 +612,77 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
     }
 
     /// <summary>
+    /// The existing patient this import is probably a duplicate of, or null — <c>calendar-import-duplicate-merge</c>
+    /// AC-2 to AC-7. Reached only when no patient matched the name <b>exactly</b>, so a hit here is always a
+    /// question for a human and never a link.
+    ///
+    /// <para>Two gates, and both must pass. <b>Exactly one</b> patient whose name is the same name written
+    /// differently — zero is the ordinary case and two or more is a refusal, for the reason the exact path already
+    /// refuses: a third duplicate is worse than a second, and guessing between two people is worse than both.
+    /// Then the phone, when the event description carried one: it <b>vetoes</b> a candidate whose own number is
+    /// different. A name equivalence never survives a contradicting phone, because two spellings of one name plus
+    /// two different numbers is two people.</para>
+    /// </summary>
+    private Guid? FindSuggestedDuplicate(
+        IReadOnlyCollection<Patient> patients,
+        string firstName,
+        string lastName,
+        string? eventPhoneE164)
+    {
+        var candidates = patients
+            .Where(p => PatientNameEquivalence.AreWritingVariants(firstName, lastName, p.FirstName, p.LastName))
+            .ToList();
+
+        if (candidates.Count != 1)
+        {
+            if (candidates.Count > 1)
+            {
+                _logger.LogInformation(
+                    "Google import: {Count} patients resemble the imported name; suggesting none rather than guessing.",
+                    candidates.Count);
+            }
+
+            return null;
+        }
+
+        var candidate = candidates[0];
+        var candidatePhone = PhoneNumber.ToE164(candidate.PhoneNumber?.Value);
+
+        if (eventPhoneE164 != null && candidatePhone != null && candidatePhone != eventPhoneE164)
+        {
+            _logger.LogInformation(
+                "Google import: patient {PatientId} matches the imported name but holds a different phone; no suggestion.",
+                candidate.Id);
+            return null;
+        }
+
+        return candidate.Id;
+    }
+
+    /// <summary>
+    /// A deliverable Tunisian phone number written into the event description, or null. <b>Ambiguity is null</b>:
+    /// two different numbers in one description name no single patient, and picking the first would be a guess.
+    /// <see cref="PhoneNumber.ToE164"/> is the only judge of what a number is, so this cannot drift from what
+    /// patient entry and reminder dispatch accept.
+    /// </summary>
+    private static string? ExtractPhone(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return null;
+        }
+
+        var found = System.Text.RegularExpressions.Regex
+            .Matches(description, @"\+?[\d][\d\s\-\.]{6,20}\d")
+            .Select(m => PhoneNumber.ToE164(m.Value))
+            .Where(e164 => e164 != null)
+            .Distinct()
+            .ToList();
+
+        return found.Count == 1 ? found[0] : null;
+    }
+
+    /// <summary>
     /// Whether a title reads as « Prénom Nom » — two to four words, none of them a keyword that gives the event
     /// away as something other than a patient.
     ///
@@ -798,8 +861,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 _logger.LogInformation("Patient {PatientName} not found. Creating one automatically from Google Calendar event {EventId}",
                     LogMask.Name(patientName), googleEvent.Id);
                 
-                var nameParts = patientName.Split(NameSeparators, StringSplitOptions.RemoveEmptyEntries);
-                if (nameParts.Length < 2)
+                // ⚠️ The split is `PatientNameEquivalence`'s, not a second copy: the near-duplicate rule compares
+                // the halves it produces, so a different split here would compare something we did not store.
+                var split = PatientNameEquivalence.SplitTitle(patientName);
+                if (split == null)
                 {
                     // A single token cannot be split into a first and a last name. The branch that used to try
                     // stored « Karim » as both, so the clinic acquired a patient called « Karim Karim ».
@@ -808,8 +873,13 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                     return false;
                 }
 
-                var firstName = nameParts[0].Trim();
-                var lastName = string.Join(" ", nameParts.Skip(1)).Trim();
+                var firstName = split.Value.First;
+                var lastName = split.Value.Last;
+
+                // A phone typed into the event description is real data and the reviewer's next keystrokes, so it
+                // is stored — and it is also the only evidence besides the name that this import ever has.
+                var eventPhone = ExtractPhone(googleEvent.Description);
+                var suggestedDuplicateId = FindSuggestedDuplicate(patients, firstName, lastName, eventPhone);
 
                 // AC-7 — **DateOfBirth is null**, not today's date. It used to be `DateTime.UtcNow`, so every patient
                 // this path created was recorded as born today; `Patient.DateOfBirth`'s own note calls that
@@ -823,9 +893,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                     firstName,
                     lastName,
                     dateOfBirth: null,
-                    "Unknown"); // Default gender
+                    "Unknown", // Default gender
+                    phoneNumber: eventPhone == null ? null : new PhoneNumber(eventPhone));
 
-                newPatient.MarkImportedFromCalendar(DateTime.UtcNow);
+                newPatient.MarkImportedFromCalendar(DateTime.UtcNow, suggestedDuplicateId);
 
                 await _patientRepository.AddAsync(newPatient, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);

@@ -122,7 +122,17 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
                 paging: paging,
                 cancellationToken: cancellationToken);
 
-            return Result<PagedResult<PatientDto>>.Success(page.Map(p => p.ToDto()));
+            var mapped = page.Map(p => p.ToDto());
+
+            // The « S'agit-il de ce patient ? » question, one batched read for the page. Only asked for when this
+            // read is the one that renders it — every other list would pay for a lookup nothing displays.
+            if (request.PendingCalendarReviewOnly)
+            {
+                await PatientMappingExtensions.AttachSuggestedDuplicatesAsync(
+                    page.Items, mapped.Items, _patientRepository, cancellationToken);
+            }
+
+            return Result<PagedResult<PatientDto>>.Success(mapped);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

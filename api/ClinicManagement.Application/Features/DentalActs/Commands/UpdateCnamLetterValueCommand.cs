@@ -6,7 +6,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging;
 
-namespace ClinicManagement.Application.Features.CnamNomenclature.Commands;
+namespace ClinicManagement.Application.Features.DentalActs.Commands;
 
 // Update a valeur de la lettre clé (VLC) — the dinar value per lettre clé (FR-5.2). AdminOnly. Target by
 // id (from the admin screen). Unknown id → not-found failure.
@@ -76,7 +76,7 @@ public class UpdateCnamLetterValueCommandHandler : IRequestHandler<UpdateCnamLet
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation("Updated CNAM letter value {Id} ({Cle})", value.Id, value.LettreCle);
-            return Result<CnamLetterValueDto>.Success(CnamEntryMapper.ToDto(value));
+            return Result<CnamLetterValueDto>.Success(CnamLetterValueMapper.ToDto(value));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

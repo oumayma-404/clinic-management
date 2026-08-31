@@ -682,10 +682,9 @@ public class NotificationGenerator : INotificationGenerator
 
             var notification = StaffNotification.ForPatientImportReview(
                 Guid.NewGuid(), clinicId,
-                "Fiche patient à compléter",
-                $"« {who} » a été créé depuis Google Agenda, à partir du seul titre d'un rendez-vous. La fiche ne "
-                + "contient que le nom : complétez la date de naissance, le sexe et le téléphone, ou confirmez-la "
-                + "telle quelle si elle est correcte.",
+                "Patient à compléter",
+                $"« {who} » a été créé depuis Google Agenda, à partir du seul titre d'un rendez-vous. Seul le nom est "
+                + "renseigné : complétez les infos patient — date de naissance, sexe, téléphone.",
                 DateTime.UtcNow,
                 patientId);
 

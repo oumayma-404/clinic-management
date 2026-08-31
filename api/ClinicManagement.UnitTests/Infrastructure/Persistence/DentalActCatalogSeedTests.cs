@@ -50,15 +50,36 @@ public class DentalActCatalogSeedTests
             Assert.Matches(DchCode, act.CodeActe));
     }
 
-    [Fact] // [K1] The two act catalogues are disjoint — which is why the picker had to be re-pointed.
-    public void The_Two_Catalogues_Are_Disjoint()
+    [Fact] // [single-act-catalogue] There is one catalogue now, and the consultations are the only non-DCH rows.
+    public void Only_The_Consultations_Sit_Outside_The_Dch_Code_Range()
     {
-        var dch = DentalActCatalogSeed.Acts.Select(a => a.CodeActe).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var mnemonics = CnamCatalogSeed.Entries.Select(e => e.CodeActe).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.All(DentalActCatalogSeed.ConsultationActs, c => Assert.DoesNotMatch(DchCode, c.CodeActe));
 
-        Assert.Empty(dch.Intersect(mnemonics));
-        // And the mnemonics are genuinely not nomenclature codes — the half that made the old picker wrong.
-        Assert.All(mnemonics, code => Assert.DoesNotMatch(DchCode, code));
+        var dch = DentalActCatalogSeed.Acts.Select(a => a.CodeActe).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var consultations = DentalActCatalogSeed.ConsultationActs
+            .Select(c => c.CodeActe)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Empty(dch.Intersect(consultations));
+    }
+
+    [Fact] // [single-act-catalogue] The fee IS the valeur, so the ordinary coefficient x VLC x taux lands on it.
+    public void Consultations_Are_Coted_At_One()
+    {
+        Assert.Equal(1m, DentalActCatalogSeed.ConsultationSeed.Cotation);
+    }
+
+    [Fact] // [single-act-catalogue] The CNAM publishes no code for a consultation, so the lettre cle IS the code.
+    public void Consultation_Codes_Are_Their_Own_Lettre_Cle()
+    {
+        Assert.All(DentalActCatalogSeed.ConsultationActs, c =>
+            Assert.Equal(c.LettreCle, c.CodeActe, ignoreCase: true));
+    }
+
+    [Fact] // [single-act-catalogue] Each consultation bills under a lettre cle the VLC set actually values.
+    public void Consultations_Use_A_Valued_Lettre_Cle()
+    {
+        var valued = CnamCatalogSeed.LetterValues.Select(v => v.LettreCle).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.All(DentalActCatalogSeed.ConsultationActs, c => Assert.Contains(c.LettreCle, valued));
     }
 
     [Fact]

@@ -3,7 +3,6 @@ import {
   BellRing,
   Calendar,
   ClipboardCheck,
-  ClipboardList,
   Clock,
   CreditCard,
   FileCheck,
@@ -115,7 +114,6 @@ export function buildConfigItems(isAdmin: boolean, showSubscription = true): Nav
     { name: "Types de procédures", href: "/procedure-types", icon: Stethoscope },
     ...(isAdmin
       ? [
-          { name: "Nomenclature CNAM", href: "/cnam-nomenclature", icon: ClipboardList },
           { name: "Médicaments", href: "/medications", icon: Pill },
           { name: "Actes dentaires", href: "/dental-acts", icon: ScrollText },
         ]

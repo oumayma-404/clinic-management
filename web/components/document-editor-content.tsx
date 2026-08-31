@@ -40,7 +40,7 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import { clinicsApi } from "@/lib/api/clinics"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
-import { estimateReimbursements, parseCotation } from "@/lib/api/cnam-nomenclature"
+import { estimateReimbursements, parseCotation } from "@/lib/api/dental-acts"
 import { CnamCeilingNotice } from "@/components/cnam/cnam-ceiling-notice"
 import { dentalActsApi } from "@/lib/api/dental-acts"
 import { medicationsApi } from "@/lib/api/medications"
@@ -436,7 +436,7 @@ export function DocumentEditorContent() {
 
   const [dentalRecords, setDentalRecords] = useState<DentalRecordDto[]>([])
   /*
-   * K1 — the act picker reads the **DCH dental-act catalogue** (`DentalActCode`), not `CnamNomenclatureEntry`.
+   * K1 — the act picker reads the **DCH dental-act catalogue** (`DentalActCode`), the only act catalogue.
    *
    * The two catalogues are disjoint and this one was reading the wrong one: `CnamCatalogSeed` seeds 26 internal
    * mnemonics as its `CodeActe` (`DETART`, `OBT-2F`, `EXT-SIMPLE`…), while the genuine Tunisian nomenclature — the
@@ -905,7 +905,7 @@ export function DocumentEditorContent() {
   }, [documentType, selectedPatient, dentalRecordsReload])
 
   // Load the DB-backed **DCH dental-act catalogue** once when editing a bulletin (searched client-side for the act
-  // picker) — see the state declaration for why this is no longer `cnamNomenclatureApi`. The VLC values are not
+  // picker) — the DCH catalogue is the only act catalogue. The VLC values are not
   // fetched here: their only consumer was the client-side estimate calculator that AC-P6.15 replaced with the
   // backend endpoint, which resolves them itself.
   useEffect(() => {
@@ -1118,6 +1118,13 @@ export function DocumentEditorContent() {
 
   // Estimates aligned by act index; `null` = not estimable (free text, unknown lettre clé, no coefficient).
   const [actEstimates, setActEstimates] = useState<Array<number | null>>([])
+  /**
+   * Why an estimate is absent, per act, as the server reported it. `MissingCoefficient` is also derivable here
+   * (`missingCoefficient` below), but `NoLetterValue` is not: the cotation parses, the request succeeds, and the
+   * estimate comes back null because the convention fixes no valeur for that lettre clé — which used to render as
+   * nothing at all, indistinguishable from « non remboursable ».
+   */
+  const [actEstimateReasons, setActEstimateReasons] = useState<Array<'MissingCoefficient' | 'NoLetterValue' | null>>([])
   // A failed call must SAY so (AC-P6.17). Showing an empty column instead is indistinguishable from
   // « aucun acte remboursable » — the reader would conclude the CNAM pays nothing.
   const [estimateFailed, setEstimateFailed] = useState(false)
@@ -1167,14 +1174,18 @@ export function DocumentEditorContent() {
           )
           if (cancelled) return
           const byIndex = bulletinFields.acts.map(() => null as number | null)
+          const reasons = bulletinFields.acts.map(() => null as 'MissingCoefficient' | 'NoLetterValue' | null)
           requestIndexes.forEach((actIndex, resultIndex) => {
             byIndex[actIndex] = results[resultIndex]?.estimate ?? null
+            reasons[actIndex] = results[resultIndex]?.unavailableReason ?? null
           })
           setActEstimates(byIndex)
+          setActEstimateReasons(reasons)
           setEstimateFailed(false)
         } catch {
           if (cancelled) return
           setActEstimates([])
+          setActEstimateReasons([])
           setEstimateFailed(true)
         }
       })()
@@ -3238,6 +3249,7 @@ export function DocumentEditorContent() {
                     <div className="space-y-3">
                       {bulletinFields.acts.map((act, index) => {
                         const actEstimate = actEstimates[index] ?? null
+                        const estimateReason = actEstimateReasons[index] ?? null
                         // K1: the catalogue row behind this act's code, if the code is one of ours. `undefined`
                         // for a hand-typed code and for every act of a pre-K1 bulletin (stored mnemonics).
                         const catalogAct = dentalActFor(act.codeActe)
@@ -3340,6 +3352,16 @@ export function DocumentEditorContent() {
                               (il figure à l&apos;arrêté NGAP). Saisissez «&nbsp;{catalogAct?.lettreCle}&nbsp;
                               coefficient&nbsp;» pour obtenir une estimation — le remboursement reste calculé par la
                               CNAM dans tous les cas.
+                            </p>
+                          )}
+                          {/* A cotation that parses but whose lettre clé the convention values at nothing. Unlike
+                              the case above, this is not a gap anybody can close — so it says so rather than
+                              pointing at the catalogue, and never renders as 0. */}
+                          {actEstimate == null && estimateReason === 'NoLetterValue' && (
+                            <p className="text-xs text-muted-foreground">
+                              Aucune estimation&nbsp;: la convention ne fixe pas de valeur pour la lettre clé
+                              «&nbsp;{parseCotation(act.cotation)?.lettreCle}&nbsp;». Le remboursement reste calculé
+                              par la CNAM.
                             </p>
                           )}
                           {/* `formatDT`, not `toFixed(3) + " TND"` (defect #5): a period decimal separator and a

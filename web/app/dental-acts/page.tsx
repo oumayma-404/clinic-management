@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { DentalActsTable } from "@/components/dental-acts-table"
 import { DentalActFormModal } from "@/components/dental-act-form-modal"
+import { CnamLetterValuesCard } from "@/components/cnam-letter-values-card"
 import { PageHeader } from "@/components/ui/page-header"
 import { useSession } from "@/lib/auth/session"
 import { Button } from "@/components/ui/button"
@@ -55,7 +56,7 @@ export default function DentalActsPage() {
             {/* The route had no page title at all. No `zone` prop — derived from the route. */}
             <PageHeader
               title="Actes dentaires"
-              subtitle="Le catalogue d'actes qui alimente le sélecteur des devis et des notes d'honoraires."
+              subtitle="Le catalogue d'actes et les valeurs de la lettre clé qui alimentent les devis, les notes d'honoraires et l'estimation CNAM."
             />
             <DentalActsTable
               onEdit={handleEdit}
@@ -63,6 +64,9 @@ export default function DentalActsPage() {
               onChanged={handleSuccess}
               reloadToken={refreshKey}
             />
+            {/* The VLC card came here with the catalogue merge: a cotation is only worth something once the
+                dinar value of its lettre clé is known, so the two belong on one screen. */}
+            <CnamLetterValuesCard onChanged={handleSuccess} reloadToken={refreshKey} />
           </>
         ) : (
           // La gestion du catalogue des actes est réservée aux administrateurs.

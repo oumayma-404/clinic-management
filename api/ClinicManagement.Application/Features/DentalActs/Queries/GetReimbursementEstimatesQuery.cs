@@ -6,7 +6,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Logging;
 
-namespace ClinicManagement.Application.Features.CnamNomenclature.Queries;
+namespace ClinicManagement.Application.Features.DentalActs.Queries;
 
 /// <summary>
 /// The indicative reimbursement estimate for <b>every act of one bulletin</b>, in one round trip (AC-P6.15).
@@ -104,6 +104,7 @@ public class GetReimbursementEstimatesQueryHandler
                             item.Coefficient, vlc, request.PatientDateOfBirth, careDate),
                         RateApplied = CnamReimbursementCalculator.RateForPatient(
                             request.PatientDateOfBirth, careDate),
+                        UnavailableReason = CnamReimbursementCalculator.UnavailableReason(item.Coefficient, vlc),
                     };
                 })
                 .ToList();

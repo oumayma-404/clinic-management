@@ -26,7 +26,6 @@ public class AdminSurfaceCoverageTests
     private static readonly Type[] CatalogControllers =
     {
         typeof(ProcedureTypesController),
-        typeof(CnamNomenclatureController),
         typeof(DentalActsController),
         typeof(MedicationsController),
     };
@@ -52,7 +51,7 @@ public class AdminSurfaceCoverageTests
         // GET would have to encode N cotations plus N care dates into the query string. It persists nothing and
         // never appears on the BS1 PDF (AC-P6.16); gating it AdminOnly would put the estimate out of reach of the
         // secretary who fills the bulletin in.
-        (typeof(CnamNomenclatureController), nameof(CnamNomenclatureController.GetReimbursementEstimates)),
+        (typeof(DentalActsController), nameof(DentalActsController.GetReimbursementEstimates)),
     };
 
     private static bool IsExemptFromWriteGate(MethodInfo method) =>

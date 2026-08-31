@@ -81,6 +81,13 @@ public class PatientDto
     public DateTime? CalendarImportPendingReviewSince { get; set; }
 
     /// <summary>
+    /// The existing patient this imported record is probably a duplicate of, resolved on read — or null, which is
+    /// the ordinary case. Null also when the id no longer resolves (the suggested patient was deleted), because a
+    /// question that has expired must read as no question rather than as a broken row.
+    /// </summary>
+    public SuggestedDuplicateDto? SuggestedDuplicate { get; set; }
+
+    /// <summary>
     /// Whether the patient agreed to automated SMS/WhatsApp reminders — <c>"NotRecorded"</c>,
     /// <c>"Granted"</c> or <c>"Refused"</c>. The two stamps below say who took the answer and when; a consent
     /// nobody can date is not one a cabinet can defend.
@@ -104,4 +111,25 @@ public class PatientDto
     /// a 409 instead of a silent overwrite.
     /// </summary>
     public uint Version { get; set; }
+}
+
+/// <summary>
+/// « S'agit-il de ce patient ? » — the existing record a calendar-imported fiche is probably a duplicate of.
+///
+/// <para>Carries the two things that let a human answer rather than guess: the birth date and the phone. The
+/// names are near-identical by construction, so the name alone cannot separate « Imen Nasri » from
+/// « Iman Nasri » — and « Oui » deletes a record.</para>
+/// </summary>
+public class SuggestedDuplicateDto
+{
+    public Guid Id { get; set; }
+    public string FullName { get; set; } = string.Empty;
+    public DateTime? DateOfBirth { get; set; }
+    public string? Phone { get; set; }
+
+    /// <summary>
+    /// True when both records carry the same phone number — the strongest confirmation available here, and worth
+    /// saying out loud. A <b>different</b> phone never reaches this DTO: it vetoes the suggestion at import.
+    /// </summary>
+    public bool PhoneMatches { get; set; }
 }

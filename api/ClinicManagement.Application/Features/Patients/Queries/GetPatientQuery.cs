@@ -62,7 +62,14 @@ public class GetPatientQueryHandler : IRequestHandler<GetPatientQuery, Result<Pa
                 return Result<PatientDto>.Failure("Patient introuvable.");
             }
 
-        return Result<PatientDto>.Success(patient.ToDto());
+            var dto = patient.ToDto();
+
+            // The fiche's own « à compléter » banner asks the same question the worklist does, through the same
+            // helper — a second resolution here is how the two surfaces start disagreeing about who is suggested.
+            await PatientMappingExtensions.AttachSuggestedDuplicatesAsync(
+                new[] { patient }, new[] { dto }, _patientRepository, cancellationToken);
+
+            return Result<PatientDto>.Success(dto);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
