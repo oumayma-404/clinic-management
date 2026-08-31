@@ -1100,13 +1100,20 @@ export default function PatientDetailsPage() {
             « Modifier le patient » is « Modifier », and each button keeps its icon plus a `title` carrying
             the full phrase. `sm:shrink-0` stops the row being compressed instead of the name.
 
-            ⚠️ **`shrink-0` is `sm:`-prefixed, and that is the whole fix for a real phone defect.** Unprefixed,
-            it pinned this group at its ~500 px max-content width inside a 343 px column — so `flex-wrap` never
-            fired (the box was already as wide as its content), « Planifier un RDV » sat off-screen and the whole
-            page scrolled sideways. Below `sm:` the group must be allowed to shrink so its own `flex-wrap` can do
-            the job it is here for; above it, the name is what needs protecting and the pin is right.
+            ⚠️ **The pin is `xl:`-prefixed, and a `sm:` pin scrolled every tablet sideways.** Pinned, the group
+            cannot shrink, so its own `flex-wrap` never fires — the box is already as wide as its content — and
+            the outer row cannot rescue it either: wrapping a 633 px item onto a line of its own still overflows
+            a 501 px line. Measured at 820 px with the rail out: group 633 px in a 501 px column, `<main>`
+            scrolling 657 in 549, « Planifier un RDV » 93 px past the right edge. That was already true at 609 px
+            with the shorter label this button replaced; five actions of French simply do not fit beside a name
+            on a tablet.
+            So below `xl:` the group takes a **row of its own** (`basis-full`) and is free to shrink, which is
+            what lets `flex-wrap` split the five buttons over two rows. The name then keeps the whole width above
+            it rather than being crushed to the ~56 px a 1024 px viewport would leave it — which is the defect a
+            plain `lg:shrink-0` trades this one for, and the reason the pin exists at all. From 1280 px there is
+            room for both, so the group returns beside the name and the pin is right again.
           */}
-          <div className="flex min-w-0 flex-wrap gap-2 sm:shrink-0">
+          <div className="flex min-w-0 basis-full flex-wrap gap-2 xl:basis-auto xl:shrink-0">
             <Button
               variant="outline"
               size="sm"
