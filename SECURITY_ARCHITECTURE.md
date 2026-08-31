@@ -10,7 +10,24 @@ touch anything here; they are the ones that will save you.
 
 **What this is not.** A posture snapshot with findings and severities — that is
 `SECURITY_POSTURE_2026-08-16.md`. A vulnerability review — that is `SECURITY_REVIEW_2026-08.md`
-(2026-08-07, predates the hardening; see its own staleness note).
+(2026-08-07, predates the hardening; see its own staleness note). What is still **owed**, and by whom,
+is `follow-up/security-remediation-outstanding.md`.
+
+**Last updated 2026-08-31**, after a whole-codebase security and Tunisian data-protection audit and the
+remediation batch that followed it. What that batch changed, and where to read it:
+
+| | Section |
+|---|---|
+| Signing out revokes the session server-side; PBKDF2 at 210 000; one-time codes cannot be replayed | § 5.1 |
+| A device grant no longer buys the whole API — scope-narrowed tokens, fail-closed | § 5.4 |
+| A patient can refuse to be contacted, and the refusal is obeyed | § 5.5 |
+| A hostname is resolved and re-checked at the socket, SMTP included | § 5A.5 |
+| The clinic is inside the audit hash; the newest rows can no longer be deleted unseen; reads are recorded | § 7.1–7.3 |
+| No catch-all hands the client an exception message | § 9.10 |
+| An enum on the wire — found twice, one of them pre-existing and breaking the CSV import | § 9.11 |
+
+⚠️ **The largest security item in this document is not in the code and never was**: the production
+data sits in **London**, not Tunisia (§ 10, first row).
 
 ---
 
@@ -30,6 +47,11 @@ touch anything here; they are the ones that will save you.
 | T8 | Undetected exfiltration of a whole practice | Step-up auth + non-best-effort export ledger + 3-per-10-min limit |
 | T9 | The vendor console reading clinical data | Closed field-name allow-list, build-failing reflection test |
 | T10 | Silent egress to an undeclared third party | `DataResidencyAssurance` startup refusal |
+| T11 | A tenant-supplied endpoint turned into a server-side request primitive | `OutboundEndpoint` at save time **plus** `PublicEgressGuard`'s connect callback (§ 5A.5) |
+| T12 | A device credential exchanged for the whole API surface | Scope-narrowed tokens, refused by every endpoint that has not named the scope (§ 5.4) |
+| T13 | The newest audit entries deleted to hide an action | Out-of-band sealed tips, `seal-audit-chain` (§ 7) |
+| T14 | A patient contacted after refusing | Tri-state consent asked once, at the single enqueue gate (§ 5.5) |
+| T15 | Server internals reaching a browser through an error body | `Result.Diagnostic` — logged, never serialised (§ 9.10) |
 
 ### 1.2 Explicitly **not** defended against — say so rather than implying otherwise
 
@@ -38,9 +60,12 @@ touch anything here; they are the ones that will save you.
 - **A malicious clinic administrator inside their own tenant.** They can read and export their own
   practice — that is the product. The audit chain makes it *attributable*, not impossible.
 - **XSS via injected script.** The CSP carries `'unsafe-inline'` on `script-src`; see § 9.5.
-- **DNS rebinding on tenant-supplied integration URLs.** `OutboundEndpoint` validates the *hostname*,
-  not the resolved address at connect time. Closing it needs a `SocketsHttpHandler.ConnectCallback`.
-- **Supply-chain compromise.** No dependency-vulnerability scanning runs anywhere today.
+- ~~**DNS rebinding on tenant-supplied integration URLs.**~~ **Closed 2026-08-31** — see § 5A.5. The
+  `SocketsHttpHandler.ConnectCallback` this line called for now exists, and SMTP resolves before it
+  dials. Kept struck through rather than deleted: the shape is worth recognising again.
+- **Supply-chain compromise.** Dependency scanning exists now (`ci.yml` → `dependencies`), but the
+  Windows client feed is still **unsigned** (`vpk pack` carries no `--signParams`) and the backup
+  store has no object-lock, so a host with the S3 keys can delete the archives. Both are § 10 debt.
 - **A compromised vendor console account with a valid second factor.** It can read every cabinet's
   *metadata* (never clinical data, § 9 T9) and grant entitlements. Every action is journalled.
 
@@ -182,13 +207,21 @@ pre-US-5 flat keys still resolve. There is no backfill.
 
 | | |
 |---|---|
-| Password hash | PBKDF2 via `PasswordHasher<User>` (v3 format), rehash-on-login |
+| Password hash | PBKDF2-HMAC-SHA512 via `PasswordHasher<User>` (v3 format) at **210 000 iterations**, rehash-on-login |
 | Password floor | 12 chars, enforced on **set**, served by the server so no client can drift |
 | TOTP secret | Encrypted at rest; own Data Protection purpose (§ 6.2) |
 | Recovery codes | 8, hex SHA-256, single-use, **spent even when the accompanying sign-in fails** |
 | Refresh | Rotating; family accepts current + immediate predecessor (two tabs racing must both work) |
-| Revocation | `User.TokenVersion`, checked per request |
+| Revocation | `User.TokenVersion`, checked per request — **and `POST /api/auth/logout` now bumps it**, so signing out ends the session server-side rather than only clearing a cookie |
+| One-time codes | `ITotpReplayGuard` on **every** `VerifyCode` call site (RFC 6238 § 5.2); enrolment is the sole exemption and is named |
 | JWT validation | issuer / audience / lifetime / key, `ClockSkew = TimeSpan.Zero`, distinct audiences for access vs refresh |
+
+⚠️ **Signing out used to clear cookies only.** A captured refresh credential stayed valid for its
+full 12 hours after the user pressed « Se déconnecter ». `EndSessionCommand` is anonymous by
+necessity — the credential in the body *is* the authentication, and demanding a live access token
+would refuse exactly the case that most needs revoking, a browser signing out after its 30-minute
+token expired. It answers **204 for a live, expired, unknown or already-ended credential alike**, so
+it is no oracle.
 
 ⚠️ **Recovery codes are plain SHA-256, not PBKDF2, and that is correct** — they are 128-bit random
 values, so iterated hashing buys nothing against a search space that large and costs latency on a
@@ -230,6 +263,57 @@ on its address. Both apply.
 ⚠️ `UseAuthAttemptAccountCapture` buffers and rewinds the body, and **anything unreadable falls back to
 the address** — non-JSON, truncated, >8 KB, `auth/refresh`. Nothing about it can refuse a request:
 turning a JSON slip into a 500 at the limiter makes the login page unreachable.
+
+### 5.4 Scope-narrowed tokens
+
+`POST /api/backup/archive-grants/token` is **anonymous by necessity** — an unattended workstation
+presenting its device secret has no session and nobody at the keyboard — and it used to return an
+ordinary 30-minute **clinic-admin access token with the entire API surface**. A PC authorised only to
+fetch a nightly archive could read every patient record, issue invoices and manage accounts.
+
+It now mints a token carrying `clinic_scope`, and `ScopedTokenFilter` (a **global** MVC authorization
+filter) refuses it on every action that has not named that scope.
+
+⚠️ **The direction of the test is the whole design.** The question is « does this endpoint *name* the
+scope? », never « does it forbid it? ». A controller action written next month is therefore out of
+reach of a restricted token on the day it is written, with no decision required from its author. The
+inverse — endpoints declaring what they refuse — is one forgotten attribute away from the hole it
+replaces, and the forgotten endpoint is exactly the one an over-broad token finds.
+
+⚠️ **Adding the claim removes surface and never grants any.** Every ordinary gate still applies to a
+scoped token: the role policy, the subscription gate, the step-up confirmation, the grant re-check.
+
+⚠️ **Four actions name it, not one** — `Backup.DownloadArchive`, `Backup.GetFileManifest`,
+`Backup.ReportVaultCopy` and `PatientFiles.DownloadFile`. They were read off the shell's own request
+URLs in `desktop/ClinicManagement.DesktopShell` rather than guessed; naming only the archive download
+would have silently stopped the file mirror and the coffre report. The per-file download widens
+nothing — the same token can pull the archive, which contains those files.
+
+Held by `ScopedTokenCoverageTests`: the declared set must equal the reviewed set **in both
+directions**, plus a probe controller proving an action that names nothing is refused.
+
+### 5.5 Consent to be contacted
+
+Recording a phone number used to enrol a patient into SMS/WhatsApp reminders with no way for the
+patient **or the cabinet** to exempt anybody. `Patient.ReminderConsent` is tri-state —
+`NotRecorded` / `Granted` / `Refused` — with the date and the person who took the answer, because a
+consent nobody can date is not one a cabinet can defend to the INPDP.
+
+⚠️ **`NotRecorded` still receives reminders, and that is a dated decision rather than an oversight.**
+Every patient already on file predates the column; treating them as refusals would have muted every
+reminder in every cabinet on the day it shipped, discovered through empty waiting rooms rather than
+through a message. The number was given *for* being contacted about care. What the column adds is the
+ability to say **no** and have it obeyed, which did not exist.
+
+⚠️ **One gate, and consent is asked first.** `ReminderScheduler.ReachabilityOfAsync` answers consent
+and deliverability together for both enqueue paths. The order matters: reporting « no valid phone » to
+a patient who refused sends reception off to correct a number — and correcting the number is precisely
+the action that must **not** put the message back in the queue.
+
+`ReminderConsentCoverageTests` is the derived guard, in this repository's usual shape: `Refused` is
+compared in exactly one production file, and the scheduler reads a patient in exactly one place. A
+third enqueue path written against the repository would compile, pass every other test, and message
+somebody who said no.
 
 ---
 
@@ -312,6 +396,45 @@ Revisit only if the hosted deployment moves to a long-lived certificate under ou
 rotation path that does not require a store release exists. Do not add a pin to one client alone — three
 clients disagreeing about which certificates are acceptable is worse than none pinning.
 
+### 5A.5 Outbound egress — the half that used to be owed
+
+A clinic admin types the SMS gateway URL, the WhatsApp Graph base and the SMTP host into a settings
+screen, and a background job inside the API container then dials them. `OutboundEndpoint` refuses the
+obvious forms at save time — `localhost`, a single-label container name, an IP literal in a private
+range, and anything not `https` where the deployment forbids it.
+
+⚠️ **`IPAddress.TryParse` returns false for every hostname, so hostnames passed unconditionally.** On
+`HostedMultiTenant` public signup makes anyone an admin of their own clinic, and that admin could
+point `smtpHost` at `127.0.0.1.nip.io` — or at a name they control answering `10.0.0.5` — and have the
+container dial its own compose network on their behalf. The HTTP channels were covered only by the
+accident that `https` is forced; **SMTP had nothing at all**, since it dials a bare host on a bare
+port.
+
+`PublicEgressGuard` closes it where the address is finally known:
+
+- a `SocketsHttpHandler.ConnectCallback` on the **default** handler of the shared `IHttpClientFactory`
+  — attached there rather than per named client, because every one of those integrations dials an
+  admin-editable URL and a per-client opt-in is one forgotten registration away from the hole
+- an explicit resolve-then-check in `SmtpDocumentEmailSender`, which has no connect callback to hang
+  it on
+
+⚠️ **Save-time validation structurally cannot close this, however careful it is.** DNS is mutable: a
+name resolving publicly when the admin presses « Enregistrer » can resolve to `169.254.169.254` an
+hour later when the job dials it. The check has to happen at the socket.
+
+⚠️ **Every resolved address is checked, not just the first** — a name can answer with one public and
+one private record, and connecting to whichever the resolver ordered first is nobody's decision. The
+socket then connects **by address**, so no second lookup can disagree with the one that was checked.
+
+⚠️ **The refusal names the host and adds nothing else.** Reporting the resolved address back to the
+tenant who chose the name would make every refusal a DNS-driven scanner of the operator's private
+network. Asserted as an exact string, so a later author cannot append a helpful « (10.0.3.7) ».
+
+⚠️ On `SelfHostedLan` the guard is **absent rather than lenient** — a relay on the practice's own LAN
+is the normal arrangement there and there is no tenant boundary to defend.
+`SmtpTransactionalEmailSender` is deliberately unguarded too: it reads the **operator's** own
+configuration, where an internal relay is intended.
+
 ---
 
 ## 6. Cryptography inventory
@@ -356,6 +479,15 @@ search (without which a patient on page seven reads as "aucun résultat"), dupli
 name-ordered paging. Revisit only under a compliance requirement, as its own feature. Do not
 half-introduce it on one column.
 
+**Hashes, which are not credentials.** `User.PasswordHash`, `PlatformAccount.PasswordHash`,
+`ClinicSignup.PasswordHash` and `ClinicArchiveGrant.SecretHash` are deliberately plaintext columns:
+they are irreversible by construction, and encrypting them would put sign-in — or, for the last one,
+the unattended archive copy — **behind the key ring**, so a lost ring would lock every account out of
+a deployment instead of costing only the second factor. That inversion is avoided everywhere else in
+this product. They are also compared on every use, and ciphertext is not equality-searchable.
+`SecretProtectionCoverageTests` requires every credential-shaped column to be either ciphertext or a
+**named decision**, in both directions.
+
 ---
 
 ## 7. Audit chain
@@ -369,7 +501,74 @@ indistinguishable from a legitimate one, and they answer nothing about a delete.
 predecessor's hash, verified with `CryptographicOperations.FixedTimeEquals`. Minimum key 32 bytes.
 Chains are **per clinic**, serialised by `pg_advisory_xact_lock`.
 
-Three properties to preserve:
+### 7.1 Scheme v2 — the clinic is inside the hash
+
+`ClinicId` and `UserEmail` were **not in the hashed set** while every read of the journal filters on
+`ClinicId`. So `UPDATE "AuditEntries" SET "ClinicId" = NULL` removed a row from a cabinet's journal
+permanently **and the chain still verified as intact**. Rows written from now on carry a `v2:` prefix
+and cover both fields.
+
+⚠️ **The scheme is read off the stored value, never guessed.** « Try v2, else v1 » would let a nulled
+`ClinicId` fall through to the v1 form and verify clean — reintroducing the defect inside its own fix.
+
+⚠️ `AuditChainEntry`'s two new fields have **no defaults**, deliberately: a default hid the
+`SchemaVerificationReader` bug where the SQL projection had not been widened, which would have
+reported *every* chained row as altered — on the one check whose whole value is being believed when it
+says so.
+
+Historical rows stay on v1 and are migrated by `rehash-audit-chain --apply` (§ 11), which **refuses
+any chain that does not already verify**: rehashing a tampered row would launder it into a valid v2
+hash and destroy the only evidence.
+
+### 7.2 The sealed tip — the break the arithmetic cannot see
+
+Every check above compares an entry against its **neighbour**. Deleting the newest *k* rows removes no
+neighbour: the shortened chain is internally perfect, and the next append re-links from whatever tip
+it finds. « Supprime la dernière heure » was the cheapest possible attack on this ledger and it left
+nothing behind.
+
+Nothing inside the database can close that — whoever can delete the rows can delete the record of
+them. `seal-audit-chain --apply` records each chain's tip **outside** the database, beside the chain
+key and for the chain key's own reason; `verify-schema` then compares and reports `TipTruncated`.
+
+⚠️ **Sealing is an operator action, never automatic.** A seal the application rewrote on every append
+would be rewritten by the process an attacker already controls, one moment after the truncation, and
+would report clean for ever. A seal means « a person confirmed this chain was intact at this length »,
+which is only true if a person did it.
+
+⚠️ **A chain that does not verify is not sealed**, and the walk runs *with* the existing seal — so a
+chain already truncated since the last sealing is refused rather than quietly re-sealed at its new,
+shorter length.
+
+⚠️ **The seal records the tip's hash, not merely its sequence.** Rebuilding a forged chain to the same
+length is the obvious way round a length-only check, and every internal test passes on the rebuilt
+chain.
+
+⚠️ **An unreadable seal file throws** rather than reading as « nothing sealed » — the fallback would
+silently restore the exact blindness this closes. **Back the file up**; losing it corrupts nothing and
+re-opens the blind spot.
+
+⚠️ Growing past the seal is normal. Without that case, `verify-schema` would report every healthy
+deployment as tampered the day after it was sealed, which is how a check gets switched off.
+
+### 7.3 Reads are recorded, not just writes
+
+« Qui a sorti la radiographie de ce patient ? » had no answer: the ledger recorded mutations only.
+`AuditAction.Read` and `PatientRecordAccessLedger` now record a file or document being pulled, keyed
+on the **patient's** id rather than the file's, so the journal is answerable per patient.
+
+⚠️ **Thumbnails do not audit, and the reason is in the exemption.** The tile grid used to paint by
+fetching the original through the audited download, so scrolling one file list wrote a row per visible
+tile — burying the real accesses in noise and pulling full-size radiographs to draw 40 px squares.
+Tiles now fetch the downscaled stand-in only, whose endpoint is a **named exemption** in
+`PatientFileAccessCoverageTests` that holds *only* while preview serves a stand-in rather than the
+original.
+
+⚠️ Consequence to expect: **audit write volume rises materially** on a busy clinic.
+
+### 7.4 Properties to preserve
+
+Five now, and the last two arrived on 2026-08-31.
 
 1. **Audit writes stay best-effort.** A failed audit write must never roll back the clinical or
    financial operation it describes. When one fails, a **declared gap** is recorded — so a later walk
@@ -379,6 +578,10 @@ Three properties to preserve:
 3. **The chain key is NOT the Data Protection ring.** FR-3.9 makes the ring the thing a restore may
    fail to read — if the chain were keyed on it, the ledger would become unverifiable at exactly the
    moment somebody wanted to check it.
+4. **A hash's scheme is read, never guessed** (§ 7.1) — « try the new form, else the old » is how a
+   nulled field falls through to a form that does not cover it and verifies clean.
+5. **The sealed tip lives outside the database** (§ 7.2), and a chain that does not verify is never
+   re-sealed.
 
 Read surface is `GET /api/audit` (`AdminOnly`, paged). **There is no write endpoint** — a ledger with
 one is a ledger somebody can correct.
@@ -393,9 +596,23 @@ should trust them:
 | Mechanism | Fails when | Examples |
 |---|---|---|
 | **Compile error** | The code cannot be written | `clinicId` positional param on clinical children; `IFileStorage.UploadAsync` requiring a clinic id |
-| **Derived reflection test** | A *new* thing forgets | `TenantScopeFilterTests` (every clinic-owned table is filtered or a named decision) · `SystemWideCallerCoverageTests` (every no-HTTP-context reader declares a scope) · `PlatformReadShapeTests` (closed field-name set, **both directions**) · `ControllerAuthorizationCoverageTests` · `SubscriptionExemptionCoverageTests` · `ClinicalRecordAccessTests` |
+| **Derived reflection test** | A *new* thing forgets | `TenantScopeFilterTests` (every clinic-owned table is filtered or a named decision) · `SystemWideCallerCoverageTests` (every no-HTTP-context reader declares a scope) · `PlatformReadShapeTests` (closed field-name set, **both directions**) · `ControllerAuthorizationCoverageTests` · `SubscriptionExemptionCoverageTests` · `ClinicalRecordAccessTests` · **`ScopedTokenCoverageTests`** (which actions accept a restricted token) · **`ReminderConsentWireShapeTests`** (no DTO serialises an enum as a number) |
+| **Derived source scan** | A *new* call site forgets | **`TotpReplayCoverageTests`** (every `VerifyCode` spends the code) · **`ReminderConsentCoverageTests`** (one definition of a refusal; one patient read in the scheduler) · **`ExceptionLeakCoverageTests`** (no catch-all hands the client `ex.Message`) · `LogTemplateCoverageTests` (no patient identifier in a log template) · `ClinicalRecordAuditCoverageTests` |
 | **Startup refusal** | Configuration is wrong, at boot, loudly | `TransportAssurance` · `DataResidencyAssurance` · key-ring certificate absent · empty connection string · unrecognised `Deployment:Profile` |
 | **`verify-schema`** | The database disagrees with the model | `clinical-child-clinic-matches-patient` · `cheque-details-only-on-cheques` · every backfill row count · key-ring protection checks |
+
+⚠️ **A source scan must be brace-matched, not line-based, and must know its own exceptions.** Both
+lessons were paid for during the 2026-08-31 batch. `ExceptionLeakCoverageTests`' first pass scanned by
+line, rewrote **71 of 78** sites and reported success — the failing form is routinely wrapped across
+three lines. Its second pass then blanked three `catch (Exception ex) when
+(SubscriptionRefusals.IsDomainRefusal(ex))` blocks, turning « la durée doit être positive » into « Une
+erreur est survenue »; only an unrelated handler test caught it. A generic catch narrowed by a
+**domain** predicate is not a catch-all, while an `is not X` exclusion still is.
+
+⚠️ **Ask the question the wire asks, not the one the type asks.** `ReminderConsentWireShapeTests`
+tests « does this property reach the client as a number? », not « is this property an enum » — a
+per-property `[JsonConverter(typeof(JsonStringEnumConverter))]` makes an enum serialise as its name,
+and the cruder question would flag code that is already correct.
 
 **The lesson this codebase learned the hard way, twice:** a *listed* expectation rots. The realtime
 key table stayed green for a whole period while five keys were broadcast with nothing listening;
@@ -512,6 +729,49 @@ hardware, not by any test.
 landed. Corrected 2026-08-17. The general lesson: **"the platform default is safe" is a claim about the
 platform, and platform defaults interact.** Verify what the user actually sees, on a device.
 
+### 9.10 An error body carrying the server's internals
+
+About **80 handlers** ended their catch-all with `Result.Failure(ex.Message)`, and that string is
+rendered verbatim as `{ error }`. Npgsql SQLSTATEs and table names, S3 endpoints, server file paths
+and English framework text all reached an authenticated browser — and because nothing logged the
+exception, reached **nowhere else**. The detail was simultaneously exposed where it must not go and
+lost where it was needed.
+
+The fix is a `Result.Diagnostic` that nothing serialises, logged once in
+`ApiControllerBase.HandleFailure`. Placed at the boundary rather than at 78 catch sites: no handler
+can forget it, and none had to grow an `ILogger` — which would have broken every test that constructs
+them.
+
+⚠️ **Typed catches were deliberately left alone.** `catch (ArgumentException ex)` and
+`catch (InvalidOperationException ex)` here carry French domain text the handler threw itself. Blanking
+those would replace every precise refusal with « Une erreur est survenue »: a worse product, and no
+more secure.
+
+### 9.11 An enum that serialises as a number
+
+This API registers **no global `JsonStringEnumConverter`**, so a raw enum property on a DTO leaves as
+`0`/`1`/`2`. Two failures follow, both silent:
+
+- **Reading** — the client compares an integer against `"Refused"`, never matches, and renders the
+  fallback over every stored value
+- **Writing** — sending the name is rejected as a **400 by the model binder**, before any handler runs,
+  so there is no French message and no log line either
+
+Found twice on 2026-08-31. The consent field shipped that way (its own DTO's docstring, three
+properties above, warns about exactly this for `Dentition`); the derived guard written for it then
+found `PatientImportRowDto.Outcome` with the identical defect, **pre-existing** — which had made the
+whole CSV import unusable: the importable-rows filter came back empty so « Importer » had nothing to
+import, no duplicate could be ticked « créer quand même », and every row badged as Invalid.
+
+⚠️ **No gate could see either.** `tsc` is happy (the client's type says `string` and the server never
+disagreed), the unit suite constructs the enum directly and never serialises, `check:responsive` looks
+at layout. **Only a real HTTP request showed it** — which is the general lesson: a contract between two
+languages is not checked by either compiler.
+
+Two shapes of fix, each for its reason: a **string** property plus a `*Rules.Parse` (`DentitionRules`,
+`ReminderConsentRules`) where only the client reads it, and a **per-property `[JsonConverter]`** where
+the server also reads it. Held by `ReminderConsentWireShapeTests`.
+
 ---
 
 ## 10. Known reductions and operational debt
@@ -521,8 +781,13 @@ Full detail with anchors in `SECURITY_POSTURE_2026-08-16.md` § 1 and § 3. Summ
 | | Item | Status |
 |---|---|---|
 | Reduction | `Security:AllowUnverifiedInternalTls` — DB hop encrypted but **identity unverified**. Opt-in, non-default, warned every boot. Render has no mountable CA. | Active on Render only |
-| Debt | Four credentials in git history (Google secret + refresh token, HuggingFace key, DB password) — **unrotated** | Outstanding |
-| Debt | `deploy/secrets/`, `clinic-keys/`, `*.pfx` are **not in `.gitignore`** while the compose defaults point there | Outstanding |
+| 🔴 **Debt** | **The production data is in London.** OVH zone `os-uk2`, confirmed 2026-08-31 — not Tunisia. A transfer abroad needs prior INPDP authorisation under *loi organique 2004-63* art. 51–52, and the art. 90 exposure falls on the **cabinet**, not the vendor. Two sidecars ship a copy off-server independently of where the app runs | **Outstanding — the largest item in this table** |
+| 🔴 Debt | Four credentials in git history (Google secret + refresh token, HuggingFace key, DB password) — **unrotated**. `appsettings.json` still carries the same `ClientId`, so the leaked secret is valid for the live configuration: burn the OAuth **client**, not just the secret | Outstanding |
+| ✅ Closed | **Secret paths are gitignored** — `deploy/secrets/`, `clinic-keys/`, `*.pfx`, `deploy/backup-identity.txt` (the age private key that decrypts every backup), `**/appsettings.Production.json`, `.env`/`.env.*` with an `!.env*.example` negation | Done 2026-08-31 |
+| ✅ Closed | **`appsettings.Development.json` no longer ships in the published image.** It was verified present on the live server, carrying a working console signing key, `minioadmin`/`minioadmin`, a DB password and a webhook key — inert only while `ASPNETCORE_ENVIRONMENT` is not `Development`, which is one variable away | Done 2026-08-31 |
+| ✅ Closed | **No hardcoded LAN database password.** `docker-compose.selfhosted-lan.yml` shipped `clinic_password` in two places; `${LAN_POSTGRES_PASSWORD:?…}` now refuses to start rather than falling back to a value published in this repository | Done 2026-08-31 |
+| ✅ Closed | **`Console:SigningKey` rejects a placeholder and a key identical to `Auth:Local:SigningKey`** — the check its own error message had promised since it was written, with nothing enforcing it | Done 2026-08-31 |
+| ✅ Closed | **WAL segments cannot ship unencrypted.** `wal-g wal-push` uploads in clear when `WALG_LIBSODIUM_KEY` is absent and reports success; the sidecar refused that condition while the `archive_command` beside it did not. `wal-push-guard.sh` fails closed — the segment stays in `pg_wal/` and is retried, so it costs disk rather than data. **The key is set in production** (verified 2026-08-31; 0 failed archives) | Done 2026-08-31 |
 | Debt | **No restore drill has ever been performed**; `key-ring-protection` and `secrets-protected-under-current-ring` never run against a live deployment | Outstanding |
 | Debt | Key-ring certificate self-signed on a dev laptop; `KEY-CUSTODY.md` custody table is placeholders | Outstanding |
 | Debt | Sidecar secrets still in `environment:` (shared with non-.NET containers; wal-g has no `_FILE` convention) | Deferred with a plan |
@@ -533,6 +798,14 @@ Full detail with anchors in `SECURITY_POSTURE_2026-08-16.md` § 1 and § 3. Summ
 | ✅ Closed | **Node 20 was end-of-life** (2026-04-30) in both Dockerfiles and all three CI node jobs. Moved to **Node 22 LTS** | Done |
 | ✅ Closed | **`console/Dockerfile` had never been buildable** — it copies a `public/` that was never tracked, and `deploy/docker-compose.hosted.yml` builds the console from that context. Invisible to `next build`, the typecheck, the responsive gate and CI (nothing builds images) | Done |
 | Gap | `CloudBrowser` keeps a null authorization `FallbackPolicy` | Standing, mitigated |
+| Debt | **Thumbnails are gone for every file predating the preview feature** (5 on production). A preview backfill restores them; the audit fix that caused it is § 7.3 | Outstanding |
+| Debt | **`vpk pack` runs with no `--signParams`** and clients pull from an anonymous feed — unsigned code installed silently on every clinic PC | Outstanding |
+| Debt | **No object-lock or immutability on the backup store**, while the server holds read-write S3 credentials and a `wal-g delete` path | Outstanding |
+| Debt | **No MinIO server-side encryption** (needs a KMS key; SSE-S3 fails closed and would break every upload if enabled blindly) and **no disk-encryption requirement for on-premise installs** — NTFS ACLs are defeated by a removed disk, and a stolen clinic PC is the most likely real breach for a Tunisian cabinet | Deliberate, revisit |
+| Debt | Rate-limit / TOTP-replay / step-up stores are **per-process** — correct on one instance, silently weaker on the first `--scale api=2` | Outstanding |
+| Debt | CSP still carries `script-src 'unsafe-inline'` (§ 9.5); nonces + `strict-dynamic` need their own page walk | Outstanding |
+| Debt | **No restore drill has ever been run**, and `KEY-CUSTODY.md` is still `_(name, role)_` on all five rows | Outstanding |
+| Debt | **Nothing filed with the INPDP** — no declaration, no health-data authorisation, no transfer authorisation, no DPAs, no breach procedure. `site/src/pages/confidentialite.html` carries `[bracketed]` gaps and needs Tunisian counsel before publication | Outstanding |
 
 ---
 
@@ -546,6 +819,17 @@ docker exec clinic-api-prod dotnet ClinicManagement.API.dll verify-schema
 # Money ledger reconciliation, same exit codes, same before/after-and-diff workflow.
 docker exec clinic-api-prod dotnet ClinicManagement.API.dll reconcile-money
 
+# Record each audit chain's tip OUTSIDE the database, so a later deletion of the newest
+# entries becomes visible (§ 7.2). Dry run without --apply. Refuses any chain that does
+# not currently verify. Exit 0 / 1 / 2 as above.
+#   ⚠️ BACK THE SEAL FILE UP — losing it corrupts nothing and re-opens the blind spot.
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll seal-audit-chain          # dry run
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll seal-audit-chain --apply
+
+# Move historical rows onto hash scheme v2 (§ 7.1). Dry run without --apply. Refuses any
+# chain that does not already verify — rehashing a tampered row would launder it.
+docker exec clinic-api-prod dotnet ClinicManagement.API.dll rehash-audit-chain
+
 # Confirm no secret reaches a container as a literal environment variable.
 docker exec clinic-api-prod env | grep -Ei 'password|apikey|token|secret' | grep -v '_FILE='
 #   → must return nothing
@@ -558,6 +842,15 @@ dotnet test -c Release -p:BaseOutputPath=<temp>
 Queue depth and dispatcher health: `GET /api/outbox` (`AdminOnly`) — **the age of the oldest waiting
 row is the diagnosis, not the count**. `/hangfire` is loopback-only in every profile, so this endpoint
 is the only window.
+
+⚠️ **Restart the API before believing any end-to-end check.** A local build does not reach an
+already-running process, and a stale one will answer confidently with the old behaviour.
+
+⚠️ **A probe that produces zero is not a passing probe until the control also runs.** During the
+2026-08-31 verification, « booking a patient who refused queued no reminders » was reported as a pass —
+and the control (the same booking with consent *not* refused) also queued zero, because that clinic's
+WhatsApp channel is enabled with no API URL and no access token, so nothing was sendable for anybody.
+Always run the negative case.
 
 Liveness: `GET /health` — anonymous, un-rate-limited, outside `/api`. Database failure is `Unhealthy`
 (503); **storage failure is `Degraded` (200)**, because a clinic with no object storage still books,

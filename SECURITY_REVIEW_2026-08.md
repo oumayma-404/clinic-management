@@ -10,6 +10,13 @@ reported. Two of five candidates were refuted and are recorded below so they are
 **Result: 3 confirmed, 2 refuted.** One confirmed finding is remotely exploitable on the deployment profile
 currently in use.
 
+> **Resolution note — 2026-08-31.** This review recorded the SSRF connect-time check as *owed*
+> (`OutboundEndpoint` validates a hostname but not the address it resolves to). **That half now
+> exists** — `PublicEgressGuard`, described in `SECURITY_ARCHITECTURE.md` § 5A.5 — and covers the HTTP
+> integrations and SMTP. Anything else in this document that reads as outstanding should be checked
+> against `SECURITY_ARCHITECTURE.md` § 10 and `follow-up/security-remediation-outstanding.md` before
+> being acted on; this file is a dated snapshot and is not maintained.
+
 ---
 
 ## Ordered fixes
