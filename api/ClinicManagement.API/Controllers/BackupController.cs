@@ -1,3 +1,5 @@
+using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.API.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MediatR;
 using ClinicManagement.Application.DTOs;
@@ -240,6 +242,9 @@ public class BackupController : ApiControllerBase
     /// which is what a paged listing is.</para>
     /// </summary>
     [HttpGet("file-manifest")]
+    // The file mirror's first call. Named alongside the archive because it is the same unattended flow on the
+    // same grant, and it hands back only a list of names and sizes.
+    [AcceptsScopedToken(LocalAuthScopes.ClinicArchive)]
     [AllowsWithoutSubscription(
         "A cabinet must always be able to take its own data out — and the mirror is the path with nobody "
         + "present to be told why it stopped (the AC-4.2 argument, as for the archive itself).")]
@@ -303,7 +308,12 @@ public class BackupController : ApiControllerBase
             return Failure("Ce poste n'est pas autorisé.", StatusCodes.Status403Forbidden);
         }
 
-        var token = auth.GenerateToken(issuer);
+        // ⚠️ SCOPED, and this line is the whole of the fix. It used to be `GenerateToken(issuer)` — an ordinary
+        // 30-minute clinic-admin token with the entire API surface, handed to an unattended PC in exchange for a
+        // device secret, so a workstation authorised only to fetch a nightly archive could read every patient
+        // record and manage every account. The scope claim narrows it to `GET /api/backup/archive`, enforced by
+        // ScopedTokenFilter, which refuses every endpoint that has not named the scope.
+        var token = auth.GenerateScopedToken(issuer, LocalAuthScopes.ClinicArchive);
         return Ok(new ArchiveGrantTokenDto(token.AccessToken, token.ExpiresAtUtc));
     }
 
@@ -338,6 +348,9 @@ public class BackupController : ApiControllerBase
     /// standing between a practice and the loss of a decade of imaging.</para>
     /// </summary>
     [HttpPost("vault-copy")]
+    // The unattended shell's own report, so it must be reachable by the token the shell holds. It writes one
+    // timestamp, and it independently re-checks the grant below, so the scope is not what protects it.
+    [AcceptsScopedToken(LocalAuthScopes.ClinicArchive)]
     [AllowsWithoutSubscription(
         "Reporting that the practice holds its own copy of its own files is not recording new work, and a lapsed "
         + "cabinet must not be the one that stops being told its coffre is unprotected.")]
@@ -363,6 +376,10 @@ public class BackupController : ApiControllerBase
 
     [HttpGet("archive")]
     [EnableRateLimiting(RateLimiting.ArchivePolicy)]
+    // ⚠️ The ONE action a token from ExchangeArchiveGrant can reach. Without this line an authorised
+    // workstation's token opens nothing at all; with it, it opens exactly this and nothing else. Every other
+    // gate on this action still applies to it — the step-up confirmation below included.
+    [AcceptsScopedToken(LocalAuthScopes.ClinicArchive)]
     [AllowsWithoutSubscription(
         "A cabinet must always be able to take its own data out — recovering records that already exist is not "
         + "recording new work (AC-8, the AC-4.2 argument).")]

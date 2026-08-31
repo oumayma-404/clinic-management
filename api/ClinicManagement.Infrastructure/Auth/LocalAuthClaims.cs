@@ -28,4 +28,33 @@ public static class LocalAuthClaims
     /// <para>Only on the <b>refresh</b> token: an access token is never exchanged, so it has no chain.</para>
     /// </summary>
     public const string SessionFamily = "family_id";
+
+    /// <summary>
+    /// Narrows a token to one purpose. <b>Absent on an ordinary sign-in token</b> — its presence is what marks a
+    /// token as restricted, and <c>ScopedTokenFilter</c> then refuses every endpoint that has not named the
+    /// scope as acceptable.
+    ///
+    /// <para>⚠️ <b>The direction is deliberate and it is the whole design.</b> An allow-list keyed on the claim's
+    /// presence fails <i>closed</i>: a new controller action is unreachable by a scoped token on the day it is
+    /// written, with no decision required from its author. The obvious alternative — endpoints declaring which
+    /// scopes they refuse — fails open, and the endpoint nobody thought about is exactly the one an
+    /// over-broad token reaches.</para>
+    ///
+    /// <para>Only ever minted by <c>ExchangeArchiveGrant</c> today, which used to hand an unattended clinic PC
+    /// an ordinary <b>clinic-admin token with the whole API surface</b> in exchange for a device secret.</para>
+    /// </summary>
+    public const string Scope = "clinic_scope";
+}
+
+/// <summary>
+/// The scopes a restricted token may carry. One constant per purpose, so the issuer and the endpoint that
+/// accepts it are one statement rather than two matching string literals.
+/// </summary>
+public static class LocalAuthScopes
+{
+    /// <summary>
+    /// « This token may download the cabinet's own archive, and do nothing else. » Minted for an authorised
+    /// unattended workstation from its device grant.
+    /// </summary>
+    public const string ClinicArchive = "clinic-archive";
 }

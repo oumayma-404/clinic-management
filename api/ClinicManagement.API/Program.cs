@@ -1,3 +1,4 @@
+using ClinicManagement.API.Authorization;
 using ClinicManagement.Application;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.API.Hubs;
@@ -320,7 +321,15 @@ try
     }
 
     // Add services to the container
-    builder.Services.AddControllers()
+    builder.Services.AddControllers(options =>
+        {
+            // ⚠️ Global and fail-closed: a scope-narrowed token is refused by every action that has not NAMED
+            // its scope. Registered here rather than per-controller precisely so a controller written next
+            // month is covered without its author deciding anything — see ScopedTokenFilter for why the
+            // opposite direction (endpoints declaring what they refuse) is one forgotten attribute away from
+            // the over-grant it replaces.
+            options.Filters.Add<ScopedTokenFilter>();
+        })
         .AddJsonOptions(options =>
         {
             options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;

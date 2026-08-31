@@ -1,3 +1,5 @@
+using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.API.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
@@ -235,6 +237,14 @@ public class PatientFilesController : ApiControllerBase
     }
 
     [HttpGet("{fileId}/download")]
+    // ⚠️ Reachable by the unattended workstation's scoped token, because the file mirror fetches every file
+    // through here one at a time — without this line the mirror stops copying and the cabinet quietly loses the
+    // local copy of its imaging.
+    //
+    // It widens the scope by nothing: the same token can pull GET /api/backup/archive, which carries these very
+    // files in one download. What the scope still refuses is everything else — the patient records, the
+    // ledgers, the exports, user management.
+    [AcceptsScopedToken(LocalAuthScopes.ClinicArchive)]
     public async Task<IActionResult> DownloadFile(
         Guid patientId,
         Guid fileId,

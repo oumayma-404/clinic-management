@@ -1,4 +1,4 @@
-﻿using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -67,6 +67,14 @@ public class SecretProtectionCoverageTests
             [$"{nameof(ClinicSignup)}.{nameof(ClinicSignup.PasswordHash)}"] =
                 "The password a visitor chose, hashed the same way and for the same reason as the two rows "
                 + "above — it becomes User.PasswordHash verbatim when the signup is verified.",
+
+            [$"{nameof(ClinicArchiveGrant)}.{nameof(ClinicArchiveGrant.SecretHash)}"] =
+                "A hash of the workstation's device secret, on User.PasswordHash's reasoning: the plaintext "
+                + "exists only on the authorised PC, is never stored here, and the column is deliberately "
+                + "irreversible. Encrypting it would put the unattended archive copy behind the key ring — so a "
+                + "lost ring would stop the backups instead of costing only the second factor, which is the "
+                + "exact inversion this product avoids everywhere else. It is also compared on every exchange, "
+                + "and ciphertext is not equality-searchable.",
 
             [$"{nameof(DeviceRegistration)}.{nameof(DeviceRegistration.Token)}"] =
                 "The OS-issued push routing token. It is not our credential — sending to it requires the "

@@ -71,7 +71,11 @@ public class LocalAuthService : ILocalAuthService
         };
     }
 
-    public LocalAuthToken GenerateToken(User user)
+    public LocalAuthToken GenerateToken(User user) => GenerateToken(user, scope: null);
+
+    public LocalAuthToken GenerateScopedToken(User user, string scope) => GenerateToken(user, scope);
+
+    private LocalAuthToken GenerateToken(User user, string? scope)
     {
         // The browser-held credential: short-lived on purpose, renewed silently from the cookie (AC-5.3).
         var expiresAt = DateTime.UtcNow.AddMinutes(LocalAuthConfig.AccessTokenLifetimeMinutes(_configuration));
@@ -88,6 +92,14 @@ public class LocalAuthService : ILocalAuthService
             // retires the long-lived tokens issued before this shipped (AC-5.15).
             new(LocalAuthClaims.TokenVersion, user.TokenVersion.ToString(CultureInfo.InvariantCulture))
         };
+
+        // Present ONLY on a restricted token. `ScopedTokenFilter` refuses every endpoint that has not named
+        // this scope, so adding the claim removes surface rather than granting any — which is why an ordinary
+        // sign-in leaves it off entirely instead of carrying a « full » value nobody would have to check.
+        if (!string.IsNullOrWhiteSpace(scope))
+        {
+            claims.Add(new Claim(LocalAuthClaims.Scope, scope));
+        }
 
         if (!string.IsNullOrWhiteSpace(user.Email))
         {

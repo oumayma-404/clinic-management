@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using ClinicManagement.Application.Common.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
@@ -39,6 +39,14 @@ public class SubscriptionExemptionCoverageTests
         "Auth.SignUp",
         "Auth.VerifySignUp",
         "Auth.Login",
+        // Taking the cabinet's own data out is not recording new work, and the unattended path is the one with
+        // nobody present to be told why it stopped (AC-8 / AC-4.2). The token it mints is scoped to the archive
+        // download alone, so the exemption cannot be spent on anything else.
+        "Backup.ExchangeArchiveGrant",
+        // The unattended shell stamping « le coffre est copié ». Reporting that the practice holds its own copy
+        // of its own files is not recording new work, and a lapsed cabinet must not be the one that stops being
+        // told its coffre is unprotected. It is grant-gated independently of the subscription.
+        "Backup.ReportVaultCopy",
         // Signing out is not recording clinic work, and it must keep working on an expired cabinet — a practice
         // that cannot sign out of a shared reception PC is a worse outcome than one that cannot bill.
         "Auth.Logout",
