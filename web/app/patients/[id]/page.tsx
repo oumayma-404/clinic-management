@@ -396,6 +396,19 @@ export default function PatientDetailsPage() {
    * had with its `key={refreshKey}` remount.
    */
   const loadedPatientIdRef = useRef<string | null>(null)
+
+  /**
+   * The fiche a duplicate merge has just deleted, set before the navigation to the surviving patient.
+   *
+   * ⚠️ Without it the merge reports its own success as a failure: the command broadcasts the `patients` realtime
+   * key, this page's subscription bumps `refreshKey`, the effect below re-reads the id that was just deleted, and
+   * the 404 lands as « Patient introuvable. » on top of the fiche the user has already been sent to. A ref rather
+   * than state, because the request already in flight has to see it from inside its own `catch`.
+   *
+   * ⚠️ It holds the **id**, not a boolean. Next reuses this component across `/patients/[id]` → `/patients/[other]`,
+   * so a flag left standing would refuse to load the survivor — the very patient the merge sends you to.
+   */
+  const mergedAwayIdRef = useRef<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [recordModalOpen, setRecordModalOpen] = useState(false)
@@ -567,7 +580,8 @@ export default function PatientDetailsPage() {
 
   // Load patient data — identity first, then everything else.
   useEffect(() => {
-    if (!patientId) return
+    // A fiche merged away no longer exists; re-reading it can only 404, and the page is already leaving.
+    if (!patientId || mergedAwayIdRef.current === patientId) return
 
     // Only an actual navigation to a different patient is allowed to blank the page; a refresh is quiet.
     const isDifferentPatient = loadedPatientIdRef.current !== patientId
@@ -588,7 +602,7 @@ export default function PatientDetailsPage() {
         setIdentityMissing(false)
         loadedPatientIdRef.current = patientId
       } catch (err) {
-        if (cancelled) return
+        if (cancelled || mergedAwayIdRef.current === patientId) return
         // A page already on screen is not replaced by an error screen: a transient failure on a background
         // refresh must not turn a loaded patient into « Patient introuvable ». Say so and keep what we have.
         if (loadedPatientIdRef.current === patientId) {
@@ -684,7 +698,9 @@ export default function PatientDetailsPage() {
       } catch (err) {
         // Every call above already degrades to `[]`, so reaching here means a genuine fault rather than one
         // endpoint being down. The identity is on screen either way, so this is a toast, not an error page.
-        if (!cancelled) showErrorToast(err, "Certaines données du dossier n'ont pas pu être chargées.")
+        if (!cancelled && mergedAwayIdRef.current !== patientId) {
+          showErrorToast(err, "Certaines données du dossier n'ont pas pu être chargées.")
+        }
       } finally {
         if (!cancelled) setDetailsLoading(false)
       }
@@ -1271,6 +1287,8 @@ export default function PatientDetailsPage() {
                   patient={patient}
                   onResolved={(outcome, survivingPatientId) => {
                     if (outcome === "merged" && survivingPatientId) {
+                      // Before the push: the broadcast this merge just emitted can reach us first.
+                      mergedAwayIdRef.current = patient.id
                       router.push(`/patients/${survivingPatientId}`)
                     } else {
                       setRefreshKey((k) => k + 1)
