@@ -633,6 +633,15 @@ try
             policy.WithOrigins(corsOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
+                  // ⚠️ `Content-Disposition` is NOT a CORS-safelisted response header, so browser JavaScript
+                  // cannot read it cross-origin unless it is exposed here — and every download in this product
+                  // takes its filename from it. Without this, `filenameFromDisposition` returns null on any
+                  // split-origin deployment and every export arrives as the client-side fallback name: the
+                  // patient roster, the agenda and the caisse all land as « export.csv », and the patient
+                  // dossier — a ZIP — lands as « export.csv » too. It works in production only because Caddy
+                  // serves the app and the API on one origin, so CORS never applies; it is broken in dev and in
+                  // any deployment that splits them. Found by downloading a real dossier in a browser.
+                  .WithExposedHeaders("Content-Disposition")
                   .AllowCredentials(); // Required when sending credentials (cookies)
         });
     });

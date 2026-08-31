@@ -39,6 +39,15 @@ interface ExportButtonProps {
   stepUpAction?: string
   /** Shown in the confirmation, so the user knows what they are authorising. Required with `stepUpAction`. */
   stepUpPurpose?: string
+  /**
+   * The name to save under when the server's own `Content-Disposition` cannot be read, and the word used in the
+   * button's accessible name. Defaults to a CSV because most exports are one.
+   *
+   * ⚠️ Not cosmetic: the accessible name used to be the literal « Exporter en CSV » for every caller, so the
+   * patient-dossier button — which downloads a ZIP — announced itself as a CSV to a screen reader, and the
+   * fallback saved it as `export.csv`.
+   */
+  fallbackFilename?: string
 }
 
 /**
@@ -59,6 +68,7 @@ export function ExportButton({
   compact,
   stepUpAction,
   stepUpPurpose,
+  fallbackFilename = "export.csv",
 }: ExportButtonProps) {
   const [working, setWorking] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -93,7 +103,7 @@ export function ExportButton({
   const runExport = async (stepUpToken?: string) => {
     setWorking(true)
     try {
-      const { blob, filename } = await fetchExportCsv(path, params, stepUpToken)
+      const { blob, filename } = await fetchExportCsv(path, params, stepUpToken, fallbackFilename)
       await downloadBlob(blob, filename)
       toast.success("Export terminé", { description: filename })
     } catch (err) {
@@ -130,7 +140,7 @@ export function ExportButton({
        */
       // (a grown box would change the toolbar's rhythm) — and it has no `overflow-hidden` ancestor to clip it.
       className={cn("touch-target gap-1.5 coarse:h-11", className)}
-      aria-label={compact ? "Exporter en CSV" : undefined}
+      aria-label={compact ? `Exporter ${label}` : undefined}
     >
       {working ? (
         <Loader2 className="size-4 animate-spin" aria-hidden="true" />

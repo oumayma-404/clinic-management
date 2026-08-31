@@ -16,6 +16,7 @@ export async function fetchExportCsv(
   path: string,
   params: Record<string, string | number | boolean | undefined | null> = {},
   stepUpToken?: string | null,
+  fallbackFilename = 'export.csv',
 ): Promise<{ blob: Blob; filename: string }> {
   // `''` is dropped alongside null/undefined — an empty filter is not a filter, and `buildUrl` only skips the
   // latter two.
@@ -26,5 +27,9 @@ export async function fetchExportCsv(
   // ⚠️ The confirmation rides as a HEADER, never in the query string — this application's URLs are logged, and
   // that is what FR-4.4 is about. `apiGetFile` puts it there; passing it through `query` would defeat the point.
   const { blob, filename } = await apiGetFile(path, query, undefined, undefined, stepUpToken);
-  return { blob, filename: filename ?? 'export.csv' };
+  // ⚠️ The fallback is a PARAMETER because not every caller downloads a CSV any more: the patient dossier is a
+  // ZIP, and naming it `.csv` produces a file Windows opens with a spreadsheet and a patient cannot read. The
+  // fallback should be rare — `Content-Disposition` carries the real name — but it fires on any deployment that
+  // does not expose that header cross-origin, which is exactly how this was found.
+  return { blob, filename: filename ?? fallbackFilename };
 }

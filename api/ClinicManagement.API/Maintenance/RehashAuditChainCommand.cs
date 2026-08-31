@@ -91,6 +91,7 @@ public static class RehashAuditChainCommand
             var refused = 0;
             var rehashed = 0;
             var alreadyV2 = 0;
+            var nothingToRehash = 0;
 
             await using var transaction = apply
                 ? await db.Database.BeginTransactionAsync(cancellationToken)
@@ -130,7 +131,20 @@ public static class RehashAuditChainCommand
 
                 if (legacy.Count == 0)
                 {
-                    alreadyV2++;
+                    // ⚠️ « Already v2 » and « nothing chained at all » are different facts and were reported as
+                    // one. A chain made entirely of PRE-CHAIN rows (written before the ledger was chained, so
+                    // `EntryHash` is null) also has no legacy rows to rewrite — and counting it as « already v2 »
+                    // tells an operator their oldest history is covered when it is exactly the history no key
+                    // can retroactively cover. A real run showed 1 such chain reported as v2.
+                    if (rows.Any(r => r.EntryHash is not null))
+                    {
+                        alreadyV2++;
+                    }
+                    else
+                    {
+                        nothingToRehash++;
+                    }
+
                     continue;
                 }
 
@@ -164,7 +178,7 @@ public static class RehashAuditChainCommand
 
                     await db.Database.ExecuteSqlRawAsync(
                         """UPDATE "AuditEntries" SET "PreviousHash" = {0}, "EntryHash" = {1} WHERE "Id" = {2}""",
-                        new object?[] { previous, hash, row.Id },
+                        new object[] { (object?)previous ?? DBNull.Value, hash, row.Id },
                         cancellationToken);
 
                     previous = hash;
@@ -177,9 +191,10 @@ public static class RehashAuditChainCommand
             }
 
             Console.WriteLine();
-            Console.WriteLine($"Chaînes déjà en v2 : {alreadyV2}");
-            Console.WriteLine($"Lignes {(apply ? "réécrites" : "à réécrire")} : {rehashed}");
-            Console.WriteLine($"Chaînes refusées   : {refused}");
+            Console.WriteLine($"Chaînes déjà en v2      : {alreadyV2}");
+            Console.WriteLine($"Chaînes non chaînées     : {nothingToRehash} (antérieures au chaînage — aucune clé ne peut les couvrir)");
+            Console.WriteLine($"Lignes {(apply ? "réécrites" : "à réécrire")}  : {rehashed}");
+            Console.WriteLine($"Chaînes refusées         : {refused}");
             Console.WriteLine();
 
             if (!apply && rehashed > 0)

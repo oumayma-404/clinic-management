@@ -64,6 +64,7 @@ public static class PatientDossierPackager
         IReadOnlyList<MedicalDocument> documents,
         IReadOnlyList<PatientFile> files,
         IReadOnlyList<(Guid FileId, string EntryName, byte[] Bytes)> fileContents,
+        IReadOnlySet<Guid> unreadable,
         DateTime generatedAtClinicLocal)
     {
         var sections = 0;
@@ -90,18 +91,22 @@ public static class PatientDossierPackager
             AddCsv("fiches-de-soins.csv", DentalRecords(dentalRecords));
             AddCsv("odontogramme.csv", Odontogram(toothStates));
             AddCsv("documents.csv", Documents(documents));
-            AddCsv("fichiers.csv", FileManifest(files, enclosed));
+            AddCsv("fichiers.csv", FileManifest(files, enclosed, unreadable));
 
             foreach (var (_, entryName, bytes) in fileContents)
             {
                 Write(zip, $"fichiers/{entryName}", bytes);
             }
 
+            // ⚠️ UTF-8 **with a BOM**, for `CsvTable`'s reason applied to a .txt: Notepad on Windows reads a
+            // BOM-less UTF-8 file in the system codepage, so « informations enregistrées » arrives as mojibake —
+            // in the one file in this archive written to be read first, by a patient, in French. Caught by
+            // opening a real export rather than by any test.
             Write(
                 zip,
                 "LISEZ-MOI.txt",
-                Encoding.UTF8.GetBytes(ReadMe(
-                    patient, clinicName, generatedAtClinicLocal, files.Count, enclosed.Count)));
+                Utf8WithBom(ReadMe(
+                    patient, clinicName, generatedAtClinicLocal, files, unreadable, enclosed)));
         }
 
         return new PatientDossier(
@@ -110,6 +115,18 @@ public static class PatientDossierPackager
             sections,
             enclosed.Count,
             files.Count - enclosed.Count);
+    }
+
+    private static byte[] Utf8WithBom(string text)
+    {
+        var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+        var preamble = encoding.GetPreamble();
+        var body = encoding.GetBytes(text);
+
+        var bytes = new byte[preamble.Length + body.Length];
+        preamble.CopyTo(bytes, 0);
+        body.CopyTo(bytes, preamble.Length);
+        return bytes;
     }
 
     private static void Write(ZipArchive zip, string name, byte[] bytes)
@@ -273,7 +290,8 @@ public static class PatientDossierPackager
     /// « conservé au cabinet » is the difference between a complete archive and one that is quietly missing a
     /// radiograph the reader never learns existed.
     /// </summary>
-    private static CsvTable FileManifest(IReadOnlyList<PatientFile> files, IReadOnlySet<Guid> enclosed)
+    private static CsvTable FileManifest(
+        IReadOnlyList<PatientFile> files, IReadOnlySet<Guid> enclosed, IReadOnlySet<Guid> unreadable)
     {
         var table = CsvTable.Create("Date", "Nom du fichier", "Type", "Taille (octets)", "Dans cette archive");
 
@@ -284,30 +302,82 @@ public static class PatientDossierPackager
                 CsvCell.Text(f.FileName),
                 CsvCell.Text(f.FileType.ToString()),
                 CsvCell.Number((int)f.FileSize),
-                CsvCell.Text(enclosed.Contains(f.Id) ? "Joint" : "Non — conservé au cabinet"));
+                CsvCell.Text(StateOf(f, enclosed, unreadable)));
         }
 
         return table;
     }
 
+    /// <summary>
+    /// ⚠️ <b>Three states, not two, and the third is why.</b> A first pass collapsed « the original is at the
+    /// cabinet » and « the server could not read it » into one label — « conservé au cabinet » — which is an
+    /// assertion about <i>where the file is</i>, and it was made about files that were on the server all along
+    /// and simply failed to fetch. Found by opening a real export: four files reported as being at the cabinet
+    /// were <c>Residency = Hosted</c> with a storage key. Sending a patient to their cabinet for a file the
+    /// cabinet does not have is worse than saying plainly that something went wrong.
+    /// </summary>
+    private static string StateOf(PatientFile file, IReadOnlySet<Guid> enclosed, IReadOnlySet<Guid> unreadable)
+    {
+        if (enclosed.Contains(file.Id))
+        {
+            return "Joint";
+        }
+
+        return unreadable.Contains(file.Id)
+            ? "Non — n'a pas pu être lu, signalez-le à votre cabinet"
+            : "Non — conservé au cabinet";
+    }
+
     private static string ReadMe(
-        Patient patient, string clinicName, DateTime generatedAt, int fileCount, int enclosedCount)
+        Patient patient,
+        string clinicName,
+        DateTime generatedAt,
+        IReadOnlyList<PatientFile> files,
+        IReadOnlySet<Guid> unreadable,
+        IReadOnlySet<Guid> enclosed)
     {
         var builder = new StringBuilder(ReadMeHeader);
 
         builder.Append("Patient : ").Append(patient.GetFullName()).Append("\r\n");
-        builder.Append("Cabinet : ").Append(clinicName).Append("\r\n");
+
+        // A cabinet with no name recorded is a real state of the data (the dev database has one). « Cabinet : »
+        // followed by nothing reads as a broken file, so the line is omitted rather than left hanging.
+        if (!string.IsNullOrWhiteSpace(clinicName))
+        {
+            builder.Append("Cabinet : ").Append(clinicName).Append("\r\n");
+        }
+
         builder.Append("Édité le : ").Append(generatedAt.ToString("dd/MM/yyyy")).Append("\r\n\r\n");
 
-        if (fileCount > enclosedCount)
+        var atTheCabinet = files.Count(f => !enclosed.Contains(f.Id) && !unreadable.Contains(f.Id));
+        var couldNotRead = files.Count(f => unreadable.Contains(f.Id));
+
+        if (atTheCabinet > 0 || couldNotRead > 0)
         {
             builder.Append("IMPORTANT\r\n---------\r\n");
-            builder.Append(fileCount - enclosedCount)
-                   .Append(" fichier(s) sur ")
-                   .Append(fileCount)
-                   .Append(" ne sont pas joints à cette archive : leur original est conservé sur le poste du\r\n")
-                   .Append("cabinet et non sur le serveur. Ils sont tous nommés dans « fichiers.csv », avec leur\r\n")
-                   .Append("date. Demandez-les à votre cabinet, qui pourra vous les remettre séparément.\r\n\r\n");
+
+            if (atTheCabinet > 0)
+            {
+                builder.Append(atTheCabinet)
+                       .Append(" fichier(s) sur ")
+                       .Append(files.Count)
+                       .Append(" ne sont pas joints : leur original est conservé sur le poste du cabinet et\r\n")
+                       .Append("non sur le serveur. Demandez-les à votre cabinet, qui pourra vous les remettre.\r\n\r\n");
+            }
+
+            // ⚠️ Stated separately, and never as « conservé au cabinet ». This is a fault on our side, not a
+            // fact about where the file lives — sending somebody to their cabinet for a file the cabinet does
+            // not have wastes two people's time and hides the real problem. A first version collapsed the two,
+            // and a real export then reported four server-held files as being at the cabinet.
+            if (couldNotRead > 0)
+            {
+                builder.Append(couldNotRead)
+                       .Append(" fichier(s) n'ont pas pu être lus au moment de l'export. Ils sont nommés dans\r\n")
+                       .Append("« fichiers.csv ». Signalez-le à votre cabinet : le fichier existe, mais il n'a\r\n")
+                       .Append("pas pu être joint, et une nouvelle demande corrigera peut-être le problème.\r\n\r\n");
+            }
+
+            builder.Append("Tous vos fichiers, joints ou non, sont listés dans « fichiers.csv ».\r\n\r\n");
         }
 
         builder.Append("CONTENU\r\n-------\r\n");

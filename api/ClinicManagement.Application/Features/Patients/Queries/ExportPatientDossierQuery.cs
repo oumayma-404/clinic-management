@@ -111,7 +111,7 @@ public class ExportPatientDossierQueryHandler
         var docs = (await _documents.GetByPatientIdAsync(request.PatientId, cancellationToken)).ToList();
         var files = (await _files.GetByPatientIdAsync(request.PatientId, cancellationToken)).ToList();
 
-        var contents = await FetchWhatCanBeFetchedAsync(files, cancellationToken);
+        var (contents, unreadable) = await FetchWhatCanBeFetchedAsync(files, cancellationToken);
 
         var dossier = PatientDossierPackager.Build(
             patient,
@@ -122,6 +122,7 @@ public class ExportPatientDossierQueryHandler
             docs,
             files,
             contents,
+            unreadable,
             ClinicClock.ClinicToday());
 
         // Recorded BEFORE the archive is handed back, and not best-effort — see the class note.
@@ -155,10 +156,12 @@ public class ExportPatientDossierQueryHandler
     /// Reads the bytes of every file whose original is on the server, and skips — without failing — the ones
     /// that are not. Both skips are visible in the manifest, which is what keeps the archive honest.
     /// </summary>
-    private async Task<IReadOnlyList<(Guid FileId, string EntryName, byte[] Bytes)>> FetchWhatCanBeFetchedAsync(
+    private async Task<(IReadOnlyList<(Guid FileId, string EntryName, byte[] Bytes)> Fetched,
+        IReadOnlySet<Guid> Unreadable)> FetchWhatCanBeFetchedAsync(
         IReadOnlyList<PatientFile> files, CancellationToken cancellationToken)
     {
         var fetched = new List<(Guid, string, byte[])>();
+        var unreadable = new HashSet<Guid>();
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var file in files)
@@ -181,6 +184,11 @@ public class ExportPatientDossierQueryHandler
                 // ⚠️ Logged and skipped, never fatal. One unreadable object must not deny a patient the rest of
                 // their dossier — and the manifest already says which files are not enclosed, so the omission is
                 // visible rather than silent. LogMask because the name is composed from the patient's own.
+                // ⚠️ Recorded as UNREADABLE, not merely skipped. The manifest tells these apart from a file
+                // whose original is at the cabinet, because « conservé au cabinet » is an assertion about where
+                // the file is — and saying it about a file that is on the server sends a patient to their
+                // cabinet for something the cabinet does not have.
+                unreadable.Add(file.Id);
                 _logger.LogWarning(
                     ex,
                     "A patient file could not be read for a dossier export and was listed only: {FileId}",
@@ -188,7 +196,7 @@ public class ExportPatientDossierQueryHandler
             }
         }
 
-        return fetched;
+        return (fetched, unreadable);
     }
 
     /// <summary>

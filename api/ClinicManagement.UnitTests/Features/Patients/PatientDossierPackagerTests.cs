@@ -42,7 +42,8 @@ public class PatientDossierPackagerTests
 
     private static PatientDossier Build(
         IReadOnlyList<PatientFile>? files = null,
-        IReadOnlyList<(Guid, string, byte[])>? contents = null) =>
+        IReadOnlyList<(Guid, string, byte[])>? contents = null,
+        IReadOnlySet<Guid>? unreadable = null) =>
         PatientDossierPackager.Build(
             APatient(),
             "Cabinet Ben Salah",
@@ -52,6 +53,7 @@ public class PatientDossierPackagerTests
             Array.Empty<MedicalDocument>(),
             files ?? Array.Empty<PatientFile>(),
             contents ?? Array.Empty<(Guid, string, byte[])>(),
+            unreadable ?? new HashSet<Guid>(),
             Today);
 
     private static Dictionary<string, string> Entries(PatientDossier dossier)
@@ -152,6 +154,62 @@ public class PatientDossierPackagerTests
     public void The_archive_is_named_for_the_patient_and_the_clinics_own_day()
     {
         Assert.Equal("dossier-sonia-ben-salah-2026-08-31.zip", Build().FileName);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>A file the server could not READ is not a file kept at the cabinet</b>, and the first version of
+    /// this packager said it was. Downloading a real dossier reported four files as « conservé au cabinet »
+    /// which were <c>Residency = Hosted</c> with a storage key all along — the objects were simply missing, the
+    /// fetch threw, and the catch labelled them with an assertion about <i>where the file is</i>. That sends a
+    /// patient to their cabinet for something the cabinet does not have.
+    /// </summary>
+    [Fact]
+    public void A_file_the_server_could_not_read_is_not_reported_as_kept_at_the_cabinet()
+    {
+        var broken = AFile("radio-illisible.jpg", 50_000);
+
+        var dossier = Build(
+            files: new[] { broken },
+            unreadable: new HashSet<Guid> { broken.Id });
+        var entries = Entries(dossier);
+
+        Assert.Contains("n'a pas pu être lu", entries["fichiers.csv"]);
+        Assert.DoesNotContain("conservé au cabinet", entries["fichiers.csv"]);
+
+        // And the reader is told it is a fault to report, not an errand to run.
+        Assert.Contains("Signalez-le à votre cabinet", entries["LISEZ-MOI.txt"]);
+    }
+
+    /// <summary>
+    /// The README is the one file here written to be read first, by a patient, in French — and Notepad on
+    /// Windows reads a BOM-less UTF-8 file in the system codepage, so « enregistrées » arrives as mojibake.
+    /// <c>CsvTable</c> documents this at length for the CSVs; the .txt was written without one and a real
+    /// export is what showed it.
+    /// </summary>
+    [Fact]
+    public void The_readable_note_carries_a_utf8_bom_like_every_other_file_here()
+    {
+        using var stream = new MemoryStream(Build().Content);
+        using var zip = new ZipArchive(stream, ZipArchiveMode.Read);
+        using var entry = zip.GetEntry("LISEZ-MOI.txt")!.Open();
+        using var buffer = new MemoryStream();
+        entry.CopyTo(buffer);
+
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, buffer.ToArray()[..3]);
+    }
+
+    // A cabinet with no name recorded is a real state of the data. « Cabinet : » with nothing after it reads as
+    // a broken file, so the line goes rather than hanging empty.
+    [Fact]
+    public void A_cabinet_with_no_name_recorded_does_not_leave_a_dangling_line()
+    {
+        var dossier = PatientDossierPackager.Build(
+            APatient(), string.Empty,
+            Array.Empty<Appointment>(), Array.Empty<DentalRecord>(), Array.Empty<ToothState>(),
+            Array.Empty<MedicalDocument>(), Array.Empty<PatientFile>(),
+            Array.Empty<(Guid, string, byte[])>(), new HashSet<Guid>(), Today);
+
+        Assert.DoesNotContain("Cabinet :", Entries(dossier)["LISEZ-MOI.txt"]);
     }
 
     private static PatientFile AFile(string name, long size) => new(
