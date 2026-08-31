@@ -5,6 +5,12 @@
 > **Created:** 2026-08-31
 > **Feature:** general (cross-cutting — arose from a whole-codebase security + data-protection audit)
 
+> **Update — 2026-08-31, second pass.** § 2's code backlog is largely **done**: 2.1, 2.3, 2.4, 2.5, 2.6 and most
+> of 2.9 are shipped, and `dotnet test` is now **3651 passed / 0 failed** — § 3's three long-red guards went green
+> on their own merits rather than by allow-list. § 1 is unchanged and is now the whole of the risk, and **1.1 is
+> answered**: the VPS is in **London (os-uk2)**, not Tunisia. What remains in code is 2.2 (preview backfill), the
+> CSP nonces and the per-process rate-limit stores.
+
 ## Summary
 
 A whole-codebase security and Tunisian data-protection audit produced 15 commits on
@@ -21,14 +27,15 @@ since before this work started (§ 3).
 
 Ordered by exposure. **Item 1.1 outranks everything else in this file.**
 
-### 1.1 🔴 Verify where the production data physically sits
+### 1.1 🔴 ~~Verify~~ **ANSWERED — the data is in London.** Move it.
 
 `desktop/ClinicManagement.DesktopShell/ServerConfig.cs:47` pins every installed client to
 `vps-dc7e4229.vps.ovh.net`. **OVH publishes no Tunisian datacentre.** Under *loi organique 2004-63* art. 51–52 a
 transfer of health data abroad needs prior INPDP authorisation, and the art. 90 penalty falls on the **cabinet**,
 not on the vendor — so every practice using the product is exposed, not just you.
 
-One console lookup settles it. If it is not Tunisia, plan the move: `deploy/README.md` § « Résidence des
+**Confirmed 2026-08-31 from the OVH console: zone `os-uk2`, London (UK).** The verification step is done; the
+**move** is what is left, and it is now the single most exposed item in this file. Plan it against `deploy/README.md` § « Résidence des
 données » already carries a provider shortlist (EO Data Center, DataXion).
 
 ⚠️ Two sidecars ship a full copy off-server independently of where the app runs — `WALG_S3_ENDPOINT`
@@ -63,7 +70,7 @@ actually promised; **filling the table is what makes the original claim true aga
 
 ## 2. Code backlog
 
-### 2.1 🔴 Consent capture + per-patient reminder opt-out — **the last blocked item, now unblocked**
+### 2.1 ✅ **DONE** — consent capture + per-patient reminder opt-out (`a6bc5940`)
 
 Recording a phone number **auto-enrols** a patient into SMS/WhatsApp reminders. Neither the patient nor the
 cabinet can exempt anyone. This is a live compliance gap, not a missing nicety.
@@ -94,7 +101,7 @@ Every file uploaded **before** the preview feature has `hasPreview: false`, so t
 | `web/components/patients/files/file-thumbnail.tsx` | ~78-100 | The eligibility rule and the reasoning |
 | `api/ClinicManagement.Domain/Entities/PatientFile.cs` | — | `PreviewStorageKey` — null on every legacy row |
 
-### 2.3 🟠 The archive-grant token is still a full clinic-admin token
+### 2.3 ✅ **DONE** — the archive-grant token is scoped (`7b933f3c`)
 
 `POST /api/backup/archive-grants/token` exchanges a device secret for an **ordinary 30-minute clinic-admin
 access token with the whole API surface** — not one scoped to the archive. `ccc6608a` gave the grant a 90-day
@@ -103,7 +110,7 @@ idle expiry, which bounds the exposure; it does not remove the over-grant.
 **Approach:** mint a token with its own audience or claim that only `GET /api/backup/archive` accepts. Touches
 `Program.cs`'s JWT validation, so it is not a drive-by. **Fixing this also clears two of § 3's red guards.**
 
-### 2.4 🟠 Truncating a chain at its tip is still undetectable
+### 2.4 ✅ **DONE** — truncating a chain at its tip is detectable (`07fdc28b`)
 
 `198ed577` put `ClinicId` and `UserEmail` into the hash (scheme `v2:`) and `f3bd8c0e` added
 `rehash-audit-chain` for the older rows. What remains: nothing persists an **expected tip** out of band, so
@@ -112,7 +119,7 @@ deleting the newest *k* rows returns `Break.None` and the next append re-links f
 **Approach:** store the tip where the chain key lives (configuration / an operator-held file), not in the
 database the tip protects. Needs a decision about where, hence not done.
 
-### 2.5 🟠 SSRF — a hostname is never resolved before it is used
+### 2.5 ✅ **DONE** — a hostname is resolved and re-checked at connect time (`b94f6d48`)
 
 `api/ClinicManagement.Domain/Common/OutboundEndpoint.cs:94-116` blocks a literal suffix list and IP literals, but
 `IPAddress.TryParse` returns false for any hostname, so hostnames pass unconditionally. **The file's own docstring
@@ -123,7 +130,7 @@ admin, and that admin can point `smtpHost` at e.g. `127.0.0.1.nip.io`.
 `IPEndPoint`, and resolve-then-check before the SMTP connect. The HTTP channels are protected today only by the
 accident that `https` is forced; SMTP has no such protection.
 
-### 2.6 🟡 83 handlers return the raw exception message to the client
+### 2.6 ✅ **DONE** — no catch-all returns the exception message (`5546f572`)
 
 Pattern: `catch (Exception ex) when (ex is not ConflictException)` → `Result.Failure($"…{ex.Message}")` →
 `ApiControllerBase.HandleFailure` → `{ error }` verbatim. Npgsql SQLSTATE and table names, S3 endpoints and
@@ -157,16 +164,24 @@ typed `InvalidOperationException`/`ArgumentException` catches alone — those ca
   `strict-dynamic` and its own page walk
 - Rate-limit / TOTP-replay / step-up stores are **per-process** — correct on one instance, silently weaker on the
   first `--scale api=2`
-- `deploy/docker-compose.selfhosted-lan.yml:34` hardcodes `POSTGRES_PASSWORD: clinic_password`
-- No known-default rejection for `Console:SigningKey` (MinIO has one; the console key does not)
-- `appsettings.Development.json` ships in the published image — add `<Content Remove="…" />`
+- ✅ **DONE** (`96a4255f`) — `deploy/docker-compose.selfhosted-lan.yml` no longer hardcodes a password; `up`
+  refuses to start without `LAN_POSTGRES_PASSWORD`
+- ✅ **DONE** (`96a4255f`) — `Console:SigningKey` now rejects a placeholder **and** a key identical to
+  `Auth:Local:SigningKey`, which the class's own error message had promised since it was written
+- ✅ **DONE** (`299897ff`) — `appsettings.Development.json` no longer ships in the published image (confirmed
+  present on the live server before the fix)
 - Password policy is **length only** (12) — no breach-list check, no reuse prevention
 
 ---
 
-## 3. Red before this work started — deliberately not papered over
+## 3. ✅ Red before this work started — now green on their own merits
 
-`dotnet test` on this branch is **3599 passed, 3 failed**. All three name `Backup.ExchangeArchiveGrant` /
+`dotnet test` is **3651 passed, 0 failed**. All three were cleared by § 2.3 rather than by allow-list entries, as
+predicted: the anonymous exchange became defensible once the token it mints was scoped, `SecretHash` was written
+up as the hash it is, and the guard itself found a **second** unreviewed exemption (`Backup.ReportVaultCopy`) that
+had arrived with the coffre feature.
+
+The original finding, kept for the record — `dotnet test` was **3599 passed, 3 failed**. All three name `Backup.ExchangeArchiveGrant` /
 `ClinicArchiveGrant.SecretHash`:
 
 - `ControllerAuthorizationCoverageTests.No_unexpected_anonymous_endpoints_exist`
@@ -204,11 +219,12 @@ their own merits.
 
 ## Acceptance criteria
 
-- [ ] The OVH region is confirmed in writing, and a move is planned if it is not Tunisia
+- [x] The OVH region is confirmed — **London (os-uk2)**. ⬜ The move is still to be planned
 - [ ] The Google OAuth client, its refresh token and the HuggingFace key are revoked at the provider
 - [ ] A restore drill row exists in `deploy/RESTORE-DRILL.md` with a date and a name
 - [ ] `deploy/KEY-CUSTODY.md` names a real holder and a real location for all five keys
-- [ ] A patient can be exempted from reminders, and no reminder is enqueued for them
-- [ ] The archive-grant exchange yields a token that `GET /api/backup/archive` accepts and other endpoints refuse
-- [ ] `dotnet test` is **3602 passed, 0 failed**
-- [ ] `verify-schema` on production exits 0
+- [x] A patient can be exempted from reminders, and no reminder is enqueued for them
+- [x] The archive-grant exchange yields a scoped token; every endpoint that has not named the scope refuses it
+- [x] `dotnet test` is **0 failed** (3651 passed)
+- [x] `verify-schema` on production exits 0 (checked 2026-08-31: one benign drift, audit chain 3/3 intact)
+- [ ] `seal-audit-chain --apply` has been run on production and the seal file is backed up
