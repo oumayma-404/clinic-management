@@ -1,3 +1,5 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Csv;
 using ClinicManagement.Application.Common.Models;
@@ -25,13 +27,33 @@ public abstract class ApiControllerBase : ControllerBase
     /// <c>{ error }</c> for every failure without one, so no existing consumer changes.
     /// </remarks>
     protected ActionResult HandleFailure(Result result, int statusCode = StatusCodes.Status400BadRequest)
-        => string.IsNullOrWhiteSpace(result.Code)
+    {
+        // ⚠️ The diagnostic goes to the LOG and never into the body. It carries whatever the handler's catch-all
+        // caught — Npgsql SQLSTATEs and table names, S3 endpoints, server paths — which is exactly the material
+        // that used to travel to an authenticated browser inside `error`, and simultaneously never reached a log
+        // at all. Logged here, once, rather than at ~160 catch sites: a handler cannot forget it, and none of
+        // them had to grow an ILogger for it.
+        if (result.Diagnostic is not null)
+        {
+            HttpContext.RequestServices
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger("ClinicManagement.HandlerFailure")
+                .LogError(
+                    result.Diagnostic,
+                    "{Method} {Path} failed: {UserMessage}",
+                    Request.Method,
+                    Request.Path.Value,
+                    result.Error);
+        }
+
+        return string.IsNullOrWhiteSpace(result.Code)
             ? Failure(result.Error, statusCode)
             : StatusCode(statusCode, new
             {
                 error = string.IsNullOrWhiteSpace(result.Error) ? ErrorMessages.Generic : result.Error,
                 code = result.Code,
             });
+    }
 
     /// <summary>
     /// Render an error message as <c>{ error }</c> with the given status code (default 400).

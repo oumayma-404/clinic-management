@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -92,7 +93,7 @@ public class SendRecallCommandHandler : IRequestHandler<SendRecallCommand, Resul
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<bool>.Failure($"Erreur lors de l'envoi de la relance : {ex.Message}");
+            return Result<bool>.Failure(ErrorMessages.Generic, ex);
         }
     }
 

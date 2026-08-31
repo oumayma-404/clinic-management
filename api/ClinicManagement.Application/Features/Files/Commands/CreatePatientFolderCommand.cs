@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
@@ -105,7 +106,7 @@ public class CreatePatientFolderCommandHandler : IRequestHandler<CreatePatientFo
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PatientFolderDto>.Failure($"Error creating folder: {ex.Message}");
+            return Result<PatientFolderDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

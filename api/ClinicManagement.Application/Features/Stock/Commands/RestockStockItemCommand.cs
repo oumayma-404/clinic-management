@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -101,7 +102,7 @@ public class RestockStockItemCommandHandler : IRequestHandler<RestockStockItemCo
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<StockItemDto>.Failure($"Erreur lors de l'entrée de stock : {ex.Message}");
+            return Result<StockItemDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

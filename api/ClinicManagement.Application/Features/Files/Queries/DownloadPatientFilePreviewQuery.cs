@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
@@ -94,7 +95,7 @@ public class DownloadPatientFilePreviewQueryHandler
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<FileDownloadDto>.Failure($"Error downloading preview: {ex.Message}");
+            return Result<FileDownloadDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 

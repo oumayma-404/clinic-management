@@ -22,28 +22,55 @@ public class Result
     /// </summary>
     public string? Code { get; private set; }
 
-    protected Result(bool isSuccess, string? error, string? code = null)
+    /// <summary>
+    /// The exception behind a failure, for the <b>log</b> — never for the client.
+    ///
+    /// <para><b>Why this exists.</b> ~160 handlers ended their catch-all with
+    /// <c>Result.Failure(ex.Message)</c>, and that message went into the response body verbatim: Npgsql
+    /// SQLSTATEs and table names, S3 endpoints, server file paths, English framework text — all of it reaching
+    /// an authenticated browser, and none of it reaching a log. So the detail was simultaneously <i>exposed</i>
+    /// to the one place it must not go and <i>lost</i> to the one place it was needed.</para>
+    ///
+    /// <para>⚠️ <b>This property must never be serialised.</b> <c>ApiControllerBase.HandleFailure</c> logs it and
+    /// builds the body from <see cref="Error"/> and <see cref="Code"/> alone;
+    /// <c>ErrorContractCoverageTests</c> is the derived guard that fails if a response shape ever names it.</para>
+    /// </summary>
+    public Exception? Diagnostic { get; private set; }
+
+    protected Result(bool isSuccess, string? error, string? code = null, Exception? diagnostic = null)
     {
         IsSuccess = isSuccess;
         Error = error;
         Code = code;
+        Diagnostic = diagnostic;
     }
 
     public static Result Success() => new(true, null);
     public static Result Failure(string error, string? code = null) => new(false, error, code);
+
+    /// <summary>
+    /// A failure the user sees as <paramref name="error"/> while the operator sees
+    /// <paramref name="diagnostic"/> in the log. The overload to reach for in a catch-all.
+    /// </summary>
+    public static Result Failure(string error, Exception diagnostic) => new(false, error, null, diagnostic);
 }
 
 public class Result<T> : Result
 {
     public T? Value { get; private set; }
 
-    private Result(T? value, bool isSuccess, string? error, string? code = null) : base(isSuccess, error, code)
+    private Result(T? value, bool isSuccess, string? error, string? code = null, Exception? diagnostic = null)
+        : base(isSuccess, error, code, diagnostic)
     {
         Value = value;
     }
 
     public static Result<T> Success(T value) => new(value, true, null);
     public static new Result<T> Failure(string error, string? code = null) => new(default, false, error, code);
+
+    /// <inheritdoc cref="Result.Failure(string, Exception)"/>
+    public static new Result<T> Failure(string error, Exception diagnostic) =>
+        new(default, false, error, null, diagnostic);
 
     /// <summary>
     /// Re-wrap another result's failure, preserving its <see cref="Result.Code"/>.
@@ -54,5 +81,5 @@ public class Result<T> : Result
     /// </para>
     /// </summary>
     public static Result<T> FailureFrom(Result failure) =>
-        new(default, false, failure.Error, failure.Code);
+        new(default, false, failure.Error, failure.Code, failure.Diagnostic);
 }

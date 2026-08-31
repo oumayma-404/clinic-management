@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using System.Text.Json.Serialization;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
@@ -370,7 +371,7 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PatientDto>.Failure($"Error updating patient: {ex.Message}");
+            return Result<PatientDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

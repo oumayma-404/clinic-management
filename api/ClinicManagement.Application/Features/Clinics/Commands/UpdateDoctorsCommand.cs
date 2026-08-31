@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -148,7 +149,7 @@ public class UpdateDoctorsCommandHandler : IRequestHandler<UpdateDoctorsCommand,
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<List<DoctorDto>>.Failure($"Error updating doctors: {ex.Message}");
+            return Result<List<DoctorDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
@@ -93,7 +94,7 @@ public class DeletePatientFileCommandHandler : IRequestHandler<DeletePatientFile
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<bool>.Failure($"Error deleting file: {ex.Message}");
+            return Result<bool>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

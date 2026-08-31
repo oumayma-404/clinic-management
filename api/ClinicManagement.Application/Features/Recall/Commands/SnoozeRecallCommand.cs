@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -54,7 +55,7 @@ public class SnoozeRecallCommandHandler : IRequestHandler<SnoozeRecallCommand, R
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<bool>.Failure($"Erreur lors du report de la relance : {ex.Message}");
+            return Result<bool>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

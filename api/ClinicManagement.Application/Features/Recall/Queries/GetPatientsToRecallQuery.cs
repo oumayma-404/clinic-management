@@ -172,7 +172,7 @@ public class GetPatientsToRecallQueryHandler : IRequestHandler<GetPatientsToReca
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PagedResult<RecallDto>>.Failure($"Erreur lors du calcul des patients à rappeler : {ex.Message}");
+            return Result<PagedResult<RecallDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 

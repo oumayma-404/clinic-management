@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -79,7 +80,7 @@ public class GetPatientFilesQueryHandler : IRequestHandler<GetPatientFilesQuery,
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PagedResult<PatientFileDto>>.Failure($"Error retrieving files: {ex.Message}");
+            return Result<PagedResult<PatientFileDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

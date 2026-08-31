@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -54,7 +55,7 @@ public class UnarchivePatientCommandHandler : IRequestHandler<UnarchivePatientCo
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PatientDto>.Failure($"Erreur lors de la restauration du patient : {ex.Message}");
+            return Result<PatientDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

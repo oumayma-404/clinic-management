@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -81,7 +82,7 @@ public class GetPatientFoldersQueryHandler : IRequestHandler<GetPatientFoldersQu
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IEnumerable<PatientFolderDto>>.Failure($"Error retrieving folders: {ex.Message}");
+            return Result<IEnumerable<PatientFolderDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

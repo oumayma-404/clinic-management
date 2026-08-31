@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -114,7 +115,7 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IEnumerable<AppointmentDto>>.Failure($"Error retrieving appointments: {ex.Message}");
+            return Result<IEnumerable<AppointmentDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

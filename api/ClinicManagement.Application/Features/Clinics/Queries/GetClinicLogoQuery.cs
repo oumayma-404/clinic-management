@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
@@ -78,7 +79,7 @@ public class GetClinicLogoQueryHandler : IRequestHandler<GetClinicLogoQuery, Res
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<ClinicLogoDto>.Failure($"Error getting clinic logo: {ex.Message}");
+            return Result<ClinicLogoDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

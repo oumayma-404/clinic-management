@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
@@ -90,7 +91,7 @@ public class DeleteProcedureTypeCommandHandler : IRequestHandler<DeleteProcedure
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error deleting procedure type {ProcedureTypeId}", request.Id);
-            return Result<bool>.Failure($"Error deleting procedure type: {ex.Message}");
+            return Result<bool>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

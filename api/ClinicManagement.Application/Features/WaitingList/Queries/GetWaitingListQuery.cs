@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -52,7 +53,7 @@ public class GetWaitingListQueryHandler : IRequestHandler<GetWaitingListQuery, R
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PagedResult<WaitingListEntryDto>>.Failure($"Erreur lors de la récupération de la liste d'attente : {ex.Message}");
+            return Result<PagedResult<WaitingListEntryDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
@@ -57,7 +58,7 @@ public class GetMedicalDocumentQueryHandler : IRequestHandler<GetMedicalDocument
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<MedicalDocumentDto>.Failure($"Error retrieving medical document: {ex.Message}");
+            return Result<MedicalDocumentDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

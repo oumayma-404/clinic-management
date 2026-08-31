@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
@@ -52,8 +53,7 @@ public class ListArchiveGrantsQueryHandler
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IReadOnlyList<ArchiveGrantDto>>.Failure(
-                $"Les postes autorisés n'ont pas pu être lus : {ex.Message}");
+            return Result<IReadOnlyList<ArchiveGrantDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 

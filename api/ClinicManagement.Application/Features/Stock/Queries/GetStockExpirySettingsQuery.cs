@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -45,8 +46,7 @@ public class GetStockExpirySettingsQueryHandler
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<StockExpirySettingsDto>.Failure(
-                $"Erreur lors du chargement du délai d'alerte de péremption : {ex.Message}");
+            return Result<StockExpirySettingsDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

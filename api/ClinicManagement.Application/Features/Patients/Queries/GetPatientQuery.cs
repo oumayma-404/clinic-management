@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
@@ -65,7 +66,7 @@ public class GetPatientQueryHandler : IRequestHandler<GetPatientQuery, Result<Pa
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PatientDto>.Failure($"Error retrieving patient: {ex.Message}");
+            return Result<PatientDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

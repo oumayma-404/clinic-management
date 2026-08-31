@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
@@ -53,7 +54,7 @@ public class DeletePatientMedicalHistoryCommandHandler : IRequestHandler<DeleteP
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result.Failure($"Error deleting medical history entry: {ex.Message}");
+            return Result.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

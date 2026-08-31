@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -72,7 +73,7 @@ public class PreviewPatientImportQueryHandler
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PatientImportPreviewDto>.Failure($"Échec de la lecture du fichier : {ex.Message}");
+            return Result<PatientImportPreviewDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

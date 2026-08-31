@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -80,7 +81,7 @@ public class GetNotificationsQueryHandler : IRequestHandler<GetNotificationsQuer
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IEnumerable<NotificationDto>>.Failure($"Error retrieving notifications: {ex.Message}");
+            return Result<IEnumerable<NotificationDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 

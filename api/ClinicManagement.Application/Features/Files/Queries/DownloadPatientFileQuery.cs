@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
@@ -117,7 +118,7 @@ public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFi
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<FileDownloadDto>.Failure($"Error downloading file: {ex.Message}");
+            return Result<FileDownloadDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

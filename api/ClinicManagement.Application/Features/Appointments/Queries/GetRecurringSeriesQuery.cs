@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -67,7 +68,7 @@ public class GetRecurringSeriesQueryHandler : IRequestHandler<GetRecurringSeries
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PagedResult<RecurringAppointmentDto>>.Failure($"Erreur lors de la récupération des séries : {ex.Message}");
+            return Result<PagedResult<RecurringAppointmentDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

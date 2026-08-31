@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
@@ -89,7 +90,7 @@ public class CreatePatientFamilyHistoryCommandHandler : IRequestHandler<CreatePa
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PatientFamilyHistoryDto>.Failure($"Error creating family history entry: {ex.Message}");
+            return Result<PatientFamilyHistoryDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

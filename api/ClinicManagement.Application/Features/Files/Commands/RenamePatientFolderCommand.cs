@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using System.Text.Json.Serialization;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
@@ -102,7 +103,7 @@ public class RenamePatientFolderCommandHandler : IRequestHandler<RenamePatientFo
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PatientFolderDto>.Failure($"Error renaming folder: {ex.Message}");
+            return Result<PatientFolderDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

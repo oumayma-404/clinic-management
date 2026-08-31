@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -93,7 +94,7 @@ public class ConsumeStockCommandHandler : IRequestHandler<ConsumeStockCommand, R
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<StockItemDto>.Failure($"Erreur lors de la sortie de stock : {ex.Message}");
+            return Result<StockItemDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

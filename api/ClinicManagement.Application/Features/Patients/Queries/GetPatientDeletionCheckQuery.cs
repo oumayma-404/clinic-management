@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -75,8 +76,7 @@ public class GetPatientDeletionCheckQueryHandler
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PatientDeletionCheckDto>.Failure(
-                $"Erreur lors de la vérification du patient : {ex.Message}");
+            return Result<PatientDeletionCheckDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

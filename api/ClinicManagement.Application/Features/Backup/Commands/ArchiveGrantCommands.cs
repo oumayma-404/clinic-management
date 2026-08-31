@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Interfaces;
@@ -113,7 +114,7 @@ public class IssueArchiveGrantCommandHandler
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<IssuedArchiveGrantDto>.Failure($"Le poste n'a pas pu être autorisé : {ex.Message}");
+            return Result<IssuedArchiveGrantDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }
@@ -165,7 +166,7 @@ public class RevokeArchiveGrantCommandHandler : IRequestHandler<RevokeArchiveGra
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<bool>.Failure($"Le poste n'a pas pu être révoqué : {ex.Message}");
+            return Result<bool>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

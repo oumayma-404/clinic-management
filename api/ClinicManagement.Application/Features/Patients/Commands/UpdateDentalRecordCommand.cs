@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
@@ -109,13 +110,13 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             var dentalRecord = await _dentalRecordRepository.GetByIdAsync(request.Id, cancellationToken);
             if (dentalRecord == null || dentalRecord.PatientId != request.PatientId)
             {
-                return Result<DentalRecordDto>.Failure("Dossier dentaire introuvable.");
+                return Result<DentalRecordDto>.Failure("Acte dentaire introuvable.");
             }
 
             var patient = await _patientRepository.GetByIdAsync(dentalRecord.PatientId, cancellationToken);
             if (patient == null || patient.ClinicId != clinicResult.Value)
             {
-                return Result<DentalRecordDto>.Failure("Dossier dentaire introuvable.");
+                return Result<DentalRecordDto>.Failure("Acte dentaire introuvable.");
             }
 
             var parsed = DentalRecordActParser.Parse(request.Acts);
@@ -245,7 +246,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<DentalRecordDto>.Failure($"Error updating dental record: {ex.Message}");
+            return Result<DentalRecordDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 

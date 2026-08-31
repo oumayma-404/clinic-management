@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -121,7 +122,7 @@ public class SetProcedureTypeMaterialsCommandHandler
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error setting materials for procedure type {ProcedureTypeId}", request.Id);
-            return Result<ProcedureTypeDto>.Failure($"Erreur lors de l'enregistrement des consommables : {ex.Message}");
+            return Result<ProcedureTypeDto>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

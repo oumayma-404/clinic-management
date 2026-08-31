@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -85,7 +86,7 @@ public class GetExpensesQueryHandler : IRequestHandler<GetExpensesQuery, Result<
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result<PagedResult<ExpenseDto>>.Failure($"Erreur lors de la récupération des dépenses : {ex.Message}");
+            return Result<PagedResult<ExpenseDto>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

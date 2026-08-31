@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -69,7 +70,7 @@ public class MarkAllNotificationsReadCommandHandler : IRequestHandler<MarkAllNot
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
-            return Result.Failure($"Error marking all notifications read: {ex.Message}");
+            return Result.Failure(ErrorMessages.Generic, ex);
         }
     }
 }

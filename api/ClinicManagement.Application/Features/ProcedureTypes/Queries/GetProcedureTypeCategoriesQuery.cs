@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using MediatR;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -74,7 +75,7 @@ public class GetProcedureTypeCategoriesQueryHandler
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Error retrieving procedure type categories");
-            return Result<List<string>>.Failure($"Error retrieving procedure type categories: {ex.Message}");
+            return Result<List<string>>.Failure(ErrorMessages.Generic, ex);
         }
     }
 }
