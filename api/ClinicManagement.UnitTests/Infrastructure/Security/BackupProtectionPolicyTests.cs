@@ -45,10 +45,20 @@ public class BackupProtectionPolicyTests
         Assert.NotEqual(DriveType.NoRootDirectory, driveType);
     }
 
+    /// <summary>
+    /// ⚠️ Every input here is unresolvable on **both** platforms, deliberately.
+    ///
+    /// <para>This case used to read `"   "` and `"::invalid::"`, which only Windows refuses — on Linux whitespace
+    /// and colons are ordinary filename characters, so both resolved to the working directory's root, came back
+    /// `Fixed`, and the assertion inverted on the ubuntu runner that is this repository's only automated backend
+    /// gate. An empty string and an embedded NUL are rejected by `Path.GetFullPath` on every platform, so the rule
+    /// this test exists for — « unverifiable ⇒ do not claim protection » — stays verified everywhere instead of
+    /// being skipped on the one runner that runs it (`83ba9193`'s lesson, one file over).</para>
+    /// </summary>
     [Theory]
     [InlineData("")]
-    [InlineData("   ")]
-    [InlineData("::invalid::")]
+    [InlineData("\0")]
+    [InlineData("backups\0invalid")]
     public void An_unresolvable_path_reads_as_unknown_and_therefore_unprotectable(string path)
     {
         var driveType = BackupProtectionPolicy.ResolveDriveType(path);
