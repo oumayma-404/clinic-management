@@ -7,8 +7,8 @@ qu'elles restent les vôtres.
 
 | | |
 |---|---|
-| **Version** | 1.0 |
-| **Date** | 16 août 2026 |
+| **Version** | 1.1 |
+| **Date** | 31 août 2026 |
 | **Portée** | Service hébergé et installation locale |
 
 ---
@@ -115,7 +115,7 @@ traite un autre.
 | | |
 |---|---|
 | **Un déchiffrement impossible refuse l'opération** | Le système ne bascule jamais vers une solution dégradée. Pour un second facteur, « clé illisible » ne devient jamais « connexion sans second facteur » : l'accès est refusé et une procédure de récupération est indiquée. |
-| **Les clés sont détenues séparément** | La clé qui protège un contenu n'est jamais conservée au même endroit que ce contenu, et fait l'objet d'une garde formalisée avec un dépositaire nommé et une copie de secours distincte. |
+| **Les clés sont détenues séparément** | La clé qui protège un contenu n'est jamais conservée au même endroit que ce contenu. La garde de chaque clé — dépositaire nommé, dépositaire suppléant, lieu de conservation — est formalisée par écrit pour votre déploiement et vous est communiquée avec votre contrat. |
 | **Rotation sans perte** | Lorsqu'une clé est remplacée, la précédente reste disponible en déchiffrement. Un renouvellement ne rend jamais illisible ce qui a déjà été enregistré. |
 
 ---
@@ -132,7 +132,7 @@ les modifications et les suppressions, avec le nom de l'auteur et l'horodatage.
 |---|---|
 | **Registre chaîné** | Chaque entrée porte une signature cryptographique calculée à partir d'elle-même et de celle qui la précède, au moyen d'un secret que la base de données ne contient pas. Modifier ou supprimer une ligne rompt la chaîne, et la rupture est détectable — y compris par quelqu'un disposant d'un accès complet à la base. |
 | **Aucune API d'écriture** | Le journal n'expose aucun moyen de créer, modifier ou supprimer une entrée. Il ne s'écrit qu'automatiquement, en marge des opérations qu'il décrit. |
-| **Les exports complets sont nominatifs** | Le téléchargement de l'intégralité du dossier d'un cabinet exige une nouvelle saisie du mot de passe et fait l'objet d'un enregistrement nominatif. Si cet enregistrement ne peut pas être écrit, le téléchargement n'a pas lieu. |
+| **Les exports en masse sont nominatifs** | Télécharger l'archive complète du cabinet **ou la liste des patients** exige une nouvelle confirmation de votre identité et fait l'objet d'un enregistrement nominatif. Si cet enregistrement ne peut pas être écrit, l'export n'a pas lieu. L'export de l'agenda est enregistré de la même façon, sans confirmation : c'est une plage de dates qu'on imprime chaque jour, et une demande de mot de passe quotidienne s'apprend à taper sans la lire. |
 | **Aucune donnée patient dans les journaux techniques** | Les journaux d'exploitation ne comportent ni nom, ni élément identifiant. Un contrôle automatisé le vérifie à chaque livraison. |
 
 ---
@@ -171,10 +171,24 @@ votre dossier.**
 **Où vos données résident est une décision contractuelle, et le logiciel la fait respecter
 techniquement.**
 
-L'application tient une liste des destinations autorisées pour toute donnée sortante —
-hébergement, sauvegarde hors site, services de messagerie. **Elle refuse de démarrer si une
-destination non déclarée est configurée.** Un transfert vers un service tiers ne peut donc pas
-être ajouté discrètement.
+L'application tient une liste des destinations autorisées pour **l'hébergement et les sauvegardes
+hors site** : une destination non déclarée l'empêche de démarrer, en nommant laquelle. Une copie de
+votre base ne peut donc pas partir ailleurs sans que ce soit une décision explicite.
+
+**Ce que ce contrôle ne couvre pas, et qu'il faut dire.** Il porte sur les destinations de stockage.
+Les services que votre cabinet active lui-même — passerelle SMS, WhatsApp, relais e-mail, Google
+Agenda — sont configurés par vous et ne passent pas par cette liste. Trois d'entre eux reçoivent des
+données identifiantes :
+
+| Service, si vous l'activez | Ce qu'il reçoit |
+|---|---|
+| Passerelle SMS | le numéro du patient et le texte du rappel (nom, date, cabinet) |
+| WhatsApp (Meta) | les mêmes éléments |
+| **Google Agenda** | le titre du rendez-vous, qui **contient le nom du patient**, et les notes libres du rendez-vous |
+| Relais e-mail | le document médical envoyé, en pièce jointe |
+
+Chacun se désactive, et aucun n'est actif tant que vous ne l'avez pas configuré. Les notifications
+envoyées aux téléphones de votre équipe, elles, ne contiennent jamais de nom ni de contenu clinique.
 
 Le lieu d'hébergement retenu pour votre cabinet, ainsi que les sous-traitants techniques auxquels
 nous recourons, figurent dans votre contrat de service. Nous nous inscrivons dans le cadre de la
@@ -215,4 +229,4 @@ interlocuteur habituel. Nous répondons aux demandes documentées et vous accomp
 *Ce document décrit les protections en vigueur à sa date de publication. Il est revu à chaque
 évolution significative du produit et la version applicable vous est communiquée.*
 
-*Sécurité du dossier patient — version 1.0, 16 août 2026.*
+*Sécurité du dossier patient — version 1.1, 31 août 2026.*
