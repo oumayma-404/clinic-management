@@ -35,6 +35,12 @@ public class SubscriptionWarningTests
     /// </summary>
     private sealed class FeedRepository : IStaffNotificationRepository
     {
+        // NOTE (security-remediation): stub added only so the test project compiles while the vault feature is
+        // in flight in this working tree. Its owner should give it whatever behaviour those cases need.
+        public Task<StaffNotification?> GetVaultCopyStaleAsync(
+            Guid clinicId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<StaffNotification?>(null);
+
         public List<StaffNotification> Rows { get; } = new();
 
         public Task AddAsync(StaffNotification notification, CancellationToken cancellationToken = default)

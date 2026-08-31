@@ -333,6 +333,60 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task EnsureVaultCopyStaleAsync(
+        Guid clinicId, DateTime? lastCopiedUtc, int staleAfterDays,
+        CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var title = VaultCopyStaleTitle;
+            var message = VaultCopyStaleMessage(lastCopiedUtc, staleAfterDays);
+
+            var existing = await _notifications.GetVaultCopyStaleAsync(clinicId, cancellationToken);
+            if (existing != null)
+            {
+                // The stable prefix, for EnsureArchiveStaleAsync's reason: the message carries a day count that
+                // ticks up nightly, so a whole-message comparison would restate daily and refetch every browser.
+                if (existing.Message.StartsWith(VaultCopyStaleKey(lastCopiedUtc), StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                existing.Restate(title, message);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.VaultCopyStale,
+                title, message,
+                DateTime.UtcNow,
+                NotificationTargetKind.BackupSettings,
+                actorUserId: null, // nobody "did" a staleness → visible to all staff, like its siblings
+                stockItemId: null);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
+    public async Task ClearVaultCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var existing = await _notifications.GetVaultCopyStaleAsync(clinicId, cancellationToken);
+            if (existing == null)
+            {
+                return false; // nothing flagged — the common case on a cabinet whose shell copies regularly
+            }
+
+            await _notifications.RemoveAsync(existing, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true; // the row left the feed → clients refetch
+        }, cancellationToken);
+    }
+
     public async Task ClearArchiveStaleAsync(Guid clinicId, CancellationToken cancellationToken = default)
     {
         await SafelyAsync(clinicId, async () =>
@@ -793,6 +847,39 @@ public class NotificationGenerator : INotificationGenerator
         return $"{ArchiveStaleKey(last)} (il y a {days} jours, seuil : {staleAfterDays} jours). "
                + "Téléchargez-en une nouvelle copie depuis « Paramètres » puis « Sauvegarde » : une copie gardée "
                + "sur votre poste est la seule qui survive à une panne du serveur.";
+    }
+
+    private const string VaultCopyStaleTitle = "Coffre du cabinet à copier";
+
+    /// <summary>The stable half the ensure matches on — the date and nothing that ticks.</summary>
+    private static string VaultCopyStaleKey(DateTime? lastCopiedUtc) =>
+        lastCopiedUtc is DateTime last
+            ? $"Dernière copie du coffre le {ClinicClock.ToClinicLocal(last):dd/MM/yyyy}"
+            : "Le coffre de ce cabinet n'a encore jamais été copié";
+
+    /// <summary>
+    /// Two wordings, for <see cref="ArchiveStaleMessage"/>'s reason.
+    ///
+    /// <para>It has to say what the coffre <i>is</i>, because this is the one alert whose subject the practice may
+    /// not know it has: the originals of its large imaging were never sent to the server, so nothing an owner
+    /// thinks of as « la sauvegarde » has ever contained them.</para>
+    /// </summary>
+    private static string VaultCopyStaleMessage(DateTime? lastCopiedUtc, int staleAfterDays)
+    {
+        const string what =
+            "Le coffre contient les originaux de vos fichiers volumineux (scanners 3D, empreintes) : ils sont "
+            + "conservés au cabinet et n'ont jamais été transmis au serveur, donc aucune archive ne les contient.";
+
+        if (lastCopiedUtc is not DateTime last)
+        {
+            return $"{VaultCopyStaleKey(null)}. {what} Branchez le disque de sauvegarde et laissez la copie "
+                   + "automatique se faire, ou ouvrez « Copie automatique de l'archive… » sur le poste du cabinet.";
+        }
+
+        // Whole days, derived here rather than passed in, so the count can never disagree with the date.
+        var days = Math.Max(0, (int)(DateTime.UtcNow - last).TotalDays);
+        return $"{VaultCopyStaleKey(last)} (il y a {days} jours, seuil : {staleAfterDays} jours). {what} "
+               + "Branchez le disque de sauvegarde du cabinet pour qu'une nouvelle copie soit prise.";
     }
 
     private static string BackupStaleMessage(DateTime? lastSuccessUtc, int staleAfterHours)

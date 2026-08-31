@@ -133,5 +133,28 @@ public enum NotificationCategory
     /// <para>In-app (and by e-mail): what it asks for happens at the machine, at the next sign-in, so a lock-screen
     /// banner would add urgency to something nobody can act on from a phone.</para>
     /// </summary>
-    PasswordReset = 15
+    PasswordReset = 15,
+
+    /// <summary>
+    /// No copy of this cabinet's <b>coffre</b> — the originals of files too large for the server
+    /// (<c>clinic-file-vault</c>) — has left the practice's own machine for a while.
+    ///
+    /// <para>⚠️ <b>Distinct from <see cref="ArchiveStale"/>, and conflating them would leave exactly the hole this
+    /// exists to close.</b> The archive carries the rows and the hosted blobs; a coffre original was never on the
+    /// server, so no archive has ever contained one. A cabinet can therefore have a perfectly fresh archive and a
+    /// coffre nobody has ever copied — and dental imaging carries a ten-to-twenty-year retention duty, so that is
+    /// the state where a failed disk loses a decade of studies while every backup indicator reads green.</para>
+    ///
+    /// <para>⚠️ <b>The server cannot see the practice's disk</b>, so this is driven by what the shell reports
+    /// (<c>POST /api/backup/vault-copy</c>) against <see cref="Entities.Clinic.LastVaultCopyAtUtc"/>. A cabinet whose
+    /// coffre holds nothing is never nagged — there is nothing to lose yet, and a warning about an empty folder
+    /// teaches an owner to ignore this one.</para>
+    ///
+    /// <para>An ensure/clear pair on <see cref="ArchiveStale"/>'s shape, and for its reason: one fact that restates
+    /// rather than four escalating ones.</para>
+    ///
+    /// <para>In-app only. What it asks for is « branchez le disque et laissez la copie se faire », which happens at
+    /// the machine holding the coffre.</para>
+    /// </summary>
+    VaultCopyStale = 16
 }

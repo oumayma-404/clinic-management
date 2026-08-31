@@ -57,6 +57,8 @@ import { formatDate, formatFileSize, quoteFr } from "@/lib/format"
 import { showErrorToast } from "@/lib/errors"
 import { downloadBlob } from "@/lib/download"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
+import { useVault } from "@/lib/hooks/use-vault"
+import { findVerifiedInVault } from "@/lib/vault/path"
 import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/paging"
 import type { PatientFileDto, PatientFolderDto } from "@/lib/api/types"
 import { toast } from "sonner"
@@ -65,6 +67,7 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
 import { FilePreviewDialog } from "@/components/patients/files/file-preview-dialog"
 import { FileThumbnail } from "@/components/patients/files/file-thumbnail"
+import { FileResidencyBadge } from "@/components/patients/files/residency-badge"
 import { RenameFileDialog } from "@/components/patients/files/rename-file-dialog"
 import { UploadQueue, useUploadQueue } from "@/components/patients/files/upload-queue"
 import { useFilePreview } from "@/components/patients/files/use-file-preview"
@@ -207,10 +210,13 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
     }
   }, [patientId, loading, loadFailed, folders.length, loadData])
 
+  const { vault, status: vaultStatus, pair: pairVault } = useVault()
+
   const uploads = useUploadQueue({
     patientId,
     folderId: currentFolderId || undefined,
     policy,
+    vault,
     onFileUploaded: () => void loadData(),
   })
 
@@ -314,6 +320,27 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
 
   const handleDownloadFile = async (file: PatientFileDto) => {
     try {
+      // AC-9 — a coffre original is opened from the disk it never left. No request, no transfer: at Tunisia's
+      // median uplink a 400 Mo study would take six minutes to come back down a wire it never went up.
+      if (file.residency === "Vault") {
+        const local = vault
+          ? await findVerifiedInVault(vault, patientId, file.id, file.fileName, file.fileSize)
+          : null
+
+        if (!local) {
+          // ⚠️ Not an error. The study is on the machine that recorded it, and a colleague's laptop legitimately
+          // has no copy — so this names where it is rather than reporting a failure.
+          toast.info("Original conservé au cabinet", {
+            description:
+              "Ce fichier n'est pas disponible sur ce poste. Ouvrez-le depuis le poste du cabinet qui accède au coffre.",
+          })
+          return
+        }
+
+        await downloadBlob(local, file.fileName)
+        return
+      }
+
       const blob = await patientFilesApi.downloadFile(patientId, file.id)
       // One way to deliver a file. The hand-rolled `<a download>` this replaced is **ignored** by iOS Safari for
       // a `blob:` URL, so on an iPhone the button silently delivered nothing at all.
@@ -442,6 +469,31 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
         </div>
       </div>
 
+      {/* AC-6 / § 0 — the coffre's state is stated where files are added, and it never hides a control. It renders
+          only where the deployment actually keeps large files at the cabinet: elsewhere there is nothing to say. */}
+      {policy?.vaultAvailable && vaultStatus !== "checking" && vaultStatus !== "ready" && (
+        <div
+          className="flex flex-col gap-2 rounded-lg border border-dashed bg-muted/40 p-3 sm:flex-row sm:items-center sm:justify-between"
+          role="status"
+        >
+          <p className="text-xs text-muted-foreground">
+            {vaultStatus === "unpaired"
+              ? "Les fichiers volumineux (scanners 3D, empreintes) sont conservés au cabinet. Indiquez le dossier du coffre pour pouvoir en ajouter depuis ce poste."
+              : "Les fichiers volumineux sont conservés au cabinet. Ce navigateur ne peut pas y accéder ; ouvrez APEXA sur le poste du cabinet pour en ajouter. Les autres fichiers s'envoient normalement."}
+          </p>
+          {vaultStatus === "unpaired" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full shrink-0 coarse:h-11 sm:w-auto"
+              onClick={() => void pairVault()}
+            >
+              Choisir le dossier du coffre
+            </Button>
+          )}
+        </div>
+      )}
+
       <UploadQueue items={uploads.items} running={uploads.running} onClear={uploads.clear} />
 
       {/* Folders, as chips: four cards in a grid pushed the files themselves off the first screen. */}
@@ -560,6 +612,7 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                       <p className="truncate text-xs tabular-nums text-muted-foreground">
                         {formatFileSize(file.fileSize)} · {formatDate(file.uploadedAt)}
                       </p>
+                      <FileResidencyBadge file={file} className="mt-1" />
                     </div>
                     <div className="absolute end-1 top-1" onClick={(e) => e.stopPropagation()}>
                       {fileMenu(file)}
@@ -587,7 +640,10 @@ export function PatientFilesManager({ patientName }: { patientName: string }) {
                       <div className="flex min-w-0 flex-1 items-center gap-3">
                         <FileThumbnail patientId={patientId} file={file} policy={policy} />
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-foreground">{file.fileName}</p>
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                            <p className="truncate text-sm font-semibold text-foreground">{file.fileName}</p>
+                            <FileResidencyBadge file={file} />
+                          </div>
                           <p className="text-xs tabular-nums text-muted-foreground">
                             {formatFileSize(file.fileSize)} • {formatDate(file.uploadedAt)}
                           </p>

@@ -188,6 +188,12 @@ public partial class ArchiveCopyWindow : Window
 
                 Report($"{outcome.Message} — {mirrored.Message}");
             }
+
+            // clinic-file-vault. Unconditional, unlike the mirror: the coffre is not an opt-in convenience but the
+            // ONLY copy of originals the server has never held, and it is what clears the « coffre non copié »
+            // alert. One button verifies the whole setup, for the reason stated above.
+            var vault = await Task.Run(() => new VaultCopyService(_server, settings).CopyNowAsync(archive.LastToken));
+            Report(vault.Message);
         }
         catch (Exception ex)
         {

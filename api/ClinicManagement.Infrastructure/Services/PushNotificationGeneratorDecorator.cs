@@ -234,6 +234,16 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
     public Task ClearArchiveStaleAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
         _inner.ClearArchiveStaleAsync(clinicId, cancellationToken);
 
+    // Pass-through, for ArchiveStale's reason one field over: what it asks for — plug the backup disk into the
+    // machine holding the coffre — is not something a phone can be, let alone do.
+    public Task EnsureVaultCopyStaleAsync(
+        Guid clinicId, DateTime? lastCopiedUtc, int staleAfterDays,
+        CancellationToken cancellationToken = default) =>
+        _inner.EnsureVaultCopyStaleAsync(clinicId, lastCopiedUtc, staleAfterDays, cancellationToken);
+
+    public Task ClearVaultCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
+        _inner.ClearVaultCopyStaleAsync(clinicId, cancellationToken);
+
     public Task ClinicArchiveExportedAsync(
         Guid clinicId, string actorUserId, string actorName, CancellationToken cancellationToken = default) =>
         _inner.ClinicArchiveExportedAsync(clinicId, actorUserId, actorName, cancellationToken);

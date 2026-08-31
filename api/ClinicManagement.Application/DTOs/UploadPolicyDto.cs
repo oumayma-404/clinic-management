@@ -29,6 +29,15 @@ public class UploadPolicyDto
 
     /// <summary>The server's own wording for a deny-listed extension.</summary>
     public string DeniedMessage { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether this deployment files large studies in the cabinet's own coffre. False where the clinic's machine
+    /// already holds every blob, and there every format reads as always-hosted.
+    /// </summary>
+    public bool VaultAvailable { get; set; }
+
+    /// <summary>The server's own wording for « this one belongs at the cabinet and you have no coffre here ».</summary>
+    public string VaultUnavailableMessage { get; set; } = string.Empty;
 }
 
 public class UploadPolicyFormatDto
@@ -48,4 +57,26 @@ public class UploadPolicyFormatDto
 
     /// <summary>The server's own « trop volumineux » sentence for this format's cap, so the two agree word for word.</summary>
     public string TooLargeMessage { get; set; } = string.Empty;
+
+    /// <summary>
+    /// <c>hosted</c> — every file of this format is stored on the server — or <c>hostedUpTo</c>, where files past
+    /// <see cref="HostedMaxBytes"/> are kept in the cabinet's coffre instead.
+    /// </summary>
+    public string Residency { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The largest file of this format the <b>server</b> will hold. Distinct from <see cref="MaxBytes"/>: that is
+    /// the door's ceiling, this is where the coffre takes over — 25 Mo for a study format on a hosted deployment,
+    /// and the door's own ceiling everywhere else.
+    /// </summary>
+    public long HostedMaxBytes { get; set; }
+
+    /// <summary>The largest file the coffre will take, or zero where this format never goes there.</summary>
+    public long VaultMaxBytes { get; set; }
+
+    /// <summary>
+    /// The server's own sentence for a file past even the coffre's ceiling, so the instant refusal and the one
+    /// the server would give are the same words. Empty where this format never goes to the coffre.
+    /// </summary>
+    public string VaultTooLargeMessage { get; set; } = string.Empty;
 }

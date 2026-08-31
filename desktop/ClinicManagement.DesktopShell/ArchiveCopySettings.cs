@@ -38,6 +38,15 @@ public sealed class ArchiveCopySettings
     /// </summary>
     public bool MirrorFiles { get; set; }
 
+    /// <summary>
+    /// Where the coffre lives — the originals of files too large for the server (<c>clinic-file-vault</c>).
+    ///
+    /// <para>⚠️ <b>Empty is the normal value and means « derive it »</b>: <see cref="VaultFolder.Resolve"/> puts it
+    /// under <c>%ProgramData%\ClinicManagement\coffre</c> — machine-wide, and deliberately not inside
+    /// <see cref="Folder"/>, since the coffre is the primary store and its backup must not be the same disk.</para>
+    /// </summary>
+    public string VaultFolder { get; set; } = "";
+
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(Folder) && !string.IsNullOrWhiteSpace(GrantSecret);
 

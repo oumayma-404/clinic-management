@@ -237,7 +237,9 @@ public sealed class ArchiveCopyService
     /// ACLs at all; refusing to copy there would remove the capability over a hardening that volume could never
     /// have offered. The dialog states the risk instead.</para>
     /// </summary>
-    private static void HardenFolder(string folder)
+    // Internal since the coffre: VaultFolder.Prepare applies the same policy to the same volume, and a second
+    // copy of the ACL rules is how one of them drifts.
+    internal static void HardenFolder(string folder)
     {
         try
         {

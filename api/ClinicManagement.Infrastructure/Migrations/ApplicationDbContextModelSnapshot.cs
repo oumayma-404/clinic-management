@@ -339,6 +339,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("LastArchiveDownloadedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("LastVaultCopyAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("LogoUrl")
                         .HasColumnType("text");
 
@@ -2406,6 +2409,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("ClinicId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("ContentType")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -2432,8 +2439,16 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("PreviewStorageKey")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("Residency")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
                     b.Property<string>("StorageKey")
-                        .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
@@ -2458,7 +2473,10 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.HasIndex("PatientId");
 
-                    b.ToTable("PatientFiles", (string)null);
+                    b.ToTable("PatientFiles", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PatientFiles_ResidencyForm", "(\"Residency\" = 1 AND \"StorageKey\" IS NOT NULL) OR (\"Residency\" = 2 AND \"StorageKey\" IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.PatientFlag", b =>

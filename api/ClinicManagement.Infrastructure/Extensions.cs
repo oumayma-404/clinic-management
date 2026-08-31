@@ -336,6 +336,10 @@ public static class Extensions
         // Application, which references Domain alone and so cannot name DeploymentProfile. Singletons for the same
         // reason as the profile: both are derived from startup configuration and immutable.
         services.AddSingleton<ISubscriptionPolicy, SubscriptionPolicy>();
+        // clinic-file-vault — where a file's bytes belong. Same seam and same lifetime reasoning: derived from
+        // the profile's Kind alone, so no operator setting can route a cabinet's studies back into a hosted store
+        // that is not sized for them.
+        services.AddSingleton<IFileResidencyPolicy, FileResidencyPolicy>();
         // Same lifetime reasoning as the profile it reads: immutable and derived from startup configuration.
         services.AddSingleton<ISecondFactorPolicy, SecondFactorPolicy>();
         services.AddSingleton<ISubscriptionPricing, SubscriptionPricing>();

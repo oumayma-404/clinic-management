@@ -1002,6 +1002,16 @@ export interface PatientFileDto {
   description?: string;
   uploadedAt: string;
   uploadedBy?: string;
+  /**
+   * Where the bytes are. `Hosted` — the server can serve them, as it always could. `Vault` — they are in the
+   * cabinet's own coffre and never reached the server, so this machine can open the original only if it holds
+   * that folder. Never infer it from a null; the server states it.
+   */
+  residency: 'Hosted' | 'Vault';
+  /** Lower-case hex SHA-256 of a coffre original. Null for a hosted file, whose store vouches for itself. */
+  contentHash?: string | null;
+  /** Whether a stand-in image exists for a coffre original that is out of reach on this machine. */
+  hasPreview: boolean;
   /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
   version: number;
 }

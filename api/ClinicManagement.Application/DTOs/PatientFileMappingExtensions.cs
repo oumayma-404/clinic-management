@@ -23,6 +23,9 @@ public static class PatientFileMappingExtensions
         Description = file.Description,
         UploadedAt = file.UploadedAt,
         UploadedBy = file.UploadedBy,
+        Residency = file.Residency.ToString(),
+        ContentHash = file.ContentHash,
+        HasPreview = !string.IsNullOrEmpty(file.PreviewStorageKey),
         Version = file.Version,
     };
 }

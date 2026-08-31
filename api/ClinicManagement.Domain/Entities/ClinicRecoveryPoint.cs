@@ -50,6 +50,17 @@ public class ClinicRecoveryPoint : AggregateRoot<Guid>
     /// </summary>
     public const int ArchiveStaleAfterDays = 30;
 
+    /// <summary>
+    /// How long a cabinet's <b>coffre</b> may go uncopied before it is nagged (<c>clinic-file-vault</c>,
+    /// <see cref="Clinic.LastVaultCopyAtUtc"/>).
+    ///
+    /// <para>Thirty days, matching <see cref="ArchiveStaleAfterDays"/> — but its own constant, because they measure
+    /// different things and one moving must not silently move the other. An archive is fetched over the network on
+    /// demand; a coffre copy needs a disk plugged into the machine holding it, which is a slower rhythm and could
+    /// justify a longer threshold later.</para>
+    /// </summary>
+    public const int VaultCopyStaleAfterDays = 30;
+
     /// <summary>The cabinet this point belongs to. Non-nullable: the pass iterates clinics.</summary>
     public Guid ClinicId { get; private set; }
 

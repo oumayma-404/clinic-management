@@ -329,6 +329,38 @@ public class BackupController : ApiControllerBase
     /// (FR-4.3). ⚠️ <b>A header, never the query string</b>: this application's URLs are logged, and FR-4.4 is
     /// about exactly that.
     /// </param>
+    /// <summary>
+    /// The shell reporting that it copied this cabinet's coffre somewhere else (<c>clinic-file-vault</c>).
+    ///
+    /// <para>⚠️ <b>The grant is required, not merely accepted.</b> Unlike the archive download there is no
+    /// step-up fallback: this is an unattended report from a machine, never something a person does at a keyboard,
+    /// and a route that let any authenticated user stamp « le coffre est copié » would silence the one alert
+    /// standing between a practice and the loss of a decade of imaging.</para>
+    /// </summary>
+    [HttpPost("vault-copy")]
+    [AllowsWithoutSubscription(
+        "Reporting that the practice holds its own copy of its own files is not recording new work, and a lapsed "
+        + "cabinet must not be the one that stops being told its coffre is unprotected.")]
+    public async Task<IActionResult> ReportVaultCopy(
+        [FromHeader(Name = ArchiveGrantHeader)] string? grant,
+        [FromBody] ReportVaultCopyCommand command,
+        CancellationToken cancellationToken)
+    {
+        // Re-checked here rather than trusted from the token exchange, for DownloadArchive's reason: a grant
+        // revoked between the two calls must stop this, and the comparison to the resolved clinic is the tenancy
+        // check — the authorizer reads across clinics by necessity, since a caller presenting a secret has no
+        // session.
+        var authorized = await _grants.AuthorizeAsync(grant, cancellationToken);
+        if (authorized == null || authorized.ClinicId != _clinicContext.GetClinicId())
+        {
+            return Failure("Ce poste n'est pas autorisé.", StatusCodes.Status403Forbidden);
+        }
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        return result.IsSuccess ? NoContent() : HandleFailure(result);
+    }
+
     [HttpGet("archive")]
     [EnableRateLimiting(RateLimiting.ArchivePolicy)]
     [AllowsWithoutSubscription(

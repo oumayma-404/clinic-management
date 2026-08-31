@@ -92,9 +92,48 @@ export const patientFilesApi = {
     return apiPostFormData<PatientFileDto>(`/patients/${patientId}/files/upload`, formData);
   },
 
+  /**
+   * Record a file whose bytes stay in the cabinet's coffre — a **registration, not an upload**. The original
+   * never crosses the wire; what goes up is its description plus, when one could be made, a small preview.
+   *
+   * ⚠️ `fileId` is minted by the caller because both sides derive the coffre path from it, so the browser must
+   * know it before it writes the bytes. The server treats it as untrusted and refuses a repeat.
+   */
+  registerVaultFile: async (
+    patientId: string,
+    file: {
+      fileId: string
+      fileName: string
+      fileSize: number
+      contentHash: string
+      folderId?: string
+      description?: string
+      preview?: Blob | null
+    },
+  ): Promise<PatientFileDto> => {
+    const formData = new FormData();
+    formData.append('fileId', file.fileId);
+    formData.append('fileName', file.fileName);
+    formData.append('fileSize', String(file.fileSize));
+    formData.append('contentHash', file.contentHash);
+    if (file.folderId) formData.append('folderId', file.folderId);
+    if (file.description) formData.append('description', file.description);
+    if (file.preview) formData.append('preview', file.preview, `${file.fileId}.jpg`);
+
+    return apiPostFormData<PatientFileDto>(`/patients/${patientId}/files/vault`, formData);
+  },
+
   // Download a file
   downloadFile: async (patientId: string, fileId: string): Promise<Blob> => {
     return apiGetBlob(`/patients/${patientId}/files/${fileId}/download`);
+  },
+
+  /**
+   * The stand-in image for a coffre original. ⚠️ A 404 means « no picture of this file », which is ordinary —
+   * nothing can decode a DICOM in a browser today — never « something went wrong ».
+   */
+  downloadPreview: async (patientId: string, fileId: string): Promise<Blob> => {
+    return apiGetBlob(`/patients/${patientId}/files/${fileId}/preview`);
   },
 
   /**

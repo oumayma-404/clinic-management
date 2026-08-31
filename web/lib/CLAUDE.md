@@ -123,6 +123,21 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
   read: base64 across a JS bridge costs ~1.33×, and a browser has no such marshalling to run out of memory on, so
   imposing the cap there would refuse a 40 MB panoramique that downloads fine today. The shell states its own
   ceiling in `__clinicShell.maxFileBytes`; the constant is the fallback, never "unlimited".
+- **`vault/`** — the cabinet's coffre, where originals too large for the server live (`clinic-file-vault`). Four
+  files, and the split matters: **`handle.ts`** acquires the folder (the desktop shell's pre-granted handle first,
+  then `showDirectoryPicker()` with the handle persisted in IndexedDB) and **never prompts** on mount, so a
+  permission dialog cannot appear over a patient record; **`path.ts`** mirrors the server's `VaultPath` —
+  `coffre/{patientId}/{fileId}.{ext}`, derived on both sides and stored on neither — and verifies a file by
+  **size**, the rule `FileMirrorService` already uses; **`ingest.ts`** hashes and copies in **one pass** over the
+  file (`writeToVault`'s `onChunk` is what keeps it to one, since reading 25 Go twice is not an option) and removes
+  the bytes if the registration fails; **`preview.ts`** builds the stand-in image.
+  ⚠️ **`preview.ts` returns `null` for every format the coffre actually takes**, and that is not a stub: DICOM,
+  STL, PLY, OBJ, 3MF and ZIP are all `isBrowserPreviewable: false`, i.e. undecodable without a format-specific
+  parser. v1 registers those with no preview and the list shows a typed placeholder; the server already stores,
+  caps (4 Mo) and serves one, so adding a decoder later changes that file alone.
+  ⚠️ **A missing coffre is a first-class state, never an error** — most machines have none (a phone, Safari, a
+  laptop at home) and on those every hosted file still opens. `hooks/use-vault.ts` keeps the four states apart:
+  `checking` / `ready` / `unpaired` (offer a picker) / `unsupported` (explain; never a dead control).
 - `utils.ts` — `cn(...)` (clsx + tailwind-merge); `parseDurationToMinutes(timeSpan)`.
 
 ## Conventions

@@ -29,6 +29,15 @@ public interface IPatientFileRepository
     /// arriving mid-walk pushes every later row down one and the walk skips one it had not read yet. Ascending,
     /// a new file lands after the last page and is simply picked up next time.</para>
     /// </summary>
+    /// <summary>
+    /// How many of the cabinet's files live in its coffre rather than on the server (<c>clinic-file-vault</c>).
+    ///
+    /// <para>⚠️ It exists so the staleness alert can ask « is there anything to lose? » first. A cabinet with an
+    /// empty coffre must never be nagged about not copying it — a warning about an empty folder is the fastest way
+    /// to teach an owner to dismiss this one, and then the real warning goes with it.</para>
+    /// </summary>
+    Task<int> CountVaultFilesAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
     Task<PagedResult<ClinicFileManifestRow>> GetClinicManifestPageAsync(
         Guid clinicId,
         PageRequest? paging,

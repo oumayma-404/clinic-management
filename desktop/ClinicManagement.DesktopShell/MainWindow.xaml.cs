@@ -107,6 +107,10 @@ public partial class MainWindow : Window
             WebView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
             WebView.CoreWebView2.ContextMenuRequested += WebView_ContextMenuRequested;
             await WebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(ThemeReporterScript);
+            // The shell's first bridge (clinic-file-vault). Injected here rather than composed into the theme
+            // script: they answer to different things, and a page that breaks one must keep the other.
+            await WebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                VaultBridge.Script(ClientRequirements.InstalledVersion));
 
             _coreReady = true;
             return true;
@@ -207,6 +211,9 @@ public partial class MainWindow : Window
         if (e.IsSuccess)
         {
             ShowWebView();
+            // ⚠️ On EVERY successful navigation, unlike the once-per-session archive check: a reload gets a new
+            // document, and the handle was posted to the old one. A page with no coffre cannot file a study.
+            VaultBridge.Deliver(WebView.CoreWebView2, _config);
             RunArchiveCopyIfDue();
             StartFileMirrorIfEnabled();
             StartUpdateChecks();
@@ -367,12 +374,28 @@ public partial class MainWindow : Window
         }
 
         var newest = ArchiveCopyService.NewestCopyUtc(settings.Folder);
-        if (!settings.IsDue(newest, DateTime.UtcNow))
-        {
-            return;
-        }
+        var archiveDue = settings.IsDue(newest, DateTime.UtcNow);
 
-        _ = System.Threading.Tasks.Task.Run(() => new ArchiveCopyService(_config, settings).CopyNowAsync());
+        _ = System.Threading.Tasks.Task.Run(async () =>
+        {
+            string? token = null;
+
+            if (archiveDue)
+            {
+                var archive = new ArchiveCopyService(_config, settings);
+                await archive.CopyNowAsync();
+
+                // Reused so one session does not spend two grant→token exchanges: that endpoint is on the archive
+                // limiter (three in ten minutes) and a single pass legitimately does two things.
+                token = archive.LastToken;
+            }
+
+            // ⚠️ Runs whether or not the archive was due, and that asymmetry is the design. The archive is a full
+            // snapshot rebuilt whole, so taking one every session would be absurd; the coffre copy is incremental
+            // and normally copies nothing, and its whole value is that a study filed this morning is on a second
+            // disk before the day ends rather than up to a week later.
+            await new VaultCopyService(_config, settings).CopyNowAsync(token);
+        });
     }
 
     // ---- Browsable file mirror (patient-file-mirror) --------------------------------------------

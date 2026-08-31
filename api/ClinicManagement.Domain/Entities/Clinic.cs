@@ -124,6 +124,18 @@ public class Clinic : AggregateRoot<Guid>
     /// </summary>
     public DateTime? LastArchiveDownloadedAtUtc { get; private set; }
 
+    /// <summary>
+    /// When a copy of this cabinet's <b>coffre</b> last reached a second place (<c>clinic-file-vault</c>).
+    ///
+    /// <para>⚠️ <b>Reported by the shell, because the server cannot see the practice's disk.</b> Coffre originals
+    /// were never uploaded, so no archive has ever contained one and nothing server-side can observe whether they
+    /// are safe. This is the only channel through which that fact exists here.</para>
+    ///
+    /// <para>Null on a cabinet whose coffre has never been copied — <b>and also on every cabinet whose coffre is
+    /// empty</b>, which is why the staleness alert asks whether there is anything to lose before it fires.</para>
+    /// </summary>
+    public DateTime? LastVaultCopyAtUtc { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -366,6 +378,20 @@ public class Clinic : AggregateRoot<Guid>
         if (LastArchiveDownloadedAtUtc == null || deliveredAtUtc > LastArchiveDownloadedAtUtc)
         {
             LastArchiveDownloadedAtUtc = deliveredAtUtc;
+        }
+    }
+
+    /// <summary>
+    /// Records that the shell copied the coffre somewhere else. <see cref="MarkArchiveDownloaded"/>'s shape, and
+    /// for its reasons: it never moves the moment backwards (two machines can report in either order and the older
+    /// report must not make the cabinet look staler than it is) and it does not stamp <see cref="UpdatedAt"/>,
+    /// because nobody edited the cabinet.
+    /// </summary>
+    public void MarkVaultCopied(DateTime copiedAtUtc)
+    {
+        if (LastVaultCopyAtUtc == null || copiedAtUtc > LastVaultCopyAtUtc)
+        {
+            LastVaultCopyAtUtc = copiedAtUtc;
         }
     }
 }

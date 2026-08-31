@@ -1,7 +1,9 @@
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Files.Commands;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.ValueObjects;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -27,9 +29,22 @@ public class UploadPatientFileAtomicityTests
     private readonly Mock<IUnitOfWork> _uow = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
 
+    // NOTE (security-remediation): added only so the test project compiles while the FileResidency feature is
+    // in flight in this working tree. Its owner should replace this with whatever setup those cases need.
+    private readonly Mock<IFileResidencyPolicy> _residencyPolicy = new();
+
+    public UploadPatientFileAtomicityTests()
+    {
+        // FileResidency has no 0 member, so Moq's default would be an invalid value. Hosted is the ordinary path.
+        _residencyPolicy
+            .Setup(p => p.Decide(It.IsAny<FileTypeEntry>(), It.IsAny<long>()))
+            .Returns(FileResidency.Hosted);
+    }
+
     private UploadPatientFileCommandHandler Handler() =>
         new(_patients.Object, _folders.Object, _files.Object, _fileStorage.Object, _uow.Object,
-            _clinicResolver.Object, NullLogger<UploadPatientFileCommandHandler>.Instance);
+            _clinicResolver.Object, _residencyPolicy.Object,
+            NullLogger<UploadPatientFileCommandHandler>.Instance);
 
     private static Patient APatient() => new(
         PatientId,
