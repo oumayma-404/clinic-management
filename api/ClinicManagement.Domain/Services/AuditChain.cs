@@ -65,8 +65,29 @@ public enum AuditChainBreak
     /// An unchained (hash-less) entry appears <b>after</b> a chained one. Chained history cannot un-chain itself,
     /// so this is what erasing a hash to hide an edit looks like.
     /// </summary>
-    UnchainedAfterChained = 4
+    UnchainedAfterChained = 4,
+
+    /// <summary>
+    /// The chain is internally perfect but <b>shorter than the last sealed tip</b> — its newest entries were
+    /// deleted.
+    ///
+    /// <para>⚠️ <b>This is the one break the arithmetic alone cannot see, by construction.</b> Every other check
+    /// compares an entry against its neighbour; deleting the newest <i>k</i> rows removes no neighbour and leaves
+    /// a shorter chain that verifies perfectly, after which the next append re-links from whatever tip it finds.
+    /// « Delete the last hour » is therefore the cheapest possible attack on this ledger, and it was free. The
+    /// only defence is a record of the expected tip held <b>outside the database the tip protects</b> — which is
+    /// what `seal-audit-chain` writes beside the chain key.</para>
+    /// </summary>
+    TipTruncated = 5
 }
+
+/// <summary>
+/// One chain's last known-good tip, recorded out of band by the <c>seal-audit-chain</c> verb.
+/// </summary>
+/// <param name="Sequence">The highest sequence number the chain held when it was sealed.</param>
+/// <param name="EntryHash">That entry's hash — so a chain rebuilt to the same LENGTH is still caught.</param>
+/// <param name="SealedAtUtc">When the seal was taken, for the operator reading the report.</param>
+public sealed record AuditChainSeal(Guid ChainKey, long Sequence, string EntryHash, DateTime SealedAtUtc);
 
 /// <summary>What one chain's walk found.</summary>
 /// <param name="Unchained">
@@ -242,6 +263,16 @@ public static class AuditChain
     /// about » from « a break nobody declared » — so it is counted separately and is never itself a break.</para>
     /// </summary>
     public static AuditChainWalkResult Walk(Guid chainKey, IEnumerable<AuditChainEntry> orderedEntries, byte[] key)
+        => Walk(chainKey, orderedEntries, key, seal: null);
+
+    /// <inheritdoc cref="Walk(Guid, IEnumerable{AuditChainEntry}, byte[])"/>
+    /// <param name="seal">
+    /// The last tip recorded out of band, or null when this chain has never been sealed. Supplying it is what
+    /// makes <see cref="AuditChainBreak.TipTruncated"/> reachable — without it, deleting the newest entries is
+    /// invisible to every other check in this method.
+    /// </param>
+    public static AuditChainWalkResult Walk(
+        Guid chainKey, IEnumerable<AuditChainEntry> orderedEntries, byte[] key, AuditChainSeal? seal)
     {
         ArgumentNullException.ThrowIfNull(orderedEntries);
 
@@ -293,8 +324,38 @@ public static class AuditChain
             previous = entry;
         }
 
+        // ⚠️ Checked LAST, and only on a chain that is otherwise intact: an earlier break is a more specific
+        // answer, and reporting « tronquée » over an altered row would send an operator looking for a deletion
+        // that did not happen.
+        if (seal is not null && !ReachesTheSealedTip(previous, seal))
+        {
+            return new AuditChainWalkResult(
+                chainKey, checkedCount, unchained, declaredGaps,
+                AuditChainBreak.TipTruncated, seal.Sequence, null);
+        }
+
         return new AuditChainWalkResult(
             chainKey, checkedCount, unchained, declaredGaps, AuditChainBreak.None, null, null);
+    }
+
+    /// <summary>
+    /// Does the chain still contain the sealed entry?
+    ///
+    /// <para>Growing past the seal is normal — the ledger is append-only and a seal is a point in its history, not
+    /// a ceiling. What must never happen is the chain ending <b>before</b> that point. A chain that reached the
+    /// sealed sequence but carries a different hash there is rejected too: rebuilding a forged chain to the same
+    /// length is the obvious way round a length-only check.</para>
+    /// </summary>
+    private static bool ReachesTheSealedTip(AuditChainEntry? tip, AuditChainSeal seal)
+    {
+        if (tip is null || tip.Sequence < seal.Sequence)
+        {
+            return false;
+        }
+
+        // Beyond the seal there is nothing to compare against — the entries are newer than the record.
+        return tip.Sequence > seal.Sequence
+               || string.Equals(tip.EntryHash, seal.EntryHash, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -307,6 +368,8 @@ public static class AuditChain
         AuditChainBreak.ContentAltered => "cette entrée a été modifiée après son écriture",
         AuditChainBreak.LinkBroken => "cette entrée ne pointe pas sur celle qui la précède",
         AuditChainBreak.SequenceGap => "un numéro d'ordre manque avant cette entrée",
+        AuditChainBreak.TipTruncated =>
+            "les entrées les plus récentes de cette chaîne ont été supprimées depuis le dernier scellement",
         AuditChainBreak.UnchainedAfterChained =>
             "cette entrée n'est plus chaînée alors que celles qui la précèdent le sont",
         _ => "rupture non classée"

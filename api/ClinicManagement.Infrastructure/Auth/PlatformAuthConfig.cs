@@ -71,15 +71,7 @@ public static class PlatformAuthConfig
                 + "Elle ne doit jamais être la clé de signature des cliniques (Auth:Local:SigningKey).");
         }
 
-        byte[] bytes;
-        try
-        {
-            bytes = Convert.FromBase64String(configured);
-        }
-        catch (FormatException)
-        {
-            bytes = Encoding.UTF8.GetBytes(configured);
-        }
+        var bytes = Decode(configured);
 
         if (bytes.Length < 32)
         {
@@ -128,20 +120,38 @@ public static class PlatformAuthConfig
     /// <summary>
     /// True when the console would sign with the same bytes as the clinics.
     ///
-    /// <para>Resolving the clinic key can itself throw or generate a file on a deployment that has no local
-    /// auth configured, and a comparison must never be the thing that takes startup down — so a failure to read
-    /// it is treated as « cannot be the same key » rather than propagated.</para>
+    /// <para>⚠️ <b>Read from CONFIGURATION, not through <c>LocalAuthConfig.ResolveSigningKey</c>.</b> Two reasons,
+    /// and both are real. That method caches its answer process-wide and, failing an explicit setting, <b>writes
+    /// a generated key file</b> — so calling it here would make a comparison generate a credential as a side
+    /// effect, and would compare against whatever the process happened to resolve first. And the mistake this
+    /// guards is an operator pasting one generated secret into both settings, which is visible in the
+    /// configuration itself; a self-generated per-install key cannot collide with a value somebody typed.</para>
+    ///
+    /// <para>Decoded exactly as both callers decode their own — base64 if it parses, else UTF-8 — so
+    /// <c>"c2VjcmV0"</c> and the bytes it stands for are recognised as the same key rather than as two.</para>
     /// </summary>
     private static bool SharesTheClinicSigningKey(IConfiguration configuration, byte[] consoleKey)
     {
-        try
-        {
-            return CryptographicOperations.FixedTimeEquals(
-                consoleKey, LocalAuthConfig.ResolveSigningKey(configuration));
-        }
-        catch
+        var clinic = configuration["Auth:Local:SigningKey"];
+
+        if (string.IsNullOrWhiteSpace(clinic))
         {
             return false;
+        }
+
+        return CryptographicOperations.FixedTimeEquals(consoleKey, Decode(clinic));
+    }
+
+    /// <summary>Base64 where it parses, UTF-8 otherwise — the one decoding both key readers use.</summary>
+    private static byte[] Decode(string configured)
+    {
+        try
+        {
+            return Convert.FromBase64String(configured);
+        }
+        catch (FormatException)
+        {
+            return Encoding.UTF8.GetBytes(configured);
         }
     }
 }

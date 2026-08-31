@@ -349,6 +349,10 @@ public static class Extensions
         // the profile it reads is one: immutable, derived from startup configuration.
         services.AddSingleton<IOutboundEndpointPolicy, OutboundEndpointPolicy>();
 
+        // The audit chains' sealed tips. Singleton beside the chain key it sits next to, and for the same
+        // reason: it is resolved from configuration once and never changes for the life of the process.
+        services.AddSingleton<IAuditChainSealStore, AuditChainSealStore>();
+
         // clinic-subscription — the two seams that carry a deployment fact and an operator setting into
         // Application, which references Domain alone and so cannot name DeploymentProfile. Singletons for the same
         // reason as the profile: both are derived from startup configuration and immutable.

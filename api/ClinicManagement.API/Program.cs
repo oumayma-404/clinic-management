@@ -107,6 +107,11 @@ if (args.Length > 0 && string.Equals(args[0], ResetUserTotpConsoleCommand.Comman
 // Moves the audit ledger's pre-v2 rows onto the canonical form that covers ClinicId. Dry run unless --apply,
 // and it REFUSES any chain that does not already verify — rehashing a tampered row would launder it.
 //   ClinicManagement.API.exe rehash-audit-chain [--apply]
+if (args.Length > 0 && string.Equals(args[0], SealAuditChainCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return await SealAuditChainCommand.RunAsync(args);
+}
+
 if (args.Length > 0 && string.Equals(args[0], RehashAuditChainCommand.CommandName, StringComparison.OrdinalIgnoreCase))
 {
     return await RehashAuditChainCommand.RunAsync(args);

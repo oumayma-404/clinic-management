@@ -28,6 +28,7 @@ public class SchemaVerificationReader : ISchemaVerificationReader
     private readonly IConfiguration? _configuration;
     private readonly IDataProtectionProvider? _dataProtection;
     private readonly Security.IAuditChainKeyProvider? _auditChainKey;
+    private readonly Security.IAuditChainSealStore? _sealStore;
 
     /// <param name="configuration">
     /// Read only for the internal root certificate's remaining life (FR-2.6) — a third "side" beside the model
@@ -49,13 +50,15 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         IVendorMessagingAvailability vendorMessaging,
         IConfiguration? configuration = null,
         IDataProtectionProvider? dataProtection = null,
-        Security.IAuditChainKeyProvider? auditChainKey = null)
+        Security.IAuditChainKeyProvider? auditChainKey = null,
+        Security.IAuditChainSealStore? sealStore = null)
     {
         _context = context;
         _vendorMessaging = vendorMessaging;
         _configuration = configuration;
         _dataProtection = dataProtection;
         _auditChainKey = auditChainKey;
+        _sealStore = sealStore;
     }
 
     public async Task<SchemaFacts> ReadAsync(CancellationToken cancellationToken = default)
@@ -118,6 +121,12 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         var buffer = new List<AuditChainEntry>();
         Guid? currentChain = null;
 
+        // ⚠️ The sealed tips, held OUTSIDE this database. Without them a chain whose newest entries were deleted
+        // walks perfectly — no neighbour is missing — so `audit-chain-intact` reports it intact. This is the one
+        // input that makes truncation visible at all, and an unreadable seal file THROWS rather than reading as
+        // « nothing sealed »: falling back would silently restore that blind spot.
+        var seals = _sealStore?.Read() ?? new Dictionary<Guid, Domain.Services.AuditChainSeal>();
+
         await using var command = new NpgsqlCommand(sql, connection);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
 
@@ -127,7 +136,8 @@ public class SchemaVerificationReader : ISchemaVerificationReader
 
             if (currentChain is { } open && open != chainKey)
             {
-                chains.Add(Domain.Services.AuditChain.Walk(open, buffer, _auditChainKey.Key));
+                chains.Add(Domain.Services.AuditChain.Walk(
+                    open, buffer, _auditChainKey.Key, seals.GetValueOrDefault(open)));
                 buffer.Clear();
             }
 
@@ -154,7 +164,8 @@ public class SchemaVerificationReader : ISchemaVerificationReader
 
         if (currentChain is { } last)
         {
-            chains.Add(Domain.Services.AuditChain.Walk(last, buffer, _auditChainKey.Key));
+            chains.Add(Domain.Services.AuditChain.Walk(
+                last, buffer, _auditChainKey.Key, seals.GetValueOrDefault(last)));
         }
 
         return new AuditChainFacts(chains);
