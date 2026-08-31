@@ -1,7 +1,7 @@
 # Security & compliance remediation — progress
 
 **Branch:** `feature/security-remediation` (forked from `feature/clinic-archive-auto-copy`)
-**Started:** 2026-08-31 · **Paused:** 2026-08-31
+**Started:** 2026-08-31 · **Last updated:** 2026-08-31
 **Source audit:** whole-codebase security + Tunisian data-protection review, published at
 <https://claude.ai/code/artifact/fa9cb21c-21c0-44db-a733-48ee1e782258>
 
@@ -35,64 +35,40 @@ of work (MinIO `MINIO_KMS_SECRET_KEY` + a config-gated `.WithServerSideEncryptio
 
 ---
 
-## 2. Batch 2 — IN PROGRESS
+## 2. Batch 2 — MOSTLY DONE
 
-### 2.1 Half-built and committed as WIP: export controls on `/api/patients/export`
+Commits `08b2d765` and `ccc6608a`.
 
-**The finding.** That endpoint returns twenty columns per patient — *Nom, Prénom, Date de naissance, Adresse,
-Identifiant CNAM, Antécédents médicaux, Allergies, …* — i.e. the cabinet's whole identified medical dataset, and
-it carried **none** of the four controls the whole-clinic ZIP archive carries: no step-up, no rate limit, no
-audit row, open to every clinic role. The archive is guarded as « the practice on a laptop »; this is the same
-data through a different door.
+| Done | What |
+|---|---|
+| ✅ | **Clinical-record audit coverage.** `IAuditable` + the interceptor accepting either marker; ten entities marked; `ClinicalRecordAuditCoverageTests` derives the rule from the model (carries a `PatientId` ⇒ must be auditable). **No migration was needed** — `AggregateRoot<T>` adds nothing to `Entity<T>`, it is a pure marker. |
+| ✅ | **Export controls on `/api/patients/export`** — step-up (server + the shared `ExportButton` opt-in + the patients page), a `ListExport` rate-limit policy, and a non-best-effort audit row that refuses the export if it cannot be written. |
+| ✅ | **Export controls on `/api/appointments/export`** — rate limit + audit row, deliberately **no** step-up (a date range printed daily is not the identified medical dataset; see `ExportAppointmentsQuery`). |
+| ✅ | **Server-side logout.** `EndSessionCommand` + `POST /api/auth/logout` + the BFF actually calling it. A captured refresh credential used to stay valid 12 h after sign-out. |
+| ✅ | **Archive-grant expiry** — 90 days idle, sliding from last use, **no migration** (`CreatedAtUtc`/`LastUsedAtUtc` already existed). A grant used to be a permanent admin credential. |
+| ⛔ | `ClinicId` + `UserEmail` into the audit chain hash — needs a rehash migration. **Blocked**, see § 5. |
+| ⛔ | Read-auditing on file/document downloads — the entire file path is in the concurrent session's edit set. **Blocked**, see § 5. |
+| ⛔ | Scoping the archive-grant token (it still mints a full clinic-admin token; expiry bounds it, scoping would remove the over-grant). Needs new audience/claim handling in auth validation. |
 
-**Written so far (compiles, tested by nothing yet, wired to nothing yet):**
+### 2.1 The two that stay blocked, in detail
 
-- `Features/Patients/PatientExportLedger.cs` — appends a **non-best-effort** `AuditEntry`; if the row cannot be
-  written the export is refused. Sibling of `Backup/ArchiveAccessLedger.cs`, with the reason for being a sibling
-  rather than a shared abstraction written down. Records the row count and *which* filters were applied, never
-  the filter **values** — a search term here is a patient's name.
-- `Features/Patients/Queries/ExportPatientsQuery.cs` — a Query that writes (`BuildClinicArchiveQuery`'s
-  precedent and its exact reason: a Command would broadcast `patients` on every export). Reuses
-  `GetPatientsQuery` unpaged rather than repeating the filter logic, so only the export path audits — auditing
-  the shared query would put a ledger row on every page turn of the patients screen.
+**`ClinicId` into the audit chain hash.** `AuditEntry.ToChainEntry()` hashes twelve fields and `ClinicId` is not
+one of them — while every read of the journal filters on it. So `UPDATE "AuditEntries" SET "ClinicId"=NULL`
+removes a row from the journal permanently **and the chain still verifies as intact**, which is precisely the
+threat `SECURITE-DOSSIER-PATIENT.md` § 7 claims to defend against (« y compris par quelqu'un disposant d'un accès
+complet à la base »). Truncating the newest rows is likewise undetectable: nothing persists an expected tip.
 
-**Still to do for this item:**
+Two ways to fix it, and the choice matters:
+- *Rehash every row* — one data migration, the clean answer. **Blocked** by § 5.
+- *Version the canonical form* — verify with `ClinicId`, fall back to the legacy form, and report how many rows
+  are still on it. No migration, protects new rows, and is honest about the old ones. Weaker, but shippable today.
 
-1. Point `PatientsController.ExportPatients` at `ExportPatientsQuery` instead of `GetPatientsQuery`.
-2. Add a rate-limit policy beside `RateLimiting.ArchivePolicy` and put `[EnableRateLimiting(...)]` on it.
-3. Add step-up: `[FromHeader(Name = BackupController.StepUpHeader)]` + a `RequireStepUp(...)` guard, with a new
-   action constant (the archive's is `download-clinic-archive`). **This needs the frontend too** — the flow
-   already exists (`web/components/security/step-up-dialog.tsx`, and `apiGetFile` already threads a
-   `stepUpToken`), so it is wiring, not new UI.
-4. Tests: the ledger row is written; the export is **refused** when the ledger throws; the filter summary never
-   contains the search term.
-5. Same treatment for `GET /api/appointments/export`, whose CSV carries patient name + acts + notes.
+**Read-auditing on downloads.** `AuditAction` has only `Insert`/`Update`/`Delete`, so nothing records that a
+radiograph was downloaded. Adding the enum member needs no migration, but every call site
+(`DownloadPatientFileQuery`, `PatientFilesController`, the medical-document path) is inside the concurrent
+session's edit set — see § 5.1.
 
-### 2.2 Not started, unblocked
-
-- **Server-side logout / session revocation.** There is *no* revoke endpoint on the API at all
-  (`web/app/bff/auth/local-logout/route.ts` only clears cookies), so a captured refresh token stays valid for
-  its full 12 h and rotates itself. `SessionFamily.End` exists and is called from exactly one place.
-- **Read-auditing write path.** Adding an `AuditAction` member is an enum value, not a schema change, so the
-  write path can be built now; only the chain rehash (§ 2.3) needs a migration.
-
-### 2.3 Not started, **BLOCKED on a migration** — see § 5
-
-- **Clinical-entity audit coverage.** `IsAuditable` walks for `AggregateRoot<>`; `DentalRecord`,
-  `MedicalDocument`, `PatientFile`, `ToothState`, `PatientMedicalHistory`, `PatientFamilyHistory` and `Payment`
-  are all `Entity<Guid>` and produce **zero** audit rows. Deleting a patient's prescriptions and x-rays leaves
-  no trace. This is the single largest compliance gap in the product.
-- **`ClinicId` (and `UserEmail`) into the audit chain hash.** `AuditEntry.ToChainEntry()` hashes twelve fields
-  and `ClinicId` is not one — while every read of the journal filters on it. `UPDATE "AuditEntries" SET
-  "ClinicId"=NULL` therefore hides a row *and the chain still verifies as intact*. Needs a rehash migration.
-  Also: persist an expected chain tip out of band, or truncating the newest rows stays undetectable.
-- **Archive-grant expiry.** `ClinicArchiveGrant.IsUsable` has no `ExpiresAtUtc`, so a secret on a clinic laptop
-  is a permanent credential that exchanges into a full 30-minute clinic-admin token with the whole API surface.
-  Needs a column, and the token should be scoped to the archive rather than being an ordinary admin token.
-
----
-
-## 3. Batch 3 — NOT STARTED
+## 3. Batch 3 — PARTLY DONE
 
 Two are feature-sized with frontend work and a device-contract pass; the scope is the owner's call.
 
@@ -101,10 +77,15 @@ Two are feature-sized with frontend work and a device-contract pass; the scope i
   enqueuing is `HasDeliverablePhoneAsync`. Neither the patient nor the cabinet can exempt one person.
 - **Per-patient dossier export.** Every export is list-scoped; nothing assembles one patient's complete record.
   This is the right-of-access mechanism, and it is also what a patient changing dentist asks for constantly.
-- **Privacy notice.** No page in the app, none on the marketing site — where the « Confidentialité » footer link
-  (`site/src/partials/footer.html:56`) points at a file that was never created.
-- **Retention policy.** Patient records, audit rows and `DocumentEmail` bodies are kept for ever. `GO-LIVE.md:286`
-  already lists this, unticked.
+- ✅ **Privacy notice — DONE.** `site/src/pages/confidentialite.html`, built and live at `dist/confidentialite.html`,
+  which also fixes the footer link that had pointed at a non-existent file since the site shipped. Written from the
+  actual field-by-field inventory, not a template. ⚠️ **It carries `[bracketed]` gaps that only you can fill** —
+  the vendor's legal identity, the hosting location, the contact address — and it must be read by Tunisian counsel
+  before it is published.
+- ✅ **Retention position — DONE.** `RETENTION-ET-CONSERVATION.md`: what the code already bounds (with the class
+  names), what is unbounded and the position to take on each, what the deletion path really does, and § 4's honest
+  list of what is missing to hold the policy. `GO-LIVE.md:286` can be ticked for the vendor half; the cabinet half
+  (how long a dossier is kept) is a decision only the practice and its counsel can make.
 
 ---
 
