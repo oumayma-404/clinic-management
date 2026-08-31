@@ -338,7 +338,10 @@ public class PatientsController : ApiControllerBase
         [FromQuery] int? pageSize = null,
         [FromQuery] bool flaggedOnly = false,
         [FromQuery] bool pendingCalendarReviewOnly = false,
-        [FromQuery] bool includeArchived = false)
+        [FromQuery] bool includeArchived = false,
+        // An unrecognised value falls back to the alphabetical default rather than refusing: the same tolerance
+        // the lab-order stage filter and the audit action filter apply, so a stale link still opens a list.
+        [FromQuery] string? sort = null)
     {
         var query = new GetPatientsQuery
         {
@@ -350,7 +353,10 @@ public class PatientsController : ApiControllerBase
             Page = page,
             PageSize = pageSize,
             FlaggedOnly = flaggedOnly,
-            PendingCalendarReviewOnly = pendingCalendarReviewOnly
+            PendingCalendarReviewOnly = pendingCalendarReviewOnly,
+            Sort = string.Equals(sort, nameof(PatientListSort.RecentlyAdded), StringComparison.OrdinalIgnoreCase)
+                ? PatientListSort.RecentlyAdded
+                : PatientListSort.Name,
         };
         var result = await _mediator.Send(query);
 

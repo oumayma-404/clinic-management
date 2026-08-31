@@ -93,6 +93,7 @@ public class PatientRepository : IPatientRepository
         string? searchTerm = null,
         bool flaggedOnly = false,
         bool pendingCalendarReviewOnly = false,
+        PatientListSort sort = PatientListSort.Name,
         PageRequest? paging = null,
         CancellationToken cancellationToken = default)
     {
@@ -137,12 +138,20 @@ public class PatientRepository : IPatientRepository
         // Id is the tiebreaker, and it is not cosmetic: OFFSET paging over a non-unique sort can show a row
         // twice or skip it entirely when two patients share a surname and PostgreSQL picks a different order
         // for the two queries. Every paginated read here ends its ordering on a unique column for that reason.
-        return await query
-            .Include(p => p.Flags.Where(f => f.IsActive))
-            .OrderBy(p => p.LastName)
-            .ThenBy(p => p.FirstName)
-            .ThenBy(p => p.Id)
-            .ToPagedResultAsync(paging, cancellationToken);
+        var ordered = query.Include(p => p.Flags.Where(f => f.IsActive));
+
+        return await (sort switch
+        {
+            // ⚠️ `CreatedAt` and not the id: the ids are v4 GUIDs and carry no timestamp, so ordering by one
+            // would be arbitrary under a name that promises otherwise.
+            PatientListSort.RecentlyAdded => ordered
+                .OrderByDescending(p => p.CreatedAt)
+                .ThenBy(p => p.Id),
+            _ => ordered
+                .OrderBy(p => p.LastName)
+                .ThenBy(p => p.FirstName)
+                .ThenBy(p => p.Id),
+        }).ToPagedResultAsync(paging, cancellationToken);
     }
 
     /// <summary>

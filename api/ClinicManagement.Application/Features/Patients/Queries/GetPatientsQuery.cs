@@ -61,6 +61,13 @@ public class GetPatientsQuery : IRequest<Result<PagedResult<PatientDto>>>
     /// </summary>
     public DateTime? CreatedFrom { get; set; }
     public DateTime? CreatedTo { get; set; }
+
+    /// <summary>
+    /// How to order the page. <b>Defaults to alphabetical and stays there for every caller but the patients
+    /// page</b> — the header lookup, the booking dialog's picker and the calendar import's candidate scan all
+    /// come through here, and a list you scan for a name wants a name order.
+    /// </summary>
+    public PatientListSort Sort { get; set; } = PatientListSort.Name;
 }
 
 public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<PagedResult<PatientDto>>>
@@ -119,6 +126,7 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
                 flaggedOnly: request.FlaggedOnly,
                 pendingCalendarReviewOnly: request.PendingCalendarReviewOnly,
                 includeArchived: request.IncludeArchived,
+                sort: request.Sort,
                 paging: paging,
                 cancellationToken: cancellationToken);
 

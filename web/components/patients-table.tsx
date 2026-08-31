@@ -207,6 +207,10 @@ export function PatientsTable({
         pendingCalendarReviewOnly: showPendingReviewOnly || undefined,
         createdFrom,
         createdTo,
+        // Le dernier patient enregistré en premier — la fiche qu'on vient de créer est en haut de la liste
+        // plutôt que quelque part sous Z. Ce tri est demandé ICI seulement : la recherche de l'en-tête et le
+        // sélecteur de patients du rendez-vous lisent le même endpoint et gardent l'ordre alphabétique.
+        sort: 'RecentlyAdded',
       }),
     [showFlaggedOnly, showArchived, showPendingReviewOnly, createdFrom, createdTo],
   )

@@ -43,6 +43,13 @@ export const patientsApi = {
        * Server-side, for `flaggedOnly`'s reason.
        */
       pendingCalendarReviewOnly?: boolean;
+      /**
+       * `"RecentlyAdded"` orders the newest registration first. **Only `/patients` asks for it** — the header
+       * lookup, the booking dialog's picker and every other reader leave it unset and keep the alphabetical
+       * default, because a list you scan for a name wants a name order. An unknown value falls back to that
+       * default server-side rather than refusing.
+       */
+      sort?: 'Name' | 'RecentlyAdded';
     },
   ): Promise<PagedResponse<PatientDto>> => {
     const { search, ...rest } = params;
