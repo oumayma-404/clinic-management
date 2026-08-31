@@ -1,3 +1,5 @@
+using System.Net.Http;
+using ClinicManagement.Infrastructure.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -163,7 +165,22 @@ public static class Extensions
 
         // The shared IHttpClientFactory — every outbound integration resolves its client from here
         // (reminders, WhatsApp, Google Calendar, the internet probe, push).
-        services.AddHttpClient();
+        //
+        // ⚠️ The primary handler carries the SSRF guard, and it is attached HERE rather than on each named
+        // client on purpose: every one of those integrations dials a URL a clinic admin can edit, and a
+        // per-client opt-in is one forgotten registration away from the hole. Attached to the default handler,
+        // an integration added next month is covered without its author knowing this exists.
+        //
+        // `OutboundEndpoint`'s literal check runs when the admin saves the form; this one runs when the socket
+        // opens, which is the only place a hostname's address is actually known — and the only place a DNS
+        // answer that changed in between can still be caught.
+        services.AddHttpClient()
+            .ConfigureHttpClientDefaults(http => http.ConfigurePrimaryHttpMessageHandler(provider =>
+                new SocketsHttpHandler
+                {
+                    ConnectCallback = PublicEgressGuard.ConnectCallback(
+                        provider.GetRequiredService<IOutboundEndpointPolicy>().AllowsPrivateNetworkEndpoints),
+                }));
 
         // Connectivity probe (offline UX on a clinic's own box). Registered unconditionally — harmless where
         // the capability is off (the ConnectivityController 404s there and the frontend reads that as
