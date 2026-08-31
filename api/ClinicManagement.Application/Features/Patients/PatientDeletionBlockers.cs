@@ -50,6 +50,23 @@ public static class PatientDeletionBlockers
         };
     }
 
+    /// <summary>
+    /// The same enumeration with its verb already agreed — « 1 signalement y est rattaché », « 3 rendez-vous et
+    /// 1 facture y sont rattachés ».
+    ///
+    /// <para>⚠️ The verb belongs here and not at the call sites: agreement is a fact about the enumeration
+    /// <see cref="Describe"/> just built, and a caller appending « y sont rattachés » to it cannot know whether the
+    /// list came to one thing or several. Both refusals that quote a blocker list said « 1 signalement y sont
+    /// rattachés » to a dentist before this existed.</para>
+    /// </summary>
+    public static string DescribeAttached(PatientLinkedDataCounts counts)
+    {
+        var described = Describe(counts);
+        return described.Length == 0
+            ? string.Empty
+            : $"{described} y {(counts.Total > 1 ? "sont rattachés" : "est rattaché")}";
+    }
+
     private static void Add(
         ICollection<Blocker> blockers,
         string kind,

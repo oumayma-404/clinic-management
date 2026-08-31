@@ -85,6 +85,7 @@ import { InvoicesTable } from "@/components/factures/invoices-table"
 import { BillDentalRecordDialog } from "@/components/factures/bill-dental-record-dialog"
 import { Odontogram } from "@/components/odontogram"
 import { PatientNotesStrip } from "@/components/patient/patient-notes-strip"
+import { DuplicateSuggestionPrompt } from "@/components/patients/duplicate-suggestion-prompt"
 import { PatientUndocumentedVisits } from "@/components/patient/patient-undocumented-visits"
 import { patientFlagLabel } from "@/components/patient/patient-flag-labels"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -472,7 +473,6 @@ export default function PatientDetailsPage() {
   // (AC-P2.17) instead of vaguely warning that the fiche is billed. Same pass as the set above.
   const [invoicingNumberByRecordId, setInvoicingNumberByRecordId] = useState<Map<string, string>>(new Map())
   const [unarchiving, setUnarchiving] = useState(false)
-  const [confirmingImport, setConfirmingImport] = useState(false)
   // The dental record being invoiced (drives the pre-filled invoice modal); null = closed.
   const [billingRecord, setBillingRecord] = useState<DentalRecordDto | null>(null)
   // Pending destructive confirmations (AC-P2.16 / AC-P2.20). null = dialog closed.
@@ -1250,7 +1250,7 @@ export default function PatientDetailsPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0 flex-1 space-y-1">
                 <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
-                  Fiche créée depuis Google Agenda, à compléter
+                  Patient créé depuis Google Agenda, à compléter
                 </p>
                 <p className="text-sm text-amber-800 dark:text-amber-300">
                   Seul le nom a été lu, dans le titre d&apos;un rendez-vous
@@ -1261,31 +1261,26 @@ export default function PatientDetailsPage() {
               {/* `lg:`, not `sm:`: beside the text from 640 px the two actions left the description a ~250 px
                   column wrapping to five lines on a tablet. They take their own row until there is genuinely
                   room for both. */}
-              <div className="flex w-full flex-wrap gap-2 lg:w-auto">
-                {/* `coarse:h-11`, not `.touch-target`: these two sit side by side, and a 44 px overlay on adjacent
-                    siblings overhangs its neighbour — the later one paints last and steals the tap. */}
-                <Button size="sm" className="coarse:h-11" onClick={() => setEditDialogOpen(true)}>
-                  Compléter la fiche
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="coarse:h-11"
-                  disabled={confirmingImport}
-                  onClick={async () => {
-                    try {
-                      setConfirmingImport(true)
-                      const confirmed = await patientsApi.confirmCalendarImport(patient.id)
-                      setPatient(confirmed)
-                      toast.success("Fiche confirmée")
-                    } catch (error) {
-                      showErrorToast(error)
-                    } finally {
-                      setConfirmingImport(false)
+              <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
+                {/* ⚠️ The SAME chip the « Patients à compléter » worklist uses, not a second copy of the
+                    question — one component owns the comparison dialog, both calls and the wording, so a
+                    duplicate cannot keep an old sentence or merge without showing the two fiches. Renders
+                    nothing when there is no suggestion, which is the ordinary case. On a merge this fiche is
+                    deleted, so the page leaves for the surviving patient rather than reloading a dead record. */}
+                <DuplicateSuggestionPrompt
+                  patient={patient}
+                  onResolved={(outcome, survivingPatientId) => {
+                    if (outcome === "merged" && survivingPatientId) {
+                      router.push(`/patients/${survivingPatientId}`)
+                    } else {
+                      setRefreshKey((k) => k + 1)
                     }
                   }}
-                >
-                  {confirmingImport ? "Confirmation…" : "C'est correct"}
+                />
+                {/* One action. A « c'est correct » shortcut was offered and withdrawn — the stamp now clears only
+                    by saving the fiche, which is what `Patient.UpdatePersonalInfo` does server-side. */}
+                <Button size="sm" className="coarse:h-11" onClick={() => setEditDialogOpen(true)}>
+                  Compléter les infos patient
                 </Button>
               </div>
             </div>

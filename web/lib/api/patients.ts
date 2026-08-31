@@ -53,14 +53,6 @@ export const patientsApi = {
     return apiGet<PatientDto>(`/patients/${id}`);
   },
 
-  /**
-   * Confirms a calendar-imported fiche as correct with nothing to change. The other way out of the review state is
-   * simply saving the patient's info, which clears it server-side.
-   */
-  confirmCalendarImport: async (id: string): Promise<PatientDto> => {
-    return apiPost<PatientDto>(`/patients/${id}/confirm-calendar-import`, {});
-  },
-
   create: async (data: {
     firstName: string;
     lastName: string;
@@ -166,7 +158,32 @@ export const patientsApi = {
   unarchive: async (id: string): Promise<PatientDto> => {
     return apiPost<PatientDto>(`/patients/${id}/unarchive`, {});
   },
+
+  /**
+   * « Oui, c'est le même patient » — merge a calendar-imported placeholder into the patient the import suggested.
+   * Its appointments move (keeping their Google event ids) and the placeholder is deleted; refused with the blocker
+   * named if a fiche, a facture, un devis or un fichier has been attached in the meantime.
+   */
+  mergeIntoSuggestedDuplicate: async (id: string): Promise<MergeSuggestedDuplicateResult> => {
+    return apiPost<MergeSuggestedDuplicateResult>(`/patients/${id}/merge-into-suggested-duplicate`, {});
+  },
+
+  /**
+   * « Non, ce n'est pas le même patient » — withdraw the suggestion permanently. The fiche stays on
+   * « Patients à compléter »: declining the duplicate is not the same as saying the details are filled in.
+   */
+  rejectSuggestedDuplicate: async (id: string): Promise<void> => {
+    await apiPost<void>(`/patients/${id}/reject-suggested-duplicate`, {});
+  },
 };
+
+/** What the merge did — `overlapsExisting` is reported, never refused: see the command's own note. */
+export interface MergeSuggestedDuplicateResult {
+  survivingPatientId: string;
+  survivingPatientName: string;
+  appointmentsMoved: number;
+  overlapsExisting: boolean;
+}
 
 
 

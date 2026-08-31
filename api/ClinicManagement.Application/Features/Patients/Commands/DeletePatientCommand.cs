@@ -63,7 +63,7 @@ public class DeletePatientCommandHandler : IRequestHandler<DeletePatientCommand,
             {
                 return Result.Failure(
                     $"Impossible de supprimer {patient.GetFullName()} : "
-                    + $"{PatientDeletionBlockers.Describe(counts)} y sont rattachés. "
+                    + $"{PatientDeletionBlockers.DescribeAttached(counts)}. "
                     + "Archivez le patient pour le retirer des listes sans rien supprimer.");
             }
 

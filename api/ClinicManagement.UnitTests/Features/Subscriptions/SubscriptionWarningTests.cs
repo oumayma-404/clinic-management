@@ -113,6 +113,9 @@ public class SubscriptionWarningTests
         public Task<IReadOnlyList<StaffNotification>> GetPendingReviewsForUserAsync(
             Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<StaffNotification>> GetByPatientAsync(
+            Guid patientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
     }
 
     private sealed class Harness

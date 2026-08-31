@@ -234,4 +234,12 @@ public class StaffNotificationRepository : IStaffNotificationRepository
             .OrderByDescending(n => n.EffectiveFeedTime)
             .ToListAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<StaffNotification>> GetByPatientAsync(
+        Guid patientId, CancellationToken cancellationToken = default)
+    {
+        return await _context.StaffNotifications
+            .Where(n => n.PatientId == patientId)
+            .ToListAsync(cancellationToken);
+    }
 }

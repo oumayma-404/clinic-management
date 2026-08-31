@@ -523,25 +523,6 @@ public class PatientsController : ApiControllerBase
         return Ok(result.Value);
     }
 
-    /// <summary>
-    /// Confirms a fiche the Google Calendar import created, with nothing to change (AC-8). Open to every clinical
-    /// role: reception completes patient records as often as the dentist, which is why the notification is
-    /// clinic-wide in the first place.
-    /// </summary>
-    [HttpPost("{id}/confirm-calendar-import")]
-    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
-    public async Task<ActionResult<PatientDto>> ConfirmCalendarImport(Guid id)
-    {
-        var result = await _mediator.Send(new ConfirmCalendarImportCommand { Id = id });
-
-        if (result.IsFailure)
-        {
-            return HandleFailure(result);
-        }
-
-        return Ok(result.Value);
-    }
-
     /// <summary>Restore an archived patient everywhere.</summary>
     [HttpPost("{id}/unarchive")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
@@ -555,5 +536,45 @@ public class PatientsController : ApiControllerBase
         }
 
         return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Oui, c'est le même patient » — merge a calendar-imported placeholder into the patient the import
+    /// suggested: its appointments move, and the placeholder is deleted.
+    /// </summary>
+    [HttpPost("{id}/merge-into-suggested-duplicate")]
+    // A record is destroyed, so the same gate deletion and archiving carry — and reception, who answers most of
+    // « Patients à compléter », may complete a fiche but not remove one.
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<MergeSuggestedDuplicateResult>> MergeIntoSuggestedDuplicate(Guid id)
+    {
+        var result = await _mediator.Send(new MergeIntoSuggestedDuplicateCommand { Id = id });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Non, ce n'est pas le même patient » — withdraw the suggestion for good. The fiche stays on
+    /// « Patients à compléter » with its details still to fill in.
+    /// </summary>
+    [HttpPost("{id}/reject-suggested-duplicate")]
+    // Deliberately wider than the merge: declining destroys nothing, and the person who recognises that two
+    // spellings are two different people is whoever knows the patients — usually reception.
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<IActionResult> RejectSuggestedDuplicate(Guid id)
+    {
+        var result = await _mediator.Send(new RejectSuggestedDuplicateCommand { Id = id });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return NoContent();
     }
 }

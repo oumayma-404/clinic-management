@@ -505,6 +505,25 @@ public class Appointment : AggregateRoot<Guid>
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Move this appointment onto another patient's file — the merge of a calendar-imported duplicate, and its
+    /// <b>only</b> caller (<c>calendar-import-duplicate-merge</c> AC-9).
+    ///
+    /// <para>⚠️ The row is <b>moved, not recreated</b>, which is the point: it keeps its
+    /// <see cref="GoogleCalendarEventId"/>, and the import dedupes on that id clinic-wide. A fresh appointment plus
+    /// a deleted one would take the event id out of the database, and the next sync — every 15 minutes — would
+    /// re-import the event and recreate the very patient the merge had just removed.</para>
+    ///
+    /// <para>⚠️ No clinic argument and no overlap check: the caller has already established that both patients
+    /// belong to one clinic, and an imported appointment carries no <see cref="DoctorId"/>, so the database's
+    /// partial exclusion constraint (keyed on the practitioner) does not apply to it.</para>
+    /// </summary>
+    public void ReassignToPatient(Guid patientId)
+    {
+        PatientId = patientId;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     /// <summary>Assign (or clear) the practitioner this appointment is booked with.</summary>
     public void SetDoctorId(Guid? doctorId)
     {

@@ -124,4 +124,12 @@ public interface IStaffNotificationRepository
     /// </summary>
     Task<IReadOnlyList<StaffNotification>> GetPendingReviewsForUserAsync(
         Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every feed row pointing at this patient. Read by the calendar-import merge, which must withdraw the
+    /// « patient à compléter » row before deleting the placeholder — <c>GetLinkedDataCountsAsync</c> counts
+    /// notifications, so a row left standing makes the delete refuse itself.
+    /// </summary>
+    Task<IReadOnlyList<StaffNotification>> GetByPatientAsync(
+        Guid patientId, CancellationToken cancellationToken = default);
 }

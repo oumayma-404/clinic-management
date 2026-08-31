@@ -91,7 +91,14 @@ public class GoogleCalendarController : ApiControllerBase
         try
         {
             _logger.LogInformation("Manual sync from Google Calendar triggered");
-            await _syncService.SyncGoogleCalendarToAppointmentsAsync();
+
+            var clinicResult = await _clinicResolver.GetClinicIdAsync();
+            if (clinicResult.IsFailure)
+            {
+                return BadRequest(new { error = clinicResult.Error ?? "Impossible de résoudre le cabinet." });
+            }
+
+            await _syncService.SyncGoogleCalendarToAppointmentsAsync(clinicResult.Value);
             return Ok(new
             {
                 message = "Sync from Google Calendar completed successfully",
