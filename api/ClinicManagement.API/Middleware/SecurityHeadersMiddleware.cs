@@ -58,13 +58,13 @@ public class SecurityHeadersMiddleware
     /// is a console entry rather than a broken screen.
     ///
     /// <para>⚠️ <b>What enforcing this buys, stated plainly, because the flag's name oversells it.</b>
-    /// <c>script-src</c> carries <c>'unsafe-inline'</c> and <c>'unsafe-eval'</c>, which permit inline
-    /// <c>&lt;script&gt;</c>, <c>javascript:</c> handlers and <c>eval</c> — so against the attack CSP exists to
+    /// <c>script-src</c> carries <c>'unsafe-inline'</c>, which permits inline <c>&lt;script&gt;</c> and
+    /// <c>javascript:</c> handlers — so against the attack CSP exists to
     /// mitigate, script injection into a product rendering free-text clinical notes and patient names, this policy
     /// is close to no script policy at all. Turning the key on constrains resource <b>origins</b> (where images,
     /// fonts, frames and XHR may come from, and who may frame us); it does not stop XSS. Getting there means Next's
-    /// nonce/hash support with <c>strict-dynamic</c> and dropping <c>'unsafe-eval'</c>, which is a change with its
-    /// own page walk and is deliberately not smuggled in behind this flag.</para>
+    /// nonce/hash support with <c>strict-dynamic</c>, which is a change with its own page walk and is
+    /// deliberately not smuggled in behind this flag.</para>
     ///
     /// <para>⚠️ <b>This covers only what Kestrel serves.</b> Behind the hosted reverse proxy that is <c>/api/*</c>
     /// alone, so the page-side copy of this policy lives in <c>deploy/Caddyfile</c>'s page-response block. The two

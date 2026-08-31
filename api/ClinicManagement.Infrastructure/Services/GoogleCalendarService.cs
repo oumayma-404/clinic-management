@@ -99,7 +99,7 @@ public class GoogleCalendarService : IGoogleCalendarService
                 : (endDateTime.Kind == DateTimeKind.Local ? endDateTime.ToUniversalTime() : DateTime.SpecifyKind(endDateTime, DateTimeKind.Utc));
 
             _logger.LogDebug("Creating Google Calendar event: Summary={Summary}, Start={StartDateTime} (UTC), End={EndDateTime} (UTC)",
-                summary, utcStart, utcEnd);
+                LogMask.Name(summary), utcStart, utcEnd);
 
             var eventItem = new Event
             {
@@ -157,7 +157,7 @@ public class GoogleCalendarService : IGoogleCalendarService
                 : (endDateTime.Kind == DateTimeKind.Local ? endDateTime.ToUniversalTime() : DateTime.SpecifyKind(endDateTime, DateTimeKind.Utc));
 
             _logger.LogDebug("Updating Google Calendar event {EventId}: Summary={Summary}, Start={StartDateTime} (UTC), End={EndDateTime} (UTC)",
-                eventId, summary, utcStart, utcEnd);
+                eventId, LogMask.Name(summary), utcStart, utcEnd);
 
             existingEvent.Summary = summary;
             existingEvent.Description = description;
@@ -240,7 +240,7 @@ public class GoogleCalendarService : IGoogleCalendarService
             if (eventCount > 0)
             {
                 _logger.LogDebug("First few events: {Events}",
-                    string.Join(", ", events.Items?.Take(3).Select(e => $"'{e.Summary}'") ?? Enumerable.Empty<string>()));
+                    string.Join(", ", events.Items?.Take(3).Select(e => $"'{LogMask.Name(e.Summary)}'") ?? Enumerable.Empty<string>()));
             }
 
             return events.Items?.Select(e =>

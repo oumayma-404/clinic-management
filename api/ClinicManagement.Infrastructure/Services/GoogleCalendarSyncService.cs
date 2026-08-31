@@ -211,8 +211,11 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             
             var location = appointment.DoctorName != null ? $"Doctor: {appointment.DoctorName}" : null;
             
+            // ⚠️ `summary` is `$"Appointment: {patient.GetFullName()}"` (built above), so it is a patient name
+            // wearing a neutral placeholder name. FR-4.4 applies to the VALUE, not to what the placeholder is
+            // called — see the guard note in LogTemplateCoverageTests.
             _logger.LogDebug("Syncing appointment to Google Calendar: Summary={Summary}, Start={StartDateTime}, End={EndDateTime}, Location={Location}",
-                summary, startDateTime, endDateTime, location);
+                LogMask.Name(summary), startDateTime, endDateTime, location);
 
             if (string.IsNullOrEmpty(appointment.GoogleCalendarEventId))
             {
@@ -306,8 +309,13 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             
             if (eventList.Count > 0)
             {
-                _logger.LogInformation("Sample events: {Events}", 
-                    string.Join(", ", eventList.Take(3).Select(e => $"'{e.Summary}' ({e.StartDateTime:yyyy-MM-dd HH:mm})")));
+                // ⚠️ At Information, so this reaches the DURABLE rolling file. A Google event summary written by
+                // this product is `Appointment: <patient full name>`, and one written by hand in the calendar is
+                // whatever the practice typed — a patient name either way. Masked, not dropped: the date and the
+                // count are what diagnose a sync, and the initial-plus-length still distinguishes an empty
+                // summary from an unparseable one.
+                _logger.LogInformation("Sample events: {Events}",
+                    string.Join(", ", eventList.Take(3).Select(e => $"'{LogMask.Name(e.Summary)}' ({e.StartDateTime:yyyy-MM-dd HH:mm})")));
             }
 
             var allAppointments = (await _appointmentRepository.GetAllAsync(cancellationToken))
@@ -327,8 +335,8 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
 
             foreach (var googleEvent in eventList)
             {
-                _logger.LogDebug("Processing Google Calendar event: {EventId} - {Summary} at {StartTime}", 
-                    googleEvent.Id, googleEvent.Summary, googleEvent.StartDateTime);
+                _logger.LogDebug("Processing Google Calendar event: {EventId} - {Summary} at {StartTime}",
+                    googleEvent.Id, LogMask.Name(googleEvent.Summary), googleEvent.StartDateTime);
 
                 // Skip if we already have this event synced
                 if (appointmentsByGoogleId.ContainsKey(googleEvent.Id))
@@ -387,7 +395,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 }
                 else
                 {
-                    _logger.LogDebug("Event does not match clinic appointment pattern, skipping: {Summary}", googleEvent.Summary);
+                    _logger.LogDebug("Event does not match clinic appointment pattern, skipping: {Summary}", LogMask.Name(googleEvent.Summary));
                 }
             }
 
@@ -659,8 +667,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             
             if (string.IsNullOrEmpty(patientName))
             {
-                _logger.LogWarning("Cannot create appointment from Google Calendar event {EventId}: patient name not found in summary '{Summary}' or description", 
-                    googleEvent.Id, googleEvent.Summary);
+                // ⚠️ At Warning, so this reaches the durable file too — and it is the one statement in this file
+                // that logs a summary the product did NOT build, i.e. free text a practice typed into Google.
+                _logger.LogWarning("Cannot create appointment from Google Calendar event {EventId}: patient name not found in summary '{Summary}' or description",
+                    googleEvent.Id, LogMask.Name(googleEvent.Summary));
                 return false;
             }
 

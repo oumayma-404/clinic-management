@@ -7,6 +7,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 namespace ClinicManagement.Infrastructure.Auth;
@@ -17,7 +18,26 @@ namespace ClinicManagement.Infrastructure.Auth;
 /// </summary>
 public class LocalAuthService : ILocalAuthService
 {
-    private readonly PasswordHasher<User> _passwordHasher = new();
+    /// <summary>
+    /// PBKDF2-HMAC-SHA512 with a 128-bit per-password CSPRNG salt (the framework's IdentityV3 format), at
+    /// <b>210 000</b> iterations rather than the .NET 8 default of 100 000 — OWASP's current figure for
+    /// PBKDF2-HMAC-SHA512.
+    ///
+    /// <para>⚠️ <b>The options must be passed in here, not registered in DI.</b> This field used to be
+    /// <c>new()</c>, and <c>PasswordHasher&lt;T&gt;</c>'s parameterless constructor reads no configuration — so
+    /// a <c>services.Configure&lt;PasswordHasherOptions&gt;(…)</c> would have looked correct, changed nothing,
+    /// and left every password on the old work factor with a green build. That is this repository's « present
+    /// and inert » shape.</para>
+    ///
+    /// <para><b>Existing accounts migrate on their own.</b> The stored format carries its own iteration count,
+    /// so old hashes keep verifying; the verifier reports <c>SuccessRehashNeeded</c> and
+    /// <c>LoginCommand</c>/<c>PlatformLoginCommand</c> already act on it, re-hashing at the new factor on the
+    /// owner's next sign-in. Raising this number is therefore safe and needs no migration — which is exactly
+    /// what that rehash path was built for.</para>
+    /// </summary>
+    private readonly PasswordHasher<User> _passwordHasher = new(
+        Options.Create(new PasswordHasherOptions { IterationCount = 210_000 }));
+
     private readonly IConfiguration _configuration;
 
     public LocalAuthService(IConfiguration configuration)

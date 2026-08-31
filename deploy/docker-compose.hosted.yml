@@ -175,7 +175,7 @@ services:
       Subscription__ContactPhone: ${SUBSCRIPTION_CONTACT_PHONE:-}
       # FR-4.4 / OQ-5 — 30 days of retention, one file a day. Stated here rather than left at appsettings'
       # default of 7, because the volume below is what makes retention mean anything at all.
-      Serilog__WriteTo__1__Args__retainedFileCountLimit: "30"
+      Serilog__RetainedFileCountLimit: "30"
       # FR-4.5 — the policy is ENFORCING here. It has existed and been unset for the life of this deployment,
       # which is the failure mode AC-5 exists to prevent: a security control that is present and inert reads as
       # present. `UnitTests/Deploy/TransportConfigurationTests` asserts this file carries it.

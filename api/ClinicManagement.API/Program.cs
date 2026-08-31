@@ -222,6 +222,20 @@ var logFilePath = startupProfile.RunsAsWindowsService
     ? Path.Combine(LocalInstallPaths.BaseDirectory, "logs", "clinic-management-.log")
     : "logs/clinic-management-.log";
 
+// How many daily log files to keep. Read from configuration because a deployment must be able to set it, and
+// `startupConfig` includes `AddEnvironmentVariables()` so the compose value reaches here.
+//
+// ⚠️ This key replaces an entire `Serilog` section in appsettings.json that was READ BY NOTHING. There is no
+// `ReadFrom.Configuration` call in this file — the logger is built in code, below — so every value in that
+// section was inert, including a `retainedFileCountLimit` of 7 that contradicted the 30 days
+// `LogTemplateCoverageTests` and the operator docs both describe. `docker-compose.hosted.yml` set
+// `Serilog__WriteTo__1__Args__retainedFileCountLimit: "30"` and it did nothing: the hosted deployment has been
+// keeping 7 days while every document said 30. That is § 9.7's « configuration that is present and inert », so
+// the section was deleted rather than wired up — handing the whole logger to configuration would also let an
+// appsettings file re-enable `Microsoft.EntityFrameworkCore.Database.Command`, which logs SQL with its
+// parameters and would put patient data back in the file this feature exists to keep it out of.
+var retainedLogFileCount = startupConfig.GetValue<int?>("Serilog:RetainedFileCountLimit") ?? 30;
+
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
@@ -237,7 +251,7 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.File(
         path: logFilePath,
         rollingInterval: RollingInterval.Day,
-        retainedFileCountLimit: 7,
+        retainedFileCountLimit: retainedLogFileCount,
         outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} {Level:u3}] {Message:lj}{NewLine}{Exception}")
     .CreateLogger();
 

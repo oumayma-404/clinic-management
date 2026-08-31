@@ -61,7 +61,10 @@ services:
       - -c
       - archive_mode=on
       - -c
-      - archive_command=wal-g wal-push %p
+      # ⚠️ Through the guard, never `wal-g wal-push` directly: with no encryption key wal-g uploads the segment
+      # in CLEAR and reports success. See deploy/postgres/wal-push-guard.sh — a refusal here keeps the segment
+      # in pg_wal/ and retries, so it costs disk rather than data.
+      - archive_command=/usr/local/bin/wal-push-guard.sh %p
       - -c
       - archive_timeout=${PITR_ARCHIVE_TIMEOUT:-300}
       # TLS with the internal leaf, and the hostssl-only pg_hba baked into the image (FR-2.3). `hba_file`

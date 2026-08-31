@@ -59,6 +59,37 @@ public class LogTemplateCoverageTests
     private static readonly string[] Maskers = { "LogMask.", "ReminderPhone.Mask" };
 
     /// <summary>
+    /// <b>Expressions that YIELD a person's name, whatever the placeholder holding them is called.</b>
+    ///
+    /// <para>⚠️ <b>This is the hole the name-based rule above had, and it was live.</b> The rule reads placeholder
+    /// <i>names</i> — so <c>{PatientName}</c> is caught and <c>{Summary}</c> is not. But
+    /// <c>GoogleCalendarSyncService</c> builds its calendar summary as
+    /// <c>$"Appointment: {patient.GetFullName()}"</c> and logged it through placeholders called
+    /// <c>{Summary}</c> and <c>{Events}</c> — seven statements, two of them at Information and Warning and
+    /// therefore in the durable rolling file. Every one passed a green guard, because a name-based check cannot
+    /// see a value. So the guard now reads the ARGUMENTS too.</para>
+    ///
+    /// <para>⚠️ <b>Kept deliberately short and high-signal.</b> These are accessors that can only be a person, so
+    /// a hit is a real finding rather than something to be exempted. Matching a bare <c>.Name</c> would flag a
+    /// clinic, a procedure and a supplier on every other line — and a guard whose output is mostly noise gets an
+    /// exemption list, then two, then deleted. <c>.Summary</c> earns its place because in this solution the only
+    /// thing carrying that member is a Google calendar event, whose summary is a patient name by construction.</para>
+    /// </summary>
+    /// <para>⚠️ <b><c>.FullName</c> is deliberately absent.</b> It is a BCL member on <c>FileSystemInfo</c> and
+    /// <c>Type</c> before it is anything of ours, and it fired on
+    /// <c>PgDumpBackupService.LogInformation("Pruned old backup folder {Folder}.", ours[i].FullName)</c> — a
+    /// directory path. The domain's own <c>GetFullName()</c> covers the person case, and the placeholder rule
+    /// still catches a <c>{FullName}</c> placeholder, so nothing is lost by keeping the noise out.</para>
+    private static readonly string[] PatientIdentifyingExpressions =
+    {
+        "GetFullName()",
+        ".FirstName",
+        ".LastName",
+        ".PatientName",
+        ".Summary",
+    };
+
+    /// <summary>
     /// Statements that legitimately name one of the above, each with the reason. Asserted <b>equal in both
     /// directions</b>, so a stale entry fails as loudly as a new violation — the house style, and the half that
     /// stops an exemption outliving the code it was written for.
@@ -137,6 +168,31 @@ public class LogTemplateCoverageTests
         Assert.Empty(ViolationsIn("Probe.cs", masked));
     }
 
+    /// <summary>
+    /// The red proof for the <b>expression</b> rule, written as the real defect it was found as: an innocent
+    /// placeholder name over a value that is a patient. Before this rule the statement below was green, and
+    /// seven of its shape were live in <c>GoogleCalendarSyncService</c> — two of them writing a patient's name
+    /// into the durable log file at Information and Warning.
+    /// </summary>
+    [Fact]
+    public void The_Guard_Rejects_An_Innocent_Placeholder_Over_A_Patient_Value()
+    {
+        const string offending =
+            "_logger.LogWarning(\"Cannot parse event {EventId}: summary '{Summary}'\", e.Id, e.Summary);";
+
+        Assert.Contains("Probe.cs:.Summary", ViolationsIn("Probe.cs", offending));
+    }
+
+    /// <summary>Its mirror, so the rule is a rule and not a permanent red.</summary>
+    [Fact]
+    public void The_Guard_Accepts_That_Same_Value_Masked()
+    {
+        const string masked =
+            "_logger.LogWarning(\"Cannot parse event {EventId}: summary '{Summary}'\", e.Id, LogMask.Name(e.Summary));";
+
+        Assert.Empty(ViolationsIn("Probe.cs", masked));
+    }
+
     // ---------------------------------------------------------------- the scan
 
     private static Dictionary<string, string> Violations()
@@ -150,19 +206,31 @@ public class LogTemplateCoverageTests
                 continue;
             }
 
-            foreach (var placeholder in Placeholders(template).Where(PatientIdentifyingNames.Contains))
+            foreach (var offender in Offenders(template, statement))
             {
-                found[$"{file}:{placeholder}"] = template;
+                found[$"{file}:{offender}"] = template;
             }
         }
 
         return found;
     }
 
+    /// <summary>
+    /// What is wrong with one statement: a placeholder <b>named</b> for a person, or an argument expression that
+    /// <b>evaluates to</b> one. Both are reported in the same <c>file:token</c> shape so a single allow-list and
+    /// a single both-directions assertion cover them.
+    /// </summary>
+    private static IEnumerable<string> Offenders(string template, string statement) =>
+        Placeholders(template)
+            .Where(PatientIdentifyingNames.Contains)
+            .Concat(PatientIdentifyingExpressions
+                .Where(e => statement.Contains(e, StringComparison.Ordinal)))
+            .Distinct(StringComparer.Ordinal);
+
     private static IReadOnlyList<string> ViolationsIn(string file, string source) =>
         LogStatements(source)
             .Where(s => !Maskers.Any(m => s.Statement.Contains(m, StringComparison.Ordinal)))
-            .SelectMany(s => Placeholders(s.Template).Where(PatientIdentifyingNames.Contains))
+            .SelectMany(s => Offenders(s.Template, s.Statement))
             .Select(p => $"{file}:{p}")
             .Distinct(StringComparer.Ordinal)
             .ToList();

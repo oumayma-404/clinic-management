@@ -38,6 +38,7 @@ public class PlatformLoginCommandHandler
     private readonly IPlatformAuthService _auth;
     private readonly IPlatformSecretProtector _protector;
     private readonly ITotpService _totp;
+    private readonly ITotpReplayGuard _replayGuard;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<PlatformLoginCommandHandler> _logger;
 
@@ -46,6 +47,7 @@ public class PlatformLoginCommandHandler
         IPlatformAuthService auth,
         IPlatformSecretProtector protector,
         ITotpService totp,
+        ITotpReplayGuard replayGuard,
         IUnitOfWork unitOfWork,
         ILogger<PlatformLoginCommandHandler> logger)
     {
@@ -53,6 +55,7 @@ public class PlatformLoginCommandHandler
         _auth = auth;
         _protector = protector;
         _totp = totp;
+        _replayGuard = replayGuard;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -132,7 +135,22 @@ public class PlatformLoginCommandHandler
             return false;
         }
 
-        return _totp.VerifyCode(secret, code);
+        /*
+         * ⚠️ Verified FIRST, then claimed — the same order as `LoginCommand`, and for the same reason: claiming
+         * before verifying would let a wrong guess burn the real code's one use and lock the account's own owner
+         * out of their window.
+         *
+         * This is the console, the highest-privileged surface in the product. RFC 6238 § 5.2 forbids accepting a
+         * code twice, and the clinic side has enforced that since the guard was written — but the guard was wired
+         * to one of its three verification sites, so a console code captured once stayed replayable for the rest
+         * of its ~90-second window. A replay lands in the SAME branch as a wrong code, so it cannot be used to
+         * learn that the code was otherwise valid.
+         */
+        // ⚠️ Prefixed, because the guard's store is keyed on a bare string shared with the clinic population and
+        // `User.Id` is a string of the same shape. Two accounts that are not the same account must never be able
+        // to spend each other's codes, and a prefix is what makes the two namespaces provably disjoint.
+        return _totp.VerifyCode(secret, code)
+               && _replayGuard.TryConsume($"platform:{account.Id}", code);
     }
 
     private static Result<PlatformSessionDto> Refuse(string code) =>
