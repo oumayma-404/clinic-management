@@ -34,7 +34,13 @@ public class AuditChainTests
             OccurredAt: new DateTime(2026, 8, 12, 9, 30, 0, DateTimeKind.Utc).AddTicks(sequence),
             IsDeclaredGap: false,
             PreviousHash: null,
-            EntryHash: null);
+            EntryHash: null,
+            // Named rather than defaulted: the record deliberately has no default for these two, so that a caller
+            // building a chain entry has to decide. The one that did not — SchemaVerificationReader's raw-ADO
+            // projection — would otherwise have compiled while making verify-schema report every chained row as
+            // altered, which is the one check whose whole value is being believed when it says so.
+            ClinicId: null,
+            UserEmail: null);
 
     /// <summary>Chains <paramref name="count"/> entries the way the appender does, and returns them in order.</summary>
     private static List<AuditChainEntry> Chained(int count, byte[]? key = null)
@@ -87,39 +93,193 @@ public class AuditChainTests
     }
 
     /// <summary>
-    /// Every covered field moves the hash. Derived over the record's own properties rather than a list, so a field
-    /// added to <see cref="AuditChainEntry"/> and forgotten in the canonical form fails here.
+    /// Every covered field moves the hash — <b>derived over the record's own properties</b>, so a field added to
+    /// <see cref="AuditChainEntry"/> and forgotten in the canonical form fails here.
+    ///
+    /// <para>⚠️ <b>It used to say that and not do it.</b> This was an <c>[InlineData]</c> table of ten names while
+    /// its own docstring claimed it was derived — so it could only fail on rows somebody remembered to add, which
+    /// is exactly how <c>ClinicId</c> came to sit outside the hashed set with this guard green. It now enumerates
+    /// the record and <b>throws on an unmapped property</b>, making a new field a compile-time decision.</para>
     /// </summary>
-    [Theory]
-    [InlineData("Sequence")]
-    [InlineData("Id")]
-    [InlineData("ChainKey")]
-    [InlineData("UserId")]
-    [InlineData("EntityType")]
-    [InlineData("EntityId")]
-    [InlineData("Action")]
-    [InlineData("ChangedFields")]
-    [InlineData("OccurredAt")]
-    [InlineData("IsDeclaredGap")]
-    public void Changing_A_Covered_Field_Changes_The_Hash(string field)
+    [Fact]
+    public void Changing_Any_Covered_Field_Changes_The_Hash()
     {
         var entry = Entry(1);
-        var altered = field switch
-        {
-            "Sequence" => entry with { Sequence = 99 },
-            "Id" => entry with { Id = Guid.NewGuid() },
-            "ChainKey" => entry with { ChainKey = Guid.NewGuid() },
-            "UserId" => entry with { UserId = "local|other" },
-            "EntityType" => entry with { EntityType = "Patient" },
-            "EntityId" => entry with { EntityId = Guid.NewGuid().ToString() },
-            "Action" => entry with { Action = 3 },
-            "ChangedFields" => entry with { ChangedFields = "Status: Issued → Paid" },
-            "OccurredAt" => entry with { OccurredAt = entry.OccurredAt.AddSeconds(1) },
-            "IsDeclaredGap" => entry with { IsDeclaredGap = true },
-            _ => throw new ArgumentOutOfRangeException(nameof(field), field, "unmapped field")
-        };
 
-        Assert.NotEqual(AuditChain.Hash(null, entry, Key), AuditChain.Hash(null, altered, Key));
+        foreach (var property in HashedProperties())
+        {
+            var altered = property switch
+            {
+                "Sequence" => entry with { Sequence = 99 },
+                "Id" => entry with { Id = Guid.NewGuid() },
+                "ChainKey" => entry with { ChainKey = Guid.NewGuid() },
+                "UserId" => entry with { UserId = "local|other" },
+                "EntityType" => entry with { EntityType = "Patient" },
+                "EntityId" => entry with { EntityId = Guid.NewGuid().ToString() },
+                "Action" => entry with { Action = 3 },
+                "ChangedFields" => entry with { ChangedFields = "Status: Issued → Paid" },
+                "OccurredAt" => entry with { OccurredAt = entry.OccurredAt.AddSeconds(1) },
+                "IsDeclaredGap" => entry with { IsDeclaredGap = true },
+                "ClinicId" => entry with { ClinicId = Guid.NewGuid() },
+                "UserEmail" => entry with { UserEmail = "quelquun.dautre@cabinet.tn" },
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(property),
+                    property,
+                    "A new field was added to AuditChainEntry. Decide whether the chain must cover it: if yes, "
+                    + "add it to AuditChain.Digest AND map it here; if not, exclude it in HashedProperties with "
+                    + "the reason.")
+            };
+
+            Assert.NotEqual(AuditChain.Hash(null, entry, Key), AuditChain.Hash(null, altered, Key));
+        }
+    }
+
+    /// <summary>
+    /// The record's fields the chain is supposed to cover: everything but the two that carry the chain itself.
+    /// <c>PreviousHash</c> is passed to <c>Hash</c> as its own argument rather than read off the entry, and
+    /// <c>EntryHash</c> is what <c>Hash</c> returns — neither is part of an entry's own content.
+    /// </summary>
+    private static IReadOnlyList<string> HashedProperties() =>
+        typeof(AuditChainEntry)
+            .GetProperties()
+            .Select(p => p.Name)
+            .Where(name => name is not ("PreviousHash" or "EntryHash"))
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>
+    /// Non-vacuity: reflection fails <b>open</b>, and a renamed type would leave the loop above iterating nothing
+    /// while reporting success.
+    /// </summary>
+    [Fact]
+    public void The_Field_Scan_Still_Sees_The_Record()
+    {
+        var properties = HashedProperties();
+
+        Assert.True(properties.Count >= 12, $"Only {properties.Count} hashed properties found — the scan drifted.");
+        Assert.Contains("ClinicId", properties);
+        Assert.Contains("UserEmail", properties);
+    }
+
+    // ── Scheme v2 ──────────────────────────────────────────────────────────────────────────────────────────
+    //
+    // THE case the scheme exists for. Every read of the journal filters on ClinicId while it was NOT covered by
+    // the hash, so `UPDATE "AuditEntries" SET "ClinicId"=NULL WHERE …` removed a row from a cabinet's journal
+    // permanently and `verify-schema` went on reporting the chain intact — against precisely the reader the
+    // tamper-evidence is sold against, somebody holding full database access.
+
+    [Fact]
+    public void Moving_An_Entry_Out_Of_Its_Cabinet_Breaks_The_Chain()
+    {
+        var chain = ChainedWithTenancy(3);
+        var hidden = chain[1] with { ClinicId = null };
+
+        var result = AuditChain.Walk(ChainKey, new[] { chain[0], hidden, chain[2] }, Key);
+
+        Assert.Equal(AuditChainBreak.ContentAltered, result.Break);
+        Assert.Equal(hidden.Sequence, result.FirstBrokenSequence);
+    }
+
+    [Fact]
+    public void Rewriting_The_Author_Breaks_The_Chain()
+    {
+        var chain = ChainedWithTenancy(3);
+        var rewritten = chain[1] with { UserEmail = "quelquun.dautre@cabinet.tn" };
+
+        var result = AuditChain.Walk(ChainKey, new[] { chain[0], rewritten, chain[2] }, Key);
+
+        Assert.Equal(AuditChainBreak.ContentAltered, result.Break);
+    }
+
+    [Fact]
+    public void A_Hash_Written_Today_Declares_Its_Scheme()
+    {
+        Assert.StartsWith(
+            AuditChain.SchemeV2Prefix, AuditChain.Hash(null, Entry(1), Key), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>The half that makes this shippable without a data migration.</b> Every entry already in a
+    /// deployment's ledger is hashed over the v1 form, and re-hashing them all is a migration this change
+    /// deliberately avoids. A row whose stored hash carries no scheme marker must still verify — otherwise the
+    /// walk reports a deployment's whole history as tampering, which is how a check becomes something an
+    /// operator learns to ignore.
+    /// </summary>
+    [Fact]
+    public void An_Entry_Written_Before_This_Change_Still_Verifies()
+    {
+        var result = AuditChain.Walk(ChainKey, LegacyChained(3), Key);
+
+        Assert.Equal(AuditChainBreak.None, result.Break);
+        Assert.Equal(3, result.Checked);
+    }
+
+    /// <summary>
+    /// And the case that would make the fallback worthless if it were not stated: on a <b>legacy</b> row the
+    /// tenancy genuinely is not covered, so nulling it there stays undetectable. That is the pre-existing
+    /// exposure, unchanged — recorded here so nobody reads « v2 covers ClinicId » as « the whole ledger does ».
+    /// Closing it for old rows is what the rehash migration in
+    /// <c>follow-up/security-remediation-progress.md</c> § 2.1 is for.
+    /// </summary>
+    [Fact]
+    public void A_Legacy_Entry_Is_Only_As_Protected_As_It_Ever_Was()
+    {
+        var legacy = LegacyChained(3);
+        var hidden = legacy[1] with { ClinicId = null };
+
+        var result = AuditChain.Walk(ChainKey, new[] { legacy[0], hidden, legacy[2] }, Key);
+
+        Assert.Equal(AuditChainBreak.None, result.Break);
+    }
+
+    /// <summary>Chains entries carrying a cabinet, the way the appender does today.</summary>
+    private static List<AuditChainEntry> ChainedWithTenancy(int count)
+    {
+        var chain = new List<AuditChainEntry>();
+        string? previous = null;
+
+        for (var i = 1; i <= count; i++)
+        {
+            var entry = Entry(i) with
+            {
+                PreviousHash = previous,
+                ClinicId = ChainKey,
+                UserEmail = "sonia@cabinet.tn",
+            };
+
+            var chained = entry with { EntryHash = AuditChain.Hash(previous, entry, Key) };
+            chain.Add(chained);
+            previous = chained.EntryHash;
+        }
+
+        return chain;
+    }
+
+    /// <summary>
+    /// Chains entries the way the appender did <b>before</b> scheme v2: an unmarked hash computed over a
+    /// canonical form with no tenancy in it.
+    ///
+    /// <para>⚠️ Built through <c>AuditChain.LegacyHash</c> rather than by hashing an entry whose tenancy is set
+    /// to null: the v2 form appends two length-prefixed fields whether or not they are empty, so « hash it with
+    /// nulls » is a third value that is neither scheme. The rows still carry their <c>ClinicId</c>, exactly as a
+    /// real pre-change row does — in the column and not in the hash, which is the whole shape of the old
+    /// exposure.</para>
+    /// </summary>
+    private static List<AuditChainEntry> LegacyChained(int count)
+    {
+        var chain = new List<AuditChainEntry>();
+        string? previous = null;
+
+        for (var i = 1; i <= count; i++)
+        {
+            var entry = Entry(i) with { PreviousHash = previous, ClinicId = ChainKey };
+            var legacyHash = AuditChain.LegacyHash(previous, entry, Key);
+
+            chain.Add(entry with { EntryHash = legacyHash });
+            previous = legacyHash;
+        }
+
+        return chain;
     }
 
     /// <summary>

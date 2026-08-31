@@ -212,7 +212,7 @@ public class AuditEntry : Entity<Guid>
     /// <summary>Projects this entry into the shape <c>AuditChain</c> hashes and walks.</summary>
     public AuditChainEntry ToChainEntry() =>
         new(Id, ChainKey, Sequence, UserId, EntityType, EntityId, (int)Action, ChangedFields, OccurredAt,
-            IsDeclaredGap, PreviousHash, EntryHash);
+            IsDeclaredGap, PreviousHash, EntryHash, ClinicId, UserEmail);
 
     /// <summary>
     /// Truncation is the entity's business, not the interceptor's: the cap is a property of the column and the

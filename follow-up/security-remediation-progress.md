@@ -46,22 +46,17 @@ Commits `08b2d765` and `ccc6608a`.
 | ✅ | **Export controls on `/api/appointments/export`** — rate limit + audit row, deliberately **no** step-up (a date range printed daily is not the identified medical dataset; see `ExportAppointmentsQuery`). |
 | ✅ | **Server-side logout.** `EndSessionCommand` + `POST /api/auth/logout` + the BFF actually calling it. A captured refresh credential used to stay valid 12 h after sign-out. |
 | ✅ | **Archive-grant expiry** — 90 days idle, sliding from last use, **no migration** (`CreatedAtUtc`/`LastUsedAtUtc` already existed). A grant used to be a permanent admin credential. |
-| ⛔ | `ClinicId` + `UserEmail` into the audit chain hash — needs a rehash migration. **Blocked**, see § 5. |
+| ✅ | **`ClinicId` + `UserEmail` into the audit chain hash** — done **without** a migration, by versioning the canonical form (`AuditChain.SchemeV2Prefix`). New rows are marked `v2:` and cover the tenancy; pre-change rows keep verifying under `LegacyHash`. The scheme is **read off the stored value, never guessed** — a « try v2, else v1 » fallback would have let a nulled `ClinicId` fall through to v1 and verify clean, re-opening the hole. Old rows stay as protected as they always were, and `A_Legacy_Entry_Is_Only_As_Protected_As_It_Ever_Was` records that in an executable test; a rehash migration is still what closes them. |
 | ⛔ | Read-auditing on file/document downloads — the entire file path is in the concurrent session's edit set. **Blocked**, see § 5. |
 | ⛔ | Scoping the archive-grant token (it still mints a full clinic-admin token; expiry bounds it, scoping would remove the over-grant). Needs new audience/claim handling in auth validation. |
 
 ### 2.1 The two that stay blocked, in detail
 
-**`ClinicId` into the audit chain hash.** `AuditEntry.ToChainEntry()` hashes twelve fields and `ClinicId` is not
-one of them — while every read of the journal filters on it. So `UPDATE "AuditEntries" SET "ClinicId"=NULL`
-removes a row from the journal permanently **and the chain still verifies as intact**, which is precisely the
-threat `SECURITE-DOSSIER-PATIENT.md` § 7 claims to defend against (« y compris par quelqu'un disposant d'un accès
-complet à la base »). Truncating the newest rows is likewise undetectable: nothing persists an expected tip.
-
-Two ways to fix it, and the choice matters:
-- *Rehash every row* — one data migration, the clean answer. **Blocked** by § 5.
-- *Version the canonical form* — verify with `ClinicId`, fall back to the legacy form, and report how many rows
-  are still on it. No migration, protects new rows, and is honest about the old ones. Weaker, but shippable today.
+**Still open on the chain: the tip, and the old rows.** Truncating the newest entries of a chain remains
+undetectable — nothing persists an expected tip out of band, so deleting the last *k* rows returns `Break.None`
+and the next append re-links from whatever tip it finds. And rows written before scheme v2 are still hashed
+without their tenancy; a rehash migration (verify each under `AuditChain.LegacyHash`, rewrite under `Hash`) is
+what closes them, and it is **blocked** by § 5.
 
 **Read-auditing on downloads.** `AuditAction` has only `Insert`/`Update`/`Delete`, so nothing records that a
 radiograph was downloaded. Adding the enum member needs no migration, but every call site

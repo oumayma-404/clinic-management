@@ -108,7 +108,8 @@ public class SchemaVerificationReader : ISchemaVerificationReader
 
         const string sql = """
             SELECT "Id", "ChainKey", "Sequence", "UserId", "EntityType", "EntityId", "Action",
-                   "ChangedFields", "OccurredAt", "IsDeclaredGap", "PreviousHash", "EntryHash"
+                   "ChangedFields", "OccurredAt", "IsDeclaredGap", "PreviousHash", "EntryHash",
+                   "ClinicId", "UserEmail"
             FROM "AuditEntries"
             ORDER BY "ChainKey", "Sequence"
             """;
@@ -143,7 +144,12 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                 reader.GetDateTime(8),
                 reader.GetBoolean(9),
                 reader.IsDBNull(10) ? null : reader.GetString(10),
-                reader.IsDBNull(11) ? null : reader.GetString(11)));
+                reader.IsDBNull(11) ? null : reader.GetString(11),
+                // ⚠️ Both are part of the v2 canonical form. Omitting them here would not fail to compile and
+                // would not fail a unit test — it would make `verify-schema` report EVERY chained row as
+                // altered, on the one check whose whole value is being believed when it says so.
+                reader.IsDBNull(12) ? null : reader.GetGuid(12),
+                reader.IsDBNull(13) ? null : reader.GetString(13)));
         }
 
         if (currentChain is { } last)
