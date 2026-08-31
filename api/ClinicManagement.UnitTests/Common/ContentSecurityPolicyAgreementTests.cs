@@ -74,11 +74,39 @@ public class ContentSecurityPolicyAgreementTests
     /// <c>'unsafe-eval'</c> is gone and stays gone (FR-4.5's « the weakest directive is removed »). Asserted
     /// separately from the equality above because all three copies agreeing on a weak policy is exactly the
     /// state this feature ended.
+    ///
+    /// <para>⚠️ <b>Matched as a TOKEN, not as a substring, and the difference is the whole point of this
+    /// change.</b> <c>'wasm-unsafe-eval'</c> <i>contains</i> the text <c>unsafe-eval</c> while being a far
+    /// narrower grant — it permits <c>WebAssembly.compile</c> and nothing else, where <c>'unsafe-eval'</c>
+    /// permits <c>eval()</c>, <c>new Function()</c> and string <c>setTimeout</c>. A substring check cannot tell
+    /// them apart, so it would have forced the coffre's author to choose between a broken feature and deleting
+    /// this guard — and a guard that punishes the correct fix gets deleted rather than fixed.</para>
+    ///
+    /// <para>The tokens are split on whitespace and compared whole, so <c>'unsafe-eval'</c> is caught wherever
+    /// in the policy it appears and <c>'wasm-unsafe-eval'</c> is not mistaken for it.</para>
     /// </summary>
     [Fact]
     public void The_Policy_Permits_No_Eval()
     {
-        Assert.DoesNotContain("unsafe-eval", MiddlewarePolicy, StringComparison.Ordinal);
+        var tokens = MiddlewarePolicy
+            .Split(new[] { ' ', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        Assert.DoesNotContain("'unsafe-eval'", tokens, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// The narrow token IS present, and this is not decoration: without it the coffre is dead on arrival
+    /// wherever the policy is enforced — <c>ingestIntoVault</c> compiles a WebAssembly SHA-256 as its very first
+    /// step, before a single byte is written. It failed silently in the sense that mattered: the hosted upload
+    /// path has no WebAssembly in it, so ordinary files kept working and only 3D studies broke.
+    ///
+    /// <para>Asserted so that « tidying » the policy cannot remove it without a red test naming the feature it
+    /// would break.</para>
+    /// </summary>
+    [Fact]
+    public void The_Policy_Permits_WebAssembly_Which_The_Coffre_Needs()
+    {
+        Assert.Contains("'wasm-unsafe-eval'", MiddlewarePolicy, StringComparison.Ordinal);
     }
 
     /// <summary>

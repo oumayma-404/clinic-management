@@ -66,13 +66,25 @@ public class SecurityHeadersMiddleware
     /// nonce/hash support with <c>strict-dynamic</c>, which is a change with its own page walk and is
     /// deliberately not smuggled in behind this flag.</para>
     ///
-    /// <para>⚠️ <b>This covers only what Kestrel serves.</b> Behind the hosted reverse proxy that is <c>/api/*</c>
+    /// <para>⚠️ <b><c>'wasm-unsafe-eval'</c> is here for the coffre, and it is NOT <c>'unsafe-eval'</c>.</b> It
+/// permits <c>WebAssembly.compile</c> and nothing else — no <c>eval()</c>, no <c>new Function()</c>, no string
+/// <c>setTimeout</c>. `clinic-file-vault` hashes a file <b>incrementally</b> while streaming it disk-to-disk,
+/// which is what makes a 25 Go study recordable at all; <c>crypto.subtle.digest</c> cannot do that (it needs the
+/// whole buffer in memory), so the hash comes from a WebAssembly SHA-256. Without this token every vault file
+/// failed at the very first step, on every deployment where the policy is enforced — and because the hosted
+/// upload path has no wasm in it, ordinary files kept working and nothing looked broken.</para>
+///
+/// <para>⚠️ <b>The vendor console does not need it and carries it anyway</b>, because these four copies are
+/// asserted byte-identical and one policy that cannot drift is worth more than one token of extra surface on a
+/// site that has no WebAssembly to compile. Revisit if the console ever diverges for a better reason.</para>
+///
+/// <para>⚠️ <b>This covers only what Kestrel serves.</b> Behind the hosted reverse proxy that is <c>/api/*</c>
     /// alone, so the page-side copy of this policy lives in <c>deploy/Caddyfile</c>'s page-response block. The two
     /// are byte-identical and must be changed together.</para>
     /// </summary>
     public const string ContentSecurityPolicy =
         "default-src 'self'; "
-        + "script-src 'self' 'unsafe-inline'; "
+        + "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; "
         + "style-src 'self' 'unsafe-inline'; "
         + "img-src 'self' data: blob:; "
         + "font-src 'self' data:; "
