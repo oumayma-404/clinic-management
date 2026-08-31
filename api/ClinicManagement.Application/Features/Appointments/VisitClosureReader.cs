@@ -31,16 +31,20 @@ public sealed record OpenVisit(
 /// </summary>
 public static class VisitClosureReader
 {
-    /// <summary>Default window, in clinic-local days including today.</summary>
-    public const int DefaultDays = 7;
     public const int MinDays = 1;
     public const int MaxDays = 90;
 
     /// <summary>
     /// Clamped, never refused — a stale bookmark asking for « ?days=0 » should show rows, not a French error.
-    /// <c>PageRequest</c>'s reasoning, one parameter over.
+    /// <c>PageRequest</c>'s reasoning, one parameter over. <b>Null means every date</b>, which is the default.
+    ///
+    /// <para>⚠️ It used to default to 7 days, and that was the wrong default for what this list is: a séance
+    /// nobody closed is not *less* open for being three weeks old — it is more so, and the money on it is the
+    /// money most likely to be lost. A window that hides it also hides it from the count on the page, so the
+    /// practice was told it had nothing left to do while the oldest, most forgotten rows sat outside the window.
+    /// The window is now a filter the user reaches for, not one they have to think to widen.</para>
     /// </summary>
-    public static int ResolveDays(int? days) => Math.Clamp(days ?? DefaultDays, MinDays, MaxDays);
+    public static int? ResolveDays(int? days) => days is null ? null : Math.Clamp(days.Value, MinDays, MaxDays);
 
     /// <summary>
     /// The clinic's still-open séances over the window, most recent first.
@@ -63,7 +67,12 @@ public static class VisitClosureReader
         // The window is the clinic's own days, never the server machine's: Tunisia is UTC+1, so « les 7 derniers
         // jours » computed from a UTC midnight starts an hour into the wrong day.
         var clinicToday = ClinicClock.ClinicToday(nowUtc);
-        var fromUtc = ClinicClock.StartOfLocalDayUtc(clinicToday.AddDays(-(ResolveDays(days) - 1)));
+        var resolvedDays = ResolveDays(days);
+        // `DateTime.MinValue` and not « a very large number of days »: the sentinel has to be one the SQL bound
+        // can carry unchanged, and the column is a timestamptz whose oldest possible row is still above it.
+        var fromUtc = resolvedDays is null
+            ? DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc)
+            : ClinicClock.StartOfLocalDayUtc(clinicToday.AddDays(-(resolvedDays.Value - 1)));
 
         var candidates = await appointments.GetClosureCandidatesAsync(
             clinicId, fromUtc, nowUtc, doctorId, cancellationToken);

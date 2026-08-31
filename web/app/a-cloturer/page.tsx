@@ -34,8 +34,19 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
  * reality and needs no task table to maintain — see `VisitClosureRules` server-side.</p>
  */
 
-/** Windows offered. Mirrors `VisitClosureReader`'s clamp; the server is the authority and re-clamps anyway. */
+/**
+ * Windows offered. Mirrors `VisitClosureReader`'s clamp; the server is the authority and re-clamps anyway.
+ *
+ * ⚠️ « Toutes les dates » is the **default**, and `all` sends no `days` at all — an absent window means every date
+ * server-side. A 7-day default was the wrong one for what this list is: a séance nobody closed is not *less* open
+ * for being three weeks old, it is the one most likely to have been forgotten and to have money still on it, and
+ * a window that hides it also subtracts it from the count at the top of the page. So the practice was told it had
+ * nothing left to do while the oldest rows sat outside the window. Narrowing is now something you reach for.
+ */
+const ALL_DATES = "all"
+
 const WINDOWS = [
+  { value: ALL_DATES, label: "Toutes les dates" },
   { value: "7", label: "7 derniers jours" },
   { value: "14", label: "14 derniers jours" },
   { value: "30", label: "30 derniers jours" },
@@ -43,7 +54,7 @@ const WINDOWS = [
 ] as const
 
 export default function VisitsToClosePage() {
-  const [days, setDays] = useState<string>("7")
+  const [days, setDays] = useState<string>(ALL_DATES)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [data, setData] = useState<PagedResponse<VisitToCloseDto> | null>(null)
@@ -53,7 +64,12 @@ export default function VisitsToClosePage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await appointmentsApi.visitsToClose({ days: Number(days), page, pageSize })
+      const result = await appointmentsApi.visitsToClose({
+        // Omitted, not zero: the server reads an absent window as « toutes les dates », while 0 would clamp to 1.
+        days: days === ALL_DATES ? undefined : Number(days),
+        page,
+        pageSize,
+      })
 
       // Closing the last séance of page 2 leaves that page empty while the list still has rows: `PageRequest`
       // clamps the page *size* and deliberately does not clamp a page past the end. Rendering it would print
@@ -106,6 +122,17 @@ export default function VisitsToClosePage() {
       <AppShell contentClassName="space-y-6">
         <PageHeader
           title="À clôturer"
+          /* ⚠️ ONE figure, and it is the sum of both tabs: a tab hides its own half by definition, so the two
+             counts on the triggers answer « how much is behind this door » and neither answers « how much is
+             left ». That total is the question the page is opened with — and it is why the window now defaults
+             to every date, since a badge whose figure depends on a filter can be quietly wrong. */
+          titleBadge={
+            data ? (
+              <Badge variant="secondary" className="tabular-nums">
+                {(data.totalCount + pendingCount).toLocaleString("fr-TN")}
+              </Badge>
+            ) : undefined
+          }
           subtitle={
             data
               // ⚠️ `<= 1`, not `=== 1`: in French ZERO takes the singular, so « 0 séances » was wrong — and the

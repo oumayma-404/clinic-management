@@ -24,6 +24,17 @@ interface PageHeaderProps {
    * someone already looking at it, which is the one reader who does not need it.</p>
    */
   subtitle?: ReactNode
+  /**
+   * A count rendered **beside** the title — « À clôturer 34 ».
+   *
+   * <p>For a worklist whose whole reason to exist is a quantity, and only where that quantity is the page's own
+   * total rather than one section's: a badge on the title says « this is how much is left », so it must not be a
+   * figure a filter or a tab can change under the reader.</p>
+   *
+   * <p>⚠️ It wraps with the title rather than sitting on a fixed line — `Badge` is `whitespace-nowrap shrink-0`,
+   * so at 320 px a long title beside it would otherwise be painted out through the header's edge.</p>
+   */
+  titleBadge?: ReactNode
   /** Right-aligned controls. **One** primary action per page; everything else is `variant="outline"` or a link. */
   actions?: ReactNode
   /** Suppresses the icon chip for a page whose route has no sensible glyph. */
@@ -59,7 +70,7 @@ interface PageHeaderProps {
  * (`.page-canvas` in `globals.css`) is what gives the surface life now, and it is deliberately achromatic —
  * it is the same on every screen, so it can never disagree with the zone.</p>
  */
-export function PageHeader({ zone, title, subtitle, actions, hideIcon = false, className }: PageHeaderProps) {
+export function PageHeader({ zone, title, titleBadge, subtitle, actions, hideIcon = false, className }: PageHeaderProps) {
   const pathname = usePathname()
   const resolved = zoneForPath(pathname)
   const Icon = hideIcon ? undefined : navIconForPath(pathname)
@@ -99,7 +110,10 @@ export function PageHeader({ zone, title, subtitle, actions, hideIcon = false, c
             <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", resolved.bg)} />
             {eyebrow}
           </p>
-          <h1 className="mt-1 text-title font-semibold leading-tight tracking-tight text-foreground">{title}</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <h1 className="text-title font-semibold leading-tight tracking-tight text-foreground">{title}</h1>
+            {titleBadge}
+          </div>
           {subtitle && <p className="mt-1 max-w-[56ch] text-sm text-muted-foreground">{subtitle}</p>}
         </div>
       </div>
