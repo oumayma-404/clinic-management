@@ -6,6 +6,7 @@ Track incomplete work, bugs, and technical debt across all features.
 
 | Item | Feature | Type | Priority | Created |
 |------|---------|------|----------|---------|
+| [Security & Tunisian-compliance remediation — what is still outstanding](./security-remediation-outstanding.md) | general | incomplete | high | 2026-08-31 |
 | [A write path for the per-clinic TTN identity (`set-clinic-ttn-identity` verb)](./ttn-per-clinic-identity-write-path.md) | multi-tenant-cloud | incomplete | high | 2026-08-06 |
 | [Verify/regenerate the CNAM EF migration with the EF tool](./cnam-migration-ef-verify.md) | cnam-bulletin-soins | debt | high | 2026-07-17 |
 | [Validate & correct the BS1 PDF against the official form](./cnam-bs1-pdf-fidelity.md) | cnam-bulletin-soins | incomplete | high | 2026-07-17 |
@@ -22,6 +23,7 @@ Track incomplete work, bugs, and technical debt across all features.
 | [Open after the WhatsApp forfait: the Graph bump, three unanswered Meta questions, and the walks still owed](./vendor-messaging-open-questions.md) | vendor-whatsapp-messaging-quota | incomplete | medium | 2026-08-12 |
 | [The sidecars' secrets still reach them as environment variables (FR-3.10, second half)](./hosted-secrets-to-files.md) | hosted-security-hardening | debt | medium | 2026-08-12 |
 | [The hosted security layer is running reduced on Render's free tier — restore it on a real VM](./render-free-tier-transit-relaxation.md) | hosted-security-hardening | debt | **high** | 2026-08-12 |
+| [The landing page shipped with its captures — five corrections deferred (a wrong phone capture, page weight)](./landing-v5-shipped-corrections.md) | landing-v2 | incomplete | medium | 2026-08-19 |
 
 ## Completed Items
 
