@@ -7,7 +7,7 @@ namespace ClinicManagement.Domain.Entities;
 /// interval + an end condition: an end date and/or a fixed occurrence count) that expands into individual
 /// <see cref="Appointment"/> rows linked back via <c>Appointment.RecurringAppointmentId</c>. Clinic-scoped.
 /// </summary>
-public class RecurringAppointment : Entity<Guid>
+public class RecurringAppointment : Entity<Guid>, IAuditable
 {
     public Guid ClinicId { get; private set; }
     public Guid PatientId { get; private set; }

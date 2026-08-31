@@ -15,6 +15,7 @@ import { apiGetFile } from './client';
 export async function fetchExportCsv(
   path: string,
   params: Record<string, string | number | boolean | undefined | null> = {},
+  stepUpToken?: string | null,
 ): Promise<{ blob: Blob; filename: string }> {
   // `''` is dropped alongside null/undefined — an empty filter is not a filter, and `buildUrl` only skips the
   // latter two.
@@ -22,6 +23,8 @@ export async function fetchExportCsv(
     Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== ''),
   );
 
-  const { blob, filename } = await apiGetFile(path, query);
+  // ⚠️ The confirmation rides as a HEADER, never in the query string — this application's URLs are logged, and
+  // that is what FR-4.4 is about. `apiGetFile` puts it there; passing it through `query` would defeat the point.
+  const { blob, filename } = await apiGetFile(path, query, undefined, undefined, stepUpToken);
   return { blob, filename: filename ?? 'export.csv' };
 }

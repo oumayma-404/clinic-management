@@ -89,6 +89,15 @@ export default function PatientsPage() {
                 path="/patients/export"
                 label="patients"
                 compact
+                /*
+                 * This file is the cabinet's identified medical dataset — nom, date de naissance, adresse,
+                 * identifiant CNAM, antécédents médicaux, allergies — twenty columns per patient, for the whole
+                 * filtered set. The whole-clinic ZIP archive is guarded with a confirmation for exactly this
+                 * reason; the same data through this door had none. The action name must match the server's
+                 * `PatientsController.ExportStepUpAction`.
+                 */
+                stepUpAction="export-patient-list"
+                stepUpPurpose="Exporter la liste des patients (avec antécédents et allergies)"
                 params={{
                   searchTerm: searchQuery || undefined,
                   flaggedOnly: showFlaggedOnly || undefined,

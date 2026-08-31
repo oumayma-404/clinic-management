@@ -10,6 +10,10 @@ using ClinicManagement.Domain.Repositories;
 using ClinicManagement.API.Models;
 using ClinicManagement.Application.Common.Csv;
 using ClinicManagement.Application.Common.Files;
+using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.API.Startup;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace ClinicManagement.API.Controllers;
 
@@ -18,11 +22,24 @@ namespace ClinicManagement.API.Controllers;
 [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
 public class PatientsController : ApiControllerBase
 {
-    private readonly IMediator _mediator;
+    /// <summary>
+    /// The step-up action « Exporter la liste des patients ». Distinct from the archive's, so a confirmation
+    /// minted for one cannot be spent on the other — <c>IStepUpConfirmations</c> keys on (user, action).
+    /// </summary>
+    public const string ExportStepUpAction = "export-patient-list";
 
-    public PatientsController(IMediator mediator)
+    private readonly IMediator _mediator;
+    private readonly IStepUpConfirmations _stepUp;
+    private readonly IClinicContext _clinicContext;
+
+    public PatientsController(
+        IMediator mediator,
+        IStepUpConfirmations stepUp,
+        IClinicContext clinicContext)
     {
         _mediator = mediator;
+        _stepUp = stepUp;
+        _clinicContext = clinicContext;
     }
 
     /// <summary>
@@ -48,14 +65,32 @@ public class PatientsController : ApiControllerBase
     /// whole filtered set, never the current page » true by construction instead of by discipline — the export
     /// cannot see a page to accidentally export.</para>
     /// </summary>
+    /// <param name="confirmation">
+    /// The step-up token minted by <c>POST /api/auth/step-up</c> for <see cref="ExportStepUpAction"/>.
+    /// ⚠️ <b>A header, never the query string</b> — this application's URLs are logged.
+    /// </param>
     [HttpGet("export")]
+    [EnableRateLimiting(RateLimiting.ListExportPolicy)]
     public async Task<ActionResult> ExportPatients(
+        [FromHeader(Name = BackupController.StepUpHeader)] string? confirmation,
         [FromQuery] string? searchTerm = null,
         [FromQuery] DateTime? createdFrom = null,
         [FromQuery] DateTime? createdTo = null,
         [FromQuery] bool flaggedOnly = false)
     {
-        var result = await _mediator.Send(new GetPatientsQuery
+        // ⚠️ Three controls added together, because the finding was the ASYMMETRY rather than any one of them:
+        // this file carries twenty columns per patient — date de naissance, adresse, identifiant CNAM,
+        // antécédents médicaux, allergies — i.e. the cabinet's whole identified medical dataset, and it had
+        // none of the four the whole-clinic ZIP archive has, while the ZIP carries the same data. The role gate
+        // is deliberately NOT narrowed: reception legitimately exports a recall list, and the gap was that the
+        // export was unattributable and unbounded, not that it existed.
+        var refusal = RequireStepUp(confirmation, ExportStepUpAction);
+        if (refusal != null)
+        {
+            return refusal;
+        }
+
+        var result = await _mediator.Send(new ExportPatientsQuery
         {
             SearchTerm = searchTerm,
             CreatedFrom = createdFrom,
@@ -68,7 +103,27 @@ public class PatientsController : ApiControllerBase
             return HandleFailure(result);
         }
 
-        return Csv(ExportTables.Patients(result.Value!.Items), "patients");
+        return Csv(ExportTables.Patients(result.Value!), "patients");
+    }
+
+    /// <summary>
+    /// Spends the caller's confirmation for <paramref name="action"/>, or refuses with 403.
+    /// <c>BackupController.RequireStepUp</c>'s rule and its reasoning: an unlocked machine with a session open
+    /// must not be enough to walk a practice's records out, so the confirmation proves somebody is present now.
+    /// </summary>
+    private ActionResult? RequireStepUp(string? confirmation, string action)
+    {
+        var callerId = _clinicContext.GetUserId();
+
+        if (string.IsNullOrWhiteSpace(callerId)
+            || !_stepUp.Consume(callerId, action, confirmation ?? string.Empty))
+        {
+            return Failure(
+                "Cette action demande une confirmation récente de votre identité. Veuillez réessayer.",
+                StatusCodes.Status403Forbidden);
+        }
+
+        return null;
     }
 
     /// <summary>

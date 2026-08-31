@@ -3,7 +3,7 @@ using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Domain.Entities;
 
-public class PatientFile : Entity<Guid>
+public class PatientFile : Entity<Guid>, IAuditable
 {
     public Guid PatientId { get; private set; }
 
@@ -12,10 +12,38 @@ public class PatientFile : Entity<Guid>
 
     public Guid? FolderId { get; private set; } // Null means root folder
     public string FileName { get; private set; }
-    public string StorageKey { get; private set; } // MinIO storage key
+
+    /// <summary>
+    /// Where the bytes are in the object store — <b>null exactly when <see cref="Residency"/> is
+    /// <see cref="FileResidency.Vault"/></b>, because a vault file's bytes never reached the deployment and its
+    /// path in the cabinet's coffre is derived by <see cref="Services.VaultPath"/> rather than stored.
+    ///
+    /// <para>⚠️ The nullability is the point, not a concession. A caller that hands this straight to
+    /// <c>IFileStorage</c> without branching on the residency throws immediately instead of quietly deleting or
+    /// downloading nothing against a key the store never held.</para>
+    /// </summary>
+    public string? StorageKey { get; private set; }
+
     public string ContentType { get; private set; }
     public long FileSize { get; private set; }
     public FileType FileType { get; private set; }
+
+    /// <summary>Whether the deployment holds these bytes, or only the record of them.</summary>
+    public FileResidency Residency { get; private set; }
+
+    /// <summary>
+    /// Lower-case hex SHA-256 of the original, computed by whoever wrote it into the coffre. Null for a hosted
+    /// file, where the object store is the authority on its own content.
+    /// </summary>
+    public string? ContentHash { get; private set; }
+
+    /// <summary>
+    /// A small derived image standing in for a vault original wherever the coffre is out of reach. Null is
+    /// ordinary — nothing renders a preview of an STL yet, and a preview that came out too big is dropped rather
+    /// than allowed to become the storage problem this residency exists to avoid.
+    /// </summary>
+    public string? PreviewStorageKey { get; private set; }
+
     public string? Description { get; private set; }
     public DateTime UploadedAt { get; private set; }
     public string? UploadedBy { get; private set; }
@@ -47,10 +75,60 @@ public class PatientFile : Entity<Guid>
         ContentType = contentType ?? throw new ArgumentNullException(nameof(contentType));
         FileSize = fileSize;
         FileType = fileType;
+        Residency = FileResidency.Hosted;
         FolderId = folderId;
         Description = description;
         UploadedBy = uploadedBy;
         UploadedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Records a file whose bytes stay in the cabinet's coffre. A named factory rather than an overload with a
+    /// null storage key, because the two are different acts: one stores bytes and then describes them, this one
+    /// only ever describes bytes somebody else holds.
+    /// </summary>
+    public static PatientFile RegisterInVault(
+        Guid id,
+        Guid patientId,
+        Guid clinicId,
+        string fileName,
+        string contentType,
+        long fileSize,
+        FileType fileType,
+        string contentHash,
+        string? previewStorageKey = null,
+        Guid? folderId = null,
+        string? description = null,
+        string? uploadedBy = null)
+    {
+        if (string.IsNullOrWhiteSpace(contentHash))
+        {
+            throw new ArgumentException("Un fichier du coffre doit porter son empreinte.", nameof(contentHash));
+        }
+
+        if (fileSize <= 0)
+        {
+            throw new ArgumentException("Un fichier du coffre doit avoir une taille.", nameof(fileSize));
+        }
+
+        return new PatientFile
+        {
+            Id = id,
+            PatientId = patientId,
+            ClinicId = clinicId,
+            FileName = fileName ?? throw new ArgumentNullException(nameof(fileName)),
+            ContentType = contentType ?? throw new ArgumentNullException(nameof(contentType)),
+            FileSize = fileSize,
+            FileType = fileType,
+            Residency = FileResidency.Vault,
+            ContentHash = contentHash.Trim().ToLowerInvariant(),
+            PreviewStorageKey = previewStorageKey,
+            StorageKey = null,
+            FolderId = folderId,
+            Description = description,
+            UploadedBy = uploadedBy,
+            UploadedAt = DateTime.UtcNow
+        };
     }
 
     /// <summary>

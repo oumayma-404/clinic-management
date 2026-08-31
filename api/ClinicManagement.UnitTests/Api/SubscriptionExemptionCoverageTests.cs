@@ -39,6 +39,9 @@ public class SubscriptionExemptionCoverageTests
         "Auth.SignUp",
         "Auth.VerifySignUp",
         "Auth.Login",
+        // Signing out is not recording clinic work, and it must keep working on an expired cabinet — a practice
+        // that cannot sign out of a shared reception PC is a worse outcome than one that cannot bill.
+        "Auth.Logout",
         "Auth.Refresh",
         "Auth.Setup",
         "Auth.Register",

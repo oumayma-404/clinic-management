@@ -2,7 +2,7 @@ using ClinicManagement.Domain.Common;
 
 namespace ClinicManagement.Domain.Entities;
 
-public class PatientMedicalHistory : Entity<Guid>
+public class PatientMedicalHistory : Entity<Guid>, IAuditable
 {
     public Guid PatientId { get; private set; }
 
