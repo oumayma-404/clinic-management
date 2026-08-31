@@ -40,4 +40,22 @@
     <ProjectReference Include="..\ClinicManagement.Infrastructure\ClinicManagement.Infrastructure.csproj" />
   </ItemGroup>
 
+  <!--
+    The developer fixture never leaves the developer's machine.
+
+    ⚠️ It was in the PRODUCTION image — verified on the live server, /app/appsettings.Development.json, beside
+    appsettings.json. It carries a working console signing key, `minioadmin`/`minioadmin`, a database password and
+    a webhook key. All of it is inert while ASPNETCORE_ENVIRONMENT is not `Development`, which is why nothing ever
+    noticed — but « inert » is one environment variable away from « live », and the file is readable by anyone who
+    can reach the container at all.
+
+    `CopyToPublishDirectory` rather than `Content Remove` or a Configuration condition, deliberately: `dotnet run`,
+    `dotnet build` and `dotnet test` are untouched, so a fresh clone still starts and the console verbs still find
+    their settings under `-c Release`. Only `dotnet publish` — which is exactly and only what the Docker image is
+    built from — drops it.
+  -->
+  <ItemGroup>
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
 </Project>
