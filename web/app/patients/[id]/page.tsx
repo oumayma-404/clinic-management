@@ -76,6 +76,7 @@ import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import type { PatientDto, AppointmentDto, PatientMedicalHistoryDto, PatientFamilyHistoryDto, DentalRecordDto, PatientFileDto, PatientFolderDto, TreatmentPlanDto, MedicalDocumentDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
+import { ExportButton } from "@/components/ui/export-button"
 import { PatientRecordModal } from "@/components/patient-record-modal"
 import { Edit } from "lucide-react"
 import { Receipt } from "lucide-react"
@@ -1139,6 +1140,20 @@ export default function PatientDetailsPage() {
               <FileText className="h-4 w-4" />
               Dossier médical
             </Button>
+            {/*
+              « Dossier » — the patient's own copy of their record, as one archive.
+              This is the right of access under la loi organique 2004-63, and it is also the request a cabinet
+              fields constantly for an ordinary reason: somebody is changing dentist. It sits here rather than in
+              a settings screen because the person who receives that request is the person looking at this page.
+              Confirmed like the roster export: it is one person's whole medical history in a single file.
+            */}
+            <ExportButton
+              path={`/patients/${patient.id}/dossier`}
+              label="dossier"
+              compact
+              stepUpAction="export-patient-dossier"
+              stepUpPurpose="Exporter le dossier complet de ce patient, pour le lui remettre"
+            />
             <Button size="sm" onClick={() => router.push(`/appointments?patientId=${patient.id}`)}>
               Planifier un RDV
             </Button>

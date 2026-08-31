@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using MediatR;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients.Commands;
+using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Application.Features.Patients.Queries;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Domain.Common;
@@ -27,6 +28,12 @@ public class PatientsController : ApiControllerBase
     /// minted for one cannot be spent on the other — <c>IStepUpConfirmations</c> keys on (user, action).
     /// </summary>
     public const string ExportStepUpAction = "export-patient-list";
+
+    /// <summary>
+    /// The step-up action for one patient's whole dossier. Distinct from the roster's, so a confirmation minted
+    /// for one cannot be spent on the other — <c>IStepUpConfirmations</c> keys on (user, action).
+    /// </summary>
+    public const string DossierStepUpAction = "export-patient-dossier";
 
     private readonly IMediator _mediator;
     private readonly IStepUpConfirmations _stepUp;
@@ -104,6 +111,43 @@ public class PatientsController : ApiControllerBase
         }
 
         return Csv(ExportTables.Patients(result.Value!), "patients");
+    }
+
+    /// <summary>
+    /// « Exporter le dossier » — one patient's complete record as one archive, for the patient.
+    ///
+    /// <para>This is the right of access under <i>loi organique 2004-63</i>, and the request a cabinet fields
+    /// whenever somebody changes dentist. Nothing in the product could produce it before: every export was
+    /// list-scoped, and the whole-clinic archive is the practice's backup rather than a person's file.</para>
+    ///
+    /// <para>⚠️ <b>Confirmed and rate-limited like the roster, and for a sharper reason.</b> One person's entire
+    /// medical history in a single file is the most concentrated export this product can make — and the access is
+    /// recorded against that patient, so « qui a sorti mon dossier ? » is answerable afterwards.</para>
+    ///
+    /// <para>⚠️ <b>`AnyClinicRole`, deliberately not narrowed.</b> Reception is who fields the request and who
+    /// hands the archive over; making it admin-only would mean the person asked cannot answer. What makes that
+    /// safe is that the export is confirmed, bounded and named in the journal.</para>
+    /// </summary>
+    [HttpGet("{id}/dossier")]
+    [EnableRateLimiting(RateLimiting.ListExportPolicy)]
+    public async Task<ActionResult> ExportDossier(
+        Guid id,
+        [FromHeader(Name = BackupController.StepUpHeader)] string? confirmation)
+    {
+        var refusal = RequireStepUp(confirmation, DossierStepUpAction);
+        if (refusal != null)
+        {
+            return refusal;
+        }
+
+        var result = await _mediator.Send(new ExportPatientDossierQuery { PatientId = id });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return File(result.Value!.Content, PatientDossierPackager.ContentType, result.Value.FileName);
     }
 
     /// <summary>
