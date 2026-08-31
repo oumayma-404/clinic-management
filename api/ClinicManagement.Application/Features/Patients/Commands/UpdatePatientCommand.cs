@@ -116,10 +116,15 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     // "Signaler ce patient" toggle + note. null = leave the flag state unchanged (backward-compatible with
     // callers that don't send it); true = ensure an active flag; false = clear any active flag.
     /// <summary>
-    /// The patient's answer about automated SMS/WhatsApp reminders. <b>Omitted means unchanged</b>, like every
-    /// other key on this command — sending <c>NotRecorded</c> explicitly is how an answer is un-recorded.
+    /// The patient's answer about automated SMS/WhatsApp reminders — <c>"NotRecorded"</c>, <c>"Granted"</c> or
+    /// <c>"Refused"</c>. <b>Omitted means unchanged</b>, like every other key on this command; sending
+    /// <c>"NotRecorded"</c> explicitly is how an answer is un-recorded.
+    ///
+    /// <para>⚠️ A string rather than the enum, for <c>PatientDto.Dentition</c>'s reason: with no
+    /// <c>JsonStringEnumConverter</c> registered, an enum property refuses <c>"Refused"</c> with a 400 and
+    /// accepts only <c>2</c>.</para>
     /// </summary>
-    public PatientReminderConsent? ReminderConsent { get; set; }
+    public string? ReminderConsent { get; set; }
 
     public bool? IsFlagged { get; set; }
     public string? FlagNotes { get; set; }
@@ -319,10 +324,11 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
 
             // Reminder consent. Its own key and its own mutator: it must NOT ride along with the phone number,
             // or correcting a typo in the number would quietly re-enrol a patient who had refused.
-            if (request.ReminderConsent.HasValue)
+            var requestedConsent = ReminderConsentRules.Parse(request.ReminderConsent);
+            if (requestedConsent.HasValue)
             {
                 patient.SetReminderConsent(
-                    request.ReminderConsent.Value, DateTime.UtcNow, _clinicContext.GetUserEmail());
+                    requestedConsent.Value, DateTime.UtcNow, _clinicContext.GetUserEmail());
             }
 
             // Patient flag ("Signaler ce patient"): a single active HighPriority flag carries the toggle

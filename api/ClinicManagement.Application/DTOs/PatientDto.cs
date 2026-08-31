@@ -75,11 +75,18 @@ public class PatientDto
     public string? ArchiveReason { get; set; }
 
     /// <summary>
-    /// Whether the patient agreed to automated SMS/WhatsApp reminders — <c>NotRecorded</c> / <c>Granted</c> /
-    /// <c>Refused</c>. The two stamps say who took the answer and when; a consent nobody can date is not one a
-    /// cabinet can defend.
+    /// Whether the patient agreed to automated SMS/WhatsApp reminders — <c>"NotRecorded"</c>,
+    /// <c>"Granted"</c> or <c>"Refused"</c>. The two stamps below say who took the answer and when; a consent
+    /// nobody can date is not one a cabinet can defend.
+    ///
+    /// <para>⚠️ <b>A string, for <see cref="Dentition"/>'s reason, and I got this wrong first time.</b> This API
+    /// registers no <c>JsonStringEnumConverter</c>, so a raw enum property leaves as <c>0</c>/<c>1</c>/<c>2</c>.
+    /// The browser then compares an integer against <c>"Refused"</c>, never matches, and the control shows
+    /// « non renseigné » over every stored answer while a write of <c>"Refused"</c> is refused as a 400 — both
+    /// silent, and neither visible to <c>tsc</c>, the unit suite or <c>check:responsive</c>. Only a real request
+    /// showed it.</para>
     /// </summary>
-    public PatientReminderConsent ReminderConsent { get; set; }
+    public string ReminderConsent { get; set; } = nameof(PatientReminderConsent.NotRecorded);
     public DateTime? ReminderConsentRecordedAtUtc { get; set; }
     public string? ReminderConsentRecordedBy { get; set; }
 

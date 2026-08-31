@@ -60,7 +60,7 @@ public static class PatientMappingExtensions
             IsArchived = patient.IsArchived,
             ArchivedAt = patient.ArchivedAt,
             ArchiveReason = patient.ArchiveReason,
-            ReminderConsent = patient.ReminderConsent,
+            ReminderConsent = patient.ReminderConsent.ToString(),
             ReminderConsentRecordedAtUtc = patient.ReminderConsentRecordedAtUtc,
             ReminderConsentRecordedBy = patient.ReminderConsentRecordedBy,
             CreatedAt = patient.CreatedAt,

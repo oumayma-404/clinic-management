@@ -141,9 +141,10 @@ public static class PatientFromRequest
         // Consent taken at registration, when it was taken. Omitted leaves NotRecorded, which is the honest
         // state for a patient nobody has asked — and the CSV import (L5) reaches this same line, so an imported
         // patient is never silently marked as having agreed to anything.
-        if (request.ReminderConsent.HasValue)
+        var consent = ReminderConsentRules.Parse(request.ReminderConsent);
+        if (consent.HasValue)
         {
-            patient.SetReminderConsent(request.ReminderConsent.Value, DateTime.UtcNow, recordedBy: null);
+            patient.SetReminderConsent(consent.Value, DateTime.UtcNow, recordedBy: null);
         }
 
         // Optional "Signaler ce patient" flag at creation.

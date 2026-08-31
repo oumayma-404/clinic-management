@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 namespace ClinicManagement.Application.DTOs;
 
 /// <summary>
@@ -42,6 +43,24 @@ public class PatientImportRowDto
     /// <summary>« Ben Salah Amine », for a report that can be read without the file open beside it.</summary>
     public string DisplayName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// What will happen to this row — <c>"Ready"</c>, <c>"Duplicate"</c>, <c>"Invalid"</c>, and after the import
+    /// itself <c>"Created"</c>, <c>"Skipped"</c> or <c>"Failed"</c>.
+    ///
+    /// <para>⚠️ <b>The converter is load-bearing and its absence was a live defect.</b> This API registers no
+    /// global <c>JsonStringEnumConverter</c>, so without it the value left as <c>0</c>/<c>1</c>/<c>2</c> —
+    /// verified on the wire — while <c>web/lib/api/patient-import.ts</c> declares
+    /// <c>PatientImportRowOutcome = 'Ready' | 'Duplicate' | …</c> and
+    /// <c>import-patients-dialog.tsx</c> branches on <c>row.outcome === "Ready"</c>. Every one of those
+    /// comparisons was false: the importable-rows filter came back <b>empty</b> so « Importer » had nothing to
+    /// import, no duplicate could be ticked as « créer quand même », and the badge fell through to
+    /// <c>OUTCOME_STYLE.Invalid</c> for every row. The whole CSV import (L5) was unusable, silently.</para>
+    ///
+    /// <para>A per-property converter rather than <c>PatientDto.Dentition</c>'s string, because this property is
+    /// also read <i>server-side</i> — <c>PatientImportMapping</c> counts by it and <c>ImportPatientsCommand</c>
+    /// assigns it — so the enum is the right type in the code and only its wire form was wrong.</para>
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public PatientImportRowOutcome Outcome { get; set; }
 
     /// <summary>French reasons the row cannot be created.</summary>
