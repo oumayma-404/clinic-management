@@ -38,9 +38,14 @@ public class PatientFileAccessCoverageTests
     /// </summary>
     private static readonly Dictionary<string, string> NotAPatientRecordByDesign = new(StringComparer.Ordinal)
     {
-        // Kept empty on purpose: every reader in this folder today is a patient's own content. An entry here
-        // must name a file that streams something belonging to the CABINET rather than to a patient — a logo,
-        // a practitioner's cachet — and those live outside Features/Files/Queries.
+        ["DownloadPatientFilePreviewQuery.cs"] =
+            "The thumbnail behind every tile in a patient's file list, and the in-app viewer. Recording it "
+            + "writes a row per tile scrolled past, and the journal's job is to answer « who took a copy of this "
+            + "patient's file? » — hundreds of « consulté » rows a day bury the handful that matter, the same "
+            + "argument that keeps Notification off the audit interceptor. What IS recorded is the original "
+            + "leaving (DownloadPatientFileQuery) and the dossier export. ⚠️ This exemption is only sound while "
+            + "the preview serves a DOWNSCALED stand-in: if it ever streams the original, it becomes a second "
+            + "unrecorded door onto the same bytes and must be recorded again.",
     };
 
     [Fact]
@@ -71,6 +76,12 @@ public class PatientFileAccessCoverageTests
         Assert.True(found.Count >= 2, $"Only {found.Count} streaming handler(s) found — the scan has drifted.");
         Assert.Contains("DownloadPatientFileQuery.cs", found);
         Assert.Contains("DownloadPatientFilePreviewQuery.cs", found);
+
+        // The exemption above is only meaningful while the file it names still streams — a rename would
+        // otherwise leave a pre-approved hole pointing at nothing.
+        Assert.Contains(
+            NotAPatientRecordByDesign.Keys.Single(),
+            found);
     }
 
     private static IEnumerable<(string Name, string Source)> StreamingHandlers()

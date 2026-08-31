@@ -27,26 +27,17 @@ public class DownloadPatientFilePreviewQueryHandler
     private readonly IPatientRepository _patientRepository;
     private readonly IFileStorage _fileStorage;
     private readonly ICurrentClinicResolver _clinicResolver;
-    private readonly IAuditEntryRepository _auditEntries;
-    private readonly IAuditActorProvider _auditActor;
-    private readonly IUnitOfWork _unitOfWork;
 
     public DownloadPatientFilePreviewQueryHandler(
         IPatientFileRepository fileRepository,
         IPatientRepository patientRepository,
         IFileStorage fileStorage,
-        ICurrentClinicResolver clinicResolver,
-        IAuditEntryRepository auditEntries,
-        IAuditActorProvider auditActor,
-        IUnitOfWork unitOfWork)
+        ICurrentClinicResolver clinicResolver)
     {
         _fileRepository = fileRepository;
         _patientRepository = patientRepository;
         _fileStorage = fileStorage;
         _clinicResolver = clinicResolver;
-        _auditEntries = auditEntries;
-        _auditActor = auditActor;
-        _unitOfWork = unitOfWork;
     }
 
     public async Task<Result<FileDownloadDto>> Handle(
@@ -79,24 +70,17 @@ public class DownloadPatientFilePreviewQueryHandler
                 return Result<FileDownloadDto>.Failure("Aucun aperçu n'est disponible pour ce fichier.");
             }
 
-            // ⚠️ A preview is the SAME patient content by a second door — a picture of the study, streamed to
-            // whoever asks. Auditing the download alone would leave an unrecorded path to the same bytes, which
-            // is this repository's own « fixes don't propagate » shape. `PatientFileAccessCoverageTests` is what
-            // stops a third door being added without one.
-            try
-            {
-                await PatientRecordAccessLedger.RecordAsync(
-                    _auditEntries, _unitOfWork, _auditActor.Current, clinicResult.Value,
-                    PatientRecordAccessLedger.FileEntityType, file.PatientId, file.Id,
-                    "Aperçu d'une radiographie ou pièce jointe", DateTime.UtcNow, cancellationToken);
-            }
-            catch (Exception ledgerFailure) when (ledgerFailure is not ConflictException)
-            {
-                return Result<FileDownloadDto>.Failure(
-                    PatientRecordAccessLedger.UnrecordableMessage,
-                    PatientRecordAccessLedger.UnrecordableCode);
-            }
-
+            // ⚠️ **Deliberately NOT recorded in the access ledger, unlike the download beside it**, and the
+            // reason is volume rather than sensitivity. This route serves the thumbnail behind every tile in a
+            // patient's file list and the in-app viewer — so recording it writes a row per tile scrolled past,
+            // and the journal's whole job is to answer « who took a copy of this patient's file? ». Hundreds of
+            // « consulté » rows a day bury the handful that matter, which is the argument that already keeps
+            // `Notification` off the audit interceptor.
+            //
+            // What IS recorded is the original leaving: `DownloadPatientFileQuery`, and the dossier export. A
+            // preview is a downscaled stand-in served inside the application to somebody who already has the
+            // patient's file open. `PatientFileAccessCoverageTests` carries this as a named exemption, so the
+            // decision is stated rather than inferred from an absence.
             var stream = await _fileStorage.DownloadAsync(file.PreviewStorageKey, cancellationToken);
 
             var dto = new FileDownloadDto
