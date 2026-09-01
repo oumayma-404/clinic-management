@@ -41,6 +41,13 @@ public class GetPatientsQuery : IRequest<Result<PagedResult<PatientDto>>>
     public bool PendingCalendarReviewOnly { get; set; }
 
     /// <summary>
+    /// With <see cref="PendingCalendarReviewOnly"/>, also return the records somebody took off the list with
+    /// « Ne plus afficher » — the « afficher les fiches masquées » view, and the only way back from a dismissal.
+    /// Ignored on its own: a dismissal narrows that one list and never the practice's directory.
+    /// </summary>
+    public bool IncludeDismissedReview { get; set; }
+
+    /// <summary>
     /// Include patients that have been archived. <b>False everywhere except the patients page's own « Afficher les
     /// patients archivés »</b>, which is the one screen that exists to find them again.
     /// <para>⚠️ <b>This parameter existed on <see cref="IPatientRepository"/> from the start and had no caller at
@@ -125,6 +132,7 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
                 searchTerm: request.SearchTerm,
                 flaggedOnly: request.FlaggedOnly,
                 pendingCalendarReviewOnly: request.PendingCalendarReviewOnly,
+                includeDismissedReview: request.IncludeDismissedReview,
                 includeArchived: request.IncludeArchived,
                 sort: request.Sort,
                 paging: paging,

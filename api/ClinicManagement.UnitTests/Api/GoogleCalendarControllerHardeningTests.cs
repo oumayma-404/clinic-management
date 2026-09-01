@@ -45,6 +45,7 @@ public class GoogleCalendarControllerHardeningTests
             cache,
             new Mock<IMediator>().Object,
             new Mock<IGoogleTokenProtector>().Object,
+            new Mock<IClinicContext>().Object,
             NullLogger<GoogleCalendarController>.Instance);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
         return controller;

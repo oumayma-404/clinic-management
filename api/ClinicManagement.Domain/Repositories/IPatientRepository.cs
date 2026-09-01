@@ -156,6 +156,15 @@ public interface IPatientRepository
     /// <paramref name="flaggedOnly"/>'s reason: over a page it would mean « those of these 25 », which is a
     /// different question from the one the filter chip asks.
     /// </param>
+    /// <param name="includeDismissedReview">
+    /// Whether <paramref name="pendingCalendarReviewOnly"/> also returns the records somebody has taken off the
+    /// list with « Ne plus afficher ». <b>False by default</b>, which is the whole point of the mark; true is the
+    /// « afficher les fiches masquées » view, and it is the only way back.
+    ///
+    /// <para>⚠️ Ignored unless <paramref name="pendingCalendarReviewOnly"/> is set: a dismissal is a statement
+    /// about one list, not about the patient. Letting it hide records from the ordinary patient list would make
+    /// a tidying action delete people from the practice's own directory.</para>
+    /// </param>
     Task<PagedResult<Patient>> GetByClinicIdAsync(
         Guid clinicId,
         bool includeArchived = false,
@@ -164,6 +173,7 @@ public interface IPatientRepository
         string? searchTerm = null,
         bool flaggedOnly = false,
         bool pendingCalendarReviewOnly = false,
+        bool includeDismissedReview = false,
         PatientListSort sort = PatientListSort.Name,
         PageRequest? paging = null,
         CancellationToken cancellationToken = default);

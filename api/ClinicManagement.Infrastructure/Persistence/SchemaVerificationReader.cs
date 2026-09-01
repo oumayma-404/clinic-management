@@ -1039,6 +1039,30 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             requiredColumn: "Name",
             sql: """SELECT COUNT(*) FROM "Suppliers" """);
 
+        // calendar-import-revert AC-19. ⚠️ RECOVERABLE misses only: a placeholder patient with no run, and the
+        // appointments of one. Counting « has a Google event id and no practitioner » would sweep in every
+        // ordinary booking made without a doctor and pushed to Google, and this check would be red for ever on a
+        // cabinet with nothing wrong — which is how a gate teaches an operator to ignore its exit code.
+        var calendarImportRowsWithoutARun = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "Patients",
+            requiredColumn: "CalendarImportRunId",
+            sql: """
+                SELECT
+                    (SELECT COUNT(*) FROM "Patients" p
+                     WHERE p."CalendarImportPendingReviewSince" IS NOT NULL
+                       AND p."CalendarImportRunId" IS NULL)
+                  + (SELECT COUNT(*) FROM "Appointments" a
+                     WHERE a."CalendarImportRunId" IS NULL
+                       AND a."PatientId" IN (
+                           SELECT p2."Id" FROM "Patients" p2
+                           WHERE p2."CalendarImportPendingReviewSince" IS NOT NULL))
+                """);
+
+        var calendarImportRunsTotal = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "CalendarImportRuns",
+            requiredColumn: "StartedAtUtc",
+            sql: """SELECT COUNT(*) FROM "CalendarImportRuns" """);
+
         return new DataMigrationCounts(
             typePrefix, overlaps, legacyExpiry, legacyExpiryWithoutBatch, stockWithoutBatch,
             missingNormalized, patientsTotal, actScalarWithoutRow, categoryStillInDescription,
@@ -1055,7 +1079,9 @@ public class SchemaVerificationReader : ISchemaVerificationReader
             ClinicsWithPlaintextGoogleToken: plaintextGoogleTokens,
             RecoveryPointsClaimingSuccessWithNoKey: recoveryPointsWithNoKey,
             LabOrdersResolvableToASupplierStillUnlinked: labOrdersResolvableStillUnlinked,
-            SuppliersTotal: suppliersTotal);
+            SuppliersTotal: suppliersTotal,
+            CalendarImportRowsWithoutARun: calendarImportRowsWithoutARun,
+            CalendarImportRunsTotal: calendarImportRunsTotal);
     }
 
     /// <summary>

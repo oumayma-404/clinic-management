@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using Hangfire;
 using Microsoft.Extensions.Logging;
@@ -82,7 +83,12 @@ public class GoogleCalendarImportJob
         {
             try
             {
-                await _syncService.SyncGoogleCalendarToAppointmentsAsync(clinic.Id);
+                // The pass names itself, so its `CalendarImportRun` reads « Import automatique » rather than
+                // « Import manuel » — and, more to the point, so a practice can tell the import it never asked
+                // for from the one it pressed itself. Both are undoable: a pass nobody clicked is precisely the
+                // one that needs to be.
+                await _syncService.SyncGoogleCalendarToAppointmentsAsync(
+                    clinic.Id, CalendarImportRun.JobActorPrefix + nameof(GoogleCalendarImportJob));
             }
             catch (Exception ex)
             {

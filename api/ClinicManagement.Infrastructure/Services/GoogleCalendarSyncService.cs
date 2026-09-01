@@ -27,6 +27,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
     private readonly IReminderScheduler _reminderScheduler;
     private readonly INotificationGenerator _notificationGenerator;
     private readonly IGoogleTokenProtector _googleTokenProtector;
+    private readonly ICalendarImportRunRepository _importRunRepository;
     private readonly ILogger<GoogleCalendarSyncService> _logger;
 
     public GoogleCalendarSyncService(
@@ -38,9 +39,11 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         IReminderScheduler reminderScheduler,
         INotificationGenerator notificationGenerator,
         IGoogleTokenProtector googleTokenProtector,
+        ICalendarImportRunRepository importRunRepository,
         ILogger<GoogleCalendarSyncService> logger)
     {
         _googleTokenProtector = googleTokenProtector;
+        _importRunRepository = importRunRepository;
         _googleCalendarService = googleCalendarService;
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
@@ -271,8 +274,9 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
         }
     }
 
-    public async Task SyncGoogleCalendarToAppointmentsAsync(
+    public async Task<CalendarImportOutcome> SyncGoogleCalendarToAppointmentsAsync(
         Guid clinicId,
+        string? triggeredByUserId = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -286,7 +290,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             if (connection == null)
             {
                 _logger.LogInformation("Clinic {ClinicId} has not connected Google Calendar; skipping Google→App sync.", clinicId);
-                return;
+                return CalendarImportOutcome.NotConnected;
             }
 
             // Read once for the whole pass: `GoogleCalendarHoldsOnlyAppointments` decides which events count as
@@ -295,10 +299,18 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             if (clinic == null)
             {
                 _logger.LogWarning("Clinic {ClinicId} disappeared between resolving its connection and the sync; skipping.", clinicId);
-                return;
+                return CalendarImportOutcome.NotConnected;
             }
 
-            var startDate = DateTime.UtcNow.AddDays(-7);
+            // ⚠️ The window starts at the clinic's own midnight TODAY, and it used to reach back seven days.
+            // Those seven days were the damage: `AppointmentProgressJob` moves an elapsed visit to
+            // `AwaitingClosure`, so every past event imported landed on « À clôturer » demanding a présence, a
+            // fiche and an encaissement — three questions nobody can answer about a slot that has already gone.
+            // A past event can only ever become a visit nobody can honestly close.
+            //
+            // `ClinicClock`, never `DateTime.UtcNow.Date`: Tunisia is UTC+1, so a UTC midnight starts an hour
+            // into the wrong day.
+            var startDate = ClinicClock.StartOfLocalDayUtc(ClinicClock.ClinicToday(DateTime.UtcNow));
             var endDate = DateTime.UtcNow.AddDays(90);
             _logger.LogInformation("Fetching events from {StartDate} to {EndDate}", startDate, endDate);
 
@@ -307,6 +319,20 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 startDate: startDate,
                 endDate: endDate,
                 cancellationToken);
+
+            // The run is opened and COMMITTED before anything is imported, so a pass that throws half-way
+            // leaves a visible row whose rows are stamped and undoable — `BackupRun`'s reasoning. Its counters
+            // stay at zero and `CompletedAtUtc` stays null, which is what « on ne sait pas si elle a fini » means.
+            var run = new CalendarImportRun(
+                Guid.NewGuid(),
+                clinicId,
+                triggeredByUserId ?? CalendarImportRun.JobActorPrefix + "unknown",
+                DateTime.UtcNow,
+                startDate,
+                endDate);
+
+            await _importRunRepository.AddAsync(run, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var eventList = googleEvents.ToList();
             _logger.LogInformation("Retrieved {Count} events from Google Calendar", eventList.Count);
@@ -336,6 +362,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             int updatedCount = 0;
             int linkedCount = 0;
             int createdCount = 0;
+            int createdPatientCount = 0;
 
             foreach (var googleEvent in eventList)
             {
@@ -391,10 +418,17 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 if (IsClinicAppointment(googleEvent, clinic))
                 {
                     _logger.LogDebug("Event looks like a clinic appointment, creating new appointment");
-                    var created = await CreateAppointmentFromGoogleEventAsync(googleEvent, clinicId, cancellationToken);
-                    if (created)
+                    var created = await CreateAppointmentFromGoogleEventAsync(
+                        googleEvent, clinicId, run.Id, cancellationToken);
+
+                    if (created.Appointment)
                     {
                         createdCount++;
+                    }
+
+                    if (created.Patient)
+                    {
+                        createdPatientCount++;
                     }
                 }
                 else
@@ -403,12 +437,20 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 }
             }
 
+            run.Complete(DateTime.UtcNow, createdCount, createdPatientCount, updatedCount, linkedCount);
+            await _importRunRepository.UpdateAsync(run, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
             _logger.LogInformation("Sync completed: {Updated} updated, {Linked} linked, {Created} created", 
                 updatedCount, linkedCount, createdCount);
+
+            return new CalendarImportOutcome(
+                run.Id, createdCount, createdPatientCount, updatedCount, linkedCount);
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
         {
             _logger.LogWarning("Google Calendar is not configured. Skipping sync from Google Calendar");
+            return CalendarImportOutcome.NotConnected;
         }
         catch (Exception ex)
         {
@@ -788,9 +830,17 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             appointment.AppointmentDateTime, cancellationToken);
     }
 
-    private async Task<bool> CreateAppointmentFromGoogleEventAsync(
+    /// <summary>
+    /// Import one Google event, reporting <b>both</b> of the things a run has to count: whether an appointment
+    /// was created, and whether a placeholder patient was conjured for it.
+    ///
+    /// <para>It used to return a bare <c>bool</c>, which is why the endpoint could only ever say « done » — a
+    /// practice pressed a button that wrote a hundred rows and was told the time.</para>
+    /// </summary>
+    private async Task<(bool Appointment, bool Patient)> CreateAppointmentFromGoogleEventAsync(
         GoogleCalendarEvent googleEvent,
         Guid clinicId,
+        Guid importRunId,
         CancellationToken cancellationToken)
     {
         try
@@ -823,7 +873,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 // that logs a summary the product did NOT build, i.e. free text a practice typed into Google.
                 _logger.LogWarning("Cannot create appointment from Google Calendar event {EventId}: patient name not found in summary '{Summary}' or description",
                     googleEvent.Id, LogMask.Name(googleEvent.Summary));
-                return false;
+                return (false, false);
             }
 
             // Normalize patient name (trim, normalize spaces)
@@ -849,7 +899,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 _logger.LogWarning(
                     "Google event {EventId} names a patient matching {Count} records; skipped rather than guessing.",
                     googleEvent.Id, candidates.Count);
-                return false;
+                return (false, false);
             }
 
             var patient = candidates.SingleOrDefault();
@@ -870,7 +920,7 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                     // stored « Karim » as both, so the clinic acquired a patient called « Karim Karim ».
                     _logger.LogWarning("Cannot extract a first and last name from {PatientName} for Google Calendar event {EventId}",
                         LogMask.Name(patientName), googleEvent.Id);
-                    return false;
+                    return (false, false);
                 }
 
                 var firstName = split.Value.First;
@@ -897,6 +947,10 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                     phoneNumber: eventPhone == null ? null : new PhoneNumber(eventPhone));
 
                 newPatient.MarkImportedFromCalendar(DateTime.UtcNow, suggestedDuplicateId);
+
+                // Stamped only on a record this pass CONJURED — never on one it matched, which the clinic
+                // already had and which must survive the run being undone.
+                newPatient.StampImportRun(importRunId);
 
                 await _patientRepository.AddAsync(newPatient, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -961,6 +1015,12 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
             }
 
             appointment.SetGoogleCalendarEventId(googleEvent.Id);
+
+            // What makes « Annuler cet import » answerable at all. `GoogleCalendarEventId` cannot serve: the app
+            // writes it on its own bookings too, and it is NULLED when a visit is cancelled or completed —
+            // exactly what a practice does while trying to clean up after an unwanted import.
+            appointment.StampImportRun(importRunId);
+
             await _appointmentRepository.AddAsync(appointment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -983,12 +1043,12 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 patient.ClinicId, appointment.Id, patient.Id, patient.GetFullName(),
                 appointmentDateTime, cancellationToken);
 
-            return true;
+            return (true, createdPatient);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating appointment from Google Calendar event {EventId}: {Error}", googleEvent.Id, ex.Message);
-            return false;
+            return (false, false);
         }
     }
 

@@ -93,6 +93,7 @@ public class PatientRepository : IPatientRepository
         string? searchTerm = null,
         bool flaggedOnly = false,
         bool pendingCalendarReviewOnly = false,
+        bool includeDismissedReview = false,
         PatientListSort sort = PatientListSort.Name,
         PageRequest? paging = null,
         CancellationToken cancellationToken = default)
@@ -103,6 +104,15 @@ public class PatientRepository : IPatientRepository
         if (pendingCalendarReviewOnly)
         {
             query = query.Where(p => p.CalendarImportPendingReviewSince != null);
+
+            // ⚠️ The dismissal narrows THIS list and nothing else. It is deliberately applied inside the
+            // pending-review branch rather than beside it: a record somebody stopped wanting to review is still a
+            // patient of the practice, and a filter that removed them from the directory would turn « ne plus
+            // afficher » into a delete nobody asked for.
+            if (!includeDismissedReview)
+            {
+                query = query.Where(p => p.CalendarReviewDismissedAtUtc == null);
+            }
         }
 
         // « Patients signalés » used to be a client-side .filter() over the full list. That was equivalent only

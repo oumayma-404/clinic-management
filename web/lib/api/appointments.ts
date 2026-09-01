@@ -7,6 +7,25 @@ import type {
 } from './types';
 import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
 
+/**
+ * « À clôturer », as the page reads it: one page of séances plus the standing count of the ones somebody has
+ * taken off the list.
+ *
+ * Both halves come out of one server read, so « à clôturer » and « retirées » are complements of each other by
+ * construction — a second endpoint would be a second predicate over the same window.
+ */
+export interface VisitsToCloseResponse {
+  visits: PagedResponse<VisitToCloseDto>;
+  /** How many séances in the same window are set aside. A fact about the window, not about the page. */
+  disregardedCount: number;
+}
+
+/** What a « Retirer de la liste » call did. `skipped` holds ids already in the requested state, or unknown. */
+export interface DisregardVisitsResult {
+  changed: number;
+  skipped: string[];
+}
+
 export interface CreateRecurringSeriesPayload {
   patientId: string;
   startDateTime: string;
@@ -63,9 +82,31 @@ export const appointmentsApi = {
    * `items.length`. That is how the agenda strip stays one small request.
    */
   visitsToClose: async (
-    params?: PageParams & { days?: number; doctorId?: string },
-  ): Promise<PagedResponse<VisitToCloseDto>> =>
-    apiGet<PagedResponse<VisitToCloseDto>>('/appointments/to-close', params),
+    params?: PageParams & { days?: number; doctorId?: string; disregarded?: boolean },
+  ): Promise<VisitsToCloseResponse> =>
+    apiGet<VisitsToCloseResponse>('/appointments/to-close', params),
+
+  /**
+   * « Retirer de la liste » — take séances off « À clôturer » without claiming anything clinical about them,
+   * or put them back.
+   *
+   * The worklist's only other exits are `Completed`, `Cancelled` and `NoShow` — three statements about what
+   * happened to a patient — so clearing a row that should never have been there meant asserting one that was
+   * false, and a cancellation counts in the « taux d'absence ». This asserts nothing, and the server honours it
+   * in the dashboard's figures as well as on the list.
+   *
+   * `reason` is mandatory when retiring and ignored when restoring; one motif covers the whole selection.
+   */
+  disregardVisits: async (
+    appointmentIds: string[],
+    disregard: boolean,
+    reason?: string,
+  ): Promise<DisregardVisitsResult> =>
+    apiPost<DisregardVisitsResult>('/appointments/disregard', {
+      appointmentIds,
+      disregard,
+      reason: reason ?? null,
+    }),
 
   /**
    * Record that a séance raises no note d'honoraires, or withdraw that.

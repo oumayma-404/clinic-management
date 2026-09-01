@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { UserPlus } from "lucide-react"
+import { EyeOff, Undo2, UserPlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DuplicateSuggestionPrompt } from "@/components/patients/duplicate-suggestion-prompt"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
@@ -10,6 +10,8 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { patientsApi } from "@/lib/api/patients"
+import { toast } from "sonner"
+import { showErrorToast } from "@/lib/errors"
 import { formatDateFr } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import type { PatientDto } from "@/lib/api/types"
@@ -46,24 +48,38 @@ export function PendingReviewBlock({
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * Showing the fiches somebody hid with « Ne plus afficher » rather than the ones still to complete.
+   *
+   * ⚠️ The way back is not optional, for the same reason it is not on the séances tab: a list you can remove
+   * from and never look into again is a list people stop trusting.
+   */
+  const [showDismissed, setShowDismissed] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
       setError(null)
       const page = await patientsApi.listPaged({
         pendingCalendarReviewOnly: true,
+        includeDismissedReview: showDismissed || undefined,
         page: 1,
         pageSize: SHOWN,
       })
       setPatients(page.items)
       setTotal(page.totalCount)
-      onLoaded?.(page.totalCount)
+      // ⚠️ Only the ordinary view feeds the tab's badge. In the hidden view this figure counts the fiches
+      // somebody deliberately set aside, and reporting it as « à compléter » would put the backlog back on the
+      // door the moment it was cleared.
+      if (!showDismissed) {
+        onLoaded?.(page.totalCount)
+      }
     } catch {
       setError("Les patients à compléter n'ont pas pu être chargés.")
     } finally {
       setLoading(false)
     }
-  }, [onLoaded])
+  }, [onLoaded, showDismissed])
 
   useEffect(() => {
     void load()
@@ -86,11 +102,60 @@ export function PendingReviewBlock({
    * patient's name that opens a comparison dialog. Putting the question in this cell made the row twice as tall
    * as its neighbours and left three controls competing in it.
    */
-  const buttons = (patient: PatientDto) => (
-    <Button size="sm" className="coarse:h-11" onClick={() => router.push(`/patients/${patient.id}`)}>
-      Compléter les infos patient
-    </Button>
-  )
+  /**
+   * « Ne plus afficher » / « Réafficher ».
+   *
+   * <p>⚠️ <b>Deliberately not « C'est correct ».</b> That confirms the fiche and clears the import stamp — which
+   * is the signal « Annuler cet import » uses to find what a pass created. Hiding a row through it would look
+   * identical to a human confirmation and would silently destroy the evidence the undo depends on. « Je ne veux
+   * plus voir ça » and « j'ai vérifié cette fiche » are different facts, and the server stores them apart.</p>
+   */
+  const setDismissed = async (patient: PatientDto, dismiss: boolean) => {
+    setBusyId(patient.id)
+    try {
+      await patientsApi.dismissCalendarReview([patient.id], dismiss)
+      toast.success(dismiss ? "Fiche masquée." : "Fiche réaffichée.")
+      await load()
+    } catch (err) {
+      showErrorToast(err)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const buttons = (patient: PatientDto) =>
+    showDismissed ? (
+      <Button
+        size="sm"
+        variant="outline"
+        className="coarse:h-11"
+        disabled={busyId === patient.id}
+        onClick={() => void setDismissed(patient, false)}
+      >
+        <Undo2 aria-hidden="true" className="me-1.5 size-4" />
+        Réafficher
+      </Button>
+    ) : (
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button size="sm" className="coarse:h-11" onClick={() => router.push(`/patients/${patient.id}`)}>
+          Compléter les infos patient
+        </Button>
+        {/* Offered on every row, and last: it asserts nothing about the fiche, so it is not an answer to the
+            question the row is asking — it is a way to stop being asked. */}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="coarse:h-11"
+          disabled={busyId === patient.id}
+          onClick={() => void setDismissed(patient, true)}
+          aria-label={`Ne plus afficher ${name(patient)}`}
+          title="Retirer de la liste sans confirmer la fiche"
+        >
+          <EyeOff aria-hidden="true" className="me-1.5 size-4" />
+          Ne plus afficher
+        </Button>
+      </div>
+    )
 
   if (error) {
     return <LoadFailureNotice message={error} detail="Aucune fiche n'a été modifiée." onRetry={() => void load()} />
@@ -103,9 +168,20 @@ export function PendingReviewBlock({
           icon={UserPlus}
           size="compact"
           chipClassName={zoneChipClass(ZONES.clinical)}
-          title="Aucun patient à compléter"
-          description="Les fiches créées depuis Google Agenda apparaissent ici jusqu'à ce que leurs informations soient complétées."
+          title={showDismissed ? "Aucune fiche masquée" : "Aucun patient à compléter"}
+          description={
+            showDismissed
+              ? "Les fiches que vous retirez de cette liste apparaissent ici, et peuvent être réaffichées."
+              : "Les fiches créées depuis Google Agenda apparaissent ici jusqu'à ce que leurs informations soient complétées."
+          }
         />
+        {showDismissed ? (
+          <div className="mt-4">
+            <Button variant="ghost" size="sm" className="w-full coarse:h-11" onClick={() => setShowDismissed(false)}>
+              Revenir aux patients à compléter
+            </Button>
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -161,7 +237,19 @@ export function PendingReviewBlock({
         primaryAction={(patient) => buttons(patient)}
       />
 
-      {total > patients.length && (
+      {/* The way back, and the door to it. Rendered in both directions so a hidden fiche is never lost. */}
+      <div className="border-t p-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full text-muted-foreground coarse:h-11"
+          onClick={() => setShowDismissed((shown) => !shown)}
+        >
+          {showDismissed ? "Revenir aux patients à compléter" : "Voir les fiches masquées"}
+        </Button>
+      </div>
+
+      {total > patients.length && !showDismissed && (
         <div className="border-t p-3">
           <Button
             variant="ghost"

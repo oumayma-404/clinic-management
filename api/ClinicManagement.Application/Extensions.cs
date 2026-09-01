@@ -34,6 +34,9 @@ public static class Extensions
         services.AddScoped<IPlatformSessionContext, PlatformSessionContext>();
         // Best-effort writer for the in-app staff notification feed (generated inline from command handlers).
         services.AddScoped<INotificationGenerator, NotificationGenerator>();
+        // The net « Annuler cet import » puts under itself before a bulk delete. Implemented in this layer, like
+        // its neighbours, because it needs only Domain repositories plus IFileStorage.
+        services.AddScoped<IClinicRecoveryPointService, ClinicRecoveryPointService>();
         // AC-P4.10 — draws an act's material list out of stock when its fiche is saved. Scoped and called
         // post-commit from the dental-record handlers, like the notification generator beside it.
         services.AddScoped<IStockConsumptionService, StockConsumptionService>();

@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Features.Appointments;
+using ClinicManagement.Domain.Common;
 
 namespace ClinicManagement.Application.DTOs;
 
@@ -56,4 +57,25 @@ public class VisitToCloseDto
     /// </summary>
     public string? NothingToBillReason { get; set; }
     public DateTime? NothingToBillAtUtc { get; set; }
+}
+
+/// <summary>
+/// « À clôturer », as the screen reads it: a page of séances plus the standing count of the ones somebody has
+/// taken off the list.
+///
+/// <para><b>Why the count rides on the page instead of being its own endpoint.</b> The worklist needs it to offer
+/// the way back (« 143 séances retirées — les afficher »), and the set-aside screen needs it to describe what it
+/// is showing. Both come out of the one <c>VisitClosureWorklist</c> read, so the two halves are complements of
+/// each other by construction; a second endpoint would be a second predicate over the same window, and the first
+/// term either side gained would make them overlap or leave a gap with nothing to notice it.</para>
+/// </summary>
+public class VisitsToCloseDto
+{
+    public PagedResult<VisitToCloseDto> Visits { get; set; } = PagedResult<VisitToCloseDto>.Empty();
+
+    /// <summary>
+    /// How many séances in the same window carry <c>Appointment.DisregardedAtUtc</c>. Always the set-aside count,
+    /// whichever half <c>Visits</c> holds — it is a fact about the window, not about the page.
+    /// </summary>
+    public int DisregardedCount { get; set; }
 }

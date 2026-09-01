@@ -76,6 +76,31 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
         builder.HasIndex(a => a.NothingToBillAtUtc)
             .HasFilter("\"NothingToBillAtUtc\" IS NOT NULL");
 
+        // « Retirer de la liste » — the worklist's third exit. Same three-column shape and same reasoning as the
+        // block above: no default and no backfill, because a visit nobody has set aside genuinely has no such
+        // note.
+        builder.Property(a => a.DisregardedAtUtc);
+
+        builder.Property(a => a.DisregardedReason)
+            .HasMaxLength(500);
+
+        builder.Property(a => a.DisregardedByUserId)
+            .HasMaxLength(200);
+
+        // ⚠️ NOT partial, unlike the one above, and the difference matters. `NothingToBillAtUtc` is only ever
+        // looked up on the rows that carry it; this column is read as `IS NULL` by
+        // `CountByStatusBetweenAsync` and `GetStatusTimelineAsync` — i.e. by the dashboard, on the overwhelming
+        // majority of a clinic's agenda. A partial index excludes exactly the rows those queries want.
+        builder.HasIndex(a => new { a.ClinicId, a.DisregardedAtUtc });
+
+        // The import run that CREATED this appointment. A plain indexed column with no navigation and no FK —
+        // see the entity's own note: a run is never deleted, and an FK would put a delete-order obligation on
+        // the one operation whose entire job is deleting these rows.
+        builder.Property(a => a.CalendarImportRunId);
+
+        builder.HasIndex(a => a.CalendarImportRunId)
+            .HasFilter("\"CalendarImportRunId\" IS NOT NULL");
+
         builder.HasIndex(a => a.TreatmentPlanItemId);
 
         // Serves the minutely progress pass, whose elapse half scans 30 days of open statuses; `Status` had no

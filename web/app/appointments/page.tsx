@@ -138,6 +138,15 @@ export default function AppointmentsPage() {
   const [holdsOnlyAppointments, setHoldsOnlyAppointments] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [disconnectOpen, setDisconnectOpen] = useState(false)
+  /**
+   * « Importer depuis Google » asks first.
+   *
+   * <p>It used to write immediately: one click pulled a 97-day window and could create a hundred appointments
+   * and as many patient fiches, and the practice learned what had happened by looking at the damage. The undo
+   * exists now, but a confirmation is the cheaper half — it is the difference between a mistake to repair and a
+   * mistake not made.</p>
+   */
+  const [importOpen, setImportOpen] = useState(false)
   const [isDisconnecting, setIsDisconnecting] = useState(false)
   const [showCancelled, setShowCancelled] = useState(false)
   const [showCompleted, setShowCompleted] = useState(false)
@@ -470,8 +479,31 @@ export default function AppointmentsPage() {
   const handleSyncFromGoogle = useCallback(async () => {
     setIsSyncing(true)
     try {
-      await googleCalendarApi.syncFromGoogle()
-      toast.success("Synchronisation depuis Google Calendar terminée.")
+      const outcome = await googleCalendarApi.syncFromGoogle()
+
+      // ⚠️ It used to say « Synchronisation terminée » and nothing else — a press that could write a hundred
+      // rows reported only that it had finished. The counts are what let somebody notice at once that the
+      // import did something they did not intend, and « À clôturer » carries the undo for it.
+      const created = outcome.appointmentsCreated
+      const fiches = outcome.patientsCreated
+
+      if (created === 0 && fiches === 0) {
+        toast.success("Import terminé — aucun nouveau rendez-vous.")
+      } else {
+        toast.success(
+          `Import terminé — ${created.toLocaleString("fr-TN")} rendez-vous`
+          + (fiches > 0 ? ` et ${fiches.toLocaleString("fr-TN")} fiche${fiches === 1 ? "" : "s"} patient` : "")
+          + (created === 1 && fiches === 0 ? " importé." : " importés."),
+          {
+            description: "Vous pouvez annuler cet import depuis « À clôturer ».",
+            action: {
+              label: "Ouvrir",
+              onClick: () => { window.location.href = "/a-cloturer" },
+            },
+          },
+        )
+      }
+
       setRefreshKey(prev => prev + 1) // Refresh appointments
     } catch (error) {
       // A mid-request connection drop surfaces as ApiError(status:0) — the shared offline signal (LEARNINGS).
@@ -639,7 +671,8 @@ export default function AppointmentsPage() {
                       authorized: isGoogleCalendarAuthorized,
                       syncing: isSyncing,
                       onConnect: handleAuthorizeGoogleCalendar,
-                      onImport: handleSyncFromGoogle,
+                      // Behind an AlertDialog, like « Déconnecter » below: this one WRITES, and a great deal.
+                      onImport: () => setImportOpen(true),
                       // AC-P2.34 — behind an AlertDialog, and deliberately NOT gated on internetReachable:
                       // clearing our own stored token is a local DB write, and it is exactly what an admin needs
                       // when the connected account is wrong or unreachable.
@@ -672,6 +705,41 @@ export default function AppointmentsPage() {
 
       {/* AC-P2.34/2.35 — disconnect confirmation. The copy is explicit that nothing is deleted in Google: an
           admin hesitating over this button is usually worried exactly about that. */}
+      <AlertDialog open={importOpen} onOpenChange={setImportOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Importer les rendez-vous depuis Google Agenda ?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>
+                  Les événements de votre agenda Google, d’aujourd’hui jusqu’à trois mois, seront ajoutés comme
+                  rendez-vous. Une fiche patient est créée pour chaque nom qui ne correspond à aucun patient
+                  existant.
+                </p>
+                {/* The way back, said BEFORE the write rather than discovered after it. */}
+                <p className="text-muted-foreground">
+                  Vous pourrez annuler cet import depuis « À clôturer » tant qu’aucune fiche de soins ni note
+                  d’honoraires n’y a été enregistrée.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="min-h-11">Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="min-h-11"
+              onClick={(event) => {
+                event.preventDefault()
+                setImportOpen(false)
+                void handleSyncFromGoogle()
+              }}
+            >
+              Importer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

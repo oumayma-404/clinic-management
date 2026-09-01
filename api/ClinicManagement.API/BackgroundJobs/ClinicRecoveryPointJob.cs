@@ -170,66 +170,19 @@ public class ClinicRecoveryPointJob
     /// </summary>
     private async Task TakePointAsync(Clinic clinic)
     {
-        var point = new ClinicRecoveryPoint(
-            Guid.NewGuid(), clinic.Id, ClinicArchiveContents.RowsOnly, DateTime.UtcNow);
+        // ⚠️ The sequence itself lives in `ClinicRecoveryPointWriter`, shared with « Annuler cet import », which
+        // takes a point before it deletes anything. Three details in it are easy to get subtly wrong — the
+        // `Running` row committed BEFORE the build, the clinic id passed rather than read off the ambient scope,
+        // and the seekable self-deleting buffer — and a second copy of them is the `fixes-dont-propagate` shape
+        // this repository keeps finding. The writer records the attempt and never throws.
+        var point = await ClinicRecoveryPointWriter.TakeAsync(
+            clinic, _points, _store, _fileStorage, _unitOfWork, _logger);
 
-        await _points.AddAsync(point);
-        await _unitOfWork.SaveChangesAsync();
-
-        try
+        // Prune only after a SUCCESS. Pruning after a failure would delete a good old point on the strength of a
+        // new one that does not exist — retention turning into data loss, which is the one thing it must never do.
+        if (point.IsRestorable)
         {
-            // A temp file rather than a MemoryStream, for BuildClinicArchiveQuery's reason: ZipArchive in Create mode
-            // seeks back to write each entry's directory record, so it needs somewhere to seek — but that is an
-            // argument for a seekable stream, not for the large-object heap, and this runs for every cabinet in a
-            // process shared with every other one. DeleteOnClose means it is gone when the using block exits.
-            await using var buffer = new FileStream(
-                Path.Combine(Path.GetTempPath(), $"clinic-recovery-{Guid.NewGuid():N}.zip"),
-                FileMode.CreateNew,
-                FileAccess.ReadWrite,
-                FileShare.None,
-                bufferSize: 81920,
-                FileOptions.DeleteOnClose | FileOptions.Asynchronous);
-
-            var manifest = await ClinicArchivePackager.WriteAsync(
-                buffer, clinic.Id, clinic.Name, _store, _fileStorage, _logger,
-                ClinicArchiveContents.RowsOnly);
-
-            var sizeBytes = buffer.Length;
-            buffer.Position = 0;
-
-            // The clinic id is a parameter rather than read off the ambient scope, which is UseSystemWide here — the
-            // exact case US-5 names: a job uploading with no clinic in scope would write an unattributed key.
-            var storageKey = await _fileStorage.UploadAsync(
-                buffer,
-                ClinicArchiveFormat.ContentType,
-                clinic.Id,
-                $"recovery-points/{ClinicClock.ClinicToday():yyyy-MM-dd}-{point.Id:N}.zip");
-
-            var rowCount = manifest.Tables.Sum(t => t.Rows);
-
-            point.MarkSucceeded(storageKey, sizeBytes, manifest.Tables.Count, rowCount, DateTime.UtcNow);
-            await _points.UpdateAsync(point);
-            await _unitOfWork.SaveChangesAsync();
-
-            _logger.LogInformation(
-                "Recovery point for clinic {ClinicId}: {Tables} tables, {Rows} rows, {Bytes} bytes at {Key}.",
-                clinic.Id, manifest.Tables.Count, rowCount, sizeBytes, storageKey);
-
-            // Prune only after a SUCCESS. Pruning after a failure would delete a good old point on the strength of a
-            // new one that does not exist — retention turning into data loss, which is the one thing it must never do.
             await PruneAsync(clinic);
-        }
-        catch (Exception ex)
-        {
-            var reason = ex is InvalidOperationException
-                ? ex.Message
-                : $"Échec inattendu du point de restauration ({ex.GetType().Name}).";
-
-            point.MarkFailed(reason, DateTime.UtcNow);
-            await _points.UpdateAsync(point);
-            await _unitOfWork.SaveChangesAsync();
-
-            _logger.LogError(ex, "Recovery point for clinic {ClinicId} failed.", clinic.Id);
         }
     }
 

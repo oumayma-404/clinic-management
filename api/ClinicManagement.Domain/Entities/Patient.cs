@@ -199,6 +199,9 @@ public class Patient : AggregateRoot<Guid>
         CalendarImportPendingReviewSince = null;
         // And with it the duplicate question: somebody who edited this fiche and kept it has answered it.
         CalendarImportSuggestedDuplicateId = null;
+        // The dismissal is only ever meaningful while the review stamp is set, so it goes with it rather than
+        // being left behind as a value nothing reads and every future query has to remember to ignore.
+        CalendarReviewDismissedAtUtc = null;
     }
 
     /// <summary>
@@ -218,6 +221,58 @@ public class Patient : AggregateRoot<Guid>
     public void RejectCalendarImportSuggestion()
     {
         CalendarImportSuggestedDuplicateId = null;
+    }
+
+    /// <summary>
+    /// The <see cref="CalendarImportRun"/> that <b>created</b> this record, or null. Set only on a patient the
+    /// Google→App pass conjured from an event title — never on one it matched, which the clinic already had and
+    /// which must survive the run being undone. See <c>Appointment.CalendarImportRunId</c> for why it is a plain
+    /// indexed column with no foreign key.
+    /// </summary>
+    public Guid? CalendarImportRunId { get; private set; }
+
+    /// <inheritdoc cref="CalendarImportRunId"/>
+    public void StampImportRun(Guid runId) => CalendarImportRunId = runId;
+
+    /// <summary>
+    /// When somebody took this record off « Patients à compléter » without saying it was correct.
+    ///
+    /// <para>⚠️ <b>Deliberately NOT a clearing of <see cref="CalendarImportPendingReviewSince"/>.</b> That stamp
+    /// is what identifies a record as conjured-and-unconfirmed, and it is the signal « Annuler cet import » uses
+    /// to find what a run created. A « ne plus afficher » that cleared it would look identical to a human
+    /// confirmation, and would silently destroy the evidence the undo needs — the same self-inflicted loss as a
+    /// cancellation nulling <c>Appointment.GoogleCalendarEventId</c>.</para>
+    ///
+    /// <para>« Je ne veux plus voir cette ligne » and « j'ai vérifié que cette fiche est correcte » are different
+    /// facts about a record, and a product that stores them in one column can never tell them apart again.</para>
+    /// </summary>
+    public DateTime? CalendarReviewDismissedAtUtc { get; private set; }
+
+    /// <summary>True when the record is still unconfirmed but has been taken off the list.</summary>
+    public bool IsCalendarReviewDismissed => CalendarReviewDismissedAtUtc.HasValue;
+
+    /// <inheritdoc cref="CalendarReviewDismissedAtUtc"/>
+    public void DismissCalendarReview(DateTime whenUtc)
+    {
+        if (CalendarReviewDismissedAtUtc.HasValue)
+        {
+            return;
+        }
+
+        CalendarReviewDismissedAtUtc = whenUtc;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Put the record back on « Patients à compléter ». Idempotent.</summary>
+    public void RestoreCalendarReview()
+    {
+        if (!CalendarReviewDismissedAtUtc.HasValue)
+        {
+            return;
+        }
+
+        CalendarReviewDismissedAtUtc = null;
+        UpdatedAt = DateTime.UtcNow;
     }
 
     public void UpdateInsuranceInfo(InsuranceInfo? insuranceInfo)

@@ -44,6 +44,11 @@ export const patientsApi = {
        */
       pendingCalendarReviewOnly?: boolean;
       /**
+       * With the filter above, also return the fiches somebody hid with « Ne plus afficher » — the way back.
+       * Ignored on its own: a dismissal narrows that one list and never the practice's directory.
+       */
+      includeDismissedReview?: boolean;
+      /**
        * `"RecentlyAdded"` orders the newest registration first. **Only `/patients` asks for it** — the header
        * lookup, the booking dialog's picker and every other reader leave it unset and keep the alphabetical
        * default, because a list you scan for a name wants a name order. An unknown value falls back to that
@@ -147,6 +152,23 @@ export const patientsApi = {
   delete: async (id: string): Promise<void> => {
     return apiDelete<void>(`/patients/${id}`);
   },
+
+  /**
+   * « Ne plus afficher » — take fiches off « Patients à compléter » without saying they are correct.
+   *
+   * ⚠️ Deliberately NOT `confirm-calendar-import`. That clears the review stamp, which is the signal
+   * « Annuler cet import » uses to find what a pass created — so dismissing that way would look identical to a
+   * human confirmation and would silently destroy the evidence the undo depends on. « Je ne veux plus voir ça »
+   * and « j'ai vérifié cette fiche » are different facts, and the server keeps them in different columns.
+   */
+  dismissCalendarReview: async (
+    patientIds: string[],
+    dismiss: boolean,
+  ): Promise<{ changed: number; skipped: string[] }> =>
+    apiPost<{ changed: number; skipped: string[] }>('/patients/dismiss-calendar-review', {
+      patientIds,
+      dismiss,
+    }),
 
   /**
    * What blocks this patient's deletion, and whether archiving is available instead. Called when the confirm

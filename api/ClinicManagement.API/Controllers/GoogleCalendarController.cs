@@ -4,7 +4,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Appointments.Commands;
+using ClinicManagement.Application.Features.Appointments.Queries;
 using ClinicManagement.Application.Features.Clinics.Commands;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -38,6 +41,7 @@ public class GoogleCalendarController : ApiControllerBase
     private readonly IMemoryCache _cache;
     private readonly IMediator _mediator;
     private readonly IGoogleTokenProtector _googleTokenProtector;
+    private readonly IClinicContext _clinicContext;
     private readonly ILogger<GoogleCalendarController> _logger;
 
     public GoogleCalendarController(
@@ -49,9 +53,11 @@ public class GoogleCalendarController : ApiControllerBase
         IMemoryCache cache,
         IMediator mediator,
         IGoogleTokenProtector googleTokenProtector,
+        IClinicContext clinicContext,
         ILogger<GoogleCalendarController> logger)
     {
         _googleTokenProtector = googleTokenProtector;
+        _clinicContext = clinicContext;
         _syncService = syncService;
         _configuration = configuration;
         _clinicRepository = clinicRepository;
@@ -60,6 +66,75 @@ public class GoogleCalendarController : ApiControllerBase
         _cache = cache;
         _mediator = mediator;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// « Imports Google » — what the calendar import has done to this cabinet, and which pass can still be undone.
+    ///
+    /// <para>⚠️ <b><c>AnyClinicRole</c>, loosening the class policy</b>, and that is deliberate: the « Annuler cet
+    /// import » banner lives on « À clôturer », which reception reads and which is exactly where an unwanted
+    /// import is felt. A banner nobody at the desk can see would be a banner nobody sees. The <b>undo itself</b>
+    /// stays <c>AdminOnly</c> below — reading what happened and deleting patient records are different
+    /// permissions.</para>
+    /// </summary>
+    [HttpGet("imports")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<IActionResult> GetImports(
+        [FromQuery] bool latestUndoable, [FromQuery] int? page, [FromQuery] int? pageSize,
+        CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new GetCalendarImportRunsQuery
+            {
+                LatestUndoableOnly = latestUndoable,
+                Paging = PageRequest.From(page, pageSize)
+            },
+            cancellationToken);
+
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// What « Annuler cet import » would delete and what it would keep — the dry run, asked before anything is
+    /// written.
+    ///
+    /// <para><b>It is the safety of this whole feature.</b> The person pressing the button is the cabinet rather
+    /// than the vendor: nobody is holding a backup and nobody is watching row counts, so the confirmation shows
+    /// the list itself and every row that will survive names its own reason.</para>
+    /// </summary>
+    [HttpGet("imports/{runId:guid}/revert-preview")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> PreviewRevert(Guid runId, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new GetCalendarImportRevertPreviewQuery { RunId = runId }, cancellationToken);
+
+        return result.IsFailure ? HandleFailure(result, StatusCodes.Status404NotFound) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Annuler cet import » — delete exactly what the pass created and nothing has touched since.
+    ///
+    /// <para>⚠️ <b><c>AdminOnly</c></b>: it deletes patient records. And it never speaks to Google — see the
+    /// command's own note on why routing a deletion through a cancellation would finish destroying the calendar
+    /// this exists to protect.</para>
+    /// </summary>
+    [HttpPost("imports/{runId:guid}/revert")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> RevertImport(Guid runId, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new RevertCalendarImportRunCommand { RunId = runId }, cancellationToken);
+
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        // Branch on the code, never on the sentence — rewording « déjà annulé » must not change a status.
+        return result.Code == RevertCalendarImportRunCommandHandler.AlreadyRevertedCode
+            ? HandleFailure(result)
+            : HandleFailure(result, StatusCodes.Status404NotFound);
     }
 
     /// <summary>
@@ -98,11 +173,21 @@ public class GoogleCalendarController : ApiControllerBase
                 return BadRequest(new { error = clinicResult.Error ?? "Impossible de résoudre le cabinet." });
             }
 
-            await _syncService.SyncGoogleCalendarToAppointmentsAsync(clinicResult.Value);
+            // The caller is named on the run, so « Imports Google » can tell a pass somebody pressed from one the
+            // schedule ran — and so the undo's journal row says who.
+            var outcome = await _syncService.SyncGoogleCalendarToAppointmentsAsync(
+                clinicResult.Value, _clinicContext.GetUserId());
+
+            // ⚠️ It used to answer `{ message, timestamp }`: a practice pressed a button that wrote a hundred
+            // rows and was told the time. The counts and the run id are what let the screen say what happened
+            // and offer « Annuler cet import » on the spot.
             return Ok(new
             {
-                message = "Sync from Google Calendar completed successfully",
-                timestamp = DateTime.UtcNow
+                runId = outcome.RunId,
+                appointmentsCreated = outcome.AppointmentsCreated,
+                patientsCreated = outcome.PatientsCreated,
+                appointmentsUpdated = outcome.AppointmentsUpdated,
+                appointmentsLinked = outcome.AppointmentsLinked
             });
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
