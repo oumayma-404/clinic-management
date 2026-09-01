@@ -135,8 +135,20 @@ export default function AppointmentsPage() {
   const [isGoogleCalendarAuthorized, setIsGoogleCalendarAuthorized] = useState(false)
   const [disconnectOpen, setDisconnectOpen] = useState(false)
   const [isDisconnecting, setIsDisconnecting] = useState(false)
-  const [showCancelled, setShowCancelled] = useState(false)
-  const [showCompleted, setShowCompleted] = useState(false)
+  /*
+   * ⚠️ **Both default to SHOWN, and they used to default to hidden.**
+   *
+   * An agenda is a record of the practice's day, and « Terminé » is what every honoured visit becomes — so the
+   * old default emptied the morning as it was worked, and a dentist looking back at last Tuesday saw the visits
+   * that fell through and none of the ones that happened. « Annulé » is the same argument one step weaker: a
+   * cancelled slot is why that hour is free, which is information about the day, not noise.
+   *
+   * They stay *toggles* — a desk that wants only what is still to come can still say so — but hiding is now the
+   * explicit choice rather than the state you arrive in. See the chips and the URL writer below: both had to
+   * invert with this, or the page would advertise a filter nobody applied and write it into every link.
+   */
+  const [showCancelled, setShowCancelled] = useState(true)
+  const [showCompleted, setShowCompleted] = useState(true)
   // Google Calendar needs the server's internet egress; gate its controls in Local offline mode
   // (AC-6.2). Cloud always reports online (R-3).
   const { internetReachable } = useConnectivity()
@@ -152,7 +164,10 @@ export default function AppointmentsPage() {
   )
   const doctorFilterId = selectedDoctorId === "all" ? undefined : selectedDoctorId
   /** Is there anything for the chip row to say? See the row itself for why it must not render otherwise. */
-  const hasActiveFilterChips = showCancelled || showCompleted || Boolean(doctorFilterId)
+  // ⚠️ Inverted with the defaults above: a chip states what has been *narrowed*, so it now appears when one of
+  // the two is hidden. Left as-is it would have put « Annulés affichés » on screen on every ordinary visit —
+  // § 13 asks that an unrequested filter be visible and removable, and the default is not a filter.
+  const hasActiveFilterChips = !showCancelled || !showCompleted || Boolean(doctorFilterId)
 
   /**
    * The length a dragged span asked for, or `undefined` for every other way into the create dialog.
@@ -344,7 +359,7 @@ export default function AppointmentsPage() {
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean)
 
-    if (!from && !date && statuses.length === 0) return
+    if (!from && !date && statuses.length === 0 && !params.get("hidden")) return
 
     /*
      * `?date=AAAA-MM-JJ` — land ON that day, in Jour.
@@ -373,8 +388,35 @@ export default function AppointmentsPage() {
       selectView("month")
     }
 
-    if (statuses.includes("cancelled")) setShowCancelled(true)
-    if (statuses.includes("completed")) setShowCompleted(true)
+    /*
+     * ⚠️ `?status=` names EXACTLY what the card counted, so it sets both toggles rather than only turning things
+     * on. That is a consequence of the two now defaulting to shown: « Taux d'absence » lands with
+     * `status=noshow,cancelled`, and a NoShow-only link must be able to take Annulé back *off* — the old comment
+     * here worried about exactly that case and could only avoid it by leaving the default hidden.
+     */
+    if (statuses.length > 0) {
+      setShowCancelled(statuses.includes("cancelled"))
+      setShowCompleted(statuses.includes("completed"))
+    }
+
+    /*
+     * ⚠️ And the durable half, written by `useUrlFilters` below as `hidden=`. It must be READ here or the page
+     * emits a key it throws away on reload — `useUrlFilters` writes and never reads, so a screen that does not
+     * seed the same keys produces links that do not survive being followed.
+     *
+     * A separate key from `status=` deliberately: that one means « show exactly these », and with both shown by
+     * default the set a user has *hidden* cannot be expressed by an empty list — `status=` with nothing in it is
+     * indistinguishable from no parameter at all.
+     */
+    const hidden = (params.get("hidden") ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
+
+    if (hidden.length > 0) {
+      if (hidden.includes("cancelled")) setShowCancelled(false)
+      if (hidden.includes("completed")) setShowCompleted(false)
+    }
 
     window.history.replaceState({}, "", "/appointments")
   }, [selectView])
@@ -395,7 +437,12 @@ export default function AppointmentsPage() {
     date: toLocalIso(selectedDate),
     // Only when it is not the default, so an ordinary visit keeps a clean URL.
     view: view === "week" ? undefined : view,
-    status: [showCompleted ? "completed" : null, showCancelled ? "cancelled" : null].filter(Boolean).join(",") || undefined,
+    // ⚠️ The HIDDEN set now, inverted with the defaults: emitting the shown one would put
+    // `status=completed,cancelled` on every ordinary visit, which is the opposite of « only when it is not the
+    // default ». Read back as `hidden=` in the deep-link effect above.
+    hidden: [!showCompleted ? "completed" : null, !showCancelled ? "cancelled" : null]
+      .filter(Boolean)
+      .join(",") || undefined,
     doctorId: doctorFilterId,
   })
 
@@ -518,11 +565,11 @@ export default function AppointmentsPage() {
           */}
           {hasActiveFilterChips && (
             <div className="mb-3 hidden flex-shrink-0 flex-wrap items-center gap-2 md:flex">
-              {showCancelled && (
-                <ActiveFilterChip label="Annulés affichés" onRemove={() => setShowCancelled(false)} />
+              {!showCancelled && (
+                <ActiveFilterChip label="Annulés masqués" onRemove={() => setShowCancelled(true)} />
               )}
-              {showCompleted && (
-                <ActiveFilterChip label="Terminés affichés" onRemove={() => setShowCompleted(false)} />
+              {!showCompleted && (
+                <ActiveFilterChip label="Terminés masqués" onRemove={() => setShowCompleted(true)} />
               )}
               {doctorFilterId && (
                 <ActiveFilterChip

@@ -116,54 +116,37 @@ public class GoogleCalendarSyncService : IGoogleCalendarSyncService
                 return;
             }
 
-            // Handle cancelled and completed appointments - delete from Google Calendar
-            if (appointment.Status == AppointmentStatus.Cancelled || appointment.Status == AppointmentStatus.Completed)
+            /*
+             * ⚠️ **NOTHING IN THIS PRODUCT DELETES A GOOGLE CALENDAR EVENT. There is no code path, and there is no
+             * longer a method to call.**
+             *
+             * There was one, and it fired on `Cancelled || Completed`. « Terminé » is the most ordinary action in
+             * the product — « À clôturer » asks for it on every visit and `AppointmentProgressJob` reaches the same
+             * path — so every appointment the cabinet actually honoured was erased from its own Google agenda and
+             * the event id nulled, silently. A dentist looking back at last Tuesday found the day they had worked
+             * *emptier* than the day they had not. Cancelling did the same, which is how a cabinet tidying up a
+             * mistaken import destroyed a hundred real entries in its own calendar.
+             *
+             * <b>The calendar belongs to the practice.</b> This product may add to it and correct what it added; it
+             * may not remove anything. `IGoogleCalendarService.DeleteEventAsync` was deleted from the contract and
+             * from the client, so « never » is enforced by the compiler rather than by this comment —
+             * `GoogleCalendarNeverDeletesTests` is the guard.
+             *
+             * A terminal visit therefore keeps its event and the event is **updated** to state what happened
+             * (`BuildAppointmentDescription` writes `Status: Cancelled` / `Status: Completed`), which is strictly
+             * more information than the practice had before.
+             */
+            if ((appointment.Status == AppointmentStatus.Cancelled
+                 || appointment.Status == AppointmentStatus.Completed)
+                && string.IsNullOrEmpty(appointment.GoogleCalendarEventId))
             {
-                _logger.LogInformation("Appointment {AppointmentId} is {Status}. Checking if it needs to be deleted from Google Calendar. GoogleEventId: {GoogleEventId}", 
-                    appointmentId, appointment.Status, appointment.GoogleCalendarEventId ?? "(none)");
-                
-                // Delete from Google Calendar if it exists
-                if (!string.IsNullOrEmpty(appointment.GoogleCalendarEventId))
-                {
-                    try
-                    {
-                        _logger.LogInformation("Deleting Google Calendar event {EventId} for {Status} appointment {AppointmentId}", 
-                            appointment.GoogleCalendarEventId, appointment.Status, appointmentId);
-                        
-                        await _googleCalendarService.DeleteEventAsync(connection, appointment.GoogleCalendarEventId, cancellationToken);
-                        
-                        _logger.LogInformation("Successfully deleted Google Calendar event {EventId} for appointment {AppointmentId}", 
-                            appointment.GoogleCalendarEventId, appointmentId);
-                        
-                        // Clear the Google Calendar event ID from the appointment
-                        appointment.SetGoogleCalendarEventId(null);
-                        await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
-                        await _unitOfWork.SaveChangesAsync(cancellationToken);
-                        
-                        _logger.LogInformation("Cleared GoogleCalendarEventId from appointment {AppointmentId}", appointmentId);
-                    }
-                    catch (Google.GoogleApiException gex) when (gex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
-                    {
-                        // Event doesn't exist in Google Calendar (might have been deleted manually)
-                        _logger.LogWarning("Google Calendar event {EventId} not found (may have been deleted manually). Clearing reference from appointment {AppointmentId}", 
-                            appointment.GoogleCalendarEventId, appointmentId);
-                        
-                        appointment.SetGoogleCalendarEventId(null);
-                        await _appointmentRepository.UpdateAsync(appointment, cancellationToken);
-                        await _unitOfWork.SaveChangesAsync(cancellationToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error deleting Google Calendar event {EventId} for appointment {AppointmentId}. Error: {ErrorMessage}", 
-                            appointment.GoogleCalendarEventId, appointmentId, ex.Message);
-                        // Don't throw - we don't want to fail the appointment cancellation if Google Calendar sync fails
-                    }
-                }
-                else
-                {
-                    _logger.LogDebug("Appointment {AppointmentId} is {Status} but has no GoogleCalendarEventId. Nothing to delete from Google Calendar.", 
-                        appointmentId, appointment.Status);
-                }
+                // ⚠️ Keeps what exists, never GAINS what never existed: the create branch below would otherwise
+                // push a fresh event for every historical visit the moment somebody closed it on « À clôturer » —
+                // including the ones whose id the old delete had already nulled.
+                _logger.LogDebug(
+                    "Appointment {AppointmentId} is {Status} and has no Google event; leaving the calendar alone "
+                    + "rather than creating one after the fact.",
+                    appointmentId, appointment.Status);
                 return;
             }
 

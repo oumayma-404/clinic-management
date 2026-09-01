@@ -8,11 +8,17 @@ namespace ClinicManagement.UnitTests.Features.Appointments;
 /// The two ways « Annuler cet import » could destroy something it exists to protect — held structurally, because
 /// both failures are <b>silent</b> and neither is visible to a behavioural test with a mocked repository.
 ///
-/// <para><b>1. It must never speak to Google.</b> <c>GoogleCalendarSyncService</c> deletes the Google event
-/// behind an appointment the moment its status becomes <c>Cancelled</c> or <c>Completed</c> — which is how a
-/// cabinet tidying up after an unwanted import was quietly deleting its own calendar in the first place. An undo
-/// routed through <c>Appointment.Cancel()</c>, or one that dispatched a sync, would finish that job. The rows are
-/// removed outright instead.</para>
+/// <para><b>1. It must never speak to Google.</b> ⚠️ <b>The hazard this half was written for is now gone at the
+/// root</b>: <c>GoogleCalendarSyncService</c> used to delete the Google event behind an appointment the moment its
+/// status became <c>Cancelled</c> or <c>Completed</c> — which is how a cabinet tidying up after an unwanted import
+/// was quietly deleting its own calendar — and <c>IGoogleCalendarService.DeleteEventAsync</c> has since been
+/// removed from the contract entirely (<c>GoogleCalendarNeverDeletesTests</c>). So an undo routed through
+/// <c>Appointment.Cancel()</c> can no longer destroy anything in Google.
+///
+/// The assertions stay, and are still worth their place: the undo must not reach Google for reasons beyond the
+/// delete (it is a bulk write, and a sync dispatched per deleted row would be a hundred pointless round trips
+/// against a calendar it has no business touching), and « the capability was removed » is exactly the kind of fact
+/// a later change can quietly reverse. The rows are removed outright instead.</para>
 ///
 /// <para><b>2. Reminders must be deleted before the appointments they name.</b>
 /// <c>Notification.AppointmentId</c> and <c>PushDelivery</c>'s are <c>OnDelete(SetNull)</c>, so deleting an
@@ -48,8 +54,10 @@ public class CalendarImportRevertSafetyTests
     }
 
     /// <summary>
-    /// And it must not route a deletion through the status that triggers the push. A <c>.Cancel(</c> anywhere in
-    /// this file would do it — the sync deletes the Google event for a <c>Cancelled</c> appointment.
+    /// And it must not route a deletion through the status that used to trigger the push. A <c>.Cancel(</c>
+    /// anywhere in this file would have deleted the Google event for a <c>Cancelled</c> appointment; that call no
+    /// longer exists, and this keeps the undo off the status path regardless — cancelling is a claim about a visit,
+    /// and a reverted row is one that should never have existed.
     /// </summary>
     [Fact]
     public void The_Revert_Command_Never_Cancels_An_Appointment_Or_Dispatches_A_Sync()

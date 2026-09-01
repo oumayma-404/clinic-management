@@ -400,13 +400,22 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
   `GoogleCalendar:ClientId`/`ClientSecret` config; the access token is refreshed per connection
   (`GoogleAuthUtils.RefreshAccessTokenAsync` → `oauth2.googleapis.com/token`); the built `CalendarService` is
   cached keyed on the refresh token. Times forced to UTC. Missing creds/token → `InvalidOperationException("…not
-  configured")` (callers skip silently). Methods: Create/Update/Delete/GetEvents.
+  configured")` (callers skip silently). Methods: Create/Update/GetEvents — ⚠️ **there is no Delete**, and that is
+  enforced by its absence from the interface rather than by a rule; see the sync service's note below.
 - **`GoogleCalendarSyncService`** (`IGoogleCalendarSyncService`, scoped) — business orchestration.
   `ResolveConnectionAsync(clinicId)` loads a clinic's own `Clinic.GoogleRefreshToken`/`GoogleCalendarId`
   (returns null → skip; **no shared cross-clinic account**).
-  - **App → Google** (`SyncAppointmentToGoogleCalendarAsync`) — create/update/delete a Google event using the
-    appointment's own clinic connection; persists/clears `Appointment.GoogleCalendarEventId`; skips busy slots;
-    failures logged not thrown. **This is now the only direction** (inline on appointment create/update).
+  - **App → Google** (`SyncAppointmentToGoogleCalendarAsync`) — create/update a Google event using the
+    appointment's own clinic connection; persists `Appointment.GoogleCalendarEventId`; skips busy slots; failures
+    logged not thrown. **This is now the only direction** (inline on appointment create/update).
+  - ⚠️ **It NEVER deletes, and `DeleteEventAsync` no longer exists to call.** It used to fire on
+    `Cancelled || Completed`, so « Terminé » — the most ordinary action in the product — erased the appointment from
+    the practice's own Google agenda and nulled the event id, silently; the day a cabinet had worked came out
+    emptier than the day it had not, and a cabinet cancelling a mistaken import destroyed a hundred real entries of
+    its own. Removed from the **contract**, not merely from the call sites, so « never » is a compile error rather
+    than a condition somebody widens back. A terminal visit **keeps** its event and the event is updated to say so;
+    it never *gains* one it never had (the create branch would otherwise back-fill Google months later). Guarded by
+    `GoogleCalendarNeverDeletesTests`, red-proofed.
   - ⚠️ **Google → App is RETIRED** (`calendar-import-revert`). `SyncGoogleCalendarToAppointmentsAsync`, the
     `CalendarImportOutcome` it returned, the 15-minute `GoogleCalendarImportJob`, the `sync-from-google` endpoint,
     the `import-settings` gate (`Clinic.GoogleCalendarHoldsOnlyAppointments`) and ~750 lines of event-to-patient

@@ -6,41 +6,48 @@ import { parseSurfaces } from "@/components/odontogram-conditions"
 import type { DentalRecordDto, DentalRecordActDto, ProcedureTypeDto } from "@/lib/api/types"
 
 /**
- * The act currently being composed. Its teeth are NOT stored here — an act always applies to the chart's
- * live selection, which is what makes the flow tooth-first (select teeth, then say what was done).
+ * One act of the séance, and the ONLY shape this store holds. Every card on screen is one of these: there is no
+ * draft, no "act in progress" and no committed/uncommitted distinction.
+ *
+ * <p>⚠️ `toothNumbers` belongs to the ACT. It used to be a single `selection` shared by the whole séance, which
+ * is what made « Ajouter un autre acte » mean *validate, clear the field and clear the chart* — the reported
+ * bug. With teeth on the act, adding one appends a card and touches nothing else.</p>
  */
-export interface ActDraft {
+export interface SessionAct {
+  /** Client-side only — server act ids are not stable across a save. */
+  key: string
   procedureTypeId: string | null
   procedureName: string
   /** The single editable price: per treated tooth when `perTooth`, otherwise the act's flat total. */
   unitCost: string
   /**
-   * True once the dentist has TYPED in the price field. Every other way `unitCost` gets filled — a
-   * catalogue default, a saved act reopened, a plan step's quote — is a suggestion belonging to whichever
-   * act is currently named, so choosing a different act must replace it. Without this flag the reducer only
-   * saw "the field is not empty" and kept the previous act's tariff after « Ce n'est pas cet acte ».
+   * True once the dentist has TYPED in the price field. Every other way `unitCost` gets filled — a catalogue
+   * default, a saved act reopened, a plan step's quote — is a suggestion belonging to whichever act is currently
+   * named, so choosing a different act must replace it. Without this flag the reducer only saw "the field is not
+   * empty" and kept the previous act's tariff after « Changer d'acte ».
    */
   unitCostLocked: boolean
   perTooth: boolean
   /**
-   * True once the dentist has used the `/dent ↔ forfait` switch on this draft. While false, `perTooth` is
-   * re-derived every time the selection changes — necessary now that the procedure is chosen BEFORE the teeth
-   * (the appointment proposes it), so the per-tooth default has to arm on the first tooth rather than at pick
-   * time. Once locked, an explicit « forfait » is never silently flipped back.
+   * True once the dentist has used the `/dent ↔ forfait` switch on this act. While false, `perTooth` is
+   * re-derived every time the act's teeth change — necessary because the procedure is often chosen BEFORE the
+   * teeth (the appointment proposes it), so the per-tooth default has to arm on the first tooth rather than at
+   * pick time. Once locked, an explicit « forfait » is never silently flipped back.
    */
   perToothLocked: boolean
   resultingCondition: string | null
   surfaces: Set<string>
   note: string
-}
-
-/** A committed act in the open session. `key` is client-side only — server act ids are not stable. */
-export interface SessionAct extends ActDraft {
-  key: string
+  /** The act's own teeth. Empty is legitimate — a détartrage or a panoramique is a séance-level act. */
   toothNumbers: number[]
+  /** The card is showing the catalogue instead of its act. */
+  picking: boolean
 }
 
-const emptyDraft = (): ActDraft => ({
+const makeKey = (n: number) => `act-${n}`
+
+const emptyAct = (key: string): SessionAct => ({
+  key,
   procedureTypeId: null,
   procedureName: "",
   unitCost: "",
@@ -50,20 +57,36 @@ const emptyDraft = (): ActDraft => ({
   resultingCondition: null,
   surfaces: new Set<string>(),
   note: "",
+  toothNumbers: [],
+  picking: true,
 })
 
-/**
- * Whether the draft should be priced per tooth for a given selection size. An act that changes a tooth's state
- * is per-tooth; one that changes nothing (consultation, détartrage, orthodontie, prothèse) is a flat session
- * fee — and nothing is ever per-tooth with no tooth to multiply. A manual choice wins.
- */
-function derivePerTooth(draft: ActDraft, selectionLength: number): boolean {
-  if (selectionLength === 0) return false
-  if (draft.perToothLocked) return draft.perTooth
-  return draft.resultingCondition != null
+/** An act the dentist has actually named — the only kind that is saved. */
+export function isActNamed(act: SessionAct): boolean {
+  return act.procedureName.trim() !== ""
 }
 
-/** A treatment-plan step's values carried into the composer when the step is linked. */
+/**
+ * An unnamed act the dentist has nonetheless put something into. The trailing blank card is *not* touched, so it
+ * is dropped silently on save; one carrying teeth or a price is refused instead, because dropping it would throw
+ * away work that is visible on screen.
+ */
+export function isActTouched(act: SessionAct): boolean {
+  return isActNamed(act) || act.toothNumbers.length > 0 || act.unitCost.trim() !== ""
+}
+
+/**
+ * Whether an act should be priced per tooth for a given tooth count. An act that changes a tooth's state is
+ * per-tooth; one that changes nothing (consultation, détartrage, orthodontie, prothèse) is a flat session fee —
+ * and nothing is ever per-tooth with no tooth to multiply. A manual choice wins.
+ */
+function derivePerTooth(act: SessionAct, toothCount: number): boolean {
+  if (toothCount === 0) return false
+  if (act.perToothLocked) return act.perTooth
+  return act.resultingCondition != null
+}
+
+/** A treatment-plan step's values carried into the first act when the step is linked. */
 export interface PlanItemPrefill {
   designationFr?: string
   plannedCost?: number
@@ -80,13 +103,18 @@ export function resolveActCost(unitCost: string, perTooth: boolean, toothCount: 
   return roundMillimes(unit * (perTooth && toothCount > 0 ? toothCount : 1))
 }
 
+/** What one act will be billed at, from the act itself. */
+export function actTotal(act: SessionAct): number {
+  return resolveActCost(act.unitCost, act.perTooth, act.toothNumbers.length)
+}
+
 /**
  * True when the price field holds something unusable. Empty is allowed (a free act priced later).
  *
  * <p>⚠️ Both this and {@link resolveActCost} read the field through `parseAmountInput` (J8), because « Tarif » is
- * now `type="text" inputMode="decimal"` — a `type="number"` input refused the comma this product prints with, and
- * `step="0.001"` on the field that seeds every invoice line still made the millime awkward to reach. Parsing with
- * bare `Number.parseFloat` here would read « 90,500 » as `90` and quietly under-bill the act by half a dinar.</p>
+ * `type="text" inputMode="decimal"` — a `type="number"` input refused the comma this product prints with. Parsing
+ * with bare `Number.parseFloat` here would read « 90,500 » as `90` and quietly under-bill the act by half a
+ * dinar.</p>
  */
 export function hasInvalidPrice(unitCost: string): boolean {
   const raw = unitCost.trim()
@@ -95,40 +123,33 @@ export function hasInvalidPrice(unitCost: string): boolean {
   return !Number.isFinite(unit) || unit < 0
 }
 
-/** True when nothing has been typed into the composer yet (guards the plan-item prefill). */
-function isDraftEmpty(draft: ActDraft): boolean {
-  return draft.procedureName.trim() === "" && draft.unitCost.trim() === ""
-}
-
 interface SessionState {
   acts: SessionAct[]
-  /** Teeth currently selected on the chart — the subject the composer applies to. */
-  selection: number[]
-  /** Key of the committed act being edited, or null when composing a new one. */
-  editingKey: string | null
-  draft: ActDraft
+  /**
+   * The act the chart writes to, or null when nothing is armed. Exactly one act is armed at a time — that is what
+   * lets every card stay editable without the chart having to guess which act a tapped tooth belongs to.
+   */
+  focusKey: string | null
   nextKey: number
 }
 
 export type SessionAction =
   | { type: "reset"; record?: DentalRecordDto | null }
+  | { type: "focusAct"; key: string }
+  | { type: "addAct" }
+  | { type: "addFromProcedure"; procedure: ProcedureTypeDto }
+  | { type: "removeAct"; key: string }
+  | { type: "patchAct"; key: string; patch: Partial<SessionAct> }
+  | { type: "pickProcedure"; key: string; procedure: ProcedureTypeDto }
+  | { type: "useFreeText"; key: string; name: string }
+  | { type: "beginPicking"; key: string }
+  | { type: "cancelPicking"; key: string }
+  | { type: "resetUnitCostToTariff"; key: string; defaultCost: number | null }
   | { type: "toggleTooth"; tooth: number }
   | { type: "selectMany"; teeth: number[]; additive: boolean }
-  | { type: "clearSelection" }
-  | { type: "patchDraft"; patch: Partial<ActDraft> }
-  | { type: "pickProcedure"; procedure: ProcedureTypeDto }
-  | { type: "useFreeText"; name: string }
+  | { type: "clearTeeth" }
   | { type: "applyAppointment"; procedure: ProcedureTypeDto }
-  | { type: "detachProcedure" }
   | { type: "applyPlanItem"; item: PlanItemPrefill }
-  | { type: "repriceAct"; key: string; unitCost: string }
-  | { type: "resetUnitCostToTariff"; defaultCost: number | null }
-  | { type: "commitDraft" }
-  | { type: "beginEditAct"; key: string }
-  | { type: "cancelEdit" }
-  | { type: "removeAct"; key: string }
-
-const makeKey = (n: number) => `act-${n}`
 
 /**
  * Load a persisted act back into the editor. The pricing intent is read from the stored provenance and is
@@ -146,18 +167,18 @@ function actFromDto(a: DentalRecordActDto, key: string): SessionAct {
     procedureName: a.procedureName,
     toothNumbers: teeth,
     // `formatAmount`, never `String(...)`: reopening a saved act must show its fee the way the rest of the
-    // product prints it (« 90,500 », not « 90.5 »), and the field now accepts that form back.
+    // product prints it (« 90,500 », not « 90.5 »), and the field accepts that form back.
     unitCost: formatAmount(perTooth && unit != null ? unit : a.cost),
-    // Whether the stored amount was typed or taken from a tariff is not recorded, so it is not treated as
-    // typed: replacing the act re-prices from the act now chosen. The figure is only a default until saved
-    // again, and the card shows the new total before anything is committed.
+    // Whether the stored amount was typed or taken from a tariff is not recorded, so it is not treated as typed:
+    // replacing the act re-prices from the act now chosen.
     unitCostLocked: false,
     perTooth,
-    // A saved act's pricing intent is authoritative and must never be re-derived from its selection.
+    // A saved act's pricing intent is authoritative and must never be re-derived from its teeth.
     perToothLocked: true,
     resultingCondition: a.resultingCondition ?? null,
     surfaces: parseSurfaces(a.surfaces),
     note: a.note ?? "",
+    picking: false,
   }
 }
 
@@ -165,193 +186,188 @@ function initialState(record?: DentalRecordDto | null): SessionState {
   const acts = (record?.acts ?? []).map((a, i) => actFromDto(a, makeKey(i)))
 
   /*
-   * Reopening a saved fiche opens on its FIRST act, already loaded into the composer.
+   * ⚠️ A saved fiche reopens with NOTHING armed, and that is a safety decision rather than a default.
    *
-   * ⚠️ Without this the composer is empty on an edit — the acts are committed, not drafted — so « Modifier la
-   * fiche » greeted the dentist with an empty act slot and, before the resting state existed, with the whole
-   * catalogue. Both read as « re-enter the act », which is exactly what was reported. The séance's own act is
-   * what an edit is about, so that is what the composer holds: its price, its teeth and its detail are all
-   * editable on arrival, and « Ajouter un autre acte » still adds more.
+   * On a new fiche the single blank card is armed, so the common gesture — tap teeth, pick the act — works on
+   * arrival. Doing the same on an existing fiche would mean a stray tap on the chart silently changes an act that
+   * may already be carried by a numbered note. One click on a card arms it, and the chart says so in words until
+   * something is.
    */
-  if (acts.length > 0) {
-    const { key, toothNumbers, ...draft } = acts[0]
-    return {
-      acts,
-      selection: [...toothNumbers],
-      editingKey: key,
-      draft: { ...draft, surfaces: new Set(draft.surfaces) },
-      nextKey: acts.length,
-    }
-  }
+  if (acts.length > 0) return { acts, focusKey: null, nextKey: acts.length }
 
-  return { acts, selection: [], editingKey: null, draft: emptyDraft(), nextKey: acts.length }
+  const first = emptyAct(makeKey(0))
+  return { acts: [first], focusKey: first.key, nextKey: 1 }
 }
 
 const sorted = (teeth: number[]) => Array.from(new Set(teeth)).sort((a, b) => a - b)
 
+const mapAct = (state: SessionState, key: string, fn: (act: SessionAct) => SessionAct): SessionState => ({
+  ...state,
+  acts: state.acts.map((a) => (a.key === key ? fn(a) : a)),
+})
+
+/** Re-derives the pricing basis whenever an act's teeth change, unless the dentist has locked it. */
+const withTeeth = (act: SessionAct, toothNumbers: number[]): SessionAct => ({
+  ...act,
+  toothNumbers,
+  perTooth: derivePerTooth(act, toothNumbers.length),
+})
+
+function applyProcedure(act: SessionAct, pt: ProcedureTypeDto): SessionAct {
+  const next: SessionAct = {
+    ...act,
+    procedureTypeId: pt.id,
+    procedureName: pt.name,
+    // The price follows the act unless the dentist typed one. Testing "is the field empty?" instead was the
+    // « ce n'est pas cet acte » bug: the field still held the PREVIOUS act's tariff, so the new act was billed at
+    // the old act's price. An act with no tariff clears the field rather than inheriting one that belongs to the
+    // act just replaced.
+    unitCost: act.unitCostLocked ? act.unitCost : pt.defaultCost != null ? formatAmount(pt.defaultCost) : "",
+    // A fresh pick re-opens the pricing question, so the switch un-locks.
+    perToothLocked: false,
+    resultingCondition: pt.resultingCondition ?? null,
+    picking: false,
+  }
+  return { ...next, perTooth: derivePerTooth(next, next.toothNumbers.length) }
+}
+
 function reducer(state: SessionState, action: SessionAction): SessionState {
+  const focused = state.focusKey ? (state.acts.find((a) => a.key === state.focusKey) ?? null) : null
+
   switch (action.type) {
     case "reset":
       return initialState(action.record)
 
-    case "toggleTooth": {
-      const has = state.selection.includes(action.tooth)
-      const selection = has
-        ? state.selection.filter((t) => t !== action.tooth)
-        : sorted([...state.selection, action.tooth])
-      return {
-        ...state,
-        selection,
-        draft: { ...state.draft, perTooth: derivePerTooth(state.draft, selection.length) },
+    case "focusAct":
+      return { ...state, focusKey: action.key }
+
+    case "addAct": {
+      // A trailing card nobody has filled in IS the card being asked for. Appending a second blank below it is
+      // how a double tap leaves two empty cards in the pile, and only one of them can ever be armed.
+      const last = state.acts[state.acts.length - 1]
+      if (last && !isActTouched(last)) {
+        return { ...mapAct(state, last.key, (a) => ({ ...a, picking: true })), focusKey: last.key }
       }
+      const act = emptyAct(makeKey(state.nextKey))
+      return { acts: [...state.acts, act], focusKey: act.key, nextKey: state.nextKey + 1 }
+    }
+
+    case "addFromProcedure": {
+      // The « aussi prévu à ce rendez-vous » shortcuts: fill the trailing blank if there is one, else append.
+      const last = state.acts[state.acts.length - 1]
+      if (last && !isActTouched(last)) {
+        return { ...mapAct(state, last.key, (a) => applyProcedure(a, action.procedure)), focusKey: last.key }
+      }
+      const act = applyProcedure(emptyAct(makeKey(state.nextKey)), action.procedure)
+      return { acts: [...state.acts, act], focusKey: act.key, nextKey: state.nextKey + 1 }
+    }
+
+    case "removeAct": {
+      const acts = state.acts.filter((a) => a.key !== action.key)
+      // The pile is never empty: removing the last act leaves a blank card rather than a surface with no way to
+      // start over.
+      if (acts.length === 0) {
+        const fresh = emptyAct(makeKey(state.nextKey))
+        return { acts: [fresh], focusKey: fresh.key, nextKey: state.nextKey + 1 }
+      }
+      return { ...state, acts, focusKey: state.focusKey === action.key ? null : state.focusKey }
+    }
+
+    case "patchAct":
+      return mapAct(state, action.key, (act) => {
+        const next = { ...act, ...action.patch }
+        // Typing a price is the one thing that makes it the dentist's own, so a later act change keeps it.
+        if (action.patch.unitCost !== undefined) next.unitCostLocked = true
+        // Touching the switch itself locks the intent; changing the resulting condition re-derives it.
+        if (action.patch.perTooth !== undefined) next.perToothLocked = true
+        else if (action.patch.resultingCondition !== undefined) {
+          next.perTooth = derivePerTooth(next, next.toothNumbers.length)
+        }
+        return next
+      })
+
+    case "pickProcedure":
+      return { ...mapAct(state, action.key, (a) => applyProcedure(a, action.procedure)), focusKey: action.key }
+
+    case "useFreeText":
+      // A procedure the catalogue does not carry: keep the typed name and the teeth already tapped, drop the
+      // catalogue provenance, and leave the price to the dentist (it saves at 0 with a warning rather than
+      // blocking).
+      return {
+        ...mapAct(state, action.key, (a) => ({
+          ...a,
+          procedureTypeId: null,
+          procedureName: action.name.trim(),
+          unitCost: "",
+          unitCostLocked: false,
+          perTooth: false,
+          perToothLocked: false,
+          resultingCondition: null,
+          surfaces: new Set<string>(),
+          picking: false,
+        })),
+        focusKey: action.key,
+      }
+
+    case "beginPicking":
+      return { ...mapAct(state, action.key, (a) => ({ ...a, picking: true })), focusKey: action.key }
+
+    case "cancelPicking":
+      return mapAct(state, action.key, (a) => ({ ...a, picking: false }))
+
+    case "resetUnitCostToTariff":
+      // Deliberately NOT a `patchAct`: that path locks `unitCost`, and a tariff put back must be free to follow
+      // the next act the dentist picks — which is the whole point of putting it back.
+      return mapAct(state, action.key, (a) => ({
+        ...a,
+        unitCost: action.defaultCost != null ? formatAmount(action.defaultCost) : "",
+        unitCostLocked: false,
+      }))
+
+    case "toggleTooth": {
+      if (!focused) return state
+      const has = focused.toothNumbers.includes(action.tooth)
+      const teeth = has
+        ? focused.toothNumbers.filter((t) => t !== action.tooth)
+        : sorted([...focused.toothNumbers, action.tooth])
+      return mapAct(state, focused.key, (a) => withTeeth(a, teeth))
     }
 
     case "selectMany": {
-      const selection = sorted(action.additive ? [...state.selection, ...action.teeth] : action.teeth)
-      return {
-        ...state,
-        selection,
-        draft: { ...state.draft, perTooth: derivePerTooth(state.draft, selection.length) },
-      }
+      if (!focused) return state
+      const teeth = sorted(action.additive ? [...focused.toothNumbers, ...action.teeth] : action.teeth)
+      return mapAct(state, focused.key, (a) => withTeeth(a, teeth))
     }
 
-    case "clearSelection":
-      return { ...state, selection: [], draft: { ...state.draft, perTooth: false } }
-
-    case "patchDraft": {
-      const draft = { ...state.draft, ...action.patch }
-      // Typing a price is the one thing that makes it the dentist's own, so a later act change keeps it.
-      if (action.patch.unitCost !== undefined) draft.unitCostLocked = true
-      // Touching the switch itself locks the intent; changing the resulting condition re-derives it.
-      if (action.patch.perTooth !== undefined) draft.perToothLocked = true
-      else if (action.patch.resultingCondition !== undefined) {
-        draft.perTooth = derivePerTooth(draft, state.selection.length)
-      }
-      return { ...state, draft }
-    }
-
-    case "pickProcedure": {
-      const pt = action.procedure
-      const draft: ActDraft = {
-        ...state.draft,
-        procedureTypeId: pt.id,
-        procedureName: pt.name,
-        // The price follows the act unless the dentist typed one. Testing "is the field empty?" instead was
-        // the « Ce n'est pas cet acte » bug: the field still held the PREVIOUS act's tariff, so the new act
-        // was billed at the old act's price. An act with no tariff clears the field rather than inheriting
-        // one that belongs to the act just replaced ("Sans tarif — à compléter plus tard").
-        // `formatAmount`, not `String`: this figure is now the card's own field, so it must read « 90,000 »
-        // like every other amount the product prints. `parseAmountInput` accepts both forms back.
-        unitCost: state.draft.unitCostLocked
-          ? state.draft.unitCost
-          : pt.defaultCost != null
-            ? formatAmount(pt.defaultCost)
-            : "",
-        // A fresh pick re-opens the pricing question, so the switch un-locks.
-        perToothLocked: false,
-        resultingCondition: pt.resultingCondition ?? null,
-      }
-      return { ...state, draft: { ...draft, perTooth: derivePerTooth(draft, state.selection.length) } }
-    }
-
-    case "useFreeText": {
-      // A procedure the catalogue does not carry: keep the typed name, drop the catalogue provenance, and
-      // leave the price for the dentist (it commits at 0 with a warning rather than blocking).
-      const draft: ActDraft = {
-        ...emptyDraft(),
-        procedureName: action.name.trim(),
-      }
-      return { ...state, draft }
-    }
+    case "clearTeeth":
+      if (!focused) return state
+      return mapAct(state, focused.key, (a) => withTeeth(a, []))
 
     case "applyAppointment": {
-      // Option C: the booked procedure PROPOSES the act. Only ever fills an untouched session — reopening a
-      // saved record, or a session the dentist has already started, is never overwritten. Nothing is
-      // committed here: the proposal is a draft, so no act exists until the dentist confirms.
-      if (state.acts.length > 0 || !isDraftEmpty(state.draft)) return state
-      return reducer(state, { type: "pickProcedure", procedure: action.procedure })
+      // Option C: the booked procedure PROPOSES the act. Only ever fills an untouched session — reopening a saved
+      // record, or a session the dentist has already started, is never overwritten. Nothing is committed: the
+      // proposal is an ordinary card the dentist can change or delete.
+      const first = state.acts[0]
+      if (state.acts.length !== 1 || isActNamed(first)) return state
+      return { ...mapAct(state, first.key, (a) => applyProcedure(a, action.procedure)), focusKey: first.key }
     }
-
-    case "detachProcedure":
-      return { ...state, draft: { ...state.draft, procedureTypeId: null } }
 
     case "applyPlanItem": {
-      // Carry the plan step's designation / cost / teeth into an untouched composer only.
-      if (!isDraftEmpty(state.draft)) return state
+      // Carry the plan step's designation / cost / teeth into an untouched session only.
+      const first = state.acts[0]
+      if (state.acts.length !== 1 || isActNamed(first) || first.unitCost.trim() !== "") return state
       const item = action.item
-      const teeth = item.toothNumbers && item.toothNumbers.length > 0 ? sorted(item.toothNumbers) : state.selection
-      const draft: ActDraft = {
-        ...state.draft,
-        procedureName: item.designationFr ?? state.draft.procedureName,
-        unitCost: item.plannedCost != null && item.plannedCost > 0 ? formatAmount(item.plannedCost) : state.draft.unitCost,
+      const teeth = item.toothNumbers && item.toothNumbers.length > 0 ? sorted(item.toothNumbers) : first.toothNumbers
+      const named = item.designationFr?.trim()
+      const next: SessionAct = {
+        ...first,
+        procedureName: named || first.procedureName,
+        unitCost: item.plannedCost != null && item.plannedCost > 0 ? formatAmount(item.plannedCost) : first.unitCost,
+        // A step that names the act closes the catalogue; one that only carries teeth leaves it open.
+        picking: named ? false : first.picking,
       }
-      return { ...state, selection: teeth, draft: { ...draft, perTooth: derivePerTooth(draft, teeth.length) } }
+      return { ...state, acts: [withTeeth(next, teeth)], focusKey: first.key }
     }
-
-    case "repriceAct": {
-      // Repricing a committed act from its own row. `unitCostLocked` is set for the same reason typing in the
-      // composer sets it: the figure is now the dentist's, not the catalogue's.
-      return {
-        ...state,
-        acts: state.acts.map((a) =>
-          a.key === action.key ? { ...a, unitCost: action.unitCost, unitCostLocked: true } : a,
-        ),
-      }
-    }
-
-    case "resetUnitCostToTariff": {
-      // Deliberately NOT a `patchDraft`: that path locks `unitCost` (see above), and a tariff put back must be
-      // free to follow the next act the dentist picks — which is the whole point of putting it back.
-      const draft = {
-        ...state.draft,
-        unitCost: action.defaultCost != null ? formatAmount(action.defaultCost) : "",
-        unitCostLocked: false,
-      }
-      return { ...state, draft }
-    }
-
-    case "commitDraft": {
-      if (state.draft.procedureName.trim() === "") return state
-      const committed = { ...state.draft, toothNumbers: [...state.selection] }
-
-      if (state.editingKey) {
-        const key = state.editingKey
-        return {
-          ...state,
-          acts: state.acts.map((a) => (a.key === key ? { ...committed, key } : a)),
-          editingKey: null,
-          draft: emptyDraft(),
-          selection: [],
-        }
-      }
-
-      return {
-        ...state,
-        acts: [...state.acts, { ...committed, key: makeKey(state.nextKey) }],
-        nextKey: state.nextKey + 1,
-        draft: emptyDraft(),
-        // The selection is CLEARED with the draft: a live selection paints in the draft act's colour, so teeth
-        // carried over into the next act read as already charted to it — the next act must start from nothing.
-        selection: [],
-      }
-    }
-
-    case "beginEditAct": {
-      const act = state.acts.find((a) => a.key === action.key)
-      if (!act) return state
-      const { key, toothNumbers, ...draft } = act
-      return { ...state, editingKey: key, selection: [...toothNumbers], draft: { ...draft } }
-    }
-
-    case "cancelEdit":
-      return { ...state, editingKey: null, draft: emptyDraft(), selection: [] }
-
-    case "removeAct":
-      return {
-        ...state,
-        acts: state.acts.filter((a) => a.key !== action.key),
-        ...(state.editingKey === action.key ? { editingKey: null, draft: emptyDraft(), selection: [] } : {}),
-      }
 
     default:
       return state
@@ -359,50 +375,26 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
 }
 
 /**
- * Owns the whole open session: the charted acts, the chart selection, the act being composed, and the act
- * being edited. A single reducer rather than a pile of `useState` + effects, so prefilling (edit mode, a
- * linked plan step, a catalog pick) is always an explicit dispatch and can never race user input.
+ * Owns the whole open session: the acts, and which one the chart writes to.
+ *
+ * <p>A single reducer rather than a pile of `useState` + effects, so prefilling (edit mode, a linked plan step, a
+ * catalogue pick) is always an explicit dispatch and can never race user input.</p>
  */
 export function useSessionActs(record?: DentalRecordDto | null) {
   const [state, dispatch] = useReducer(reducer, record, initialState)
 
-  /** Sum of the acts already confirmed into the session. */
-  const total = useMemo(
-    () =>
-      roundMillimes(
-        state.acts.reduce((sum, a) => sum + resolveActCost(a.unitCost, a.perTooth, a.toothNumbers.length), 0),
-      ),
-    [state.acts],
+  /** The acts that will actually be saved — a blank trailing card is not one of them. */
+  const namedActs = useMemo(() => state.acts.filter(isActNamed), [state.acts])
+
+  const grandTotal = useMemo(
+    () => roundMillimes(namedActs.reduce((sum, a) => sum + actTotal(a), 0)),
+    [namedActs],
   )
 
-  /** True when the draft names a procedure, i.e. confirming the session would save one more act. */
-  const hasDraft = state.draft.procedureName.trim() !== ""
-
-  /** What the draft would be billed at against the live selection. */
-  const draftTotal = useMemo(
-    () => (hasDraft ? resolveActCost(state.draft.unitCost, state.draft.perTooth, state.selection.length) : 0),
-    [hasDraft, state.draft.unitCost, state.draft.perTooth, state.selection.length],
+  const focusedAct = useMemo(
+    () => (state.focusKey ? (state.acts.find((a) => a.key === state.focusKey) ?? null) : null),
+    [state.acts, state.focusKey],
   )
 
-  /**
-   * What will actually be saved. The draft counts: the confirm-first flow expects the dentist to tap teeth and
-   * press « Confirmer » without ever adding a second act, so a footer total that excluded the draft would read
-   * 0,000 on the single most common path. While editing a committed act the draft REPLACES it rather than
-   * adding to it, so that act is left out instead of being counted at its stale cost.
-   */
-  const grandTotal = useMemo(() => {
-    const others = state.acts.reduce(
-      (sum, a) =>
-        a.key === state.editingKey ? sum : sum + resolveActCost(a.unitCost, a.perTooth, a.toothNumbers.length),
-      0,
-    )
-    return roundMillimes(others + draftTotal)
-  }, [state.acts, state.editingKey, draftTotal])
-
-  const editingAct = useMemo(
-    () => (state.editingKey ? (state.acts.find((a) => a.key === state.editingKey) ?? null) : null),
-    [state.acts, state.editingKey],
-  )
-
-  return { ...state, total, hasDraft, draftTotal, grandTotal, editingAct, dispatch }
+  return { ...state, namedActs, grandTotal, focusedAct, dispatch }
 }

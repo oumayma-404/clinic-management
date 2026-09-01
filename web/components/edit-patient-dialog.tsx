@@ -682,10 +682,22 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       }
     }
 
-    // Required: it decides which chart every future séance is recorded on, and there is no neutral value.
-    if (!dentition) {
-      newErrors.dentition = "La denture est requise"
-    }
+    /*
+     * ⚠️ **La denture is no longer required either, and it was the last blocking field beyond the two names.**
+     *
+     * It was kept mandatory because « it decides which chart every future séance is recorded on, and there is no
+     * neutral value » — the first half is true and the second is what made requiring it pointless. `DentitionType`
+     * has exactly `Child` and `Adult`, so a desk that does not know is forced to *pick* one, and a guessed
+     * « Adulte » is indistinguishable from an answered one. That is the same fabrication the sexe and the date de
+     * naissance were made optional to stop, one field further along.
+     *
+     * Nothing downstream breaks, and this is why: `CreatePatientCommand.Dentition` is already optional **on the
+     * wire**, an absent value falls through `DentitionRules.Parse` to `FromDateOfBirth`, and that answers **null**
+     * with no date of birth rather than assuming — so nothing is asserted. The entity keeps `Adult` as a storage
+     * default for a NOT NULL column, and the odontogram **does not trust it blindly**: with no date of birth it
+     * asks (AC-18). So « unanswered » stays a question the chart puts to the dentist, instead of a claim the form
+     * put in the record.
+     */
 
     // Optional, in both modes: `Patients.PhoneNumber` is nullable and a walk-in, a child or an elderly patient
     // is routinely registered with a name alone. Requiring it here refused that record outright and pushed
@@ -1117,11 +1129,12 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   from the age so the common case is already right; changeable because the age rule is a heuristic
                   and a growing child has to be switchable.
 
-                  ⚠️ Third, directly under the two names, because it is the third and last REQUIRED field — it sat
-                  fifth, below four fields that are all optional or merely recommended, so the form asked for a
-                  telephone, an e-mail, a sexe and a date of birth before the last thing it would actually refuse to
-                  save without. « L'essentiel suffit à enregistrer le patient » is the section's own promise, and the
-                  three fields that make it true now read top-to-bottom.
+                  ⚠️ Directly under the two names, and it is **no longer required** — « L'essentiel suffit à
+                  enregistrer le patient » now means exactly two fields, the prénom and the nom. It stays third
+                  because it is still the most *useful* answer on the form (it decides the chart every future séance
+                  is recorded on), not because the form refuses to save without it. See the validator above for why
+                  demanding a two-valued enum from a desk that does not know is a fabrication generator rather than a
+                  data-quality guarantee, and why nothing downstream breaks when it is left blank.
 
                   It is above the date of birth it is seeded from, and that is fine in both directions: answering it
                   here is an explicit choice and `dentitionTouched` rightly stops the derivation, while leaving it
@@ -1129,7 +1142,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 */}
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="dentition-Child">
-                    Denture <span className="text-destructive">*</span>
+                    Denture <span className="text-muted-foreground text-xs">(recommandé)</span>
                   </Label>
                   <div
                     role="radiogroup"
@@ -1313,7 +1326,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <Label htmlFor={birthdateMode === "age" ? "approximate-age" : "birthdate"}>
-                      Date de naissance <span className="text-muted-foreground text-xs">(facultatif)</span>
+                      Date de naissance <span className="text-muted-foreground text-xs">(recommandé)</span>
                     </Label>
                     {/* The switch itself. `role="radiogroup"` and not two independent toggles: they are the two
                         answers to one question, and a screen reader has to hear it that way. */}

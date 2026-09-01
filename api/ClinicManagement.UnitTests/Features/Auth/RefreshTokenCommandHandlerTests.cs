@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Auth;
 using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -187,6 +188,72 @@ public class RefreshTokenCommandHandlerTests
         // Each exchange mints its own credential and neither invalidates the one presented.
         Assert.Equal("refresh-jwt-2", first.Value!.RefreshToken);
         Assert.Equal("refresh-jwt-3", second.Value!.RefreshToken);
+    }
+
+    /// <summary>
+    /// A session that has ENDED refuses the exchange, and does <b>not</b> report a replay.
+    ///
+    /// <para>⚠️ This is the regression for two false alarms that reached a real user on 2026-09-01, at 09:59
+    /// and 13:29 Tunis. <c>SessionFamily.Match</c> returns <c>None</c> for any family that is not live, and the
+    /// handler read that <c>None</c> as « a credential already replaced was presented » — so an ordinary
+    /// sign-out, followed seconds later by the last in-flight refresh of a lingering tab, told the account
+    /// holder their session may have been stolen and advised them to change their password.</para>
+    ///
+    /// <para>The production database proved it false: all six ended families that day recorded « Déconnexion
+    /// demandée par l'utilisateur » and none recorded a replay — because <c>End</c> is idempotent and keeps the
+    /// FIRST reason, so the replay branch re-ended an already-ended family, wrote nothing, and notified anyway.
+    /// Both halves are asserted here: the refusal still happens, and nobody is accused of it.</para>
+    /// </summary>
+    [Fact]
+    public async Task An_Ended_Session_Is_Refused_Without_Reporting_A_Replay()
+    {
+        var user = LocalUser();
+        var family = new SessionFamily(user.Id, SessionCredential.Hash(Credential), RefreshExpiry);
+        family.End("Déconnexion demandée par l'utilisateur");
+
+        _auth.Setup(a => a.ValidateRefreshToken(Credential))
+            .Returns(new RefreshTokenPrincipal(user.Id, user.TokenVersion, family.Id));
+        _users.Setup(r => r.GetByAuth0SubAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _sessionFamilies.Setup(r => r.GetByIdAsync(family.Id, It.IsAny<CancellationToken>())).ReturnsAsync(family);
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+
+        // The accusation is the defect, so it is the assertion: no notification of any kind is generated.
+        _notifications.VerifyNoOtherCalls();
+
+        // And the reason the sign-out recorded is left standing, rather than overwritten by a replay that
+        // never happened.
+        Assert.Equal("Déconnexion demandée par l'utilisateur", family.EndedReason);
+    }
+
+    /// <summary>
+    /// The other side of the guard above: a credential more than one generation stale, presented against a
+    /// session that is STILL LIVE, is a genuine replay and must still end that session and report it.
+    ///
+    /// <para>Without this the fix could be « stop notifying » rather than « stop notifying when it is not
+    /// true », and the security control the notification exists for would be gone with nothing failing.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_Genuinely_Stale_Credential_On_A_Live_Session_Is_Still_Reported()
+    {
+        var user = LocalUser();
+        var family = new SessionFamily(user.Id, SessionCredential.Hash("some-older-credential"), RefreshExpiry);
+        // Two rotations, so the credential being presented is neither current nor previous.
+        family.Rotate(SessionCredential.Hash("rotated-once"), RefreshExpiry);
+        family.Rotate(SessionCredential.Hash("rotated-twice"), RefreshExpiry);
+
+        _auth.Setup(a => a.ValidateRefreshToken(Credential))
+            .Returns(new RefreshTokenPrincipal(user.Id, user.TokenVersion, family.Id));
+        _users.Setup(r => r.GetByAuth0SubAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _sessionFamilies.Setup(r => r.GetByIdAsync(family.Id, It.IsAny<CancellationToken>())).ReturnsAsync(family);
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.False(family.IsLive);
+        Assert.Equal("Un identifiant de session déjà remplacé a été présenté.", family.EndedReason);
     }
 
     /// <summary>

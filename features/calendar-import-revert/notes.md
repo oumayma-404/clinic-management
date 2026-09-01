@@ -17,8 +17,9 @@ let a visit leave the worklist only as `Completed`, `Cancelled` or `NoShow` — 
 product had no way to say « ce rendez-vous n'aurait jamais dû exister ». So the cabinet cancelled them, and two
 things happened that nobody wanted. `DashboardActivityReader`'s `MissedStatuses` counts `Cancelled` beside
 `NoShow`, so every cancellation inflated the « taux d'absence » it was trying to clean up. And
-`GoogleCalendarSyncService` pushes a delete for a `Cancelled` appointment, so **tidying the app erased entries
-from the practice's own Google calendar** — permanently, before any of this shipped.
+`GoogleCalendarSyncService` **pushed** a delete for a `Cancelled` appointment, so **tidying the app erased entries
+from the practice's own Google calendar** — permanently, and before any of this shipped. (That call is gone now; see
+« Nothing deletes a Google event any more » below. The entries already destroyed stay destroyed.)
 
 ⚠️ **The statistics needed no repair code, and that was the design.** The taux d'absence, « Rendez-vous par
 statut » and every activity figure are *derived reads over appointment rows*. Delete the phantom rows and the
@@ -61,9 +62,11 @@ can be cherry-picked or reverted alone.
 - A placeholder patient is kept when anything beyond this run's own appointments and its import notification is
   attached — `PatientDeletionBlockers.From(PatientLinkedDataCounts)`, the test `MergeIntoSuggestedDuplicateCommand`
   already takes, evaluated **before anything is written**.
-- ⚠️ **The revert never calls `DeleteEventAsync` and never routes a deletion through `Appointment.Cancel()`.**
-  Cancel pushes a Google delete; a revert that went that way would finish destroying the calendar it exists to
-  protect. Pinned by a test asserting **zero** calls.
+- ⚠️ **The revert never routes a deletion through `Appointment.Cancel()`.** Cancel *pushed* a Google delete, so a
+  revert that went that way would have finished destroying the calendar it exists to protect. `DeleteEventAsync`
+  has since been removed outright, so that particular hazard is gone at the root — the assertions stay because the
+  undo has other reasons not to reach Google (it is a bulk write) and because « the capability was removed » is the
+  kind of fact a later change can quietly reverse.
 - ⚠️ **Reminders are deleted explicitly, before the appointments.** `NotificationConfiguration` is
   `OnDelete(SetNull)`, so deleting an appointment otherwise leaves its scheduled reminder alive with a null
   `AppointmentId` — and the minutely dispatcher would still send it. A patient must not get an SMS for a visit
@@ -116,6 +119,34 @@ already had by construction (« à clôturer » and « retirées » cannot overl
 the page: filtering an already-cut page of 20 answers « the masked ones among these 20 » and reports « aucune fiche
 masquée » for a practice whose masked rows sit on page 2. `PatientRepository.PendingReviewQuery` is shared with
 `PendingReviewComplementTests`, which compiles that expression rather than a copy of it.
+
+### Nothing deletes a Google event any more
+
+The spec listed this as out of scope — « the push deleting the Google event when a visit is **`Completed`**, which
+makes a practice's calendar erase itself as each day is worked. A real question, a separate one. » It is answered,
+and more broadly than the line asked.
+
+`IGoogleCalendarService.DeleteEventAsync` fired on `Cancelled || Completed`. « Terminé » is the most ordinary action
+in the product — « À clôturer » asks for it on every visit and `AppointmentProgressJob` reaches the same path — so
+**every appointment a cabinet actually honoured was erased from its own Google agenda** and the event id nulled,
+silently. A dentist looking back at last Tuesday found the day they had worked *emptier* than the day they had not.
+The same call on cancellation is how this cabinet, tidying up the unwanted import, destroyed a hundred real entries
+of its own calendar — a loss that is permanent and that no undo in this product can reach.
+
+⚠️ **The fix removed the capability, not its call sites.** `DeleteEventAsync` is gone from the contract *and* the
+client, so « never » is a compile error rather than a condition one character away from coming back. The calendar
+belongs to the practice: this product adds to it and corrects what it added, and removes nothing.
+
+⚠️ **A terminal visit keeps its event, and never gains one it never had.** It falls through to the update path,
+which rewrites the description with `Status: Cancelled` / `Status: Completed` — strictly more information than
+deleting gave. But a terminal visit with *no* event id returns early rather than falling through, because the
+branch below it **creates**: without that guard, closing a historical visit on « À clôturer » would push a fresh
+event into Google months after the fact — including for every row whose id the old delete had already nulled.
+
+`GoogleCalendarNeverDeletesTests` guards it three ways, because each catches a different way it returns: reflection
+over the contract, reflection over the client, and a **source scan** for the SDK's own `service.Events.Delete`
+called inline with no method of ours wrapping it — the one shape reflection cannot see. Red-proofed by injecting
+that exact shape and watching it fail.
 
 ### The retirement
 
