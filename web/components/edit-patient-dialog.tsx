@@ -1238,83 +1238,6 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   )}
                 </div>
 
-                {/* Rappels automatiques — deliberately beside the phone number rather than in a settings screen.
-                    Recording a number used to enrol the patient into SMS/WhatsApp with no way out; the answer is
-                    taken where the number is taken, which is the one moment somebody is actually speaking to the
-                    patient. A separate screen would be a control nobody opens. */}
-                <div className="space-y-2">
-                  <Label htmlFor="reminderConsent">Rappels automatiques (SMS / WhatsApp)</Label>
-                  <Select
-                    value={reminderConsent}
-                    onValueChange={(v) => setReminderConsent(v as ReminderConsent)}
-                  >
-                    <SelectTrigger id="reminderConsent" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="NotRecorded">Non renseigné</SelectItem>
-                      <SelectItem value="Granted">Le patient accepte</SelectItem>
-                      <SelectItem value="Refused">Le patient refuse</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {/* Each state says what will actually happen, because « non renseigné » is the one people
-                      misread — it sends, and a cabinet that assumes otherwise is the whole risk here. */}
-                  <p className="text-xs text-muted-foreground">
-                    {reminderConsent === "Refused"
-                      ? "Aucun rappel ni relance ne sera envoyé à ce patient, même avec un numéro valide."
-                      : reminderConsent === "Granted"
-                        ? "Ce patient recevra les rappels de rendez-vous et les relances."
-                        : "Tant que la question n'a pas été posée, ce patient reçoit les rappels. Enregistrez sa réponse dès que possible."}
-                  </p>
-                  {consentRecordedLabel && (
-                    <p className="text-xs text-muted-foreground">{consentRecordedLabel}</p>
-                  )}
-                </div>
-
-                {/* Email */}
-                <div className="space-y-2">
-                  <Label htmlFor="email">
-                    E-mail <span className="text-muted-foreground text-xs">(facultatif)</span>
-                  </Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="mohamed.bensalah@email.tn"
-                    autoComplete="email"
-                    aria-invalid={!!errors.email}
-                    className={cn(errors.email && "border-destructive")}
-                  />
-                  {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
-                </div>
-
-                {/* Gender */}
-                <div className="space-y-2">
-                  <Label htmlFor="gender">
-                    Sexe <span className="text-muted-foreground text-xs">(facultatif)</span>
-                  </Label>
-                  <Select value={gender} onValueChange={setGender}>
-                    <SelectTrigger id="gender" className={cn("w-full", errors.gender && "border-destructive")}>
-                      <SelectValue placeholder="Sélectionner le sexe" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {/* AC-P1.45: values stay the English storage keys; labels come from the shared map. */}
-                      {SELECTABLE_GENDERS.map((g) => (
-                        <SelectItem key={g} value={g}>
-                          {genderLabel(g)}
-                        </SelectItem>
-                      ))}
-                      {/* AC-P1.46: an existing "Unknown" row hydrated the Select with a value no option
-                          matched, so the trigger fell back to the placeholder and looked unset. */}
-                      {gender && !SELECTABLE_GENDERS.includes(gender as (typeof SELECTABLE_GENDERS)[number]) && (
-                        <SelectItem value={gender}>{genderLabel(gender)}</SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
-                  {errors.gender && <p className="text-sm text-destructive">{errors.gender}</p>}
-                </div>
-
                 {/*
                   Date of birth — or, when the patient does not know it, an age.
 
@@ -1407,6 +1330,82 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   )}
                   {errors.birthdate && <p className="text-sm text-destructive">{errors.birthdate}</p>}
                   {errors.approximateAge && <p className="text-sm text-destructive">{errors.approximateAge}</p>}
+                </div>
+
+                {/* Email */}
+                <div className="space-y-2">
+                  <Label htmlFor="email">
+                    E-mail <span className="text-muted-foreground text-xs">(facultatif)</span>
+                  </Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="mohamed.bensalah@email.tn"
+                    autoComplete="email"
+                    aria-invalid={!!errors.email}
+                    className={cn(errors.email && "border-destructive")}
+                  />
+                  {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
+                </div>
+
+                {/* Gender */}
+                <div className="space-y-2">
+                  <Label htmlFor="gender">
+                    Sexe <span className="text-muted-foreground text-xs">(facultatif)</span>
+                  </Label>
+                  <Select value={gender} onValueChange={setGender}>
+                    <SelectTrigger id="gender" className={cn("w-full", errors.gender && "border-destructive")}>
+                      <SelectValue placeholder="Sélectionner le sexe" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {/* AC-P1.45: values stay the English storage keys; labels come from the shared map. */}
+                      {SELECTABLE_GENDERS.map((g) => (
+                        <SelectItem key={g} value={g}>
+                          {genderLabel(g)}
+                        </SelectItem>
+                      ))}
+                      {/* AC-P1.46: an existing "Unknown" row hydrated the Select with a value no option
+                          matched, so the trigger fell back to the placeholder and looked unset. */}
+                      {gender && !SELECTABLE_GENDERS.includes(gender as (typeof SELECTABLE_GENDERS)[number]) && (
+                        <SelectItem value={gender}>{genderLabel(gender)}</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {errors.gender && <p className="text-sm text-destructive">{errors.gender}</p>}
+                </div>
+
+                {/* Rappels automatiques — on this form rather than in a settings screen. Recording a number
+                    used to enrol the patient into SMS/WhatsApp with no way out; the answer is taken while somebody
+                    is actually speaking to the patient, and a separate screen would be a control nobody opens. */}
+                <div className="space-y-2">
+                  <Label htmlFor="reminderConsent">Rappels automatiques (SMS / WhatsApp)</Label>
+                  <Select
+                    value={reminderConsent}
+                    onValueChange={(v) => setReminderConsent(v as ReminderConsent)}
+                  >
+                    <SelectTrigger id="reminderConsent" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="NotRecorded">Non renseigné</SelectItem>
+                      <SelectItem value="Granted">Le patient accepte</SelectItem>
+                      <SelectItem value="Refused">Le patient refuse</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {/* Each state says what will actually happen, because « non renseigné » is the one people
+                      misread — it sends, and a cabinet that assumes otherwise is the whole risk here. */}
+                  <p className="text-xs text-muted-foreground">
+                    {reminderConsent === "Refused"
+                      ? "Aucun rappel ni relance ne sera envoyé à ce patient, même avec un numéro valide."
+                      : reminderConsent === "Granted"
+                        ? "Ce patient recevra les rappels de rendez-vous et les relances."
+                        : "Tant que la question n'a pas été posée, ce patient reçoit les rappels. Enregistrez sa réponse dès que possible."}
+                  </p>
+                  {consentRecordedLabel && (
+                    <p className="text-xs text-muted-foreground">{consentRecordedLabel}</p>
+                  )}
                 </div>
 
                 {/* « Adressé par » — after the identity fields, not before them: it is a fact *about* the patient,

@@ -33,6 +33,7 @@ import {
 import type { ToothStateDto, ProcedureTypeDto, DentalRecordDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { formatDateFr } from "@/lib/format"
+import { seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/components/odontogram-plan-seed"
 import { CONDITION_ORDER, conditionStyle, SURFACE_LABELS, serializeSurfaces } from "@/components/odontogram-conditions"
 import { OdontogramActsChart } from "@/components/odontogram-acts-chart"
 // One source for the FDI quadrant layout — `tooth-multiselect` is the client-side authority for a tooth's
@@ -51,36 +52,6 @@ const MAX_DOTS = 4
 const DIAGNOSIS_CONDITIONS = CONDITION_ORDER.filter((c) => c !== "Sain")
 
 const isDiagnosis = (entry: ToothStateDto) => entry.source === "Diagnosis"
-
-/** One draft plan line seeded from an open diagnosis (consumed by the treatment-plan editor). */
-export interface OdontogramPlanSeed {
-  toothNumbers: number[]
-  /**
-   * The act to perform — a PROCEDURE, never the diagnosis.
-   *
-   * Filled with the matched procedure's name when the charted condition named exactly one, and left **empty**
-   * otherwise, which is every pathology (Carie, À traiter…). It used to be the condition label
-   * (« Carie — dent 15 »), so a devis built from the odontogram billed the diagnosis as if it were an act and
-   * the dentist had to notice and retype every line.
-   */
-  designationFr: string
-  /**
-   * What was charted, for display only — « Carie — dent 15 ». Shown under the designation field so the
-   * dentist can see what they are treating while choosing the act. Never persisted: a diagnosis is not a
-   * billable line, and medical secrecy keeps it off the devis.
-   */
-  diagnosisLabel: string
-  /** The charted condition itself, so the UI can colour the hint with that condition's own palette. */
-  diagnosisCondition: string
-  /** Prefilled planned cost from the matching procedure-type default (omitted when no catalog match). */
-  plannedCost?: number
-  /**
-   * The procedure that treats the charted condition, when exactly one was matched. Carried through to the plan
-   * act so booking it can preselect the procedure — the seeded designation is a condition label
-   * (« Couronne — dent 16 »), so it would never resolve by name.
-   */
-  procedureTypeId?: string
-}
 
 interface OdontogramProps {
   patientId: string
@@ -249,50 +220,75 @@ export function Odontogram({ patientId, dentition, dateOfBirth, onCreatePlan }: 
   const mustAskDentition =
     !dateOfBirth && chosenView === null && byTooth.size === 0
 
-  // A charted diagnosis names the desired end-state (e.g. "Couronne"); a procedure whose ResultingCondition
-  // is that state is its treatment, so its default cost is the planned cost. Pathology diagnoses (Carie…)
-  // have no such procedure and fall back to no prefill (0) — as allowed by the spec.
-  const procedureByCondition = useMemo(() => {
-    const map = new Map<string, ProcedureTypeDto>()
+  /**
+   * Diagnosis → the acts this clinic offers for it, best first.
+   *
+   * ⚠️ Built from each act's own `treats`, which the server computes from `ConditionTreatments`. It replaced an
+   * inversion of `resultingCondition` — « the act that leaves the tooth in this state » — which is a different
+   * question and answered nothing for a pathology, since no act ends in « Carie ». That inversion also kept the
+   * FIRST act per state out of a list ordered by category then name, so « Extrait / Absent » resolved to the
+   * surgical extraction (200 DT) over the simple one (60 DT) by alphabetical accident.
+   */
+  const candidatesByCondition = useMemo(() => {
+    const map = new Map<string, SeedCandidate[]>()
     for (const pt of procedureTypes) {
-      if (pt.resultingCondition && !map.has(pt.resultingCondition)) {
-        map.set(pt.resultingCondition, pt)
+      for (const t of pt.treats ?? []) {
+        const list = map.get(t.condition) ?? []
+        list.push({
+          procedureTypeId: pt.id,
+          name: pt.name,
+          defaultCost: pt.defaultCost,
+          perTooth: pt.resultingCondition != null,
+          rank: t.rank,
+        })
+        map.set(t.condition, list)
       }
+    }
+    for (const [condition, list] of map) {
+      // Rank first (the clinical order), then the cheaper act — a tie is two ways of doing the same thing.
+      list.sort((a, b) => a.rank - b.rank || (a.defaultCost ?? 0) - (b.defaultCost ?? 0))
+      map.set(condition, list)
     }
     return map
   }, [procedureTypes])
 
-  // Open diagnoses (not yet treated), one seed per tooth, for "create a plan from the odontogram".
+  /**
+   * Open diagnoses, **one seed per diagnosis** rather than per tooth: two caries are one line carrying both
+   * teeth. A tooth charted with two different diagnoses appears in both lines, which is correct — they are two
+   * pieces of work.
+   */
   const planSeeds = useMemo<OdontogramPlanSeed[]>(() => {
-    const seeds: OdontogramPlanSeed[] = []
+    const teethByCondition = new Map<string, number[]>()
     for (const [tooth, entries] of Array.from(byTooth.entries()).sort((a, b) => a[0] - b[0])) {
-      const diagnoses = entries.filter(isDiagnosis)
-      if (diagnoses.length === 0) continue
-      const conditions = Array.from(new Set(diagnoses.map((d) => d.condition)))
-      const labels = conditions.map((c) => conditionStyle(c).label)
-      const matchedCost = conditions.reduce(
-        (sum, c) => sum + (procedureByCondition.get(c)?.defaultCost ?? 0),
-        0,
-      )
-      // Only a single charted condition names a single procedure. A tooth carrying two diagnoses becomes one
-      // aggregated line whose cost is the sum, and no one procedure speaks for it — so it carries no link
-      // rather than an arbitrary one.
-      const soleProcedure = conditions.length === 1 ? procedureByCondition.get(conditions[0]) : undefined
-      seeds.push({
-        toothNumbers: [tooth],
-        // The PROCEDURE, when the condition named exactly one — and its name, not the condition's label, so
-        // it agrees with the procedureTypeId and plannedCost carried alongside. Blank for a pathology, which
-        // is the whole point: the dentist chooses how to treat a carie; the app must not choose for them.
-        designationFr: soleProcedure?.name ?? "",
-        // The diagnosis travels separately, as context rather than as content.
-        diagnosisLabel: `${labels.join(", ")} — dent ${tooth}`,
-        diagnosisCondition: conditions.length === 1 ? conditions[0] : "",
-        plannedCost: matchedCost > 0 ? matchedCost : undefined,
-        procedureTypeId: soleProcedure?.id,
-      })
+      for (const condition of new Set(entries.filter(isDiagnosis).map((d) => d.condition))) {
+        teethByCondition.set(condition, [...(teethByCondition.get(condition) ?? []), tooth])
+      }
     }
-    return seeds
-  }, [byTooth, procedureByCondition])
+
+    // Charting order, so the list reads the way the mouth was examined rather than alphabetically.
+    return DIAGNOSIS_CONDITIONS.filter((c) => teethByCondition.has(c)).map((condition) => {
+      const teeth = teethByCondition.get(condition)!
+      const candidates = candidatesByCondition.get(condition) ?? []
+      // Pre-fill ONLY when the first choice is unambiguous. Several acts at rank 0 is the catalogue saying the
+      // decision is clinical (simple vs surgical extraction), and filling one of them in silently is how a
+      // devis leaves with the wrong number on it.
+      const topRank = candidates.length > 0 ? candidates[0].rank : -1
+      const atTop = candidates.filter((c) => c.rank === topRank)
+      const sole = atTop.length === 1 ? atTop[0] : undefined
+
+      return {
+        toothNumbers: teeth,
+        designationFr: sole?.name ?? "",
+        diagnosisLabel: `${conditionStyle(condition).label} — ${
+          teeth.length === 1 ? `dent ${teeth[0]}` : `dents ${teeth.join(", ")}`
+        }`,
+        diagnosisCondition: condition,
+        plannedCost: sole ? seedCost(sole, teeth.length) : undefined,
+        procedureTypeId: sole?.procedureTypeId,
+        candidates,
+      }
+    })
+  }, [byTooth, candidatesByCondition])
 
   /**
    * Which arch the phone opens on. Below `md:` `ToothArchLayout` shows one at a time and used to always start on

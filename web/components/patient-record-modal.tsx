@@ -29,9 +29,7 @@ import type {
   AppointmentDto,
 } from "@/lib/api/types"
 import { formatAmount, formatDT, parseAmountInput, quoteFr, roundMillimes, toLocalIso, todayLocalIso } from "@/lib/format"
-import {
-  CONDITION_ORDER, conditionStyle, needsTreatment, serializeSurfaces,
-} from "@/components/odontogram-conditions"
+import { conditionStyle, needsTreatment, serializeSurfaces } from "@/components/odontogram-conditions"
 import { ARCH_QUADRANTS_BY_VIEW, FDI_BY_VIEW, isAdultTooth } from "@/components/tooth-multiselect"
 import { dentitionViewFor, dentitionViewForTeeth, type DentitionView } from "@/lib/dentition"
 import { DentitionViewSwitch } from "@/components/dentition-view-switch"
@@ -1073,38 +1071,34 @@ export function PatientRecordModal({
                 <span className="shrink-0 font-medium">Légende</span>
                 {legendOpen ? (
                   <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    {CONDITION_ORDER.filter((c) => c !== "Sain").map((c) => (
-                      <span key={c} className="flex items-center gap-1">
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: conditionStyle(c).color }}
-                        />
-                        {conditionStyle(c).label}
-                      </span>
-                    ))}
+                    {namedActs.length === 0 ? (
+                      <span className="italic">Aucun acte encore — le remplissage prendra la couleur de sa carte.</span>
+                    ) : (
+                      namedActs.map((a) => (
+                        <span key={a.key} className="flex items-center gap-1">
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: actColors.get(a.key) }}
+                          />
+                          {a.procedureName}
+                        </span>
+                      ))
+                    )}
                     <span className="flex items-center gap-1">
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-dashed border-muted-foreground/70" />
                       contour = état déjà au dossier
                     </span>
-                    {/* The two axes are different things and the legend has to say so: the outline is a
-                        CONDITION (what the dossier already holds) while the fill is an ACT of this séance,
-                        coloured to match its card — which is what makes « quelle dent pour quel acte ? »
-                        answerable when several acts are charted at once. */}
-                    <span className="flex items-center gap-1">
-                      <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/70" />
-                      remplissage = l&apos;acte de la séance (couleur de sa carte)
-                    </span>
                   </span>
                 ) : (
                   <>
-                    {/* `aria-hidden`: collapsed, these dots are a preview of what expanding reveals, and eight
+                    {/* `aria-hidden`: collapsed these dots are a preview of what expanding names, and a row of
                         unlabelled colours announced one by one is noise. The button's own name carries the action. */}
                     <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
-                      {CONDITION_ORDER.filter((c) => c !== "Sain").map((c) => (
+                      {namedActs.map((a) => (
                         <span
-                          key={c}
+                          key={a.key}
                           className="h-2.5 w-2.5 rounded-full"
-                          style={{ backgroundColor: conditionStyle(c).color }}
+                          style={{ backgroundColor: actColors.get(a.key) }}
                         />
                       ))}
                     </span>

@@ -40,32 +40,103 @@ export const CONDITIONS: Record<string, ConditionStyle> = {
    * is not a place to print small type, but strictly better than what it replaces.
    */
   ATraiter: { label: "À traiter", box: "bg-pink-500 text-white border-pink-600", swatch: "bg-pink-500", color: "#ec4899" },
+
+  /*
+   * ⚠️ The six added by `odontogram-plan-suggestions` all sit in hue families the nine above had left free, and
+   * all at a LOWER lightness than their nearest neighbour — the legend's 12 px swatch is the size this palette
+   * has to survive, and the « À traiter » lesson recorded above is that two hues within ~20 ΔE read as one
+   * colour at that size. Nearest neighbour is named per entry.
+   */
+  // brown; nearest is Couronne #f59e0b — same warm family, ~35 points darker
+  Fracture: { label: "Fracture", box: "bg-amber-800 text-white border-amber-900", swatch: "bg-amber-800", color: "#92400e" },
+  // olive; the green/lime region was entirely unused
+  RacineResiduelle: { label: "Racine résiduelle", box: "bg-lime-700 text-white border-lime-800", swatch: "bg-lime-700", color: "#4d7c0f" },
+  // indigo; between Obturation's blue and Traitement de canal's purple, and darker than both
+  DentIncluse: { label: "Dent incluse", box: "bg-indigo-700 text-white border-indigo-800", swatch: "bg-indigo-700", color: "#4338ca" },
+  // dark cyan; deliberately the blue family — it IS an obturation, the failing one
+  RestaurationDefectueuse: { label: "Restauration défectueuse", box: "bg-cyan-700 text-white border-cyan-800", swatch: "bg-cyan-700", color: "#0e7490" },
+  // dark purple; the endodontic family, one step below Traitement de canal, which is what it indicates
+  LesionPeriapicale: { label: "Lésion périapicale", box: "bg-purple-700 text-white border-purple-800", swatch: "bg-purple-700", color: "#7e22ce" },
+  // wine; the colour of inflamed gingiva, and ~35 points below « À traiter »'s pink
+  MaladieParodontale: { label: "Maladie parodontale", box: "bg-pink-900 text-white border-pink-950", swatch: "bg-pink-900", color: "#831843" },
 }
 
-// Order for the condition <Select> and the legend.
+/**
+ * Order for the condition <Select> and the legend — **what is wrong first, what was done second**.
+ *
+ * At fifteen members a flat alphabetical-ish list is a scan; charting starts from « what am I looking at », and
+ * that is a pathology far more often than it is a restoration. The two runs are separated by `CONDITION_FAMILY`
+ * so a picker can head them without keeping its own copy of the split.
+ */
 export const CONDITION_ORDER = [
   "Sain",
+  // à soigner
   "Carie",
+  "RestaurationDefectueuse",
+  "Fracture",
+  "LesionPeriapicale",
+  "RacineResiduelle",
+  "MaladieParodontale",
+  "ATraiter",
+  // constat
+  "DentIncluse",
+  "ExtraitAbsent",
+  // déjà traité
   "Obturation",
-  "Couronne",
   "TraitementDeCanal",
+  "Couronne",
   "Bridge",
   "Implant",
-  "ExtraitAbsent",
-  "ATraiter",
 ]
 
+/** Which run of {@link CONDITION_ORDER} a condition belongs to, for a picker that heads its groups. */
+export type ConditionFamily = "sain" | "pathologie" | "constat" | "traite"
+
+export const CONDITION_FAMILY: Record<string, ConditionFamily> = {
+  Sain: "sain",
+  Carie: "pathologie",
+  RestaurationDefectueuse: "pathologie",
+  Fracture: "pathologie",
+  LesionPeriapicale: "pathologie",
+  RacineResiduelle: "pathologie",
+  MaladieParodontale: "pathologie",
+  ATraiter: "pathologie",
+  DentIncluse: "constat",
+  ExtraitAbsent: "constat",
+  Obturation: "traite",
+  TraitementDeCanal: "traite",
+  Couronne: "traite",
+  Bridge: "traite",
+  Implant: "traite",
+}
+
+export const CONDITION_FAMILY_LABEL: Record<ConditionFamily, string> = {
+  sain: "",
+  pathologie: "À soigner",
+  constat: "Constat",
+  traite: "Déjà traité",
+}
+
 /**
- * The conditions that describe **work still to do**, as opposed to work already done or a tooth that is gone.
+ * The conditions that describe **work still to do** — the ones that seed a plan from the odontogram and the ones
+ * counted in « N dents à traiter ».
  *
- * A charted diagnosis records what the dentist *observed*, and most of the observations are restorations:
- * « Obturation », « Couronne », « Traitement de canal », « Bridge », « Implant » all say the tooth has already been
- * treated, and « Extrait / Absent » says there is no tooth. Only « Carie » and « À traiter » call for an act.
+ * <p>⚠️ `DentIncluse` and `ExtraitAbsent` are absent although both carry treatments: an impacted tooth is
+ * usually monitored and a missing one is only replaced if the patient wants it, so counting either as
+ * outstanding work inflates the one figure a dentist has to be able to trust.</p>
  *
- * Kept here rather than inline in the record modal because it is a statement about the condition set itself, and
- * the same question ("does this tooth need something?") belongs to the odontogram too.
+ * <p>⚠️ **Mirrors `ConditionTreatments.NeedsTreatment` on the server**, and
+ * `OdontogramConditionMirrorTests` parses this file and fails the build if the two sets drift.</p>
  */
-export const NEEDS_TREATMENT_CONDITIONS = ["Carie", "ATraiter"] as const
+export const NEEDS_TREATMENT_CONDITIONS = [
+  "Carie",
+  "ATraiter",
+  "Fracture",
+  "RacineResiduelle",
+  "RestaurationDefectueuse",
+  "LesionPeriapicale",
+  "MaladieParodontale",
+] as const
 
 /** True when a charted condition calls for treatment. Unknown values read as "no" — never invent work. */
 export function needsTreatment(condition: string | null | undefined): boolean {
