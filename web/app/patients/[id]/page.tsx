@@ -78,6 +78,7 @@ import { ApiError } from "@/lib/api/client"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { ExportButton } from "@/components/ui/export-button"
 import { PatientRecordModal } from "@/components/patient-record-modal"
+import { RecordActsSummary } from "@/components/patient/record-acts-summary"
 import { Edit } from "lucide-react"
 import { Receipt } from "lucide-react"
 import { Smile, ClipboardCheck, FolderOpen } from "lucide-react"
@@ -1458,16 +1459,12 @@ export default function PatientDetailsPage() {
                           (record.notes?.length ?? 0) + (record.importantNotes?.length ?? 0) > 0
                         return [
                           {
-                            label: "Dents",
+                            // « Dents » on a multi-act séance was the union of every act's teeth with nothing
+                            // saying which was which — the same defect as the desktop table's two columns.
+                            label: (record.acts?.length ?? 0) > 1 ? "Actes" : "Dents",
                             value:
-                              record.toothNumbers.length > 0 ? (
-                                <span className="inline-flex flex-wrap justify-end gap-1">
-                                  {record.toothNumbers.map((toothNum) => (
-                                    <Badge key={toothNum} variant="secondary" className="text-xs">
-                                      {toothNum}
-                                    </Badge>
-                                  ))}
-                                </span>
+                              (record.acts?.length ?? 0) > 1 || record.toothNumbers.length > 0 ? (
+                                <RecordActsSummary record={record} align="end" hideSingleName />
                               ) : null,
                           },
                           {
@@ -1540,10 +1537,11 @@ export default function PatientDetailsPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Date</TableHead>
-                          <TableHead>Type d'acte</TableHead>
-                          {/* « Type de dents » removed: the dentition is a property of the patient, stated once
-                              in their file, so repeating it on every row said nothing per-row. */}
-                          <TableHead>Dents</TableHead>
+                          {/* ONE column, because « Type d'acte » and « Dents » were two answers to one question.
+                              The first held the server's comma-joined summary of every act, the second the flat
+                              union of every act's teeth — so a séance of two acts printed both names beside all
+                              five teeth and said nothing about which belonged to which. */}
+                          <TableHead>Actes</TableHead>
                           <TableHead>Montant payé</TableHead>
                           <TableHead>Reste</TableHead>
                           <TableHead>Notes</TableHead>
@@ -1556,19 +1554,8 @@ export default function PatientDetailsPage() {
                             <TableCell className="font-medium">
                               {formatDate(record.interventionDate)}
                             </TableCell>
-                            <TableCell>{record.procedureType}</TableCell>
                             <TableCell>
-                              {record.toothNumbers.length > 0 ? (
-                                <div className="flex flex-wrap gap-1">
-                                  {record.toothNumbers.map((toothNum) => (
-                                    <Badge key={toothNum} variant="secondary" className="text-xs">
-                                      {toothNum}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground text-sm">-</span>
-                              )}
+                              <RecordActsSummary record={record} />
                             </TableCell>
                             <TableCell>
                               {invoicedDentalRecordIds.has(record.id) ? (

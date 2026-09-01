@@ -5,13 +5,12 @@ import { Button } from "@/components/ui/button"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
-import { Trash2, Plus, Check, Stethoscope, ChevronDown, ChevronRight } from "lucide-react"
+import { Trash2, Plus, Stethoscope, ChevronDown, ChevronRight } from "lucide-react"
 import { PatientAlertPanel } from "@/components/patient/patient-alert-panel"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { procedureTypesApi } from "@/lib/api/procedure-types"
@@ -39,11 +38,9 @@ import { DentitionViewSwitch } from "@/components/dentition-view-switch"
 import { RecordToothChart, type ToothPaint } from "@/components/record-tooth-chart"
 import { ApiError } from "@/lib/api/client"
 import { CorrectInvoiceDialog, DEFAULT_CORRECTION_REASON, type CorrectionPreview } from "@/components/factures/correct-invoice-dialog"
-import { ActSlot } from "@/components/record/act-slot"
-import { ActDetailFields } from "@/components/record/act-detail-fields"
+import { ActCard } from "@/components/record/act-card"
 import { RecordSection } from "@/components/record/record-section"
-import { SessionActsList } from "@/components/record/session-acts-list"
-import { hasInvalidPrice, resolveActCost, useSessionActs, type SessionAct } from "@/components/record/use-session-acts"
+import { actTotal, hasInvalidPrice, isActNamed, isActTouched, useSessionActs } from "@/components/record/use-session-acts"
 import {
   CHEQUE_METHOD,
   ChequeFields,
@@ -67,6 +64,13 @@ const FICHE_PAYMENT_METHODS: { value: string; label: string }[] = [
   { value: "Card", label: "Carte" },
   { value: "Transfer", label: "Virement" },
 ]
+
+/**
+ * Fallback colours for an act the catalogue cannot colour — a free-text act, or one whose catalogue hue another
+ * act in the same séance already wears. Chosen to stay apart from each other at a glance and to read on both
+ * themes; the chart tints them, so they are never text on a background.
+ */
+const ACT_PALETTE = ["#7c5cd6", "#0f9b8e", "#c9376d", "#b8792f", "#3b82f6", "#5d7186"]
 
 // Sentinel for "not linked to a treatment-plan step".
 const NO_PLAN_ITEM = "__none__"
@@ -192,7 +196,9 @@ export function PatientRecordModal({
   const [catalogFailed, setCatalogFailed] = useState(false)
   const [priorStates, setPriorStates] = useState<ToothStateDto[]>([])
   const [linkedPlanItemId, setLinkedPlanItemId] = useState<string>(NO_PLAN_ITEM)
-  const [openSections, setOpenSections] = useState({ details: false, acts: false, notes: false })
+  // Only « Notes de séance » folds now. The acts are the point of this dialog and are always open — the old
+  // « Actes de la séance » fold, shut by default, is where an act appeared to vanish when a second one was added.
+  const [notesOpen, setNotesOpen] = useState(false)
   // The chart's condition legend. Folded by default — the colours stay visible collapsed, so what folds is the
   // labelling, and a dentist who knows the palette does not pay a permanent nine-entry row for it.
   const [legendOpen, setLegendOpen] = useState(false)
@@ -214,7 +220,7 @@ export function PatientRecordModal({
   )
 
   /**
-   * The refusal that blocked the last « Confirmer », **anchored to the part of the form that caused it**.
+   * The refusal that blocked the last « Confirmer », **anchored to the act that caused it**.
    *
    * <p>All three of this dialog's validation refusals used to be toasts and nothing else. On a phone sonner lands
    * bottom-centre — directly over this dialog's own footer, i.e. over the button just pressed — and is gone in
@@ -223,19 +229,14 @@ export function PatientRecordModal({
    * offending one may be three sections down and folded shut.</p>
    *
    * <p>The toast is kept as the *secondary* announcement (it is what a user glancing away notices), but the
-   * authority is now the inline message: it persists, it names the act, and the region it belongs to is scrolled
-   * into view. `aria-invalid` lives on the individual inputs in `ActDetailFields`, which is where a screen reader
-   * expects it.</p>
+   * authority is now the inline message: it persists, and it is rendered **inside the offending act's own card**
+   * rather than at the top of a region — with several acts on screen, « Montant invalide » anywhere else does not
+   * say which one. `aria-invalid` lives on the individual inputs in `ActCard`, where a screen reader expects it.</p>
    */
-  const [saveError, setSaveError] = useState<{ anchor: "act" | "details"; message: string } | null>(null)
-  const actAnchorRef = useRef<HTMLDivElement>(null)
-  const detailsAnchorRef = useRef<HTMLDivElement>(null)
+  const [saveError, setSaveError] = useState<{ actKey: string | null; message: string } | null>(null)
+  const actsAnchorRef = useRef<HTMLDivElement>(null)
 
-  const { acts, selection, draft, hasDraft, draftTotal, grandTotal, editingAct, editingKey, dispatch } =
-    useSessionActs(record)
-
-  const toggleSection = (key: keyof typeof openSections) =>
-    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }))
+  const { acts, namedActs, grandTotal, focusedAct, focusKey, dispatch } = useSessionActs(record)
 
   /*
    * Load the active procedure catalog (the picker's source) when the modal opens.
@@ -307,11 +308,7 @@ export function PatientRecordModal({
       setNotes([...record.notes])
       setImportantNotes([...record.importantNotes])
       // A section holding a value opens itself, so editing can never look like it lost data.
-      setOpenSections({
-        details: false,
-        acts: record.acts.length > 0,
-        notes: record.notes.length > 0 || record.importantNotes.length > 0,
-      })
+      setNotesOpen(record.notes.length > 0 || record.importantNotes.length > 0)
     } else {
       setInterventionDate(todayLocalIso())
       setAmountPaid("")
@@ -320,7 +317,7 @@ export function PatientRecordModal({
       setCheque(EMPTY_CHEQUE_FIELDS)
       setNotes([])
       setImportantNotes([])
-      setOpenSections({ details: false, acts: false, notes: false })
+      setNotesOpen(false)
     }
   }, [open, initialPatientName, record, dispatch])
 
@@ -396,21 +393,48 @@ export function PatientRecordModal({
   )
 
   /**
-   * The catalogue colour of the act being composed — the act's own colour, not a condition's.
+   * One colour per act of the séance — the card's rail, its tooth chips, and its teeth on the chart.
    *
-   * <p>A tooth added to the live selection paints in it, so « ces dents-là, cet acte-là » is one glance rather
-   * than a selection ring plus a reading of the slot above. Null on a free-text act or before anything is
-   * picked, and the chart's neutral selection fill stands in — which is the state the modal opens in.</p>
+   * <p>⚠️ **Distinctness is enforced here rather than hoped for.** The chart paints every act at once now, and
+   * « quelles dents pour quel acte ? » is answered by matching a card to the teeth wearing its colour — which
+   * stops working the moment two acts share one. That happens easily: the same procedure recorded twice, two
+   * catalogue entries a clinic gave the same hue, or two free-text acts with no colour at all. An act whose
+   * catalogue colour is already taken falls through to the palette.</p>
+   *
+   * <p>It replaced painting each act in its <em>resulting condition</em>'s colour, which is the odontogram's own
+   * language and not an act's: two obturations — or, more commonly, two acts with no état résultant at all —
+   * were the same colour on the chart, so the séance could not be read back off it.</p>
    */
-  const draftColor = useMemo(
-    () =>
-      (draft.procedureTypeId
-        ? procedureTypes.find((p) => p.id === draft.procedureTypeId)?.colorHex
-        : null) ?? null,
-    [draft.procedureTypeId, procedureTypes],
-  )
+  const actColors = useMemo(() => {
+    const map = new Map<string, string>()
+    const used = new Set<string>()
+    let next = 0
+    for (const act of acts) {
+      const catalogue = act.procedureTypeId
+        ? procedureTypes.find((p) => p.id === act.procedureTypeId)?.colorHex
+        : null
+      let chosen = catalogue && !used.has(catalogue.toLowerCase()) ? catalogue : null
+      while (!chosen) {
+        const candidate = ACT_PALETTE[next % ACT_PALETTE.length]
+        next += 1
+        // Bounded: past one full lap every entry is spoken for and a repeat is the honest outcome.
+        if (!used.has(candidate) || next > ACT_PALETTE.length) chosen = candidate
+      }
+      used.add(chosen.toLowerCase())
+      map.set(act.key, chosen)
+    }
+    return map
+  }, [acts, procedureTypes])
 
-  // Per-tooth paint: prior state as the outline, confirmed acts as the fill, the live selection on top.
+  const focusedColor = focusedAct ? (actColors.get(focusedAct.key) ?? null) : null
+
+  /*
+   * Per-tooth paint: prior state as the outline, every act of the séance as the fill, the armed act on top.
+   *
+   * ⚠️ EVERY act paints now, not only the one being edited. The chart used to show the single draft, so the acts
+   * already recorded in the séance were invisible on the one surface that exists to show where work was done —
+   * and the count badge was the only hint a tooth carried more than one.
+   */
   const toothPaint = useMemo(() => {
     const map = new Map<number, ToothPaint>()
 
@@ -424,8 +448,8 @@ export function PatientRecordModal({
       })
     }
 
-    for (const act of acts) {
-      const color = act.resultingCondition ? conditionStyle(act.resultingCondition).color : null
+    for (const act of namedActs) {
+      const color = actColors.get(act.key) ?? null
       for (const tooth of act.toothNumbers) {
         const prev = map.get(tooth)
         map.set(tooth, {
@@ -438,14 +462,13 @@ export function PatientRecordModal({
       }
     }
 
-    // The draft's colour WINS over a confirmed act's on a selected tooth: the selection is what is being
-    // charted now, and the ring plus the count badge are what still say the tooth carries an earlier act.
-    // Deselecting recomputes this map, so the confirmed colour comes straight back.
-    for (const tooth of selection) {
+    // The armed act's colour WINS on its own teeth: it is what is being charted now, and the ring plus the count
+    // badge are what still say the tooth carries another act. Arming a different card recomputes the map.
+    for (const tooth of focusedAct?.toothNumbers ?? []) {
       const prev = map.get(tooth)
       map.set(tooth, {
         selected: true,
-        color: draftColor ?? prev?.color ?? null,
+        color: focusedColor ?? prev?.color ?? null,
         count: prev?.count ?? 0,
         existingColor: prev?.existingColor ?? null,
         existingIsDiagnosis: prev?.existingIsDiagnosis,
@@ -453,22 +476,32 @@ export function PatientRecordModal({
     }
 
     return map
-  }, [priorByTooth, acts, selection, draftColor])
+  }, [priorByTooth, namedActs, focusedAct, focusedColor, actColors])
 
   const viewTeeth = FDI_BY_VIEW[dentitionView]
   const { upper: upperQuadrants, lower: lowerQuadrants } = ARCH_QUADRANTS_BY_VIEW[dentitionView]
   const teethInQuadrants = (quadrants: number[]) => viewTeeth.filter((t) => quadrants.includes(Math.floor(t / 10)))
 
+  /** What a card at rest measures its teeth against, so a full arch reads as a phrase and not as 32 numbers. */
+  const arch = useMemo(
+    () => ({
+      all: viewTeeth,
+      upper: viewTeeth.filter((t) => upperQuadrants.includes(Math.floor(t / 10))),
+      lower: viewTeeth.filter((t) => lowerQuadrants.includes(Math.floor(t / 10))),
+    }),
+    [viewTeeth, upperQuadrants, lowerQuadrants],
+  )
+
   // Acts charted on teeth the current view does not draw — surfaced so nothing hides behind the switch. Tested
   // against the view's own tooth set rather than `isAdultTooth`, which is what makes the count read **zero** on
   // Mixte: that view draws both dentitions, so there is nothing left off-screen to warn about.
   const hiddenDentitionActs = useMemo(
-    () => acts.filter((a) => a.toothNumbers.some((t) => !viewTeeth.includes(t))).length,
-    [acts, viewTeeth],
+    () => namedActs.filter((a) => a.toothNumbers.some((t) => !viewTeeth.includes(t))).length,
+    [namedActs, viewTeeth],
   )
 
-  // Linking a plan step carries its designation / cost / teeth into the draft, so the dentist does not
-  // retype what the plan already knows. Only an untouched draft is prefilled.
+  // Linking a plan step carries its designation / cost / teeth into the first act, so the dentist does not
+  // retype what the plan already knows. Only an untouched séance is prefilled.
   const handlePlanItemLink = (value: string) => {
     setLinkedPlanItemId(value)
     if (value === NO_PLAN_ITEM) return
@@ -478,7 +511,6 @@ export function PatientRecordModal({
       type: "applyPlanItem",
       item: { designationFr: item.designationFr, plannedCost: item.plannedCost, toothNumbers: item.toothNumbers },
     })
-    setOpenSections((prev) => ({ ...prev, details: true }))
   }
 
   const paidAmount = parseAmountInput(amountPaid) || 0
@@ -519,29 +551,18 @@ export function PatientRecordModal({
    * screen, and `block: "center"` rather than `"nearest"` because the offending field is often just above the
    * footer the user is looking at, where "nearest" would move nothing at all.</p>
    */
-  const refuseSave = (anchor: "act" | "details", message: string, description?: string) => {
-    setSaveError({ anchor, message })
-    const target = anchor === "act" ? actAnchorRef.current : detailsAnchorRef.current
-    target?.scrollIntoView({ block: "center", behavior: "smooth" })
+  const refuseSave = (actKey: string | null, message: string, description?: string) => {
+    setSaveError({ actKey, message })
+    // The offending card carries the message; the pile is what gets scrolled to, since a card may be one line.
+    actsAnchorRef.current?.scrollIntoView({ block: "center", behavior: "smooth" })
     toast.error(message, description ? { description } : undefined)
   }
 
-  // Any edit to the acts or the draft clears the refusal: an inline error that outlives the thing it described
-  // is worse than none, because the next press is refused for a reason the message no longer names.
+  // Any edit to the acts clears the refusal: an inline error that outlives the thing it described is worse than
+  // none, because the next press is refused for a reason the message no longer names.
   useEffect(() => {
     setSaveError(null)
-  }, [acts, draft])
-
-  /**
-   * Everything that will be persisted: the confirmed acts, with the in-progress draft folded in. Pressing
-   * « Confirmer » on a proposed act must save it without a separate "add" step — that IS the confirm-first
-   * flow — so the draft is materialised here rather than requiring a commit dispatch first.
-   */
-  const actsToPersist = useMemo<SessionAct[]>(() => {
-    if (!hasDraft) return acts
-    const materialised: SessionAct = { ...draft, key: editingKey ?? "draft", toothNumbers: [...selection] }
-    return editingKey ? acts.map((a) => (a.key === editingKey ? materialised : a)) : [...acts, materialised]
-  }, [acts, draft, hasDraft, editingKey, selection])
+  }, [acts])
 
   const handleSave = async (correctionReason?: string) => {
     if (!patientId) {
@@ -549,30 +570,47 @@ export function PatientRecordModal({
       return
     }
 
-    if (actsToPersist.length === 0) {
-      refuseSave("act", "Ajoutez au moins un acte", "Choisissez l'acte réalisé, puis les dents.")
+    if (namedActs.length === 0) {
+      refuseSave(acts[0]?.key ?? null, "Ajoutez au moins un acte", "Choisissez l'acte réalisé, puis les dents.")
       return
     }
 
-    const badPrice = actsToPersist.find((a) => hasInvalidPrice(a.unitCost))
-    if (badPrice) {
-      setOpenSections((prev) => ({ ...prev, details: true }))
+    /*
+     * An unnamed card the dentist has nonetheless put teeth or a price into. A blank trailing card is dropped in
+     * silence — that is what it is for — but one carrying work is refused, because dropping it would throw away
+     * something visible on screen and the fiche would save fewer acts than were charted.
+     */
+    const unnamed = acts.find((a) => !isActNamed(a) && isActTouched(a))
+    if (unnamed) {
       refuseSave(
-        "details",
+        unnamed.key,
+        "Un acte n'a pas de désignation",
+        "Choisissez l'acte réalisé, ou supprimez la carte.",
+      )
+      return
+    }
+
+    const badPrice = namedActs.find((a) => hasInvalidPrice(a.unitCost))
+    if (badPrice) {
+      refuseSave(
+        badPrice.key,
         `Montant invalide pour ${quoteFr(badPrice.procedureName)}`,
         "Corrigez le tarif de l'acte, puis confirmez.",
       )
       return
     }
 
-    const parsedActs: DentalActInput[] = actsToPersist
-      .filter((a) => a.procedureName.trim() !== "")
+    const parsedActs: DentalActInput[] = namedActs
       .map((a) => {
-        const unit = Number.parseFloat(a.unitCost)
+        // ⚠️ `parseAmountInput`, never `Number.parseFloat` (J8). The field prints « 90,500 » and `parseFloat`
+        // stops at the comma, so the stored UNIT price was 90 while `cost` — which goes through
+        // `parseAmountInput` — was the correct 181,000 for two teeth. Reopening the fiche then showed 90,000
+        // per tooth, and re-saving it wrote that half-dinar loss into the note.
+        const unit = parseAmountInput(a.unitCost)
         return {
           procedureTypeId: a.procedureTypeId,
           procedureName: a.procedureName.trim(),
-          cost: resolveActCost(a.unitCost, a.perTooth, a.toothNumbers.length),
+          cost: actTotal(a),
           unitCost: Number.isFinite(unit) ? roundMillimes(unit) : null,
           isPerTooth: a.perTooth && a.toothNumbers.length > 0,
           toothNumbers: a.toothNumbers,
@@ -581,14 +619,6 @@ export function PatientRecordModal({
           note: a.note.trim() || null,
         }
       })
-
-    if (parsedActs.length === 0) {
-      // Reached only when every act was filtered out for having no name — which is a *désignation* problem, so
-      // it anchors on the detail fields (where the editable désignation lives) rather than on the act slot.
-      setOpenSections((prev) => ({ ...prev, details: true }))
-      refuseSave("details", "Chaque acte nécessite une désignation", "Nommez l'acte avant d'enregistrer.")
-      return
-    }
 
     // The record's dentition flag is derived, not read from the toggle: a session may legitimately chart both
     // dentitions, so it is only a display hint — "enfant" when every charted tooth is deciduous.
@@ -708,39 +738,34 @@ export function PatientRecordModal({
     }
   }
 
-  // ── collapsed-section summaries: the section's contents, so folding hides nothing ──
-  const detailsSummary = useMemo(() => {
-    if (!hasDraft) return "aucun acte en cours"
-    const faces = Array.from(draft.surfaces)
-    const bits = [
-      draft.resultingCondition ? conditionStyle(draft.resultingCondition).label : "aucun état",
-      `${formatDT(parseAmountInput(draft.unitCost) || 0)}${draft.perTooth ? " / dent" : " forfait"}`,
-      faces.length > 0 ? `faces ${faces.join(", ")}` : "aucune face",
-    ]
-    if (draft.note.trim()) bits.push("note")
-    return bits.join(" · ")
-  }, [hasDraft, draft])
+  /**
+   * The acts header. Every card on screen is a real act, so this is a plain count and a plain sum — it used to
+   * have to say « 1 acte + 1 en cours » because the act being typed was not yet one.
+   */
+  const actsSummary =
+    namedActs.length === 0
+      ? "aucun acte"
+      : `${namedActs.length} acte${namedActs.length > 1 ? "s" : ""} · ${formatDT(grandTotal)}`
 
   /**
-   * The collapsed header of « Actes de la séance ». It describes **what will be saved**, not just what has been
-   * confirmed — so it counts the draft and totals to the same figure as the dialog's own footer.
-   *
-   * <p>It used to read « aucun acte confirmé » while the footer showed the draft's price. Both were technically
-   * true and together they were a contradiction, on the one summary a dentist reads before pressing save. « en
-   * cours » is what distinguishes the draft here, rather than pretending it does not exist.</p>
+   * Acts naming the same procedure on the same teeth. Legitimate in principle (a dentist may genuinely do the
+   * same thing twice), so it is flagged on the cards rather than blocked.
    */
-  const actsSummary = (() => {
-    const confirmedTotal = roundMillimes(
-      acts.reduce((s, a) => s + resolveActCost(a.unitCost, a.perTooth, a.toothNumbers.length), 0),
-    )
-    if (acts.length === 0 && !hasDraft) return "aucun acte"
-    // While an existing act is being edited the draft REPLACES it, so it is not an extra act to announce.
-    const pendingCount = hasDraft && !editingKey ? 1 : 0
-    const parts: string[] = []
-    if (acts.length > 0) parts.push(`${acts.length} acte${acts.length > 1 ? "s" : ""}`)
-    if (pendingCount > 0) parts.push(acts.length > 0 ? "+ 1 en cours" : "1 acte en cours")
-    return `${parts.join(" ")} · ${formatDT(pendingCount > 0 || editingKey ? grandTotal : confirmedTotal)}`
-  })()
+  const duplicateKeys = useMemo(() => {
+    const seen = new Map<string, string>()
+    const dupes = new Set<string>()
+    for (const a of namedActs) {
+      const signature = `${a.procedureName.trim().toLowerCase()}|${a.toothNumbers.join(",")}`
+      const first = seen.get(signature)
+      if (first) {
+        dupes.add(first)
+        dupes.add(a.key)
+      } else {
+        seen.set(signature, a.key)
+      }
+    }
+    return dupes
+  }, [namedActs])
 
   const noteCount = notes.filter((n) => n.trim()).length
   const importantCount = importantNotes.filter((n) => n.trim()).length
@@ -752,9 +777,12 @@ export function PatientRecordModal({
           .filter(Boolean)
           .join(" · ")
 
+  // The one card that came from the booking, and only while it is still the whole séance.
   const proposedFromAppointment =
-    !record && !editingAct && acts.length === 0 && draft.procedureTypeId != null &&
-    draft.procedureTypeId === appointment?.procedureTypeId
+    !record && acts.length === 1 && appointment?.procedureTypeId != null &&
+    acts[0].procedureTypeId === appointment.procedureTypeId
+      ? acts[0].key
+      : null
 
   /**
    * The séance's other booked acts, resolved against the catalogue and minus anything already in this session
@@ -762,16 +790,13 @@ export function PatientRecordModal({
    * re-offering an act they have just recorded.
    */
   const otherBookedActs = useMemo(() => {
-    const used = new Set<string>([
-      ...acts.map((a) => a.procedureTypeId).filter((id): id is string => !!id),
-      ...(draft.procedureTypeId ? [draft.procedureTypeId] : []),
-    ])
+    const used = new Set<string>(acts.map((a) => a.procedureTypeId).filter((id): id is string => !!id))
     return (appointment?.procedures ?? [])
       .slice()
       .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
       .map((p) => (p.procedureTypeId ? procedureTypes.find((pt) => pt.id === p.procedureTypeId) : undefined))
       .filter((pt): pt is ProcedureTypeDto => !!pt && !used.has(pt.id))
-  }, [appointment?.procedures, procedureTypes, acts, draft.procedureTypeId])
+  }, [appointment?.procedures, procedureTypes, acts])
 
   return (
     <>
@@ -870,9 +895,18 @@ export function PatientRecordModal({
           )}
         </div>
 
-        {/* THE ACT — proposed from the appointment, or picked from the catalogue. One slot, two states. */}
-        <div ref={actAnchorRef} className="space-y-1.5">
-          {/* Above the picker, because that is where the consequence lands: an empty list invites a free-text act. */}
+        {/*
+          THE ACTS — one card each, all of them real, all of them editable, and « Ajouter un autre acte » always
+          last. There is no composer and no read-back list: those were two views of one act, and the split is what
+          made adding a second act look like losing the first.
+        */}
+        <div ref={actsAnchorRef} className="space-y-2">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <Label className="text-xs font-semibold">Actes de la séance</Label>
+            <span className="font-mono text-2xs text-muted-foreground">{actsSummary}</span>
+          </div>
+
+          {/* Above the cards, because that is where the consequence lands: an empty catalogue invites free text. */}
           {catalogFailed && (
             <LoadFailureNotice
               variant="inline"
@@ -881,23 +915,40 @@ export function PatientRecordModal({
               onRetry={() => void loadCatalog()}
             />
           )}
-          <ActSlot
-            draft={draft}
-            hasDraft={hasDraft}
-            draftTotal={draftTotal}
-            toothCount={selection.length}
-            procedureTypes={procedureTypes}
-            proposedFromAppointment={proposedFromAppointment}
-            editingAct={editingAct}
-            committedCount={acts.length}
-            dispatch={dispatch}
-            disabled={loading}
-          />
-          {saveError?.anchor === "act" && (
+
+          {acts.map((act, i) => (
+            <ActCard
+              key={act.key}
+              act={act}
+              index={i + 1}
+              focused={act.key === focusKey}
+              procedureTypes={procedureTypes}
+              color={actColors.get(act.key) ?? ACT_PALETTE[0]}
+              arch={arch}
+              proposedFromAppointment={act.key === proposedFromAppointment}
+              duplicate={duplicateKeys.has(act.key)}
+              error={saveError?.actKey === act.key ? saveError.message : null}
+              dispatch={dispatch}
+              disabled={loading}
+            />
+          ))}
+
+          {/* A refusal that named no card (« ajoutez au moins un acte » on an empty pile). */}
+          {saveError && !acts.some((a) => a.key === saveError.actKey) && (
             <p role="alert" className="text-xs font-medium text-destructive">
               {saveError.message}
             </p>
           )}
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full border-dashed coarse:min-h-11"
+            onClick={() => dispatch({ type: "addAct" })}
+            disabled={loading}
+          >
+            <Plus className="mr-1 h-4 w-4" /> Ajouter un autre acte
+          </Button>
         </div>
 
         {/*
@@ -922,7 +973,7 @@ export function PatientRecordModal({
                   size="sm"
                   className="h-7 gap-1 text-xs"
                   disabled={loading}
-                  onClick={() => dispatch({ type: "pickProcedure", procedure: booked })}
+                  onClick={() => dispatch({ type: "addFromProcedure", procedure: booked })}
                 >
                   <Plus className="h-3 w-3" />
                   {booked.name}
@@ -935,14 +986,16 @@ export function PatientRecordModal({
         {/* THE TEETH — full width, no longer competing with a form column for space. */}
         <div className="space-y-2">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <Label>{hasDraft ? "Sur quelle(s) dent(s) ?" : "Dents concernées"}</Label>
+            <Label>{focusedAct ? "Sur quelle(s) dent(s) ?" : "Le schéma"}</Label>
+            {/* The bulk selectors write to the armed act, so with nothing armed they have no subject and are
+                disabled rather than silently doing nothing. */}
             <div className="flex flex-wrap items-center gap-1.5">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 className="h-6 px-2 text-2xs"
-                disabled={loading}
+                disabled={loading || !focusedAct}
                 onClick={() => dispatch({ type: "selectMany", teeth: teethInQuadrants(upperQuadrants), additive: true })}
               >
                 Haut
@@ -952,7 +1005,7 @@ export function PatientRecordModal({
                 variant="outline"
                 size="sm"
                 className="h-6 px-2 text-2xs"
-                disabled={loading}
+                disabled={loading || !focusedAct}
                 onClick={() => dispatch({ type: "selectMany", teeth: teethInQuadrants(lowerQuadrants), additive: true })}
               >
                 Bas
@@ -962,7 +1015,7 @@ export function PatientRecordModal({
                 variant="outline"
                 size="sm"
                 className="h-6 px-2 text-2xs"
-                disabled={loading}
+                disabled={loading || !focusedAct}
                 onClick={() => dispatch({ type: "selectMany", teeth: viewTeeth, additive: true })}
               >
                 Toute la bouche
@@ -972,8 +1025,8 @@ export function PatientRecordModal({
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-2xs"
-                disabled={loading || selection.length === 0}
-                onClick={() => dispatch({ type: "clearSelection" })}
+                disabled={loading || !focusedAct || focusedAct.toothNumbers.length === 0}
+                onClick={() => dispatch({ type: "clearTeeth" })}
               >
                 Vider
               </Button>
@@ -993,7 +1046,9 @@ export function PatientRecordModal({
             view={dentitionView}
             paint={toothPaint}
             onToggleTooth={(tooth) => dispatch({ type: "toggleTooth", tooth })}
-            disabled={loading}
+            // Inert until a card is armed. A tapped tooth has to belong to an act, and guessing which one is how
+            // reopening a saved fiche would silently re-chart an act that is already on a numbered note.
+            disabled={loading || !focusedAct}
             footer={
               /*
                 The condition legend, inside the card it describes and folded by default.
@@ -1031,6 +1086,14 @@ export function PatientRecordModal({
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-dashed border-muted-foreground/70" />
                       contour = état déjà au dossier
                     </span>
+                    {/* The two axes are different things and the legend has to say so: the outline is a
+                        CONDITION (what the dossier already holds) while the fill is an ACT of this séance,
+                        coloured to match its card — which is what makes « quelle dent pour quel acte ? »
+                        answerable when several acts are charted at once. */}
+                    <span className="flex items-center gap-1">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/70" />
+                      remplissage = l&apos;acte de la séance (couleur de sa carte)
+                    </span>
                   </span>
                 ) : (
                   <>
@@ -1045,14 +1108,16 @@ export function PatientRecordModal({
                         />
                       ))}
                     </span>
-                    <span className="ms-auto truncate">contour pointillé = état déjà au dossier</span>
+                    <span className="ms-auto truncate">
+                      remplissage = l&apos;acte · contour pointillé = état déjà au dossier
+                    </span>
                   </>
                 )}
               </button>
             }
           />
 
-          {openDiagnosisTeeth.length > 0 && (
+          {openDiagnosisTeeth.length > 0 && focusedAct && (
             <button
               type="button"
               disabled={loading}
@@ -1079,95 +1144,52 @@ export function PatientRecordModal({
             </button>
           )}
 
-          {/* Selection + the live per-tooth arithmetic, so the billed number is never a surprise. */}
-          <div className="flex min-h-[24px] flex-wrap items-center gap-1.5 text-xs">
-            {selection.length > 0 ? (
+          {/*
+            Where a tapped tooth goes. The teeth themselves are chips on the act's own card — this line only has to
+            answer « lequel ? », which is the one thing the chart cannot show while several acts are painted on it.
+            With nothing armed it says so instead of leaving a chart that quietly ignores every tap.
+          */}
+          <div className="flex min-h-[24px] flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+            {focusedAct ? (
               <>
-                <span className="text-muted-foreground">Sélection :</span>
-                {selection.map((t) => (
-                  <Badge key={t} variant="secondary" className="text-xs tabular-nums">
-                    {t}
-                  </Badge>
-                ))}
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: focusedColor ?? "var(--muted-foreground)" }}
+                  aria-hidden="true"
+                />
+                <span className="text-muted-foreground">
+                  Les dents tapées vont à{" "}
+                  <span className="font-semibold text-foreground">
+                    {focusedAct.procedureName.trim() || `l'acte ${acts.indexOf(focusedAct) + 1}`}
+                  </span>
+                  {focusedAct.toothNumbers.length > 0
+                    ? ` · ${focusedAct.toothNumbers.length} dent${focusedAct.toothNumbers.length > 1 ? "s" : ""}`
+                    : " · aucune dent pour l'instant"}
+                </span>
+                <span className="ms-auto tabular-nums text-muted-foreground">
+                  {focusedAct.perTooth && focusedAct.toothNumbers.length > 0 && (
+                    <>
+                      {formatDT(parseAmountInput(focusedAct.unitCost) || 0)} × {focusedAct.toothNumbers.length} dent
+                      {focusedAct.toothNumbers.length > 1 ? "s" : ""} ={" "}
+                    </>
+                  )}
+                  <span className="font-semibold text-foreground">{formatDT(actTotal(focusedAct))}</span>
+                </span>
               </>
             ) : (
-              <span className="italic text-muted-foreground">
-                Aucune dent — l&apos;acte sera enregistré comme acte général (détartrage, panoramique…)
-              </span>
-            )}
-            {hasDraft && (
-              <span className="ml-auto tabular-nums text-muted-foreground">
-                {draft.perTooth && selection.length > 0 && (
-                  <>
-                    {formatDT(Number.parseFloat(draft.unitCost) || 0)} × {selection.length} dent
-                    {selection.length > 1 ? "s" : ""} ={" "}
-                  </>
-                )}
-                <span className="font-semibold text-foreground">{formatDT(draftTotal)}</span>
+              <span role="status" className="italic text-muted-foreground">
+                Aucun acte en saisie — cliquez un acte ci-dessus pour modifier ses dents.
               </span>
             )}
           </div>
 
         </div>
 
-        {/* THE DETAIL — folded, never removed, always summarised. */}
-        <div ref={detailsAnchorRef} className="space-y-1.5">
-          <RecordSection
-            title="Détails de l'acte"
-            summary={detailsSummary}
-            open={openSections.details}
-            onToggle={() => toggleSection("details")}
-          >
-            {hasDraft ? (
-              <ActDetailFields draft={draft} toothCount={selection.length} dispatch={dispatch} disabled={loading} />
-            ) : (
-              <p className="text-xs italic text-muted-foreground">
-                Choisissez d&apos;abord un acte : son tarif et son état résultant seront préremplis depuis le
-                catalogue.
-              </p>
-            )}
-          </RecordSection>
-          {saveError?.anchor === "details" && (
-            <p role="alert" className="text-xs font-medium text-destructive">
-              {saveError.message}
-            </p>
-          )}
-        </div>
-
-        <RecordSection
-          title="Actes de la séance"
-          summary={actsSummary}
-          open={openSections.acts}
-          onToggle={() => toggleSection("acts")}
-        >
-          <SessionActsList
-            acts={acts}
-            // Only when it is a NEW act. While an existing one is being edited the draft *is* that act, already
-            // listed above — showing it twice would read as two acts and double the apparent work.
-            pendingAct={
-              hasDraft && !editingKey
-                ? { ...draft, key: "pending", toothNumbers: [...selection] }
-                : null
-            }
-            editingKey={editingKey}
-            onEdit={(key) => {
-              dispatch({ type: "beginEditAct", key })
-              setOpenSections((prev) => ({ ...prev, details: true }))
-            }}
-            onRemove={(key) => dispatch({ type: "removeAct", key })}
-            onReprice={(key, unitCost) => dispatch({ type: "repriceAct", key, unitCost })}
-            disabled={loading}
-          />
-          {/* No « Annuler la modification » here any more: it lived inside a section that is collapsed by
-              default, so the way out of an edit was usually invisible. It is now beside the button that
-              commits the edit, in the footer, where the pair belongs. */}
-        </RecordSection>
-
         <RecordSection
           title="Notes de séance"
           summary={notesSummary}
-          open={openSections.notes}
-          onToggle={() => toggleSection("notes")}
+          open={notesOpen}
+          onToggle={() => setNotesOpen((v) => !v)}
           highlight={importantCount > 0}
         >
           <div className="grid gap-4 sm:grid-cols-2">
@@ -1378,47 +1400,16 @@ export function PatientRecordModal({
           </div>
 
           {/*
-            `flex-col-reverse` on both levels below `sm:`, mirroring the primitive's own idiom: the DOM keeps the
-            desktop reading order (secondary → cancel → confirm) while a phone stacks them primary-first, each
-            full width. Three full-width rows rather than a cramped side-by-side, because « Confirmer la séance —
-            180,000 DT » is ~230px of unwrappable French and `buttonVariants` is `whitespace-nowrap`.
-          */}
-          <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-            {/* Confirms the act in hand and clears both the draft and the chart, so the next act starts from an
-                empty mouth. Saving does NOT require this — the draft is persisted either way.
+            `flex-col-reverse` below `sm:`, mirroring the primitive's own idiom: the DOM keeps the desktop
+            reading order (cancel → confirm) while a phone stacks them primary-first, each full width, because
+            « Confirmer la séance — 180,000 DT » is ~230px of unwrappable French and `buttonVariants` is
+            `whitespace-nowrap`.
 
-                ⚠️ The label follows `editingAct`. It read « Ajouter un autre acte » in both states, so the only
-                control that committed an EDIT invited the dentist to add a second act — which is what « il faut
-                réinsérer l'acte » was: they were re-entering an act the composer already held. */}
-            <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
-              {editingAct && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => dispatch({ type: "cancelEdit" })}
-                  disabled={loading}
-                  className="w-full sm:w-auto"
-                >
-                  Abandonner la modification
-                </Button>
-              )}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  dispatch({ type: "commitDraft" })
-                  setOpenSections((prev) => ({ ...prev, acts: true }))
-                }}
-                disabled={loading || !hasDraft}
-                className="w-full sm:w-auto"
-              >
-                {editingAct ? (
-                  <><Check className="mr-1 h-4 w-4" /> Enregistrer la modification</>
-                ) : (
-                  <><Plus className="mr-1 h-4 w-4" /> Ajouter un autre acte</>
-                )}
-              </Button>
-            </div>
+            ⚠️ The « Ajouter un autre acte » / « Enregistrer la modification » pair that stood here is gone. It
+            existed to commit the single draft into the séance, and there is no draft any more — the button that
+            adds an act now sits under the acts themselves, where it adds one instead of clearing one.
+          */}
+          <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
             <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
               <Button
                 variant="outline"
