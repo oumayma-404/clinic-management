@@ -119,3 +119,22 @@ export function dentitionFromBirthdate(birthdate: string): Dentition | null {
 
   return age >= ADULT_FROM_AGE_YEARS ? "Adult" : "Child"
 }
+
+/**
+ * The dentition to pre-select from an age in whole years, or null when the box is empty or unreadable.
+ *
+ * <p>The other half of {@link dentitionFromBirthdate}, for the patient who does not know their date of birth —
+ * a walk-in, an elderly patient, a child brought in by a neighbour. It is the **same** {@link ADULT_FROM_AGE_YEARS}
+ * threshold rather than a second copy of the rule, because the two answers must never disagree about the same
+ * person.</p>
+ *
+ * <p>⚠️ The age itself is a form input and nothing else: it seeds this default and is never stored. A patient with
+ * no date of birth keeps no date of birth — see `Patient.DateOfBirth`, which says why an invented one is worse
+ * than none.</p>
+ */
+export function dentitionFromAge(age: string): Dentition | null {
+  if (!age.trim()) return null
+  const years = Number(age)
+  if (!Number.isFinite(years) || years < 0) return null
+  return years >= ADULT_FROM_AGE_YEARS ? "Adult" : "Child"
+}

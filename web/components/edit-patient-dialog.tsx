@@ -53,6 +53,7 @@ import {
   DENTITIONS,
   DENTITION_LABELS_FR,
   dentitionFromBirthdate,
+  dentitionFromAge,
   type Dentition,
 } from "@/lib/dentition"
 
@@ -127,6 +128,7 @@ const FIELD_LABELS_FR: Record<string, string> = {
   lastName: "Nom",
   gender: "Sexe",
   birthdate: "Date de naissance",
+  approximateAge: "Âge",
   dentition: "Denture",
   phone: "Numéro de téléphone",
   email: "E-mail",
@@ -146,6 +148,21 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
   const [lastName, setLastName] = useState("")
   const [gender, setGender] = useState("")
   const [birthdate, setBirthdate] = useState("")
+  /**
+   * Which of the two the desk is answering with — an exact date, or an age in years.
+   *
+   * <p>A patient who does not know their birthday is ordinary here, not a data-quality problem: a walk-in, an
+   * elderly patient, a child brought in by a neighbour. Requiring the date meant reception typed something
+   * plausible so the form would let them through, which is the same fabrication the server-side « thirty years
+   * ago » default was retired for — except now it wears a human's authority.</p>
+   *
+   * <p>⚠️ The age is <b>never stored</b>. It seeds the denture (the one thing the date was actually being used
+   * for at the desk) and nothing else; the patient keeps no date of birth, and every screen that shows one says
+   * « âge inconnu » — which is true. Deriving « 01/01/1996 » from « 30 ans » would put a birthday nobody stated
+   * onto a CNAM form.</p>
+   */
+  const [birthdateMode, setBirthdateMode] = useState<"date" | "age">("date")
+  const [approximateAge, setApproximateAge] = useState("")
   /**
    * Which teeth this patient is charted on. Defaulted from the birthdate, but only until the user decides for
    * themselves — `dentitionTouched` is the same guard `create-appointment-dialog` uses for its duration: a derived
@@ -339,6 +356,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       setLastName(patient.lastName || "")
       setGender(patient.gender || "")
       setBirthdate(patient.dateOfBirth ? patient.dateOfBirth.split('T')[0] : "")
+      // A stored patient is always shown on the date tab — the age was never persisted, so there is nothing to
+      // restore, and reopening on « Âge » would present an empty box beside a date the record actually holds.
+      setBirthdateMode("date")
+      setApproximateAge("")
       // A stored patient already has an answer; treat it as the user's own so the age rule never overrides it.
       setDentition((patient.dentition as Dentition) || null)
       setDentitionTouched(true)
@@ -415,6 +436,8 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         setLastName("")
         setGender("")
         setBirthdate("")
+        setBirthdateMode("date")
+        setApproximateAge("")
         setDentition(null)
         setDentitionTouched(false)
         setPhone("")
@@ -447,12 +470,13 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patient?.id, open])
 
-  // Pre-select the dentition from the birthdate until the user answers for themselves. Derived in an effect rather
-  // than inside the date's onChange so it also fires for a date typed, pasted or picked from the native calendar.
+  // Pre-select the dentition from whichever of the two the desk answered with, until the user says otherwise.
+  // Derived in an effect rather than inside an onChange so it also fires for a date typed, pasted or picked from
+  // the native calendar — and so switching between « Date exacte » and « Âge » re-derives from the live field.
   useEffect(() => {
     if (dentitionTouched) return
-    setDentition(dentitionFromBirthdate(birthdate))
-  }, [birthdate, dentitionTouched])
+    setDentition(birthdateMode === "age" ? dentitionFromAge(approximateAge) : dentitionFromBirthdate(birthdate))
+  }, [birthdate, approximateAge, birthdateMode, dentitionTouched])
 
   // Reset form when dialog closes
   useEffect(() => {
@@ -638,12 +662,24 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
       newErrors.lastName = "Le nom est requis"
     }
 
-    if (!gender) {
-      newErrors.gender = "Le sexe est requis"
-    }
-
-    if (!birthdate) {
-      newErrors.birthdate = "La date de naissance est requise"
+    /*
+     * Neither the sexe nor the date of birth is required any more, and both used to be.
+     *
+     * ⚠️ A required field the desk cannot answer is not a data-quality guarantee — it is a **fabrication
+     * generator**. « Sexe » was refused on a walk-in whose file is a name and a phone number, and « Date de
+     * naissance » on the patient who does not know it, so reception picked something and moved on. The record
+     * then said M or 01/01/1980 with no way to tell it apart from an answer somebody actually gave. Blank is a
+     * true statement and the phone number, which the same audit made optional for exactly this reason, is the
+     * shape being followed.
+     *
+     * What IS still refused is an age that is not a number: an unreadable answer must not silently become no
+     * answer, because it is the only thing the denture is derived from.
+     */
+    if (birthdateMode === "age" && approximateAge.trim()) {
+      const years = Number(approximateAge)
+      if (!Number.isFinite(years) || !Number.isInteger(years) || years < 0 || years > 120) {
+        newErrors.approximateAge = "Saisissez un âge en années (0 à 120)"
+      }
     }
 
     // Required: it decides which chart every future séance is recorded on, and there is no neutral value.
@@ -715,10 +751,14 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
         const updateData: Partial<PatientDto> & { isFlagged?: boolean; flagNotes?: string } = {
           firstName: firstName.trim(),
           lastName: lastName.trim(),
-          gender,
+          // "Unknown" when unanswered, never "" — the same value the create path sends, so a patient registered
+          // without a sexe and one edited to remove it end up on the same stored value rather than two.
+          gender: gender || "Unknown",
           dentition: dentition ?? undefined,
-          // Undefined, not "": the update command reads null-means-unchanged, and an empty string is not a date.
-          dateOfBirth: birthdate || undefined,
+          // Explicit null, not undefined: since the field became optional there has to be a request that *clears*
+          // a stored date, and `undefined` is dropped by JSON.stringify and read as "leave it alone". The command
+          // learned the same tri-state the address and the contact fields already had.
+          dateOfBirth: birthdate || null,
           // Explicit null, not undefined: the command is tri-state, so undefined would be read as
           // "leave it alone" and clearing the box would silently do nothing.
           phoneNumber: phone.trim() || null,
@@ -1150,7 +1190,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                 {/* Gender */}
                 <div className="space-y-2">
                   <Label htmlFor="gender">
-                    Sexe <span className="text-destructive">*</span>
+                    Sexe <span className="text-muted-foreground text-xs">(facultatif)</span>
                   </Label>
                   <Select value={gender} onValueChange={setGender}>
                     <SelectTrigger id="gender" className={cn("w-full", errors.gender && "border-destructive")}>
@@ -1173,20 +1213,98 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess }: Ed
                   {errors.gender && <p className="text-sm text-destructive">{errors.gender}</p>}
                 </div>
 
-                {/* Date of Birth */}
+                {/*
+                  Date of birth — or, when the patient does not know it, an age.
+
+                  ⚠️ The two are one field with two ways of answering, not two fields. Offering an « Âge » box
+                  beside a « Date de naissance » box invites both to be filled with statements that disagree, and
+                  nothing on the record could then say which one the desk meant. The segmented control makes the
+                  choice explicit and leaves exactly one answer on screen.
+                */}
                 <div className="space-y-2">
-                  <Label htmlFor="birthdate">
-                    Date de naissance <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="birthdate"
-                    type="date"
-                    value={birthdate}
-                    onChange={(e) => setBirthdate(e.target.value)}
-                    aria-invalid={!!errors.birthdate}
-                    className={cn(errors.birthdate && "border-destructive")}
-                  />
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <Label htmlFor={birthdateMode === "age" ? "approximate-age" : "birthdate"}>
+                      Date de naissance <span className="text-muted-foreground text-xs">(facultatif)</span>
+                    </Label>
+                    {/* The switch itself. `role="radiogroup"` and not two independent toggles: they are the two
+                        answers to one question, and a screen reader has to hear it that way. */}
+                    <div
+                      role="radiogroup"
+                      aria-label="Renseigner la naissance par"
+                      className="flex items-center gap-1 rounded-md border bg-muted/40 p-0.5"
+                    >
+                      {([
+                        ["date", "Date exacte"],
+                        ["age", "Âge"],
+                      ] as const).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={birthdateMode === value}
+                          onClick={() => {
+                            setBirthdateMode(value)
+                            // Switching answers clears the other box, so the record can never carry a date the
+                            // desk has just said it does not have — nor an age beside a date it does.
+                            if (value === "age") setBirthdate("")
+                            else setApproximateAge("")
+                            setErrors((prev) => {
+                              const next = { ...prev }
+                              delete next.birthdate
+                              delete next.approximateAge
+                              return next
+                            })
+                          }}
+                          className={cn(
+                            "touch-target rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                            birthdateMode === value
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover-hover:hover:text-foreground",
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {birthdateMode === "date" ? (
+                    <Input
+                      id="birthdate"
+                      type="date"
+                      value={birthdate}
+                      onChange={(e) => setBirthdate(e.target.value)}
+                      aria-invalid={!!errors.birthdate}
+                      className={cn(errors.birthdate && "border-destructive")}
+                    />
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="approximate-age"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          max={120}
+                          step={1}
+                          value={approximateAge}
+                          onChange={(e) => setApproximateAge(e.target.value)}
+                          placeholder="Ex. 42"
+                          aria-invalid={!!errors.approximateAge}
+                          className={cn("w-28", errors.approximateAge && "border-destructive")}
+                        />
+                        <span className="text-sm text-muted-foreground">ans</span>
+                      </div>
+                      {/* Said where the consequence is. The age is a form input: it picks the denture below and
+                          is then discarded, so the fiche will read « âge inconnu » — which is the truth, and much
+                          better than a birthday nobody stated printed on a bulletin CNAM. */}
+                      <p className="text-xs text-muted-foreground">
+                        Sert à pré-sélectionner la denture. Aucune date de naissance ne sera enregistrée.
+                      </p>
+                    </>
+                  )}
                   {errors.birthdate && <p className="text-sm text-destructive">{errors.birthdate}</p>}
+                  {errors.approximateAge && <p className="text-sm text-destructive">{errors.approximateAge}</p>}
                 </div>
 
                 {/*
