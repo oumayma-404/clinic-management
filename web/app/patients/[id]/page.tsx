@@ -85,7 +85,6 @@ import { InvoicesTable } from "@/components/factures/invoices-table"
 import { BillDentalRecordDialog } from "@/components/factures/bill-dental-record-dialog"
 import { Odontogram } from "@/components/odontogram"
 import { PatientNotesStrip } from "@/components/patient/patient-notes-strip"
-import { DuplicateSuggestionPrompt } from "@/components/patients/duplicate-suggestion-prompt"
 import { PatientUndocumentedVisits } from "@/components/patient/patient-undocumented-visits"
 import { patientFlagLabel } from "@/components/patient/patient-flag-labels"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -408,7 +407,6 @@ export default function PatientDetailsPage() {
    * ⚠️ It holds the **id**, not a boolean. Next reuses this component across `/patients/[id]` → `/patients/[other]`,
    * so a flag left standing would refuse to load the survivor — the very patient the merge sends you to.
    */
-  const mergedAwayIdRef = useRef<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [recordModalOpen, setRecordModalOpen] = useState(false)
@@ -581,7 +579,7 @@ export default function PatientDetailsPage() {
   // Load patient data — identity first, then everything else.
   useEffect(() => {
     // A fiche merged away no longer exists; re-reading it can only 404, and the page is already leaving.
-    if (!patientId || mergedAwayIdRef.current === patientId) return
+    if (!patientId) return
 
     // Only an actual navigation to a different patient is allowed to blank the page; a refresh is quiet.
     const isDifferentPatient = loadedPatientIdRef.current !== patientId
@@ -602,7 +600,7 @@ export default function PatientDetailsPage() {
         setIdentityMissing(false)
         loadedPatientIdRef.current = patientId
       } catch (err) {
-        if (cancelled || mergedAwayIdRef.current === patientId) return
+        if (cancelled) return
         // A page already on screen is not replaced by an error screen: a transient failure on a background
         // refresh must not turn a loaded patient into « Patient introuvable ». Say so and keep what we have.
         if (loadedPatientIdRef.current === patientId) {
@@ -698,7 +696,7 @@ export default function PatientDetailsPage() {
       } catch (err) {
         // Every call above already degrades to `[]`, so reaching here means a genuine fault rather than one
         // endpoint being down. The identity is on screen either way, so this is a toast, not an error page.
-        if (!cancelled && mergedAwayIdRef.current !== patientId) {
+        if (!cancelled) {
           showErrorToast(err, "Certaines données du dossier n'ont pas pu être chargées.")
         }
       } finally {
@@ -1257,53 +1255,16 @@ export default function PatientDetailsPage() {
           </div>
         )}
 
-        {/* AC-8 — a fiche Google Agenda conjured from an event title, with only a name on it. Same amber band as the
-            archived notice above, and the same construction: an explanation that names where the record came from,
-            then the two ways out. « C'est correct » exists so a fiche whose name is simply right can be cleared
-            without inventing an edit. */}
-        {patient?.calendarImportPendingReviewSince && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0 flex-1 space-y-1">
-                <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
-                  Patient créé depuis Google Agenda, à compléter
-                </p>
-                <p className="text-sm text-amber-800 dark:text-amber-300">
-                  Seul le nom a été lu, dans le titre d&apos;un rendez-vous
-                  {` du ${formatDateFr(patient.calendarImportPendingReviewSince)}`}. La date de naissance, le sexe
-                  et le téléphone n&apos;ont pas été renseignés.
-                </p>
-              </div>
-              {/* `lg:`, not `sm:`: beside the text from 640 px the two actions left the description a ~250 px
-                  column wrapping to five lines on a tablet. They take their own row until there is genuinely
-                  room for both. */}
-              <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
-                {/* ⚠️ The SAME chip the « Patients à compléter » worklist uses, not a second copy of the
-                    question — one component owns the comparison dialog, both calls and the wording, so a
-                    duplicate cannot keep an old sentence or merge without showing the two fiches. Renders
-                    nothing when there is no suggestion, which is the ordinary case. On a merge this fiche is
-                    deleted, so the page leaves for the surviving patient rather than reloading a dead record. */}
-                <DuplicateSuggestionPrompt
-                  patient={patient}
-                  onResolved={(outcome, survivingPatientId) => {
-                    if (outcome === "merged" && survivingPatientId) {
-                      // Before the push: the broadcast this merge just emitted can reach us first.
-                      mergedAwayIdRef.current = patient.id
-                      router.push(`/patients/${survivingPatientId}`)
-                    } else {
-                      setRefreshKey((k) => k + 1)
-                    }
-                  }}
-                />
-                {/* One action. A « c'est correct » shortcut was offered and withdrawn — the stamp now clears only
-                    by saving the fiche, which is what `Patient.UpdatePersonalInfo` does server-side. */}
-                <Button size="sm" className="coarse:h-11" onClick={() => setEditDialogOpen(true)}>
-                  Compléter les infos patient
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/*
+          ⚠️ The « Patient créé depuis Google Agenda, à compléter » band was HERE and was removed deliberately.
+          It restated, on every visit to the fiche, something the practice had already been told — and the fiche
+          is where somebody goes to *work*, not to be reminded that a record is thin. « Patients à compléter » on
+          « À clôturer » is the one place that asks, it carries the same two actions (« Compléter les infos
+          patient » and the duplicate-merge prompt), and « Ne plus afficher » there now simply means dismissed.
+
+          A thin fiche is not an error state, and the fields it lacks are optional by design — a walk-in
+          registered with a name alone is an ordinary patient. See features/calendar-import-revert/notes.md.
+        */}
 
         {/*
           The odontogram leads the patient page: for a dentist it is the chart the whole consultation is

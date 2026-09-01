@@ -274,5 +274,10 @@ implementer's.**
 - ~~Retiring the Google→App import. Decided: this ships first, retirement is a later feature.~~
   **Done.** The later feature arrived immediately after: the button, the 15-minute job, the endpoint, the
   `import-settings` gate and the import half of `GoogleCalendarSyncService` are gone. The undo above stayed.
-- The push deleting the Google event when a visit is **`Completed`** (`GoogleCalendarSyncService.cs:119`), which
-  makes a practice's calendar erase itself as each day is worked. A real question, a separate one.
+- ~~The push deleting the Google event when a visit is **`Completed`**, which makes a practice's calendar erase
+  itself as each day is worked. A real question, a separate one.~~
+  **Answered, and more broadly than this line asked.** Nothing in the product deletes a Google event any more, on
+  any status: `IGoogleCalendarService.DeleteEventAsync` and its implementation were **removed from the contract**,
+  so « never » is a compile error rather than a condition. A terminal visit keeps its event and the event is
+  *updated* to say what happened. `GoogleCalendarNeverDeletesTests` guards it three ways (contract, client, and a
+  source scan for the SDK's own `Events.Delete`, which reflection cannot see), with an executed red-proof.

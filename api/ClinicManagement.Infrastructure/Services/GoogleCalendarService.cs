@@ -183,22 +183,8 @@ public class GoogleCalendarService : IGoogleCalendarService
         }
     }
 
-    public async Task DeleteEventAsync(GoogleCalendarConnection connection, string eventId, CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            var service = await GetCalendarServiceAsync(connection, cancellationToken);
-            var calendarId = ResolveCalendarId(connection);
-
-            await service.Events.Delete(calendarId, eventId).ExecuteAsync(cancellationToken);
-            _logger.LogInformation("Deleted Google Calendar event: {EventId}", eventId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting Google Calendar event: {EventId}", eventId);
-            throw;
-        }
-    }
+    // ⚠️ `DeleteEventAsync` was here and is gone on purpose — see the note in `IGoogleCalendarService`. Nothing
+    // in this product removes an event from a practice's Google calendar; `service.Events.Delete` appears nowhere.
 
     public async Task<IEnumerable<GoogleCalendarEvent>> GetEventsAsync(
         GoogleCalendarConnection connection,
