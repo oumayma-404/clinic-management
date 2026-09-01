@@ -71,6 +71,8 @@ export interface ReminderStatusDto {
   id: string;
   channel: string;
   recipientMasked: string;
+  /** Whose reminder this was, so the name can be the way to their fiche. Null with `patientName`. */
+  patientId?: string | null;
   status: ReminderDeliveryStatus;
   /** Why it failed — or, for a `blocked` row, why it cannot be sent. Both come off the row's one reason field. */
   failureReason: string | null;

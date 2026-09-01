@@ -87,6 +87,7 @@ interface PlanConfirm {
   onConfirm: () => Promise<void>
 }
 import { planItemState } from "./plan-next-action"
+import { PatientNameLink } from "@/components/patient-name-link"
 
 interface PlanWorkspaceProps {
   plan: TreatmentPlanDto
@@ -633,13 +634,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            <button
-              type="button"
-              className="underline underline-offset-2 hover:text-foreground"
-              onClick={() => router.push(`/patients/${plan.patientId}`)}
-            >
-              {plan.patientName ?? "Patient"}
-            </button>
+            <PatientNameLink patientId={plan.patientId} name={plan.patientName ?? "Patient"} />
             {plan.number && plan.title ? ` · ${plan.title}` : ""}
           </p>
         </CardHeader>

@@ -28,6 +28,7 @@ import {
 } from "./invoice-labels"
 import { SendDocumentEmailDialog } from "@/components/send-document-email-dialog"
 import { DOCUMENT_EMAIL_KINDS, type DocumentEmailKind } from "@/lib/api/document-emails"
+import { PatientNameLink } from "@/components/patient-name-link"
 
 /** What « Envoyer par e-mail » was clicked for. One dialog serves the reçus and the avoirs of this modal. */
 interface EmailTarget {
@@ -183,8 +184,15 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
               </Badge>
             )}
           </DialogTitle>
-          <DialogDescription>
-            {invoice?.patientName ?? "Détail de la facture, paiements et avoirs."}
+          <DialogDescription asChild>
+            {/* `asChild`: the primitive renders a <p>, and a <p> may not contain the link's flex wrapper. */}
+            <span>
+              {invoice?.patientId && invoice.patientName ? (
+                <PatientNameLink patientId={invoice.patientId} name={invoice.patientName} />
+              ) : (
+                (invoice?.patientName ?? "Détail de la facture, paiements et avoirs.")
+              )}
+            </span>
           </DialogDescription>
         </DialogHeader>
 

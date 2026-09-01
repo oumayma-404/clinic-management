@@ -21,6 +21,7 @@ public static class ReminderStatusMapper
         RecipientMasked = MaskRecipient(n.Patient?.PhoneNumber?.Value),
         // AC-P3.9 — the name, so a failed row names someone; the phone stays masked (AC-P3.10).
         PatientName = n.Patient == null ? null : n.Patient.GetFullName(),
+        PatientId = n.PatientId,
         AppointmentAt = n.Appointment?.AppointmentDateTime,
         IsRecall = n.AppointmentId == null,
         Status = n.Status switch

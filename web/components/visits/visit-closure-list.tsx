@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils"
 import { NothingToBillDialog } from "./nothing-to-bill-dialog"
 import { DisregardVisitsDialog } from "./disregard-visits-dialog"
 import { visitClosureDayGroups, type VisitClosureDayGroup } from "./visit-closure-days"
+import { PatientNameLink } from "@/components/patient-name-link"
 
 /**
  * « À clôturer » — the séances still owing a presence, a fiche or a money document.
@@ -247,12 +248,7 @@ export function VisitClosureList({
                             className="absolute inset-y-0 start-0 w-[3px]"
                             style={{ backgroundColor: stripeFor(visit) }}
                           />
-                          <Link
-                            href={`/patients/${encodeURIComponent(visit.patientId)}`}
-                            className="underline-offset-4 hover-hover:hover:underline"
-                          >
-                            {visit.patientName}
-                          </Link>
+                          <PatientNameLink patientId={visit.patientId} name={visit.patientName} />
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           <div>{formatDateTime(visit.appointmentDateTime)}</div>

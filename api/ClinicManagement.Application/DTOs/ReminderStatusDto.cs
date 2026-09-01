@@ -35,6 +35,12 @@ public sealed record ReminderStatusDto
     /// </summary>
     public string? PatientName { get; init; }
     /// <summary>
+    /// Whose reminder this was, so the name can be the way to their fiche. Sent alongside
+    /// <see cref="PatientName"/> because a name that identifies someone the reader then cannot reach is only
+    /// half of « actionable ». Null with the name, when the patient record is gone.
+    /// </summary>
+    public Guid? PatientId { get; init; }
+    /// <summary>
     /// The appointment this reminder is for (AC-P3.9), so a failed row says *which* visit is at risk. Null for
     /// a recall (« relance »), which carries no appointment.
     /// </summary>

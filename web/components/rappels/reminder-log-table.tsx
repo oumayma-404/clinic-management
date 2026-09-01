@@ -13,6 +13,7 @@ import { formatDateTime } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import type { ReminderDeliveryStatus, ReminderStatusDto } from "@/lib/api/reminder-settings"
 import { DELIVERY_LABEL, DELIVERY_TONE } from "./delivery-tone"
+import { PatientNameLink } from "@/components/patient-name-link"
 
 /**
  * The delivery log — who was sent what, when, and why it failed.
@@ -217,7 +218,11 @@ export function ReminderLogTable({
                   className="absolute inset-y-0 left-0 w-[2px]"
                   style={{ backgroundColor: STATUS_TONE_RAIL[DELIVERY_TONE[row.status]] }}
                 />
-                <span className="font-medium">{row.patientName ?? "Patient inconnu"}</span>
+                {row.patientId && row.patientName ? (
+                  <PatientNameLink patientId={row.patientId} name={row.patientName} />
+                ) : (
+                  <span className="font-medium">{row.patientName ?? "Patient inconnu"}</span>
+                )}
                 {/*
                   A recall row. Kept visible even though the feature is being retired: these messages really were
                   sent to patients, and hiding them would rewrite the past rather than remove a feature.

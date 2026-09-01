@@ -38,6 +38,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { DEFAULT_PAGE_SIZE } from "@/lib/api/paging"
 import { cn } from "@/lib/utils"
+import { PatientNameLink } from "@/components/patient-name-link"
 
 const MONEY_CHIP = zoneChipClass(ZONES.money)
 
@@ -420,7 +421,11 @@ export function ChequesTable() {
                           </TableCell>
                           <TableCell className="text-right font-semibold tabular-nums">{formatDT(r.amount)}</TableCell>
                           <TableCell className="whitespace-nowrap">
-                            {r.patientName ?? <span className="text-muted-foreground">—</span>}
+                            {r.patientId && r.patientName ? (
+                              <PatientNameLink patientId={r.patientId} name={r.patientName} />
+                            ) : (
+                              r.patientName ?? <span className="text-muted-foreground">—</span>
+                            )}
                           </TableCell>
                           <TableCell className="whitespace-nowrap">
                             {r.reference ?? <span className="text-muted-foreground">—</span>}
