@@ -310,11 +310,34 @@ services:
     networks: [internal]
     # No `ports:` — Caddy proxies /api/*, /hub/* and /health to this service over the internal network.
     #
-    # ⚠️ No container-level `healthcheck:` here, deliberately. The endpoint exists — GET /health reports the
-    # database round trip and the storage probe — but `mcr.microsoft.com/dotnet/aspnet:8.0` ships no HTTP client
-    # (no curl, no wget), so a CMD-SHELL test would need one installed into the image the Cloud profile also
-    # builds from. Poll it from outside instead: `https://${DOMAIN}/health` (Caddy routes it) answers 200 for
-    # Healthy AND Degraded, 503 only when the database is unreachable.
+    # ⚠️ **This healthcheck exists to make a deploy invisible, not to restart a sick container.** It used to
+    # be deliberately absent, on the reasoning that the aspnet base image ships no HTTP client — true, and now
+    # answered in `api/Dockerfile` by keeping the `curl` that layer already installed. Its absence had a cost
+    # nobody had priced: with no readiness signal, `docker compose up -d` returns the instant the process is
+    # LAUNCHED, so the deploy declared itself done while Kestrel was still binding, and `--wait` — the one flag
+    # that would hold the deploy until the API could answer — had nothing to wait on. On 2026-09-01 that showed
+    # up as 25 s of 502s reaching a clinic mid-session at 10:34 Tunis.
+    #
+    # `--start-period` is generous (40 s) because startup here is not just Kestrel: `DeferredStartupService`
+    # applies EF migrations behind an advisory lock and runs the per-clinic backfills first, and a migration
+    # batch is exactly when a slow start is legitimate rather than a fault. A failing probe inside the start
+    # period does not count towards `retries`, so nothing here can turn a slow migration into a restart loop.
+    #
+    # ⚠️ `/health` answers 200 for Healthy AND **Degraded** and 503 only when the database is unreachable —
+    # so a clinic whose object storage is down still reports healthy and keeps serving, which is the intent.
+    # Do not "tighten" this to require Healthy: it would make MinIO an outage for booking and money, and it
+    # would make `--wait` roll the deploy back for a partial failure nobody needed rolled back.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:5000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    # ⚠️ The default grace is 10 s, and the API needs more than that to put a request down cleanly: Hangfire's
+    # own shutdown timeout is 15 s (see the server options it logs at boot). At 10 s Docker SIGKILLs mid-flight,
+    # which is how a `POST` that a dentist had already confirmed could die between the browser and the database.
+    # Kestrel stops accepting new connections on SIGTERM and drains what it has, so this is a ceiling, not a wait.
+    stop_grace_period: 30s
     #
     # ⚠️ `restore-backup` deliberately REFUSES in this profile: its safety interlock is « no restore while the
     # application is listening », and it looks for a listener on its own machine — here the API listens in this
@@ -374,6 +397,21 @@ services:
       # non-secure scheme from its own hop and drop `Secure` from an internet-facing session cookie.
       AUTH_COOKIE_SECURE: "true"
     networks: [internal]
+    # A TCP probe rather than an HTTP one, on purpose. Every page this app serves is behind auth, so `/` is a
+    # redirect and there is no unauthenticated 200 to curl — and `node:22-alpine` has no curl anyway. What the
+    # deploy actually needs to know is « is Next accepting connections yet », which is precisely this. `node` is
+    # the one binary guaranteed to be here.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 30s
     # No `ports:` — Caddy proxies everything except /api/* and /hub/* to this service.
 
   # The vendor's back-office (platform-console FR-2) — its OWN image, containing none of the clinic bundle.
@@ -396,6 +434,19 @@ services:
       CONSOLE_API_URL: http://api:5443/api
     networks:
       - internal
+    # Same TCP probe as `web`, and it earns its place for the same reason: the console is recreated by every
+    # deploy too, so without a readiness signal `--wait` would return before it could answer.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 30s
     # No `ports:` — only Caddy's loopback-published 9443 reaches it.
 
   caddy:

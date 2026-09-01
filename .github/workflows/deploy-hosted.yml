@@ -183,7 +183,21 @@ jobs:
           # --no-build: the base file still carries a `build:` section (Compose merge cannot remove a key), so
           # without this a tag missing from the registry would silently start a 20-minute rebuild of a commit
           # nobody chose, on the production box. Refusing is the correct outcome.
-          $COMPOSE up -d --no-build --remove-orphans
+          #
+          # --wait: hold here until every service reports HEALTHY, not merely started. Without it this command
+          # returned the moment the containers were launched and the next step ran against an API that was still
+          # binding Kestrel — which is how the config-freshness step below came to force-recreate Caddy on top of
+          # an already-down API, stacking two outages into one. It needs the `healthcheck:` blocks that
+          # `docker-compose.hosted.yml` now carries on api, web and console; with none, --wait waits for nothing.
+          #
+          # ⚠️ --wait-timeout is set, and not left to default to forever. A deploy that cannot become healthy
+          # must FAIL the workflow while the summary still says which commit it was, rather than hang until the
+          # job's own limit kills it with no verdict. `restart: unless-stopped` means Docker keeps retrying the
+          # container regardless, so a timeout here is a report, not an abandonment.
+          #
+          # ⚠️ `certs` is a one-shot (`restart: "no"`, exits 0) and --wait handles it: Compose treats a
+          # service that has run to completion as satisfied rather than waiting for it to be "running".
+          $COMPOSE up -d --no-build --remove-orphans --wait --wait-timeout 180
 
           echo "--- containers ---"
           $COMPOSE ps

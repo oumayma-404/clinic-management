@@ -39,7 +39,14 @@ COPY --from=publish /app/publish .
 # `deploy/`, so bumping one means bumping the other.
 #
 # The codename is read from the base image rather than hardcoded, so a bookworm→trixie base bump does not silently
-# point at a repository suite that does not exist. `curl`/`gnupg` are purged again in the same layer.
+# point at a repository suite that does not exist. `gnupg` is purged again in the same layer.
+#
+# ⚠️ **`curl` is deliberately KEPT** (it used to be purged here alongside gnupg). It is the container's
+# `healthcheck:` — `mcr.microsoft.com/dotnet/aspnet:8.0` ships no HTTP client at all, and without one Compose
+# has no way to know this container is READY as opposed to merely started. That gap is what made a deploy a
+# 25-second outage: `docker compose up -d` returned the moment the process launched, the workflow moved on, and
+# Caddy 502'd every clinic request until the API had finished booting. `docker-compose.hosted.yml` states the
+# other half. The cost is a few MB of libcurl in an image that already carries postgresql-client-16.
 USER root
 RUN set -eux; \
     apt-get update; \
@@ -52,10 +59,11 @@ RUN set -eux; \
         > /etc/apt/sources.list.d/pgdg.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends postgresql-client-16; \
-    apt-get purge -y --auto-remove curl gnupg; \
+    apt-get purge -y --auto-remove gnupg; \
     rm -rf /var/lib/apt/lists/*; \
     pg_dump --version; \
-    pg_restore --version
+    pg_restore --version; \
+    curl --version
 
 # Runs as a non-root user (review finding 28). This is the container that mounts the Data Protection key ring and
 # holds the Postgres and MinIO root credentials in its environment, so any RCE or escape was immediately
