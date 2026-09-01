@@ -52,8 +52,8 @@ public class RefreshTokenCommandHandlerTests
         _auth.Setup(a => a.ValidateRefreshToken(Credential))
             .Returns(new RefreshTokenPrincipal(user.Id, presentedVersion ?? user.TokenVersion, null));
         _users.Setup(r => r.GetByAuth0SubAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
-        _auth.Setup(a => a.GenerateToken(user)).Returns(new LocalAuthToken("access-jwt", AccessExpiry));
-        _auth.Setup(a => a.GenerateRefreshToken(user, It.IsAny<Guid?>())).Returns(new LocalAuthToken("refresh-jwt-2", RefreshExpiry));
+        _auth.Setup(a => a.GenerateToken(user, It.IsAny<Guid?>())).Returns(new LocalAuthToken("access-jwt", AccessExpiry));
+        _auth.Setup(a => a.GenerateRefreshToken(user, It.IsAny<Guid?>(), It.IsAny<bool>())).Returns(new LocalAuthToken("refresh-jwt-2", RefreshExpiry));
     }
 
     // [AC-35] The exchange returns a NEW durable credential and its own later expiry. Without it the cookie kept
@@ -74,7 +74,7 @@ public class RefreshTokenCommandHandlerTests
         // The cookie's lifetime is keyed off the durable expiry, so equal expiries would collapse a 12 h
         // session to the access token's 30 minutes.
         Assert.True(result.Value.RefreshExpiresAt > result.Value.ExpiresAt);
-        _auth.Verify(a => a.GenerateRefreshToken(user, It.IsAny<Guid?>()), Times.Once);
+        _auth.Verify(a => a.GenerateRefreshToken(user, It.IsAny<Guid?>(), It.IsAny<bool>()), Times.Once);
     }
 
     // [AC-36] A token version bumped since the cookie was issued (password change, admin reset, role change,
@@ -175,7 +175,7 @@ public class RefreshTokenCommandHandlerTests
     {
         var user = LocalUser();
         Arrange(user);
-        _auth.SetupSequence(a => a.GenerateRefreshToken(user, It.IsAny<Guid?>()))
+        _auth.SetupSequence(a => a.GenerateRefreshToken(user, It.IsAny<Guid?>(), It.IsAny<bool>()))
             .Returns(new LocalAuthToken("refresh-jwt-2", RefreshExpiry))
             .Returns(new LocalAuthToken("refresh-jwt-3", RefreshExpiry));
 
@@ -218,7 +218,7 @@ public class RefreshTokenCommandHandlerTests
 
     private void AssertNothingWasIssued()
     {
-        _auth.Verify(a => a.GenerateToken(It.IsAny<User>()), Times.Never);
-        _auth.Verify(a => a.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<Guid?>()), Times.Never);
+        _auth.Verify(a => a.GenerateToken(It.IsAny<User>(), It.IsAny<Guid?>()), Times.Never);
+        _auth.Verify(a => a.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<Guid?>(), It.IsAny<bool>()), Times.Never);
     }
 }

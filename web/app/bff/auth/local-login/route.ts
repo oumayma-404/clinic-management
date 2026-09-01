@@ -29,7 +29,13 @@ const RELAYED_CODES = new Set([
 ]);
 
 export async function POST(request: NextRequest) {
-  let body: { email?: string; password?: string; totpCode?: string };
+  let body: {
+    email?: string;
+    password?: string;
+    totpCode?: string;
+    trustDevice?: boolean;
+    deviceLabel?: string;
+  };
   try {
     body = await request.json();
   } catch {
@@ -49,6 +55,10 @@ export async function POST(request: NextRequest) {
         // Omitted rather than sent empty: absent is the first half of a two-step sign-in, and the server
         // distinguishes « not asked yet » from « asked and got it wrong ».
         ...(body.totpCode ? { totpCode: body.totpCode } : {}),
+        // « Rester connecté sur cet appareil ». Coerced rather than forwarded, because this route's body is
+        // whatever the browser sent and the server field is a bool — a string `"false"` is truthy in JSON.
+        trustDevice: body.trustDevice === true,
+        ...(body.deviceLabel ? { deviceLabel: body.deviceLabel } : {}),
       }),
     });
 

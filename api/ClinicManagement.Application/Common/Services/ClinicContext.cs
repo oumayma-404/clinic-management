@@ -43,6 +43,19 @@ public class ClinicContext : IClinicContext
             ?? _httpContextAccessor.HttpContext?.User?.FindFirst("sub")?.Value;
     }
 
+    /// <summary>
+    /// ⚠️ The claim name is spelled here as a literal because <c>Application</c> does not reference
+    /// <c>Infrastructure</c>, where <c>LocalAuthClaims.SessionFamily</c> lives — the dependency direction
+    /// forbids it. <c>SessionFamilyClaimNameTests</c> compares the two so the pair cannot drift in silence;
+    /// without that guard this would be the classic « reads a claim nobody issues » that always returns null and
+    /// never errors.
+    /// </summary>
+    public Guid? GetSessionFamilyId()
+    {
+        var value = _httpContextAccessor.HttpContext?.User?.FindFirst("family_id")?.Value;
+        return Guid.TryParse(value, out var familyId) ? familyId : null;
+    }
+
     public string? GetUserEmail()
     {
         var user = _httpContextAccessor.HttpContext?.User;

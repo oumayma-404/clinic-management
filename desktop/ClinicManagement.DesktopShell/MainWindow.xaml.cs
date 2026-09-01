@@ -322,6 +322,54 @@ public partial class MainWindow : Window
             case "theme:light":
                 WindowTheme.Apply(this, dark: false);
                 break;
+            default:
+                // `identity:<id>` — the page's inactivity lock asking Windows to confirm the device owner.
+                if (message.StartsWith(IdentityRequestPrefix, StringComparison.Ordinal))
+                {
+                    ConfirmIdentityAsync(message[IdentityRequestPrefix.Length..]);
+                }
+                break;
+        }
+    }
+
+    private const string IdentityRequestPrefix = "identity:";
+
+    /// <summary>
+    /// Runs the Windows Hello prompt for one <c>confirmIdentity()</c> call and hands the outcome back.
+    ///
+    /// <para>⚠️ <b>Deliberately <c>async void</c>, and deliberately not awaited by the message handler.</b> The
+    /// handler runs on the UI thread and the prompt is modal for as long as the user takes; awaiting it there
+    /// would block every other message — including the theme reports the page sends — behind a dialog. The whole
+    /// body is wrapped, because an unhandled exception out of an <c>async void</c> takes the process down, and
+    /// this one runs while the app is showing a lock screen over a patient's record.</para>
+    ///
+    /// <para>⚠️ <b>The id is echoed back verbatim and is safe to interpolate</b> only because the injected script
+    /// generates it (<c>'i' + counter</c>) and nothing else can reach this branch. It is quoted anyway, and
+    /// nothing from the page is placed in the outcome slot — that value is one of four literals this file
+    /// controls.</para>
+    /// </summary>
+    private async void ConfirmIdentityAsync(string requestId)
+    {
+        var outcome = "unavailable";
+
+        try
+        {
+            var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            outcome = await IdentityGate.ConfirmAsync(handle);
+        }
+        catch
+        {
+            // Falls through with "unavailable" — the contract's answer for a shell that cannot ask.
+        }
+
+        try
+        {
+            await WebView.CoreWebView2.ExecuteScriptAsync(
+                $"window.__clinicShellDeliverIdentityResult && window.__clinicShellDeliverIdentityResult('{requestId}', '{outcome}')");
+        }
+        catch
+        {
+            // The page navigated away, or the WebView is gone. The script's own timeout resolves the promise.
         }
     }
 

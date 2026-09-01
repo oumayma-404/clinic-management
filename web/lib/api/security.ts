@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client';
+import { apiDelete, apiGet, apiPost } from './client';
 
 /**
  * The backend's `Result<T>` envelope, as `reminder-allowance.ts`, `reminder-settings.ts` and `clinics.ts` already
@@ -44,6 +44,39 @@ export interface TotpState {
 
 export interface RecoveryCodes {
   recoveryCodes: string[];
+}
+
+/**
+ * One live session of this account, as « Mes appareils » lists it.
+ *
+ * <p>It lives here rather than in `auth.ts` for the reason that module states about itself: everything there is
+ * <b>anonymous</b> — read before a session exists — while this pair is authenticated and comes back inside the
+ * `Result&lt;T&gt;` envelope this module already unwraps.</p>
+ */
+export interface SessionDevice {
+  id: string;
+  /** What the device called itself at sign-in. Null is ordinary — most sign-ins send nothing. */
+  deviceLabel: string | null;
+  createdAtUtc: string;
+  /**
+   * The last credential rotation.
+   *
+   * ⚠️ **Not the last human action**, and the screen must not call it one. An open tab renews roughly every half
+   * hour on its own, so this advances while nobody is touching the machine. « Dernière activité » is honest;
+   * « dernière utilisation » would tell a user their unattended reception PC was being used.
+   */
+  lastActiveAtUtc: string;
+  expiresAtUtc: string;
+  /** Whether « Rester connecté sur cet appareil » was ticked when this session was opened. */
+  isTrusted: boolean;
+  /**
+   * Whether this is the session making the request.
+   *
+   * ⚠️ **`false` on every row means « I cannot tell », not « none of these is you ».** A token issued before the
+   * session-family claim existed names no chain, so during a rolling deploy a signed-in user legitimately sees a
+   * list with nothing marked — the screen must conclude nothing from the absence.
+   */
+  isCurrent: boolean;
 }
 
 export interface StepUpResult {
@@ -108,5 +141,26 @@ export const securityApi = {
 
   resetUserTotp: async (userId: string, confirmationToken: string, token?: string | null): Promise<void> => {
     await apiPost<unknown>(`/users/${userId}/totp/reset`, { confirmationToken }, token ?? undefined);
+  },
+
+  /**
+   * « Mes appareils » — every live session of the signed-in account.
+   *
+   * ⚠️ Takes no user parameter, and the server scopes it to the caller's own account. There is no shape of this
+   * call that reads a colleague's devices, which is deliberate: when somebody last sat at their desk is not a
+   * fact this product hands to anybody else.
+   */
+  listSessions: async (token?: string | null): Promise<SessionDevice[]> =>
+    unwrap(
+      await apiGet<Result<SessionDevice[]>>('/auth/sessions', undefined, token ?? undefined),
+      "La liste de vos appareils n'a pas pu être lue.",
+    ),
+
+  /**
+   * Ends one device's session. Succeeds whether it was live or already ended — two tabs pressing
+   * « Déconnecter » on the same row is ordinary, and the caller's intent is satisfied either way.
+   */
+  endSession: async (sessionId: string, token?: string | null): Promise<void> => {
+    await apiDelete<unknown>(`/auth/sessions/${sessionId}`, token ?? undefined);
   },
 };

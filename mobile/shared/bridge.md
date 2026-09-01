@@ -154,11 +154,12 @@ deliberately **not** a member of `__clinicShell`, so deleting the bridge cannot 
 | | Android | iOS | Desktop (WPF) |
 |---|---|---|---|
 | `version` · `platform` | ✅ | ⚠️ written, **never compiled** | ✅ since 1.2 |
+| the identity seam (`__clinicShellDeliverIdentityResult`) | ✅ | ⚠️ n/a — a real `Promise` | ✅ since 1.3 |
 | `maxFileBytes` | ✅ | ⚠️ written | — n/a: no `saveFile` to bound |
 | `saveFile` | ✅ | ⚠️ written — `QLPreviewController`, else the share sheet | — a WebView2 download works |
 | `print` | ✅ | ⚠️ written — `UIPrintInteractionController` | — `window.print()` works |
 | `onPushToken` | ✅ registered, inert | ⚠️ written, inert — and free signing has no APNs entitlement | — |
-| `confirmIdentity` | ✅ API 28+, else `unavailable` | ⚠️ written — `LAContext.deviceOwnerAuthentication` | — |
+| `confirmIdentity` | ✅ API 28+, else `unavailable` | ⚠️ written — `LAContext.deviceOwnerAuthentication` | ✅ since 1.3 — Windows Hello |
 | the coffre seam (below) | — | — | ✅ since 1.2 |
 
 ⚠️ **Every iOS cell says *written*, not *implemented*.** The Swift has never been compiled, signed or run — see
@@ -184,8 +185,23 @@ set is the four the table above names on both platforms, which is the set this c
 
 The WPF shell had **no bridge at all** until `clinic-file-vault`: it exposed no `__clinicShell`, which is why its
 version floor is read over **native HTTP before navigation** rather than from the object. It now exposes `version`,
-`platform: "windows"` and one seam, and **none** of the mobile members — each of those solves a WebView problem
-this shell does not have.
+`platform: "windows"`, **`confirmIdentity` (since 1.3)** and one seam.
+
+⚠️ **The line that used to stand here — « and none of the mobile members: each of those solves a WebView problem
+this shell does not have » — was right about two members and wrong about the third.** `saveFile` and `print` really
+are unnecessary (a WebView2 download works, `window.print()` works). But `confirmIdentity` does not solve a
+*WebView* problem at all: it solves the inactivity limit ending a session outright instead of pausing it, and this
+shell has that problem more sharply than the phones do. A phone sits behind its own lock screen; a dentist's PC
+sits unlocked in a treatment room with the app open through a forty-minute appointment. So the phone locked and
+came back to the same open fiche while the desktop demanded a password and a six-digit code from an authenticator
+across the room — the harsh treatment on the device where locking is *safest*.
+
+Windows Hello answers the same yes/no question `BiometricPrompt` does, through
+`Windows.Security.Credentials.UI.UserConsentVerifier`, and the web bundle's contract is unchanged. Two things it
+cost: the shell's target framework gained a Windows-SDK suffix (`net8.0-windows10.0.19041.0`) because the WinRT
+projection is not referenced by a bare `net8.0-windows`, and the request needs the **HWND** overload —
+`RequestVerificationForWindowAsync`, not the parameterless call, which in a non-packaged desktop process has no
+window to parent its dialog to.
 
 **The seam, and why it is not a member:**
 

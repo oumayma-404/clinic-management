@@ -43,10 +43,16 @@ public class SessionFamilyRepository : ISessionFamilyRepository
     public async Task<SessionFamily?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         await _context.SessionFamilies.FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
 
+    /// <summary>
+    /// ⚠️ <b>Both halves of « open » are in SQL</b>, and the expiry one is the half that was missing. Filtering it
+    /// in the handler instead would materialise every dead row this account has ever opened in order to drop it —
+    /// 284 rows to render 7, on a development database — and the index this rides
+    /// (<c>IX_SessionFamilies_UserId_ExpiresAtUtc</c>) already exists precisely for that predicate.
+    /// </summary>
     public async Task<IReadOnlyList<SessionFamily>> GetLiveForUserAsync(
-        string userId, CancellationToken cancellationToken = default) =>
+        string userId, DateTime nowUtc, CancellationToken cancellationToken = default) =>
         await _context.SessionFamilies
-            .Where(f => f.UserId == userId && f.EndedAtUtc == null)
+            .Where(f => f.UserId == userId && f.EndedAtUtc == null && f.ExpiresAtUtc > nowUtc)
             .OrderByDescending(f => f.LastRotatedAt)
             .ThenBy(f => f.Id)
             .ToListAsync(cancellationToken);

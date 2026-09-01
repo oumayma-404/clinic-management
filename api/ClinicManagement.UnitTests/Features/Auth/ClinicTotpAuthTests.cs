@@ -36,9 +36,9 @@ public class ClinicTotpAuthTests
     {
         _auth.Setup(a => a.VerifyPassword(It.IsAny<string>(), It.IsAny<string>()))
             .Returns(PasswordVerificationOutcome.Success);
-        _auth.Setup(a => a.GenerateToken(It.IsAny<User>()))
+        _auth.Setup(a => a.GenerateToken(It.IsAny<User>(), It.IsAny<Guid?>()))
             .Returns(new LocalAuthToken("access-jwt", DateTime.UtcNow.AddMinutes(30)));
-        _auth.Setup(a => a.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<Guid?>()))
+        _auth.Setup(a => a.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<Guid?>(), It.IsAny<bool>()))
             .Returns(new LocalAuthToken("refresh-jwt", DateTime.UtcNow.AddHours(12)));
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
         _clinics.Setup(r => r.GetByIdAsync(ClinicId, It.IsAny<CancellationToken>()))

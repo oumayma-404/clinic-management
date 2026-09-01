@@ -44,7 +44,12 @@ public class SessionFamily : Entity<Guid>
 {
     private SessionFamily() { } // For EF Core
 
-    public SessionFamily(string userId, string credentialHash, DateTime expiresAtUtc, string? deviceLabel = null)
+    public SessionFamily(
+        string userId,
+        string credentialHash,
+        DateTime expiresAtUtc,
+        string? deviceLabel = null,
+        bool isTrusted = false)
     {
         if (string.IsNullOrWhiteSpace(userId))
         {
@@ -60,6 +65,7 @@ public class SessionFamily : Entity<Guid>
         UserId = userId;
         CurrentCredentialHash = credentialHash;
         DeviceLabel = Trimmed(deviceLabel);
+        IsTrusted = isTrusted;
         CreatedAt = DateTime.UtcNow;
         LastRotatedAt = CreatedAt;
         ExpiresAtUtc = expiresAtUtc;
@@ -86,6 +92,21 @@ public class SessionFamily : Entity<Guid>
 
     /// <summary>Free text for the « d'où venait cette session ? » line in the notification. Never a credential.</summary>
     public string? DeviceLabel { get; private set; }
+
+    /// <summary>
+    /// The owner asked to stay signed in on this device, so this chain runs on the long credential lifetime.
+    ///
+    /// <para>⚠️ <b>The row is the authority, never the token.</b> Every rotation reads this property to size the
+    /// credential it mints; the matching claim on the JWT exists only so the browser can size its own idle timer
+    /// without a round trip. Deciding from the claim instead would let anyone who can edit a token extend their
+    /// own session, which is the one thing this flag must not be able to do.</para>
+    ///
+    /// <para>⚠️ <b>Set once, at sign-in, and never afterwards.</b> There is no <c>Trust()</c> method on purpose:
+    /// trust is asserted by a person who has just presented a password and a second factor, and a path that
+    /// could raise it later would be a way to lengthen a session without ever re-authenticating. Changing your
+    /// mind means signing in again — or ending the session from « Mes appareils », which is the cheaper half.</para>
+    /// </summary>
+    public bool IsTrusted { get; private set; }
 
     public DateTime CreatedAt { get; private set; }
 

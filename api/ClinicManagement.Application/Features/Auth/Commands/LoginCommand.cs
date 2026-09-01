@@ -24,6 +24,25 @@ public class LoginCommand : IRequest<Result<LoginResultDto>>
     /// and it earns <c>totp_required</c> so the screen knows to ask.</para>
     /// </summary>
     public string? TotpCode { get; set; }
+
+    /// <summary>
+    /// « Rester connecté sur cet appareil » — the person signing in says this machine is theirs, so the session
+    /// runs 30 days instead of 12 hours.
+    ///
+    /// <para>⚠️ <b>It changes the session's length and nothing about how it is opened.</b> The password, the
+    /// lockouts and the second factor are all in front of this flag, so it can only be set by somebody who has
+    /// already completed the full sign-in — which is what makes a long session defensible at all.</para>
+    ///
+    /// <para>Default <c>false</c>, and the screen's checkbox is unticked to match: the right answer for the
+    /// reception PC that half the practice shares is « no », and a default is what a shared machine gets.</para>
+    /// </summary>
+    public bool TrustDevice { get; set; }
+
+    /// <summary>
+    /// A human name for the device, so « Mes appareils » lists something a person can recognise before ending
+    /// it. Free text, capped, and never a credential — see <c>SessionFamily.DeviceLabel</c>.
+    /// </summary>
+    public string? DeviceLabel { get; set; }
 }
 
 public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginResultDto>>
@@ -217,7 +236,6 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
              */
             _auditActor.AuthenticatedAs(user.Id, user.Email);
             user.RecordSuccessfulLogin();
-            var token = _localAuthService.GenerateToken(user);
 
             // ── The durable session credential, and the chain it belongs to ───────────────────────────────
             //
@@ -234,11 +252,21 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                 // and the token must exist before it can be hashed into the family. Deliberately an already-
                 // expired instant, so a row that somehow escaped the rotation is purged rather than trusted.
                 SessionCredential.Hash(Guid.NewGuid().ToString()),
-                DateTime.UtcNow);
+                DateTime.UtcNow,
+                DeviceLabels.Sanitise(request.DeviceLabel),
+                request.TrustDevice);
             await _sessionFamilies.AddAsync(family, cancellationToken);
 
-            var refreshToken = _localAuthService.GenerateRefreshToken(user, family.Id);
+            // `family.IsTrusted` rather than `request.TrustDevice`, so the credential's lifetime and the row that
+            // will decide every later rotation are read from the same place. They cannot disagree.
+            var refreshToken = _localAuthService.GenerateRefreshToken(user, family.Id, family.IsTrusted);
             family.Rotate(SessionCredential.Hash(refreshToken.AccessToken), refreshToken.ExpiresAtUtc);
+
+            // ⚠️ Minted AFTER the family, not before, and the order is load-bearing: the access token names the
+            // chain it belongs to so « Mes appareils » can mark one row « cet appareil ». Issued first — as it was —
+            // it would carry no family, the screen could mark nothing, and the most likely mistake becomes a user
+            // ending their own session while trying to remove a device they no longer have.
+            var token = _localAuthService.GenerateToken(user, family.Id);
 
             _userRepository.Update(user);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

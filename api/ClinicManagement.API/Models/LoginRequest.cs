@@ -10,6 +10,18 @@ public class LoginRequest
     /// (<c>hosted-security-hardening</c> FR-1.2). Absent on the first request of a two-step sign-in.
     /// </summary>
     public string? TotpCode { get; set; }
+
+    /// <summary>
+    /// « Rester connecté sur cet appareil ». Absent or false is the ordinary 12-hour session.
+    ///
+    /// <para>⚠️ Sent on the request that <b>completes</b> the sign-in. In the two-step flow the box is ticked on
+    /// the password screen and the value is carried forward to the request that also carries the code — the
+    /// first request never opens a session, so a flag on it would be read and discarded.</para>
+    /// </summary>
+    public bool TrustDevice { get; set; }
+
+    /// <summary>What to call this device in « Mes appareils ». Free text; cleaned and capped server-side.</summary>
+    public string? DeviceLabel { get; set; }
 }
 
 /// <summary>Step one carries no code; step two carries the one generated from the issued secret.</summary>

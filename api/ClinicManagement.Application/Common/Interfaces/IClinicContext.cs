@@ -24,6 +24,19 @@ public interface IClinicContext
     /// Gets the current user's email from JWT claims
     /// </summary>
     string? GetUserEmail();
+
+    /// <summary>
+    /// Which <c>SessionFamily</c> — one device's chain — the caller's token belongs to, when it says so.
+    ///
+    /// <para>This is what lets « Mes appareils » mark one row « cet appareil ». Without it the screen lists a
+    /// set of indistinguishable sessions beside a button that ends one, and the most likely mistake is a user
+    /// signing themselves out while trying to remove a device they no longer have.</para>
+    ///
+    /// <para>⚠️ <b>Null is ordinary, not an error.</b> A token minted before the claim existed carries none, and
+    /// so does the scoped archive token, which has no chain at all. Every caller must treat « unknown » as « do
+    /// not mark anything » rather than as a failure.</para>
+    /// </summary>
+    Guid? GetSessionFamilyId();
 }
 
 

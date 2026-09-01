@@ -19,6 +19,7 @@ public static class LocalAuthConfig
     private const string DefaultAudience = "clinic-management-local-api";
     private const int DefaultTokenLifetimeMinutes = 720; // 12h durable session; frontend enforces inactivity expiry (AC-3.5)
     private const int DefaultAccessTokenLifetimeMinutes = 30; // browser-held credential, renewed silently (AC-5.3)
+    private const int DefaultTrustedTokenLifetimeMinutes = 43_200; // 30 days, for a device its owner vouched for
 
     private static readonly object KeyFileLock = new();
 
@@ -43,6 +44,24 @@ public static class LocalAuthConfig
     /// </summary>
     public static int TokenLifetimeMinutes(IConfiguration configuration) =>
         configuration.GetValue<int?>("Auth:Local:TokenLifetimeMinutes") ?? DefaultTokenLifetimeMinutes;
+
+    /// <summary>
+    /// Lifetime of a session on a device its owner asked to stay signed in on — « Rester connecté sur cet
+    /// appareil ».
+    ///
+    /// <para><b>Why 12 h was never enough.</b> The ordinary window slides from the last exchange, so it survives
+    /// a working day and dies overnight: a practice closing at 18 h and opening at 8 h 30 leaves a 14½-hour gap,
+    /// and the session misses it by two hours — every night, for every user, at the moment a patient is already
+    /// in the chair. Lengthening it for <i>everyone</i> was the wrong answer (a shared reception PC must not hold
+    /// a month-long credential), so the length became a property of the device instead of the product.</para>
+    ///
+    /// <para>⚠️ <b>This is only safe because the session stays revocable and visible.</b> « Mes appareils » lists
+    /// every live family and ends one on demand, <c>TokenVersion</c> still kills them all at once, and the
+    /// second-factor requirement is untouched — a trusted device shortens nothing about <i>signing in</i>, it
+    /// only makes signing in rarer.</para>
+    /// </summary>
+    public static int TrustedTokenLifetimeMinutes(IConfiguration configuration) =>
+        configuration.GetValue<int?>("Auth:Local:TrustedTokenLifetimeMinutes") ?? DefaultTrustedTokenLifetimeMinutes;
 
     /// <summary>
     /// Lifetime of the <b>access token</b> the browser actually holds (security-hardening AC-5.3). Short on

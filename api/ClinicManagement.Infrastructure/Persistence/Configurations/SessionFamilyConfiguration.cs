@@ -35,6 +35,10 @@ public class SessionFamilyConfiguration : IEntityTypeConfiguration<SessionFamily
         builder.Property(f => f.DeviceLabel).HasMaxLength(200);
         builder.Property(f => f.EndedReason).HasMaxLength(200);
 
+        // Additive with a `false` default, so every session already in flight on the deploy that introduces it
+        // keeps the ordinary 12-hour lifetime rather than silently becoming a month-long one.
+        builder.Property(f => f.IsTrusted).IsRequired().HasDefaultValue(false);
+
         builder.Property(f => f.CreatedAt).IsRequired();
         builder.Property(f => f.LastRotatedAt).IsRequired();
         builder.Property(f => f.ExpiresAtUtc).IsRequired();

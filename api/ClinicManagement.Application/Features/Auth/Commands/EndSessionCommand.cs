@@ -37,6 +37,34 @@ public class EndSessionCommand : IRequest<Result>
 {
     /// <summary>The refresh credential being retired — the value held in the BFF's HttpOnly cookie.</summary>
     public string RefreshToken { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Why the session is ending. Defaults to the deliberate case, so a caller that says nothing is recorded as
+    /// the thing it most likely is rather than as an unknown.
+    /// </summary>
+    public SessionEnding Ending { get; set; } = SessionEnding.UserRequested;
+}
+
+/// <summary>
+/// How a session came to an end, as the journal will record it.
+///
+/// <para><b>Why this exists.</b> There was one constant — « Déconnexion demandée par l'utilisateur » — stamped on
+/// both a chosen sign-out and the browser's 30-minute inactivity logout. So the one table that could have
+/// answered « is the timeout signing people out more than they realise? » could not: both look identical, and
+/// the question had to be answered by reading the client's source instead of its records. That is a small hole
+/// and it cost real time.</para>
+///
+/// <para>⚠️ <b>An enum, not the reason string itself.</b> The endpoint is anonymous, so whatever it accepts is
+/// attacker-controlled — and the value is persisted, then rendered back on « Mes appareils » and written to a
+/// journal a person reads. A closed set means the stored sentence is always one this codebase wrote.</para>
+/// </summary>
+public enum SessionEnding
+{
+    /// <summary>« Se déconnecter » — a person chose to end it.</summary>
+    UserRequested = 0,
+
+    /// <summary>The client's inactivity limit lapsed and no shell was able to offer a lock instead.</summary>
+    Inactivity = 1
 }
 
 public class EndSessionCommandHandler : IRequestHandler<EndSessionCommand, Result>
@@ -58,6 +86,19 @@ public class EndSessionCommandHandler : IRequestHandler<EndSessionCommand, Resul
     /// <summary>The reason stamped on the family, so the journal distinguishes this from a replay kill.</summary>
     public const string Reason = "Déconnexion demandée par l'utilisateur";
 
+    /// <summary>The other half of the same distinction: nobody asked, the limit simply ran out.</summary>
+    public const string InactivityReason = "Session expirée après une période d'inactivité";
+
+    /// <summary>
+    /// The sentence for an ending. A <c>switch</c> over the enum rather than a dictionary lookup, so adding a
+    /// member is a compile error here instead of a row silently stamped with the default.
+    /// </summary>
+    public static string ReasonFor(SessionEnding ending) => ending switch
+    {
+        SessionEnding.Inactivity => InactivityReason,
+        _ => Reason
+    };
+
     public async Task<Result> Handle(EndSessionCommand request, CancellationToken cancellationToken)
     {
         // A missing credential is not an error: a browser whose cookie has already gone still calls this on its
@@ -76,7 +117,7 @@ public class EndSessionCommandHandler : IRequestHandler<EndSessionCommand, Resul
             // double-submitted sign-out is ordinary rather than exceptional.
             if (family is { IsLive: true })
             {
-                family.End(Reason);
+                family.End(ReasonFor(request.Ending));
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
         }

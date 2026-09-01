@@ -30,6 +30,22 @@ public static class LocalAuthClaims
     public const string SessionFamily = "family_id";
 
     /// <summary>
+    /// « The person signing in said this device is theirs », so the session runs on the long lifetime rather
+    /// than the ordinary one.
+    ///
+    /// <para>⚠️ <b>It grants nothing on its own.</b> The claim's only readers are the BFF — which uses it to pick
+    /// how long the browser waits before locking or signing out — and this issuer, which reads the fact back off
+    /// the <c>SessionFamily</c> row, never off the token. A forged claim therefore cannot lengthen a session: the
+    /// credential's own <c>exp</c> was stamped when it was minted, and the next rotation asks the database, not
+    /// the JWT. It is on the token so a cold page load can size its idle timer from the cookie alone, with no
+    /// round trip.</para>
+    ///
+    /// <para>Only on the <b>refresh</b> token, like <see cref="SessionFamily"/>: the access token is not the
+    /// thing whose lifetime this changes.</para>
+    /// </summary>
+    public const string SessionTrusted = "session_trusted";
+
+    /// <summary>
     /// Narrows a token to one purpose. <b>Absent on an ordinary sign-in token</b> — its presence is what marks a
     /// token as restricted, and <c>ScopedTokenFilter</c> then refuses every endpoint that has not named the
     /// scope as acceptable.

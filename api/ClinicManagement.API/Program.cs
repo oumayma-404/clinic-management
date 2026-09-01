@@ -1202,6 +1202,16 @@ try
         job => job.FlagExpiringStock(),
         Cron.Daily(6));
 
+    // Housekeeping for the session table (« Rester connecté sur cet appareil »). `PurgeExpiredAsync` had shipped
+    // with no caller at all, which was harmless while every row expired within 12 h of its last use; a trusted
+    // device's row now lives 30 days past its last rotation, and the read behind « Mes appareils » walks that
+    // table. Runs at 04:00 UTC — nothing is open, and it deletes only rows whose credential is already dead, so
+    // no working session can be affected whatever the hour.
+    RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.SessionFamilyPurgeJob>(
+        "purge-expired-sessions",
+        job => job.PurgeExpiredSessions(),
+        Cron.Daily(4));
+
     // Unattended backup (L4a) — HOURLY, not daily, and deliberately not connectivity-gated (the output is a
     // local file, so it must work on an offline LAN install — the same reasoning as the expiry scan above).
     //

@@ -122,12 +122,22 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
             // A pending forced password change is NOT a refusal: the change-password screen itself needs a
             // working access token to submit. The enforcement middleware already restricts such a token to
             // that one endpoint, so surfacing the flag is enough.
-            var accessToken = _localAuthService.GenerateToken(user);
+            var accessToken = _localAuthService.GenerateToken(user, family?.Id);
 
             // The durable credential is re-minted too, and the BFF re-sets its cookie with it. Returning only an
             // access token left the cookie holding the token issued at login, so the session died 12 h after
             // sign-in whatever the user was doing — a password prompt mid-afternoon, every afternoon.
-            var refreshToken = _localAuthService.GenerateRefreshToken(user, family?.Id);
+            //
+            // ⚠️ **Trust is read from the FAMILY ROW, never from the credential being exchanged.** The presented
+            // token carries a `session_trusted` claim for the browser's benefit, and believing it here is the one
+            // mistake that would turn a cosmetic hint into a privilege: anyone able to add a claim could mint
+            // themselves a 30-day session out of a 12-hour one, indefinitely. The row is written only by a
+            // completed sign-in.
+            //
+            // A credential with no family — one minted before families existed — is untrusted, which is both the
+            // safe answer and the true one.
+            var refreshToken = _localAuthService.GenerateRefreshToken(
+                user, family?.Id, family?.IsTrusted ?? false);
 
             if (family is not null)
             {

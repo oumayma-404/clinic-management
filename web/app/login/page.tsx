@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
+import { deviceName } from '@/lib/auth/device-name'
 import { FormErrorBanner } from '@/components/ui/form-error-banner'
 import { TotpCodeField } from '@/components/security/totp-code-field'
 import { TotpEnrolmentStep } from '@/components/security/totp-enrolment-step'
@@ -217,6 +219,19 @@ function LocalLoginForm() {
   // bug, so it is said out loud rather than left for the user to work out.
   const [sessionsEnded, setSessionsEnded] = useState(false)
 
+  /*
+   * « Rester connecté sur cet appareil » — unticked by default, deliberately.
+   *
+   * The right answer for the reception PC half the practice shares is « no », and a default is exactly what a
+   * shared machine gets: nobody unticks a box on a screen they pass through twice a day. The dentist signing in
+   * on their own PC ticks it once and stops meeting the authenticator every morning.
+   *
+   * ⚠️ It lives at the top level of this component, not inside the password step, because the two-step sign-in
+   * unmounts that step: the box is ticked on the password screen and the value has to survive into the request
+   * that carries the code, which is the one that actually opens the session.
+   */
+  const [trustDevice, setTrustDevice] = useState(false)
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     setPasswordChanged(params.get('passwordChanged') === '1')
@@ -291,7 +306,15 @@ function LocalLoginForm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // Sent only once the field exists, so « pas encore demandé » stays distinct from « demandé et faux ».
-        body: JSON.stringify({ email, password, ...(totpCode ? { totpCode } : {}) }),
+        // `trustDevice` rides every attempt including the first: the first one opens no session, so the server
+        // reads and discards it — sending it only on the second would mean tracking which attempt this is.
+        body: JSON.stringify({
+          email,
+          password,
+          ...(totpCode ? { totpCode } : {}),
+          trustDevice,
+          ...(trustDevice ? { deviceLabel: deviceName() } : {}),
+        }),
       })
       const data = await res.json().catch(() => null)
 
@@ -701,6 +724,30 @@ function LocalLoginForm() {
 
         <EmailField value={email} onChange={setEmail} disabled={isSubmitting} />
         <PasswordField value={password} onChange={setPassword} disabled={isSubmitting} />
+
+        {/* The label is the hit area as well as the text, so the whole line is tappable rather than just the
+            16 px box — `Checkbox` already carries `touch-target` for the box itself. `items-start` because the
+            help text below wraps to two lines at 320 px and a centred box would drift down beside it. */}
+        <div className="flex items-start gap-3">
+          <Checkbox
+            id="trust-device"
+            checked={trustDevice}
+            onCheckedChange={(checked) => setTrustDevice(checked === true)}
+            disabled={isSubmitting}
+            className="mt-0.5"
+          />
+          <div className="space-y-1">
+            <Label htmlFor="trust-device" className="cursor-pointer font-normal">
+              Rester connecté sur cet appareil
+            </Label>
+            {/* Says what it costs as well as what it gives. « 30 jours » is the fact a user needs to decide,
+                and « votre code » names the thing they are actually trying to stop being asked for. */}
+            <p className="text-xs text-muted-foreground">
+              Pendant 30 jours, cet appareil ne redemandera ni votre mot de passe ni votre code. À n&apos;utiliser
+              que sur un poste qui vous appartient.
+            </p>
+          </div>
+        </div>
 
         {/* No code field here any more: an account that owes one is sent to the `totp` step above, which is
             reached only once the server has accepted this password. « Je n'ai plus accès à mon application »
