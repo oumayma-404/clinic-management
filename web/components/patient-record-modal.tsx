@@ -984,7 +984,8 @@ export function PatientRecordModal({
         {/* THE TEETH — full width, no longer competing with a form column for space. */}
         <div className="space-y-2">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <Label>{focusedAct ? "Sur quelle(s) dent(s) ?" : "Le schéma"}</Label>
+            {/* Inert, the chart says so where the eye already is — the sentence under it went unread. */}
+            <Label>{focusedAct ? "Sur quelle(s) dent(s) ?" : "Cliquez un acte pour modifier ses dents"}</Label>
             {/* The bulk selectors write to the armed act, so with nothing armed they have no subject and are
                 disabled rather than silently doing nothing. */}
             <div className="flex flex-wrap items-center gap-1.5">

@@ -185,14 +185,9 @@ function actFromDto(a: DentalRecordActDto, key: string): SessionAct {
 function initialState(record?: DentalRecordDto | null): SessionState {
   const acts = (record?.acts ?? []).map((a, i) => actFromDto(a, makeKey(i)))
 
-  /*
-   * ⚠️ A saved fiche reopens with NOTHING armed, and that is a safety decision rather than a default.
-   *
-   * On a new fiche the single blank card is armed, so the common gesture — tap teeth, pick the act — works on
-   * arrival. Doing the same on an existing fiche would mean a stray tap on the chart silently changes an act that
-   * may already be carried by a numbered note. One click on a card arms it, and the chart says so in words until
-   * something is.
-   */
+  // A reopened fiche arms its act when there is exactly one, so « modifier » can edit its teeth on arrival.
+  // With several, a tapped tooth has no unambiguous owner: nothing is armed and the chart asks for a card.
+  if (acts.length === 1) return { acts, focusKey: acts[0].key, nextKey: 1 }
   if (acts.length > 0) return { acts, focusKey: null, nextKey: acts.length }
 
   const first = emptyAct(makeKey(0))
